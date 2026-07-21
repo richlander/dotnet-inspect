@@ -19,6 +19,113 @@ namespace ILInspector.Decompiler.Tests;
 public class ReturnToSenderPrototypeTests
 {
     [Fact]
+    public void CompileBackTargets_AllFullReconstructsEveryConcreteMethodBody()
+    {
+        var assemblyPath = CompileFixture("""
+            public static class Target
+            {
+                public static int Run() => Unrelated.Value();
+            }
+
+            public static class Unrelated
+            {
+                public static int Value() => 42;
+                public static int Twice(int value) => value * 2;
+                public static int Doubled => Value() * 2;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(RoundTripScope.All, result.Scope);
+            Assert.Equal(RoundTripBodyPolicy.Full, result.BodyPolicy);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+            Assert.Collection(
+                result.FullBodies.OrderBy(body => body.Member, StringComparer.Ordinal),
+                body =>
+                {
+                    Assert.Equal("Target.Run", body.Member);
+                    Assert.Equal(MemberBodyProductionStatus.Complete, body.Status);
+                },
+                body =>
+                {
+                    Assert.Equal("Unrelated.Twice", body.Member);
+                    Assert.Equal(MemberBodyProductionStatus.Complete, body.Status);
+                },
+                body =>
+                {
+                    Assert.Equal("Unrelated.Value", body.Member);
+                    Assert.Equal(MemberBodyProductionStatus.Complete, body.Status);
+                },
+                body =>
+                {
+                    Assert.Equal("Unrelated.get_Doubled", body.Member);
+                    Assert.Equal(MemberBodyProductionStatus.Complete, body.Status);
+                });
+            Assert.Contains("return Unrelated.Value();", result.Source, StringComparison.Ordinal);
+            Assert.Contains("return 42;", result.Source, StringComparison.Ordinal);
+            Assert.Contains("return value * 2;", result.Source, StringComparison.Ordinal);
+            Assert.Contains("return Value() * 2;", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("throw null", result.Source, StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.NotNull(result.DonorPe);
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.ContextFail, result.Status);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_AllFullReportsConcreteDeclarationItCannotRepresent()
+    {
+        var assemblyPath = CompileFixture("""
+            public static class Target
+            {
+                public static int Run() => 1;
+            }
+
+            public static class Unrelated
+            {
+                public static T Echo<T>(T value) => value;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Target", "Run", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.False(result.BodyComplete);
+            var failure = Assert.Single(
+                result.FullBodies,
+                body => body.Member == "Unrelated.Echo");
+            Assert.Equal(MemberBodyProductionStatus.Failed, failure.Status);
+            Assert.Contains("not represented", failure.Failure, StringComparison.Ordinal);
+            Assert.Contains(
+                result.Plan.Diagnostics,
+                diagnostic => diagnostic.Reason == "declaration-not-represented"
+                              && diagnostic.Detail == "Unrelated.Echo");
+            Assert.DoesNotContain("Echo", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_AllSeedsEverySupportedTopLevelRoot()
     {
         var assemblyPath = CompileFixture("""

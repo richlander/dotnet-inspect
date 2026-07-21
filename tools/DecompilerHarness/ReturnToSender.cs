@@ -74,6 +74,11 @@ static class ReturnToSender
         public IReadOnlyList<string> UnsupportedDeclarations { get; init; } = [];
         public bool DeclarationComplete
             => Scope != RoundTripScope.All || UnsupportedDeclarations.Count == 0;
+        public RoundTripBodyPolicy BodyPolicy { get; init; } = RoundTripBodyPolicy.Selected;
+        public IReadOnlyList<FullBodyProduction> FullBodies { get; init; } = [];
+        public bool BodyComplete
+            => BodyPolicy != RoundTripBodyPolicy.Full
+               || FullBodies.All(body => body.Status == MemberBodyProductionStatus.Complete);
         public RoundTripCompilationProvenance? Compilation { get; init; }
         [JsonIgnore]
         public byte[]? DonorPe { get; init; }
@@ -490,7 +495,8 @@ static class ReturnToSender
             targets,
             ReturnToSenderSourceIndex.TryCreate(assemblyPath),
             applyCompileBackFloor: true,
-            RoundTripScope.Cluster);
+            RoundTripScope.Cluster,
+            RoundTripBodyPolicy.Selected);
 
     public static IReadOnlyList<Result> CompileBackTargets(
         string assemblyPath,
@@ -501,7 +507,21 @@ static class ReturnToSender
             targets,
             ReturnToSenderSourceIndex.TryCreate(assemblyPath),
             applyCompileBackFloor: true,
-            scope);
+            scope,
+            RoundTripBodyPolicy.Selected);
+
+    public static IReadOnlyList<Result> CompileBackTargets(
+        string assemblyPath,
+        IReadOnlyList<RequestedTarget> targets,
+        RoundTripScope scope,
+        RoundTripBodyPolicy bodyPolicy)
+        => CompileBackTargets(
+            assemblyPath,
+            targets,
+            ReturnToSenderSourceIndex.TryCreate(assemblyPath),
+            applyCompileBackFloor: true,
+            scope,
+            bodyPolicy);
 
     public static ScopePairResult CompileBackScopes(
         string assemblyPath,
@@ -513,13 +533,15 @@ static class ReturnToSender
             [target],
             sourceIndex,
             applyCompileBackFloor: false,
-            RoundTripScope.Cluster));
+            RoundTripScope.Cluster,
+            RoundTripBodyPolicy.Selected));
         var all = AssertSingleScope(CompileBackTargets(
             assemblyPath,
             [target],
             sourceIndex,
             applyCompileBackFloor: false,
-            RoundTripScope.All));
+            RoundTripScope.All,
+            RoundTripBodyPolicy.Selected));
         var clusterRequest = CreateRoundTripRequest(assemblyPath, cluster, RoundTripScope.Cluster);
         var allRequest = CreateRoundTripRequest(assemblyPath, all, RoundTripScope.All);
         var comparison = cluster.Compilation is not null && cluster.DonorPe is not null
@@ -590,7 +612,8 @@ static class ReturnToSender
             targets,
             ReturnToSenderSourceIndex.TryCreate(sourcePaths),
             applyCompileBackFloor: true,
-            RoundTripScope.Cluster);
+            RoundTripScope.Cluster,
+            RoundTripBodyPolicy.Selected);
 
     public static IReadOnlyList<Result> CompileBackTargets(
         string assemblyPath,
@@ -601,14 +624,16 @@ static class ReturnToSender
             targets,
             ReturnToSenderSourceIndex.TryCreate(assemblyPath),
             applyCompileBackFloor,
-            RoundTripScope.Cluster);
+            RoundTripScope.Cluster,
+            RoundTripBodyPolicy.Selected);
 
     static IReadOnlyList<Result> CompileBackTargets(
         string assemblyPath,
         IReadOnlyList<RequestedTarget> targets,
         ReturnToSenderSourceIndex? sourceIndex,
         bool applyCompileBackFloor,
-        RoundTripScope scope)
+        RoundTripScope scope,
+        RoundTripBodyPolicy bodyPolicy)
     {
         if (targets.Count == 0)
             return [];
@@ -654,7 +679,8 @@ static class ReturnToSender
                     propertyTarget.Getter,
                     MemberAnchorFor(memberAnchors, propertyTarget.Getter),
                     sourceIndex,
-                    scope));
+                    scope,
+                    bodyPolicy));
                 continue;
             }
 
@@ -670,7 +696,8 @@ static class ReturnToSender
                     setterTarget.Setter,
                     MemberAnchorFor(memberAnchors, setterTarget.Setter),
                     sourceIndex,
-                    scope));
+                    scope,
+                    bodyPolicy));
                 continue;
             }
 
@@ -686,7 +713,8 @@ static class ReturnToSender
                     eventTarget.Accessor,
                     MemberAnchorFor(memberAnchors, eventTarget.Accessor),
                     sourceIndex,
-                    scope));
+                    scope,
+                    bodyPolicy));
                 continue;
             }
 
@@ -701,7 +729,8 @@ static class ReturnToSender
                     methodHandle,
                     MemberAnchorFor(memberAnchors, methodHandle),
                     sourceIndex,
-                    scope));
+                    scope,
+                    bodyPolicy));
             }
         }
 
@@ -718,6 +747,7 @@ static class ReturnToSender
             .Select(result => result with
             {
                 Scope = scope,
+                BodyPolicy = bodyPolicy,
                 UnsupportedDeclarations = unsupportedDeclarations,
             })
             .ToArray();
@@ -988,11 +1018,12 @@ static class ReturnToSender
         MethodDefinitionHandle getterHandle,
         MemberAnchor? memberAnchor,
         ReturnToSenderSourceIndex? sourceIndex,
-        RoundTripScope scope = RoundTripScope.Cluster)
+        RoundTripScope scope = RoundTripScope.Cluster,
+        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
     {
         try
         {
-            return CompileBackPropertyGetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, getterHandle, memberAnchor, sourceIndex, scope);
+            return CompileBackPropertyGetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, getterHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -1009,11 +1040,12 @@ static class ReturnToSender
         MethodDefinitionHandle methodHandle,
         MemberAnchor? memberAnchor,
         ReturnToSenderSourceIndex? sourceIndex,
-        RoundTripScope scope = RoundTripScope.Cluster)
+        RoundTripScope scope = RoundTripScope.Cluster,
+        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
     {
         try
         {
-            return CompileBackMethod(assemblyPath, pe, reader, source, typeHandle, methodHandle, memberAnchor, sourceIndex, scope);
+            return CompileBackMethod(assemblyPath, pe, reader, source, typeHandle, methodHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -1031,7 +1063,8 @@ static class ReturnToSender
         MethodDefinitionHandle accessorHandle,
         MemberAnchor? memberAnchor,
         ReturnToSenderSourceIndex? sourceIndex,
-        RoundTripScope scope = RoundTripScope.Cluster)
+        RoundTripScope scope = RoundTripScope.Cluster,
+        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
     {
         try
         {
@@ -1045,7 +1078,8 @@ static class ReturnToSender
                 accessorHandle,
                 memberAnchor,
                 sourceIndex,
-                scope);
+                scope,
+                bodyPolicy);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -1069,11 +1103,12 @@ static class ReturnToSender
         MethodDefinitionHandle setterHandle,
         MemberAnchor? memberAnchor,
         ReturnToSenderSourceIndex? sourceIndex,
-        RoundTripScope scope = RoundTripScope.Cluster)
+        RoundTripScope scope = RoundTripScope.Cluster,
+        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
     {
         try
         {
-            return CompileBackPropertySetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, setterHandle, memberAnchor, sourceIndex, scope);
+            return CompileBackPropertySetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, setterHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -1091,7 +1126,8 @@ static class ReturnToSender
         MethodDefinitionHandle getterHandle,
         MemberAnchor? memberAnchor,
         ReturnToSenderSourceIndex? sourceIndex,
-        RoundTripScope scope)
+        RoundTripScope scope,
+        RoundTripBodyPolicy bodyPolicy)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var getter = reader.GetMethodDefinition(getterHandle);
@@ -1132,8 +1168,13 @@ static class ReturnToSender
                 Overload: overload,
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
-                ClosureFacts: closureFacts),
-            scope: scope);
+                ClosureFacts: closureFacts)
+            {
+                BodyPolicy = bodyPolicy,
+                BodySource = source,
+            },
+            scope: scope,
+            bodyPolicy: bodyPolicy);
     }
 
     static Result CompileBackMethod(
@@ -1145,7 +1186,8 @@ static class ReturnToSender
         MethodDefinitionHandle methodHandle,
         MemberAnchor? memberAnchor,
         ReturnToSenderSourceIndex? sourceIndex,
-        RoundTripScope scope)
+        RoundTripScope scope,
+        RoundTripBodyPolicy bodyPolicy)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var method = reader.GetMethodDefinition(methodHandle);
@@ -1185,8 +1227,13 @@ static class ReturnToSender
                 Overload: overload,
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
-                ClosureFacts: closureFacts),
-            scope: scope);
+                ClosureFacts: closureFacts)
+            {
+                BodyPolicy = bodyPolicy,
+                BodySource = source,
+            },
+            scope: scope,
+            bodyPolicy: bodyPolicy);
     }
 
     static Result CompileBackEventAccessor(
@@ -1199,7 +1246,8 @@ static class ReturnToSender
         MethodDefinitionHandle accessorHandle,
         MemberAnchor? memberAnchor,
         ReturnToSenderSourceIndex? sourceIndex,
-        RoundTripScope scope)
+        RoundTripScope scope,
+        RoundTripBodyPolicy bodyPolicy)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var accessor = reader.GetMethodDefinition(accessorHandle);
@@ -1272,11 +1320,16 @@ static class ReturnToSender
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
                 ClosureFacts: closureFacts,
-                SiblingAccessorBody: siblingBody),
+                SiblingAccessorBody: siblingBody)
+            {
+                BodyPolicy = bodyPolicy,
+                BodySource = source,
+            },
             siblingMethodName is not null && siblingOriginalOps is not null
                 ? (siblingMethodName, siblingOriginalOps)
                 : null,
-            scope);
+            scope,
+            bodyPolicy);
     }
 
     static Result CompileBackPropertySetter(
@@ -1289,7 +1342,8 @@ static class ReturnToSender
         MethodDefinitionHandle setterHandle,
         MemberAnchor? memberAnchor,
         ReturnToSenderSourceIndex? sourceIndex,
-        RoundTripScope scope)
+        RoundTripScope scope,
+        RoundTripBodyPolicy bodyPolicy)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var setter = reader.GetMethodDefinition(setterHandle);
@@ -1330,8 +1384,13 @@ static class ReturnToSender
                 Overload: overload,
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
-                ClosureFacts: closureFacts),
-            scope: scope);
+                ClosureFacts: closureFacts)
+            {
+                BodyPolicy = bodyPolicy,
+                BodySource = source,
+            },
+            scope: scope,
+            bodyPolicy: bodyPolicy);
     }
 
     static Result CompileBackTarget(
@@ -1350,7 +1409,8 @@ static class ReturnToSender
         ReturnToSenderSourceIndex? sourceIndex,
         Func<IReadOnlySet<TypeDefinitionHandle>, IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>>, ArtifactRequest> createRequest,
         (string MethodName, string[] OriginalOpcodes)? sibling = null,
-        RoundTripScope scope = RoundTripScope.Cluster)
+        RoundTripScope scope = RoundTripScope.Cluster,
+        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
@@ -1374,7 +1434,20 @@ static class ReturnToSender
         string originalOpcodes = string.Join(" ", originalOps);
 
         ProductArtifact Compose()
-            => CompileBackSourceComposer.Compose(createRequest(closureRoots, closureFacts));
+        {
+            if (bodyPolicy == RoundTripBodyPolicy.Full)
+            {
+                foreach (var root in closureRoots)
+                {
+                    if (!closureFacts.TryGetValue(root, out var facts))
+                        closureFacts[root] = facts = [];
+                    var fact = new CompileBackFact("round-trip", "closure-member", "full body policy");
+                    if (!facts.Contains(fact))
+                        facts.Add(fact);
+                }
+            }
+            return CompileBackSourceComposer.Compose(createRequest(closureRoots, closureFacts));
+        }
 
         var firstArtifact = Compose();
         if (firstArtifact.Plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } initialIdentityDiagnostic)
@@ -1391,6 +1464,8 @@ static class ReturnToSender
                 Decisions: targetBody.Decisions)
             {
                 FinalRequest = firstArtifact.Request,
+                BodyPolicy = bodyPolicy,
+                FullBodies = firstArtifact.FullBodies,
             };
         }
 
@@ -1464,6 +1539,8 @@ static class ReturnToSender
                 {
                     FinalRequest = sourceResult.Request,
                     Compilation = compilationResult.Provenance,
+                    BodyPolicy = bodyPolicy,
+                    FullBodies = sourceResult.FullBodies,
                 };
             }
 
@@ -1486,6 +1563,8 @@ static class ReturnToSender
             {
                 FinalRequest = sourceResult.Request,
                 Compilation = compilationResult.Provenance,
+                BodyPolicy = bodyPolicy,
+                FullBodies = sourceResult.FullBodies,
             };
         }
 
@@ -1524,6 +1603,8 @@ static class ReturnToSender
                 FinalRequest = sourceResult.Request,
                 Compilation = compilationResult.Provenance,
                 DonorPe = recompiledBytes,
+                BodyPolicy = bodyPolicy,
+                FullBodies = sourceResult.FullBodies,
             };
         }
 
@@ -1557,6 +1638,8 @@ static class ReturnToSender
             FinalRequest = sourceResult.Request,
             Compilation = compilationResult.Provenance,
             DonorPe = recompiledBytes,
+            BodyPolicy = bodyPolicy,
+            FullBodies = sourceResult.FullBodies,
         };
     }
 

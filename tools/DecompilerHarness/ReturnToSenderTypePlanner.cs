@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Text;
+using DotnetInspector.RoundTripCompilation;
 using ILInspector.CSharp;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
@@ -23,7 +24,11 @@ internal abstract record ArtifactRequest(
     int Overload,
     string SignatureText,
     IReadOnlySet<TypeDefinitionHandle> ClosureRoots,
-    IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> ClosureFacts);
+    IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> ClosureFacts)
+{
+    internal RoundTripBodyPolicy BodyPolicy { get; init; } = RoundTripBodyPolicy.Selected;
+    internal MetadataSource? BodySource { get; init; }
+}
 
 internal sealed record MethodArtifactRequest(
     string AssemblyPath,
@@ -174,12 +179,14 @@ internal sealed record ProductArtifact(
     IReadOnlyList<CompileBackFact> SourceFacts,
     IReadOnlyList<CompileBackPlanningDiagnostic> Diagnostics,
     IReadOnlySet<TypeDefinitionHandle> ClosureRoots,
-    CompileBackReconstructionPlan Plan)
+    CompileBackReconstructionPlan Plan,
+    IReadOnlyList<FullBodyProduction> FullBodies)
 {
     internal static ProductArtifact From(
         ArtifactRequest request,
         CompileBackSourceResult result,
-        IReadOnlySet<TypeDefinitionHandle> closureRoots)
+        IReadOnlySet<TypeDefinitionHandle> closureRoots,
+        IReadOnlyList<FullBodyProduction>? fullBodies = null)
         => new(
             request,
             request.TargetBody,
@@ -191,8 +198,15 @@ internal sealed record ProductArtifact(
                 .ToArray(),
             result.Plan.Diagnostics,
             closureRoots,
-            result.Plan);
+            result.Plan,
+            fullBodies ?? []);
 }
+
+public sealed record FullBodyProduction(
+    MetadataMethodAddress Method,
+    string Member,
+    MemberBodyProductionStatus Status,
+    string? Failure);
 
 public sealed record CompileBackSourceResult(CompileBackReconstructionPlan Plan, string Source);
 
@@ -356,7 +370,10 @@ public sealed record CompileBackMemberRequirement(
     string? ExplicitInterfaceMemberName = null,
     string? DeclarationSignature = null,
     bool RequiresUnsafeModifier = false,
-    string? SiblingTargetBody = null)
+    string? SiblingTargetBody = null,
+    int? MetadataToken = null,
+    int? GetterToken = null,
+    int? SetterToken = null)
 {
     public string Name => Identity.Method;
     public string Type => ReturnType?.DisplayName ?? "";
@@ -495,7 +512,127 @@ public static class CompileBackSourceComposer
             _ => throw new ArgumentException($"Unknown artifact request type '{request.GetType().FullName}'.", nameof(request)),
         };
 
-        return ProductArtifact.From(request, result, closure.Roots);
+        IReadOnlyList<FullBodyProduction> fullBodies;
+        if (request.BodyPolicy == RoundTripBodyPolicy.Full)
+            result = ApplyFullBodies(request, result, closure.Roots, out fullBodies);
+        else
+            fullBodies = [];
+        return ProductArtifact.From(request, result, closure.Roots, fullBodies);
+    }
+
+    static CompileBackSourceResult ApplyFullBodies(
+        ArtifactRequest artifact,
+        CompileBackSourceResult result,
+        IReadOnlySet<TypeDefinitionHandle> closureRoots,
+        out IReadOnlyList<FullBodyProduction> evidence)
+    {
+        var source = artifact.BodySource
+            ?? throw new InvalidOperationException("Full body production requires a live metadata source.");
+        var rows = new List<FullBodyProduction>();
+        var attempted = new HashSet<MethodDefinitionHandle>();
+        var diagnostics = result.Plan.Diagnostics.ToList();
+        var targetAddress = MetadataMethodAddress.Create(artifact.Reader, artifact.TargetMethod);
+        rows.Add(new FullBodyProduction(
+            targetAddress,
+            $"{artifact.FullType}.{artifact.MethodName}",
+            MemberBodyProductionStatus.Complete,
+            Failure: null));
+        attempted.Add(artifact.TargetMethod);
+        var requests = result.Plan.PrintRequests.Select(Enrich).ToArray();
+        foreach (var typeHandle in artifact.Reader.TypeDefinitions)
+        {
+            var type = artifact.Reader.GetTypeDefinition(typeHandle);
+            if (!closureRoots.Contains(TopLevelRootOf(artifact.Reader, typeHandle)))
+                continue;
+            foreach (var methodHandle in type.GetMethods())
+            {
+                var method = artifact.Reader.GetMethodDefinition(methodHandle);
+                if (method.RelativeVirtualAddress == 0 || attempted.Contains(methodHandle))
+                    continue;
+                string member = $"{artifact.Reader.GetFullTypeName(type)}.{artifact.Reader.GetString(method.Name)}";
+                var address = MetadataMethodAddress.Create(artifact.Reader, methodHandle);
+                const string failure = "method body is concrete but its declaration is not represented in the typed artifact";
+                rows.Add(new FullBodyProduction(address, member, MemberBodyProductionStatus.Failed, failure));
+                diagnostics.Add(new CompileBackPlanningDiagnostic("full body", "declaration-not-represented", member));
+            }
+        }
+        var plan = result.Plan with
+        {
+            PrintRequests = requests,
+            Diagnostics = diagnostics,
+        };
+        evidence = rows;
+        return new CompileBackSourceResult(plan, ComposeCompilationUnit(plan));
+
+        CSharpTypePrintRequest Enrich(CSharpTypePrintRequest request)
+        {
+            IEqualityComparer<ApiMember> memberIdentity = ReferenceEqualityComparer.Instance;
+            var policies = new Dictionary<ApiMember, CSharpMemberPolicy>(memberIdentity);
+            foreach (var policy in request.MemberPolicyOverrides)
+                policies[policy.Member] = policy;
+            foreach (var member in request.Members
+                         .Concat(request.MemberPolicyOverrides.Select(policy => policy.Member))
+                         .Distinct(memberIdentity))
+            {
+                if (member.MetadataToken is { } methodToken)
+                {
+                    var produced = Produce(methodToken, $"{request.Type.FullName}.{member.Name}");
+                    if (produced.Body is { } body)
+                        policies[member] = new CSharpMemberPolicy(member, CSharpBodyPolicy.Full, body);
+                    continue;
+                }
+
+                if (member.GetterToken is null && member.SetterToken is null)
+                    continue;
+                var getter = member.GetterToken is { } getterToken
+                    ? Produce(getterToken, $"{request.Type.FullName}.get_{member.Name}")
+                    : default;
+                var setter = member.SetterToken is { } setterToken
+                    ? Produce(setterToken, $"{request.Type.FullName}.set_{member.Name}")
+                    : default;
+                bool getterReady = member.GetterToken is null || getter.Body is not null;
+                bool setterReady = member.SetterToken is null || setter.Body is not null;
+                if (getterReady && setterReady)
+                {
+                    policies[member] = new CSharpMemberPolicy(
+                        member,
+                        CSharpBodyPolicy.Full,
+                        new CSharpPropertyBody(
+                            getter.Body is { } getterBody ? CSharpAccessorBody.Block(getterBody.Source) : null,
+                            setter.Body is { } setterBody ? CSharpAccessorBody.Block(setterBody.Source) : null));
+                }
+            }
+
+            return new CSharpTypePrintRequest(
+                request.Type,
+                request.BodyPolicy,
+                request.Members,
+                policies.Values.ToArray(),
+                request.PrimaryConstructorParameters,
+                request.NestedTypes.Select(Enrich).ToArray());
+        }
+
+        (CSharpBlockBody? Body, MemberBodyProductionStatus Status) Produce(int token, string member)
+        {
+            var handle = MetadataTokens.MethodDefinitionHandle(token & 0x00ffffff);
+            attempted.Add(handle);
+            if (handle == artifact.TargetMethod)
+                return (null, MemberBodyProductionStatus.Complete);
+            var address = MetadataMethodAddress.Create(artifact.Reader, handle);
+            var produced = MemberBodyProducer.ProduceBody(source, address);
+            string? failure = produced.Projection.Diagnostics.Count == 0
+                ? null
+                : string.Join("; ", produced.Projection.Diagnostics);
+            rows.Add(new FullBodyProduction(address, member, produced.Status, failure));
+            if (produced.Status != MemberBodyProductionStatus.Complete)
+            {
+                diagnostics.Add(new CompileBackPlanningDiagnostic(
+                    "full body",
+                    produced.Status == MemberBodyProductionStatus.Absent ? "body-absent" : "body-failed",
+                    $"{member}: {failure}"));
+            }
+            return (produced.Body, produced.Status);
+        }
     }
 
     public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
@@ -1565,6 +1702,9 @@ public static class CompileBackSourceComposer
             IsExtension = member.IsExtension,
             IsConst = member.Kind == CompileBackMemberKind.Field
                 && member.StubBody == CompileBackStubBodyKind.TargetBody,
+            MetadataToken = member.MetadataToken,
+            GetterToken = member.GetterToken,
+            SetterToken = member.SetterToken,
         };
         if (member.Kind != CompileBackMemberKind.Field)
         {
@@ -3682,10 +3822,19 @@ public static class CompileBackSourceComposer
                 {
                     continue;
                 }
-                if (members.Any(member =>
-                        (member.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet or CompileBackMemberKind.Field)
-                        && member.Identity.Method == Identifier(propertyName)))
+                int existingPropertyIndex = members.FindIndex(member =>
+                    (member.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet or CompileBackMemberKind.Field)
+                    && member.Identity.Method == Identifier(propertyName));
+                if (existingPropertyIndex >= 0)
+                {
+                    var existing = members[existingPropertyIndex];
+                    members[existingPropertyIndex] = existing with
+                    {
+                        GetterToken = existing.GetterToken ?? (accessors.Getter.IsNil ? null : MetadataTokens.GetToken(accessors.Getter)),
+                        SetterToken = existing.SetterToken ?? (accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter)),
+                    };
                     continue;
+                }
 
                 MetadataPropertyDeclaration propertyDeclaration;
                 try
@@ -3743,7 +3892,9 @@ public static class CompileBackSourceComposer
                     IsVirtual: !accessor.IsNil && propertyDeclaration.IsVirtual,
                     Accessibility: accessor.IsNil
                         ? CompileBackAccessibility.Public
-                        : MethodAccessibility(accessorMethod)));
+                        : MethodAccessibility(accessorMethod),
+                    GetterToken: accessors.Getter.IsNil ? null : MetadataTokens.GetToken(accessors.Getter),
+                    SetterToken: accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter)));
             }
 
             int overload = 0;
@@ -3762,10 +3913,18 @@ public static class CompileBackSourceComposer
 
                 bool isConstructor = name == ".ctor";
                 string identifierName = CSharpNaming.SourceMethodName(name);
-                if (members.Any(member =>
-                        member.Kind == (isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method)
-                        && member.Identity.Method == identifierName))
+                int existingMethodIndex = members.FindIndex(member =>
+                    member.Kind == (isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method)
+                    && member.Identity.Method == identifierName);
+                if (existingMethodIndex >= 0)
+                {
+                    var existing = members[existingMethodIndex];
+                    members[existingMethodIndex] = existing with
+                    {
+                        MetadataToken = existing.MetadataToken ?? MetadataTokens.GetToken(methodHandle),
+                    };
                     continue;
+                }
                 if (requirement.RequiredKind == CompileBackTypeKind.Interface && method.Attributes.HasFlag(MethodAttributes.Static))
                     continue;
                 if (method.GetGenericParameters().Count != 0)
@@ -3824,7 +3983,8 @@ public static class CompileBackSourceComposer
                     IsVirtual: !isConstructor && IsVirtualMethod(method),
                     IsOverride: false,
                     IsSealed: false,
-                    Accessibility: MethodAccessibility(method)));
+                    Accessibility: MethodAccessibility(method),
+                    MetadataToken: MetadataTokens.GetToken(methodHandle)));
             }
 
             if (requirement.RequiredKind == CompileBackTypeKind.Class
