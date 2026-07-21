@@ -62,3 +62,26 @@ public class DynamicMemberContexts
     public object Last => _last;
 }
 
+// Same nested-body dynamic GetMember shapes as DynamicMemberContexts, but
+// authored inside a GENERIC enclosing type. csc emits the GetMember binder
+// context as typeof(GenericDynamicMemberContexts<T>) — a generic instantiation
+// of the enclosing definition with its own type parameter in scope — while the
+// lowered display-class / state-machine declaring type's metadata-decoded
+// EnclosingType is the bare generic definition. The dynamic-callsite raise must
+// recognize that self-instantiation and still raise rather than declining on the
+// GenericInstance-vs-Definition kind mismatch (#2968).
+public class GenericDynamicMemberContexts<T>
+{
+    // Nested lambda body inside a generic enclosing type.
+    public Func<object> InGenericLambda(dynamic value)
+    {
+        return () => value.Length;
+    }
+
+    // Iterator state-machine body inside a generic enclosing type.
+    public IEnumerable<object> InGenericIterator(dynamic value)
+    {
+        yield return value.Length;
+    }
+}
+

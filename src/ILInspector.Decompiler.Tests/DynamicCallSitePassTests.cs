@@ -1558,6 +1558,126 @@ public class DynamicCallSitePassTests
         Assert.False(RunPass(mutated));
     }
 
+    /// <summary>Imports the InGenericLambda display-class method (a lambda inside a generic enclosing type), running every pass up to (not including) dynamic-callsite so tests can mutate the binder context before proving the pass's own decision.</summary>
+    static IrFunction LoadGenericLambdaDisplayClassFunction()
+    {
+        var path = typeof(LadderRung9.DynamicMemberContexts).Assembly.Location;
+        using var source = MetadataSource.Open(path);
+        IrFunction? found = null;
+        foreach (var (_, methodName, function) in IrImporter.ImportAssembly(source))
+        {
+            if (methodName.Contains("InGenericLambda") && methodName.Contains("b__"))
+            {
+                found = function;
+                break;
+            }
+        }
+        Assert.NotNull(found);
+
+        var context = new PassContext(new Stepper(enabled: false));
+        foreach (var pass in IrPasses.Default)
+        {
+            if (pass.Name == "dynamic-callsite")
+                break;
+            pass.Run(found!, context);
+        }
+        return found!;
+    }
+
+    [Fact]
+    public void NestedContext_GenericEnclosingLambda_Raises()
+    {
+        // A capturing lambda authored inside a generic type Host<T> is lowered
+        // into a display-class method whose GetMember binder context is
+        // typeof(Host<T>) — a GenericInstance of the enclosing definition with
+        // its own type parameter — while the declaring type's decoded
+        // EnclosingType is the bare generic definition. The self-instantiation
+        // bridge (IsGenericSelfInstantiation) proves the context, so the site
+        // raises rather than declining on the GenericInstance-vs-Definition
+        // kind mismatch (#2968).
+        var path = typeof(LadderRung9.DynamicMemberContexts).Assembly.Location;
+        using var source = MetadataSource.Open(path);
+        string? displayClassOutput = null;
+        foreach (var (_, methodName, function) in IrImporter.ImportAssembly(source))
+        {
+            if (methodName.Contains("InGenericLambda") && methodName.Contains("b__"))
+            {
+                displayClassOutput = CSharpPrinter.PrintRaised(function, mr => IrImporter.Import(source, mr)).Output;
+                break;
+            }
+        }
+        Assert.NotNull(displayClassOutput);
+        Assert.Contains("((dynamic)value).Length", displayClassOutput);
+        Assert.DoesNotContain("Binder.GetMember", displayClassOutput);
+    }
+
+    [Fact]
+    public void NestedContext_GenericEnclosingIterator_Raises()
+    {
+        // The iterator variant of the generic-enclosing case: an iterator inside
+        // Host<T> is lowered into a MoveNext method whose binder context is
+        // likewise typeof(Host<T>), proven through the same self-instantiation
+        // bridge but via the iterator state-machine predicate (#2968).
+        var path = typeof(LadderRung9.DynamicMemberContexts).Assembly.Location;
+        using var source = MetadataSource.Open(path);
+        string? moveNextOutput = null;
+        foreach (var (typeName, methodName, function) in IrImporter.ImportAssembly(source))
+        {
+            if (methodName == "MoveNext" && typeName.Contains("InGenericIterator"))
+            {
+                moveNextOutput = CSharpPrinter.PrintRaised(function, mr => IrImporter.Import(source, mr)).Output;
+                break;
+            }
+        }
+        Assert.NotNull(moveNextOutput);
+        Assert.Contains("((dynamic)value).Length", moveNextOutput);
+        Assert.DoesNotContain("Binder.GetMember", moveNextOutput);
+    }
+
+    [Fact]
+    public void NestedContext_GenericEnclosingConcreteArgument_Declines()
+    {
+        // Close negative: the binder context is a GenericInstance of the true
+        // enclosing definition, but instantiated with a concrete argument
+        // (typeof(Host<int>)) rather than the type's own parameter. That denotes
+        // a different accessibility context, so the self-instantiation bridge
+        // must reject it — proving the fix does not naively strip type arguments.
+        var f = LoadGenericLambdaDisplayClassFunction();
+        var enclosing = f.DeclaringType.EnclosingType!;
+        var concrete = TypeRef.GenericInstance(enclosing, ImmutableArray.Create(Int32Type));
+        ContextDefStore(f).Value.ReplaceWith(new TypeOf(concrete));
+        Assert.False(RunPass(f));
+    }
+
+    [Fact]
+    public void NestedContext_GenericEnclosingReorderedParameter_Declines()
+    {
+        // Close negative: a GenericInstance of the true enclosing definition
+        // whose single argument is the type parameter at index 1 rather than the
+        // position-0 parameter the self-instantiation requires. A parameter that
+        // is not the declaration-order self parameter denotes a different context
+        // and must decline.
+        var f = LoadGenericLambdaDisplayClassFunction();
+        var enclosing = f.DeclaringType.EnclosingType!;
+        var reordered = TypeRef.GenericInstance(enclosing, ImmutableArray.Create(TypeRef.GenericParameter(1)));
+        ContextDefStore(f).Value.ReplaceWith(new TypeOf(reordered));
+        Assert.False(RunPass(f));
+    }
+
+    [Fact]
+    public void NestedContext_GenericEnclosingMethodParameter_Declines()
+    {
+        // Close negative: a GenericInstance of the true enclosing definition
+        // instantiated with a *method* generic parameter rather than a *type*
+        // generic parameter. Only the type's own type parameters instantiate its
+        // self-context, so a method type parameter must decline.
+        var f = LoadGenericLambdaDisplayClassFunction();
+        var enclosing = f.DeclaringType.EnclosingType!;
+        var methodParam = TypeRef.GenericInstance(enclosing, ImmutableArray.Create(TypeRef.MethodGenericParameter(0)));
+        ContextDefStore(f).Value.ReplaceWith(new TypeOf(methodParam));
+        Assert.False(RunPass(f));
+    }
+
     [Fact]
     public void ImmediateUse_InterveningStatement_Declines()
     {
