@@ -176,9 +176,9 @@ public class NestedScopeNameCollisionTests
             new SwitchBranch(new Constant(0, Int32), ImmutableArray.Create(4)),
             new StoreLocal(0, Action, innerLambda));
 
-        Assert.Contains("int __dotnet_inspect_switch0 = default;", body);
-        Assert.Contains("int __dotnet_inspect_switch0_1 = default;", body);
-        Assert.DoesNotContain("() => { int __dotnet_inspect_switch0 = default;", body);
+        Assert.Contains("int __switchValue0 = default;", body);
+        Assert.Contains("int __switchValue0_1 = default;", body);
+        Assert.DoesNotContain("() => { int __switchValue0 = default;", body);
     }
 
     [Fact]

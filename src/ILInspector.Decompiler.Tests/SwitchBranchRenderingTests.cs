@@ -84,11 +84,11 @@ public class SwitchBranchRenderingTests
         var output = result.Output ?? "";
 
         Assert.DoesNotContain("goto [", output);
-        Assert.Contains("int __dotnet_inspect_switch0 = default;", output);
-        Assert.Contains("__dotnet_inspect_switch0 = (int)(x);", output);
-        Assert.Contains("if (__dotnet_inspect_switch0 == 0) goto IL_0010;", output);
-        Assert.Contains("if (__dotnet_inspect_switch0 == 1) goto IL_0020;", output);
-        Assert.Contains("if (__dotnet_inspect_switch0 == 2) goto IL_0030;", output);
+        Assert.Contains("int __switchValue0 = default;", output);
+        Assert.Contains("__switchValue0 = (int)(x);", output);
+        Assert.Contains("if (__switchValue0 == 0) goto IL_0010;", output);
+        Assert.Contains("if (__switchValue0 == 1) goto IL_0020;", output);
+        Assert.Contains("if (__switchValue0 == 2) goto IL_0030;", output);
     }
 
     [Fact]
@@ -99,9 +99,9 @@ public class SwitchBranchRenderingTests
         var result = RenderSwitch(0x10, 0x20, 0x10);
         var output = result.Output ?? "";
 
-        Assert.Contains("if (__dotnet_inspect_switch0 == 0) goto IL_0010;", output);
-        Assert.Contains("if (__dotnet_inspect_switch0 == 1) goto IL_0020;", output);
-        Assert.Contains("if (__dotnet_inspect_switch0 == 2) goto IL_0010;", output);
+        Assert.Contains("if (__switchValue0 == 0) goto IL_0010;", output);
+        Assert.Contains("if (__switchValue0 == 1) goto IL_0020;", output);
+        Assert.Contains("if (__switchValue0 == 2) goto IL_0010;", output);
     }
 
     [Fact]
@@ -116,7 +116,7 @@ public class SwitchBranchRenderingTests
         var result = CSharpPrinter.PrintRaised(function);
         string output = result.Output ?? "";
 
-        Assert.Contains("if (__dotnet_inspect_switch", output);
+        Assert.Contains("if (__switchValue", output);
         Assert.DoesNotContain("case 0: goto", output);
         AssertGotoTargetsHaveLabels(output);
     }
@@ -160,7 +160,7 @@ public class SwitchBranchRenderingTests
         function.CheckInvariant();
         string output = CSharpPrinter.Print(function).Output ?? "";
 
-        Assert.Contains("if (__dotnet_inspect_switch0 == 0) goto IL_0010;", output);
+        Assert.Contains("if (__switchValue0 == 0) goto IL_0010;", output);
         Assert.DoesNotContain("goto IL_0014;", output);
         Assert.Contains("IL_0010:", output);
     }
@@ -199,7 +199,7 @@ public class SwitchBranchRenderingTests
         function.CheckInvariant();
         string output = CSharpPrinter.Print(function).Output ?? "";
 
-        Assert.Contains("if (__dotnet_inspect_switch0 == 0) goto IL_0010;", output);
+        Assert.Contains("if (__switchValue0 == 0) goto IL_0010;", output);
         Assert.Contains("while (true)", output);
         Assert.True(
             output.IndexOf("IL_0010:", StringComparison.Ordinal)
@@ -245,7 +245,7 @@ public class SwitchBranchRenderingTests
         function.CheckInvariant();
         string output = CSharpPrinter.Print(function).Output ?? "";
 
-        Assert.Contains("if (__dotnet_inspect_switch0 == 0) goto IL_0020;", output);
+        Assert.Contains("if (__switchValue0 == 0) goto IL_0020;", output);
         Assert.Contains("while (flag)", output);
         Assert.True(
             output.IndexOf("IL_0020:", StringComparison.Ordinal)
@@ -380,7 +380,7 @@ public class SwitchBranchRenderingTests
         function.CheckInvariant();
         string output = CSharpPrinter.Print(function).Output ?? "";
 
-        Assert.Contains("if (__dotnet_inspect_switch0 == 0) goto IL_0010;", output);
+        Assert.Contains("if (__switchValue0 == 0) goto IL_0010;", output);
         Assert.Contains("IL_0010:", output);
         AssertGotoTargetsHaveLabels(output);
     }
@@ -399,7 +399,7 @@ public class SwitchBranchRenderingTests
         string output = result.Output ?? "";
 
         Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
-        Assert.Contains("if (__dotnet_inspect_switch", output);
+        Assert.Contains("if (__switchValue", output);
         AssertGotoTargetsHaveLabels(output);
     }
 }

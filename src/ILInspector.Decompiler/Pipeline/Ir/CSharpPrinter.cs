@@ -538,7 +538,7 @@ public sealed partial class CSharpPrinter
         int switchIndex = 0;
         foreach (var switchBranch in DescendantsOutsideNestedFunctions(function).OfType<SwitchBranch>())
         {
-            string name = ReserveName($"__dotnet_inspect_switch{switchIndex++}", new HashSet<string>(CurrentScopeNames(), StringComparer.Ordinal));
+            string name = ReserveName($"__switchValue{switchIndex++}", new HashSet<string>(CurrentScopeNames(), StringComparer.Ordinal));
             _switchTemps.TryAdd(switchBranch, name);
             yield return $"int {name} = default;";
         }
@@ -1747,7 +1747,7 @@ public sealed partial class CSharpPrinter
             // switch, so render an if-chain over a single-evaluated temp instead
             // of `case i: goto IL_xxxx;`. Fall-through preserves out-of-range
             // behavior.
-            string temp = _switchTemps.TryGetValue(switchBranch, out var name) ? name : "__dotnet_inspect_switch";
+            string temp = _switchTemps.TryGetValue(switchBranch, out var name) ? name : "__switchValue";
             sb.Append(pad).Append(temp).Append(" = ")
                 .Append("(int)(").Append(Expression(switchBranch.Value)).AppendLine(");");
             for (int t = 0; t < switchBranch.TargetOffsets.Length; t++)
