@@ -702,61 +702,7 @@ public static class ApiMemberIdentity
     }
 
     static string ExtractParamType(string param)
-    {
-        param = StripLeadingParameterAttributes(param);
-
-        int eqIndex = param.IndexOf('=');
-        if (eqIndex >= 0)
-            param = param[..eqIndex].Trim();
-
-        int depth = 0;
-        int lastSpace = -1;
-        for (int i = 0; i < param.Length; i++)
-        {
-            char c = param[i];
-            if (c == '<') depth++;
-            else if (c == '>') depth--;
-            else if (c == ' ' && depth == 0)
-                lastSpace = i;
-        }
-
-        return lastSpace > 0 ? param[..lastSpace] : param;
-    }
-
-    static string StripLeadingParameterAttributes(string param)
-    {
-        var start = 0;
-        while (start < param.Length)
-        {
-            while (start < param.Length && char.IsWhiteSpace(param[start]))
-                start++;
-            if (start >= param.Length || param[start] != '[')
-                break;
-
-            var depth = 0;
-            var end = -1;
-            for (var i = start; i < param.Length; i++)
-            {
-                if (param[i] == '[')
-                    depth++;
-                else if (param[i] == ']')
-                {
-                    depth--;
-                    if (depth == 0)
-                    {
-                        end = i + 1;
-                        break;
-                    }
-                }
-            }
-
-            if (end < 0)
-                break;
-            start = end;
-        }
-
-        return param[start..].TrimStart();
-    }
+        => ExtractSignatureParameterType(param);
 
     public static bool TryGetXmlDocMemberIdentity(ApiType type, ApiMember member, out XmlDocMemberIdentity identity)
     {
