@@ -251,6 +251,53 @@ public class ApiMemberIdentityTests
         Assert.Contains(canonicals, canonical => canonical.EndsWith("~long", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void FallbackCanonicalSignature_AttributedParameterMatchesLiveAfterJsonRoundTrip()
+    {
+        using var stream = File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var liveType = surface.Types.Single(
+            type => type.Name.EndsWith(nameof(AttributedParameterFixture), StringComparison.Ordinal));
+        var liveMember = liveType.Members.Single(
+            member => member.Name == nameof(AttributedParameterFixture.M));
+        Assert.NotNull(liveMember.SignatureModel);
+        Assert.Contains("DateTimeConstant", liveMember.Signature, StringComparison.Ordinal);
+
+        var json = JsonSerializer.Serialize(surface);
+        var roundTripped = JsonSerializer.Deserialize<ApiSurface>(json)!;
+        var persistedType = roundTripped.Types.Single(
+            type => type.Name.EndsWith(nameof(AttributedParameterFixture), StringComparison.Ordinal));
+        var persistedMember = persistedType.Members.Single(
+            member => member.Name == nameof(AttributedParameterFixture.M));
+        Assert.Null(persistedMember.SignatureModel);
+
+        var liveCanonical = ApiMemberIdentity.GetCanonicalSignature(liveType, liveMember);
+        var persistedCanonical = ApiMemberIdentity.GetCanonicalSignature(persistedType, persistedMember);
+
+        Assert.Equal(liveCanonical, persistedCanonical);
+        Assert.EndsWith(".M(System.DateTime,int)", persistedCanonical, StringComparison.Ordinal);
+        Assert.DoesNotContain("Optional", persistedCanonical, StringComparison.Ordinal);
+        Assert.DoesNotContain("DateTimeConstant", persistedCanonical, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FallbackCanonicalSignature_StripsMultipleLeadingAttributeLists()
+    {
+        var type = new ApiType { Namespace = "N", Name = "C" };
+        var member = new ApiMember
+        {
+            Name = "M",
+            Kind = "method",
+            Signature = "void M([A][B(typeof(int[]))] System.DateTime when, int[] values)",
+        };
+
+        Assert.Equal(
+            "M:N.C.M(System.DateTime,int[])",
+            ApiMemberIdentity.GetCanonicalSignature(type, member));
+    }
+
     static (TypeDefinitionHandle TypeHandle, MethodDefinition Method) FindFixtureMethod(MetadataReader reader)
     {
         foreach (var typeHandle in reader.TypeDefinitions)
@@ -309,5 +356,16 @@ public class ApiMemberIdentityTests
         public int this[int index] => index;
 
         public int this[string key] => key.Length;
+    }
+
+    sealed class AttributedParameterFixture
+    {
+        public void M(
+            [System.Runtime.InteropServices.Optional]
+            [System.Runtime.CompilerServices.DateTimeConstant(630822816000000000L)]
+            DateTime when,
+            int count)
+        {
+        }
     }
 }

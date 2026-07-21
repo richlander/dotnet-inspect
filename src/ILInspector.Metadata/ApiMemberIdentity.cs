@@ -677,14 +677,20 @@ public static class ApiMemberIdentity
             return signature;
 
         List<string> paramTypes = [];
-        int depth = 0;
+        int angleDepth = 0;
+        int parenDepth = 0;
+        int bracketDepth = 0;
         int lastSplit = 0;
         for (int i = 0; i < paramSection.Length; i++)
         {
             char c = paramSection[i];
-            if (c == '<' || c == '(') depth++;
-            else if (c == '>' || c == ')') depth--;
-            else if (c == ',' && depth == 0)
+            if (c == '<') angleDepth++;
+            else if (c == '>') angleDepth--;
+            else if (c == '(') parenDepth++;
+            else if (c == ')') parenDepth--;
+            else if (c == '[') bracketDepth++;
+            else if (c == ']') bracketDepth--;
+            else if (c == ',' && angleDepth == 0 && parenDepth == 0 && bracketDepth == 0)
             {
                 paramTypes.Add(ExtractParamType(paramSection[lastSplit..i].Trim()));
                 lastSplit = i + 1;
@@ -697,6 +703,8 @@ public static class ApiMemberIdentity
 
     static string ExtractParamType(string param)
     {
+        param = StripLeadingParameterAttributes(param);
+
         int eqIndex = param.IndexOf('=');
         if (eqIndex >= 0)
             param = param[..eqIndex].Trim();
@@ -713,6 +721,41 @@ public static class ApiMemberIdentity
         }
 
         return lastSpace > 0 ? param[..lastSpace] : param;
+    }
+
+    static string StripLeadingParameterAttributes(string param)
+    {
+        var start = 0;
+        while (start < param.Length)
+        {
+            while (start < param.Length && char.IsWhiteSpace(param[start]))
+                start++;
+            if (start >= param.Length || param[start] != '[')
+                break;
+
+            var depth = 0;
+            var end = -1;
+            for (var i = start; i < param.Length; i++)
+            {
+                if (param[i] == '[')
+                    depth++;
+                else if (param[i] == ']')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        end = i + 1;
+                        break;
+                    }
+                }
+            }
+
+            if (end < 0)
+                break;
+            start = end;
+        }
+
+        return param[start..].TrimStart();
     }
 
     public static bool TryGetXmlDocMemberIdentity(ApiType type, ApiMember member, out XmlDocMemberIdentity identity)
