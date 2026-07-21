@@ -103,7 +103,32 @@ public sealed class SwitchRaisingPass : IIrPass
 
         var owned = new HashSet<int>();
         int? join = null;
-        bool Unify(int j) => (join ??= j) == j;
+
+        // Two exits unify not only when identical, but when one flows into the
+        // other through a chain of plain, unclaimed, single-successor blocks —
+        // e.g. a case-local "no match" arm and a shared miss-handler that falls
+        // into the same terminating return. The upstream (earlier) block becomes
+        // the join, so the chain is naturally emitted once as switch-trailing
+        // code; the tiling check below still rejects the join if some other
+        // owned block ends up past it.
+        bool Unify(int j)
+        {
+            if (join is not { } existing)
+            {
+                join = j;
+                return true;
+            }
+            if (existing == j)
+                return true;
+            if (ChasesTo(blocks, existing, j, caseTargets, offsetToIndex, owned))
+                return true;   // existing join already flows into j — keep it
+            if (ChasesTo(blocks, j, existing, caseTargets, offsetToIndex, owned))
+            {
+                join = j;   // j is upstream of the existing join — adopt it
+                return true;
+            }
+            return false;
+        }
 
         // Each distinct case target grows into its single-entry region; the
         // region's exits unify to the shared join (or it terminates).
@@ -586,6 +611,30 @@ public sealed class SwitchRaisingPass : IIrPass
                 Add(idx, t);
         }
         return preds;
+    }
+
+    /// <summary>
+    /// True if, walking forward from <paramref name="from"/> through blocks that
+    /// are plain single-successor pass-through (not a case's own entry point, and
+    /// not already claimed by another section), we reach <paramref name="to"/>.
+    /// Used to recognize a case-local "miss" arm chaining into a shared
+    /// miss-handler that itself falls into the true join, so the two exits
+    /// still unify (the earlier one becomes the join and the chain prints once,
+    /// as ordinary code after the switch).
+    /// </summary>
+    static bool ChasesTo(IReadOnlyList<Block> blocks, int from, int to, int[] caseTargets, Dictionary<int, int> offsetToIndex, HashSet<int> owned)
+    {
+        var visited = new HashSet<int>();
+        int cur = from;
+        while (cur != to)
+        {
+            if (!visited.Add(cur) || caseTargets.Contains(cur) || owned.Contains(cur))
+                return false;
+            if (!TrySuccessors(blocks, cur, offsetToIndex, out var succs) || succs.Count != 1)
+                return false;
+            cur = succs[0];
+        }
+        return true;
     }
 
     /// <summary>Successor block indices (including the conditional / no-terminator fall-through), or false for an unsupported section shape.</summary>
@@ -1152,7 +1201,29 @@ public sealed class SwitchRaisingPass : IIrPass
 
         var owned = new HashSet<int>();
         int? join = null;
-        bool Unify(int j) => (join ??= j) == j;
+
+        // See the matching comment on Unify in Raise: two exits also unify when
+        // one flows into the other through a chain of plain, unclaimed,
+        // single-successor blocks (a case-local miss arm chaining into a shared
+        // miss-handler that falls into the same terminating join).
+        bool Unify(int j)
+        {
+            if (join is not { } existing)
+            {
+                join = j;
+                return true;
+            }
+            if (existing == j)
+                return true;
+            if (ChasesTo(blocks, existing, j, caseTargets, offsetToIndex, owned))
+                return true;   // existing join already flows into j — keep it
+            if (ChasesTo(blocks, j, existing, caseTargets, offsetToIndex, owned))
+            {
+                join = j;   // j is upstream of the existing join — adopt it
+                return true;
+            }
+            return false;
+        }
         var regions = new Dictionary<int, List<int>>();
 
         foreach (int target in caseTargets.Distinct())
