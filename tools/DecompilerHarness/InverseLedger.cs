@@ -34,6 +34,7 @@ public static class InverseLedger
         "Conditional",
         "DefaultValue",
         "DelegateCreation",
+        "DynamicGetMember",
         "IncrementDecrement",
         "IndexFromEnd",
         "InitializerBlock",

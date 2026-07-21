@@ -194,6 +194,7 @@ public sealed record FieldRef(TypeRef DeclaringType, string Name, TypeRef Type)
     /// has a corresponding property. Null means no proof, not proof of absence.
     /// </summary>
     public string? BackingPropertyName { get; init; }
+    public MetadataFactState DeclaringTypeCompilerGenerated { get; init; } = MetadataFactState.Unknown;
 
     /// <summary>
     /// Positive metadata evidence that this field is a C# fixed buffer source
@@ -3879,4 +3880,24 @@ public sealed class UnsupportedNode : IrExpression
     public override TypeRef? ResultType => null;
 
     public override string Describe() => $"Unsupported IL_{ILOffset:X4} {Opcode}: {Reason}";
+}
+
+/// <summary>The raised dynamic call site: `((dynamic)receiver).Member`.</summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundDynamicMemberAccess,
+    naming: Inverse.NameProvenance.Inherited,
+    forwardName: "((dynamic)receiver).Member (BoundDynamicMemberAccess)",
+    precondition: "the compiler-emitted dynamic call site cache block is canonical",
+    witness: "corpus compile-back")]
+public sealed class DynamicGetMember : IrExpression
+{
+    public DynamicGetMember(IrExpression receiver, string propertyName)
+    {
+        PropertyName = propertyName;
+        AddChild(receiver);
+    }
+    public string PropertyName { get; }
+    public IrExpression Receiver => (IrExpression)Children[0];
+    public override TypeRef? ResultType => TypeRef.CoreLib("System", "Object");
+    public override string Describe() => $"dynamic-get {PropertyName}";
 }

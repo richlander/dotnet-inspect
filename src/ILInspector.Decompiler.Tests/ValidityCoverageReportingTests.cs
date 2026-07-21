@@ -52,12 +52,15 @@ public class ValidityCoverageReportingTests
             "ILInspector.Decompiler.Pipeline.BooleanFoldingPass::IsNullableCoalesceExpressionContext",
             "ILInspector.Decompiler.Pipeline.CSharpPrinter::ForLoopIncrementText",
             "ILInspector.Decompiler.Pipeline.DeconstructionAssignmentPass::TryMatchTupleSeed",
+            "ILInspector.Decompiler.Pipeline.DynamicCallSitePass::TryGuardCacheLoad",
             "ILInspector.Decompiler.Pipeline.FixedArrayRaising::SameLoadPlace",
             "ILInspector.Decompiler.Pipeline.IndexFromEndPass::LengthReceiver",
             "ILInspector.Decompiler.Pipeline.InlineArrayCollectionPass::PlaceFromAddress",
             "ILInspector.Decompiler.Pipeline.IsPatternPass::IsPatternLocalNull",
             "ILInspector.Decompiler.Pipeline.NullConditionalPass::MemberReceiver",
+            "ILInspector.Decompiler.Pipeline.TupleSwitchExpressionPass::TryNumericValue",
             "ILInspector.Decompiler.Pipeline.UnionSwitchExpressionPass::SameTailNode",
+            "ILInspector.Decompiler.Pipeline.YieldBreakLoopIteratorReconstruction::TryNormalizeContinueCondition",
         ];
 #endif
         Assert.Equal(expected, actual);

@@ -169,6 +169,7 @@ public static class IrPasses
         // After structuring the finally guard is an IfStatement, so the
         // Monitor lock lowering is matchable as lock (obj) { ... }.
         new LockSugarPass(),
+        new DynamicCallSitePass(),
         new ForLoopPass(),
         new BooleanFoldingPass(),
         // Raise csc's arity-2 tuple-valued ==/!= lowering after boolean folding
