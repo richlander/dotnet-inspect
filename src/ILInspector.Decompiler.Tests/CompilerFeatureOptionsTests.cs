@@ -76,7 +76,7 @@ public class CompilerFeatureOptionsTests
         var compilation = CSharpCompilation.Create(
             "CompilerFeatureOptionsTests",
             [CSharpSyntaxTree.ParseText(source, options)],
-            RuntimeReferences(),
+            RoslynTestReferences.TrustedPlatform,
             new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,
                 allowUnsafe: true,
@@ -93,12 +93,6 @@ public class CompilerFeatureOptionsTests
             new PEReader(stream, PEStreamOptions.LeaveOpen),
             diagnostics);
     }
-
-    static ImmutableArray<MetadataReference> RuntimeReferences()
-        => ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!)
-            .Split(Path.PathSeparator)
-            .Select(path => (MetadataReference)MetadataReference.CreateFromFile(path))
-            .ToImmutableArray();
 
     sealed class CompiledAssembly(
         MemoryStream stream,

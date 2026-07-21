@@ -8,6 +8,7 @@ static class TestAssemblyReferenceResolvers
         (AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") as string ?? "")
         .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
         .Where(path => path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+        .Where(RoslynTestReferences.IsManagedAssembly)
         .GroupBy(Path.GetFileNameWithoutExtension, StringComparer.OrdinalIgnoreCase)
         .ToDictionary(group => group.Key!, group => group.First(), StringComparer.OrdinalIgnoreCase));
 
