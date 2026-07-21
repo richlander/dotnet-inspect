@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 # Prepares the broad-source assembly pool for the hard-IL decompiler corpus.
-# Without an argument it emits one managed assembly path per line on stdout; with
-# an output directory it writes <outdir>/assemblies.txt (+ sweep-manifest.json).
+# Requires an output directory and writes:
+#   <outdir>/assemblies.txt      the deduped managed assembly path list
+#   <outdir>/sweep/              the extracted sweep packages (durable)
+#   <outdir>/sweep-manifest.json the sweep manifest (resolved versions/TFMs)
+#
+# The sweep tool copies each selected assembly into <outdir>/sweep/packages/... and
+# records those paths, so the sweep output MUST live in the durable output
+# directory (not a temp dir) or the emitted paths would dangle after cleanup.
 #
 # The hard-IL corpus is an adversarial stress set: the most diabolical real
 # methods, ranked by IL difficulty, drawn from a much broader pool than the fixed
@@ -23,36 +29,41 @@ set -euo pipefail
 # Number of top NuGet ranks to sweep (the package list currently holds 100).
 PACKAGE_COUNT="${HARD_IL_PACKAGE_COUNT:-100}"
 
-root="$(git rev-parse --show-toplevel)"
 outdir="${1:-}"
+if [ -z "$outdir" ]; then
+  echo "usage: $0 <output-directory>" >&2
+  echo "  writes <output-directory>/assemblies.txt and keeps the extracted sweep" >&2
+  echo "  packages under <output-directory>/sweep so the listed paths stay valid." >&2
+  exit 2
+fi
+
+root="$(git rev-parse --show-toplevel)"
+mkdir -p "$outdir"
+outdir="$(cd "$outdir" && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-# 1. Broad-source NuGet sweep -> $work/sweep/assemblies.txt.
-dotnet run "$root/eng/prepare-decompiler-package-sweep.cs" -- "$work/sweep" 1 "$PACKAGE_COUNT" >&2
+# 1. Broad-source NuGet sweep. The sweep extracts assemblies into
+#    <outdir>/sweep/packages/... and lists those durable paths, so it must write
+#    into the persisted output directory, never the temp dir.
+dotnet run "$root/eng/prepare-decompiler-package-sweep.cs" -- "$outdir/sweep" 1 "$PACKAGE_COUNT" >&2
 
-# 2. Fixed real-world corpus assemblies -> $work/real-world.txt.
+# 2. Fixed real-world corpus assemblies -> $work/real-world.txt (durable repo/nuget
+#    cache paths, so the intermediate list itself may be ephemeral).
 bash "$root/eng/prepare-decompiler-corpus.sh" "$work/real-world.txt"
 
 # 3. Union, de-duplicated, deterministic order.
 #    Real-world assemblies lead so shared affinity is stable regardless of which
 #    packages the sweep resolves.
-combined="$work/assemblies.txt"
-cat "$work/real-world.txt" "$work/sweep/assemblies.txt" \
-    | awk 'NF && !seen[$0]++' > "$combined"
+cat "$work/real-world.txt" "$outdir/sweep/assemblies.txt" \
+    | awk 'NF && !seen[$0]++' > "$outdir/assemblies.txt"
 
-count="$(wc -l < "$combined" | tr -d ' ')"
-echo "Hard-IL pool: $count assemblies ($PACKAGE_COUNT-rank sweep + real-world)." >&2
-
-if [ -n "$outdir" ]; then
-  mkdir -p "$outdir"
-  cp "$combined" "$outdir/assemblies.txt"
-  # Preserve the sweep manifest next to the list, so the resolved package
-  # versions/TFMs are recoverable.
-  if [ -f "$work/sweep/manifest.json" ]; then
-    cp "$work/sweep/manifest.json" "$outdir/sweep-manifest.json"
-  fi
-  echo "Wrote $outdir/assemblies.txt (+ sweep-manifest.json)." >&2
-else
-  cat "$combined"
+# Surface the sweep manifest at the top level so resolved versions/TFMs are easy
+# to find (it also remains at <outdir>/sweep/manifest.json).
+if [ -f "$outdir/sweep/manifest.json" ]; then
+  cp "$outdir/sweep/manifest.json" "$outdir/sweep-manifest.json"
 fi
+
+count="$(wc -l < "$outdir/assemblies.txt" | tr -d ' ')"
+echo "Hard-IL pool: $count assemblies ($PACKAGE_COUNT-rank sweep + real-world)." >&2
+echo "Wrote $outdir/assemblies.txt (sweep packages under $outdir/sweep)." >&2
