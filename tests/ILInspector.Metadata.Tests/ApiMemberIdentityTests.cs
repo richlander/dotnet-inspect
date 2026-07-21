@@ -404,6 +404,24 @@ public class ApiMemberIdentityTests
         Assert.Equal(expected, ApiMemberIdentity.GetCanonicalSignature(type, member));
     }
 
+    [Theory]
+    // Brackets outside a leading attribute list must be treated as ordinary text so
+    // they never suppress the parameter-separating comma. This covers array types
+    // (int[]) and compiler-emittable F# double-backtick names that contain an
+    // unmatched bracket (e.g. ``x[``, emitted verbatim as "System.Int32 x["), which
+    // main handled and the fallback must not regress. Bracket nesting is tracked
+    // only inside the leading "[...]" attribute list.
+    [InlineData("void M(System.Int32 x[, System.Int32 y)", "M:N.C.M(System.Int32,System.Int32)")]
+    [InlineData("void M(System.Int32 x], System.Int32 y)", "M:N.C.M(System.Int32,System.Int32)")]
+    [InlineData("void M(System.Int32[] a, System.Int32[] b)", "M:N.C.M(System.Int32[],System.Int32[])")]
+    public void FallbackCanonicalSignature_TreatsBracketsOutsideAttributesAsOrdinary(string signature, string expected)
+    {
+        var type = new ApiType { Namespace = "N", Name = "C" };
+        var member = new ApiMember { Name = "M", Kind = "method", Signature = signature };
+
+        Assert.Equal(expected, ApiMemberIdentity.GetCanonicalSignature(type, member));
+    }
+
     static (TypeDefinitionHandle TypeHandle, MethodDefinition Method) FindFixtureMethod(MetadataReader reader)
     {
         foreach (var typeHandle in reader.TypeDefinitions)
