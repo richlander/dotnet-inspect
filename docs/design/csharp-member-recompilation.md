@@ -286,25 +286,35 @@ public enum RoundTripBodyPolicy
     Full,
 }
 
+public sealed record RoundTripMethodReplacement(
+    MemberAnchor Method,
+    CSharpBlockBody Body);
+
 public sealed record RoundTripRequest(
     ArtifactIdentity Artifact,
     ModuleIdentity Module,
     IReadOnlyList<MemberAnchor> Targets,
     RoundTripScope Scope,
     RoundTripBodyPolicy BodyPolicy,
-    IReadOnlyDictionary<MemberAnchor, CSharpMemberBody> ReplacementBodies);
+    IReadOnlyList<RoundTripMethodReplacement> Replacements);
 ```
 
 `ArtifactIdentity` identifies the exact input bytes and acquisition provenance.
 `ModuleIdentity` includes module name and MVID so a member anchor is never
 interpreted without its physical metadata scope. Display text is not identity.
-For the first contract, supplied C# is a typed member-body replacement represented
-by the existing `CSharpMemberBody` variants. Supplying an entire member or type
-declaration is outside this proposal because declaration production remains with
-the product artifact pipeline. A scope-pair key uses canonical member ordering
-and a versioned content digest over every body variant, modifier, accessor,
-constructor-initializer kind, and initializer argument; object or dictionary
-reference equality is never used as replacement identity.
+For the first contract, supplied C# is a `CSharpBlockBody` addressed to one
+metadata method definition: an ordinary method, constructor, or individual
+property/event accessor. The product artifact pipeline maps that method body into
+the containing declaration shape. `CSharpFieldInitializer`, aggregate
+`CSharpPropertyBody`/`CSharpEventBody` replacements, and complete member or type
+declarations are outside the first contract. Initializers require a later typed
+lowering-correspondence design because their effects may span multiple instance
+constructors or the type initializer.
+
+A scope-pair key uses canonical method ordering and a versioned content digest
+over source, async/unsafe modifiers, constructor-initializer kind, and initializer
+arguments; object or collection reference equality is never used as replacement
+identity.
 
 The result should carry:
 
@@ -314,7 +324,8 @@ The result should carry:
 - generated C# source or source files;
 - artifact-production diagnostics;
 - exact compiler and parse options;
-- resolved reference identities;
+- the frozen ordered reference descriptors, including artifact hashes, module
+  identities, aliases, and embed-interop roles;
 - all Roslyn diagnostics, including those used for cluster growth;
 - closure iterations and bail reasons;
 - emitted donor PE and portable PDB bytes when compilation succeeds;
@@ -421,11 +432,16 @@ No layer converts failure or unavailability into an empty successful result.
 - Extract compiler-driven root growth from decompiler-specific comparison.
 - Adapt ReturnToSender to consume the engine without changing its verdicts.
 - Preserve current cluster budgets, provenance, and failure buckets.
+- Add focused seam tests for exact and wrong-reader handles, body absence,
+  decompilation failure, fidelity provenance, accessor methods, constructors and
+  constructor initializers, and parity with current ReturnToSender output.
 
 ### Milestone 2: general selected-member comparison
 
 - Support supplied replacement bodies independently of decompiler-produced
   bodies.
+- Reject field-initializer and aggregate property/event replacement shapes in the
+  first method-addressed contract; test each rejection explicitly.
 - Add a product-owned cross-reader member-correspondence resolver that consumes
   typed/normalized identities and returns exact endpoint handles or total
   absent/ambiguous/failed outcomes.
