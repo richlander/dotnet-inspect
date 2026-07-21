@@ -329,6 +329,39 @@ public class ApiMemberIdentityTests
             ApiMemberIdentity.GetCanonicalSignature(type, member));
     }
 
+    [Theory]
+    [InlineData("void M(System.String text = \"]\", System.Int32 count = 0)")]
+    [InlineData("void M(System.String text = \"[\", System.Int32 count = 0)")]
+    [InlineData("void M(System.String text = \"a,b\", System.Int32 count = 0)")]
+    [InlineData("void M(System.String text = \"<>()\", System.Int32 count = 0)")]
+    [InlineData("void M(System.String text = \"a\\\"]b\", System.Int32 count = 0)")]
+    [InlineData("void M(System.String text = \"ok\", System.Int32 count = 0)")]
+    public void FallbackCanonicalSignature_IgnoresDelimitersInsideStringDefaults(string signature)
+    {
+        var type = new ApiType { Namespace = "N", Name = "C" };
+        var member = new ApiMember { Name = "M", Kind = "method", Signature = signature };
+
+        Assert.Equal(
+            "M:N.C.M(System.String,System.Int32)",
+            ApiMemberIdentity.GetCanonicalSignature(type, member));
+    }
+
+    [Fact]
+    public void FallbackCanonicalSignature_IgnoresDelimitersInsideCharDefault()
+    {
+        var type = new ApiType { Namespace = "N", Name = "C" };
+        var member = new ApiMember
+        {
+            Name = "M",
+            Kind = "method",
+            Signature = "void M(System.Char sep = ']', System.Int32 count = 0)",
+        };
+
+        Assert.Equal(
+            "M:N.C.M(System.Char,System.Int32)",
+            ApiMemberIdentity.GetCanonicalSignature(type, member));
+    }
+
     static (TypeDefinitionHandle TypeHandle, MethodDefinition Method) FindFixtureMethod(MetadataReader reader)
     {
         foreach (var typeHandle in reader.TypeDefinitions)

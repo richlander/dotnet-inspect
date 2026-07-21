@@ -681,15 +681,29 @@ public static class ApiMemberIdentity
         int parenDepth = 0;
         int bracketDepth = 0;
         int lastSplit = 0;
+        bool inString = false;
+        bool inChar = false;
         for (int i = 0; i < paramSection.Length; i++)
         {
             char c = paramSection[i];
-            if (c == '<') angleDepth++;
-            else if (c == '>') angleDepth--;
+            if (inString)
+            {
+                if (c == '\\') i++;
+                else if (c == '"') inString = false;
+            }
+            else if (inChar)
+            {
+                if (c == '\\') i++;
+                else if (c == '\'') inChar = false;
+            }
+            else if (c == '"') inString = true;
+            else if (c == '\'') inChar = true;
+            else if (c == '<') angleDepth++;
+            else if (c == '>') { if (angleDepth > 0) angleDepth--; }
             else if (c == '(') parenDepth++;
-            else if (c == ')') parenDepth--;
+            else if (c == ')') { if (parenDepth > 0) parenDepth--; }
             else if (c == '[') bracketDepth++;
-            else if (c == ']') bracketDepth--;
+            else if (c == ']') { if (bracketDepth > 0) bracketDepth--; }
             else if (c == ',' && angleDepth == 0 && parenDepth == 0 && bracketDepth == 0)
             {
                 paramTypes.Add(ExtractParamType(paramSection[lastSplit..i].Trim()));
