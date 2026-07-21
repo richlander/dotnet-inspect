@@ -126,16 +126,38 @@ body completeness are separate fields.
 
 ### Cross-scope comparison
 
-For a selected member captured by both scopes, the harness compares the results:
+Scope A/B is a controlled donor-to-donor comparison derived from one common
+request and compilation context. Its typed pair key includes:
+
+- exact artifact bytes and module identity;
+- requested targets and supplied replacement bodies;
+- body policy;
+- compiler and parse options;
+- resolved reference identities;
+- C# and IL diff policies and normalizations.
+
+`Scope` is the only request field permitted to differ. Closure roots, included
+declarations, and effective companion bodies are derived results rather than
+pair-key inputs; the comparison retains differences in those results as
+provenance. A pair-key mismatch produces `Unavailable` with a typed context
+reason, never `Same` or `Different`.
+
+For a selected member captured by both eligible donors, the harness compares the
+cluster donor directly with the all donor:
 
 ```text
-cluster(targets, body policy) <-> all(targets, body policy)
+cluster donor <-> all donor
 ```
 
-The comparison covers typed target correspondence plus the existing C# and IL
-diff contracts. A difference may reveal context-sensitive binding, incomplete
-cluster membership, different synthesized context, or an artifact-production
-gap. It is evidence, not automatically a cluster defect.
+The comparison first resolves exact original and donor method handles through
+the existing cross-reader member-identity bridge. It then compares typed target
+correspondence plus the donors' existing C# and IL diff contracts. The separate
+original-to-cluster and original-to-all results remain available as fidelity
+evidence, but they are not substituted for the direct scope comparison. A donor
+difference may reveal context-sensitive binding, incomplete cluster membership,
+different synthesized context, or an artifact-production gap. It is evidence,
+not automatically a cluster defect. If either donor or member correspondence is
+unavailable, the scope comparison is `Unavailable` and retains the reason.
 
 The initial `cluster` lane remains useful without a successful `all` lane. A
 consumer making a stronger contextual-binding claim must require the scope A/B
@@ -169,29 +191,30 @@ larger unsupported frontier.
 ## Architecture
 
 ```text
- Metadata / CSharp / Decompiler
-              |
-              v
-   +---------------------------+
-   | Typed artifact provider   |
-   | source + provenance       |
-   +-------------+-------------+
-                 |
-                 v
-   +---------------------------+
-   | Round-trip compile engine |
-   | scope policy + Roslyn     |
-   +-------------+-------------+
-                 |
-                 v
-   +---------------------------+
-   | Donor assembly            |
-   | compile provenance        |
-   +-------------+-------------+
-                 |
-          +------+------+
-          |             |
-          v             v
+ Metadata facts + tools-side scope/body plan
+                       |
+                       v
+   +-----------------------------------------+
+   | Existing product artifact pipeline      |
+   | TypeShellProducer      (CSharp)          |
+   | MemberBodyProducer     (Decompiler)      |
+   | CSharpTypePrinter      (CSharp)          |
+   +-------------------+---------------------+
+                       |
+                       v
+   +-----------------------------------------+
+   | Round-trip compile engine               |
+   | compiler feedback + Roslyn              |
+   +-------------------+---------------------+
+                       |
+                       v
+   +-----------------------------------------+
+   | Donor assembly + compile provenance     |
+   +-------------------+---------------------+
+                       |
+                +------+------+
+                |             |
+                v             v
      C# body diff    IL body diff
           |             |
           +------+------+
@@ -199,16 +222,19 @@ larger unsupported frontier.
         layered round-trip result
 ```
 
-The reusable capability is a round-trip compile engine plus result composition.
-ReturnToSender is one consumer; it is not the general abstraction.
+The reusable capability is a round-trip compile engine plus result composition
+over the existing product artifact pipeline. ReturnToSender is one consumer; it
+is not the general abstraction.
 
 ## Ownership boundaries
 
 ### Product libraries
 
 - **Metadata** owns metadata facts and declaration identities.
-- **CSharp** owns typed declaration composition and C# spelling.
-- **Decompiler** owns selected-member C# body production and fidelity grade.
+- **CSharp** owns `TypeShellProducer` for metadata-backed typed shell composition
+  and `CSharpTypePrinter` for rendering typed requests as C# source.
+- **Decompiler** owns `MemberBodyProducer` for selected-member C# body production
+  and fidelity grade.
 - **Instructions** owns `IlBodyDiff`, its normalization mechanics, and its total
   exact/different/unavailable outcome.
 - **Research** owns `ImplementationDiff`, joining product C# and IL evidence.
@@ -223,11 +249,15 @@ engine consumes their typed results and must not strengthen or reinterpret them.
 - Scope policy owns `cluster` versus `all` root selection.
 - Body policy owns selected targets, effective companion bodies, and full-body
   participation.
+- The tools-side planner discovers roots and members and builds neutral
+  `CSharpTypeShellSpec` inputs; it does not format declarations.
 - Harnesses own fixtures, comparison policy, assertions, and reporting.
 
-The artifact provider, not the harness, produces C# declarations. Compiler
-feedback may expand a typed request but must not trigger ad hoc source patches
-that compensate for missing product behavior.
+The existing `TypeShellProducer`/`MemberBodyProducer`/`CSharpTypePrinter`
+pipeline produces C# declarations and bodies. The harness may select scope,
+members, and typed body policies, but it must not format declarations itself.
+Compiler feedback may expand a typed request but must not trigger ad hoc source
+patches that compensate for missing product behavior.
 
 ## Typed request and result
 
@@ -259,6 +289,10 @@ public sealed record RoundTripRequest(
 `ArtifactIdentity` identifies the exact input bytes and acquisition provenance.
 `ModuleIdentity` includes module name and MVID so a member anchor is never
 interpreted without its physical metadata scope. Display text is not identity.
+For the first contract, supplied C# is a typed member-body replacement represented
+by the existing `CSharpMemberBody` variants. Supplying an entire member or type
+declaration is outside this proposal because declaration production remains with
+the product artifact pipeline.
 
 The result should carry:
 
@@ -365,6 +399,10 @@ No layer converts failure or unavailability into an empty successful result.
 ### Milestone 1: extract round-trip compilation
 
 - Define tools-only request and layered result contracts.
+- Make the existing product artifact pipeline explicit: the tools planner builds
+  neutral `CSharpTypeShellSpec` inputs, `TypeShellProducer` builds typed print
+  requests, `MemberBodyProducer` supplies decompiled bodies, and
+  `CSharpTypePrinter` renders source.
 - Extract compiler-driven root growth from decompiler-specific comparison.
 - Adapt ReturnToSender to consume the engine without changing its verdicts.
 - Preserve current cluster budgets, provenance, and failure buckets.
@@ -373,6 +411,8 @@ No layer converts failure or unavailability into an empty successful result.
 
 - Support supplied replacement bodies independently of decompiler-produced
   bodies.
+- Resolve exact original/donor handles through the existing cross-reader member
+  identity bridge before invoking member-scoped diff APIs.
 - Compare original and donor members through `ImplementationDiff` and typed IL
   results.
 - Preserve requested targets and effective companion bodies separately.
@@ -382,7 +422,11 @@ No layer converts failure or unavailability into an empty successful result.
 
 - Seed all supported declarations in the target module.
 - Report complete and incomplete artifact production.
-- Add cluster/all A/B results and clean-but-different binding fixtures.
+- Derive cluster/all runs from one typed common-context request and reject any
+  pair where more than scope differs.
+- Compare eligible cluster and all donors directly, retaining the separate
+  original-to-donor fidelity results.
+- Add clean-but-different binding fixtures.
 - Measure focused and real-assembly costs before setting default caps.
 
 ### Milestone 4: add `full` body policy
@@ -411,7 +455,15 @@ required preservation boundary.
 - Real compiler-produced assemblies prove metadata and IL shapes.
 - Cluster/all A/B fixtures include silent alternate overload, operator,
   conversion, and extension-method binding.
+- Scope A/B fixtures change compiler options, references, replacements, body
+  policy, normalization, and input identity one at a time and require a typed
+  `Unavailable` context-mismatch result.
 - C# and IL tests retain producer-native unavailable and failed results.
+- A C# regression fixture supplies an absent endpoint fingerprint whose native
+  diff is empty and requires the round-trip envelope to report `Unavailable`,
+  never `Exact`.
+- Cross-reader correspondence fixtures cover API/metadata anchor spelling
+  differences, signature collisions, and wrong-module near misses.
 - `selected` tests distinguish requested targets from effective companion bodies.
 - `full` tests preserve per-member failures instead of replacing them with stubs.
 - Corpus measurements record pinned inputs, commands, caps, timing, compiler
@@ -425,13 +477,12 @@ smallest focused product and harness checks that prove their claims.
 ## Open decisions
 
 1. Which tools-only project owns the round-trip request and result contracts?
-2. Should supplied C# be a body fragment, a typed member declaration, or both?
-3. Which existing `ImplementationDiff` results should be retained directly, and
+2. Which existing `ImplementationDiff` results should be retained directly, and
    which need a round-trip-specific envelope for provenance?
-4. Is cluster/all A/B opt-in per consumer or an explicit round-trip report mode?
-5. Which declaration shapes are unsupported in `all`, and how should the typed
+3. Is cluster/all A/B opt-in per consumer or an explicit round-trip report mode?
+4. Which declaration shapes are unsupported in `all`, and how should the typed
    incomplete-scope result group them?
-6. Which corpus and fixture populations should establish the initial practical
+5. Which corpus and fixture populations should establish the initial practical
    success baseline?
 
 ## Recommendation
