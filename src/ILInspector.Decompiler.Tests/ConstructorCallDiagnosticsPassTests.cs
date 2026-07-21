@@ -3,6 +3,7 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class ConstructorCallDiagnosticsPassTests
 {
     static readonly TypeRef Owner = TypeRef.CoreLib("Synthetic", "Owner");

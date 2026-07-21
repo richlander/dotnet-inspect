@@ -193,6 +193,25 @@ Some CLI tests require `ilasm`/`ildasm` and skip when those tools are absent.
 The IL round-trip project has separate dependency restore and fast/full test
 commands; follow `tests/DotnetInspector.ILRoundtrip.Tests/README.md`.
 
+`ILInspector.Decompiler.Tests` carries two orthogonal `[Trait]` dimensions you
+can compose with xUnit's `-trait`/`-trait-` filters:
+
+- `Speed` (`Slow` marks the expensive corpus/fidelity/compile-back gates). Drop
+  them with `-trait- "Speed=Slow"`.
+- `Area` groups a functional slice — `RoundTrip`, `Fidelity`, `Corpus`,
+  `Validity`, and `Pass` — so you can run one area's tests (including its slow
+  gates) without every other area's slow gates.
+
+```bash
+# every RoundTrip test, fast and slow (includes its slow compile-back gates):
+dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait "Area=RoundTrip"
+# narrow to the fast RoundTrip tests only:
+dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait "Area=RoundTrip" -trait- "Speed=Slow"
+```
+
+The `Area` taxonomy and how classes map to it live with the decompiler test
+docket in `docs/decompiler-correctness-pipeline.md`.
+
 Pack and publish flows remain separate and build `src/dotnet-inspect`
 directly.
 

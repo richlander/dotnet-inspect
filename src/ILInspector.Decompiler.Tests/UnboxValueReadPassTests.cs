@@ -12,6 +12,7 @@ namespace ILInspector.Decompiler.Tests;
 // unbox place, a boxed Nullable<T> value read spelled Unsafe.Unbox<Nullable<T>>
 // is CS0453 (the intrinsic requires `where T : struct`), even though the cast
 // (int?)o compiles to unbox.any and is correct.
+[Trait("Area", "Pass")]
 public class UnboxValueReadPassTests
 {
     static readonly TypeRef Int32Type = TypeRef.CoreLib("System", "Int32");

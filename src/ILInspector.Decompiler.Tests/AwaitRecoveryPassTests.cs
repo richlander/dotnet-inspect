@@ -2,6 +2,7 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class AwaitRecoveryPassTests
 {
     static readonly TypeRef Holder = TypeRef.CoreLib("Synthetic", "AwaitHolder");

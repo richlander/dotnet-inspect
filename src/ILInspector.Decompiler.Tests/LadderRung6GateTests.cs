@@ -31,6 +31,7 @@ namespace ILInspector.Decompiler.Tests;
 /// memory-safety module attribute, while synthetic canaries pin unspellable
 /// volatile/pinned residuals that C# cannot compile directly.
 /// </summary>
+[Trait("Area", "Validity")]
 public class LadderRung6GateTests
 {
     static readonly string NewUnsafePath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();

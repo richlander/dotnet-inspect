@@ -3,6 +3,7 @@ using IrConvert = ILInspector.Decompiler.Pipeline.Convert;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class StackAllocSpanPassTests
 {
     static readonly TypeRef Holder = TypeRef.CoreLib("Synthetic", "Holder");

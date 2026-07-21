@@ -3,6 +3,7 @@ using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class RuntimeAsyncAwaiterPassTests
 {
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");

@@ -17,6 +17,7 @@ namespace ILInspector.Decompiler.Tests;
 /// as explicit <c>Expression.*</c> calls where supported, and prohibited
 /// expression-tree forms stay documented as the row's honesty frontier.
 /// </summary>
+[Trait("Area", "Validity")]
 public class LadderRung9GateTests
 {
     static string FixturePath => typeof(LadderRung9.DynamicAndExpressionTrees).Assembly.Location;

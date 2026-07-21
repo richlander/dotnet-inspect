@@ -30,6 +30,7 @@ namespace ILInspector.Decompiler.Tests;
 /// <c>op_Checked*</c> method call, which is CS0571 invalid <c>Full</c> (#1706).</item>
 /// </list>
 /// </summary>
+[Trait("Area", "Validity")]
 public class LadderRung5GateTests
 {
     static string FixturePath => typeof(LadderRung5.Program).Assembly.Location;

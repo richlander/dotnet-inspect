@@ -7,6 +7,7 @@ using Microsoft.CodeAnalysis;
 
 namespace ILInspector.DecompilerHarness;
 
+[Trait("Area", "Fidelity")]
 public sealed class AuthoredRebuildFidelityTests
 {
     static readonly FindingSubject Subject = new("test", "test");

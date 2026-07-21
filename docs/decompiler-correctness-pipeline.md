@@ -130,6 +130,41 @@ Notes:
 - A green entry gate is necessary, never sufficient: it says nothing about
   validity, fidelity, or corpus health. Do not report it as if it did.
 
+### Area trait: targeting a functional slice
+
+`Speed` is a cost split of *everything*; it cannot target a functional area.
+`ILInspector.Decompiler.Tests` therefore carries an orthogonal
+`[Trait("Area", "…")]` dimension (applied at the class level, or at the method
+level for a lone slow gate in an otherwise unrelated class) so a change author
+can run one area's tests —
+including that area's slow gates — without every other area's slow gates, and
+without hand-enumerating `-class` names. The two dimensions compose:
+`-trait "Area=X"` selects area X fast and slow; adding `-trait- "Speed=Slow"`
+narrows to X's fast tests.
+
+```bash
+# every Fidelity test, fast and slow:
+dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait "Area=Fidelity"
+# fast Fidelity tests only:
+dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait "Area=Fidelity" -trait- "Speed=Slow"
+```
+
+Areas and their member classes:
+
+| Area | Member test classes |
+| --- | --- |
+| `RoundTrip` | the compile-back / MemberBodyProducer seam: `ReturnToSender*`, `MemberBodyProducer*`, `CompileBackTypeIdentityTests`, `TypeBindGateTests`, `GeneratedFixtureCatalogTests`, `CompilerFeatureOptionsTests` |
+| `Fidelity` | the changed-method fidelity gates: `FidelityGateTests`, `LoweredFidelityGateTests`, `DiffFixtureFidelityTests`, `AuthoredRebuildFidelityTests`, `SkeletonEmitTests`, `ClusterCaptureTests`, `NestedTargetLookupTests`, plus the compile-back gate method in `PrinterPrecedenceTests` |
+| `Corpus` | corpus-wide sweeps: `CorpusSweepGateTests`, `CorpusSensorComparisonTests`, `SubstrateLeaderDifferentialTests` |
+| `Validity` | validity / ladder gates: `ValidityCoverageReportingTests`, `LadderIteratorGateTests`, `LadderRung*GateTests` |
+| `Pass` | the per-pass unit tests (`*PassTests`) |
+
+`Area` is a targeting aid, not a completeness contract: unclassified unit tests
+carry no `Area`, so `-trait "Area=X"` selects only tagged members. When you add
+a class that belongs to an area (especially a new slow gate), tag it with the
+matching `[Trait("Area", "…")]` so the area's group filter keeps finding it; add
+a new area value only when an expensive slice has no existing home.
+
 ## Vocabulary
 
 Use these names in issues and PRs when selecting evidence:

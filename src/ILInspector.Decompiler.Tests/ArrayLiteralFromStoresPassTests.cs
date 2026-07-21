@@ -7,6 +7,7 @@ namespace ILInspector.Decompiler.Tests;
 // into one ArrayLiteral, placed at the fill run's position. These tests cover
 // the fold's happy path and the guards that keep it from misfiring on shapes
 // that are not a faithful array-literal initializer.
+[Trait("Area", "Pass")]
 public class ArrayLiteralFromStoresPassTests
 {
     static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");

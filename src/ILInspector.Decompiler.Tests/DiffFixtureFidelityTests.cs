@@ -4,6 +4,7 @@ using ILInspector.DecompilerHarness;
 namespace ILInspector.Decompiler.Tests;
 
 [Trait("Speed", "Slow")]
+[Trait("Area", "Fidelity")]
 public class DiffFixtureFidelityTests
 {
     static readonly string[] DiffFocusedMethods =
