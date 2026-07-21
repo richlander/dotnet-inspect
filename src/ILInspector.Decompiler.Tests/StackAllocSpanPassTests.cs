@@ -569,8 +569,59 @@ public class StackAllocSpanPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void DirectPointerWithEffectfulCount_DoesNotRaise()
+    {
+        // stackalloc T[n] evaluates n before allocating, but the constructor's
+        // own length argument here originally evaluated after the pointer
+        // argument (i.e. after the localloc). Raising always inverts that
+        // order, so an effectful count -- even with an otherwise pure/constant
+        // stackalloc size -- must not be raised: it would silently reorder a
+        // side effect (and any StackOverflowException the allocation could
+        // throw) to run before the allocation instead of after it.
+        var countEffect = new Call(new MethodRef(Holder, "CountEffect", Int32, [], HasThis: false), isVirtual: false, []);
+        var function = Build(StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new StackAllocate(new Constant(4, Int32)), countEffect));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+        Assert.Single(function.Descendants.OfType<Call>(), c => c.Callee.Name == "CountEffect");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SlotWithUninitializedArrayCountMismatch_DoesNotRaise()
+    {
+        // An uninitialized StackAllocArray's own Count is already an element
+        // count (unlike StackAllocate.Size, which is bytes and not cleanly
+        // comparable at this IR layer) -- when both it and the constructor's
+        // length argument are literal constants, they must agree, or raising
+        // would silently shrink/grow the allocation.
+        var stackAllocArray = new StackAllocArray(Int32, new Constant(100, Int32), TypeRef.Pointer(Int32));
+        var store = new StoreStackSlot(0, stackAllocArray);
+        var newObject = StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new LoadStackSlot(0, VoidPointer), count: 1);
+
+        var function = BuildSlot(store, newObject);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var construction = Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Same(newObject, construction);
+        var unraised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.False(unraised.HasInitializer); // still the store's un-raised value
+        function.CheckInvariant();
+    }
+
     static NewObject StackAllocSpanConstructor(TypeRef spanDefinition, IrExpression pointer, int count, TypeRef? elementType = null)
         => StackAllocSpanConstructorWithPointer(spanDefinition, pointer, count, elementType);
+
+    static NewObject StackAllocSpanConstructor(TypeRef spanDefinition, IrExpression pointer, IrExpression count)
+    {
+        var span = TypeRef.GenericInstance(spanDefinition, [Int32]);
+        var ctor = new MethodRef(span, ".ctor", Void, [VoidPointer, Int32], HasThis: true);
+        return new NewObject(ctor, [pointer, count]);
+    }
 
     static NewObject StackAllocSpanConstructorWithPointer(TypeRef spanDefinition, IrExpression pointer, int count, TypeRef? elementType = null)
     {

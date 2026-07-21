@@ -57,6 +57,17 @@ public sealed class StackAllocSpanPass : IIrPass
             if (newObject.Arguments is not [{ } pointer, var count])
                 continue;
 
+            // stackalloc T[n] evaluates n *before* performing the allocation,
+            // but the constructor's own length argument here originally
+            // evaluated *after* the pointer argument (left-to-right call
+            // evaluation) -- i.e. after the localloc. Raising always inverts
+            // that order, so an effectful count would silently reorder past
+            // the allocation (and any StackOverflowException it might throw)
+            // to run first. Retaining the exact same count expression is not
+            // enough to preserve behavior; it must be provably pure.
+            if (!IsSideEffectFree(count))
+                continue;
+
             StoreStackSlot? ownedStore = null;
             IrExpression source;
 
@@ -73,15 +84,18 @@ public sealed class StackAllocSpanPass : IIrPass
                 continue;
             }
 
-            // A StackAllocArray source's own element type and (if it has an
-            // initializer) recovered element count must agree with this
-            // constructor's own length argument and Span<T> type argument.
-            // Once the pointer is resolved (whether directly or through a
-            // slot), the source and the constructor's count/element-type are
-            // independent expressions in the tree -- nothing else proves they
-            // describe the same span, so a mismatch here would silently
-            // reinterpret the allocation under the wrong element type, or
-            // (with an initializer) change the observable Span.Length.
+            // A StackAllocArray source's own element type and count must
+            // agree with this constructor's own length argument and Span<T>
+            // type argument. Once the pointer is resolved (whether directly
+            // or through a slot), the source and the constructor's
+            // count/element-type are independent expressions in the tree --
+            // nothing else proves they describe the same span, so a mismatch
+            // here would silently reinterpret the allocation under the wrong
+            // element type, or change the observable Span.Length. Unlike
+            // StackAllocate.Size (bytes, not cleanly comparable to an element
+            // count at this IR layer), StackAllocArray.Count is already an
+            // element count and so is always comparable when both sides are
+            // literal constants.
             IEnumerable<IrExpression>? elements;
             if (source is StackAllocArray sourceArray)
             {
@@ -97,6 +111,10 @@ public sealed class StackAllocSpanPass : IIrPass
                 }
                 else
                 {
+                    if (sourceArray.Count is Constant { Value: int sourceCount }
+                        && (count is not Constant { Value: int ctorCount } || ctorCount != sourceCount))
+                        continue;
+
                     elements = null;
                 }
             }
