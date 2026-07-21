@@ -84,20 +84,27 @@ public sealed class StackAllocSpanPass : IIrPass
                 continue;
             }
 
-            // A StackAllocArray source's own element type and count must
-            // agree with this constructor's own length argument and Span<T>
-            // type argument. Once the pointer is resolved (whether directly
-            // or through a slot), the source and the constructor's
-            // count/element-type are independent expressions in the tree --
-            // nothing else proves they describe the same span, so a mismatch
-            // here would silently reinterpret the allocation under the wrong
-            // element type, or change the observable Span.Length. Unlike
-            // StackAllocate.Size (bytes, not cleanly comparable to an element
-            // count at this IR layer), StackAllocArray.Count is already an
-            // element count and so is always comparable when both sides are
-            // literal constants.
+            // A source's own size/count must agree with this constructor's
+            // own length argument and Span<T> type argument. Once the
+            // pointer is resolved (whether directly or through a slot), the
+            // source and the constructor's count/element-type are
+            // independent expressions in the tree -- nothing else proves
+            // they describe the same span, so a mismatch here would silently
+            // reinterpret the allocation under the wrong element type,
+            // change the observable Span.Length, or (for a raw
+            // StackAllocate) reserve a different number of bytes than the
+            // constructor's count implies. StackAllocArray.Count is already
+            // an element count; StackAllocate.Size is a byte count and must
+            // be proven equal to count * sizeof(element) instead.
             IEnumerable<IrExpression>? elements;
-            if (source is StackAllocArray sourceArray)
+            if (source is StackAllocate stackAllocate)
+            {
+                if (!IsProvenByteSize(stackAllocate.Size, count, element))
+                    continue;
+
+                elements = null;
+            }
+            else if (source is StackAllocArray sourceArray)
             {
                 if (!sourceArray.ElementType.Equals(element))
                     continue;
@@ -236,6 +243,66 @@ public sealed class StackAllocSpanPass : IIrPass
             && StructurallyEqual(x.Operand, y.Operand),
         _ => false,
     };
+
+    /// <summary>
+    /// Proves a raw <see cref="StackAllocate"/>'s byte size describes the
+    /// same allocation as the constructor's <paramref name="count"/> element
+    /// argument under <paramref name="element"/>'s size, so raising doesn't
+    /// silently reserve a different number of bytes than the constructor's
+    /// count implies. Accepts either the canonical compiler shape --
+    /// <paramref name="size"/> structurally is <c>count * sizeof(element)</c>
+    /// (either operand order, seeing through unchecked <see cref="Convert"/>
+    /// wrappers), which needs no numeric knowledge of the element's size and
+    /// so works for any element type including generic/struct types -- or,
+    /// when both sides are literal constants, requires a known fixed
+    /// primitive byte size for <paramref name="element"/> and an exact
+    /// arithmetic match.
+    /// </summary>
+    static bool IsProvenByteSize(IrExpression size, IrExpression count, TypeRef element)
+    {
+        var unwrappedSize = Unconvert(size);
+        var unwrappedCount = Unconvert(count);
+
+        if (unwrappedSize is Binary { Kind: BinaryKind.Multiply, IsChecked: false } multiply)
+        {
+            var left = Unconvert(multiply.Left);
+            var right = Unconvert(multiply.Right);
+            if (IsCountTimesElementSize(left, right, unwrappedCount, element)
+                || IsCountTimesElementSize(right, left, unwrappedCount, element))
+                return true;
+        }
+
+        return unwrappedSize is Constant { Value: int sizeValue }
+            && unwrappedCount is Constant { Value: int countValue }
+            && GetSizeOf(element) is { } elementSize
+            && sizeValue == countValue * elementSize;
+    }
+
+    static bool IsCountTimesElementSize(IrExpression countOperand, IrExpression sizeOfOperand, IrExpression count, TypeRef element)
+        => sizeOfOperand is SizeOf sizeOf && sizeOf.Type.Equals(element) && StructurallyEqual(countOperand, count);
+
+    static IrExpression Unconvert(IrExpression expression)
+    {
+        while (expression is Convert { IsChecked: false } convert)
+            expression = convert.Operand;
+        return expression;
+    }
+
+    static int? GetSizeOf(TypeRef type)
+    {
+        if (type.Kind == TypeRefKind.Definition && type.Assembly == TypeRef.CoreLibrary && type.Namespace == "System")
+        {
+            return type.Name switch
+            {
+                "Byte" or "SByte" or "Boolean" => 1,
+                "Int16" or "UInt16" or "Char" => 2,
+                "Int32" or "UInt32" or "Single" => 4,
+                "Int64" or "UInt64" or "Double" => 8,
+                _ => null,
+            };
+        }
+        return null;
+    }
 
     static IrNode? GetStatement(IrNode node)
     {

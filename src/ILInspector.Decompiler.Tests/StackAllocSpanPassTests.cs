@@ -162,14 +162,53 @@ public class StackAllocSpanPassTests
         // StackAllocInitializerPass/import) must still raise: requiring a
         // literal Constant here would reject this very common real-world
         // pattern and reintroduce the original invalid-Full CS8346 shape this
-        // pass exists to fix.
+        // pass exists to fix. The size's own `n` and the constructor's count
+        // argument are the same LoadLocal(0), matching the canonical
+        // `count * sizeof(element)` byte-size shape the compiler emits.
         var size = new Binary(BinaryKind.Multiply, isChecked: false, isUnsigned: false, new LoadLocal(0, Int32), new SizeOf(Int32));
-        var function = Build(StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new StackAllocate(size)));
+        var function = Build(StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new StackAllocate(size), new LoadLocal(0, Int32)));
 
         new StackAllocSpanPass().Run(function, PassContext.None);
 
         Assert.Single(function.Descendants.OfType<StackAllocArray>());
         Assert.Empty(function.Descendants.OfType<NewObject>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DirectPointerWithByteSizeCountMismatch_DoesNotRaise()
+    {
+        // The raw StackAllocate reserves 4 bytes, but the constructor claims
+        // 2 elements of a 4-byte element type (8 bytes) -- neither the
+        // canonical count*sizeof(element) shape nor a literal-constant match
+        // holds, so this must not raise: doing so would reserve half as many
+        // bytes as the constructor's own Span.Length implies.
+        var function = Build(StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new StackAllocate(new Constant(4, Int32)), count: 2));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SlotWithByteSizeCountMismatch_DoesNotRaise()
+    {
+        // Same defect as DirectPointerWithByteSizeCountMismatch, but through
+        // the slot-indirection path: the store's StackAllocate reserves 4
+        // bytes, the constructor claims 2 int elements (8 bytes) through the
+        // slot -- must not raise.
+        var store = new StoreStackSlot(0, new StackAllocate(new Constant(4, Int32)));
+        var newObject = StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new LoadStackSlot(0, VoidPointer), count: 2);
+
+        var function = BuildSlot(store, newObject);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var construction = Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Same(newObject, construction);
+        Assert.Single(function.Descendants.OfType<StackAllocate>()); // still the store's un-raised value
         function.CheckInvariant();
     }
 
