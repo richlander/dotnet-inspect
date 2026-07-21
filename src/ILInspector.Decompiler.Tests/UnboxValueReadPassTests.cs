@@ -70,6 +70,35 @@ public class UnboxValueReadPassTests
     }
 
     [Fact]
+    public void SpilledSlotValueRead_ThroughFullPipeline_NormalizesNotUnsafeUnbox()
+    {
+        // A spilled `ref T S = unbox o` place, read as a value:
+        //   S_0 = unbox Nullable<int>; return ldobj Nullable<int> S_0
+        // The final slot-collapsing inliner (ExpressionInliningPass) re-forms
+        // LoadIndirect(Unbox) only after the early passes run, so
+        // UnboxValueReadPass must sit AFTER it in IrPasses.Default. If it runs
+        // earlier, the re-formed value read spells Unsafe.Unbox<Nullable<int>>
+        // (CS0453). This drives the FULL pipeline to lock that ordering — the
+        // isolated-pass tests above cannot catch a late re-formed pair. (#2925
+        // review: GPT 5.6 Sol + Gemini 3.1 Pro both reproduced this.)
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Unbox(NullableInt, new LoadArgument(0, "o", ObjectType))));
+        block.Add(new Return(new LoadIndirect(NullableInt, new LoadStackSlot(0, TypeRef.ByRef(NullableInt)))));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(NullableInt, [new Parameter("o", ObjectType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("synthetic", "", "Holder"), signature, [], container);
+
+        IrPasses.Run(function);  // full Default pipeline, including the late inliner
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<Unbox>());
+        var output = CSharpPrinter.Print(function).Output!;
+        Assert.DoesNotContain("Unsafe.Unbox", output);
+        AssertCompiles("public static int? M(object o)", output);
+    }
+
+    [Fact]
     public void ReinterpretingRead_IsNotNormalized()
     {
         // ldobj Int64 over unbox Int32 is a reinterpret, not unbox.any: the pass
