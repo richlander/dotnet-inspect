@@ -1890,7 +1890,9 @@ public sealed partial class CSharpPrinter
     /// <c>extern</c> — or, by the compat heuristic, one with a pointer in its
     /// signature), or a <c>stackalloc</c> converted to a <c>Span</c> with no
     /// initializer in a <c>[SkipLocalsInit]</c> body. Dereferencing a managed
-    /// reference (<c>ByRef</c>) is safe and excluded. Creating pointers, the
+    /// reference (<c>ByRef</c>) is safe and excluded. Converting an unbox
+    /// reference to a native integer is included because its faithful spelling
+    /// uses <c>Unsafe.AsPointer</c>. Creating pointers, the
     /// String-pin fixed statements raised through a synthesized stack-slot
     /// pointer need an unsafe context for their header. Creating pointers,
     /// ordinary <c>fixed</c> statements, and <c>sizeof</c> are safe under the new
@@ -1908,6 +1910,7 @@ public sealed partial class CSharpPrinter
         NewObject n => n.Constructor.RequiresUnsafe || SignatureRequiresUnsafe(n.Constructor),
         Binary b => IsPointerArithmetic(b),
         Comparison c => IsPointerComparison(c),
+        Convert c => IsUnboxPointerConversion(c),
         FixedBufferElementAddress => true,
         LoadIndirect { Address: FixedBufferElementAddress } => true,
         StoreIndirect { Address: FixedBufferElementAddress } => true,
@@ -2938,6 +2941,9 @@ public sealed partial class CSharpPrinter
     static bool IsNativeInteger(TypeRef? type)
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "IntPtr" or "UIntPtr" };
 
+    static bool IsUnboxPointerConversion(Convert convert)
+        => IsNativeInteger(convert.Target) && convert.Operand is Unbox;
+
     /// <summary>
     /// The C# type a store-indirect writes through. A primitive <c>stind</c>
     /// opcode carries its own signed type (<c>stind.i4</c> → <c>int</c>) which
@@ -3749,6 +3755,14 @@ public sealed partial class CSharpPrinter
 
     string ConvertBody(Convert convert, bool wrap, bool uncheckedOverflow)
     {
+        if (IsUnboxPointerConversion(convert) && convert.Operand is Unbox unbox)
+        {
+            string pointer = $"System.Runtime.CompilerServices.Unsafe.AsPointer(ref System.Runtime.CompilerServices.Unsafe.Unbox<{TypeText(unbox.Type)}>({Operand(unbox.Operand)}))";
+            string pointerCast = $"({TypeText(convert.Target)}){pointer}";
+            if (wrap)
+                return $"checked({pointerCast})";
+            return uncheckedOverflow ? $"unchecked({pointerCast})" : pointerCast;
+        }
         // An address-of node (ldloca/ldarga/ldflda/ldelema) converted to a
         // pointer or native integer (conv.u/conv.i) is C#'s address-of operator,
         // not a `ref` place: `(nuint)(ref x)` is CS1525 — the faithful unsafe
