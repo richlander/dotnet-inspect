@@ -175,6 +175,11 @@ public class FidelityGateTests
         "CachedDelegateChain",
         "CapturingLambda",
         "CapturingLocalBodyLambda",
+        // #2945: outer-body reads of a hoisted capture field are substituted back
+        // to the captured source and the display class elides, so this fully
+        // raises; recompiling regenerates a fresh display class whose synthesized
+        // ordinals differ under contract V1.
+        "CapturedParamReadInOuterBody",
         "ClosureCapture",
         "CountPositive",
         "DayNumber",

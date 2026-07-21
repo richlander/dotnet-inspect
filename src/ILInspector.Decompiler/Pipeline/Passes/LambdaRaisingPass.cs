@@ -108,7 +108,11 @@ public sealed class LambdaRaisingPass : IIrPass
     // up across statements: `dc = new DC(); dc.f = v; ... use(new Func(dc.b__N))`.
     // Each delegate creation over the local is raised by substituting the captured
     // values, then the allocation and capture stores are elided so the environment
-    // disappears (the now-unreferenced local prints nothing).
+    // disappears (the now-unreferenced local prints nothing). A capture field may
+    // also be read directly in the outer body (`if (dc.f is null)`): once a
+    // variable is hoisted the compiler routes every source reference through the
+    // field, so those outer reads are substituted back to the captured source
+    // alongside the lambda bodies' `this.f` reads (#2945).
     static void RaiseLocalDisplayClasses(IrFunction function, PassContext context)
     {
         foreach (var alloc in function.Descendants.OfType<StoreLocal>().ToList())
@@ -124,11 +128,13 @@ public sealed class LambdaRaisingPass : IIrPass
             if (function.Descendants.OfType<StoreLocal>().Count(s => s.Index == slot) != 1)
                 continue;
 
-            // Classify every read of the local: a capture store's receiver, or a
-            // lambda delegate target. Any other use means we cannot elide it.
+            // Classify every read of the local: a capture store's receiver, a
+            // lambda delegate target, or an outer-body read of a capture field.
+            // Any other use means we cannot elide it.
             var captures = new Dictionary<string, IrExpression>(StringComparer.Ordinal);
             var captureStores = new List<StoreField>();
             var creations = new List<DelegateCreation>();
+            var outerReads = new List<LoadField>();
             bool elidable = true;
             foreach (var load in function.Descendants.OfType<LoadLocal>().Where(l => l.Index == slot))
             {
@@ -155,6 +161,14 @@ public sealed class LambdaRaisingPass : IIrPass
                     && Equals(creation.Method.DeclaringType, dcType))
                 {
                     creations.Add(creation);
+                }
+                else if (load.Parent is LoadField outerRead
+                    && ReferenceEquals(outerRead.Instance, load)
+                    && Equals(outerRead.Field.DeclaringType, dcType))
+                {
+                    // An outer-body read of a hoisted field (e.g. `dc.f is null`).
+                    // Validated and substituted below once every capture is known.
+                    outerReads.Add(outerRead);
                 }
                 else
                 {
@@ -192,6 +206,26 @@ public sealed class LambdaRaisingPass : IIrPass
             if (!layoutOk)
                 continue;
 
+            // Every outer-body read must reference a known capture field and sit
+            // in the setup block after that field's single store. The read then
+            // observes exactly the stored source, so substituting `dc.f` with that
+            // source is sound. A read that is unstored, or nested under control
+            // flow / before its store (StatementIndex -1 or <= the store), is not
+            // provably dominated by the store, so the whole environment stays
+            // lowered rather than risk substituting a default/stale value.
+            bool outerReadsOk = true;
+            foreach (var outerRead in outerReads)
+            {
+                if (!storeIndexByField.TryGetValue(outerRead.Field.Name, out int storeIndex)
+                    || StatementIndex(outerRead, setupBlock) is var readIndex && readIndex <= storeIndex)
+                {
+                    outerReadsOk = false;
+                    break;
+                }
+            }
+            if (!outerReadsOk)
+                continue;
+
             // Raise every lambda first; commit nothing unless all succeed and each
             // lambda's read fields are stored before its creation. The environment
             // allocation is each lambda's outer provenance anchor.
@@ -216,6 +250,8 @@ public sealed class LambdaRaisingPass : IIrPass
                 context.Stepper.StepOver($"raise captured lambda {creation.Method.Name}", creation);
                 creation.ReplaceWith(lambda);
             }
+            foreach (var outerRead in outerReads)
+                outerRead.ReplaceWith(captures[outerRead.Field.Name].Clone());
             foreach (var store in captureStores)
                 store.Detach();
             alloc.Detach();
