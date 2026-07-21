@@ -89,6 +89,100 @@ public sealed class RoundTripComparisonTests
         Assert.Empty(result.Members);
     }
 
+    [Fact]
+    public void ScopeCompare_ComparesClusterAndAllDonorsDirectly()
+    {
+        var clusterRequest = CreateRequest();
+        var allRequest = WithScope(clusterRequest, RoundTripScope.All);
+        var cluster = CompileResult(DonorSource("value + 1"));
+        var all = CompileResult(DonorSource("value + 1", includeUnrelated: true));
+
+        var result = RoundTripScopeComparison.Compare(
+            clusterRequest,
+            cluster.Provenance,
+            cluster.PeImage!,
+            allRequest,
+            all.Provenance,
+            all.PeImage!);
+
+        Assert.Equal(RoundTripScopeComparisonStatus.Completed, result.Status);
+        var member = Assert.Single(result.Members);
+        Assert.Equal(RoundTripEvidenceStatus.Exact, member.CSharpStatus);
+        Assert.Equal(IlBodyDiffOutcome.Exact, member.IlStatus);
+        Assert.NotNull(result.Cluster);
+        Assert.NotNull(result.All);
+    }
+
+    [Fact]
+    public void ScopeCompare_ReportsCleanDirectDonorDifference()
+    {
+        var clusterRequest = CreateRequest();
+        var allRequest = WithScope(clusterRequest, RoundTripScope.All);
+        var cluster = CompileResult(DonorSource("value + 1"));
+        var all = CompileResult(DonorSource("value + 2", includeUnrelated: true));
+
+        var result = RoundTripScopeComparison.Compare(
+            clusterRequest,
+            cluster.Provenance,
+            cluster.PeImage!,
+            allRequest,
+            all.Provenance,
+            all.PeImage!);
+
+        Assert.Equal(RoundTripScopeComparisonStatus.Completed, result.Status);
+        var member = Assert.Single(result.Members);
+        Assert.Equal(RoundTripEvidenceStatus.Changed, member.CSharpStatus);
+        Assert.NotEqual(IlBodyDiffOutcome.Exact, member.IlStatus);
+    }
+
+    [Fact]
+    public void ScopeCompare_RejectsCompilerContextMismatch()
+    {
+        var clusterRequest = CreateRequest();
+        var allRequest = WithScope(clusterRequest, RoundTripScope.All);
+        var cluster = CompileResult(DonorSource("value + 1"), OptimizationLevel.Release);
+        var all = CompileResult(DonorSource("value + 1", includeUnrelated: true), OptimizationLevel.Debug);
+
+        var result = RoundTripScopeComparison.Compare(
+            clusterRequest,
+            cluster.Provenance,
+            cluster.PeImage!,
+            allRequest,
+            all.Provenance,
+            all.PeImage!);
+
+        Assert.Equal(RoundTripScopeComparisonStatus.Unavailable, result.Status);
+        Assert.Contains("compiler or reference context differs", result.Failure);
+        Assert.Null(result.Cluster);
+        Assert.Empty(result.Members);
+    }
+
+    [Fact]
+    public void ScopeCompare_RejectsReferenceContentMismatch()
+    {
+        var clusterRequest = CreateRequest();
+        var allRequest = WithScope(clusterRequest, RoundTripScope.All);
+        var cluster = CompileResult(DonorSource("value + 1"));
+        var all = CompileResult(DonorSource("value + 1", includeUnrelated: true));
+        var changedReference = all.Provenance.References[0] with { Sha256 = new string('0', 64) };
+        var changedContext = all.Provenance with
+        {
+            References = all.Provenance.References.SetItem(0, changedReference),
+        };
+
+        var result = RoundTripScopeComparison.Compare(
+            clusterRequest,
+            cluster.Provenance,
+            cluster.PeImage!,
+            allRequest,
+            changedContext,
+            all.PeImage!);
+
+        Assert.Equal(RoundTripScopeComparisonStatus.Unavailable, result.Status);
+        Assert.Contains("compiler or reference context differs", result.Failure);
+        Assert.Empty(result.Members);
+    }
+
     static RoundTripRequest CreateRequest()
     {
         using var image = new MetadataImage(AssemblyPath);
@@ -125,6 +219,36 @@ public sealed class RoundTripComparisonTests
         Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
         return output.ToArray();
     }
+
+    static RoundTripCompilationResult<string> CompileResult(
+        string source,
+        OptimizationLevel optimization = OptimizationLevel.Release)
+        => RoundTripCompilationEngine.Compile(
+            compose: () => source,
+            source: artifact => artifact,
+            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            new CSharpParseOptions(LanguageVersion.Preview),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, optimizationLevel: optimization),
+            grow: (_, _, _) => RoundTripGrowthResult.Stop("unexpected"));
+
+    static RoundTripRequest WithScope(RoundTripRequest request, RoundTripScope scope)
+        => RoundTripRequest.Create(
+            request.Artifact,
+            request.Module,
+            request.Targets,
+            scope,
+            request.BodyPolicy,
+            request.Replacements);
+
+    static string DonorSource(string expression, bool includeUnrelated = false)
+        => $$"""
+            namespace ILInspector.Decompiler.Tests;
+            public sealed class RoundTripComparisonFixture
+            {
+                public int Transform(int value) => {{expression}};
+            }
+            {{(includeUnrelated ? "public sealed class Unrelated { }" : "")}}
+            """;
 
     static MethodDefinitionHandle FindMethod(MetadataReader reader, string typeName, string methodName)
     {

@@ -1,4 +1,7 @@
 using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
+using System.Security.Cryptography;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -18,6 +21,34 @@ public sealed record RoundTripCompilationOptions
     public string AssemblyName { get; init; } = "round-trip-artifact";
 }
 
+public sealed record RoundTripReferenceProvenance(
+    int Ordinal,
+    string Display,
+    string? Path,
+    string? Sha256,
+    Guid? ModuleVersionId,
+    ImmutableArray<string> Aliases,
+    bool EmbedInteropTypes);
+
+public sealed record RoundTripCompilationProvenance(
+    string CompilerVersion,
+    string LanguageVersion,
+    string SourceCodeKind,
+    string DocumentationMode,
+    ImmutableArray<string> ParseFeatures,
+    string OutputKind,
+    string OptimizationLevel,
+    string Platform,
+    bool CheckOverflow,
+    bool AllowUnsafe,
+    string NullableContextOptions,
+    bool Deterministic,
+    ImmutableArray<RoundTripReferenceProvenance> References)
+{
+    public bool HasExactReferenceContent
+        => References.All(reference => reference.Sha256 is not null);
+}
+
 public readonly record struct RoundTripGrowthResult(bool Grew, string? StopReason)
 {
     public static RoundTripGrowthResult Continue { get; } = new(true, null);
@@ -32,7 +63,8 @@ public sealed record RoundTripCompilationResult<TArtifact>(
     ImmutableArray<Diagnostic> Diagnostics,
     Diagnostic? FirstError,
     byte[]? PeImage,
-    string? StopReason)
+    string? StopReason,
+    RoundTripCompilationProvenance Provenance)
 {
     public bool Succeeded => Status == RoundTripCompilationStatus.Succeeded;
 }
@@ -64,6 +96,7 @@ public static class RoundTripCompilationEngine
             throw new ArgumentOutOfRangeException(nameof(options), "MaxIterations must be positive.");
         if (string.IsNullOrWhiteSpace(options.AssemblyName))
             throw new ArgumentException("AssemblyName must be non-empty.", nameof(options));
+        var provenance = CreateProvenance(references, parseOptions, compilationOptions);
 
         Diagnostic? firstError = null;
         ImmutableArray<Diagnostic> lastDiagnostics = [];
@@ -91,7 +124,8 @@ public static class RoundTripCompilationEngine
                     emit.Diagnostics,
                     firstError,
                     output.ToArray(),
-                    StopReason: null);
+                    StopReason: null,
+                    provenance);
             }
 
             var errors = emit.Diagnostics
@@ -108,7 +142,8 @@ public static class RoundTripCompilationEngine
                     emit.Diagnostics,
                     firstError,
                     PeImage: null,
-                    growth.StopReason ?? "closure-stalled");
+                    growth.StopReason ?? "closure-stalled",
+                    provenance);
             }
         }
 
@@ -120,6 +155,56 @@ public static class RoundTripCompilationEngine
             lastDiagnostics,
             firstError,
             PeImage: null,
-            StopReason: "closure-iteration-budget");
+            StopReason: "closure-iteration-budget",
+            provenance);
+    }
+
+    static RoundTripCompilationProvenance CreateProvenance(
+        IReadOnlyList<MetadataReference> references,
+        CSharpParseOptions parseOptions,
+        CSharpCompilationOptions compilationOptions)
+        => new(
+            typeof(CSharpCompilation).Assembly.GetName().Version?.ToString() ?? "unknown",
+            parseOptions.LanguageVersion.ToString(),
+            parseOptions.Kind.ToString(),
+            parseOptions.DocumentationMode.ToString(),
+            parseOptions.Features
+                .OrderBy(feature => feature.Key, StringComparer.Ordinal)
+                .Select(feature => $"{feature.Key}={feature.Value}")
+                .ToImmutableArray(),
+            compilationOptions.OutputKind.ToString(),
+            compilationOptions.OptimizationLevel.ToString(),
+            compilationOptions.Platform.ToString(),
+            compilationOptions.CheckOverflow,
+            compilationOptions.AllowUnsafe,
+            compilationOptions.NullableContextOptions.ToString(),
+            compilationOptions.Deterministic,
+            references.Select((reference, ordinal) => ReferenceProvenance(reference, ordinal)).ToImmutableArray());
+
+    static RoundTripReferenceProvenance ReferenceProvenance(MetadataReference reference, int ordinal)
+    {
+        string? path = (reference as PortableExecutableReference)?.FilePath;
+        string? hash = null;
+        Guid? mvid = null;
+        if (path is { Length: > 0 } && File.Exists(path))
+        {
+            using var stream = File.OpenRead(path);
+            hash = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+            stream.Position = 0;
+            using var pe = new PEReader(stream, PEStreamOptions.LeaveOpen);
+            if (pe.HasMetadata)
+            {
+                var reader = pe.GetMetadataReader();
+                mvid = reader.GetGuid(reader.GetModuleDefinition().Mvid);
+            }
+        }
+        return new RoundTripReferenceProvenance(
+            ordinal,
+            reference.Display ?? path ?? $"reference:{ordinal}",
+            path is null ? null : System.IO.Path.GetFullPath(path),
+            hash,
+            mvid,
+            reference.Properties.Aliases.ToImmutableArray(),
+            reference.Properties.EmbedInteropTypes);
     }
 }

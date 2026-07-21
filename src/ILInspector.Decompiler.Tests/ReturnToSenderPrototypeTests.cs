@@ -3,6 +3,7 @@ using ILInspector.CSharp;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
+using ILInspector.Instructions;
 using DotnetInspector.RoundTripCompilation;
 
 using Microsoft.CodeAnalysis;
@@ -36,14 +37,9 @@ public class ReturnToSenderPrototypeTests
         try
         {
             var target = new ReturnToSender.RequestedTarget("Target", "Run", 0);
-            var cluster = Assert.Single(ReturnToSender.CompileBackTargets(
-                assemblyPath,
-                [target],
-                RoundTripScope.Cluster));
-            var all = Assert.Single(ReturnToSender.CompileBackTargets(
-                assemblyPath,
-                [target],
-                RoundTripScope.All));
+            var pair = ReturnToSender.CompileBackScopes(assemblyPath, target);
+            var cluster = pair.Cluster;
+            var all = pair.All;
 
             Assert.DoesNotContain("class Unrelated", cluster.Source);
             Assert.Contains("class Unrelated", all.Source);
@@ -55,8 +51,16 @@ public class ReturnToSenderPrototypeTests
             Assert.Contains("UnsupportedDelegate", all.UnsupportedDeclarations);
             Assert.False(cluster.UsedCompileBackFloor, cluster.Detail);
             Assert.False(all.UsedCompileBackFloor, all.Detail);
+            Assert.NotNull(cluster.Compilation);
+            Assert.NotNull(all.Compilation);
+            Assert.NotNull(cluster.DonorPe);
+            Assert.NotNull(all.DonorPe);
             Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, all.Status);
             Assert.NotEqual(FidelityCheck.CompileBackStatus.ContextFail, all.Status);
+            Assert.Equal(RoundTripScopeComparisonStatus.Completed, pair.Comparison.Status);
+            var comparison = Assert.Single(pair.Comparison.Members);
+            Assert.Equal(RoundTripEvidenceStatus.Exact, comparison.CSharpStatus);
+            Assert.Equal(IlBodyDiffOutcome.Exact, comparison.IlStatus);
         }
         finally
         {

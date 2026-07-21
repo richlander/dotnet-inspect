@@ -368,7 +368,9 @@ public sealed record CompileBackPlanningDiagnostic(string Layer, string Reason, 
 internal sealed record ProductTargetBody(
     string Source,
     IReadOnlyList<DecompilerDecision> Decisions,
-    string? ConstructorChain = null);
+    string? ConstructorChain = null,
+    bool RequiresAsyncModifier = false,
+    bool RequiresUnsafeModifier = false);
 
 internal sealed record ExplicitInterfaceEventInfo(
     TypeDefinitionHandle InterfaceType,
@@ -406,7 +408,9 @@ public static class CompileBackSourceComposer
         return new ProductTargetBody(
             produced.Body.Source,
             produced.Projection.Decisions,
-            produced.Projection.ConstructorChain);
+            produced.Projection.ConstructorChain,
+            produced.Body.RequiresAsyncModifier,
+            produced.Body.RequiresUnsafeModifier);
     }
 
     // ReferencedNamespaces already returns an ordinal-sorted set; route "System"

@@ -3,6 +3,7 @@ using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
+using System.Text.Json.Serialization;
 
 using DotnetInspector.Services;
 using DotnetInspector.RoundTripCompilation;
@@ -73,10 +74,18 @@ static class ReturnToSender
         public IReadOnlyList<string> UnsupportedDeclarations { get; init; } = [];
         public bool DeclarationComplete
             => Scope != RoundTripScope.All || UnsupportedDeclarations.Count == 0;
+        public RoundTripCompilationProvenance? Compilation { get; init; }
+        [JsonIgnore]
+        public byte[]? DonorPe { get; init; }
         internal ArtifactRequest? FinalRequest { get; init; }
     }
 
     public sealed record RequestedTarget(string Type, string Method, int Overload, string? Signature = null);
+
+    public sealed record ScopePairResult(
+        Result Cluster,
+        Result All,
+        RoundTripScopeComparisonResult Comparison);
 
     sealed class NoSupportedReturnToSenderTargetsException(string message) : InvalidOperationException(message);
 
@@ -493,6 +502,84 @@ static class ReturnToSender
             ReturnToSenderSourceIndex.TryCreate(assemblyPath),
             applyCompileBackFloor: true,
             scope);
+
+    public static ScopePairResult CompileBackScopes(
+        string assemblyPath,
+        RequestedTarget target)
+    {
+        var sourceIndex = ReturnToSenderSourceIndex.TryCreate(assemblyPath);
+        var cluster = AssertSingleScope(CompileBackTargets(
+            assemblyPath,
+            [target],
+            sourceIndex,
+            applyCompileBackFloor: false,
+            RoundTripScope.Cluster));
+        var all = AssertSingleScope(CompileBackTargets(
+            assemblyPath,
+            [target],
+            sourceIndex,
+            applyCompileBackFloor: false,
+            RoundTripScope.All));
+        var clusterRequest = CreateRoundTripRequest(assemblyPath, cluster, RoundTripScope.Cluster);
+        var allRequest = CreateRoundTripRequest(assemblyPath, all, RoundTripScope.All);
+        var comparison = cluster.Compilation is not null && cluster.DonorPe is not null
+            && all.Compilation is not null && all.DonorPe is not null
+                ? RoundTripScopeComparison.Compare(
+                    clusterRequest,
+                    cluster.Compilation,
+                    cluster.DonorPe,
+                    allRequest,
+                    all.Compilation,
+                    all.DonorPe)
+                : new RoundTripScopeComparisonResult(
+                    RoundTripScopeComparisonStatus.Unavailable,
+                    Cluster: null,
+                    All: null,
+                    Members: [],
+                    Failure: cluster.Detail ?? all.Detail ?? "cluster or all donor compilation unavailable");
+        return new ScopePairResult(cluster, all, comparison);
+
+        static Result AssertSingleScope(IReadOnlyList<Result> results)
+            => results.Count == 1
+                ? results[0]
+                : throw new InvalidOperationException($"Expected one scope result, found {results.Count}.");
+    }
+
+    static RoundTripRequest CreateRoundTripRequest(
+        string assemblyPath,
+        Result result,
+        RoundTripScope scope)
+    {
+        if (result.FinalRequest is not { } finalRequest)
+            throw new InvalidOperationException("Scope result has no final artifact request.");
+        if (result.MemberAnchor is not { } anchor)
+            throw new InvalidOperationException("Scope result has no typed member anchor.");
+
+        using var stream = File.OpenRead(assemblyPath);
+        using var pe = new PEReader(stream);
+        var reader = pe.GetMetadataReader();
+        var module = reader.GetModuleDefinition();
+        var address = MetadataMethodAddress.Create(reader, finalRequest.TargetMethod);
+        var target = new RoundTripTarget(address, anchor);
+        var initializer = finalRequest.TargetBody.ConstructorChain is { } chain
+            ? CSharpFormatter.ParseConstructorInitializer(chain)
+            : null;
+        var replacement = RoundTripMethodReplacement.Create(
+            address,
+            anchor,
+            new CSharpBlockBody(finalRequest.TargetBody.Source, initializer)
+            {
+                RequiresAsyncModifier = finalRequest.TargetBody.RequiresAsyncModifier,
+                RequiresUnsafeModifier = finalRequest.TargetBody.RequiresUnsafeModifier,
+            });
+        return RoundTripRequest.Create(
+            RoundTripArtifactIdentity.FromFile(assemblyPath, "return-to-sender"),
+            new RoundTripModuleIdentity(reader.GetString(module.Name), address.ModuleVersionId),
+            [target],
+            scope,
+            RoundTripBodyPolicy.Selected,
+            [replacement]);
+    }
 
     public static IReadOnlyList<Result> CompileBackTargets(
         string assemblyPath,
@@ -1376,6 +1463,7 @@ static class ReturnToSender
                     Decisions: targetBody.Decisions)
                 {
                     FinalRequest = sourceResult.Request,
+                    Compilation = compilationResult.Provenance,
                 };
             }
 
@@ -1397,6 +1485,7 @@ static class ReturnToSender
                 FaultIsolation: faultIsolation)
             {
                 FinalRequest = sourceResult.Request,
+                Compilation = compilationResult.Provenance,
             };
         }
 
@@ -1433,6 +1522,8 @@ static class ReturnToSender
                 Decisions: targetBody.Decisions)
             {
                 FinalRequest = sourceResult.Request,
+                Compilation = compilationResult.Provenance,
+                DonorPe = recompiledBytes,
             };
         }
 
@@ -1464,6 +1555,8 @@ static class ReturnToSender
             FidelityDiff: fidelityDiff)
         {
             FinalRequest = sourceResult.Request,
+            Compilation = compilationResult.Provenance,
+            DonorPe = recompiledBytes,
         };
     }
 

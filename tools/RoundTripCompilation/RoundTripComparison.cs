@@ -51,7 +51,8 @@ public sealed record RoundTripComparisonResult(
     RoundTripRequest Request,
     string DonorSha256,
     ImmutableArray<RoundTripMemberComparison> Members,
-    string? Failure);
+    string? Failure,
+    RoundTripCompilationProvenance? Compilation);
 
 /// <summary>
 /// Compares selected methods in an emitted donor against the exact requested
@@ -62,7 +63,8 @@ public static class RoundTripComparison
 {
     public static RoundTripComparisonResult Compare(
         RoundTripRequest request,
-        byte[] donorPe)
+        byte[] donorPe,
+        RoundTripCompilationProvenance? compilation = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(donorPe);
@@ -136,7 +138,8 @@ public static class RoundTripComparison
                 request,
                 donorHash,
                 members.ToImmutable(),
-                Failure: null);
+                Failure: null,
+                compilation);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -206,5 +209,6 @@ public static class RoundTripComparison
             request,
             donorHash,
             Members: [],
-            failure);
+            failure,
+            Compilation: null);
 }
