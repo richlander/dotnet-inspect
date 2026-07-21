@@ -555,6 +555,137 @@ public class StackAllocSpanPassTests
     }
 
     [Fact]
+    public void SlotWithLoadNestedAsLaterCallArgument_DoesNotRaise()
+    {
+        // The constructor call is only an argument of an enclosing Call, not
+        // the statement's entire expression -- an earlier argument to that
+        // same Call (Marker()) evaluates before it. Even though the statement
+        // itself is a permitted, single-evaluation ExpressionStatement and
+        // adjacent to the store, this must not raise: doing so would move the
+        // allocation to run after Marker() instead of before it.
+        var store = new StoreStackSlot(0, new StackAllocate(new Constant(4, Int32)));
+        var newObject = StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new LoadStackSlot(0, VoidPointer), count: 1);
+        var marker = new Call(new MethodRef(Holder, "Marker", Void, [], HasThis: false), isVirtual: false, []);
+        var consume = new Call(new MethodRef(Holder, "Consume", Void, [Void, newObject.ResultType!], HasThis: false), isVirtual: false, [marker, newObject]);
+        var expressionStatement = new ExpressionStatement(consume);
+
+        var block = new Block(0);
+        block.Add(store);
+        block.Add(expressionStatement);
+        block.Add(new Return(new Constant(0, Int32)));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Int32, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var construction = Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Same(newObject, construction);
+        Assert.Single(function.Descendants.OfType<StackAllocate>()); // still the store's un-raised value
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SlotWithUninitializedArrayDynamicUnrelatedCountMismatch_DoesNotRaise()
+    {
+        // Neither the source's own (dynamic) Count nor the constructor's
+        // length argument is a literal constant, so value equality can't be
+        // checked -- but they are two different, unrelated locals, not the
+        // same expression. Raising would silently use the wrong count as the
+        // observable Span.Length/allocation size.
+        var stackAllocArray = new StackAllocArray(Int32, new LoadLocal(0, Int32), TypeRef.Pointer(Int32));
+        var store = new StoreStackSlot(0, stackAllocArray);
+        var newObject = StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new LoadStackSlot(0, VoidPointer), new LoadLocal(1, Int32));
+
+        var function = BuildSlot(store, newObject);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var construction = Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Same(newObject, construction);
+        var unraised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.False(unraised.HasInitializer); // still the store's un-raised value
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SlotWithLoadInsideStoreStackSlotStatement_Raises()
+    {
+        // StoreStackSlot is itself a single-evaluation leaf statement (the
+        // compiler commonly stores a constructed Span into another slot when
+        // preparing a method argument) -- it must be accepted as "the
+        // adjacent statement," not just ExpressionStatement/Return/Throw/
+        // StoreLocal.
+        var store = new StoreStackSlot(0, new StackAllocate(new Constant(4, Int32)));
+        var newObject = StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new LoadStackSlot(0, VoidPointer), count: 1);
+        var argumentSlotStore = new StoreStackSlot(1, newObject);
+
+        var block = new Block(0);
+        block.Add(store);
+        block.Add(argumentSlotStore);
+        block.Add(new Return(new LoadStackSlot(1, newObject.ResultType!)));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(newObject.ResultType!, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Empty(function.Descendants.OfType<NewObject>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SlotWithLoadInsideConditionalBranch_DoesNotRaise()
+    {
+        // The load sits inside the WhenTrue arm of a Conditional (ternary)
+        // nested in an otherwise-linear StoreLocal statement -- the statement
+        // itself is adjacent and a permitted type, but the load is only
+        // conditionally evaluated (when the ternary's condition is true), so
+        // moving an unconditional allocation there would make it conditional.
+        var store = new StoreStackSlot(0, new StackAllocate(new Constant(4, Int32)));
+        var newObject = StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new LoadStackSlot(0, VoidPointer), count: 1);
+        var conditional = new Conditional(
+            new Constant(false, TypeRef.CoreLib("System", "Boolean")),
+            newObject,
+            new DefaultValue(newObject.ResultType!));
+        var storeLocal = new StoreLocal(0, newObject.ResultType!, conditional);
+
+        var block = new Block(0);
+        block.Add(store);
+        block.Add(storeLocal);
+        block.Add(new Return(new LoadLocal(0, newObject.ResultType!)));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(newObject.ResultType!, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var construction = Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Same(newObject, construction);
+        Assert.Single(function.Descendants.OfType<StackAllocate>()); // still the store's un-raised value
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void SlotThroughNonStackallocStore_DoesNotRaise()
     {
         var store = new StoreStackSlot(0, new Call(new MethodRef(Holder, "GetPointer", VoidPointer, [], HasThis: false), isVirtual: false, []));

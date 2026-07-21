@@ -75,7 +75,7 @@ public sealed class StackAllocSpanPass : IIrPass
             {
                 source = directSource;
             }
-            else if (TryResolveOwnedSlotSource(pointer, storesBySlot, loadsBySlot, out var slotSource, out ownedStore))
+            else if (TryResolveOwnedSlotSource(newObject, pointer, storesBySlot, loadsBySlot, out var slotSource, out ownedStore))
             {
                 source = slotSource;
             }
@@ -111,8 +111,18 @@ public sealed class StackAllocSpanPass : IIrPass
                 }
                 else
                 {
-                    if (sourceArray.Count is Constant { Value: int sourceCount }
-                        && (count is not Constant { Value: int ctorCount } || ctorCount != sourceCount))
+                    // Count is already an element count (unlike Size), so it
+                    // is comparable to the constructor's length argument even
+                    // when dynamic: a literal source count requires an equal
+                    // literal ctor count, and a dynamic source count requires
+                    // the ctor's count to be the structurally identical
+                    // expression -- otherwise two independent, unrelated
+                    // dynamic quantities (e.g. two different locals) could
+                    // silently pass each other off as the same count.
+                    var agrees = sourceArray.Count is Constant { Value: int sourceCount }
+                        ? count is Constant { Value: int ctorCount } && ctorCount == sourceCount
+                        : StructurallyEqual(sourceArray.Count, count);
+                    if (!agrees)
                         continue;
 
                     elements = null;
@@ -143,6 +153,7 @@ public sealed class StackAllocSpanPass : IIrPass
     /// allocation.
     /// </summary>
     static bool TryResolveOwnedSlotSource(
+        NewObject newObject,
         IrExpression pointer,
         Dictionary<int, List<StoreStackSlot>> storesBySlot,
         Dictionary<int, List<LoadStackSlot>> loadsBySlot,
@@ -170,13 +181,58 @@ public sealed class StackAllocSpanPass : IIrPass
         var loadStatement = GetStatement(load);
         if (loadStatement == null || loadStatement.Parent != parentBlock || loadStatement.ChildIndex != store.ChildIndex + 1)
             return false; // Escaped, reordered, or not adjacent to the store: some other statement could sit between them and observe or alter state before the load.
-        if (loadStatement is not (ExpressionStatement or Return or Throw or StoreLocal))
-            return false; // A loop or branch header (While/For/DoWhile/IfElse/Switch) evaluates its held expression repeatedly or conditionally; moving the allocation into it would change how many times (or whether) it executes.
+        if (GetHeldExpression(loadStatement) != newObject)
+            return false; // The constructor call must be the statement's entire expression, not merely reachable somewhere inside it -- otherwise some other subexpression of the same statement (an earlier call argument, a ternary/coalesce/switch-expression branch, a short-circuited && / || operand, ...) could be evaluated unconditionally-but-not-first, or only conditionally, relative to the moved allocation.
 
         source = normalized;
         ownedStore = store;
         return true;
     }
+
+    /// <summary>
+    /// The single expression a linear (single-evaluation) statement holds, or
+    /// null for any other node (a loop/switch/if header, or any other
+    /// control-construct GetStatement can return). Requiring the constructor
+    /// call be exactly this expression -- not merely nested somewhere inside
+    /// it -- proves nothing else in the statement evaluates before, instead
+    /// of, or conditionally relative to the moved allocation.
+    /// </summary>
+    static IrExpression? GetHeldExpression(IrNode statement) => statement switch
+    {
+        ExpressionStatement s => s.Expression,
+        Return s => s.Value,
+        Throw s => s.Value,
+        StoreLocal s => s.Value,
+        StoreStackSlot s => s.Value,
+        StoreField s => s.Value,
+        StoreIndirect s => s.Value,
+        StoreArgument s => s.Value,
+        StoreElement s => s.Value,
+        _ => null,
+    };
+
+    /// <summary>
+    /// Deep structural equality over the same expression shapes
+    /// <see cref="IsSideEffectFree"/> permits -- used to prove a dynamic
+    /// (non-constant) <see cref="StackAllocArray.Count"/> and the
+    /// constructor's own length argument describe the same quantity, since
+    /// neither side being a literal rules out comparing by value.
+    /// </summary>
+    static bool StructurallyEqual(IrExpression a, IrExpression b) => (a, b) switch
+    {
+        (Constant x, Constant y) => Equals(x.Value, y.Value),
+        (LoadLocal x, LoadLocal y) => x.Index == y.Index,
+        (LoadArgument x, LoadArgument y) => x.Index == y.Index,
+        (LoadStackSlot x, LoadStackSlot y) => x.Slot == y.Slot,
+        (LoadLocalAddress x, LoadLocalAddress y) => x.Index == y.Index,
+        (LoadArgumentAddress x, LoadArgumentAddress y) => x.Index == y.Index,
+        (SizeOf x, SizeOf y) => x.Type.Equals(y.Type),
+        (Unary x, Unary y) => x.Kind == y.Kind && StructurallyEqual(x.Operand, y.Operand),
+        (Binary x, Binary y) => x.Kind == y.Kind && x.IsChecked == y.IsChecked && x.IsUnsigned == y.IsUnsigned
+            && StructurallyEqual(x.Left, y.Left) && StructurallyEqual(x.Right, y.Right),
+        (Convert x, Convert y) => x.Target.Equals(y.Target) && x.IsChecked == y.IsChecked && StructurallyEqual(x.Operand, y.Operand),
+        _ => false,
+    };
 
     static IrNode? GetStatement(IrNode node)
     {
