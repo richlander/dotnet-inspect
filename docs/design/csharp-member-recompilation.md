@@ -133,7 +133,8 @@ request and compilation context. Its typed pair key includes:
 - requested targets and supplied replacement bodies;
 - body policy;
 - compiler and parse options;
-- resolved reference identities;
+- a frozen, ordered reference set with artifact content hashes, module identities,
+  aliases, and embed-interop roles;
 - C# and IL diff policies and normalizations.
 
 `Scope` is the only request field permitted to differ. Closure roots, included
@@ -149,15 +150,18 @@ cluster donor directly with the all donor:
 cluster donor <-> all donor
 ```
 
-The comparison first resolves exact original and donor method handles through
-the existing cross-reader member-identity bridge. It then compares typed target
-correspondence plus the donors' existing C# and IL diff contracts. The separate
-original-to-cluster and original-to-all results remain available as fidelity
+The comparison resolves exact cluster-donor and all-donor method handles through
+a typed cross-reader correspondence result. That resolver is a planned product
+capability; normalized `ResearchMemberIdentity` strings are correspondence input,
+not a handle resolver by themselves. The direct donor comparison then applies
+the existing C# and IL diff contracts. Separate original-to-cluster and
+original-to-all correspondence and diff results remain available as fidelity
 evidence, but they are not substituted for the direct scope comparison. A donor
 difference may reveal context-sensitive binding, incomplete cluster membership,
 different synthesized context, or an artifact-production gap. It is evidence,
 not automatically a cluster defect. If either donor or member correspondence is
-unavailable, the scope comparison is `Unavailable` and retains the reason.
+absent, ambiguous, or failed, the scope comparison is `Unavailable` and retains
+the typed reason.
 
 The initial `cluster` lane remains useful without a successful `all` lane. A
 consumer making a stronger contextual-binding claim must require the scope A/B
@@ -195,10 +199,10 @@ larger unsupported frontier.
                        |
                        v
    +-----------------------------------------+
-   | Existing product artifact pipeline      |
-   | TypeShellProducer      (CSharp)          |
-   | MemberBodyProducer     (Decompiler)      |
-   | CSharpTypePrinter      (CSharp)          |
+   | Product artifact pipeline                |
+   | TypeShellProducer      (existing)         |
+   | typed MemberBodyProducer seam (planned)  |
+   | CSharpTypePrinter      (existing)         |
    +-------------------+---------------------+
                        |
                        v
@@ -223,8 +227,9 @@ larger unsupported frontier.
 ```
 
 The reusable capability is a round-trip compile engine plus result composition
-over the existing product artifact pipeline. ReturnToSender is one consumer; it
-is not the general abstraction.
+over the product artifact pipeline. The shell producer and printer already
+exist; the typed member-body increment is an explicit prerequisite below.
+ReturnToSender is one consumer, not the general abstraction.
 
 ## Ownership boundaries
 
@@ -234,7 +239,9 @@ is not the general abstraction.
 - **CSharp** owns `TypeShellProducer` for metadata-backed typed shell composition
   and `CSharpTypePrinter` for rendering typed requests as C# source.
 - **Decompiler** owns `MemberBodyProducer` for selected-member C# body production
-  and fidelity grade.
+  and fidelity grade. Its current public API returns composed source; the plan
+  must add a handle-addressed result that exposes a typed `CSharpMemberBody` plus
+  fidelity and failure provenance before tools consume individual bodies.
 - **Instructions** owns `IlBodyDiff`, its normalization mechanics, and its total
   exact/different/unavailable outcome.
 - **Research** owns `ImplementationDiff`, joining product C# and IL evidence.
@@ -253,11 +260,13 @@ engine consumes their typed results and must not strengthen or reinterpret them.
   `CSharpTypeShellSpec` inputs; it does not format declarations.
 - Harnesses own fixtures, comparison policy, assertions, and reporting.
 
-The existing `TypeShellProducer`/`MemberBodyProducer`/`CSharpTypePrinter`
-pipeline produces C# declarations and bodies. The harness may select scope,
-members, and typed body policies, but it must not format declarations itself.
-Compiler feedback may expand a typed request but must not trigger ad hoc source
-patches that compensate for missing product behavior.
+`TypeShellProducer` and `CSharpTypePrinter` already produce and render typed C#
+declarations. The planned member-scoped `MemberBodyProducer` seam supplies typed
+body increments without composing a parallel declaration. The harness may select
+scope, members, and typed body policies, but it must not format declarations or
+reconstruct decompiled bodies itself. Compiler feedback may expand a typed
+request but must not trigger ad hoc source patches that compensate for missing
+product behavior.
 
 ## Typed request and result
 
@@ -292,7 +301,10 @@ interpreted without its physical metadata scope. Display text is not identity.
 For the first contract, supplied C# is a typed member-body replacement represented
 by the existing `CSharpMemberBody` variants. Supplying an entire member or type
 declaration is outside this proposal because declaration production remains with
-the product artifact pipeline.
+the product artifact pipeline. A scope-pair key uses canonical member ordering
+and a versioned content digest over every body variant, modifier, accessor,
+constructor-initializer kind, and initializer argument; object or dictionary
+reference equality is never used as replacement identity.
 
 The result should carry:
 
@@ -399,9 +411,12 @@ No layer converts failure or unavailability into an empty successful result.
 ### Milestone 1: extract round-trip compilation
 
 - Define tools-only request and layered result contracts.
-- Make the existing product artifact pipeline explicit: the tools planner builds
-  neutral `CSharpTypeShellSpec` inputs, `TypeShellProducer` builds typed print
-  requests, `MemberBodyProducer` supplies decompiled bodies, and
+- Add the missing product-owned, handle-addressed `MemberBodyProducer` result that
+  returns a typed `CSharpMemberBody` plus fidelity and failure provenance; adapt
+  ReturnToSender away from its harness-side body conversion.
+- Wire the product artifact pipeline explicitly: the tools planner builds neutral
+  `CSharpTypeShellSpec` inputs, `TypeShellProducer` builds typed print requests,
+  the new member-body seam supplies decompiled body increments, and
   `CSharpTypePrinter` renders source.
 - Extract compiler-driven root growth from decompiler-specific comparison.
 - Adapt ReturnToSender to consume the engine without changing its verdicts.
@@ -411,8 +426,12 @@ No layer converts failure or unavailability into an empty successful result.
 
 - Support supplied replacement bodies independently of decompiler-produced
   bodies.
-- Resolve exact original/donor handles through the existing cross-reader member
-  identity bridge before invoking member-scoped diff APIs.
+- Add a product-owned cross-reader member-correspondence resolver that consumes
+  typed/normalized identities and returns exact endpoint handles or total
+  absent/ambiguous/failed outcomes.
+- Resolve original/cluster-donor, original/all-donor, and
+  cluster-donor/all-donor correspondence independently before invoking
+  member-scoped diff APIs.
 - Compare original and donor members through `ImplementationDiff` and typed IL
   results.
 - Preserve requested targets and effective companion bodies separately.
@@ -424,6 +443,9 @@ No layer converts failure or unavailability into an empty successful result.
 - Report complete and incomplete artifact production.
 - Derive cluster/all runs from one typed common-context request and reject any
   pair where more than scope differs.
+- Resolve the reference set once, freeze its ordered exact artifact hashes,
+  module identities, aliases, and embed-interop roles, and pass the same set to
+  both compilations.
 - Compare eligible cluster and all donors directly, retaining the separate
   original-to-donor fidelity results.
 - Add clean-but-different binding fixtures.
@@ -458,6 +480,8 @@ required preservation boundary.
 - Scope A/B fixtures change compiler options, references, replacements, body
   policy, normalization, and input identity one at a time and require a typed
   `Unavailable` context-mismatch result.
+- A reference fixture supplies different binaries with the same assembly identity
+  and requires their content-hash mismatch to make scope A/B unavailable.
 - C# and IL tests retain producer-native unavailable and failed results.
 - A C# regression fixture supplies an absent endpoint fingerprint whose native
   diff is empty and requires the round-trip envelope to report `Unavailable`,
@@ -465,6 +489,9 @@ required preservation boundary.
 - Cross-reader correspondence fixtures cover API/metadata anchor spelling
   differences, signature collisions, and wrong-module near misses.
 - `selected` tests distinguish requested targets from effective companion bodies.
+- A scope A/B fixture derives asymmetric companion sets, retains that provenance,
+  and proves an unavailable companion cannot collapse the selected-target or
+  aggregate scope outcome.
 - `full` tests preserve per-member failures instead of replacing them with stubs.
 - Corpus measurements record pinned inputs, commands, caps, timing, compiler
   context, and unsupported buckets.
