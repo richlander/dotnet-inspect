@@ -18,8 +18,8 @@ which adds a git worktree at `external/authored-source-corpus`.
 
 | Path | Contents |
 | --- | --- |
-| `real-world/corpus.jsonl` | Real-world corpus, harvested from the same pinned assemblies as the fixed real-world decompiler corpus (`eng/prepare-decompiler-corpus.sh`). |
-| `hard-il/corpus.jsonl` | Hard-IL corpus (diabolic IL sourced from a broader set). Not yet populated. |
+| `civil/corpus.jsonl` | CIVIL corpus (Curated Index of Varied IL), harvested from the same pinned assemblies as the fixed real-world decompiler corpus (`eng/prepare-decompiler-corpus.sh`). |
+| `evil/corpus.jsonl` | EVIL corpus (Edge-case Verification of IL Legibility): diabolic IL sourced from a broader set. Not yet populated. |
 
 Each line is one JSON record with this schema (camelCase):
 
@@ -40,7 +40,7 @@ recorded. A target whose source does not resolve or verify is skipped, so every
 row carries real, verified source. The `sourceUrl` + `checksum` on each row
 identify the exact upstream source commit and content.
 
-The real-world corpus was harvested from the 14 pinned assemblies in
+The CIVIL corpus was harvested from the 14 pinned assemblies in
 `eng/prepare-decompiler-corpus.sh`. Three of them (`Newtonsoft.Json`,
 `Microsoft.ApplicationInsights`, `NuGet.Versioning`) contributed no rows because
 their pinned packages did not resolve authored source through SourceLink; they
@@ -56,7 +56,7 @@ The corpus is reproducible from the pinned assemblies:
 ```bash
 bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
 dotnet run --project tools/DecompilerHarness -c Release -- \
-  --harvest-authored-corpus real-world/corpus.jsonl --harvest-target 12000 \
+  --harvest-authored-corpus civil/corpus.jsonl --harvest-target 12000 \
   $(cat /tmp/corpus-assemblies.txt)
 ```
 
