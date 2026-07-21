@@ -301,6 +301,53 @@ public class StackAllocSpanPassTests
     }
 
     [Fact]
+    public void SlotWithEffectfulSize_DoesNotRaise()
+    {
+        // The store's own byte-size expression is a call, not a constant --
+        // discarding it (as the raise would, since it uses the constructor's
+        // length argument instead) would silently erase the call's side effect
+        // and reorder it past whatever follows the store.
+        var sizeEffect = new Call(new MethodRef(Holder, "SizeEffect", Int32, [], HasThis: false), isVirtual: false, []);
+        var store = new StoreStackSlot(0, new StackAllocate(sizeEffect));
+        var marker = new Call(new MethodRef(Holder, "Marker", Void, [], HasThis: false), isVirtual: false, []);
+        var newObject = StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new LoadStackSlot(0, VoidPointer), count: 1);
+
+        var function = BuildSlot(store, marker, newObject);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+        Assert.Single(function.Descendants.OfType<Call>(), c => c.Callee.Name == "SizeEffect"); // side effect preserved
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SlotWithInitializerCountMismatch_DoesNotRaise()
+    {
+        // The store's recovered initializer has 3 elements but the
+        // constructor's own length argument says 1 -- these are two
+        // independent expressions in the tree (unlike the direct-pointer case,
+        // where a single stackalloc node feeds both), so nothing else proves
+        // they describe the same span. Raising would silently change the
+        // observable Span.Length from 1 to 3.
+        var elements = new IrExpression[] { new Constant(1, Int32), new Constant(2, Int32), new Constant(3, Int32) };
+        var stackAllocArray = new StackAllocArray(Int32, new Constant(3, Int32), TypeRef.Pointer(Int32), elements);
+        var store = new StoreStackSlot(0, stackAllocArray);
+        var newObject = StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new LoadStackSlot(0, VoidPointer), count: 1);
+
+        var function = BuildSlot(store, newObject);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var construction = Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Same(newObject, construction);
+        var unraised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Equal(3, unraised.Elements.Length); // still the store's un-raised value
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void SlotThroughNonStackallocStore_DoesNotRaise()
     {
         var store = new StoreStackSlot(0, new Call(new MethodRef(Holder, "GetPointer", VoidPointer, [], HasThis: false), isVirtual: false, []));

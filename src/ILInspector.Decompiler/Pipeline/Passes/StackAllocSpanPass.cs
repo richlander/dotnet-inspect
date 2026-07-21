@@ -66,6 +66,17 @@ public sealed class StackAllocSpanPass : IIrPass
             }
             else if (TryResolveOwnedSlotSource(pointer, storesBySlot, loadsBySlot, out var slotSource, out ownedStore))
             {
+                // The slot's recovered elements (if any) must agree with this
+                // constructor's own length argument -- they're independent
+                // expressions in the tree (unlike the direct-pointer case, where
+                // the same stackalloc node feeds both the elements and the
+                // length), so nothing else proves they describe the same span.
+                if (slotSource is StackAllocArray { HasInitializer: true } slotArray
+                    && (count is not Constant { Value: int expectedCount } || expectedCount != slotArray.Elements.Length))
+                {
+                    continue;
+                }
+
                 elements = GetInitializerElements(slotSource);
             }
             else
@@ -112,7 +123,7 @@ public sealed class StackAllocSpanPass : IIrPass
             return false;
 
         var store = stores[0];
-        if (!IsStackAllocPointer(store.Value) || store.Parent is not Block parentBlock)
+        if (!HasConstantSizeStackAlloc(store.Value) || store.Parent is not Block parentBlock)
             return false;
 
         var loadStatement = GetStatement(load);
@@ -146,6 +157,31 @@ public sealed class StackAllocSpanPass : IIrPass
             return elements;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Like <see cref="IsStackAllocPointer"/>, but additionally requires the
+    /// allocation's byte size (<see cref="StackAllocate.Size"/>) or element count
+    /// (<see cref="StackAllocArray.Count"/>) to be a <see cref="Constant"/>. This
+    /// pass discards that expression entirely when raising through a slot
+    /// indirection (the constructor's own <c>length</c> argument is used
+    /// instead) — detaching and dropping it silently erases any side effect it
+    /// carries and can reorder any effect it precedes. In the direct-pointer
+    /// case the expression is never discarded (it's the same node the printer
+    /// spells as the stackalloc's own length), so no such check is needed there.
+    /// </summary>
+    static bool HasConstantSizeStackAlloc(IrExpression pointer)
+    {
+        var candidate = pointer;
+        if (candidate is Convert { IsChecked: false, Operand: StackAllocate or StackAllocArray, Target: { } target } converted && IsPointerLikeTarget(target))
+            candidate = converted.Operand;
+
+        return candidate switch
+        {
+            StackAllocate { Size: Constant } => true,
+            StackAllocArray { Count: Constant } => true,
+            _ => false,
+        };
     }
 
     static bool IsStackAllocPointer(IrExpression pointer)
