@@ -5552,12 +5552,12 @@ public class EnumConstantTests
     }
 
     [Fact]
-    public void NotOverOperatorCall_Parenthesizes()
+    public void NotOverEqualityOperatorCall_FoldsToDirectComparison()
     {
-        // !(a != b) — an operator-spelled call renders as a compound `a != b`,
-        // so the enclosing `!` must parenthesize it; a bare `!a != b` binds as
-        // `(!a) != b` (CS0023). The C# compiler folds this source form, so the
-        // node is built directly.
+        // !(a != b) is an exact logical negation of a != b for any type (including
+        // NaN-like partial orders: NaN != NaN is true, so !(NaN != NaN) and
+        // NaN == NaN agree), so the printer folds it directly to `a == b` rather
+        // than parenthesizing the un-folded operator-spelled call (#2955).
         var type = TypeRef.CoreLib("System", "Type");
         var boolType = TypeRef.CoreLib("System", "Boolean");
         var callee = new MethodRef(type, "op_Inequality", boolType, [type, type], HasThis: false)
@@ -5576,8 +5576,105 @@ public class EnumConstantTests
 
         string output = CSharpPrinter.Print(function).Output!.Trim();
 
-        Assert.Contains("!(a != b)", output);
+        Assert.Contains("a == b", output);
+        Assert.DoesNotContain("!(a != b)", output);
         Assert.DoesNotContain("!a != b", output);
+    }
+
+    [Fact]
+    public void NotOverRelationalOperatorCall_Parenthesizes()
+    {
+        // !(a > b) — a relational operator-spelled call renders as a compound
+        // `a > b`, so the enclosing `!` must parenthesize it; a bare `!a > b`
+        // binds as `(!a) > b` (CS0023). Unlike equality/inequality, relational
+        // operator calls are NOT folded (!(a>b) is not always a<=b for a
+        // user-defined partial order), so the un-folded node must still be
+        // built and parenthesized directly (#2955).
+        var type = TypeRef.CoreLib("System", "Type");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var callee = new MethodRef(type, "op_GreaterThan", boolType, [type, type], HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.Yes,
+        };
+        var greaterThan = new Call(callee, isVirtual: false,
+            [new LoadArgument(0, "a", type), new LoadArgument(1, "b", type)]);
+        var block = new Block(0);
+        block.Add(new Return(new LogicalNot(greaterThan)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(boolType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        string output = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains("!(a > b)", output);
+        Assert.DoesNotContain("!a > b", output);
+    }
+
+    [Fact]
+    public void NotOverEqualityOperatorCall_WithoutOperatorMetadata_DoesNotFold()
+    {
+        // A method literally named "op_Equality" that is NOT flagged as an
+        // operator (no specialname/operator metadata, not a recognized core
+        // operator type) must not be mistaken for the real operator and must
+        // not be folded or spelled with `==` (#2955 scope guard).
+        var declaring = TypeRef.Definition("ExternalFacts.Library", "ExternalFacts", "NotAnOperatorLibrary");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var type = TypeRef.CoreLib("System", "Type");
+        var callee = new MethodRef(declaring, "op_Equality", boolType, [type, type], HasThis: false)
+        {
+            IsSpecialName = false,
+            IsOperator = MetadataFactState.No,
+        };
+        var equality = new Call(callee, isVirtual: false,
+            [new LoadArgument(0, "a", type), new LoadArgument(1, "b", type)]);
+        var block = new Block(0);
+        block.Add(new Return(new LogicalNot(equality)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(boolType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        string output = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.DoesNotContain("a != b", output);
+        Assert.Contains("op_Equality", output);
+    }
+
+    [Fact]
+    public void NotOverEqualityOperatorCall_OnUserDefinedType_DoesNotFold()
+    {
+        // C# requires `==`/`!=` to be declared as a pair, but does NOT
+        // require their implementations to be logical inverses of each
+        // other — a user-defined `operator ==`/`operator !=` pair could
+        // legally implement unrelated semantics. The BCL guarantees
+        // String/Type's op_Equality/op_Inequality genuinely are exact
+        // inverses (MemberIdentity.IsKnownCoreLibraryOperator), but an
+        // arbitrary user type carrying real specialname/operator metadata
+        // is NOT in that trusted set, so `!(a == b)` must stay un-folded
+        // and parenthesized here even though it still spells as `a == b`
+        // via the pre-existing operator-call spelling (#2955 scope guard).
+        var declaring = TypeRef.Definition("UserAssembly", "UserAssembly", "Vector");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var callee = new MethodRef(declaring, "op_Equality", boolType, [declaring, declaring], HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.Yes,
+        };
+        var equality = new Call(callee, isVirtual: false,
+            [new LoadArgument(0, "a", declaring), new LoadArgument(1, "b", declaring)]);
+        var block = new Block(0);
+        block.Add(new Return(new LogicalNot(equality)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(boolType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        string output = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains("!(a == b)", output);
+        Assert.DoesNotContain("a != b", output);
     }
 
     [Fact]
