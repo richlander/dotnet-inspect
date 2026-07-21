@@ -7,7 +7,7 @@ namespace ILInspector.DecompilerHarness;
 
 /// <summary>
 /// A per-method IL difficulty profile plus a single composite <see cref="Score"/>
-/// used to rank the "diabolical" methods for the hard-IL corpus. Every component
+/// used to rank the "diabolical" methods for the EVIL corpus. Every component
 /// is a structural fact read off the shared <see cref="MethodInstructions"/>
 /// substrate (decode + EH-aware block graph) — no inspected-assembly loading, no
 /// abstract interpretation. Ranking, not the absolute scale, is what matters; the
@@ -33,7 +33,7 @@ internal sealed record IlDifficulty(
 /// Scores a method body's IL difficulty from the shared instruction substrate.
 /// The composite weighting deliberately biases toward the shapes that stress the
 /// decompiler's raise the most — exception-handler nesting, jump tables, and rare
-/// unsafe/typed-reference lowerings — rather than raw size, so the hard-IL corpus
+/// unsafe/typed-reference lowerings — rather than raw size, so the EVIL corpus
 /// fills with genuinely hard puzzles instead of merely long trivial methods.
 /// </summary>
 static class IlDifficultyScorer
@@ -70,7 +70,7 @@ static class IlDifficultyScorer
     {
         // A body that did not fully decode yields unreliable control-flow facts
         // (empty or partial blocks and instructions). Scoring it on raw size
-        // alone would float undecodable junk to the top of the hard-IL ranking,
+        // alone would float undecodable junk to the top of the EVIL ranking,
         // so it is recorded with its true size/local/stack scalars but a zero
         // score to sink it — a decode failure must never inflate a rank.
         if (!decoded.IsComplete)

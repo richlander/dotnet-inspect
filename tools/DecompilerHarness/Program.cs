@@ -70,7 +70,7 @@ static class Program
         string? emitHarnessReport = null;
         bool enumerateRealMethods = false;
         bool harvestAuthoredCorpus = false;
-        bool harvestHardIlCorpus = false;
+        bool harvestEvilCorpus = false;
         string? harvestOutputPath = null;
         bool benchmarkAuthoredCorpus = false;
         string? benchmarkCorpusPath = null;
@@ -195,8 +195,8 @@ static class Program
                         harvestAuthoredCorpus = true;
                         harvestOutputPath = NextArg(args, ref i, flag);
                         break;
-                    case "--harvest-hard-il-corpus":
-                        harvestHardIlCorpus = true;
+                    case "--harvest-evil-corpus":
+                        harvestEvilCorpus = true;
                         harvestOutputPath = NextArg(args, ref i, flag);
                         break;
                     case "--harvest-target": harvestTarget = int.Parse(NextArg(args, ref i, flag)); break;
@@ -444,8 +444,8 @@ static class Program
         if (harvestAuthoredCorpus)
             return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget);
 
-        if (harvestHardIlCorpus)
-            return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget, hardIl: true);
+        if (harvestEvilCorpus)
+            return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget, evil: true);
 
         if (benchmarkAuthoredCorpus)
             return AuthoredCorpusBenchmark.Run(assemblies, benchmarkCorpusPath!, json);
@@ -678,7 +678,7 @@ static class Program
             grandTotal += targets.Count;
             Console.WriteLine($"{Path.GetFileName(assemblyPath)}: {targets.Count} real-method targets");
             // Surface the hardest methods first: the difficulty ranking is the
-            // whole point of the enumeration for the hard-IL corpus.
+            // whole point of the enumeration for the EVIL corpus.
             foreach (var target in targets
                 .OrderByDescending(target => target.Difficulty.Score)
                 .Take(maxExamples))

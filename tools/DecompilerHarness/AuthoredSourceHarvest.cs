@@ -22,11 +22,12 @@ namespace ILInspector.DecompilerHarness;
 /// both round-robin across declaring types so no single type dominates a
 /// library's contribution. They differ only in what each type contributes next:
 /// <list type="bullet">
-/// <item>The <em>real-world</em> corpus (identity-only) keeps candidates in
-/// enumeration order.</item>
-/// <item>The <em>hard-IL</em> corpus orders each type's candidates by descending
-/// IL difficulty score, so each library contributes its most diabolical methods
-/// first, and attaches the difficulty profile to every emitted row.</item>
+/// <item>The <em>CIVIL</em> corpus (Curated Index of Varied IL, identity-only)
+/// keeps candidates in enumeration order.</item>
+/// <item>The <em>EVIL</em> corpus (Edge-case Verification of IL Legibility)
+/// orders each type's candidates by descending IL difficulty score, so each
+/// library contributes its most diabolical methods first, and attaches the
+/// difficulty profile to every emitted row.</item>
 /// </list>
 /// Source content is fetched last, only to snapshot and verify; a failed or
 /// unavailable fetch simply advances to the next candidate, so every emitted row
@@ -49,8 +50,8 @@ static class AuthoredSourceHarvest
         string? ChecksumAlgorithm,
         string? Checksum,
         string AuthoredBody,
-        // Omitted for the identity (real-world) corpus so its rows stay
-        // schema-identical to the vendored corpus; populated only for hard-IL.
+        // Omitted for the CIVIL (identity) corpus so its rows stay
+        // schema-identical to the vendored corpus; populated only for EVIL.
         [property: System.Text.Json.Serialization.JsonIgnore(
             Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
         IlDifficulty? Difficulty = null);
@@ -65,10 +66,10 @@ static class AuthoredSourceHarvest
         public required Queue<RealMethodTargetEnumerator.RealMethodTarget> Candidates { get; init; }
     }
 
-    public static int Run(IReadOnlyList<string> assemblies, string outputPath, int target, bool hardIl = false)
-        => RunAsync(assemblies, outputPath, target, hardIl).GetAwaiter().GetResult();
+    public static int Run(IReadOnlyList<string> assemblies, string outputPath, int target, bool evil = false)
+        => RunAsync(assemblies, outputPath, target, evil).GetAwaiter().GetResult();
 
-    static async Task<int> RunAsync(IReadOnlyList<string> assemblies, string outputPath, int target, bool hardIl)
+    static async Task<int> RunAsync(IReadOnlyList<string> assemblies, string outputPath, int target, bool evil)
     {
         if (assemblies.Count == 0)
         {
@@ -85,7 +86,7 @@ static class AuthoredSourceHarvest
         {
             foreach (string assemblyPath in assemblies)
             {
-                var library = TryOpenLibrary(assemblyPath, httpClient, hardIl).GetAwaiter().GetResult();
+                var library = TryOpenLibrary(assemblyPath, httpClient, evil).GetAwaiter().GetResult();
                 if (library is not null)
                     libraries.Add(library);
             }
@@ -127,7 +128,7 @@ static class AuthoredSourceHarvest
                     var candidate = library.Candidates.Dequeue();
                     attempts++;
 
-                    var record = await TryHarvestAsync(library, candidate, fetcher, hardIl);
+                    var record = await TryHarvestAsync(library, candidate, fetcher, evil);
                     if (record is null)
                     {
                         skipped++;
@@ -143,7 +144,7 @@ static class AuthoredSourceHarvest
 
             await writer.FlushAsync();
 
-            Console.WriteLine($"{(hardIl ? "HARD-IL" : "AUTHORED-SOURCE")} HARVEST -> {outputPath}");
+            Console.WriteLine($"{(evil ? "EVIL" : "AUTHORED-SOURCE")} HARVEST -> {outputPath}");
             Console.WriteLine($"  target        : {target}");
             Console.WriteLine($"  resolved      : {resolved}");
             Console.WriteLine($"  attempts      : {attempts}");
@@ -162,7 +163,7 @@ static class AuthoredSourceHarvest
         }
     }
 
-    static async Task<LibraryState?> TryOpenLibrary(string assemblyPath, HttpClient httpClient, bool hardIl)
+    static async Task<LibraryState?> TryOpenLibrary(string assemblyPath, HttpClient httpClient, bool evil)
     {
         IReadOnlyList<RealMethodTargetEnumerator.RealMethodTarget> targets;
         try
@@ -198,7 +199,7 @@ static class AuthoredSourceHarvest
                 Tfm = InferTfm(assemblyPath),
                 Source = source,
                 Candidates = new Queue<RealMethodTargetEnumerator.RealMethodTarget>(
-                    DiversifyByDeclaringType(targets, hardIl)),
+                    DiversifyByDeclaringType(targets, evil)),
             };
             ownershipTransferred = true;
             return state;
@@ -227,7 +228,7 @@ static class AuthoredSourceHarvest
         LibraryState library,
         RealMethodTargetEnumerator.RealMethodTarget candidate,
         SourceFetcher fetcher,
-        bool hardIl)
+        bool evil)
     {
         var subject = new FindingSubject(
             $"{candidate.Type}::{candidate.Method}#{candidate.Overload}",
@@ -281,11 +282,11 @@ static class AuthoredSourceHarvest
             ChecksumAlgorithm: authored.Document?.ChecksumAlgorithm,
             Checksum: authored.Document?.Checksum,
             AuthoredBody: body,
-            Difficulty: hardIl ? candidate.Difficulty : null);
+            Difficulty: evil ? candidate.Difficulty : null);
     }
 
     // Round-robin across declaring types so no single type dominates a library's
-    // contribution to the corpus. For the hard-IL corpus, each type's candidates
+    // contribution to the corpus. For the EVIL corpus, each type's candidates
     // are ordered by descending IL difficulty first, so a type contributes its
     // most diabolical methods before its easy ones while the round-robin still
     // spreads the budget across types.
