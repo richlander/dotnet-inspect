@@ -683,6 +683,7 @@ public static class ApiMemberIdentity
         int lastSplit = 0;
         bool inString = false;
         bool inChar = false;
+        bool inDefaultValue = false;
         for (int i = 0; i < paramSection.Length; i++)
         {
             char c = paramSection[i];
@@ -696,18 +697,26 @@ public static class ApiMemberIdentity
                 if (c == '\\') i++;
                 else if (c == '\'') inChar = false;
             }
-            else if (c == '"') inString = true;
-            else if (c == '\'') inChar = true;
+            else if (inDefaultValue && c == '"') inString = true;
+            else if (inDefaultValue && c == '\'') inChar = true;
             else if (c == '<') angleDepth++;
             else if (c == '>') { if (angleDepth > 0) angleDepth--; }
             else if (c == '(') parenDepth++;
             else if (c == ')') { if (parenDepth > 0) parenDepth--; }
             else if (c == '[') bracketDepth++;
             else if (c == ']') { if (bracketDepth > 0) bracketDepth--; }
-            else if (c == ',' && angleDepth == 0 && parenDepth == 0 && bracketDepth == 0)
+            else if (angleDepth == 0 && parenDepth == 0 && bracketDepth == 0)
             {
-                paramTypes.Add(ExtractParamType(paramSection[lastSplit..i].Trim()));
-                lastSplit = i + 1;
+                if (c == '=')
+                {
+                    inDefaultValue = true;
+                }
+                else if (c == ',')
+                {
+                    paramTypes.Add(ExtractParamType(paramSection[lastSplit..i].Trim()));
+                    lastSplit = i + 1;
+                    inDefaultValue = false;
+                }
             }
         }
         paramTypes.Add(ExtractParamType(paramSection[lastSplit..].Trim()));

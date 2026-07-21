@@ -376,6 +376,18 @@ public class ApiMemberIdentityTests
         Assert.False(string.IsNullOrEmpty(canonical));
     }
 
+    [Theory]
+    [InlineData("void M(SetTree<T> t', FSharpList<T> acc)", "M:N.C.M(SetTree<T>,FSharpList<T>)")]
+    [InlineData("void M(System.Int32 x' = 5, System.Int32 y)", "M:N.C.M(System.Int32,System.Int32)")]
+    [InlineData("void M(System.String s\" = \"a,b\", System.Int32 y)", "M:N.C.M(System.String,System.Int32)")]
+    public void FallbackCanonicalSignature_TreatsQuotesOutsideDefaultsAsOrdinary(string signature, string expected)
+    {
+        var type = new ApiType { Namespace = "N", Name = "C" };
+        var member = new ApiMember { Name = "M", Kind = "method", Signature = signature };
+
+        Assert.Equal(expected, ApiMemberIdentity.GetCanonicalSignature(type, member));
+    }
+
     static (TypeDefinitionHandle TypeHandle, MethodDefinition Method) FindFixtureMethod(MetadataReader reader)
     {
         foreach (var typeHandle in reader.TypeDefinitions)
