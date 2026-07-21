@@ -1,4 +1,4 @@
-using DotnetInspector.Commands;
+using DotnetInspector.Models;
 using DotnetInspector.Views;
 
 namespace DotnetInspector.Output;

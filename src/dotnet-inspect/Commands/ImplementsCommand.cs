@@ -1,6 +1,6 @@
 using DotnetInspector.Packages;
-using System.Text.Json.Serialization;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Models;
 using ILInspector.Metadata;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -133,7 +133,9 @@ public class ImplementsCommand
 
     private static void WriteJsonOutput(List<ImplementerResult> results, bool compact)
     {
-        JsonOutputHelper.Write(results, ImplementsJsonContext.Default.ListImplementerResult, ImplementsCompactJsonContext.Default.ListImplementerResult, compact);
+        var jsonResults = results.Select(ImplementerJsonResult.From).ToList();
+        JsonOutputHelper.Write(jsonResults, ImplementsJsonContext.Default.ListImplementerJsonResult,
+            ImplementsCompactJsonContext.Default.ListImplementerJsonResult, compact);
     }
 
     private static void WriteCount(List<ImplementerResult> results)
@@ -164,31 +166,4 @@ public class ImplementsCommand
                 MarkoutSerializer.Serialize(view, SearchViewContext.Default), rows);
         }
     }
-}
-
-/// <summary>
-/// Result of implementer search.
-/// </summary>
-public record class ImplementerResult
-{
-    [JsonPropertyName("type")]
-    public string TypeName { get; set; } = "";
-
-    [JsonPropertyName("namespace")]
-    public string? Namespace { get; set; }
-
-    [JsonPropertyName("kind")]
-    public string Kind { get; set; } = "";
-
-    [JsonPropertyName("relationship")]
-    public string Relationship { get; set; } = "";
-
-    [JsonPropertyName("library")]
-    public string? Assembly { get; set; }
-
-    [JsonPropertyName("source")]
-    public string? Source { get; set; }
-
-    [JsonPropertyName("source_version")]
-    public string? SourceVersion { get; set; }
 }

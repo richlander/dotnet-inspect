@@ -40,6 +40,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["NonFiniteConstantPrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced non-finite constant source."),
             ["NestedScopeNameCollisionTests.cs"] = (1, "Product-output validity: compiles rendered nested-scope collision source."),
             ["PrinterPrecedenceTests.cs"] = (1, "Product-output validity: compiles printer-produced precedence source per case."),
+            ["UnboxValueReadPassTests.cs"] = (1, "Product-output validity: compiles the normalized unbox value-read source (cast vs Unsafe.Unbox) per case."),
             ["IrImporterTests.cs"] = (1, "Product-output validity: compiles synthesized source feeding the IR importer."),
             ["MemberBodyProducerUnionTests.cs"] = (1, "Product-output validity: recompiles member-body producer output per rule set."),
             ["LadderRung6GateTests.cs"] = (1, "Product-output validity: compiles synthesized rung-6 gate source."),
@@ -70,15 +71,15 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["ReturnToSenderFixtureCatalogTests.cs"] = (1, "Input-generation seam: builds a temporary input assembly for the RTS catalog."),
         };
 
-    // Fingerprint. Migration of CompileBackTypeIdentity to the Built fixture
-    // FixtureIds.DecompilerTypeIdentity removed exactly one file and one site.
-    //   Before (origin/main): 30 files, 37 sites.
-    //   After  (that change):  29 files, 36 sites.
-    // #2935 adds FluentChainFormattingTests, one product-output-validity site
-    // that recompiles the printer's broken fluent-chain output, restoring the
-    // count to 30 files, 37 sites.
-    const int ExpectedDynamicFiles = 30;
-    const int ExpectedDynamicSites = 37;
+    // Fingerprint. Two independent +1 site additions stack on the 29 files /
+    // 36 sites base (after CompileBackTypeIdentity migrated to a Built fixture):
+    //   #2925 adds UnboxValueReadPassTests.cs (1 site): compiles the normalized
+    //     unbox value-read source (cast vs Unsafe.Unbox) per case.
+    //   #2935 adds FluentChainFormattingTests.cs (1 site): recompiles the
+    //     printer's broken fluent-chain output.
+    //   Combined: 31 files, 38 sites.
+    const int ExpectedDynamicFiles = 31;
+    const int ExpectedDynamicSites = 38;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];
