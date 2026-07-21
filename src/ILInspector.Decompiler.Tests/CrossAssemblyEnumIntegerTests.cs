@@ -106,6 +106,11 @@ public class CrossAssemblyEnumIntegerTests
         var dateTime = Assert.Single(
             function.TypeShapes!,
             pair => pair.Key.Namespace == "System" && pair.Key.Name == "DateTime");
-        Assert.Equal(TypeShape.ValueType, dateTime.Value);
+        Assert.Equal(TypeShape.Unknown, dateTime.Value);
+
+        IrPasses.Run(function);
+        function.CheckInvariant();
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.DoesNotContain("(DateTime)", output);
     }
 }

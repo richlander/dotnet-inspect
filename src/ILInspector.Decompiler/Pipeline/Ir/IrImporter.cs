@@ -642,7 +642,7 @@ public static class IrImporter
                 type = type.ElementType;
             if (type is not { Kind: TypeRefKind.Definition } || !shapes.TryAdd(type, default))
                 return;
-            var shape = source.ClassifyType(type) switch
+            var shape = source.ClassifyResolvedType(type) switch
             {
                 TypeShapeKind.Enum => TypeShape.Enum,
                 TypeShapeKind.Struct => TypeShape.ValueType,
