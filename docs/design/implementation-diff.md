@@ -112,13 +112,22 @@ same `ResearchChange` model used by assembly-wide Research diffs. Exact typed
 diffs produce no IL changes, but callers may still retain the typed
 diff in their own result model when exact proof matters.
 
+Each IL change also retains its `IlBodyDiffResult`. Its total outcome is
+`Exact`, `OperandDiff`, `OpcodeDiff`, or `Unavailable`. Exact means both bodies
+are equal after the requested normalization. Unavailable means no comparison
+verdict exists; typed failure rows retain the reason. Non-IL mechanisms do not
+carry this payload.
+
 Use `ImplementationDiff.UnifiedLines(change)` only at presentation boundaries.
 The durable model keeps the producer-owned typed display rows rather than a
 third implementation-specific row family.
 
 The `diff` command exposes this component through the explicit-only
 `Implementation Diff` section. The CLI projects one row per producer-owned
-unified line with `Member`, `Mechanism`, `Change`, and `Evidence` columns.
+unified line with `Member`, `Mechanism`, `Difference`, `Change`, and `Evidence`
+columns. `Difference` contains the IL body outcome for IL rows and is empty for
+C# rows, keeping mechanism, result, edit kind, and evidence as separate
+dimensions.
 With `--authored-source`, it acquires each changed implementation member's
 endpoint PDB and
 SourceLink body, verifies the document checksum, and adds a separately labeled

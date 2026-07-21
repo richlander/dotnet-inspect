@@ -100,7 +100,7 @@ public sealed partial class CSharpPrinter
             : $"({string.Join(", ", lambda.Parameters.Select(p => CSharpNaming.EscapeIdentifier(p.Name)))})";
 
         if (lambda.ExpressionBody is { } expr)
-            return $"{parameters} => {Expression(expr)}";
+            return $"{parameters} => {ExpressionTreeBodyText(lambda, expr)}";
 
         if (NeedsNestedLambdaScope(lambda))
             return $"{parameters} => {{ {LambdaBodyWithLocalScope(lambda)} }}";
@@ -115,6 +115,31 @@ public sealed partial class CSharpPrinter
             statements = statements.Append("return default;");
         }
         return $"{parameters} => {{ {string.Join(" ", statements)} }}";
+    }
+
+    // An expression-tree lambda body compiles (at the consuming site) into an
+    // Expression tree under that project's overflow-checking default. The matched
+    // graph used the unchecked arithmetic factories, so render the body as if a
+    // checked context enclosed it: BinaryText then wraps an overflow-prone
+    // add/sub/mul in an explicit unchecked(...), pinning the recompiled node to the
+    // unchecked Expression.Add (not AddChecked) regardless of CheckForOverflowUnderflow.
+    // Divide/modulo, parameter loads, and constants carry no overflow form, so they
+    // stay bare. Ordinary delegate lambdas keep the default context untouched.
+    string ExpressionTreeBodyText(Lambda lambda, IrExpression expr)
+    {
+        if (!lambda.IsExpressionTree)
+            return Expression(expr);
+
+        bool enclosingChecked = _checkedContext;
+        _checkedContext = true;
+        try
+        {
+            return Expression(expr);
+        }
+        finally
+        {
+            _checkedContext = enclosingChecked;
+        }
     }
 
     static TypeRef? LambdaReturnType(Lambda lambda)

@@ -1,5 +1,4 @@
 using DotnetInspector.Packages;
-using System.Text.Json.Serialization;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Models;
 using ILInspector.Findings;
@@ -229,7 +228,9 @@ public class ExtensionsCommand
 
     private static void WriteJsonOutput(List<ExtensionMethodResult> results, bool compact)
     {
-        JsonOutputHelper.Write(results, ExtensionsJsonContext.Default.ListExtensionMethodResult, ExtensionsCompactJsonContext.Default.ListExtensionMethodResult, compact);
+        var jsonResults = results.Select(ExtensionMethodJsonResult.From).ToList();
+        JsonOutputHelper.Write(jsonResults, ExtensionsJsonContext.Default.ListExtensionMethodJsonResult,
+            ExtensionsCompactJsonContext.Default.ListExtensionMethodJsonResult, compact);
     }
 
     private static void WriteCount(List<ExtensionMethodResult> results)
@@ -275,46 +276,4 @@ public class ExtensionsCommand
             })
             .ToList();
     }
-}
-
-/// <summary>
-/// Result of extension method search.
-/// </summary>
-public record class ExtensionMethodResult
-{
-    [JsonPropertyName("method")]
-    public string MethodName { get; set; } = "";
-
-    [JsonPropertyName("class")]
-    public string ExtensionClass { get; set; } = "";
-
-    [JsonPropertyName("extended_type")]
-    public string ExtendedType { get; set; } = "";
-
-    [JsonPropertyName("library")]
-    public string Assembly { get; set; } = "";
-
-    [JsonPropertyName("signature")]
-    public string? Signature { get; set; }
-
-    [JsonPropertyName("signatures")]
-    public List<string>? Signatures { get; set; }
-
-    [JsonPropertyName("overloads")]
-    public int? Overloads { get; set; }
-
-    [JsonPropertyName("kind")]
-    public string Kind { get; set; } = "method";
-
-    [JsonPropertyName("source")]
-    public string? Source { get; set; }
-
-    [JsonPropertyName("source_version")]
-    public string? SourceVersion { get; set; }
-
-    [JsonPropertyName("reachable_path")]
-    public string? ReachablePath { get; set; }
-
-    [JsonPropertyName("reachable_from_type")]
-    public string? ReachableFromType { get; set; }
 }

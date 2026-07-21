@@ -780,7 +780,7 @@ static class AuthoredRebuildFidelity
             drift.Add($"{name}={actual} (RTS uses {expected})");
     }
 
-    static async Task AcquirePdbAsync(
+    internal static async Task AcquirePdbAsync(
         SourceLinkService source,
         HttpClient httpClient)
     {

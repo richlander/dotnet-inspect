@@ -159,8 +159,10 @@ public static partial class MetadataFindings
         ArgumentNullException.ThrowIfNull(subject);
         options ??= ApiDiffOptions.Default;
 
-        var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface, options);
-        return CompareApiTypes(oldSurface, newSurface, subject, options, diff);
+        var rawTypes = BuildRawTypesComparison(oldSurface, newSurface, subject);
+        var rawMembers = BuildRawMembersComparison(oldSurface, newSurface, subject, acceptanceThreshold: 100);
+        var diff = ApiFindingClassifier.Classify(rawTypes, rawMembers, oldSurface, newSurface, options);
+        return rawTypes.TransformPairs(pairs => ApplyTypeFacetChanges(pairs, diff, options.Scope));
     }
 
     public static FindingComparison<ApiMemberHandle> CompareApiMembers(
@@ -175,14 +177,10 @@ public static partial class MetadataFindings
         ArgumentNullException.ThrowIfNull(subject);
         options ??= ApiDiffOptions.Default;
 
-        var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface, options);
-        return CompareApiMembers(
-            oldSurface,
-            newSurface,
-            subject,
-            options,
-            diff,
-            acceptanceThreshold);
+        var rawTypes = BuildRawTypesComparison(oldSurface, newSurface, subject);
+        var rawMembers = BuildRawMembersComparison(oldSurface, newSurface, subject, acceptanceThreshold);
+        var diff = ApiFindingClassifier.Classify(rawTypes, rawMembers, oldSurface, newSurface, options);
+        return rawMembers.TransformPairs(pairs => ApplyMemberFacetChanges(pairs, diff, options.Scope));
     }
 
     public static FindingComparison<ApiTypeHandle> CompareApiType(
@@ -196,18 +194,21 @@ public static partial class MetadataFindings
         ArgumentException.ThrowIfNullOrEmpty(typeFullName);
         options ??= ApiDiffOptions.Default;
 
-        var comparison = FindingComparison.Compare(
+        var rawTypes = FindingComparison.Compare(
             InspectApiType(oldSurface, subject, typeFullName),
             InspectApiType(newSurface, subject, typeFullName),
             IdentitySetOptions);
         if (oldSurface is null || newSurface is null)
-            return comparison;
+            return rawTypes;
 
-        var diff = ApiDiffAnalyzer.Compare(
-            FocusSurface(oldSurface, typeFullName),
-            FocusSurface(newSurface, typeFullName),
-            options);
-        return comparison.TransformPairs(
+        var rawMembers = FindingComparison.Compare(
+            InspectApiMembers(oldSurface, subject, typeFullName),
+            InspectApiMembers(newSurface, subject, typeFullName),
+            IdentitySetOptions);
+        var focusedOld = FocusSurface(oldSurface, typeFullName);
+        var focusedNew = FocusSurface(newSurface, typeFullName);
+        var diff = ApiFindingClassifier.Classify(rawTypes, rawMembers, focusedOld, focusedNew, options);
+        return rawTypes.TransformPairs(
             pairs => ApplyTypeFacetChanges(pairs, diff, options.Scope));
     }
 
@@ -223,19 +224,22 @@ public static partial class MetadataFindings
         ArgumentException.ThrowIfNullOrEmpty(typeFullName);
         options ??= ApiDiffOptions.Default;
 
-        var comparison = FindingComparison.Compare(
+        var rawMembers = FindingComparison.Compare(
             InspectApiMembers(oldSurface, subject, typeFullName),
             InspectApiMembers(newSurface, subject, typeFullName),
             IdentitySetOptions,
             acceptanceThreshold);
         if (oldSurface is null || newSurface is null)
-            return comparison;
+            return rawMembers;
 
-        var diff = ApiDiffAnalyzer.Compare(
-            FocusSurface(oldSurface, typeFullName),
-            FocusSurface(newSurface, typeFullName),
-            options);
-        return comparison.TransformPairs(
+        var rawTypes = FindingComparison.Compare(
+            InspectApiType(oldSurface, subject, typeFullName),
+            InspectApiType(newSurface, subject, typeFullName),
+            IdentitySetOptions);
+        var focusedOld = FocusSurface(oldSurface, typeFullName);
+        var focusedNew = FocusSurface(newSurface, typeFullName);
+        var diff = ApiFindingClassifier.Classify(rawTypes, rawMembers, focusedOld, focusedNew, options);
+        return rawMembers.TransformPairs(
             pairs => ApplyMemberFacetChanges(pairs, diff, options.Scope));
     }
 
@@ -266,84 +270,65 @@ public static partial class MetadataFindings
         ArgumentNullException.ThrowIfNull(subject);
         options ??= ApiDiffOptions.Default;
 
-        var diff = ApiDiffAnalyzer.Compare(oldSurface, newSurface, options);
+        var rawTypes = BuildRawTypesComparison(oldSurface, newSurface, subject);
+        var rawMembers = BuildRawMembersComparison(oldSurface, newSurface, subject, memberAcceptanceThreshold);
+        var diff = ApiFindingClassifier.Classify(rawTypes, rawMembers, oldSurface, newSurface, options);
         return new ApiFindingComparison(
-            CompareApiTypes(oldSurface, newSurface, subject, options, diff),
-            CompareApiMembers(
-                oldSurface,
-                newSurface,
-                subject,
-                options,
-                diff,
-                memberAcceptanceThreshold),
+            rawTypes.TransformPairs(pairs => ApplyTypeFacetChanges(pairs, diff, options.Scope)),
+            rawMembers.TransformPairs(pairs => ApplyMemberFacetChanges(pairs, diff, options.Scope)),
             diff);
     }
 
-    static FindingComparison<ApiTypeHandle> CompareApiTypes(
+    /// <summary>
+    /// The unclassified type correspondence: identity-set matching over both surfaces'
+    /// types, before <see cref="ApiFindingClassifier"/> runs. Kept separate from the
+    /// classification step so the classifier can consume this same alignment to build the
+    /// <see cref="ApiDiff"/> that <see cref="ApplyTypeFacetChanges"/> then folds back onto it
+    /// as human-readable <c>Detail</c> text.
+    /// </summary>
+    static FindingComparison<ApiTypeHandle> BuildRawTypesComparison(
         ApiSurface oldSurface,
         ApiSurface newSurface,
-        FindingSubject subject,
-        ApiDiffOptions options,
-        ApiDiff diff)
+        FindingSubject subject)
     {
         var oldInspection = InspectApiTypesForComparison(oldSurface, subject);
         var newInspection = InspectApiTypesForComparison(newSurface, subject);
-        return FindingComparison.Compare(
-            oldInspection,
-            newInspection,
-            IdentitySetOptions)
-            .TransformPairs(pairs => ApplyTypeFacetChanges(pairs, diff, options.Scope));
+        return FindingComparison.Compare(oldInspection, newInspection, IdentitySetOptions);
     }
 
-    static FindingComparison<ApiMemberHandle> CompareApiMembers(
+    /// <summary>The unclassified member correspondence -- see <see cref="BuildRawTypesComparison"/>.</summary>
+    static FindingComparison<ApiMemberHandle> BuildRawMembersComparison(
         ApiSurface oldSurface,
         ApiSurface newSurface,
         FindingSubject subject,
-        ApiDiffOptions options,
-        ApiDiff diff,
-        int acceptanceThreshold = 100)
+        int acceptanceThreshold)
     {
         var oldInspection = InspectApiMembersForComparison(oldSurface, subject);
         var newInspection = InspectApiMembersForComparison(newSurface, subject);
-        return FindingComparison.Compare(
-            oldInspection,
-            newInspection,
-            IdentitySetOptions,
-            acceptanceThreshold)
-            .TransformPairs(pairs => ApplyMemberFacetChanges(pairs, diff, options.Scope));
+        return FindingComparison.Compare(oldInspection, newInspection, IdentitySetOptions, acceptanceThreshold);
     }
 
     static FindingInspection<ApiTypeHandle> InspectApiTypesForComparison(
         ApiSurface surface,
         FindingSubject subject)
     {
-        return surface.InspectionFailures.Count == 0
-            ? InspectApiTypes(surface, subject)
-            : new FindingInspection<ApiTypeHandle>.Failed(
-                ApiInspectionError(surface, subject));
+        // ApiSurface.Types already excludes the entities recorded in InspectionFailures (see
+        // AssemblyReader/ApiSurfaceExtractor) -- the surface itself is the healthy subset, and
+        // InspectionFailures is structured metadata about what was skipped, not a signal that
+        // nothing usable was extracted. Mirrors the legacy analyzer's per-type-skip: a failure
+        // affecting some types must not discard the comparison for every type that did load.
+        return InspectApiTypes(surface, subject);
     }
 
     static FindingInspection<ApiMemberHandle> InspectApiMembersForComparison(
         ApiSurface surface,
         FindingSubject subject)
     {
-        return surface.InspectionFailures.Count == 0
-            ? InspectApiMembers(surface, subject)
-            : new FindingInspection<ApiMemberHandle>.Failed(
-                ApiInspectionError(surface, subject));
+        // See BuildRawTypesComparison's InspectApiTypesForComparison: the surface's Members
+        // are already the healthy subset, so a recorded InspectionFailure elsewhere must not
+        // collapse the whole-side comparison to Failed.
+        return InspectApiMembers(surface, subject);
     }
-
-    static InspectionError ApiInspectionError(
-        ApiSurface surface,
-        FindingSubject subject)
-        => new(
-            subject,
-            InspectionDescriptor,
-            string.Join(
-                "; ",
-                surface.InspectionFailures.Select(failure =>
-                    $"{failure.Operation} 0x{failure.SubjectToken:X8} "
-                    + $"{failure.Mechanism}/{failure.Kind}: {failure.Detail}")));
 
     static ImmutableArray<PairFinding<ApiTypeHandle>> ApplyTypeFacetChanges(
         ImmutableArray<PairFinding<ApiTypeHandle>> pairs,
@@ -351,6 +336,7 @@ public static partial class MetadataFindings
         ApiDiffScope scope)
     {
         var changesByKey = BuildTypeChangeMap(diff);
+        var consumedKeys = new HashSet<string>(StringComparer.Ordinal);
         var builder = ImmutableArray.CreateBuilder<PairFinding<ApiTypeHandle>>(pairs.Length);
         foreach (var pair in pairs)
         {
@@ -358,7 +344,10 @@ public static partial class MetadataFindings
             {
                 var details = new List<string>();
                 if (changesByKey.TryGetValue(present.New.Payload.TypeFullName, out var changes))
+                {
+                    consumedKeys.Add(present.New.Payload.TypeFullName);
                     details.AddRange(changes.Select(FormatApiChange));
+                }
                 AddTypeFacetDetails(present.Old.Payload.Type, present.New.Payload.Type, scope, details);
 
                 builder.Add(details.Count == 0
@@ -375,6 +364,7 @@ public static partial class MetadataFindings
             }
         }
 
+        ThrowIfLegacyChangesUnconsumed("type", changesByKey, consumedKeys);
         return builder.ToImmutable();
     }
 
@@ -384,6 +374,7 @@ public static partial class MetadataFindings
         ApiDiffScope scope)
     {
         var changesByKey = BuildMemberChangeMap(diff);
+        var consumedKeys = new HashSet<string>(StringComparer.Ordinal);
         var builder = ImmutableArray.CreateBuilder<PairFinding<ApiMemberHandle>>(pairs.Length);
         foreach (var pair in pairs)
         {
@@ -392,7 +383,10 @@ public static partial class MetadataFindings
                 string key = present.New.Key.IdentityKey;
                 var details = new List<string>();
                 if (changesByKey.TryGetValue(key, out var changes))
+                {
+                    consumedKeys.Add(key);
                     details.AddRange(changes.Select(FormatApiChange));
+                }
                 AddMemberFacetDetails(present.Old.Payload.Member, present.New.Payload.Member, scope, details);
 
                 builder.Add(details.Count == 0
@@ -433,8 +427,40 @@ public static partial class MetadataFindings
             }
         }
 
+        ThrowIfLegacyChangesUnconsumed("member", changesByKey, consumedKeys);
         return builder.ToImmutable();
     }
+
+    /// <summary>
+    /// Cross-validates the legacy <see cref="ApiDiffAnalyzer"/> lane against the Finding
+    /// lane (finding-adoption.md rule 1): every present-in-both facet change the legacy
+    /// analyzer reports must land on a matching identity-set <c>Present</c> pair here. A
+    /// legacy change with no matching pair means the two lanes disagree about which
+    /// types/members correspond across surfaces -- a producer or adapter bug that must
+    /// fail loudly rather than silently render only the legacy change.
+    /// </summary>
+    static void ThrowIfLegacyChangesUnconsumed(
+        string domain,
+        Dictionary<string, List<ApiChange>> changesByKey,
+        HashSet<string> consumedKeys)
+    {
+        var unconsumed = changesByKey.Keys
+            .Where(key => !consumedKeys.Contains(key))
+            .OrderBy(key => key, StringComparer.Ordinal)
+            .ToList();
+        if (unconsumed.Count == 0)
+            return;
+
+        throw new InvalidOperationException(
+            $"API {domain} diff divergence: the legacy ApiDiffAnalyzer reported "
+            + $"{unconsumed.Count} present-in-both {domain} change(s) that the Finding-lane "
+            + "identity-set comparison did not match to a Present pair: "
+            + string.Join(", ", unconsumed)
+            + ". This means the legacy and Finding lanes disagree about correspondence "
+            + "for these identities.");
+    }
+
+
 
     static ImmutableArray<PairFinding<ApiAttributeHandle>> ApplyAttributeValueChanges(
         ImmutableArray<PairFinding<ApiAttributeHandle>> pairs)

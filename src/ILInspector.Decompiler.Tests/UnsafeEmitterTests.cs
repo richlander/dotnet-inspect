@@ -312,14 +312,13 @@ public class UnsafeEmitterTests
     }
 
     [Fact]
-    public void NewRulesModule_StackAllocPointerInitializer_HoistsStackSlotDeclaration()
+    public void NewRulesModule_StackAllocPointerInitializer_RequiresUnsafeContext()
     {
         var output = DecompileNewStackalloc(nameof(NewStackallocFixtures.StackallocPointerInitializer));
         var block = FirstUnsafeBlockBody(output);
 
-        Assert.Contains("* S_", block);
-        Assert.Contains("stackalloc byte[", block);
-        Assert.Contains("_ = S_", block);
+        Assert.Contains("stackalloc int[] { 1, 2, 3 }", block);
+        Assert.DoesNotContain("S_", block);
     }
 
     [Fact]

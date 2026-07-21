@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Type-identity axis of the fixture matrix.
+
+    This assembly pins the compiler-emitted *metadata type-name* shapes that the
+    CompileBackTypeIdentity closure index keys on: keyword-escaped names, an
+    arity-tick generic name, a nested type, keyword namespace segments, and a
+    file-local mangled name. The compiler is the producer of these metadata
+    spellings, so the shapes must come from a real build, not a hand-written name
+    table. The declared namespaces (Sample, @for.@class) are deliberately short so
+    the consuming test's expected full names stay unqualified.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>

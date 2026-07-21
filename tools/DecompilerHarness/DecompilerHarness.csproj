@@ -20,6 +20,7 @@
     <ProjectReference Include="../../src/DotnetInspector.Services/DotnetInspector.Services.csproj" />
     <ProjectReference Include="../../src/DotnetInspector.Packages/DotnetInspector.Packages.csproj" />
     <ProjectReference Include="../../tests/DotnetInspector.Fixtures/DotnetInspector.Fixtures.csproj" />
+    <ProjectReference Include="../HarnessReportProtocol/HarnessReportProtocol.csproj" />
     <!-- ILReader: the byte-match-validated IL reader the fidelity and annotation checks read the witness IL with. -->
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <!-- Validity check: parse and bind the decompiled C# to measure validity. -->

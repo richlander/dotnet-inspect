@@ -177,8 +177,8 @@ public class IlBodyDiffTests
     {
         var diff = DiffFixtureDiff(
             "CallToken",
-            IlBodyDiffOptions.NormalizeCurrentAssemblyScope
-            | IlBodyDiffOptions.NormalizePlatformAssemblyScopes);
+            IlBodyDiffNormalization.NormalizeCurrentAssemblyScope
+            | IlBodyDiffNormalization.NormalizePlatformAssemblyScope);
 
         Assert.False(diff.IsExact);
         Assert.Contains(diff.Rows, row => row.Operation.Operand?.Value.Contains("::Abs(", StringComparison.Ordinal) == true);
@@ -789,7 +789,7 @@ public class IlBodyDiffTests
 
     static IlBodyDiffResult DiffFixtureDiff(
         string name,
-        IlBodyDiffOptions options = IlBodyDiffOptions.None)
+        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
     {
         using var oldStream = File.OpenRead(FixtureCatalog.DiffPair.OldAssemblyPath());
         using var newStream = File.OpenRead(FixtureCatalog.DiffPair.NewAssemblyPath());
@@ -802,7 +802,7 @@ public class IlBodyDiffTests
             DiffFixtureMethodBody(oldPe, oldReader, name),
             newReader,
             DiffFixtureMethodBody(newPe, newReader, name),
-            options);
+            normalization);
     }
 
     static MethodInstructions DiffFixtureMethod(FixtureDefinition fixture, string name)

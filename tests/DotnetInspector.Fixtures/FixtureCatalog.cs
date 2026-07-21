@@ -72,6 +72,7 @@ public static class FixtureIds
 
     public const string DecompilerCheckedArithmetic = "decompiler.checked-arithmetic";
     public const string DecompilerClassicAsync = "decompiler.classic-async";
+    public const string DecompilerExpressionTreeSpoof = "decompiler.expression-tree-spoof";
     public const string DecompilerClassicStateMachines = "decompiler.classic-state-machines";
     public const string DecompilerLadderIterator = "decompiler.ladder.iterator";
     public const string DecompilerLadderRung1 = "decompiler.ladder.rung1";
@@ -80,6 +81,7 @@ public static class FixtureIds
     public const string DecompilerLadderRung4 = "decompiler.ladder.rung4";
     public const string DecompilerLadderRung5 = "decompiler.ladder.rung5";
     public const string DecompilerLadderRung9 = "decompiler.ladder.rung9";
+    public const string DecompilerTypeIdentity = "decompiler.type-identity";
     public const string DecompilerUnsafeLegacy = "decompiler.unsafe.legacy";
     public const string DecompilerUnsafeNew = "decompiler.unsafe.new";
     public const string DecompilerUnsafeChainA = "decompiler.unsafe.chain-a";
@@ -235,12 +237,26 @@ public static class FixtureCatalog
         Boundaries(FixtureBoundary.CompilerLowering),
         "decompiler", "checked-arithmetic", "compiler-axis");
 
+    public static readonly FixtureDefinition DecompilerTypeIdentity = Fixture(
+        FixtureIds.DecompilerTypeIdentity,
+        "ILInspector.Decompiler.Fixtures.TypeIdentity",
+        "ILInspector.Decompiler.Fixtures.TypeIdentity.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "decompiler", "type-identity", "compiler-axis");
+
     public static readonly FixtureDefinition DecompilerClassicAsync = Fixture(
         FixtureIds.DecompilerClassicAsync,
         "ILInspector.Decompiler.Fixtures.ClassicAsync",
         "ILInspector.Decompiler.Fixtures.ClassicAsync.dll",
         Boundaries(FixtureBoundary.CompilerLowering),
         "decompiler", "async", "classic-async", "compiler-axis", "rts-candidate");
+
+    public static readonly FixtureDefinition DecompilerExpressionTreeSpoof = Fixture(
+        FixtureIds.DecompilerExpressionTreeSpoof,
+        "ILInspector.Decompiler.Fixtures.ExpressionTreeSpoof",
+        "System.Linq.Expressions.dll",
+        Boundaries(FixtureBoundary.AssemblyName),
+        "decompiler", "expression-tree", "spoof", "assembly-name-axis", "system-linq-expressions");
 
     public static readonly FixtureDefinition DecompilerClassicStateMachines = Fixture(
         FixtureIds.DecompilerClassicStateMachines,
@@ -357,7 +373,9 @@ public static class FixtureCatalog
         AnalysisSpoofSystemLinq,
         AnalysisSpoofSystemRuntime,
         DecompilerCheckedArithmetic,
+        DecompilerTypeIdentity,
         DecompilerClassicAsync,
+        DecompilerExpressionTreeSpoof,
         DecompilerClassicStateMachines,
         DecompilerLadderIterator,
         DecompilerLadderRung1,

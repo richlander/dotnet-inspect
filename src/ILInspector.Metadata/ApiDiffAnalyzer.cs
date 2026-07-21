@@ -132,7 +132,25 @@ public record ApiChange(
     ApiChangeCategory Category = ApiChangeCategory.Signature,
     ApiChangeSubject? Subject = null);
 
-public sealed record ApiDiffOptions(ApiDiffScope Scope = ApiDiffScope.Signature)
+/// <summary>
+/// Named, explicitly-requested classification exceptions -- mirrors
+/// <c>IlBodyDiffNormalization</c>'s policy shape. Default (<see cref="None"/>) is strict:
+/// a fuzzy/soft member identity match (e.g. an extension method's static/instance
+/// projection) is treated as unrelated (a breaking removal plus an additive addition),
+/// the same as the legacy analyzer's own member matcher would report. Requesting
+/// <see cref="NormalizeMemberProjection"/> instead treats a fuzzy-matched member pair as
+/// the same member observed under two projections, classifying only its facet deltas.
+/// </summary>
+[Flags]
+public enum ApiDiffNormalization
+{
+    None = 0,
+    NormalizeMemberProjection = 1,
+}
+
+public sealed record ApiDiffOptions(
+    ApiDiffScope Scope = ApiDiffScope.Signature,
+    ApiDiffNormalization Normalization = ApiDiffNormalization.None)
 {
     public static ApiDiffOptions Default { get; } = new();
 }
@@ -299,6 +317,19 @@ public static class ApiDiffAnalyzer
 
     private static List<ApiChange> CompareTypes(ApiType oldType, ApiType newType, ApiDiffOptions options)
     {
+        var changes = CompareTypeFacetsOnly(oldType, newType, options);
+        CompareMembers(oldType, newType, changes, options);
+        return changes;
+    }
+
+    /// <summary>
+    /// Type-facet classification only (kind/sealed/abstract/base type/interfaces/type
+    /// parameters/type attributes) -- no member-level walk. Reused by
+    /// <see cref="ApiFindingClassifier"/>, which sources member-level changes from the
+    /// Finding lane's own member comparison instead of this analyzer's member matcher.
+    /// </summary>
+    internal static List<ApiChange> CompareTypeFacetsOnly(ApiType oldType, ApiType newType, ApiDiffOptions options)
+    {
         List<ApiChange> changes = [];
         if (IncludesSignature(options))
         {
@@ -314,7 +345,6 @@ public static class ApiDiffAnalyzer
                 ChangeKind.TypeAttributeRemoved,
                 $"Type '{oldType.FullName}'",
                 ApiChangeSubject.Type(oldType, newType));
-        CompareMembers(oldType, newType, changes, options);
         return changes;
     }
 
@@ -580,7 +610,7 @@ public static class ApiDiffAnalyzer
         }
     }
 
-    private static void CompareMemberModifiers(ApiType oldType, ApiType newType, ApiMember oldMember, ApiMember newMember, List<ApiChange> changes)
+    internal static void CompareMemberModifiers(ApiType oldType, ApiType newType, ApiMember oldMember, ApiMember newMember, List<ApiChange> changes)
     {
         // Virtual removed
         if (oldMember.IsVirtual && !newMember.IsVirtual)
@@ -635,7 +665,7 @@ public static class ApiDiffAnalyzer
             includeDecodeStatus ? member.SignatureDecodeStatus : null);
     }
 
-    private static void CompareAttributes(
+    internal static void CompareAttributes(
         IEnumerable<string> oldAttributes,
         IEnumerable<string> newAttributes,
         List<ApiChange> changes,
@@ -670,9 +700,9 @@ public static class ApiDiffAnalyzer
         }
     }
 
-    static bool IncludesSignature(ApiDiffOptions options)
+    internal static bool IncludesSignature(ApiDiffOptions options)
         => options.Scope.HasFlag(ApiDiffScope.Signature);
 
-    static bool IncludesAttributes(ApiDiffOptions options)
+    internal static bool IncludesAttributes(ApiDiffOptions options)
         => options.Scope.HasFlag(ApiDiffScope.Attributes);
 }

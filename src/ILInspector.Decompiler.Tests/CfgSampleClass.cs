@@ -396,6 +396,166 @@ public class CfgSampleClass
             x);
     }
 
+    // Near-miss: one ParameterExpression object backs both entries of the Lambda
+    // parameter array. A source lambda cannot declare `(x, x)`, so recovering one
+    // would fabricate invalid C# — the distinct-owning-local guard declines it.
+    public static System.Linq.Expressions.Expression<System.Func<int, int, int>> ManualReusedParameterFactory()
+    {
+        var p = System.Linq.Expressions.Expression.Parameter(typeof(int), "x");
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, int, int>>(
+            System.Linq.Expressions.Expression.Add(p, p),
+            p, p);
+    }
+
+    // Near-miss: two distinct ParameterExpression objects share the name "x".
+    // Recovering would emit duplicate `(x, x)` declarations, so the distinct-name
+    // guard declines it.
+    public static System.Linq.Expressions.Expression<System.Func<int, int, int>> ManualDuplicateNameFactory()
+    {
+        var a = System.Linq.Expressions.Expression.Parameter(typeof(int), "x");
+        var b = System.Linq.Expressions.Expression.Parameter(typeof(int), "x");
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, int, int>>(
+            System.Linq.Expressions.Expression.Add(a, b),
+            a, b);
+    }
+
+    // Near-miss: the ParameterExpression name "bad-name" is not a C#-spellable
+    // identifier. Sanitizing it would silently change ParameterExpression.Name and
+    // break the identical-tree semantics, so the escapable-name guard declines it.
+    public static System.Linq.Expressions.Expression<System.Func<int, int>> ManualUnspellableNameFactory()
+    {
+        var p = System.Linq.Expressions.Expression.Parameter(typeof(int), "bad-name");
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, int>>(
+            System.Linq.Expressions.Expression.Add(p, System.Linq.Expressions.Expression.Constant(1, typeof(int))),
+            p);
+    }
+
+    // Near-miss: the canonical inline factory graph, but returned as the
+    // non-generic Expression. A bare lambda literal only converts to the generic
+    // Expression<TDelegate> (CS8917), so `return x => x + 1;` would be invalid here.
+    // The return-sink guard declines it, keeping the honest factory calls.
+    public static System.Linq.Expressions.Expression ManualCanonicalReturnedAsExpression()
+    {
+        var p = System.Linq.Expressions.Expression.Parameter(typeof(int), "x");
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, int>>(
+            System.Linq.Expressions.Expression.Add(p, System.Linq.Expressions.Expression.Constant(1, typeof(int))),
+            p);
+    }
+
+    // Near-miss: the canonical inline factory graph, returned as the non-generic
+    // LambdaExpression — likewise not a lambda-literal conversion target (CS8917).
+    public static System.Linq.Expressions.LambdaExpression ManualCanonicalReturnedAsLambdaExpression()
+    {
+        var p = System.Linq.Expressions.Expression.Parameter(typeof(int), "x");
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, int>>(
+            System.Linq.Expressions.Expression.Add(p, System.Linq.Expressions.Expression.Constant(1, typeof(int))),
+            p);
+    }
+
+    // Near-miss: the canonical inline factory graph, returned as object — again not
+    // a lambda-literal conversion target (CS8917). The return-sink guard declines it.
+    public static object ManualCanonicalReturnedAsObject()
+    {
+        var p = System.Linq.Expressions.Expression.Parameter(typeof(int), "x");
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, int>>(
+            System.Linq.Expressions.Expression.Add(p, System.Linq.Expressions.Expression.Constant(1, typeof(int))),
+            p);
+    }
+
+    // Near-miss: a canonical graph whose whole body is constant-only arithmetic
+    // (Add over two int Constants). The C# compiler constant-folds `2 + 3` when the
+    // recovered lambda is recompiled to an expression tree, rebuilding a single
+    // Constant(5) instead of the original Add node — a different tree. The
+    // constant-fold guard declines it. The parameter is declared but unreferenced,
+    // matching the shape a source `x => 2 + 3` would have (the compiler would have
+    // already folded that literal, so no such expression tree is compiler-produced).
+    public static System.Linq.Expressions.Expression<System.Func<int, int>> ManualConstantOnlyAddFactory()
+    {
+        var x = System.Linq.Expressions.Expression.Parameter(typeof(int), "x");
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, int>>(
+            System.Linq.Expressions.Expression.Add(
+                System.Linq.Expressions.Expression.Constant(2, typeof(int)),
+                System.Linq.Expressions.Expression.Constant(3, typeof(int))),
+            x);
+    }
+
+    // Near-miss: constant-only Subtract root, folded to Constant on recompile.
+    public static System.Linq.Expressions.Expression<System.Func<int, int>> ManualConstantOnlySubtractFactory()
+    {
+        var x = System.Linq.Expressions.Expression.Parameter(typeof(int), "x");
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, int>>(
+            System.Linq.Expressions.Expression.Subtract(
+                System.Linq.Expressions.Expression.Constant(7, typeof(int)),
+                System.Linq.Expressions.Expression.Constant(4, typeof(int))),
+            x);
+    }
+
+    // Near-miss: constant-only Multiply root, folded to Constant on recompile.
+    public static System.Linq.Expressions.Expression<System.Func<int, int>> ManualConstantOnlyMultiplyFactory()
+    {
+        var x = System.Linq.Expressions.Expression.Parameter(typeof(int), "x");
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, int>>(
+            System.Linq.Expressions.Expression.Multiply(
+                System.Linq.Expressions.Expression.Constant(6, typeof(int)),
+                System.Linq.Expressions.Expression.Constant(7, typeof(int))),
+            x);
+    }
+
+    // Near-miss: a parameter-dependent Multiply whose LEFT subtree is constant-only
+    // (`Add(2, 3)`). The root has a parameter operand, but the nested constant-only
+    // Add folds to Constant(5) on recompile, changing the left subtree. The
+    // transitive constant-fold guard declines at the nested node.
+    public static System.Linq.Expressions.Expression<System.Func<int, int>> ManualNestedConstantSubtreeFactory()
+    {
+        var x = System.Linq.Expressions.Expression.Parameter(typeof(int), "x");
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, int>>(
+            System.Linq.Expressions.Expression.Multiply(
+                System.Linq.Expressions.Expression.Add(
+                    System.Linq.Expressions.Expression.Constant(2, typeof(int)),
+                    System.Linq.Expressions.Expression.Constant(3, typeof(int))),
+                x),
+            x);
+    }
+
+    // Near-miss: constant-only Divide with a zero divisor. Never executed — the
+    // factory only builds the node — but recovering `x => 1 / 0` would be folded
+    // (or rejected) by the compiler rather than rebuilding the Divide node, so the
+    // constant-fold guard declines it.
+    public static System.Linq.Expressions.Expression<System.Func<int, int>> ManualConstantOnlyDivideByZeroFactory()
+    {
+        var x = System.Linq.Expressions.Expression.Parameter(typeof(int), "x");
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, int>>(
+            System.Linq.Expressions.Expression.Divide(
+                System.Linq.Expressions.Expression.Constant(1, typeof(int)),
+                System.Linq.Expressions.Expression.Constant(0, typeof(int))),
+            x);
+    }
+
+    // Near-miss: constant-only Remainder at the int.MinValue % -1 overflow edge.
+    // Constant-only, so the constant-fold guard declines it.
+    public static System.Linq.Expressions.Expression<System.Func<int, int>> ManualConstantOnlyRemainderOverflowFactory()
+    {
+        var x = System.Linq.Expressions.Expression.Parameter(typeof(int), "x");
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, int>>(
+            System.Linq.Expressions.Expression.Modulo(
+                System.Linq.Expressions.Expression.Constant(int.MinValue, typeof(int)),
+                System.Linq.Expressions.Expression.Constant(-1, typeof(int))),
+            x);
+    }
+
+    // Positive control: a parameter-dependent body with a constant operand
+    // (`x * 2 + 3`) — at least one operand of every arithmetic node depends on the
+    // parameter, so nothing folds and the tree is recovered at Full fidelity.
+    public static System.Linq.Expressions.Expression<System.Func<int, int>> ManualParameterPlusConstantFactory()
+    {
+        var x = System.Linq.Expressions.Expression.Parameter(typeof(int), "x");
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, int>>(
+            System.Linq.Expressions.Expression.Add(
+                System.Linq.Expressions.Expression.Multiply(x, System.Linq.Expressions.Expression.Constant(2, typeof(int))),
+                System.Linq.Expressions.Expression.Constant(3, typeof(int))),
+            x);
+    }
+
     // Capturing: `n` is hoisted into a <>c__DisplayClass, so the delegate targets
     // an instance method on that class. LambdaRaisingPass substitutes the body's
     // `this.n` read with the captured value and recovers `x => x + n`.

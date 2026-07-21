@@ -4,6 +4,32 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
+/// <summary>
+/// Real-IL fixture for <see cref="SwitchBranchRenderingTests.Structuring_PreservesFlattenedSwitchTargetLabels"/>:
+/// a dense group compiles to an IL <c>switch</c>, while the sparse case compiles
+/// to a comparison branch sharing the same return leaf. This is the smallest
+/// compiler-produced shape needed to verify that structuring preserves every
+/// flattened switch target label.
+/// </summary>
+static class SwitchTableFixture
+{
+    public static int Classify(int value)
+    {
+        switch (value)
+        {
+            case 0:
+            case 2:
+                return 8;
+            case 1:
+            case 3:
+            case 100:
+                return 2;
+            default:
+                return 0;
+        }
+    }
+}
+
 // An IL `switch` opcode the switch-raising pass could not lift into a structured
 // `switch` stays in the tree as a SwitchBranch jump table. The printer must
 // render it as valid lowered C# — a single-evaluated temp plus one `if`/`goto`
@@ -81,20 +107,18 @@ public class SwitchBranchRenderingTests
     [Fact]
     public void Structuring_PreservesFlattenedSwitchTargetLabels()
     {
-        // OperandLength has residual switch tables whose target blocks are also
-        // comparison-tree return leaves. Structuring must keep those labels
-        // available for the lowered if/goto switch rendering.
-        using var source = MetadataSource.Open(typeof(IlProjection).Assembly.Location);
-        var function = IrImporter.Import(source, typeof(IlProjection).FullName!, "OperandLength");
+        // The dense jump-table targets are also comparison-tree return leaves.
+        // Structuring must keep those labels available for lowered rendering.
+        using var source = MetadataSource.Open(typeof(SwitchTableFixture).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(SwitchTableFixture).FullName!, nameof(SwitchTableFixture.Classify));
         Assert.NotNull(function);
 
         var result = CSharpPrinter.PrintRaised(function);
         string output = result.Output ?? "";
 
         Assert.Contains("if (__dotnet_inspect_switch", output);
-        Assert.Contains("goto IL_024F;", output);
-        Assert.Contains("IL_024F:", output);
         Assert.DoesNotContain("case 0: goto", output);
+        AssertGotoTargetsHaveLabels(output);
     }
 
     [Fact]

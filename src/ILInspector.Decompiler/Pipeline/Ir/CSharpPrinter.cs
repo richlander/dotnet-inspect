@@ -1559,8 +1559,7 @@ public sealed partial class CSharpPrinter
         }
         if (node is StoreLocal { Value: StackAllocate storeStackAllocate, Type.Kind: TypeRefKind.Pointer } store
             && store.Type is { } storeType
-            && storeStackAllocate.ResultType is { } stackAllocType
-            && !storeType.Equals(stackAllocType))
+            && storeStackAllocate.ResultType is { } stackAllocType)
         {
             string localName = FreshSyntheticLocalName("__stackalloc");
             sb.Append(pad)
@@ -1573,10 +1572,37 @@ public sealed partial class CSharpPrinter
             sb.Append(pad);
             if (_declaringStores.Contains(store))
                 sb.Append(TypeText(storeType)).Append(' ');
+
+            string cast = storeType.Equals(stackAllocType) ? "" : $"({TypeText(storeType)})";
+
             sb.Append(LocalName(store.Index))
-                .Append(" = (")
-                .Append(TypeText(storeType))
-                .Append(')')
+                .Append(" = ")
+                .Append(cast)
+                .Append(localName)
+                .AppendLine(";");
+            return;
+        }
+        if (node is StoreStackSlot { Value: StackAllocate slotStackAllocate } slotStore
+            && StackSlotTargetType(slotStore) is { Kind: TypeRefKind.Pointer } slotType
+            && slotStackAllocate.ResultType is { } slotAllocType)
+        {
+            string localName = FreshSyntheticLocalName("__stackalloc");
+            sb.Append(pad)
+                .Append(TypeText(slotAllocType))
+                .Append(' ')
+                .Append(localName)
+                .Append(" = ")
+                .Append(Expression(slotStackAllocate))
+                .AppendLine(";");
+            sb.Append(pad);
+            if (_declaringStores.Contains(slotStore))
+                sb.Append(TypeText(slotType)).Append(' ');
+
+            string cast = slotType.Equals(slotAllocType) ? "" : $"({TypeText(slotType)})";
+
+            sb.Append(StackSlotName(slotStore))
+                .Append(" = ")
+                .Append(cast)
                 .Append(localName)
                 .AppendLine(";");
             return;
@@ -1877,7 +1903,7 @@ public sealed partial class CSharpPrinter
         // A stackalloc-backed Span (raised to `stackalloc T[n]` by
         // StackAllocSpanPass) is governed by the stackalloc rule — unsafe only
         // under [SkipLocalsInit], where the stack space is uninitialized.
-        StackAllocArray => _skipLocalsInit,
+        StackAllocArray sa => _skipLocalsInit || sa.ResultType?.Kind == TypeRefKind.Pointer,
         Call c => c.Callee.RequiresUnsafe || SignatureRequiresUnsafe(c.Callee),
         NewObject n => n.Constructor.RequiresUnsafe || SignatureRequiresUnsafe(n.Constructor),
         Binary b => IsPointerArithmetic(b),
@@ -2078,6 +2104,7 @@ public sealed partial class CSharpPrinter
         InitObject { Address: LoadArgumentAddress argument } => $"{CSharpNaming.EscapeIdentifier(argument.Name)} = default;",
         InitObject { Address: LoadFieldAddress field } o2 => $"{FieldTarget(field.Field, field.Instance)} = default;",
         InitObject o => $"{Deref(o.Address)} = default({TypeText(o.Type)});",
+        CopyBlock cb => "/* unsupported cpblk */",
         Return { Value: { } value } => ReturnText(value),
         Return => "return;",
         YieldReturn y => $"yield return {Expression(y.Value)};",
@@ -2225,7 +2252,9 @@ public sealed partial class CSharpPrinter
         CollectionSpreadElement s => $"..{Expression(s.Source)}",
         InlineArraySpanConversion c => $"({TypeText(c.SpanType)}){Deref(c.Place)}",
         StackAllocate s => $"stackalloc byte[{Expression(s.Size)}]",
-        StackAllocArray s => $"stackalloc {TypeText(s.ElementType)}[{Expression(s.Count)}]",
+        StackAllocArray s => s.HasInitializer
+            ? $"stackalloc {TypeText(s.ElementType)}[] {{ {string.Join(", ", s.Elements.ToArray().Select(e => Expression((IrExpression)e)))} }}"
+            : $"stackalloc {TypeText(s.ElementType)}[{Expression(s.Count)}]",
         Box b => CoerceText(b.Operand, b.Type),
         IsInstance i => $"{Operand(i.Operand)} {(IsValueTypeTarget(i.Type) ? "is" : "as")} {TypeText(i.Type)}",
         IsPattern p => $"{TypeTestValueText(p.Value)} is {TypeText(p.Type)} {LocalName(p.LocalIndex)}",
@@ -2964,7 +2993,8 @@ public sealed partial class CSharpPrinter
     {
         var used = new HashSet<string>(
             _function.Signature.Parameters.Select(p => p.Name)
-                .Concat(_function.LocalNames.Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => name!)),
+                .Concat(_function.LocalNames.Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => name!))
+                .Concat(_syntheticLocalNames),
             StringComparer.Ordinal);
         string chosen = baseName;
         if (used.Contains(baseName))

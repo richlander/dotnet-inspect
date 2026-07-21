@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 
 using DotnetInspector.Core;
 using DotnetInspector.Fixtures;
+using DotnetInspector.HarnessReports;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using ILInspector.Decompiler;
@@ -37,6 +38,7 @@ static class Program
         bool idempotenceCheck = false;
         bool slotResidualCensus = false;
         bool slotUnifierCensus = false;
+        bool fixtureSourceInventory = false;
 
         string? dumpMethod = null;
         int dumpIndex = 0;
@@ -66,6 +68,14 @@ static class Program
         bool notMyType = false;
         string? emitNotMyTypeSnapshot = null;
         string? diffNotMyTypeBaseline = null;
+        string? emitHarnessReport = null;
+        bool enumerateRealMethods = false;
+        bool harvestAuthoredCorpus = false;
+        bool harvestEvilCorpus = false;
+        string? harvestOutputPath = null;
+        bool benchmarkAuthoredCorpus = false;
+        string? benchmarkCorpusPath = null;
+        int harvestTarget = 12000;
         bool censusTsv = false;
         bool censusJsonl = false;
         bool returnToSenderAb = false;
@@ -181,10 +191,26 @@ static class Program
                     case "--diff-return-address-baseline":
                         diffReturnAddressBaseline = NextArg(args, ref i, flag); returnAddress = true; break;
                     case "--not-my-type": notMyType = true; break;
+                    case "--enumerate-real-methods": enumerateRealMethods = true; break;
+                    case "--harvest-authored-corpus":
+                        harvestAuthoredCorpus = true;
+                        harvestOutputPath = NextArg(args, ref i, flag);
+                        break;
+                    case "--harvest-evil-corpus":
+                        harvestEvilCorpus = true;
+                        harvestOutputPath = NextArg(args, ref i, flag);
+                        break;
+                    case "--harvest-target": harvestTarget = int.Parse(NextArg(args, ref i, flag)); break;
+                    case "--benchmark-authored-corpus":
+                        benchmarkAuthoredCorpus = true;
+                        benchmarkCorpusPath = NextArg(args, ref i, flag);
+                        break;
                     case "--emit-not-my-type-snapshot":
                         emitNotMyTypeSnapshot = NextArg(args, ref i, flag); notMyType = true; break;
                     case "--diff-not-my-type-baseline":
                         diffNotMyTypeBaseline = NextArg(args, ref i, flag); notMyType = true; break;
+                    case "--emit-harness-report":
+                        emitHarnessReport = NextArg(args, ref i, flag); break;
                     case "--tsv": censusTsv = true; break;
                     case "--jsonl": censusJsonl = true; break;
                     case "--return-to-sender-ab": returnToSenderAb = true; break;
@@ -271,6 +297,7 @@ static class Program
                     case "--idempotence-check": idempotenceCheck = true; break;
                     case "--slot-residual-census": slotResidualCensus = true; break;
                     case "--slot-unifier-census": slotUnifierCensus = true; break;
+                    case "--fixture-source-inventory": fixtureSourceInventory = true; break;
                     case "--help" or "-h": PrintUsage(); return 0;
                     default: inputs.Add(args[i]); break;
                 }
@@ -289,6 +316,21 @@ static class Program
             return Fail("--return-to-sender-markout requires --return-to-sender-catalog.");
         if (cfgStageSpecified && (!cfg || dumpMethod is null))
             return Fail("--cfg-stage requires --dump --cfg.");
+        int harnessReportModes = (returnAddress ? 1 : 0)
+            + (notMyType ? 1 : 0)
+            + (returnToSenderCatalog ? 1 : 0)
+            + (returnToSenderSourceProbe ? 1 : 0);
+        if (emitHarnessReport is not null && harnessReportModes != 1)
+        {
+            return Fail("--emit-harness-report requires exactly one of --return-address, --not-my-type, --return-to-sender-catalog, or --source-correspondence-census.");
+        }
+
+        if (fixtureSourceInventory)
+        {
+            if (inputs.Count > 0)
+                return Fail("--fixture-source-inventory reports the registered Built and Generated catalogs; do not pass assembly paths.");
+            return FixtureSourceInventory(json);
+        }
 
         if (generatedFixtures)
         {
@@ -310,7 +352,13 @@ static class Program
                 return Fail("--return-to-sender-fixtures supplies built assemblies; do not use it with --return-to-sender-catalog.");
             if (inputs.Count > 0)
                 return Fail("--return-to-sender-catalog generates its own temporary input assembly; do not pass assembly paths.");
-            return ReturnToSenderCatalog(returnToSenderCatalogSelector, keepGeneratedFixtures, json, returnToSenderMarkout, maxExamples);
+            return ReturnToSenderCatalog(
+                returnToSenderCatalogSelector,
+                keepGeneratedFixtures,
+                json,
+                returnToSenderMarkout,
+                maxExamples,
+                emitHarnessReport);
         }
 
         if (returnToSenderFixtureGroup is not null
@@ -385,7 +433,8 @@ static class Program
                     : censusTsv ? RaCensusFormat.Tsv
                     : RaCensusFormat.Markdown,
                 emitReturnAddressSnapshot,
-                diffReturnAddressBaseline);
+                diffReturnAddressBaseline,
+                emitHarnessReport);
 
         if (notMyType)
             return NotMyTypeCensus.Run(
@@ -395,13 +444,26 @@ static class Program
                     : censusTsv ? NmtCensusFormat.Tsv
                     : NmtCensusFormat.Markdown,
                 emitNotMyTypeSnapshot,
-                diffNotMyTypeBaseline);
+                diffNotMyTypeBaseline,
+                emitHarnessReport);
+
+        if (enumerateRealMethods)
+            return RunEnumerateRealMethods(assemblies, maxExamples);
+
+        if (harvestAuthoredCorpus)
+            return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget);
+
+        if (harvestEvilCorpus)
+            return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget, evil: true);
+
+        if (benchmarkAuthoredCorpus)
+            return AuthoredCorpusBenchmark.Run(assemblies, benchmarkCorpusPath!, json);
 
         if (returnToSenderAb)
             return ReturnToSender.RunComparison(assemblies, cap, maxExamples);
 
         if (returnToSenderSourceProbe)
-            return ReturnToSenderSourceProbe.Run(assemblies, cap, maxExamples, json);
+            return ReturnToSenderSourceProbe.Run(assemblies, cap, maxExamples, json, emitHarnessReport);
 
         if (authoredRebuildFidelity)
             return AuthoredRebuildFidelity.Run(assemblies, cap, maxExamples);
@@ -437,7 +499,14 @@ static class Program
             return SlotUnifierCensus.Run(assemblies, corpusMethodCap, maxExamples);
 
         if (libraryReport)
-            return LibraryReport.Run(assemblies, compileCap, maxExamples, json, topPatterns, topLibraries);
+            return LibraryReport.Run(
+                assemblies,
+                compileCap,
+                maxExamples,
+                json,
+                topPatterns,
+                topLibraries,
+                corpusMethodCap);
 
         if (unsupportedNodes)
             return UnsupportedNodeReport.Run(assemblies, maxExamples, json);
@@ -483,6 +552,67 @@ static class Program
         return Inventory(assemblies);
     }
 
+    static int FixtureSourceInventory(bool json)
+    {
+        var built = FixtureCatalog.All
+            .OrderBy(fixture => fixture.Id, StringComparer.Ordinal)
+            .ToList();
+        var generated = GeneratedFixtureCatalog.Catalog
+            .OrderBy(fixture => fixture.Id, StringComparer.Ordinal)
+            .ToList();
+
+        if (json)
+        {
+            var payload = new
+            {
+                built = built.Select(fixture => new
+                {
+                    id = fixture.Id,
+                    origin = "Built",
+                    project = fixture.ProjectName,
+                    boundaries = fixture.Boundaries.Select(boundary => boundary.ToString()).ToArray(),
+                    tags = fixture.Tags.ToArray(),
+                }),
+                generated = generated.Select(fixture => new
+                {
+                    id = fixture.Id,
+                    origin = "Generated",
+                    targets = fixture.Targets.Count,
+                    tags = fixture.Tags.ToArray(),
+                }),
+                totals = new { built = built.Count, generated = generated.Count },
+            };
+            Console.WriteLine(JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
+            return 0;
+        }
+
+        var text = new StringBuilder();
+        text.AppendLine("FIXTURE SOURCE INVENTORY");
+        text.AppendLine();
+        text.AppendLine($"Built fixtures (FixtureCatalog): {built.Count}");
+        foreach (var fixture in built)
+        {
+            string boundaries = fixture.Boundaries.Count == 0
+                ? "-"
+                : string.Join(",", fixture.Boundaries.Select(boundary => boundary.ToString()));
+            string tags = fixture.Tags.Count == 0 ? "-" : string.Join(",", fixture.Tags);
+            text.AppendLine($"  {fixture.Id}  project={fixture.ProjectName}  boundaries=[{boundaries}]  tags={{{tags}}}");
+        }
+
+        text.AppendLine();
+        text.AppendLine($"Generated fixtures (GeneratedFixtureCatalog): {generated.Count}");
+        foreach (var fixture in generated)
+        {
+            string tags = fixture.Tags.Count == 0 ? "-" : string.Join(",", fixture.Tags);
+            text.AppendLine($"  {fixture.Id}  targets={fixture.Targets.Count}  tags={{{tags}}}");
+        }
+
+        text.AppendLine();
+        text.AppendLine($"Totals: Built={built.Count} Generated={generated.Count}");
+        Console.Write(text.ToString());
+        return 0;
+    }
+
     static int GeneratedFixtures(string? selector, bool keepArtifacts, bool json)
     {
         var fixtures = GeneratedFixtureCatalog.Select(selector);
@@ -518,7 +648,13 @@ static class Program
         return run.Passed ? 0 : 1;
     }
 
-    static int ReturnToSenderCatalog(string? selector, bool keepArtifacts, bool json, bool markout, int maxExamples)
+    static int ReturnToSenderCatalog(
+        string? selector,
+        bool keepArtifacts,
+        bool json,
+        bool markout,
+        int maxExamples,
+        string? emitHarnessReport)
     {
         if (json && markout)
             return Fail("--return-to-sender-markout cannot be combined with --json.");
@@ -526,6 +662,8 @@ static class Program
         var fixtures = GeneratedFixtureCatalog.Select(selector);
         if (selector == "list")
         {
+            if (emitHarnessReport is not null)
+                return Fail("--emit-harness-report does not apply to --return-to-sender-catalog list.");
             if (markout)
                 return Fail("--return-to-sender-markout does not apply to --return-to-sender-catalog list.");
             if (json)
@@ -541,6 +679,7 @@ static class Program
         var run = GeneratedFixtureRunner.RunReturnToSenderCatalog(
             fixtures,
             new GeneratedFixtureRunOptions(KeepArtifacts: keepArtifacts));
+        var report = ReturnToSenderCatalogReport.BuildReport(run, maxExamples);
         if (json)
         {
             Console.WriteLine(GeneratedFixtureRunner.FormatReturnToSenderCatalogJson(run));
@@ -548,8 +687,13 @@ static class Program
         else
         {
             Console.Write(markout
-                ? GeneratedFixtureRunner.FormatReturnToSenderCatalogMarkout(run, maxExamples)
-                : GeneratedFixtureRunner.FormatReturnToSenderCatalogReport(run, maxExamples));
+                ? ReturnToSenderCatalogReport.RenderMarkout(report)
+                : ReturnToSenderCatalogReport.RenderPlain(report.Payload));
+        }
+        if (emitHarnessReport is not null)
+        {
+            HarnessReportStorage.Write(emitHarnessReport, report);
+            HarnessLog.Status($"Wrote harness report: {emitHarnessReport}");
         }
         if (keepArtifacts && !json)
         {
@@ -578,6 +722,55 @@ static class Program
     /// up; the residual-kind docket is the prioritized work. It measures
     /// completeness, not correctness — pair it with <c>--fidelity-check</c> for fidelity.
     /// </summary>
+    // Diagnostic: enumerate real-method targets per assembly and print counts
+    // plus a small sample. Proves RealMethodTargetEnumerator against real
+    // assemblies without invoking source acquisition or the decompiler.
+    static int RunEnumerateRealMethods(List<string> assemblies, int maxExamples)
+    {
+        long grandTotal = 0;
+        foreach (string assemblyPath in assemblies)
+        {
+            IReadOnlyList<RealMethodTargetEnumerator.RealMethodTarget> targets;
+            try
+            {
+                targets = RealMethodTargetEnumerator.Enumerate(assemblyPath);
+            }
+            catch (Exception ex) when (ex is IOException
+                or UnauthorizedAccessException
+                or BadImageFormatException
+                or InvalidOperationException)
+            {
+                Console.Error.WriteLine(
+                    $"Warning: skipped '{assemblyPath}' ({ex.GetType().Name}: {ex.Message}).");
+                continue;
+            }
+
+            grandTotal += targets.Count;
+            Console.WriteLine($"{Path.GetFileName(assemblyPath)}: {targets.Count} real-method targets");
+            // Surface the hardest methods first: the difficulty ranking is the
+            // whole point of the enumeration for the EVIL corpus.
+            foreach (var target in targets
+                .OrderByDescending(target => target.Difficulty.Score)
+                .Take(maxExamples))
+            {
+                string overload = target.Overload == 0 ? "" : $"#{target.Overload}";
+                string sig = target.Signature is null ? " (ordinal)" : $" [{target.Signature}]";
+                var difficulty = target.Difficulty;
+                Console.WriteLine(
+                    $"  score={difficulty.Score,7:F1}  {target.Type}::{target.Method}{overload}");
+                Console.WriteLine(
+                    $"    params={target.ParameterCount} il={difficulty.IlSize} blocks={difficulty.BlockCount}"
+                    + $" branches={difficulty.BranchCount} switch={difficulty.SwitchCount}"
+                    + $" eh={difficulty.ExceptionRegionCount} ehDepth={difficulty.ExceptionNestingDepth}"
+                    + $" rare={difficulty.RareOpcodeCount} locals={difficulty.LocalCount}"
+                    + $" maxStack={difficulty.MaxStack}{sig}");
+            }
+        }
+
+        Console.WriteLine($"Total real-method targets: {grandTotal}");
+        return 0;
+    }
+
     static int CompletenessScan(List<string> assemblies, int maxExamples, bool byShape = false)
     {
         long total = 0, clean = 0, crashes = 0;
@@ -1700,6 +1893,12 @@ static class Program
           --slot-unifier-census   run the full pipeline and report the
                                 CSharpPrinter's own stack-slot unifier telemetry.
                                 Uses --corpus-method-cap to bound the sweep.
+          --fixture-source-inventory
+                                list the registered source-backed fixtures: Built
+                                (FixtureCatalog) and Generated
+                                (GeneratedFixtureCatalog). Use --json for a
+                                machine-readable inventory. Migrated Dynamic
+                                sites must appear here as Built or Generated.
           --return-to-sender      prototype fact-planned compile-back harness:
                                 build module/type shells for the first property
                                 getter in each assembly, compile, and compare IL
@@ -1746,6 +1945,12 @@ static class Program
                                 run the not-my-type census and fail (exit 1) if the
                                 same-assembly agree rate regressed below baseline <f>
                                 (implies --not-my-type).
+          --emit-harness-report <f>
+                                with --return-address, --not-my-type, or
+                                --return-to-sender-catalog or
+                                --source-correspondence-census, write the shared
+                                goal-aware stored-report JSON consumed by
+                                tools/HarnessReportDiff.
           --return-to-sender-ab   compare current compile-back and ReturnToSender
                                 over the same ReturnToSender property-getter targets.
           --return-to-sender-source-probe
@@ -1825,7 +2030,9 @@ static class Program
                                 non-zero on any precision violation.
           --library-report       per-assembly summary: Full %, fully-raised %,
                                 validity defects, residual pattern buckets, and
-                                examples. Use --json for machine-readable output.
+                                examples. Use --json for machine-readable output
+                                and --corpus-method-cap for a deterministic,
+                                bounded per-assembly sample.
           --unsupported-nodes    report every unsupported IL marker left in the
                                 raised tree, grouped by opcode/reason. Use --json
                                 for machine-readable output.

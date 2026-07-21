@@ -157,6 +157,7 @@ public class ImplementationDiffView
 public record ImplementationDiffRow(
     string Member,
     string Mechanism,
+    string Difference,
     string Change,
     string Evidence);
 

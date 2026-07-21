@@ -2137,7 +2137,8 @@ public sealed class LibraryBodyIndex
                 if (blockGraph.Blocks.Length == 0)
                     return new AllocationPathConfidenceIndex(confidenceByBlock);
 
-                var dominators = DominatorTree.Create(blockGraph);
+                var edges = blockGraph.Blocks.Select(static block => block.Edges).ToArray();
+                var dominators = Dominators.Of(edges);
                 var returnBlocks = ReturnBlocks(decodedBody);
                 for (int blockIndex = 0; blockIndex < blockGraph.Blocks.Length; blockIndex++)
                 {
@@ -2318,123 +2319,6 @@ public sealed class LibraryBodyIndex
                     activePath.Add(block);
                     frames.Push((block, 0));
                 }
-            }
-        }
-
-        sealed class DominatorTree
-        {
-            readonly int[] _idom;
-            readonly int _undefined;
-
-            DominatorTree(int[] idom, int undefined)
-            {
-                _idom = idom;
-                _undefined = undefined;
-            }
-
-            public static DominatorTree Create(BlockGraph blockGraph)
-            {
-                int n = blockGraph.Blocks.Length;
-                int undefined = n + 1;
-                var idom = new int[n];
-                Array.Fill(idom, undefined);
-                if (n == 0)
-                    return new DominatorTree(idom, undefined);
-
-                var predecessors = new List<int>[n];
-                for (int i = 0; i < n; i++)
-                    predecessors[i] = [];
-                for (int i = 0; i < n; i++)
-                {
-                    foreach (int successor in blockGraph.Blocks[i].Edges.Successors)
-                        if ((uint)successor < (uint)n)
-                            predecessors[successor].Add(i);
-                }
-
-                var postorder = new int[n];
-                Array.Fill(postorder, -1);
-                var order = new List<int>(n);
-                var visited = new bool[n];
-                var stack = new Stack<(int Block, int Next)>();
-                stack.Push((0, 0));
-                visited[0] = true;
-                while (stack.Count > 0)
-                {
-                    var (block, next) = stack.Pop();
-                    var successors = blockGraph.Blocks[block].Edges.Successors;
-                    if (next < successors.Count)
-                    {
-                        stack.Push((block, next + 1));
-                        int successor = successors[next];
-                        if ((uint)successor < (uint)n && !visited[successor])
-                        {
-                            visited[successor] = true;
-                            stack.Push((successor, 0));
-                        }
-                    }
-                    else
-                    {
-                        postorder[block] = order.Count;
-                        order.Add(block);
-                    }
-                }
-
-                idom[0] = 0;
-                var reversePostorder = new List<int>(order.Count);
-                for (int i = order.Count - 1; i >= 0; i--)
-                    if (order[i] != 0)
-                        reversePostorder.Add(order[i]);
-
-                bool changed = true;
-                while (changed)
-                {
-                    changed = false;
-                    foreach (int block in reversePostorder)
-                    {
-                        int newIdom = undefined;
-                        foreach (int predecessor in predecessors[block])
-                        {
-                            if (idom[predecessor] == undefined)
-                                continue;
-                            newIdom = newIdom == undefined
-                                ? predecessor
-                                : Intersect(predecessor, newIdom, idom, postorder);
-                        }
-                        if (newIdom != undefined && idom[block] != newIdom)
-                        {
-                            idom[block] = newIdom;
-                            changed = true;
-                        }
-                    }
-                }
-
-                return new DominatorTree(idom, undefined);
-            }
-
-            public bool Dominates(int dominator, int block)
-            {
-                if ((uint)dominator >= (uint)_idom.Length || (uint)block >= (uint)_idom.Length)
-                    return false;
-                for (int cursor = block; cursor != _undefined; cursor = _idom[cursor])
-                {
-                    if (cursor == dominator)
-                        return true;
-                    if (cursor == _idom[cursor])
-                        break;
-                }
-                return false;
-            }
-
-            static int Intersect(int a, int b, int[] idom, int[] postorder)
-            {
-                while (a != b)
-                {
-                    while (postorder[a] < postorder[b])
-                        a = idom[a];
-                    while (postorder[b] < postorder[a])
-                        b = idom[b];
-                }
-                return a;
             }
         }
 

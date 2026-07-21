@@ -1,7 +1,7 @@
 ---
 name: dotnet-inspect-deep-inspect
 version: 0.1.0
-description: Run and interpret opt-in expensive validation lanes: full slow tests, IL round-trip sweep, corpus sensors, validity scans, and analysis census.
+description: Run and interpret opt-in expensive validation lanes: full slow tests, IL round-trip sweep, corpus sensors, package discovery, validity scans, and analysis census.
 ---
 
 # dotnet-inspect: Deep Inspect
@@ -16,13 +16,15 @@ lane also runs during publish before packages are built.
 | ---- | ------- | ---- |
 | `test` | Blocking proof before publish or risky merges | Full decompiler tests, full analysis tests, vendored ILAssembler restore, full IL round-trip sweep. |
 | `census` | Observational broad signal and triage | Real-world corpus sensor, validity predicate scan, uncapped validity sweep, assertion scan, analysis corpus sensor, paydirt recall. |
-| `all` | Release-candidate deep read | Both lanes. |
+| `package-sweep` | Weekly/on-demand discovery over current top NuGet packages | Product-backed package acquisition plus bounded per-library fully-raised, validity, defect-class, and promotion-candidate reporting. |
+| `all` | Release-candidate deep read | The `test` and `census` lanes. |
 
 Run manually:
 
 ```bash
 gh workflow run deep-inspect.yml -f lane=test
 gh workflow run deep-inspect.yml -f lane=census
+gh workflow run deep-inspect.yml -f lane=package-sweep
 gh workflow run deep-inspect.yml -f lane=all
 ```
 
@@ -56,6 +58,14 @@ dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release -- -trai
 For the census lane, prefer the workflow so artifacts are retained. If running
 locally, use the same scripts/baselines as `deep-inspect.yml` and preserve the
 generated snapshots/cards under `/tmp` or `artifacts/` for review.
+
+The package sweep runs every Monday at 09:00 UTC and can also be dispatched
+manually. It is owned by `@richlander`, is discovery-only, and never gates a
+pull request. Each run resolves the latest stable versions for ranks 1-10,
+records exact package/version/TFM provenance, and samples at most 250 methods
+and 25 semantic-validity candidates per selected library. Promote a package to
+an existing pinned corpus only after a reported defect or unsupported shape is
+accepted for ongoing coverage.
 
 ## Reading results
 

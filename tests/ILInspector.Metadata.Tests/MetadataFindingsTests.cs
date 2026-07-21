@@ -171,7 +171,19 @@ public class MetadataFindingsTests
             Pairs(result.Members).OrderBy(pair => pair.Kind),
             pair => Assert.Equal(PairKind.Added, pair.Kind),
             pair => Assert.Equal(PairKind.Removed, pair.Kind));
-        Assert.Contains(
+
+        // ApiDiff is now sourced from the same Finding-lane identity-set correspondence as
+        // the Members pairs above (ApiFindingClassifier, issue #2893), not the legacy
+        // ApiDiffAnalyzer's own (Name, Kind) fallback pairing. A total signature change with
+        // no shared identity is a conservative MemberAdded + MemberRemoved on both lanes now
+        // -- not the legacy analyzer's MemberSignatureChanged heuristic.
+        var memberChanges = result.ApiDiff.TypeDiffs
+            .SelectMany(type => type.Changes)
+            .Where(change => change.Subject?.Kind == ApiChangeSubjectKind.Member)
+            .Select(change => change.Kind)
+            .Order();
+        Assert.Equal([ChangeKind.MemberAdded, ChangeKind.MemberRemoved], memberChanges);
+        Assert.DoesNotContain(
             result.ApiDiff.TypeDiffs.SelectMany(type => type.Changes),
             change => change.Kind == ChangeKind.MemberSignatureChanged);
     }

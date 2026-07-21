@@ -1,9 +1,9 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
-using DotnetInspector.Commands;
 using ILInspector.Metadata;
 using DotnetInspector.Models;
+using DotnetInspector.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Views;
 
@@ -121,14 +121,14 @@ public partial class ApiTypeCompactJsonContext : JsonSerializerContext
     WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<ExtensionMethodResult>))]
+[JsonSerializable(typeof(List<ExtensionMethodJsonResult>))]
 internal partial class ExtensionsJsonContext : JsonSerializerContext { }
 
 [JsonSourceGenerationOptions(
     WriteIndented = false,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<ExtensionMethodResult>))]
+[JsonSerializable(typeof(List<ExtensionMethodJsonResult>))]
 internal partial class ExtensionsCompactJsonContext : JsonSerializerContext { }
 
 // Implements command JSON contexts
@@ -136,14 +136,14 @@ internal partial class ExtensionsCompactJsonContext : JsonSerializerContext { }
     WriteIndented = true,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<ImplementerResult>))]
+[JsonSerializable(typeof(List<ImplementerJsonResult>))]
 internal partial class ImplementsJsonContext : JsonSerializerContext { }
 
 [JsonSourceGenerationOptions(
     WriteIndented = false,
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-[JsonSerializable(typeof(List<ImplementerResult>))]
+[JsonSerializable(typeof(List<ImplementerJsonResult>))]
 internal partial class ImplementsCompactJsonContext : JsonSerializerContext { }
 
 // Depends command JSON contexts

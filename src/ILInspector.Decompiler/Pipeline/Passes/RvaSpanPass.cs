@@ -162,7 +162,7 @@ public sealed class RvaSpanPass : IIrPass
     /// layout size — the blob length captured at import — runs one byte past the
     /// span's own length. The span's length is authoritative for what it reads.</para>
     /// </summary>
-    static List<IrExpression>? DecodeElements(IrFunction function, TypeRef element, byte[] data, int? elementCount = null)
+    internal static List<IrExpression>? DecodeElements(IrFunction function, TypeRef element, byte[] data, int? elementCount = null)
     {
         if (element.Kind != TypeRefKind.Definition)
             return null;

@@ -149,7 +149,7 @@ public class OutputFormatterTests
     }
 
     [Fact]
-    public void BuildMemberDrillMap_SuppressesAmbiguousStableForOverloadedIndexers()
+    public void BuildMemberDrillMap_GivesDistinctStableSelectorsForOverloadedIndexers()
     {
         var type = new ApiType
         {
@@ -166,13 +166,19 @@ public class OutputFormatterTests
 
         var map = ApiOutputFormatter.BuildMemberDrillMap(type);
 
-        // Overloaded indexers share the parameter-free property canonical signature, so the
-        // ambiguous Stable digest is suppressed while the Name:N selector disambiguates.
+        // Overloaded indexers now get distinct parameter-aware canonical signatures
+        // (ApiMemberIdentity disambiguates this[int] from this[string] -- see PR #2938),
+        // so each overload gets its own round-tripping Stable digest instead of the
+        // ambiguous-collision suppression this test previously asserted. The Name:N
+        // selector still disambiguates alongside it.
         Assert.True(map.TryGetValue(1001, out var first));
-        Assert.Null(first.Stable);
+        Assert.NotNull(first.Stable);
+        Assert.Matches(@"^Item~[0-9a-f]{10}$", first.Stable);
         Assert.Matches(@"^Item:[12]$", first.Selector);
         Assert.True(map.TryGetValue(1002, out var second));
-        Assert.Null(second.Stable);
+        Assert.NotNull(second.Stable);
+        Assert.Matches(@"^Item~[0-9a-f]{10}$", second.Stable);
+        Assert.NotEqual(first.Stable, second.Stable);
 
         // A uniquely-named property keeps its round-tripping Stable selector.
         Assert.True(map.TryGetValue(1003, out var count));
@@ -194,7 +200,7 @@ public class OutputFormatterTests
         ApiOutputFormatter.PopulateOptimizationOpportunities(
             view,
             type,
-            ApiOutputFormatter.OpenTypeAnalysisIndex(typeof(OutputFormatterTests).Assembly.Location),
+            ApiAnalysisInspection.OpenTypeAnalysisIndex(typeof(OutputFormatterTests).Assembly.Location),
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.PerformanceTriage });
 
         var rows = Assert.IsType<List<OptimizationOpportunityRow>>(view.OptimizationOpportunityRows);
@@ -223,7 +229,7 @@ public class OutputFormatterTests
         ApiOutputFormatter.PopulateOptimizationOpportunities(
             view,
             type,
-            ApiOutputFormatter.OpenTypeAnalysisIndex(typeof(OutputFormatterTests).Assembly.Location),
+            ApiAnalysisInspection.OpenTypeAnalysisIndex(typeof(OutputFormatterTests).Assembly.Location),
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { SectionNames.PerformanceTriage },
             new PerformanceTriageOptions { Shapes = ["allocation-fanout"] });
 

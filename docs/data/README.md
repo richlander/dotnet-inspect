@@ -7,6 +7,10 @@ Static data files used by dotnet-inspect for package and assembly classification
 ### nuget-top-packages.json
 
 Top NuGet packages by download count, sourced from <https://www.nuget.org/stats/packages>.
+The weekly/on-demand Deep Inspect `package-sweep` lane consumes a bounded rank
+window from this list, resolves current stable versions, and records the exact
+package/version/TFM provenance in its run artifact. The list selects packages;
+it is not a quality baseline.
 
 ### Platform assembly lists
 

@@ -373,8 +373,13 @@ public static class ApiMemberIdentity
             _ => "M"
         };
 
-        if (member.Kind is "property" or "field" or "event")
+        if (member.Kind is "field" or "event")
             return $"{kindCode}:{declaringType}.{member.Name}";
+
+        // Note: TryGetCanonicalSignature above always succeeds for "property" (it has its
+        // own SignatureModel-or-raw-signature fallback for indexer parameters), so this
+        // method never actually reaches a "property" branch here. There is intentionally no
+        // duplicate property-handling code below.
 
         var signature = member.Signature ?? member.ReturnType ?? member.Name;
         var memberName = member.Kind == "constructor"
@@ -403,9 +408,32 @@ public static class ApiMemberIdentity
             _ => "M"
         };
 
-        if (member.Kind is "property" or "field" or "event")
+        if (member.Kind is "field" or "event")
         {
             canonicalSignature = $"{kindCode}:{declaringType}.{member.Name}";
+            return true;
+        }
+
+        if (member.Kind == "property")
+        {
+            // An indexer is a property with parameters -- include them in identity so
+            // overloaded indexers (e.g. this[int] vs this[string]) don't collide on
+            // "P:Type.Item" and get paired by declaration order instead of by their actual
+            // parameter signature. Ordinary (parameterless) properties are unaffected: their
+            // canonical signature format is unchanged from before this check existed.
+            //
+            // ApiSurface.SignatureModel is [JsonIgnore], so a JSON-round-tripped surface
+            // (a supported, tested scenario -- see FallbackCanonicalSignature_* tests) has
+            // no SignatureModel. Falling back to "" here would make a JSON-persisted
+            // baseline's indexer canonical signature diverge from the same indexer read
+            // live from the assembly, breaking pairing between the two. So when
+            // SignatureModel is absent, parse the parameter list out of the raw
+            // "this[...]" signature text instead, which IS preserved across JSON
+            // round-trips.
+            var indexerParameters = member.SignatureModel is { Parameters.Count: > 0 } propertySignature
+                ? NormalizeCanonicalParameters(propertySignature.ParameterTypesSummary)
+                : ExtractCanonicalIndexerParameterList(member.Signature);
+            canonicalSignature = $"{kindCode}:{declaringType}.{member.Name}{indexerParameters}";
             return true;
         }
 
@@ -584,6 +612,49 @@ public static class ApiMemberIdentity
 
         var parameters = abbreviated[parenStart..(parenEnd + 1)];
         return NormalizeCanonicalCommas(parameters);
+    }
+
+    /// <summary>
+    /// Extracts the canonical, parenthesized parameter-type list from an indexer's raw
+    /// signature text (e.g. "int this[string key] { get; }" -> "(string)"), or "" when the
+    /// signature has no "this[...]" indexer parameter list (an ordinary, non-indexed
+    /// property). Kept in sync with ApiSurfaceExtractor's raw indexer signature format.
+    /// </summary>
+    static string ExtractCanonicalIndexerParameterList(string? signature)
+    {
+        if (string.IsNullOrEmpty(signature))
+            return "";
+
+        var indexerKeyword = signature.IndexOf("this[", StringComparison.Ordinal);
+        if (indexerKeyword < 0)
+            return "";
+
+        var bracketStart = indexerKeyword + "this".Length;
+        var depth = 0;
+        var bracketEnd = -1;
+        for (var i = bracketStart; i < signature.Length; i++)
+        {
+            if (signature[i] == '[')
+                depth++;
+            else if (signature[i] == ']')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    bracketEnd = i;
+                    break;
+                }
+            }
+        }
+
+        if (bracketEnd < 0)
+            return "";
+
+        var parameterSection = signature[(bracketStart + 1)..bracketEnd];
+        // Reuse the existing parenthesized-parameter-list machinery (type extraction,
+        // default-value stripping, generic-depth-aware comma splitting) by round-tripping
+        // the bracketed indexer parameters through the parenthesized form it expects.
+        return ExtractCanonicalParameterList($"({parameterSection})");
     }
 
     static string AbbreviateSignature(string? signature)
