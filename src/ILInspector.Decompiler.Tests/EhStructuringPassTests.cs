@@ -10,6 +10,7 @@ namespace ILInspector.Decompiler.Tests;
 /// rather than emit a partial or illegal structuring — which is why those methods
 /// surface as the "eh-entangled" shape instead of a structured (but wrong) shell.
 /// </summary>
+[Trait("Area", "Pass")]
 public class EhStructuringPassTests
 {
     static readonly TypeRef Holder = TypeRef.CoreLib("Synthetic", "Holder");

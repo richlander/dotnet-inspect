@@ -2,6 +2,7 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class BoolToIntNormalizationPassTests
 {
     static readonly TypeRef Bool = TypeRef.CoreLib("System", "Boolean");

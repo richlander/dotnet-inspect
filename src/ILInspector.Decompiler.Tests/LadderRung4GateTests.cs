@@ -14,6 +14,7 @@ namespace ILInspector.Decompiler.Tests;
 /// locals/returns so they keep rendering as valid or honestly degraded output in
 /// the fast PR gate.
 /// </summary>
+[Trait("Area", "Validity")]
 public class LadderRung4GateTests
 {
     static string FixturePath => typeof(LadderRung4.CSharp7LocalSyntax).Assembly.Location;

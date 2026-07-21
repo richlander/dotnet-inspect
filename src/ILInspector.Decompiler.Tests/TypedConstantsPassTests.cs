@@ -4,6 +4,7 @@ using Convert = ILInspector.Decompiler.Pipeline.Convert;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class TypedConstantsPassTests
 {
     static IrFunction Raised(string methodName)

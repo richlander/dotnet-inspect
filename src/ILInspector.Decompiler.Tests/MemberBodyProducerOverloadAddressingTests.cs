@@ -16,6 +16,7 @@ namespace ILInspector.Decompiler.Tests;
 /// the hidden overload's body (invalid); handle addressing renders each member's
 /// own body. See docs/design/member-body-substrate.md.
 /// </summary>
+[Trait("Area", "RoundTrip")]
 public class MemberBodyProducerOverloadAddressingTests
 {
     [Fact]

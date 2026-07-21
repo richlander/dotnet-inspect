@@ -5,6 +5,7 @@ namespace ILInspector.Decompiler.Tests;
 // A C# destructor lowers to a Finalize override whose body is
 // try { BODY } finally { base.Finalize(); }. DestructorRecoveryPass strips that
 // scaffold back to BODY and marks the function a destructor.
+[Trait("Area", "Pass")]
 public class DestructorRecoveryPassTests
 {
     static readonly TypeRef Holder = TypeRef.CoreLib("Synthetic", "HasFinalizer");

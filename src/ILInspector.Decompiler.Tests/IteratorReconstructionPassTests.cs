@@ -5,6 +5,7 @@ using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class IteratorReconstructionPassTests
 {
     // Reconstruction needs the cross-method seam (to import the state machine's

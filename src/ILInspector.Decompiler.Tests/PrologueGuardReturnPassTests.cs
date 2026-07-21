@@ -9,6 +9,7 @@ namespace ILInspector.Decompiler.Tests;
 /// makes a later block a leave-target). The fold must touch only the pristine
 /// prologue and stand down whenever the arm could reach into the EH residue.
 /// </summary>
+[Trait("Area", "Pass")]
 public class PrologueGuardReturnPassTests
 {
     static readonly TypeRef Holder = TypeRef.CoreLib("Synthetic", "Holder");

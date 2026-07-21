@@ -4,6 +4,7 @@ using ILInspector.Decompiler.Pipeline;
 namespace ILInspector.Decompiler.Tests;
 
 [Collection(ConsoleMutatorCollection.Name)]
+[Trait("Area", "Validity")]
 public class ValidityCoverageReportingTests
 {
     static readonly object ConsoleGate = new();

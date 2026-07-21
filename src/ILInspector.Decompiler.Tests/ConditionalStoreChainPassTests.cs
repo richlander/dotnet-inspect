@@ -2,6 +2,7 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class ConditionalStoreChainPassTests
 {
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");

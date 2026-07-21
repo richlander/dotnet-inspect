@@ -29,6 +29,7 @@ namespace ILInspector.Decompiler.Tests;
 /// shapes. They are tracked as the restriction frontier rather than synthesized
 /// into impossible fixtures.
 /// </summary>
+[Trait("Area", "Validity")]
 public class LadderIteratorGateTests
 {
     static string FixturePath => typeof(LadderIterator.IteratorSamples).Assembly.Location;

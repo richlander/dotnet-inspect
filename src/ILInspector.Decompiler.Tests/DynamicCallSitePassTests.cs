@@ -18,6 +18,7 @@ namespace ILInspector.Decompiler.Tests;
 /// additionally prove the pass declines without throwing. The
 /// <see cref="IrNode.CheckInvariant"/> assertions bracket every pass run.
 /// </summary>
+[Trait("Area", "Pass")]
 public class DynamicCallSitePassTests
 {
     static readonly TypeRef ObjectType = TypeRef.CoreLib("System", "Object");

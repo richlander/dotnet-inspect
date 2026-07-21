@@ -10,6 +10,7 @@ using NewPrimitiveFixedBuffer = ILInspector.Decompiler.Fixtures.NewUnsafe.FixedB
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class FixedBufferElementAccessPassTests
 {
     static readonly string NewUnsafePath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
