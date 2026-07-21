@@ -154,7 +154,7 @@ public static partial class ResearchViews
     /// </summary>
     static ResearchAssemblyContext? ResolveAssemblyContext(IrFunction imported)
         => imported.AssemblyPath is { Length: > 0 } path
-            ? ResearchAssemblyContext.Create(AnalysisIndexCache.ForPath(path))
+            ? ResearchAssemblyContextCache.ForIndex(AnalysisIndexCache.ForPath(path))
             : null;
 
     public static IReadOnlyList<IAnnotation> CollectFacts(
