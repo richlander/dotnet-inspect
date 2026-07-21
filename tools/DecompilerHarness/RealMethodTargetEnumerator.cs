@@ -43,9 +43,9 @@ static class RealMethodTargetEnumerator
     /// <param name="ParameterCount">Parameter count, used when extracting the
     /// authored member body.</param>
     /// <param name="IlSize">Method body IL byte length, used by difficulty
-    /// scoring for the hard-IL corpus.</param>
+    /// scoring for the EVIL corpus.</param>
     /// <param name="Difficulty">Structural IL difficulty profile plus composite
-    /// score used to rank the hard-IL corpus.</param>
+    /// score used to rank the EVIL corpus.</param>
     internal sealed record RealMethodTarget(
         string Type,
         string Method,

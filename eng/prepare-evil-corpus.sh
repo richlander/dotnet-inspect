@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Prepares the broad-source assembly pool for the hard-IL decompiler corpus.
+# Prepares the broad-source assembly pool for the EVIL decompiler corpus
+# (Edge-case Verification of IL Legibility).
 # Requires an output directory and writes:
 #   <outdir>/assemblies.txt      the deduped managed assembly path list
 #   <outdir>/sweep/              the extracted sweep packages (durable)
@@ -9,7 +10,7 @@
 # records those paths, so the sweep output MUST live in the durable output
 # directory (not a temp dir) or the emitted paths would dangle after cleanup.
 #
-# The hard-IL corpus is an adversarial stress set: the most diabolical real
+# The EVIL corpus is an adversarial stress set: the most diabolical real
 # methods, ranked by IL difficulty, drawn from a much broader pool than the fixed
 # real-world corpus. The pool is the union of:
 #
@@ -20,14 +21,14 @@
 #
 # Feed the emitted list to the harvester's difficulty-ranked mode:
 #
-#   bash eng/prepare-hard-il-corpus.sh /tmp/hard-il-pool
+#   bash eng/prepare-evil-corpus.sh /tmp/evil-pool
 #   dotnet run --project tools/DecompilerHarness -c Release -- \
-#     --harvest-hard-il-corpus /tmp/hard-il-corpus.jsonl --harvest-target 12000 \
-#     $(cat /tmp/hard-il-pool/assemblies.txt)
+#     --harvest-evil-corpus /tmp/evil-corpus.jsonl --harvest-target 12000 \
+#     $(cat /tmp/evil-pool/assemblies.txt)
 set -euo pipefail
 
 # Number of top NuGet ranks to sweep (the package list currently holds 100).
-PACKAGE_COUNT="${HARD_IL_PACKAGE_COUNT:-100}"
+PACKAGE_COUNT="${EVIL_PACKAGE_COUNT:-100}"
 
 outdir="${1:-}"
 if [ -z "$outdir" ]; then
@@ -71,5 +72,5 @@ if [ -f "$outdir/sweep/manifest.json" ]; then
 fi
 
 count="$(wc -l < "$outdir/assemblies.txt" | tr -d ' ')"
-echo "Hard-IL pool: $count assemblies ($PACKAGE_COUNT-rank sweep + real-world)." >&2
+echo "EVIL pool: $count assemblies ($PACKAGE_COUNT-rank sweep + real-world)." >&2
 echo "Wrote $outdir/assemblies.txt (sweep packages under $outdir/sweep)." >&2
