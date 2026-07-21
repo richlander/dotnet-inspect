@@ -3,6 +3,7 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class CallIndirectSpellabilityPassTests
 {
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");

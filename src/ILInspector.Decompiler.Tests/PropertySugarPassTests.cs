@@ -2,6 +2,7 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class PropertySugarPassTests
 {
     static readonly TypeRef Holder = TypeRef.Definition("SyntheticAssembly", "Synthetic", "Holder");

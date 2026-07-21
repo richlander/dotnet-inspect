@@ -12,6 +12,7 @@ namespace ILInspector.Decompiler.Tests;
 /// on the offending type only compiles back when every hazard is handled.
 /// </summary>
 [Trait("Speed", "Slow")]
+[Trait("Area", "Fidelity")]
 public class SkeletonEmitTests
 {
     const string FixtureType = "ILInspector.Decompiler.Tests.SkeletonEmitFixture";

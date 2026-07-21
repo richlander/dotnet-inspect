@@ -4,6 +4,7 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class IncrementDecrementPassTests
 {
     static readonly TypeRef Boolean = TypeRef.CoreLib("System", "Boolean");

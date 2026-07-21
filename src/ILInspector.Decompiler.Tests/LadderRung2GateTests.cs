@@ -29,6 +29,7 @@ namespace ILInspector.Decompiler.Tests;
 /// source-recoverable at the type-declaration level. A future change that recovers it
 /// to <c>Full</c> should update this guard deliberately.
 /// </summary>
+[Trait("Area", "Validity")]
 public class LadderRung2GateTests
 {
     static string FixturePath => typeof(LadderRung2.Program).Assembly.Location;

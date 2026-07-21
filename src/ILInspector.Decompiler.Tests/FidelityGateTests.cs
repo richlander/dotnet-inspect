@@ -13,6 +13,7 @@ namespace ILInspector.Decompiler.Tests;
 /// </summary>
 [Trait("Speed", "Slow")]
 [Collection(FidelityGateCollection.Name)]
+[Trait("Area", "Fidelity")]
 public class FidelityGateTests
 {
     const string FixtureType = "ILInspector.Decompiler.Tests.CfgSampleClass";

@@ -5,6 +5,7 @@ using Xunit;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class StackAllocInitializerPassTests
 {
     static readonly TypeRef Holder = TypeRef.CoreLib("Synthetic", "Holder");

@@ -2,6 +2,7 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class IndexFromEndPassTests
 {
     static IrFunction Raised(string methodName)

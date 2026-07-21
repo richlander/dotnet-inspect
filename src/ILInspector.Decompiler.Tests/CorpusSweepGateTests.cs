@@ -25,6 +25,7 @@ namespace ILInspector.Decompiler.Tests;
 /// remains the depth signal; this is the breadth signal.
 /// </summary>
 [Trait("Speed", "Slow")]
+[Trait("Area", "Corpus")]
 public class CorpusSweepGateTests
 {
     // Measured over net11 CoreLib (41,159 methods): 0 pass-bugs, 98.12% Full

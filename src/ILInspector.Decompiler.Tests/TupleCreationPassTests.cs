@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class TupleCreationPassTests
 {
     static IrFunction Raised(string methodName)

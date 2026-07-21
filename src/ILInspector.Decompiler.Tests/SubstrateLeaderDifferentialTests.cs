@@ -19,6 +19,7 @@ namespace ILInspector.Decompiler.Tests;
 /// refactor would move to an Analysis Layer-1 concern.
 /// </summary>
 [Trait("Speed", "Slow")]
+[Trait("Area", "Corpus")]
 public class SubstrateLeaderDifferentialTests
 {
     [Fact]

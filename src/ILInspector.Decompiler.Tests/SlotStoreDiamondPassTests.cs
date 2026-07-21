@@ -2,6 +2,7 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class SlotStoreDiamondPassTests
 {
     static readonly TypeRef UInt32 = TypeRef.CoreLib("System", "UInt32");

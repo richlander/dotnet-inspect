@@ -5,6 +5,7 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class FunctionPointerDiagnosticsPassTests
 {
     private static readonly TypeRef Owner = TypeRef.CoreLib("Synthetic", "Owner");

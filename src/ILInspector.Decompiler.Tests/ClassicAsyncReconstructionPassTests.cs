@@ -29,6 +29,7 @@ namespace ILInspector.Decompiler.Tests;
 // the pass, so its test pins the observable behavior rather than one clause.
 // These are synthetic-IR pins; the positive reconstruction shapes are covered by
 // the Fixtures.ClassicAsync overlay referenced in AwaitRecoveryFacts.
+[Trait("Area", "Pass")]
 public class ClassicAsyncReconstructionPassTests
 {
     static readonly TypeRef Void = TypeRef.CoreLib("System", "Void");

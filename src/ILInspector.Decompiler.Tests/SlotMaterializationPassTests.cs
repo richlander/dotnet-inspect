@@ -3,6 +3,7 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class SlotMaterializationPassTests
 {
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");

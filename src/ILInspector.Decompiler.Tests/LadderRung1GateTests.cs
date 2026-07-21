@@ -26,6 +26,7 @@ namespace ILInspector.Decompiler.Tests;
 /// (<see cref="FidelityGateTests"/>), not the rung 1 bar — <c>IsPositive</c>
 /// recompiles its branch as <c>cgt</c> while still rendering valid C#.
 /// </summary>
+[Trait("Area", "Validity")]
 public class LadderRung1GateTests
 {
     static string FixturePath => typeof(LadderRung1.Program).Assembly.Location;

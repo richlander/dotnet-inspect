@@ -3,6 +3,7 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "RoundTrip")]
 public sealed class MemberBodyProducerAsyncTests
 {
     [Theory]
