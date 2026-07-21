@@ -251,6 +251,11 @@ public static class IrPasses
         // printer lifts it to a signature initializer rather than an invalid
         // base(temp); body call (CS0175).
         new ConstructorChainArgumentPass(),
+        // Fold a compiler-emitted array construction-then-fill sequence (an
+        // allocation plus a later contiguous run of index stores — the
+        // ubiquitous params-array-argument spill) into a single ArrayLiteral
+        // store.
+        new ArrayLiteralFromStoresPass(),
         // Any direct .ctor call still standing after the constructor-chain and
         // struct-constructor raises has no faithful C# statement spelling. Mark
         // it as an explicit residual before the printer can leak invalid
