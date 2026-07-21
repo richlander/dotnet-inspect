@@ -70,6 +70,7 @@ static class Program
         string? emitHarnessReport = null;
         bool enumerateRealMethods = false;
         bool harvestAuthoredCorpus = false;
+        bool harvestEvilCorpus = false;
         string? harvestOutputPath = null;
         bool benchmarkAuthoredCorpus = false;
         string? benchmarkCorpusPath = null;
@@ -192,6 +193,10 @@ static class Program
                     case "--enumerate-real-methods": enumerateRealMethods = true; break;
                     case "--harvest-authored-corpus":
                         harvestAuthoredCorpus = true;
+                        harvestOutputPath = NextArg(args, ref i, flag);
+                        break;
+                    case "--harvest-evil-corpus":
+                        harvestEvilCorpus = true;
                         harvestOutputPath = NextArg(args, ref i, flag);
                         break;
                     case "--harvest-target": harvestTarget = int.Parse(NextArg(args, ref i, flag)); break;
@@ -439,6 +444,9 @@ static class Program
         if (harvestAuthoredCorpus)
             return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget);
 
+        if (harvestEvilCorpus)
+            return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget, evil: true);
+
         if (benchmarkAuthoredCorpus)
             return AuthoredCorpusBenchmark.Run(assemblies, benchmarkCorpusPath!, json);
 
@@ -669,13 +677,23 @@ static class Program
 
             grandTotal += targets.Count;
             Console.WriteLine($"{Path.GetFileName(assemblyPath)}: {targets.Count} real-method targets");
-            foreach (var target in targets.Take(maxExamples))
+            // Surface the hardest methods first: the difficulty ranking is the
+            // whole point of the enumeration for the EVIL corpus.
+            foreach (var target in targets
+                .OrderByDescending(target => target.Difficulty.Score)
+                .Take(maxExamples))
             {
                 string overload = target.Overload == 0 ? "" : $"#{target.Overload}";
                 string sig = target.Signature is null ? " (ordinal)" : $" [{target.Signature}]";
+                var difficulty = target.Difficulty;
                 Console.WriteLine(
-                    $"  {target.Type}::{target.Method}{overload}"
-                    + $" params={target.ParameterCount} il={target.IlSize}{sig}");
+                    $"  score={difficulty.Score,7:F1}  {target.Type}::{target.Method}{overload}");
+                Console.WriteLine(
+                    $"    params={target.ParameterCount} il={difficulty.IlSize} blocks={difficulty.BlockCount}"
+                    + $" branches={difficulty.BranchCount} switch={difficulty.SwitchCount}"
+                    + $" eh={difficulty.ExceptionRegionCount} ehDepth={difficulty.ExceptionNestingDepth}"
+                    + $" rare={difficulty.RareOpcodeCount} locals={difficulty.LocalCount}"
+                    + $" maxStack={difficulty.MaxStack}{sig}");
             }
         }
 
