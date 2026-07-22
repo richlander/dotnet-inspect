@@ -48,6 +48,18 @@ public class DynamicMemberContexts
         return Get();
     }
 
+    // Nested local-function body whose local function has its OWN top-level
+    // `dynamic` parameter (distinct from InLocalFunction, which captures the
+    // enclosing dynamic param). The raised body drops the redundant cast to
+    // `v.Length`, so the printer-owned local-function declaration must spell the
+    // parameter `dynamic v`, not its `object` TypeRef — otherwise
+    // `object Get(object v) => v.Length;` is CS1061 (#2984, PR #3032 review).
+    public object InLocalFunctionOwnParam(string input)
+    {
+        static object Get(dynamic v) => v.Length;
+        return Get(input);
+    }
+
     // Iterator state-machine body: csc lowers this to a MoveNext method whose
     // declaring type is the generated iterator state machine, while the
     // GetMember context remains the authored enclosing type (same bridge as

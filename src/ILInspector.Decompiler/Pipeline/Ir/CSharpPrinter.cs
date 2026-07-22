@@ -1496,7 +1496,7 @@ public sealed partial class CSharpPrinter
         if (node is LocalFunctionStatement localFunction)
         {
             string modifier = localFunction.IsStatic ? "static " : "";
-            string parameters = string.Join(", ", localFunction.Parameters.Select(p => $"{TypeText(p.Type)} {CSharpNaming.EscapeIdentifier(p.Name)}"));
+            string parameters = string.Join(", ", localFunction.Parameters.Select(p => $"{ParameterTypeText(p)} {CSharpNaming.EscapeIdentifier(p.Name)}"));
             string header = $"{modifier}{TypeText(localFunction.ReturnType)} {CSharpNaming.EscapeIdentifier(localFunction.Name)}({parameters})";
             if (localFunction.ExpressionBody is { } body)
             {
@@ -2634,6 +2634,15 @@ public sealed partial class CSharpPrinter
         LoadField { Field.IsDynamic: true } => true,
         _ => false,
     };
+
+    // A parameter authored as top-level `dynamic` must be spelled `dynamic` in
+    // the declaration, not `object` (its TypeRef). This keeps a local-function
+    // header consistent with a body that drops the redundant `(dynamic)` cast on
+    // the parameter: `object Get(object v) => v.Length;` is CS1061, whereas
+    // `object Get(dynamic v) => v.Length;` binds. Top-level method signatures are
+    // spelled by the metadata signature printer; this covers the printer-owned
+    // local-function declaration path.
+    string ParameterTypeText(Parameter p) => p.IsDynamic ? "dynamic" : TypeText(p.Type);
 
     string CoalesceText(Coalesce co, TypeRef? target = null)
     {

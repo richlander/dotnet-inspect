@@ -1466,6 +1466,23 @@ public class DynamicCallSitePassTests
     }
 
     [Fact]
+    public void NestedContext_LocalFunctionOwnParam_SpellsDynamicDeclaration()
+    {
+        // The local function has its OWN top-level `dynamic` parameter. The body
+        // drops the redundant cast (`v.Length`), so the printer-owned
+        // local-function declaration must spell the parameter `dynamic v`, not
+        // its `object` TypeRef — else `object Get(object v) => v.Length;` is
+        // CS1061 (#2984, PR #3032 review). Both the dynamic declaration and the
+        // dropped-cast body must be present, and the invalid `object`-declared
+        // form must not appear.
+        var output = RaiseMemberContext("InLocalFunctionOwnParam");
+        Assert.Contains("dynamic v", output);
+        Assert.Contains("v.Length", output);
+        Assert.DoesNotContain("object v", output);
+        Assert.DoesNotContain("((dynamic)v)", output);
+    }
+
+    [Fact]
     public void NestedContext_LambdaDisplayClass_Raises()
     {
         // csc lowers the lambda body into a display-class method whose
