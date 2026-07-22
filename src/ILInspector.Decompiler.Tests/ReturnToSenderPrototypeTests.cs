@@ -554,6 +554,122 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_FullMemberSurfacePreservesSiblingInitAccessor()
+    {
+        // Issue #3000: targeting a plain method under Full adds the whole declaring type to the
+        // member surface, so its sibling explicit-body init property flows through the surface
+        // stub-selection path. That path hardcoded `set` (ThrowGetSet / AutoPropertyGetSet),
+        // silently downgrading the init-only setter to a public `set` while Enrich filled the real
+        // body and reported it Complete. The surface path must route init setters through the
+        // init-aware stub kind so the accessor is spelled `init`.
+        var assemblyPath = CompileFixture("""
+            public class Holder
+            {
+                private int _value;
+                public int Value
+                {
+                    get => _value;
+                    init => _value = value;
+                }
+
+                public int M() => 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "M", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Contains("init", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("set", result.Source, StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RecordSurfacePreservesSiblingInitAccessor()
+    {
+        // Issue #3000: targeting a record's compiler ToString pulls the whole record onto the
+        // member surface, so a sibling auto init-property flows through the surface stub path.
+        // Before the fix that path emitted `{ get; set; }`, silently dropping the init-only shape
+        // while reporting BodyComplete. The surface path must spell the auto init accessor `init`.
+        var assemblyPath = CompileFixture("""
+            public record Holder(int A)
+            {
+                public int Value { get; init; }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "ToString", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Selected));
+
+            Assert.Contains("init", result.Source, StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_InterfaceSurfacePreservesInitAccessor()
+    {
+        // Issue #3000: pulling an interface dependency onto the surface routed its `init` property
+        // through the no-body (interface) stub branch, which emitted `{ get; set; }` and stripped
+        // the init-only shape. The no-body branch must also honor init and render `{ get; init; }`.
+        var assemblyPath = CompileFixture("""
+            public interface IHolder
+            {
+                int Value { get; init; }
+            }
+            public class Holder : IHolder
+            {
+                public int Value { get; init; }
+                public void Method(IHolder holder)
+                {
+                    var x = holder.Value;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "Method", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Selected));
+
+            Assert.Contains("init", result.Source, StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_FullEventAccessorTargetSurfacesRecompileFailure()
     {
         // Issue #3000: a plain (non-explicit-interface) event accessor target is method-routed, so
@@ -4927,7 +5043,7 @@ public class ReturnToSenderPrototypeTests
                     Assert.True(
                         toString.Status == FidelityCheck.CompileBackStatus.Exact,
                         $"{toString.Status}: {toString.Detail}{Environment.NewLine}{toString.Source}");
-                    Assert.Contains("public string Name { get; set; }", toString.Source);
+                    Assert.Contains("public string Name { get; init; }", toString.Source);
                     Assert.DoesNotContain("public string Name;", toString.Source);
                 },
                 typedEquals =>

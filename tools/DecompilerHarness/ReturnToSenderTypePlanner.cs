@@ -318,6 +318,7 @@ public enum CompileBackStubBodyKind
     None,
     Throw,
     ThrowGetSet,
+    ThrowGetInit,
     TargetBody,
     TargetGetterWithSetter,
     TargetGetterWithInitSetter,
@@ -1864,17 +1865,20 @@ public static class CompileBackSourceComposer
         // modreq(IsExternalInit)) while still reporting the body Complete.
         bool setterIsInit = member.StubBody is CompileBackStubBodyKind.TargetGetterWithInitSetter
             or CompileBackStubBodyKind.TargetInitSetterWithGetter
-            or CompileBackStubBodyKind.TargetInitBody;
+            or CompileBackStubBodyKind.TargetInitBody
+            or CompileBackStubBodyKind.ThrowGetInit;
         bool hasGetter = isAutoGetInit
             || member.Kind == CompileBackMemberKind.PropertyGet
             || member.StubBody is CompileBackStubBodyKind.AutoPropertyGetSet
                 or CompileBackStubBodyKind.ThrowGetSet
+                or CompileBackStubBodyKind.ThrowGetInit
                 or CompileBackStubBodyKind.TargetSetterWithGetter
                 or CompileBackStubBodyKind.TargetInitSetterWithGetter;
         bool hasSetter = !isAutoGetInit
             && (member.Kind == CompileBackMemberKind.PropertySet
                 || member.StubBody is CompileBackStubBodyKind.AutoPropertyGetSet
                     or CompileBackStubBodyKind.ThrowGetSet
+                    or CompileBackStubBodyKind.ThrowGetInit
                     or CompileBackStubBodyKind.TargetGetterWithSetter
                     or CompileBackStubBodyKind.TargetGetterWithInitSetter);
         var accessors = new List<ApiAccessor>();
@@ -1928,6 +1932,11 @@ public static class CompileBackSourceComposer
             CompileBackStubBodyKind.Throw
                 => new(member, CSharpBodyPolicy.Stub),
             CompileBackStubBodyKind.ThrowGetSet
+                => new(
+                    member,
+                    CSharpBodyPolicy.Stub,
+                    new CSharpPropertyBody(CSharpAccessorBody.Throw, CSharpAccessorBody.Throw)),
+            CompileBackStubBodyKind.ThrowGetInit
                 => new(
                     member,
                     CSharpBodyPolicy.Stub,
@@ -3285,18 +3294,25 @@ public static class CompileBackSourceComposer
             bool isAutoProperty = !accessors.Getter.IsNil
                 && IsAutoProperty(reader, typeDef, property, accessors.Getter, returnType.DisplayName);
             bool hasSetter = !accessors.Setter.IsNil;
+            bool isInitSetter = hasSetter && SetterIsInitOnly(reader, accessors.Setter);
             bool isAbstractAccessor = !accessor.IsNil && propertyDeclaration.IsAbstract;
             var noBodyProperty = (typeDef.Attributes & TypeAttributes.Interface) != 0 || isAbstractAccessor;
             var stubBody = noBodyProperty
                 ? hasSetter
-                    ? CompileBackStubBodyKind.AutoPropertyGetSet
+                    ? isInitSetter
+                        ? CompileBackStubBodyKind.AutoPropertyGetInit
+                        : CompileBackStubBodyKind.AutoPropertyGetSet
                     : CompileBackStubBodyKind.None
                 : hasSetter && isAutoProperty
-                    ? CompileBackStubBodyKind.AutoPropertyGetSet
+                    ? isInitSetter
+                        ? CompileBackStubBodyKind.AutoPropertyGetInit
+                        : CompileBackStubBodyKind.AutoPropertyGetSet
                     : isAutoProperty
                         ? CompileBackStubBodyKind.AutoProperty
                         : hasSetter
-                            ? CompileBackStubBodyKind.ThrowGetSet
+                            ? isInitSetter
+                                ? CompileBackStubBodyKind.ThrowGetInit
+                                : CompileBackStubBodyKind.ThrowGetSet
                             : CompileBackStubBodyKind.Throw;
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(typeIdentity.FullName, Identifier(propertyName), 0, $"property {propertyReturnType}"),
@@ -4057,18 +4073,25 @@ public static class CompileBackSourceComposer
                 bool isAutoProperty = !accessors.Getter.IsNil
                     && IsAutoProperty(reader, typeDef, property, accessors.Getter, returnType.DisplayName);
                 bool hasSetter = !accessors.Setter.IsNil;
+                bool isInitSetter = hasSetter && SetterIsInitOnly(reader, accessors.Setter);
                 bool isAbstractAccessor = !accessor.IsNil && propertyDeclaration.IsAbstract;
                 var noBodyProperty = requirement.RequiredKind == CompileBackTypeKind.Interface || isAbstractAccessor;
                 var stubBody = noBodyProperty
                     ? hasSetter
-                        ? CompileBackStubBodyKind.AutoPropertyGetSet
+                        ? isInitSetter
+                            ? CompileBackStubBodyKind.AutoPropertyGetInit
+                            : CompileBackStubBodyKind.AutoPropertyGetSet
                         : CompileBackStubBodyKind.None
                     : hasSetter && isAutoProperty
-                        ? CompileBackStubBodyKind.AutoPropertyGetSet
+                        ? isInitSetter
+                            ? CompileBackStubBodyKind.AutoPropertyGetInit
+                            : CompileBackStubBodyKind.AutoPropertyGetSet
                         : isAutoProperty
                             ? CompileBackStubBodyKind.AutoProperty
                             : hasSetter
-                                ? CompileBackStubBodyKind.ThrowGetSet
+                                ? isInitSetter
+                                    ? CompileBackStubBodyKind.ThrowGetInit
+                                    : CompileBackStubBodyKind.ThrowGetSet
                                 : CompileBackStubBodyKind.Throw;
                 members.Add(new CompileBackMemberRequirement(
                     new CompileBackMethodIdentity(requirement.Type.FullName, Identifier(propertyName), 0, $"property {propertyReturnType}"),
