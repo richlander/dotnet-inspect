@@ -447,7 +447,9 @@ public static class ApiSurfaceExtractor
                     Accessibility = GetAccessibility(adderAccess),
                     IsObsolete = isObsolete,
                     ObsoleteMessage = obsoleteMessage,
-                    AdderToken = MetadataTokens.GetToken(accessors.Adder),
+                    AdderToken = accessors.Adder.IsNil
+                        ? null
+                        : MetadataTokens.GetToken(accessors.Adder),
                     RemoverToken = accessors.Remover.IsNil
                         ? null
                         : MetadataTokens.GetToken(accessors.Remover)

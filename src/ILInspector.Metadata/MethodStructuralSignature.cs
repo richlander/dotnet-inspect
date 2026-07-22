@@ -10,10 +10,13 @@ namespace ILInspector.Metadata;
 /// preserves the facts that distinguish CLR-observable method identities:
 /// return type, calling convention and the instance bit, generic arity
 /// (positionally, never by parameter name), custom modifiers
-/// (<c>modreq</c>/<c>modopt</c>), and the nested-versus-namespace boundary of
-/// every referenced type. Two methods share a key only when their signatures are
-/// interchangeable across modules, so a recompiled donor member corresponds to
-/// its original exactly when the keys are equal.
+/// (<c>modreq</c>/<c>modopt</c>), the nested-versus-namespace boundary of every
+/// referenced type, the defining assembly/module identity of every referenced
+/// type (so two same-named types from different assemblies never collide), and
+/// the calling convention of every function-pointer type. Two methods share a
+/// key only when their signatures are interchangeable across modules, so a
+/// recompiled donor member corresponds to its original exactly when the keys are
+/// equal.
 /// </summary>
 public static class MethodStructuralSignature
 {
@@ -75,6 +78,7 @@ public static class MethodStructuralSignature
             {
                 List<string> names = [];
                 string? ns = null;
+                string scope = "";
                 var current = handle;
                 for (int guard = 0; guard < MetadataSafetyPolicy.MaxRelationshipNodes; guard++)
                 {
@@ -86,9 +90,10 @@ public static class MethodStructuralSignature
                         continue;
                     }
                     ns = reader.GetString(reference.Namespace);
+                    scope = DescribeScope(reader, reference.ResolutionScope);
                     break;
                 }
-                return Compose(ns, names);
+                return Compose(ns, names, scope);
             }
             catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException or InvalidOperationException)
             {
@@ -96,11 +101,54 @@ public static class MethodStructuralSignature
             }
         }
 
-        static string Compose(string? ns, List<string> leafToRoot)
+        /// <summary>
+        /// The defining assembly or module of a referenced type. Including it in
+        /// the key prevents two same-named types from different assemblies (for
+        /// example <c>LibA::Shared.Token</c> and <c>LibB::Shared.Token</c>) from
+        /// producing the same structural signature.
+        /// </summary>
+        static string DescribeScope(MetadataReader reader, EntityHandle scope)
+        {
+            try
+            {
+                switch (scope.Kind)
+                {
+                    case HandleKind.AssemblyReference:
+                        var assembly = reader.GetAssemblyReference((AssemblyReferenceHandle)scope);
+                        return FormatAssemblyIdentity(
+                            reader.GetString(assembly.Name),
+                            assembly.Version,
+                            assembly.Culture.IsNil ? null : reader.GetString(assembly.Culture),
+                            assembly.PublicKeyOrToken.IsNil ? null : reader.GetBlobBytes(assembly.PublicKeyOrToken));
+                    case HandleKind.ModuleReference:
+                        return $"module:{reader.GetString(reader.GetModuleReference((ModuleReferenceHandle)scope).Name)}";
+                    case HandleKind.ModuleDefinition:
+                        return $"module:{reader.GetString(reader.GetModuleDefinition().Name)}";
+                    default:
+                        // Nil (ExportedType / current-module lookup) or an
+                        // unexpected scope kind carries no additional identity.
+                        return "";
+                }
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException or InvalidOperationException)
+            {
+                return "?";
+            }
+        }
+
+        static string FormatAssemblyIdentity(string name, Version version, string? culture, byte[]? publicKeyOrToken)
+        {
+            string cultureText = string.IsNullOrEmpty(culture) ? "neutral" : culture;
+            string keyText = publicKeyOrToken is { Length: > 0 } ? Convert.ToHexString(publicKeyOrToken) : "null";
+            return $"{name}, {version}, {cultureText}, {keyText}";
+        }
+
+        static string Compose(string? ns, List<string> leafToRoot, string scope = "")
         {
             leafToRoot.Reverse();
             string nested = string.Join("+", leafToRoot);
-            return string.IsNullOrEmpty(ns) ? nested : $"{ns}.{nested}";
+            string full = string.IsNullOrEmpty(ns) ? nested : $"{ns}.{nested}";
+            return string.IsNullOrEmpty(scope) ? full : $"{full}[{scope}]";
         }
     }
 
@@ -172,7 +220,17 @@ public static class MethodStructuralSignature
         public string GetGenericMethodParameter(object? context, int index) => $"!!{index}";
 
         public string GetFunctionPointerType(MethodSignature<string> signature)
-            => $"delegate*<{string.Join(",", signature.ParameterTypes.Append(signature.ReturnType))}>";
+        {
+            // Preserve the calling convention (managed vs unmanaged and the
+            // specific unmanaged convention, which also surfaces as a return-type
+            // modopt) and the vararg boundary; otherwise two function-pointer
+            // types that differ only by convention would share a key.
+            string parameters = string.Join(",", signature.ParameterTypes);
+            string body = signature.RequiredParameterCount == signature.ParameterTypes.Length
+                ? parameters
+                : $"{parameters}|req{signature.RequiredParameterCount}";
+            return $"delegate* [{signature.Header.CallingConvention}]({body}):{signature.ReturnType}";
+        }
 
         public string GetModifiedType(string modifier, string unmodifiedType, bool isRequired)
             => isRequired

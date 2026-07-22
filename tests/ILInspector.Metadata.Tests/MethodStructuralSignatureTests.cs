@@ -65,6 +65,39 @@ public sealed class MethodStructuralSignatureTests
         Assert.Contains("static", @static);
     }
 
+    [Fact]
+    public void Build_PreservesFunctionPointerCallingConvention()
+    {
+        string managed = BuildFor(nameof(StructuralSignatureFixture), nameof(StructuralSignatureFixture.FnPtrManaged));
+        string unmanaged = BuildFor(nameof(StructuralSignatureFixture), nameof(StructuralSignatureFixture.FnPtrUnmanaged));
+
+        // Managed and unmanaged function pointers with the same parameters and
+        // return type are distinct CLR types and must not share a key.
+        Assert.NotEqual(managed, unmanaged);
+        Assert.Contains("Unmanaged", unmanaged);
+    }
+
+    [Fact]
+    public void Build_DistinguishesSameNameTypesFromDifferentAssemblies()
+    {
+        // DiffAsmTarget.Api has two Ping overloads whose parameter types share
+        // the FQN Shared.Token but come from different assemblies (LibA vs LibB).
+        // The structural key must include the defining assembly identity so the
+        // overloads never collide.
+        string targetPath = Path.Combine(AppContext.BaseDirectory, "DiffAsmTarget.dll");
+        using var image = new MetadataImage(targetPath);
+        var pings = FindMethods(image.Reader, "Api", "Ping");
+
+        Assert.Equal(2, pings.Count);
+        string first = MethodStructuralSignature.Build(image.Reader, image.Reader.GetMethodDefinition(pings[0]));
+        string second = MethodStructuralSignature.Build(image.Reader, image.Reader.GetMethodDefinition(pings[1]));
+
+        Assert.NotEqual(first, second);
+        Assert.Contains("Shared.Token", first);
+        Assert.Contains("DiffAsmLibA", first + second);
+        Assert.Contains("DiffAsmLibB", first + second);
+    }
+
     static string BuildFor(string typeName, string methodName)
     {
         using var image = new MetadataImage(typeof(MethodStructuralSignatureTests).Assembly.Location);
@@ -87,6 +120,24 @@ public sealed class MethodStructuralSignatureTests
         }
 
         throw new InvalidOperationException($"Method '{typeName}::{methodName}' was not found.");
+    }
+
+    static List<MethodDefinitionHandle> FindMethods(MetadataReader reader, string typeName, string methodName)
+    {
+        List<MethodDefinitionHandle> matches = [];
+        foreach (var typeHandle in reader.TypeDefinitions)
+        {
+            var type = reader.GetTypeDefinition(typeHandle);
+            if (reader.GetString(type.Name) != typeName)
+                continue;
+            foreach (var methodHandle in type.GetMethods())
+            {
+                if (reader.GetString(reader.GetMethodDefinition(methodHandle).Name) == methodName)
+                    matches.Add(methodHandle);
+            }
+        }
+
+        return matches;
     }
 
     sealed class MetadataImage : IDisposable
@@ -126,6 +177,10 @@ public sealed class StructuralSignatureFixture
     public void Nested(Inner inner) => _ = inner;
 
     public static int StaticNoArgs() => 0;
+
+    public unsafe void FnPtrManaged(delegate*<int, void> callback) => _ = (nint)callback;
+
+    public unsafe void FnPtrUnmanaged(delegate* unmanaged<int, void> callback) => _ = (nint)callback;
 }
 
 public interface IStructuralSignatureFixture
