@@ -404,6 +404,34 @@ public sealed class DynamicTypeViewTests
         node.ApplyDynamic(flags, ref pos);
         Assert.Equal("object[]", node.Render());
     }
+
+    // --- Ordinal-selector stability: the positional `Name:N` overload selector orders
+    //     via GetMemberSignatureSortKey. A parameter changing display spelling from
+    //     `object` to `dynamic` (the same metadata type) must not renumber the ordinal,
+    //     so the sort key normalizes the keyword back to `object`. A type can never
+    //     declare both M(object) and M(dynamic) (CS0111), so the collapse is collision-free. ---
+
+    [Fact]
+    public void MemberSignatureSortKey_DynamicParam_OrdersAsObject()
+    {
+        var dynamicOverload = new ApiMember
+        {
+            Kind = "method",
+            Name = "M",
+            Signature = "void M(dynamic value)"
+        };
+        var objectOverload = new ApiMember
+        {
+            Kind = "method",
+            Name = "M",
+            Signature = "void M(object value)"
+        };
+
+        Assert.Equal(
+            ApiMemberIdentity.GetMemberSignatureSortKey(objectOverload),
+            ApiMemberIdentity.GetMemberSignatureSortKey(dynamicOverload));
+        Assert.DoesNotContain("dynamic", ApiMemberIdentity.GetMemberSignatureSortKey(dynamicOverload));
+    }
 }
 
 // ===== Test fixture types with a spread of dynamic type shapes =====
