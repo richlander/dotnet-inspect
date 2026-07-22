@@ -11,6 +11,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
 using LegacyFixtures = ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures;
+using LegacyDynamicStackallocFixtures = ILInspector.Decompiler.Fixtures.LegacyUnsafe.DynamicStackallocFixtures;
 using NewFixtures = ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures;
 using NewDynamicStackallocFixtures = ILInspector.Decompiler.Fixtures.NewUnsafe.DynamicStackallocFixtures;
 using NewStackallocFixtures = ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerResiduals;
@@ -65,6 +66,9 @@ public class UnsafeEmitterTests
 
     static string DecompileLegacy(string method) =>
         Decompile(typeof(LegacyFixtures).Assembly.Location, typeof(LegacyFixtures).FullName!, method);
+
+    static string DecompileLegacyDynamicStackalloc(string method) =>
+        Decompile(typeof(LegacyDynamicStackallocFixtures).Assembly.Location, typeof(LegacyDynamicStackallocFixtures).FullName!, method);
 
     static string DecompileNewStackalloc(string method) =>
         Decompile(typeof(NewStackallocFixtures).Assembly.Location, typeof(NewStackallocFixtures).FullName!, method);
@@ -744,15 +748,39 @@ public class UnsafeEmitterTests
     }
 
     [Theory]
-    [InlineData(nameof(NewDynamicStackallocFixtures.ByteCount), "byte")]
-    [InlineData(nameof(NewDynamicStackallocFixtures.GuidCount), "Guid")]
-    public void NewRulesModule_DynamicStackAllocCompilerShapes_Raise(string method, string element)
+    [InlineData(nameof(NewDynamicStackallocFixtures.ByteCount), "stackalloc byte[n]")]
+    [InlineData(nameof(NewDynamicStackallocFixtures.GuidCount), "stackalloc Guid[n]")]
+    [InlineData(nameof(NewDynamicStackallocFixtures.ByteExpression), "stackalloc byte[n + 1]")]
+    [InlineData(nameof(NewDynamicStackallocFixtures.ByteEffectful), "stackalloc byte[Math.Abs(n)]")]
+    [InlineData(nameof(NewDynamicStackallocFixtures.ByteExplicitLocal), "stackalloc byte[count]")]
+    [InlineData(nameof(NewDynamicStackallocFixtures.ByteTwoCounts), "stackalloc byte[m]")]
+    [InlineData(nameof(NewDynamicStackallocFixtures.ByteTwoEffectfulCounts), "stackalloc byte[Math.Abs(n + 1)]")]
+    public void NewRulesModule_DynamicStackAllocCompilerShapes_Raise(string method, string expected)
     {
         var output = DecompileNewDynamicStackalloc(method);
 
         Assert.DoesNotContain("unsafe", output);
-        Assert.Contains($"stackalloc {element}[", output);
+        Assert.Contains(expected, output);
         Assert.DoesNotContain("new Span", output);
+        Assert.DoesNotContain("int V_", output);
+    }
+
+    [Theory]
+    [InlineData(nameof(LegacyDynamicStackallocFixtures.ByteCount), "stackalloc byte[n]")]
+    [InlineData(nameof(LegacyDynamicStackallocFixtures.GuidCount), "stackalloc Guid[n]")]
+    [InlineData(nameof(LegacyDynamicStackallocFixtures.ByteExpression), "stackalloc byte[n + 1]")]
+    [InlineData(nameof(LegacyDynamicStackallocFixtures.ByteEffectful), "stackalloc byte[Math.Abs(n)]")]
+    [InlineData(nameof(LegacyDynamicStackallocFixtures.ByteExplicitLocal), "stackalloc byte[count]")]
+    [InlineData(nameof(LegacyDynamicStackallocFixtures.ByteTwoCounts), "stackalloc byte[m]")]
+    [InlineData(nameof(LegacyDynamicStackallocFixtures.ByteTwoEffectfulCounts), "stackalloc byte[Math.Abs(n + 1)]")]
+    public void LegacyModule_DynamicStackAllocCompilerShapes_Raise(string method, string expected)
+    {
+        var output = DecompileLegacyDynamicStackalloc(method);
+
+        Assert.DoesNotContain("unsafe", output);
+        Assert.Contains(expected, output);
+        Assert.DoesNotContain("new Span", output);
+        Assert.DoesNotContain("int V_", output);
     }
 
     [Fact]

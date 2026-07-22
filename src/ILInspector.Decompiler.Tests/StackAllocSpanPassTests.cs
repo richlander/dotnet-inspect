@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using ILInspector.Decompiler.Pipeline;
 using IrConvert = ILInspector.Decompiler.Pipeline.Convert;
 
@@ -223,6 +225,272 @@ public class StackAllocSpanPassTests
         Assert.Empty(function.Descendants.OfType<StackAllocate>());
         var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
         Assert.Equal(Byte, raised.ElementType);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void AdjacentOwnedCountSpill_InlinesArgument()
+    {
+        var function = BuildCountSpill(new LoadArgument(0, "n", Int32));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<NewObject>());
+        Assert.DoesNotContain(function.Descendants.OfType<StoreLocal>(), store => store.Index == 0);
+        Assert.DoesNotContain(function.Descendants.OfType<LoadLocal>(), load => load.Index == 0);
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.IsType<LoadArgument>(raised.Count);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void AdjacentOwnedCountSpill_InlinesExpression()
+    {
+        var expression = new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "n", Int32),
+            new Constant(1, Int32));
+        var function = BuildCountSpill(expression);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(function.Descendants.OfType<StoreLocal>(), store => store.Index == 0);
+        Assert.IsType<Binary>(Assert.Single(function.Descendants.OfType<StackAllocArray>()).Count);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void AdjacentOwnedCountSpill_InlinesEffectfulCountAtAllocation()
+    {
+        var countEffect = new Call(
+            new MethodRef(Holder, "CountEffect", Int32, [], HasThis: false),
+            isVirtual: false,
+            []);
+        var function = BuildCountSpill(countEffect);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(function.Descendants.OfType<StoreLocal>(), store => store.Index == 0);
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Same(countEffect, raised.Count);
+        Assert.Single(function.Descendants.OfType<Call>(), call => call.Callee.Name == "CountEffect");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void AdjacentOwnedCountSpill_ForWiderElement_InlinesArgument()
+    {
+        var function = BuildCountSpill(
+            new LoadArgument(0, "n", Int32),
+            elementType: TypeRef.CoreLib("System", "Guid"));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(function.Descendants.OfType<StoreLocal>(), store => store.Index == 0);
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.IsType<LoadArgument>(raised.Count);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SequentialOwnedCountSpills_ReusingLocal_InlineEachLiveRange()
+    {
+        var first = BuildCountSpillConstruction(new LoadArgument(0, "n", Int32));
+        var second = BuildCountSpillConstruction(new LoadArgument(1, "m", Int32));
+        var block = new Block(0);
+        block.Add(first.Store);
+        block.Add(new StoreLocal(1, first.Construction.ResultType!, first.Construction));
+        block.Add(second.Store);
+        block.Add(new StoreLocal(2, second.Construction.ResultType!, second.Construction));
+        block.Add(new Return(new Constant(0, Int32)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(
+                Int32,
+                [new Parameter("n", Int32), new Parameter("m", Int32)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Int32, first.Construction.ResultType!, second.Construction.ResultType!],
+            body);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(function.Descendants.OfType<StoreLocal>(), store => store.Index == 0);
+        var raised = function.Descendants.OfType<StackAllocArray>().ToList();
+        Assert.Collection(
+            raised,
+            item => Assert.Equal(0, Assert.IsType<LoadArgument>(item.Count).Index),
+            item => Assert.Equal(1, Assert.IsType<LoadArgument>(item.Count).Index));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void CountSpillWithAdditionalUse_RaisesButDoesNotInlineSpill()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+        var function = BuildCountSpill(
+            new LoadArgument(0, "n", Int32),
+            construction => [
+                new StoreLocal(1, construction.ResultType!, construction),
+                new ExpressionStatement(new Call(use, isVirtual: false, [new LoadLocal(0, Int32)])),
+                new Return(new LoadLocal(1, construction.ResultType!)),
+            ]);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Contains(function.Descendants.OfType<StoreLocal>(), store => store.Index == 0);
+        Assert.Equal(2, function.Descendants.OfType<LoadLocal>().Count(load => load.Index == 0));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void CountSpillWithAdditionalStore_RaisesButDoesNotInlineSpill()
+    {
+        var function = BuildCountSpill(
+            new LoadArgument(0, "n", Int32),
+            construction => [
+                new StoreLocal(0, Int32, new Constant(2, Int32)),
+                new Return(construction),
+            ]);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Equal(2, function.Descendants.OfType<StoreLocal>().Count(store => store.Index == 0));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void AddressTakenCountSpill_RaisesButDoesNotInlineSpill()
+    {
+        var consume = new MethodRef(Holder, "Consume", Void, [TypeRef.Pointer(Int32)], HasThis: false);
+        var function = BuildCountSpill(
+            new LoadArgument(0, "n", Int32),
+            construction => [
+                new StoreLocal(1, construction.ResultType!, construction),
+                new ExpressionStatement(new Call(consume, isVirtual: false, [new LoadLocalAddress(0, Int32)])),
+                new Return(new LoadLocal(1, construction.ResultType!)),
+            ]);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Contains(function.Descendants.OfType<StoreLocal>(), store => store.Index == 0);
+        Assert.Single(function.Descendants.OfType<LoadLocalAddress>(), address => address.Index == 0);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void NonAdjacentCountSpill_RaisesButDoesNotInlineSpill()
+    {
+        var effect = new MethodRef(Holder, "Effect", Void, [], HasThis: false);
+        var function = BuildCountSpill(
+            new LoadArgument(0, "n", Int32),
+            construction => [
+                new ExpressionStatement(new Call(effect, isVirtual: false, [])),
+                new Return(construction),
+            ]);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Contains(function.Descendants.OfType<StoreLocal>(), store => store.Index == 0);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void CountSpillAfterEffectfulCallArgument_RaisesButDoesNotInlineSpill()
+    {
+        var effect = new MethodRef(Holder, "Effect", Int32, [], HasThis: false);
+        var span = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Span`1"), [Byte]);
+        var consume = new MethodRef(Holder, "Consume", span, [Int32, span], HasThis: false);
+        var function = BuildCountSpill(
+            new LoadArgument(0, "n", Int32),
+            construction => [
+                new Return(new Call(
+                    consume,
+                    isVirtual: false,
+                    [new Call(effect, isVirtual: false, []), construction])),
+            ]);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Contains(function.Descendants.OfType<StoreLocal>(), store => store.Index == 0);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ConditionalCountSpillUse_RaisesButDoesNotInlineSpill()
+    {
+        var function = BuildCountSpill(
+            new LoadArgument(0, "n", Int32),
+            construction => [
+                new Return(new Conditional(
+                    new LoadArgument(1, "condition", TypeRef.CoreLib("System", "Boolean")),
+                    construction,
+                    new DefaultValue(construction.ResultType!))),
+            ],
+            parameterTypes: [Int32, TypeRef.CoreLib("System", "Boolean")]);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Contains(function.Descendants.OfType<StoreLocal>(), store => store.Index == 0);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void CountSpillWithTypeWitness_RaisesButDoesNotInlineSpill()
+    {
+        var function = BuildCountSpill(new Constant((byte)1, Byte));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Contains(function.Descendants.OfType<StoreLocal>(), store => store.Index == 0);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SlotIndirectCountSpill_RaisesButDoesNotInlineSpill()
+    {
+        var countStore = new StoreLocal(0, Int32, new LoadArgument(0, "n", Int32));
+        var stackStore = new StoreStackSlot(0, new StackAllocate(new LoadLocal(0, Int32)));
+        var construction = StackAllocSpanConstructor(
+            TypeRef.CoreLib("System", "Span`1"),
+            new LoadStackSlot(0, VoidPointer),
+            new LoadLocal(0, Int32),
+            Byte);
+
+        var block = new Block(0);
+        block.Add(countStore);
+        block.Add(stackStore);
+        block.Add(new Return(construction));
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(
+                construction.ResultType!,
+                [new Parameter("n", Int32)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [Int32],
+            body);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Contains(function.Descendants.OfType<StoreLocal>(), store => store.Index == 0);
+        Assert.Single(function.Descendants.OfType<LoadLocal>(), load => load.Index == 0);
         function.CheckInvariant();
     }
 
@@ -1368,4 +1636,59 @@ public class StackAllocSpanPassTests
             [],
             body);
     }
+
+    static IrFunction BuildCountSpill(
+        IrExpression storedCount,
+        Func<NewObject, IReadOnlyList<IrNode>>? statements = null,
+        TypeRef? elementType = null,
+        IReadOnlyList<TypeRef>? parameterTypes = null)
+    {
+        var (store, construction) = BuildCountSpillConstruction(storedCount, elementType);
+
+        var block = new Block(0);
+        block.Add(store);
+        foreach (var statement in statements?.Invoke(construction) ?? [new Return(construction)])
+            block.Add(statement);
+
+        var body = new BlockContainer();
+        body.Add(block);
+        var parameters = (parameterTypes ?? [Int32])
+            .Select((type, index) => new Parameter(index == 0 ? "n" : $"arg{index}", type))
+            .ToImmutableArray();
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(construction.ResultType!, parameters, HasThis: false, GenericParameterCount: 0),
+            [Int32, construction.ResultType!],
+            body);
+    }
+
+    static (StoreLocal Store, NewObject Construction) BuildCountSpillConstruction(
+        IrExpression storedCount,
+        TypeRef? elementType = null)
+    {
+        elementType ??= Byte;
+        var countForSize = new LoadLocal(0, Int32);
+        IrExpression byteSize = GetElementSize(elementType) is 1
+            ? countForSize
+            : new Binary(
+                BinaryKind.Multiply,
+                isChecked: true,
+                isUnsigned: true,
+                new IrConvert(
+                    TypeRef.CoreLib("System", "UIntPtr"),
+                    isChecked: false,
+                    isUnsigned: false,
+                    countForSize),
+                new SizeOf(elementType));
+        var construction = StackAllocSpanConstructor(
+            TypeRef.CoreLib("System", "Span`1"),
+            new StackAllocate(byteSize),
+            new LoadLocal(0, Int32),
+            elementType);
+        return (new StoreLocal(0, Int32, storedCount), construction);
+    }
+
+    static int? GetElementSize(TypeRef type)
+        => type.Equals(Byte) ? 1 : null;
 }
