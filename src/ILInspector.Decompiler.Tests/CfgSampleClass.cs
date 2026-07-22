@@ -5267,7 +5267,7 @@ public static class ChainedConstantAssignmentSamples
 // bare-constant flag arms render as `... | (long)32768` — CS0019 (operator '|'
 // cannot be applied to 'FlagCaps64' and 'long').
 [System.Flags]
-public enum FlagCaps64 : ulong
+public enum FlagCaps64 : long
 {
     None = 0,
     Protocol = 512,
