@@ -1,10 +1,13 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
+using System.Text.Json.Serialization;
 
 using DotnetInspector.Services;
+using DotnetInspector.RoundTripCompilation;
 using ILInspector.CSharp;
 using ILInspector.Decompiler;
 using ILInspector.Decompiler.Pipeline;
@@ -68,10 +71,28 @@ static class ReturnToSender
         IlBodyDiffResult? FidelityDiff = null)
     {
         public bool UsedCompileBackFloor => CompileBackFloor is not null;
+        public RoundTripScope Scope { get; init; } = RoundTripScope.Cluster;
+        public IReadOnlyList<string> UnsupportedDeclarations { get; init; } = [];
+        public bool DeclarationComplete
+            => Scope != RoundTripScope.All || UnsupportedDeclarations.Count == 0;
+        public RoundTripBodyPolicy BodyPolicy { get; init; } = RoundTripBodyPolicy.Selected;
+        public IReadOnlyList<FullBodyProduction> FullBodies { get; init; } = [];
+        public bool BodyComplete
+            => BodyPolicy != RoundTripBodyPolicy.Full
+               || FullBodies.All(body => body.Status == MemberBodyProductionStatus.Complete);
+        public RoundTripComparisonResult? Comparison { get; init; }
+        public RoundTripCompilationProvenance? Compilation { get; init; }
+        [JsonIgnore]
+        public byte[]? DonorPe { get; init; }
         internal ArtifactRequest? FinalRequest { get; init; }
     }
 
     public sealed record RequestedTarget(string Type, string Method, int Overload, string? Signature = null);
+
+    public sealed record ScopePairResult(
+        Result Cluster,
+        Result All,
+        RoundTripScopeComparisonResult Comparison);
 
     sealed class NoSupportedReturnToSenderTargetsException(string message) : InvalidOperationException(message);
 
@@ -475,7 +496,170 @@ static class ReturnToSender
             assemblyPath,
             targets,
             ReturnToSenderSourceIndex.TryCreate(assemblyPath),
-            applyCompileBackFloor: true);
+            applyCompileBackFloor: true,
+            RoundTripScope.Cluster,
+            RoundTripBodyPolicy.Selected);
+
+    public static IReadOnlyList<Result> CompileBackTargets(
+        string assemblyPath,
+        IReadOnlyList<RequestedTarget> targets,
+        RoundTripScope scope)
+        => CompileBackTargets(
+            assemblyPath,
+            targets,
+            ReturnToSenderSourceIndex.TryCreate(assemblyPath),
+            applyCompileBackFloor: true,
+            scope,
+            RoundTripBodyPolicy.Selected);
+
+    public static IReadOnlyList<Result> CompileBackTargets(
+        string assemblyPath,
+        IReadOnlyList<RequestedTarget> targets,
+        RoundTripScope scope,
+        RoundTripBodyPolicy bodyPolicy)
+        => CompileBackTargets(
+            assemblyPath,
+            targets,
+            ReturnToSenderSourceIndex.TryCreate(assemblyPath),
+            applyCompileBackFloor: true,
+            scope,
+            bodyPolicy);
+
+    public static ScopePairResult CompileBackScopes(
+        string assemblyPath,
+        RequestedTarget target)
+    {
+        var sourceIndex = ReturnToSenderSourceIndex.TryCreate(assemblyPath);
+        var cluster = AssertSingleScope(CompileBackTargets(
+            assemblyPath,
+            [target],
+            sourceIndex,
+            applyCompileBackFloor: false,
+            RoundTripScope.Cluster,
+            RoundTripBodyPolicy.Selected));
+        var all = AssertSingleScope(CompileBackTargets(
+            assemblyPath,
+            [target],
+            sourceIndex,
+            applyCompileBackFloor: false,
+            RoundTripScope.All,
+            RoundTripBodyPolicy.Selected));
+        var clusterRequest = CreateRoundTripRequest(assemblyPath, cluster, RoundTripScope.Cluster);
+        var allRequest = CreateRoundTripRequest(assemblyPath, all, RoundTripScope.All);
+        var comparison = cluster.Compilation is not null && cluster.DonorPe is not null
+            && all.Compilation is not null && all.DonorPe is not null
+                ? RoundTripScopeComparison.Compare(
+                    clusterRequest,
+                    cluster.Compilation,
+                    cluster.DonorPe,
+                    allRequest,
+                    all.Compilation,
+                    all.DonorPe)
+                : new RoundTripScopeComparisonResult(
+                    RoundTripScopeComparisonStatus.Unavailable,
+                    Cluster: null,
+                    All: null,
+                    Members: [],
+                    Failure: cluster.Detail ?? all.Detail ?? "cluster or all donor compilation unavailable");
+        return new ScopePairResult(cluster, all, comparison);
+
+        static Result AssertSingleScope(IReadOnlyList<Result> results)
+            => results.Count == 1
+                ? results[0]
+                : throw new InvalidOperationException($"Expected one scope result, found {results.Count}.");
+    }
+
+    static RoundTripRequest CreateRoundTripRequest(
+        string assemblyPath,
+        Result result,
+        RoundTripScope scope)
+    {
+        if (result.FinalRequest is not { } finalRequest)
+            throw new InvalidOperationException("Scope result has no final artifact request.");
+        if (result.MemberAnchor is not { } anchor)
+            throw new InvalidOperationException("Scope result has no typed member anchor.");
+
+        using var stream = File.OpenRead(assemblyPath);
+        using var pe = new PEReader(stream);
+        var reader = pe.GetMetadataReader();
+        var module = reader.GetModuleDefinition();
+        var address = MetadataMethodAddress.Create(reader, finalRequest.TargetMethod);
+        var targets = new List<RoundTripTarget> { new(address, anchor) };
+        if (result.BodyPolicy == RoundTripBodyPolicy.Full)
+        {
+            var anchors = MemberAnchorsByMethodToken(pe);
+            var included = new HashSet<MetadataMethodAddress> { address };
+            foreach (var body in result.FullBodies)
+            {
+                if (!included.Add(body.Method))
+                    continue;
+                var method = reader.GetMethodDefinition(body.Method.Handle);
+                var bodyAnchor = MemberAnchorFor(anchors, body.Method.Handle)
+                    ?? ApiMemberIdentity.CreateMethodAnchor(reader, method.GetDeclaringType(), method);
+                targets.Add(new RoundTripTarget(body.Method, bodyAnchor));
+            }
+        }
+        var initializer = finalRequest.TargetBody.ConstructorChain is { } chain
+            ? CSharpFormatter.ParseConstructorInitializer(chain)
+            : null;
+        var replacement = RoundTripMethodReplacement.Create(
+            address,
+            anchor,
+            new CSharpBlockBody(finalRequest.TargetBody.Source, initializer)
+            {
+                RequiresAsyncModifier = finalRequest.TargetBody.RequiresAsyncModifier,
+                RequiresUnsafeModifier = finalRequest.TargetBody.RequiresUnsafeModifier,
+            });
+        return RoundTripRequest.Create(
+            RoundTripArtifactIdentity.FromFile(assemblyPath, "return-to-sender"),
+            new RoundTripModuleIdentity(reader.GetString(module.Name), address.ModuleVersionId),
+            targets,
+            scope,
+            result.BodyPolicy,
+            [replacement]);
+    }
+
+    static Result AttachRoundTripComparison(string assemblyPath, Result result)
+    {
+        if (result.BodyPolicy != RoundTripBodyPolicy.Full
+            || result.Compilation is null
+            || result.DonorPe is null
+            || result.FinalRequest is null
+            || result.MemberAnchor is null)
+            return result;
+        var request = CreateRoundTripRequest(assemblyPath, result, result.Scope);
+        var comparison = RoundTripComparison.Compare(request, result.DonorPe, result.Compilation);
+        var productionFailures = result.FullBodies
+            .Where(body => body.Status != MemberBodyProductionStatus.Complete)
+            .GroupBy(body => body.Method)
+            .ToDictionary(group => group.Key, group => group.First());
+        if (comparison.Status == RoundTripComparisonStatus.Completed && productionFailures.Count != 0)
+        {
+            comparison = comparison with
+            {
+                Members = comparison.Members.Select(member =>
+                {
+                    if (!productionFailures.TryGetValue(member.Target.Method, out var production))
+                        return member;
+                    string failure = production.Failure ?? $"body production was {production.Status}";
+                    return member with
+                    {
+                        CSharpStatus = RoundTripEvidenceStatus.Unavailable,
+                        IlStatus = IlBodyDiffOutcome.Unavailable,
+                        CSharpDiff = null,
+                        IlDiff = null,
+                        Evidence = null,
+                        CSharpFailure = failure,
+                        IlFailure = failure,
+                    };
+                }).ToImmutableArray(),
+            };
+        }
+        return result with
+        {
+            Comparison = comparison,
+        };
+    }
 
     public static IReadOnlyList<Result> CompileBackTargets(
         string assemblyPath,
@@ -485,7 +669,9 @@ static class ReturnToSender
             assemblyPath,
             targets,
             ReturnToSenderSourceIndex.TryCreate(sourcePaths),
-            applyCompileBackFloor: true);
+            applyCompileBackFloor: true,
+            RoundTripScope.Cluster,
+            RoundTripBodyPolicy.Selected);
 
     public static IReadOnlyList<Result> CompileBackTargets(
         string assemblyPath,
@@ -495,16 +681,25 @@ static class ReturnToSender
             assemblyPath,
             targets,
             ReturnToSenderSourceIndex.TryCreate(assemblyPath),
-            applyCompileBackFloor);
+            applyCompileBackFloor,
+            RoundTripScope.Cluster,
+            RoundTripBodyPolicy.Selected);
 
     static IReadOnlyList<Result> CompileBackTargets(
         string assemblyPath,
         IReadOnlyList<RequestedTarget> targets,
         ReturnToSenderSourceIndex? sourceIndex,
-        bool applyCompileBackFloor)
+        bool applyCompileBackFloor,
+        RoundTripScope scope,
+        RoundTripBodyPolicy bodyPolicy)
     {
         if (targets.Count == 0)
             return [];
+        if (bodyPolicy == RoundTripBodyPolicy.Full && targets.Count != 1)
+        {
+            throw new NotSupportedException(
+                "Full body policy currently requires exactly one primary target; coherent target-set reconstruction is not yet supported.");
+        }
 
         var results = new List<Result>();
         using var pe = new PEReader(File.OpenRead(assemblyPath));
@@ -546,7 +741,9 @@ static class ReturnToSender
                     propertyTarget.Property,
                     propertyTarget.Getter,
                     MemberAnchorFor(memberAnchors, propertyTarget.Getter),
-                    sourceIndex));
+                    sourceIndex,
+                    scope,
+                    bodyPolicy));
                 continue;
             }
 
@@ -561,7 +758,9 @@ static class ReturnToSender
                     setterTarget.Property,
                     setterTarget.Setter,
                     MemberAnchorFor(memberAnchors, setterTarget.Setter),
-                    sourceIndex));
+                    sourceIndex,
+                    scope,
+                    bodyPolicy));
                 continue;
             }
 
@@ -576,7 +775,9 @@ static class ReturnToSender
                     eventTarget.Event,
                     eventTarget.Accessor,
                     MemberAnchorFor(memberAnchors, eventTarget.Accessor),
-                    sourceIndex));
+                    sourceIndex,
+                    scope,
+                    bodyPolicy));
                 continue;
             }
 
@@ -590,11 +791,31 @@ static class ReturnToSender
                     typeHandle,
                     methodHandle,
                     MemberAnchorFor(memberAnchors, methodHandle),
-                    sourceIndex));
+                    sourceIndex,
+                    scope,
+                    bodyPolicy));
             }
         }
 
-        return applyCompileBackFloor ? ApplyCompileBackFloor(assemblyPath, results) : results;
+        var unsupportedDeclarations = scope == RoundTripScope.All
+            ? reader.TypeDefinitions
+                .Where(handle => reader.GetTypeDefinition(handle).GetDeclaringType().IsNil)
+                .Where(handle => reader.GetString(reader.GetTypeDefinition(handle).Name) != "<Module>")
+                .Where(handle => !IsSupportedClosureRoot(reader, reader.GetTypeDefinition(handle)))
+                .Select(handle => reader.GetFullTypeName(reader.GetTypeDefinition(handle)))
+                .Order(StringComparer.Ordinal)
+                .ToArray()
+            : [];
+        var scopedResults = results
+            .Select(result => result with
+            {
+                Scope = scope,
+                BodyPolicy = bodyPolicy,
+                UnsupportedDeclarations = unsupportedDeclarations,
+            })
+            .Select(result => AttachRoundTripComparison(assemblyPath, result))
+            .ToArray();
+        return applyCompileBackFloor ? ApplyCompileBackFloor(assemblyPath, scopedResults) : scopedResults;
     }
 
     static IReadOnlyList<Result> ApplyCompileBackFloor(
@@ -860,11 +1081,13 @@ static class ReturnToSender
         PropertyDefinitionHandle propertyHandle,
         MethodDefinitionHandle getterHandle,
         MemberAnchor? memberAnchor,
-        ReturnToSenderSourceIndex? sourceIndex)
+        ReturnToSenderSourceIndex? sourceIndex,
+        RoundTripScope scope = RoundTripScope.Cluster,
+        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
     {
         try
         {
-            return CompileBackPropertyGetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, getterHandle, memberAnchor, sourceIndex);
+            return CompileBackPropertyGetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, getterHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -880,11 +1103,13 @@ static class ReturnToSender
         TypeDefinitionHandle typeHandle,
         MethodDefinitionHandle methodHandle,
         MemberAnchor? memberAnchor,
-        ReturnToSenderSourceIndex? sourceIndex)
+        ReturnToSenderSourceIndex? sourceIndex,
+        RoundTripScope scope = RoundTripScope.Cluster,
+        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
     {
         try
         {
-            return CompileBackMethod(assemblyPath, pe, reader, source, typeHandle, methodHandle, memberAnchor, sourceIndex);
+            return CompileBackMethod(assemblyPath, pe, reader, source, typeHandle, methodHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -901,7 +1126,9 @@ static class ReturnToSender
         EventDefinitionHandle eventHandle,
         MethodDefinitionHandle accessorHandle,
         MemberAnchor? memberAnchor,
-        ReturnToSenderSourceIndex? sourceIndex)
+        ReturnToSenderSourceIndex? sourceIndex,
+        RoundTripScope scope = RoundTripScope.Cluster,
+        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
     {
         try
         {
@@ -914,7 +1141,9 @@ static class ReturnToSender
                 eventHandle,
                 accessorHandle,
                 memberAnchor,
-                sourceIndex);
+                sourceIndex,
+                scope,
+                bodyPolicy);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -937,11 +1166,13 @@ static class ReturnToSender
         PropertyDefinitionHandle propertyHandle,
         MethodDefinitionHandle setterHandle,
         MemberAnchor? memberAnchor,
-        ReturnToSenderSourceIndex? sourceIndex)
+        ReturnToSenderSourceIndex? sourceIndex,
+        RoundTripScope scope = RoundTripScope.Cluster,
+        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
     {
         try
         {
-            return CompileBackPropertySetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, setterHandle, memberAnchor, sourceIndex);
+            return CompileBackPropertySetter(assemblyPath, pe, reader, source, typeHandle, propertyHandle, setterHandle, memberAnchor, sourceIndex, scope, bodyPolicy);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
@@ -958,7 +1189,9 @@ static class ReturnToSender
         PropertyDefinitionHandle propertyHandle,
         MethodDefinitionHandle getterHandle,
         MemberAnchor? memberAnchor,
-        ReturnToSenderSourceIndex? sourceIndex)
+        ReturnToSenderSourceIndex? sourceIndex,
+        RoundTripScope scope,
+        RoundTripBodyPolicy bodyPolicy)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var getter = reader.GetMethodDefinition(getterHandle);
@@ -966,9 +1199,7 @@ static class ReturnToSender
         string methodName = reader.GetString(getter.Name);
         int overload = OverloadIndex(reader, typeDef, getterHandle, methodName);
 
-        var function = IrImporter.Import(source, fullType, methodName, overload)
-            ?? throw new InvalidOperationException($"Could not import {fullType}::{methodName}.");
-        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, function, fullType, methodName);
+        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, getterHandle, fullType, methodName, out var function);
 
         var original = MetadataInstructionProducer.Disassemble(pe, reader, getter)
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
@@ -1001,7 +1232,13 @@ static class ReturnToSender
                 Overload: overload,
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
-                ClosureFacts: closureFacts));
+                ClosureFacts: closureFacts)
+            {
+                BodyPolicy = bodyPolicy,
+                BodySource = source,
+            },
+            scope: scope,
+            bodyPolicy: bodyPolicy);
     }
 
     static Result CompileBackMethod(
@@ -1012,7 +1249,9 @@ static class ReturnToSender
         TypeDefinitionHandle typeHandle,
         MethodDefinitionHandle methodHandle,
         MemberAnchor? memberAnchor,
-        ReturnToSenderSourceIndex? sourceIndex)
+        ReturnToSenderSourceIndex? sourceIndex,
+        RoundTripScope scope,
+        RoundTripBodyPolicy bodyPolicy)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var method = reader.GetMethodDefinition(methodHandle);
@@ -1020,9 +1259,7 @@ static class ReturnToSender
         string methodName = reader.GetString(method.Name);
         int overload = OverloadIndex(reader, typeDef, methodHandle, methodName);
 
-        var function = IrImporter.Import(source, fullType, methodName, overload)
-            ?? throw new InvalidOperationException($"Could not import {fullType}::{methodName}.");
-        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, function, fullType, methodName);
+        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, methodHandle, fullType, methodName, out var function);
 
         var original = MetadataInstructionProducer.Disassemble(pe, reader, method)
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
@@ -1054,7 +1291,13 @@ static class ReturnToSender
                 Overload: overload,
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
-                ClosureFacts: closureFacts));
+                ClosureFacts: closureFacts)
+            {
+                BodyPolicy = bodyPolicy,
+                BodySource = source,
+            },
+            scope: scope,
+            bodyPolicy: bodyPolicy);
     }
 
     static Result CompileBackEventAccessor(
@@ -1066,7 +1309,9 @@ static class ReturnToSender
         EventDefinitionHandle eventHandle,
         MethodDefinitionHandle accessorHandle,
         MemberAnchor? memberAnchor,
-        ReturnToSenderSourceIndex? sourceIndex)
+        ReturnToSenderSourceIndex? sourceIndex,
+        RoundTripScope scope,
+        RoundTripBodyPolicy bodyPolicy)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var accessor = reader.GetMethodDefinition(accessorHandle);
@@ -1074,9 +1319,7 @@ static class ReturnToSender
         string methodName = reader.GetString(accessor.Name);
         int overload = OverloadIndex(reader, typeDef, accessorHandle, methodName);
 
-        var function = IrImporter.Import(source, fullType, methodName, overload)
-            ?? throw new InvalidOperationException($"Could not import {fullType}::{methodName}.");
-        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, function, fullType, methodName);
+        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, accessorHandle, fullType, methodName, out var function);
 
         var original = MetadataInstructionProducer.Disassemble(pe, reader, accessor)
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
@@ -1099,12 +1342,15 @@ static class ReturnToSender
             if (siblingMethod.RelativeVirtualAddress != 0)
             {
                 siblingMethodName = reader.GetString(siblingMethod.Name);
-                int siblingOverload = OverloadIndex(reader, typeDef, siblingHandle, siblingMethodName);
-                var siblingFunction = IrImporter.Import(source, fullType, siblingMethodName, siblingOverload);
                 var siblingOriginal = MetadataInstructionProducer.Disassemble(pe, reader, siblingMethod);
-                if (siblingFunction is not null && siblingOriginal is not null)
+                if (siblingOriginal is not null)
                 {
-                    siblingBody = CompileBackSourceComposer.CreateTargetBody(source, siblingFunction, fullType, siblingMethodName);
+                    siblingBody = CompileBackSourceComposer.CreateTargetBody(
+                        source,
+                        siblingHandle,
+                        fullType,
+                        siblingMethodName,
+                        out _);
                     siblingOriginalOps = siblingOriginal.Select(instruction => CanonicalOpcode(instruction.OpCodeName)).ToArray();
                 }
             }
@@ -1138,10 +1384,16 @@ static class ReturnToSender
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
                 ClosureFacts: closureFacts,
-                SiblingAccessorBody: siblingBody),
+                SiblingAccessorBody: siblingBody)
+            {
+                BodyPolicy = bodyPolicy,
+                BodySource = source,
+            },
             siblingMethodName is not null && siblingOriginalOps is not null
                 ? (siblingMethodName, siblingOriginalOps)
-                : null);
+                : null,
+            scope,
+            bodyPolicy);
     }
 
     static Result CompileBackPropertySetter(
@@ -1153,7 +1405,9 @@ static class ReturnToSender
         PropertyDefinitionHandle propertyHandle,
         MethodDefinitionHandle setterHandle,
         MemberAnchor? memberAnchor,
-        ReturnToSenderSourceIndex? sourceIndex)
+        ReturnToSenderSourceIndex? sourceIndex,
+        RoundTripScope scope,
+        RoundTripBodyPolicy bodyPolicy)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var setter = reader.GetMethodDefinition(setterHandle);
@@ -1161,9 +1415,7 @@ static class ReturnToSender
         string methodName = reader.GetString(setter.Name);
         int overload = OverloadIndex(reader, typeDef, setterHandle, methodName);
 
-        var function = IrImporter.Import(source, fullType, methodName, overload)
-            ?? throw new InvalidOperationException($"Could not import {fullType}::{methodName}.");
-        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, function, fullType, methodName);
+        var targetBody = CompileBackSourceComposer.CreateTargetBody(source, setterHandle, fullType, methodName, out var function);
 
         var original = MetadataInstructionProducer.Disassemble(pe, reader, setter)
             ?? throw new InvalidOperationException($"Could not disassemble {fullType}::{methodName}.");
@@ -1196,7 +1448,13 @@ static class ReturnToSender
                 Overload: overload,
                 SignatureText: CorpusMethodIdentity.SignatureText(function.Signature),
                 ClosureRoots: closureRoots,
-                ClosureFacts: closureFacts));
+                ClosureFacts: closureFacts)
+            {
+                BodyPolicy = bodyPolicy,
+                BodySource = source,
+            },
+            scope: scope,
+            bodyPolicy: bodyPolicy);
     }
 
     static Result CompileBackTarget(
@@ -1214,7 +1472,9 @@ static class ReturnToSender
         MemberAnchor? memberAnchor,
         ReturnToSenderSourceIndex? sourceIndex,
         Func<IReadOnlySet<TypeDefinitionHandle>, IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>>, ArtifactRequest> createRequest,
-        (string MethodName, string[] OriginalOpcodes)? sibling = null)
+        (string MethodName, string[] OriginalOpcodes)? sibling = null,
+        RoundTripScope scope = RoundTripScope.Cluster,
+        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
@@ -1226,29 +1486,113 @@ static class ReturnToSender
         var references = CompilationReferences(assemblyPath).ToArray();
         var indexes = ClosureIndexes(reader);
         var targetRoot = TopLevelRootOf(reader, typeHandle);
-        var closureRoots = new HashSet<TypeDefinitionHandle>
-        {
-            targetRoot,
-        };
+        var closureRoots = scope == RoundTripScope.All
+            ? reader.TypeDefinitions
+                .Where(handle => reader.GetTypeDefinition(handle).GetDeclaringType().IsNil)
+                .Where(handle => IsSupportedClosureRoot(reader, reader.GetTypeDefinition(handle)))
+                .ToHashSet()
+            : [targetRoot];
+        closureRoots.Add(targetRoot);
         var closureFacts = new Dictionary<TypeDefinitionHandle, List<CompileBackFact>>();
         const int maxRoots = 200;
-        const int maxIterations = 80;
-        Diagnostic? firstError = null;
         string originalOpcodes = string.Join(" ", originalOps);
 
         ProductArtifact Compose()
-            => CompileBackSourceComposer.Compose(createRequest(closureRoots, closureFacts));
-
-        for (int iteration = 0; iteration < maxIterations; iteration++)
         {
-            var sourceResult = Compose();
-            var plan = sourceResult.Plan;
+            if (bodyPolicy == RoundTripBodyPolicy.Full)
+            {
+                foreach (var root in closureRoots)
+                {
+                    if (!closureFacts.TryGetValue(root, out var facts))
+                        closureFacts[root] = facts = [];
+                    var fact = new CompileBackFact("round-trip", "closure-member", "full body policy");
+                    if (!facts.Contains(fact))
+                        facts.Add(fact);
+                }
+            }
+            return CompileBackSourceComposer.Compose(createRequest(closureRoots, closureFacts));
+        }
 
-            if (plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identityDiagnostic)
+        var firstArtifact = Compose();
+        if (firstArtifact.Plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } initialIdentityDiagnostic)
+        {
+            return new Result(
+                firstArtifact.Plan,
+                firstArtifact.Source,
+                FidelityCheck.CompileBackStatus.ContextFail,
+                originalOpcodes,
+                "",
+                $"{initialIdentityDiagnostic.Reason}: {initialIdentityDiagnostic.Detail}",
+                TargetBody: targetBody.Source,
+                MemberAnchor: memberAnchor,
+                Decisions: targetBody.Decisions)
+            {
+                FinalRequest = firstArtifact.Request,
+                BodyPolicy = bodyPolicy,
+                FullBodies = firstArtifact.FullBodies,
+            };
+        }
+
+        bool firstArtifactPending = true;
+        CompileBackPlanningDiagnostic? identityFailure = null;
+        var compilationResult = RoundTripCompilationEngine.Compile(
+            compose: () =>
+            {
+                if (firstArtifactPending)
+                {
+                    firstArtifactPending = false;
+                    return firstArtifact;
+                }
+                return Compose();
+            },
+            source: artifact => artifact.Source,
+            references,
+            parseOptions,
+            compileOptions,
+            grow: (artifact, errors, semanticModel) =>
+            {
+                if (artifact.Plan.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Layer == "type identity") is { } identity)
+                {
+                    identityFailure = identity;
+                    return RoundTripGrowthResult.Stop("type-identity");
+                }
+
+                var growth = AddClosureRoots(
+                    errors,
+                    semanticModel,
+                    indexes,
+                    reader.GetString(typeDef.Namespace),
+                    TopLevelRootOf(reader, typeHandle),
+                    closureRoots,
+                    closureFacts);
+                int effectiveRootCount = EffectiveClosureRootCount(artifact, closureRoots);
+                string? reason = effectiveRootCount > maxRoots
+                    ? "closure-root-budget"
+                    : !growth.Grew
+                        ? ClosureDiagnosticEvidence.FailureReason(
+                        "closure-stalled",
+                            growth.UnextractedDiagnosticIds)
+                        : null;
+                return reason is null
+                    ? RoundTripGrowthResult.Continue
+                    : RoundTripGrowthResult.Stop(reason);
+            },
+            new RoundTripCompilationOptions
+            {
+                AssemblyName = "return-to-sender",
+                MaxIterations = 80,
+            });
+
+        var sourceResult = compilationResult.Artifact;
+        var plan = sourceResult.Plan;
+        string unit = sourceResult.Source;
+        if (!compilationResult.Succeeded || compilationResult.PeImage is null)
+        {
+            if (identityFailure is { } identityDiagnostic)
             {
                 return new Result(
                     plan,
-                    sourceResult.Source,
+                    unit,
                     FidelityCheck.CompileBackStatus.ContextFail,
                     originalOpcodes,
                     "",
@@ -1258,139 +1602,109 @@ static class ReturnToSender
                     Decisions: targetBody.Decisions)
                 {
                     FinalRequest = sourceResult.Request,
+                    Compilation = compilationResult.Provenance,
+                    BodyPolicy = bodyPolicy,
+                    FullBodies = sourceResult.FullBodies,
                 };
             }
 
-            string unit = sourceResult.Source;
-            var tree = CSharpSyntaxTree.ParseText(unit, parseOptions);
-            var compilation = CSharpCompilation.Create("return-to-sender", [tree], references, compileOptions);
-            using var ms = new MemoryStream();
-            var emit = compilation.Emit(ms);
-            if (emit.Success)
-            {
-                var recompiledBytes = ms.ToArray();
-                using var recompiledStream = new MemoryStream(recompiledBytes, writable: false);
-                using var recompiled = new PEReader(recompiledStream);
-                var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
-                    ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
-                    .ToArray();
-                var implementationDiff = BuildImplementationDiff(assemblyPath, reader, methodHandle, recompiledBytes, fullType, methodName, overload: 0);
-                var ilDiff = implementationDiff?.IlDiff;
-                var ilDiffDiagnostic = ToDisplayDiagnostic(ilDiff);
-                var fidelityDiff = BuildIlDiff(
-                    originalPe,
-                    reader,
-                    methodHandle,
-                    recompiled,
-                    fullType,
-                    methodName,
-                    overload: 0,
-                    FidelityCheck.ContractV1BodyDiffNormalization)?.Diff;
-
-                if (recompiledOps is null)
-                {
-                    return new Result(
-                        plan,
-                        unit,
-                        FidelityCheck.CompileBackStatus.ContextFail,
-                        originalOpcodes,
-                        "",
-                        "method-not-found",
-                        TargetBody: targetBody.Source,
-                        MemberAnchor: memberAnchor,
-                        Decisions: targetBody.Decisions)
-                    {
-                        FinalRequest = sourceResult.Request,
-                    };
-                }
-
-                var siblingAccessor = sibling is { } siblingRequest
-                    ? ComputeSiblingAccessorEvidence(recompiled, fullType, siblingRequest.MethodName, siblingRequest.OriginalOpcodes)
-                    : null;
-
-                var status = FidelityCheck.ClassifyStatus(
-                    isFull: true,
-                    opcodesExact: originalOps.SequenceEqual(recompiledOps),
-                    fidelityDiff: fidelityDiff);
-                string? detail = status == FidelityCheck.CompileBackStatus.FidelityUnavailable
-                    ? fidelityDiff?.Failure ?? "compile-back fidelity body comparison unavailable"
-                    : fidelityDiff?.Failure;
-
-                return new Result(
-                    plan,
-                    unit,
-                    status,
-                    originalOpcodes,
-                    string.Join(" ", recompiledOps),
-                    detail,
-                    TargetBody: targetBody.Source,
-                    IlDiffDiagnostic: ilDiffDiagnostic,
-                    IlDiff: ilDiff,
-                    MemberAnchor: memberAnchor,
-                    Decisions: targetBody.Decisions,
-                    SiblingAccessor: siblingAccessor,
-                    FidelityDiff: fidelityDiff)
-                {
-                    FinalRequest = sourceResult.Request,
-                };
-            }
-
-            var errors = emit.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error).ToArray();
-            firstError ??= errors.FirstOrDefault();
-            var growth = AddClosureRoots(
-                errors,
-                compilation.GetSemanticModel(tree),
-                indexes,
-                reader.GetString(typeDef.Namespace),
-                TopLevelRootOf(reader, typeHandle),
-                closureRoots,
-                closureFacts);
-            int effectiveRootCount = EffectiveClosureRootCount(sourceResult, closureRoots);
-            if (!growth.Grew || effectiveRootCount > maxRoots)
-            {
-                string reason = effectiveRootCount > maxRoots
-                    ? "closure-root-budget"
-                    : ClosureDiagnosticEvidence.FailureReason(
-                        "closure-stalled",
-                        growth.UnextractedDiagnosticIds);
-                var error = errors.FirstOrDefault() ?? firstError;
-                var faultIsolation = TryIsolateRecompileFailure(sourceResult.Request, sourceIndex, parseOptions, compileOptions, references);
-                return new Result(
-                    plan,
-                    unit,
-                    FidelityCheck.CompileBackStatus.RecompileFail,
-                    originalOpcodes,
-                    "",
-                    $"{reason}: {FormatDiagnostic(error)}",
-                    TargetBody: targetBody.Source,
-                    MemberAnchor: memberAnchor,
-                    Decisions: targetBody.Decisions,
-                    FaultIsolation: faultIsolation)
-                {
-                    FinalRequest = sourceResult.Request,
-                };
-            }
-        }
-
-        {
-            var sourceResult = Compose();
-            var plan = sourceResult.Plan;
+            var error = compilationResult.Status == RoundTripCompilationStatus.IterationBudget
+                ? compilationResult.FirstError
+                : compilationResult.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+                    ?? compilationResult.FirstError;
             var faultIsolation = TryIsolateRecompileFailure(sourceResult.Request, sourceIndex, parseOptions, compileOptions, references);
             return new Result(
                 plan,
-                sourceResult.Source,
+                unit,
                 FidelityCheck.CompileBackStatus.RecompileFail,
                 originalOpcodes,
                 "",
-                $"closure-iteration-budget: {FormatDiagnostic(firstError)}",
+                $"{compilationResult.StopReason}: {FormatDiagnostic(error)}",
                 TargetBody: targetBody.Source,
                 MemberAnchor: memberAnchor,
                 Decisions: targetBody.Decisions,
                 FaultIsolation: faultIsolation)
             {
                 FinalRequest = sourceResult.Request,
+                Compilation = compilationResult.Provenance,
+                BodyPolicy = bodyPolicy,
+                FullBodies = sourceResult.FullBodies,
             };
         }
+
+        var recompiledBytes = compilationResult.PeImage;
+        using var recompiledStream = new MemoryStream(recompiledBytes, writable: false);
+        using var recompiled = new PEReader(recompiledStream);
+        var recompiledOps = FindAndDisassemble(recompiled, fullType, methodName, overload: 0)
+            ?.Select(instruction => CanonicalOpcode(instruction.OpCodeName))
+            .ToArray();
+        var implementationDiff = BuildImplementationDiff(assemblyPath, reader, methodHandle, recompiledBytes, fullType, methodName, overload: 0);
+        var ilDiff = implementationDiff?.IlDiff;
+        var ilDiffDiagnostic = ToDisplayDiagnostic(ilDiff);
+        var fidelityDiff = BuildIlDiff(
+            originalPe,
+            reader,
+            methodHandle,
+            recompiled,
+            fullType,
+            methodName,
+            overload: 0,
+            FidelityCheck.ContractV1BodyDiffNormalization)?.Diff;
+
+        if (recompiledOps is null)
+        {
+            return new Result(
+                plan,
+                unit,
+                FidelityCheck.CompileBackStatus.ContextFail,
+                originalOpcodes,
+                "",
+                "method-not-found",
+                TargetBody: targetBody.Source,
+                MemberAnchor: memberAnchor,
+                Decisions: targetBody.Decisions)
+            {
+                FinalRequest = sourceResult.Request,
+                Compilation = compilationResult.Provenance,
+                DonorPe = recompiledBytes,
+                BodyPolicy = bodyPolicy,
+                FullBodies = sourceResult.FullBodies,
+            };
+        }
+
+        var siblingAccessor = sibling is { } siblingRequest
+            ? ComputeSiblingAccessorEvidence(recompiled, fullType, siblingRequest.MethodName, siblingRequest.OriginalOpcodes)
+            : null;
+
+        var status = FidelityCheck.ClassifyStatus(
+            isFull: true,
+            opcodesExact: originalOps.SequenceEqual(recompiledOps),
+            fidelityDiff: fidelityDiff);
+        string? detail = status == FidelityCheck.CompileBackStatus.FidelityUnavailable
+            ? fidelityDiff?.Failure ?? "compile-back fidelity body comparison unavailable"
+            : fidelityDiff?.Failure;
+
+        return new Result(
+            plan,
+            unit,
+            status,
+            originalOpcodes,
+            string.Join(" ", recompiledOps),
+            detail,
+            TargetBody: targetBody.Source,
+            IlDiffDiagnostic: ilDiffDiagnostic,
+            IlDiff: ilDiff,
+            MemberAnchor: memberAnchor,
+            Decisions: targetBody.Decisions,
+            SiblingAccessor: siblingAccessor,
+            FidelityDiff: fidelityDiff)
+        {
+            FinalRequest = sourceResult.Request,
+            Compilation = compilationResult.Provenance,
+            DonorPe = recompiledBytes,
+            BodyPolicy = bodyPolicy,
+            FullBodies = sourceResult.FullBodies,
+        };
     }
 
     /// <summary>

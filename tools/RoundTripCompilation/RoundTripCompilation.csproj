@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+    <ProjectReference Include="../../src/ILInspector.CSharp/ILInspector.CSharp.csproj" />
+    <ProjectReference Include="../../src/ILInspector.Decompiler/ILInspector.Decompiler.csproj" />
+    <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
+    <ProjectReference Include="../../src/ILInspector.MetadataPrimitives/ILInspector.MetadataPrimitives.csproj" />
+    <ProjectReference Include="../../src/ILInspector.Research/ILInspector.Research.csproj" />
+  </ItemGroup>
+
+</Project>
