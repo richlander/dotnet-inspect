@@ -700,6 +700,9 @@ public static class ApiSurfaceExtractor
         var fieldBytes = NullabilityReader.GetNullableBytes(reader, field.GetCustomAttributes());
         int pos = 0;
         fieldNode.ApplyNullability(fieldBytes, ref pos, typeNullableContext);
+        var fieldDynamicFlags = DynamicReader.GetDynamicFlags(reader, field.GetCustomAttributes());
+        pos = 0;
+        fieldNode.ApplyDynamic(fieldDynamicFlags, ref pos);
         return (fieldNode.Render(), fieldNode.IsDegraded);
     }
 
@@ -883,6 +886,9 @@ public static class ApiSurfaceExtractor
         var returnBytes = NullabilityReader.GetParameterNullableBytes(reader, paramHandles, 0);
         int pos = 0;
         treeSignature.ReturnType.ApplyNullability(returnBytes, ref pos, nullableDefault);
+        var returnDynamicFlags = DynamicReader.GetParameterDynamicFlags(reader, paramHandles, 0);
+        pos = 0;
+        treeSignature.ReturnType.ApplyDynamic(returnDynamicFlags, ref pos);
 
         // Build parameter list with nullability
         var paramTypes = treeSignature.ParameterTypes;
@@ -895,6 +901,9 @@ public static class ApiSurfaceExtractor
             var paramBytes = NullabilityReader.GetParameterNullableBytes(reader, paramHandles, i + 1);
             pos = 0;
             paramTypes[i].ApplyNullability(paramBytes, ref pos, nullableDefault);
+            var paramDynamicFlags = DynamicReader.GetParameterDynamicFlags(reader, paramHandles, i + 1);
+            pos = 0;
+            paramTypes[i].ApplyDynamic(paramDynamicFlags, ref pos);
             string type = paramTypes[i].Render();
 
             // Parameter handles may include return parameter at SequenceNumber 0
@@ -1482,6 +1491,9 @@ public static class ApiSurfaceExtractor
         var propBytes = NullabilityReader.GetNullableBytes(reader, prop.GetCustomAttributes());
         int pos = 0;
         treeSignature.ReturnType.ApplyNullability(propBytes, ref pos, typeNullableContext);
+        var propDynamicFlags = DynamicReader.GetDynamicFlags(reader, prop.GetCustomAttributes());
+        pos = 0;
+        treeSignature.ReturnType.ApplyDynamic(propDynamicFlags, ref pos);
 
         // Determine accessor visibility
         MethodAttributes getterAccess = 0;
@@ -1578,6 +1590,9 @@ public static class ApiSurfaceExtractor
             var paramBytes = NullabilityReader.GetParameterNullableBytes(reader, paramHandles, i + 1);
             pos = 0;
             paramTypes[i].ApplyNullability(paramBytes, ref pos, typeNullableContext);
+            var paramDynamicFlags = DynamicReader.GetParameterDynamicFlags(reader, paramHandles, i + 1);
+            pos = 0;
+            paramTypes[i].ApplyDynamic(paramDynamicFlags, ref pos);
             var paramType = paramTypes[i].Render();
             var (paramName, isParams, refKind, hasDefault, defaultValue, attributes) = GetParameterInfo(reader, paramHandles, i + 1);
             paramName ??= $"arg{i}";
