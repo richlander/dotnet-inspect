@@ -162,19 +162,7 @@ public static class ApiMemberIdentity
     public static ApiMemberHandle CreateHandle(ApiType type, ApiMember member)
         => new(type, member, GetMemberAnchor(type, member));
 
-    /// <summary>
-    /// Ordering key for overloads, also the basis for the positional <c>Name:N</c> member
-    /// selector (see <see cref="MemberTargetResolver"/>). The raw display signature is
-    /// normalized so the display-only <c>dynamic</c>/<c>object</c> spelling never perturbs
-    /// overload ordering: <c>dynamic</c> and <c>object</c> are the same metadata type, so a
-    /// type can never declare both <c>M(object)</c> and <c>M(dynamic)</c> (CS0111), and
-    /// ordering the keyword position as <c>object</c> keeps the ordinal stable across the
-    /// object-to-dynamic display change.
-    /// </summary>
     public static string GetMemberSignatureSortKey(ApiMember member)
-        => NormalizeDynamicToObject(GetRawMemberSignatureSortKey(member));
-
-    static string GetRawMemberSignatureSortKey(ApiMember member)
     {
         var signature = member.Signature ?? "";
         if (signature.Length == 0 || member.Name.Length == 0)
@@ -558,14 +546,19 @@ public static class ApiMemberIdentity
     /// untouched). Known limitation: an identifier literally spelled <c>dynamic</c> in a
     /// position where the keyword is legal — a type named <c>dynamic</c> in the global
     /// namespace, or a generic parameter named <c>dynamic</c> (both C# <c>@dynamic</c>) —
-    /// renders as a bare <c>dynamic</c> token indistinguishable from the keyword once the
-    /// typed model is gone, so its identity collapses to <c>object</c>. Such an overload
-    /// pair (e.g. <c>M(@dynamic)</c> vs <c>M(object)</c>) shares one canonical signature.
-    /// That is astronomically rare and the trade is deliberate — preserving fingerprint
-    /// stability for the ubiquitous keyword case outweighs an identifier named after a
-    /// contextual keyword. A provenance-aware fix is impossible on the round-trip path,
-    /// which retains only the rendered string, so a live-path-only fix would make identity
-    /// diverge across serialization; consistent collapse is preferred.
+    /// renders as a bare <c>dynamic</c> token that this string pass collapses to
+    /// <c>object</c>, so an overload pair such as <c>M(@dynamic)</c> vs <c>M(object)</c>
+    /// shares one canonical signature. A generic parameter named <c>dynamic</c> is in
+    /// principle distinguishable — a declared type-parameter list survives serialization
+    /// (<c>ApiType.TypeParameters</c>) and XML-doc identity already carries generic-parameter
+    /// maps — but every identity site here (canonical signature, correspondence key, and
+    /// <see cref="NormalizeXmlDocParameterType"/>) runs this collapse in string space
+    /// *ahead of* generic-parameter resolution, so making all three parameter-aware is
+    /// tracked as follow-up rather than fixed piecemeal. A global type named <c>dynamic</c>
+    /// and a method-level generic parameter named <c>dynamic</c> have no round-trip-safe
+    /// discriminator at all. These identifiers are astronomically rare and the trade is
+    /// deliberate — preserving fingerprint stability for the ubiquitous keyword case
+    /// outweighs an identifier named after a contextual keyword.
     /// </summary>
     internal static string NormalizeDynamicToObject(string value)
     {
