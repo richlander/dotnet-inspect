@@ -75,7 +75,7 @@ public class ReturnMergePassTests
     {
         var (function, defaultArm) = BuildMixedReturnTailCandidate(conditionalPredecessors: 2);
         var success = Assert.Single(function.Body.Blocks, block => block.StartOffset == 0x0003);
-        success.Children[0].ReplaceWith(new StoreLocal(1, Int32, new Constant(1, Int32)));
+        success.Children[0].ReplaceWith(new StoreLocal(0, Int32, new Constant(1, Int32)));
 
         new ReturnMergePass().Run(function, PassContext.None);
         function.CheckInvariant();
