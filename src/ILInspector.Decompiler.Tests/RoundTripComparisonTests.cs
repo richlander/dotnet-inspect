@@ -10,6 +10,7 @@ using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "RoundTrip")]
 public sealed class RoundTripComparisonTests
 {
     static string AssemblyPath => typeof(RoundTripComparisonTests).Assembly.Location;

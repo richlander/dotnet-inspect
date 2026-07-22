@@ -4,6 +4,7 @@ using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "RoundTrip")]
 public sealed class RoundTripCompilationEngineTests
 {
     static readonly MetadataReference[] References =

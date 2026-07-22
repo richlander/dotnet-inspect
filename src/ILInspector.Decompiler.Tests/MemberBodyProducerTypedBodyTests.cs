@@ -6,6 +6,7 @@ using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "RoundTrip")]
 public sealed class MemberBodyProducerTypedBodyTests
 {
     static string AssemblyPath => typeof(MemberBodyProducerTypedBodyTests).Assembly.Location;

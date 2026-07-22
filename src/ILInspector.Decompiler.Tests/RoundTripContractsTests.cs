@@ -4,6 +4,7 @@ using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "RoundTrip")]
 public sealed class RoundTripContractsTests
 {
     static readonly MetadataMethodAddress Method = new(Guid.NewGuid(), System.Reflection.Metadata.Ecma335.MetadataTokens.MethodDefinitionHandle(1));
