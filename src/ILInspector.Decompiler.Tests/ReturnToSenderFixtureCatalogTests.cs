@@ -1126,6 +1126,44 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderSourceProbe_PlacesReceiverAttributesBeforeExtensionThisModifier()
+    {
+        var fixture = CompileSourceFixture(("Class1.cs", """
+            namespace SourceProbe;
+
+            [System.AttributeUsage(System.AttributeTargets.Parameter)]
+            public sealed class ReceiverAttribute(string marker) : System.Attribute
+            {
+                public string Marker { get; } = marker;
+            }
+
+            public static class StringExtensions
+            {
+                public static int Measure([Receiver("]")] this string value) => value.Length;
+            }
+
+            public class Class1
+            {
+                public int M(string value) => value.Measure();
+            }
+            """));
+        try
+        {
+            var target = new ReturnToSender.RequestedTarget("SourceProbe.Class1", "M", Overload: 0);
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(fixture.AssemblyPath, [target]));
+
+            Assert.NotEqual(FidelityCheck.CompileBackStatus.RecompileFail, result.Status);
+            Assert.DoesNotContain("CS1031", result.Detail, StringComparison.Ordinal);
+            Assert.Contains("] this string value", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("this [", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(fixture.Directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_ResolvesCs0234FullTypeClosureRoots()
     {
         var result = Assert.Single(ReturnToSenderSourceProbe.EvaluateTargets(
