@@ -4565,6 +4565,25 @@ public class CfgSampleClass
             sb.Append('y');
         return sb.Length;
     }
+
+    // #2983: a static local function that both needs a nested print scope (its own
+    // local `y` survives to a stack slot in Release) and passes an enum constant
+    // into an enum parameter position. The nested scope prints through a freshly
+    // reconstructed IrFunction, which must carry the raised body's resolved enum
+    // member map or the constant renders as a bare int (`TakesPriority(2)` — CS1503)
+    // instead of `TakesPriority(CfgPriority.High)` — the same value the enclosing
+    // body spells correctly.
+    public static int EnumArgInLocalFunctionWithLocal(int x)
+    {
+        return Classify(x);
+
+        static int Classify(int v)
+        {
+            int y = v + 1;
+            TakesPriority(CfgPriority.High);
+            return y * y;
+        }
+    }
 }
 
 internal static class AwaitOrderingHelpers

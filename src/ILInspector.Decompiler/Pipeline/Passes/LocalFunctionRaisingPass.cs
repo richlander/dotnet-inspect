@@ -120,7 +120,18 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                     body.LocalNames,
                     body.UsesUpdatedMemorySafetyRules,
                     body.SkipLocalsInit,
-                    container));
+                    container)
+                {
+                    // Carry the imported body's resolved type info so a nested
+                    // print scope (a local function with its own locals/slots)
+                    // still spells enum constants by member instead of a bare
+                    // int — the loss reported when the body prints through a
+                    // freshly reconstructed IrFunction.
+                    TypeShapes = body.TypeShapes,
+                    EnumMembers = body.EnumMembers,
+                    EnumUnderlyingTypes = body.EnumUnderlyingTypes,
+                    UnionTypes = body.UnionTypes,
+                });
                 environment?.Elide();
             }
         }

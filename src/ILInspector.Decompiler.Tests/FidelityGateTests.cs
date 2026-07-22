@@ -185,6 +185,14 @@ public class FidelityGateTests
         "CountPositive",
         "DayNumber",
         "DoubleViaLocalFunction",
+        // #2983: the enum-argument-in-nested-local-function fixture. Its raised
+        // body prints through a freshly reconstructed nested scope and now spells
+        // the enum constant by member (the fix under test); the call opcodes stay
+        // identical (`ldarg call ret`), but recompiling reassigns the local
+        // function's synthesized ordinal (g__Classify|N_0), which contract V1
+        // observes — the same benign reconstruction-ordinal diff as its sibling
+        // StaticLocalFunctionWithLocal below.
+        "EnumArgInLocalFunctionWithLocal",
         "InvokeLocalCapture",
         "JustBreak",
         "LocalBodyLambda",
