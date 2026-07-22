@@ -909,6 +909,18 @@ public class CfgSampleClass
 
     public static int LongCheckedSumIndexBare(int[] a, long i, long j) => a[checked(i + j)];
 
+    // Unary neg/not (#2981 adversarial review): a unary preserves its operand's
+    // type but reports that operand's *masked* stack type, so the recovery must
+    // recurse into the unmasked operand. A `~ulong` element used as a signed
+    // index keeps the `(long)` cast — stripping bare would flip `conv.ovf.i` to
+    // `conv.ovf.i.un`.
+    public static int NotULongElementIndexAsSigned(int[] a, ulong[] v, int j) => a[unchecked((long)(~v[j]))];
+
+    // Genuinely-signed `long` neg/not indices recover as `long` and strip bare.
+    public static int NegLongIndexBare(int[] a, long i) => a[-i];
+
+    public static int NotLongIndexBare(int[] a, long i) => a[~i];
+
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
 
     // stelem.i1 stores into byte[], sbyte[], and bool[] alike, and stelem.i2 into

@@ -209,4 +209,28 @@ public class WideArrayIndexTests
         // strips bare — checkedness does not force a cast.
         Assert.Equal("return a[checked(i + j)];", Print(nameof(CfgSampleClass.LongCheckedSumIndexBare)));
     }
+
+    [Fact]
+    public void NotULongElementIndexAsSigned_KeepsLongCast()
+    {
+        // A unary reports its operand's masked stack type; recovering through it
+        // types `~v[j]` (over a `ulong` element) as `ulong`, so a signed index
+        // keeps the `(long)` cast (bare would flip to `conv.ovf.i.un`).
+        Assert.Equal("return a[(long)(~v[j])];", Print(nameof(CfgSampleClass.NotULongElementIndexAsSigned)));
+    }
+
+    [Fact]
+    public void NegLongIndexBare_StripsBare()
+    {
+        // A genuinely-signed `long` negate index recovers as `long` and strips
+        // bare with no spurious `(long)` cast.
+        Assert.Equal("return a[-i];", Print(nameof(CfgSampleClass.NegLongIndexBare)));
+    }
+
+    [Fact]
+    public void NotLongIndexBare_StripsBare()
+    {
+        // The bitwise-not analog of the signed-negate strip.
+        Assert.Equal("return a[~i];", Print(nameof(CfgSampleClass.NotLongIndexBare)));
+    }
 }

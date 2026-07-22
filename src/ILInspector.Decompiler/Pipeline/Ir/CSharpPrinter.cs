@@ -2355,8 +2355,9 @@ public sealed partial class CSharpPrinter
     /// element or ref/pointer pointee type that a typed load opcode
     /// (<c>ldelem.i8</c> / <c>ldind.i8</c>) reports only as its <c>Int64</c> storage
     /// width — masking a <c>ulong</c> element or a wide enum — and propagating that
-    /// through a wide binary (whose stack <c>ResultType</c> keeps a signed operand
-    /// type even when the rendered expression is <c>ulong</c>). The bare-rendered
+    /// through a wide binary or a unary neg/not (whose stack <c>ResultType</c>
+    /// keeps a signed operand type even when the rendered expression is
+    /// <c>ulong</c>). The bare-rendered
     /// operand is spelled with that type, so it is the type whose signedness drives
     /// the re-inserted index conversion; for any other operand the load carries no
     /// masking and its own <c>ResultType</c> is used.
@@ -2403,6 +2404,11 @@ public sealed partial class CSharpPrinter
                         return binary.ResultType;
                 }
             }
+            // A unary neg/not preserves its operand's type (`~v[j]` over a `ulong`
+            // element is a `ulong`), but its ResultType is that operand's masked
+            // stack type, so recover the rendered type from the unmasked operand.
+            case Unary unary:
+                return WideIndexOperandType(unary.Operand);
             default:
                 return operand.ResultType;
         }
