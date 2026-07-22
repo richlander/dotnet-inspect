@@ -90,6 +90,34 @@ public class CheckedUncheckedInsertTests
             "return checked(a + unchecked(b++));",
             Render(Checked(BinaryKind.Add, A, new IncrementDecrement(B, isIncrement: true, isPrefix: false))));
 
+    // checked(a + unchecked(-b)) — a plain unary negate (`neg`) nested in a checked
+    // region recompiles as an overflow-checked negate (`0 - b` as `sub.ovf`) unless
+    // wrapped, mirroring the plain add/sub/mul inserts above.
+    [Fact]
+    public void CheckedAdd_PlainNegateChild_WrapsInnerUnchecked()
+        => Assert.Equal(
+            "return checked(a + unchecked(-b));",
+            Render(Checked(BinaryKind.Add, A, Negate(B))));
+
+    // Positive canary: a bitwise complement (`not`) never overflows, so it stays
+    // bare even inside a checked region — no spurious unchecked wrapper.
+    [Fact]
+    public void CheckedAdd_BitwiseNotChild_StaysBare()
+        => Assert.Equal(
+            "return checked(a + ~b);",
+            Render(Checked(BinaryKind.Add, A, BitwiseNot(B))));
+
+    // Positive canary: a plain negate with no enclosing checked context is untouched.
+    [Fact]
+    public void PlainNegate_NoCheckedContext_Untouched()
+        => Assert.Equal(
+            "return -a;",
+            Render(Negate(A)));
+
+    static Unary Negate(IrExpression operand) => new(UnaryKind.Negate, operand);
+
+    static Unary BitwiseNot(IrExpression operand) => new(UnaryKind.BitwiseNot, operand);
+
     static Binary Checked(BinaryKind kind, IrExpression left, IrExpression right)
         => new(kind, isChecked: true, isUnsigned: false, left, right);
 

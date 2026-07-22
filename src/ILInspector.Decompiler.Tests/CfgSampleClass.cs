@@ -808,6 +808,169 @@ public class CfgSampleClass
 
     public static int SpanLastHandWritten(System.Span<int> span) => span[span.Length - 1];
 
+    // Wide (long/ulong) array index: the compiler inserts a checked native-int
+    // range conversion (conv.ovf.i / conv.ovf.i.un) that C# spells implicitly,
+    // so the decompiled index must read as the bare source expression, not
+    // `a[checked((nint)i)]`. Kept opcode-exact by the fidelity gate.
+    public static int LongArrayIndex(int[] a, long i) => a[i];
+
+    public static int ULongArrayIndex(int[] a, ulong i) => a[i];
+
+    public static void LongArrayIndexStore(int[] a, long i, int v) => a[i] = v;
+
+    public static ref int LongArrayIndexRef(int[] a, long i) => ref a[i];
+
+    public static int LongArrayIndexExpr(int[] a, long i, long j) => a[i + j];
+
+    // A long-backed enum array element in wide array-index position (#2981
+    // adversarial review): `ldelem.i8` reports Int64 storage, masking the enum,
+    // so a bare `a[values[j]]` is CS0266. The printer casts to the underlying
+    // wide primitive — `a[(long)values[j]]` — which is idiomatic and re-inserts
+    // the same implicit conv.ovf.i (opcode-exact).
+    public static int LongEnumArrayIndex(int[] a, CfgLongPriority[] values, int j) => a[(long)values[j]];
+
+    // The ref/pointee analog: a long-backed enum read through `ldind.i8`. The
+    // pointee's enum type must survive the same opcode-width masking, rendering
+    // `a[(long)(r)]` rather than a CS0266 bare index.
+    public static int LongEnumRefArrayIndex(int[] a, ref CfgLongPriority r) => a[(long)r];
+
+    // Signedness masking (#2981 adversarial review): `ldelem.i8` / `ldind.i8`
+    // report Int64 storage even for a `ulong` element/pointee, so the index
+    // conversion's own signedness (`conv.ovf.i` signed / `conv.ovf.i.un`
+    // unsigned) is the only witness of the source type. A `ulong` element used as
+    // a *signed* index must keep an explicit `(long)` cast — stripping it bare
+    // would re-insert `conv.ovf.i.un` and change overflow semantics.
+    public static int ULongArrayIndexAsSigned(int[] a, ulong[] v, int j) => a[(long)v[j]];
+
+    public static int ULongRefIndexAsSigned(int[] a, ref ulong r) => a[(long)r];
+
+    // The mirror: a `long` element used as an *unsigned* index keeps `(ulong)`.
+    public static int LongArrayIndexAsUnsigned(int[] a, long[] v, int j) => a[(ulong)v[j]];
+
+    // A plain `ulong` array element index strips to the bare index just like a
+    // `long` one — `ldelem.i8` masks it as Int64, but the recovered `ulong`
+    // element type matches the unsigned `conv.ovf.i.un`, so it is opcode-exact.
+    public static int ULongArrayElementIndex(int[] a, ulong[] v, int j) => a[v[j]];
+
+    // Wide index cast inside a lexical `checked` region (#2981 adversarial
+    // review): the emitted `(long)`/`(ulong)` reinterpret is a no-op in IL (only
+    // the always-checked native-int index conv is checked). A SIGN-CHANGING cast
+    // must be wrapped in `unchecked(...)` — spelled bare inside `checked` it would
+    // recompile to a `conv.ovf.i8.un` / `conv.ovf.u8` the original never had.
+    public static int ULongIndexAsSignedChecked(int[] a, ulong[] v, int j) => checked(a[unchecked((long)v[j])] + 1);
+
+    public static int LongIndexAsUnsignedChecked(int[] a, long[] v, int j) => checked(a[unchecked((ulong)v[j])] + 1);
+
+    // A same-sign cast emits no conv even inside `checked` (a long-backed enum's
+    // `(long)`), so it stays bare with no spurious `unchecked(...)` wrapper.
+    public static int LongEnumIndexChecked(int[] a, CfgLongPriority[] values, int j) => checked(a[(long)values[j]] + 1);
+
+    // Compound wide index (#2981 adversarial review): a sign-neutral wide binary
+    // reports Int64 stack storage even when it renders `ulong`, so the operand
+    // type must be recovered through the binary from its unmasked operands. A
+    // `ulong` sum used as a *signed* index keeps an explicit `(long)` cast around
+    // the whole expression — stripping it bare would re-insert `conv.ovf.i.un`.
+    public static int ULongSumIndexAsSigned(int[] a, ulong[] v, int j, ulong x) => a[unchecked((long)(v[j] + x))];
+
+    // Both operands are masked `ulong` elements (`ldelem.i8`): the recovery must
+    // see through the masking on each side, not just when one operand is a bare
+    // `ulong`. Still a signed index, so it keeps the `(long)` cast.
+    public static int ULongElementSumIndexAsSigned(int[] a, ulong[] v, ulong[] w, int j, int k) => a[unchecked((long)(v[j] + w[k]))];
+
+    // A bare `ulong` compound index (unsigned `conv.ovf.i.un`) strips to the bare
+    // sum just like a scalar `ulong`, with no redundant `(ulong)` cast.
+    public static int ULongSumIndexBare(int[] a, ulong[] v, ulong[] w, int j, int k) => a[v[j] + w[k]];
+
+    // Checked-context inner binary (#2981 adversarial review): `checked(v[j] + x)`
+    // over a `ulong` element is a `ulong` add, but the compiler-inserted index
+    // conv is still signed (`conv.ovf.i`) because the *outer* cast is `(long)`.
+    // The operand-type recovery must see through the binary regardless of its
+    // checkedness — `checked` never changes an expression's C# type — and keep
+    // the `(long)` cast; stripping bare would re-insert `conv.ovf.i.un`.
+    public static int CheckedULongSumIndexAsSigned(int[] a, ulong[] v, int j, ulong x) => a[unchecked((long)checked(v[j] + x))];
+
+    // Unsigned shift-right (`shr.un`): `ulong >> count` is a `ulong`. The result
+    // type is the shifted (left) operand's, recovered through the mask, so a
+    // signed index keeps the `(long)` cast (bare would flip to `conv.ovf.i.un`).
+    public static int ULongShrIndexAsSigned(int[] a, ulong[] v, int j) => a[unchecked((long)(v[j] >> 1))];
+
+    // Unsigned divide (`div.un`) / remainder (`rem.un`): the signedness lives in
+    // the opcode variant, not the sign-erased Int64 stack type. A `ulong`
+    // quotient/remainder used as a signed index keeps the `(long)` cast.
+    public static int ULongDivIndexAsSigned(int[] a, ulong[] v, int j, ulong d) => a[unchecked((long)(v[j] / d))];
+
+    public static int ULongRemIndexAsSigned(int[] a, ulong[] v, int j, ulong d) => a[unchecked((long)(v[j] % d))];
+
+    // Negatives for the finding #5 recovery: a genuinely-signed `long` shift-left
+    // and a `checked` signed `long` add must still strip to the bare index — the
+    // recovered `long` type matches the signed `conv.ovf.i`, so no spurious
+    // `(long)` cast is emitted.
+    public static int LongShlIndexBare(int[] a, long i) => a[i << 1];
+
+    public static int LongCheckedSumIndexBare(int[] a, long i, long j) => a[checked(i + j)];
+
+    // Unary neg/not (#2981 adversarial review): a unary preserves its operand's
+    // type but reports that operand's *masked* stack type, so the recovery must
+    // recurse into the unmasked operand. A `~ulong` element used as a signed
+    // index keeps the `(long)` cast — stripping bare would flip `conv.ovf.i` to
+    // `conv.ovf.i.un`.
+    public static int NotULongElementIndexAsSigned(int[] a, ulong[] v, int j) => a[unchecked((long)(~v[j]))];
+
+    // Negate over a masked `ulong` element (#2981 adversarial review): C# has no
+    // unary minus for `ulong` (`-v[j]` is CS0023), so the IL `neg` came from a
+    // signed reinterpret cast that is a no-op in IL and vanished from the masked
+    // stack type. The printer must re-insert it on the negate's OPERAND
+    // (`-(long)v[j]`), not around the whole negate — `(long)(-v[j])` would still
+    // negate a `ulong`. Opcode-exact: `ldelem.i8; neg; conv.ovf.i`.
+    public static int NegULongElementIndexAsSigned(int[] a, ulong[] v, int j) => a[-(long)v[j]];
+
+    // The same signed reinterpret is a GENERAL printer concern, not array-index
+    // specific: a masked `ulong` element negated outside any index still needs the
+    // `(long)` on the operand. Opcode-exact: `ldelem.i8; neg`.
+    public static long NegULongElementToLong(ulong[] v, int j) => -(long)v[j];
+
+    // The `nuint` mirror: unary minus is likewise illegal on `nuint`, so a masked
+    // `nuint` element negate re-inserts `(nint)` on the operand. Opcode-exact:
+    // `ldelem.i; neg`.
+    public static nint NegNuintElementToNint(nuint[] v, int j) => -(nint)v[j];
+
+    // Enum mirror (#2981 adversarial review): C# has no unary minus for ANY enum,
+    // regardless of its underlying type. A negate over an enum element likewise
+    // came from a signed reinterpret that vanished, so the operand cast is
+    // re-inserted keyed on the underlying width — an 8-byte-backed enum as
+    // `(long)`, a narrower one as `(int)`. An 8-byte-backed enum used as a signed
+    // index strips clean. Opcode-exact: `ldelem.i8; neg; conv.ovf.i`.
+    public static int NegEnumULongElementIndexAsSigned(int[] a, CfgULong[] v, int j) => a[-(long)v[j]];
+
+    // A `long`-backed enum negated outside any index: still no unary minus on the
+    // enum, so `(long)` is re-inserted on the operand. Opcode-exact: `ldelem.i8; neg`.
+    public static long NegEnumLongElementToLong(CfgLongPriority[] v, int j) => -(long)v[j];
+
+    // A 4-byte (`uint`-backed) enum negate reinterprets the operand as `(int)` —
+    // sub-8-byte integers are `I4` on the eval stack, so `(int)` is the
+    // value-preserving no-op view the `neg` operated on. Opcode-exact: `ldelem.*; neg`.
+    public static int NegEnumUIntElementToInt(CfgFlags[] v, int j) => -(int)v[j];
+
+    // A cross-assembly (CoreLib) enum used as an array index: DayOfWeek resolves
+    // to an Unknown shape (EnsureTypeMaps walks only this assembly's type defs),
+    // so the enum underlying is unavailable. C# still has no unary minus on the
+    // enum, but the masked stack width IS in the `ldelem.i4` opcode, so the
+    // reinterpret is recovered from it: `a[-(int)v[j]]`. Opcode-exact: `ldelem.i4;
+    // neg; conv.i`.
+    public static int NegCrossAssemblyEnumElementIndex(int[] a, System.DayOfWeek[] v, int j) => a[-(int)v[j]];
+
+    // Genuinely-signed `long` neg/not indices recover as `long` and strip bare.
+    public static int NegLongIndexBare(int[] a, long i) => a[-i];
+
+    public static int NotLongIndexBare(int[] a, long i) => a[~i];
+
+    // Negate stripped bare inside a `checked` array-index context (#2981
+    // adversarial review): the index conv is dropped (signed `long` matches),
+    // but the bare `-i` would recompile as a checked negate (`0 - i` as
+    // `sub.ovf`) where the IL has an unchecked `neg`, so the negate is wrapped
+    // in `unchecked(...)`.
+    public static int NegLongIndexInChecked(int[] a, long i) => checked(a[unchecked(-i)] + 1);
+
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
 
     // stelem.i1 stores into byte[], sbyte[], and bool[] alike, and stelem.i2 into

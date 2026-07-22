@@ -63,6 +63,124 @@ public sealed partial class CSharpPrinter
             && TypeFamilies.IsInteger(binary.ResultType);
 
     /// <summary>
+    /// Renders a unary <c>neg</c> (<c>-x</c>) or <c>not</c> (<c>~x</c>). A bitwise
+    /// complement never overflows and is valid on every integer and every enum, so
+    /// it is spelled bare. An integer negate needs two guards. (1) C# has no unary
+    /// minus for <c>ulong</c>/<c>nuint</c> or for <em>any</em> enum (they promote to
+    /// no signed type, so <c>-x</c> is CS0023); an IL <c>neg</c> over such a value
+    /// came from a signed reinterpret cast (<c>-(long)x</c>) that is a no-op in IL
+    /// and so is invisible in the operand's masked stack type — re-insert it via
+    /// <see cref="NegateOperandReinterpretKeyword"/> so the negate is legal and the
+    /// <c>neg</c> round-trips. (2) Like a plain <c>add</c>/<c>sub</c>/<c>mul</c>, a
+    /// negate would silently acquire overflow-checked semantics inside a lexical
+    /// <c>checked</c> region — C# lowers a checked <c>-x</c> to <c>0 - x</c> as
+    /// <c>sub.ovf</c>, where the IL <c>neg</c> wraps — so wrap it in
+    /// <c>unchecked(...)</c> and clear the context for its operand, mirroring
+    /// <see cref="BinaryText"/>.
+    /// </summary>
+    string UnaryText(Unary unary)
+    {
+        string op = unary.Kind == UnaryKind.Negate ? "-" : "~";
+        string cast = unary.Kind == UnaryKind.Negate
+            && NegateOperandReinterpretKeyword(WideIndexOperandType(unary.Operand), unary.ResultType) is { } keyword
+            ? $"({keyword})"
+            : "";
+        bool uncheckedOverflow = unary.Kind == UnaryKind.Negate
+            && _checkedContext
+            && TypeFamilies.IsInteger(unary.ResultType);
+        if (!uncheckedOverflow)
+            return $"{op}{cast}{Operand(unary.Operand)}";
+
+        bool saved = _checkedContext;
+        _checkedContext = false;
+        try
+        {
+            return $"unchecked({op}{cast}{Operand(unary.Operand)})";
+        }
+        finally
+        {
+            _checkedContext = saved;
+        }
+    }
+
+    /// <summary>
+    /// The signed cast keyword that makes an IL <c>neg</c> legal on an operand whose
+    /// rendered type has no C# unary minus, or null when the operand's unary minus
+    /// is already legal. C# forbids unary minus on <c>ulong</c>, <c>nuint</c>, and
+    /// <em>every</em> enum (an enum has no unary minus regardless of its underlying
+    /// type). A primitive is handled by <see cref="NegateReinterpretKeyword"/>
+    /// (<c>ulong</c>→<c>long</c>, <c>nuint</c>→<c>nint</c>; <c>uint</c> and the
+    /// signed/sub-int types negate directly). A resolved enum always needs the
+    /// reinterpret, keyed on its underlying width: an 8-byte-backed enum
+    /// reinterprets as <c>long</c>, any narrower enum as <c>int</c> — all sub-8-byte
+    /// integers are <c>I4</c> on the eval stack, so <c>(int)</c> is the
+    /// value-preserving view the <c>neg</c> operated on. An enum whose shape did not
+    /// resolve (a cross-assembly enum renders as its type name but not as an enum
+    /// shape) still has no unary minus, so the reinterpret is recovered from
+    /// <paramref name="stackType"/> — the masked stack width the <c>neg</c> ran on
+    /// (an IL <c>neg</c> only ever applies to a numeric or enum operand, so a
+    /// non-primitive rendered type under one is always an enum). Every reinterpret
+    /// here is an IL no-op, so re-inserting it keeps the <c>neg</c> opcode-exact.
+    /// </summary>
+    string? NegateOperandReinterpretKeyword(TypeRef? operandType, TypeRef? stackType)
+        => EnumUnderlyingType(operandType) is { } underlying
+            ? (Is8ByteInteger(underlying) ? "long" : "int")
+            : NegateReinterpretKeyword(operandType)
+                ?? (IsUnresolvedEnumLike(operandType) ? NegateWidthKeyword(stackType) : null);
+
+    /// <summary>
+    /// True for a rendered type that an IL <c>neg</c> can only be spelling as an
+    /// enum whose shape did not resolve: a type <c>Definition</c> that is not a
+    /// known numeric primitive (<see cref="TypeFamilies.Of"/> returns null for a
+    /// bare definition it cannot classify). A same-assembly enum resolves through
+    /// <c>EnumUnderlyingType</c> and a primitive is classified by
+    /// <see cref="TypeFamilies.Of"/>, so what remains under a <c>neg</c> is a
+    /// referenced-assembly enum or a core-library enum (both unresolved to a shape)
+    /// — a struct never reaches here because its unary minus is an
+    /// <c>op_UnaryNegation</c> call, not an IL <c>neg</c>.
+    /// </summary>
+    static bool IsUnresolvedEnumLike(TypeRef? type)
+        => type is { Kind: TypeRefKind.Definition } && TypeFamilies.Of(type) is null;
+
+    /// <summary>
+    /// The signed reinterpret keyword for a masked stack width: an 8-byte
+    /// (<c>Int64</c>/<c>UInt64</c>) value as <c>long</c>, a native integer as
+    /// <c>nint</c>, and any 4-byte-or-narrower integer (all <c>I4</c> on the eval
+    /// stack) as <c>int</c>. Null for a stack type that is not a recognised integer
+    /// primitive, so an unresolvable width emits no (possibly wrong) cast.
+    /// </summary>
+    static string? NegateWidthKeyword(TypeRef? stackType)
+        => stackType is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" } named
+            ? named.Name switch
+            {
+                "Int64" or "UInt64" => "long",
+                "IntPtr" or "UIntPtr" => "nint",
+                "Int32" or "UInt32" or "Int16" or "UInt16" or "SByte" or "Byte" or "Char" => "int",
+                _ => null,
+            }
+            : null;
+
+    /// <summary>
+    /// The signed cast keyword that makes an IL <c>neg</c> over an otherwise
+    /// non-negatable unsigned <em>primitive</em> operand legal C#: <c>ulong</c>→
+    /// <c>long</c>, <c>nuint</c>→<c>nint</c>. <c>uint</c> is deliberately excluded —
+    /// C# unary minus already promotes it to <c>long</c> value-preservingly, so a
+    /// cast there would truncate. Every other type (already signed, sub-int, float,
+    /// unknown) needs no cast. Enum operands are handled by
+    /// <see cref="NegateOperandReinterpretKeyword"/>. The reinterpret is a no-op in
+    /// IL, so re-inserting it keeps the <c>neg</c> opcode-exact.
+    /// </summary>
+    static string? NegateReinterpretKeyword(TypeRef? operandType)
+        => operandType is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" } named
+            ? named.Name switch
+            {
+                "UInt64" => "long",
+                "UIntPtr" => "nint",
+                _ => null,
+            }
+            : null;
+
+    /// <summary>
     /// Renders pointer additive arithmetic (<c>p + i</c>, <c>p - i</c>,
     /// <c>a - b</c>) without C#'s implicit <c>sizeof(element)</c> scaling. An IL
     /// pointer <c>add</c>/<c>sub</c> is byte-address arithmetic and already

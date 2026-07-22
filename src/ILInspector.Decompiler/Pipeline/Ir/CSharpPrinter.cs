@@ -2181,8 +2181,8 @@ public sealed partial class CSharpPrinter
                 && PlaceIdentity.SameOperands(load.IndexArguments, s.IndexArguments),
             StorePropertyTargetType(s)),
         EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual)} {(e.IsAdd ? "+=" : "-=")} {CoerceText(e.Value, e.Accessor.ParameterTypes[0])};",
-        StoreElement s when InlineReceiverTempStoreValue(s) is { } value => $"{Operand(s.Array)}[{Expression(s.Index)}] = {value};",
-        StoreElement s => $"{Operand(s.Array)}[{Expression(s.Index)}] = {CoerceText(s.Value, StoreElementTargetType(s))};",
+        StoreElement s when InlineReceiverTempStoreValue(s) is { } value => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {value};",
+        StoreElement s => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {CoerceText(s.Value, StoreElementTargetType(s))};",
         StoreIndirect s => AssignmentText(
             IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),
             s.Value,
@@ -2268,6 +2268,219 @@ public sealed partial class CSharpPrinter
     TypeRef? StoreElementTargetType(StoreElement store)
         => CoercionSinks.StoreElementTarget(store, _function.TypeShapes);
 
+    /// <summary>
+    /// The C# text for a single-dimension array element index. C# implicitly
+    /// converts a wide (<c>long</c>/<c>ulong</c>) array index to native int with
+    /// a checked range conversion (<c>conv.ovf.i</c> for a signed index,
+    /// <c>conv.ovf.i.un</c> for an unsigned one) that is always overflow-checked,
+    /// regardless of the enclosing <c>checked</c>/<c>unchecked</c> context.
+    /// Spelling that conversion explicitly (<c>a[checked((nint)i)]</c>) is
+    /// verbose, unidiomatic, and round-trips to a redundant widen-then-renarrow,
+    /// so it is elided:
+    /// <list type="bullet">
+    /// <item>an operand that already spells with the conversion's signedness
+    /// (<c>long</c> for <c>conv.ovf.i</c>, <c>ulong</c> for <c>conv.ovf.i.un</c>)
+    /// strips to the bare index (<c>a[i]</c>);</item>
+    /// <item>any other wide (8-byte) operand is cast to the primitive matching the
+    /// conversion (<c>(long)</c> / <c>(ulong)</c>), because its bare spelling would
+    /// carry the wrong signedness or no integer type at all: a typed load opcode
+    /// (<c>ldelem.i8</c> / <c>ldind.i8</c>) masks a <c>ulong</c> element or a wide
+    /// enum as <c>Int64</c> storage, so a bare <c>a[values[j]]</c> would be CS0266
+    /// (enum) or re-insert <c>conv.ovf.i.un</c> where the original was signed
+    /// (<c>ulong</c> read as a signed index). The cast re-inserts the same
+    /// implicit conversion, e.g. <c>a[(long)values[j]]</c>.</item>
+    /// </list>
+    /// Both forms recompile to the identical IL. Any other index expression is
+    /// spelled unchanged.
+    /// </summary>
+    string ArrayIndexText(IrExpression index)
+    {
+        if (index is not Convert
+            {
+                IsChecked: true,
+                Target: { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "IntPtr" },
+            } convert)
+        {
+            return Expression(index);
+        }
+
+        // The bare index expression's own C# type. A typed load opcode
+        // (ldelem.i8 / ldind.i8) reports only its Int64 storage width, so recover
+        // the array element or ref/pointer pointee type it masks — that is the
+        // type whose signedness C# uses when it re-inserts the index conversion.
+        var indexType = WideIndexOperandType(convert.Operand);
+        string? primitive = indexType is
+            { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" } named
+            ? named.Name
+            : null;
+
+        // The operand already spells with the signedness the conversion needs, so
+        // the checked native-int index conversion is implicit: drop to the bare
+        // operand. A signed conv.ovf.i re-appears for a `long` index, an unsigned
+        // conv.ovf.i.un for a `ulong` index.
+        if ((!convert.IsUnsigned && primitive == "Int64") || (convert.IsUnsigned && primitive == "UInt64"))
+            return Expression(convert.Operand);
+
+        // The operand is a wide (8-byte) value whose bare spelling would carry the
+        // wrong signedness or no integer type at all: a masked enum (a bare index
+        // is CS0266), a `ulong` element used as a signed index, or a `long`
+        // element used as an unsigned one. Cast to the primitive matching the
+        // conversion so C# re-inserts the same conv.ovf.i / conv.ovf.i.un — the
+        // signed conv keeps `(long)`, the unsigned conv `(ulong)`, opcode-exact.
+        if (convert.Operand.ResultType is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Int64" or "UInt64" })
+        {
+            string keyword = convert.IsUnsigned ? "ulong" : "long";
+            // The (long)/(ulong) reinterpret is a no-op in IL (source and target
+            // are both 8-byte); the only checked conversion here is the always-
+            // checked native-int index conv that stays outside the operand. Inside
+            // a lexical `checked` region a SIGN-CHANGING reinterpret would instead
+            // recompile to a conv.ovf.i8.un / conv.ovf.u8 the original never had, so
+            // wrap it in `unchecked(...)` and render the operand plain. A same-sign
+            // cast (a long-backed enum's `(long)`, a ulong-backed enum's `(ulong)`)
+            // emits no conv even when checked, so it stays bare to avoid noise.
+            if (_checkedContext && WideIndexCastSignChanges(indexType, convert.IsUnsigned))
+            {
+                bool saved = _checkedContext;
+                _checkedContext = false;
+                try
+                {
+                    return $"unchecked(({keyword}){Operand(convert.Operand)})";
+                }
+                finally
+                {
+                    _checkedContext = saved;
+                }
+            }
+            return $"({keyword}){Operand(convert.Operand)}";
+        }
+
+        // Any other checked (nint) conversion recompiles to different IL: spell it.
+        return Expression(index);
+    }
+
+    /// <summary>
+    /// The index operand's real, rendered wide C# type, recovering the array
+    /// element or ref/pointer pointee type that a typed load opcode
+    /// (<c>ldelem.i8</c> / <c>ldind.i8</c>) reports only as its <c>Int64</c> storage
+    /// width — masking a <c>ulong</c> element or a wide enum — and propagating that
+    /// through a wide binary or a unary neg/not (whose stack <c>ResultType</c>
+    /// keeps a signed operand type even when the rendered expression is
+    /// <c>ulong</c>). The bare-rendered
+    /// operand is spelled with that type, so it is the type whose signedness drives
+    /// the re-inserted index conversion; for any other operand the load carries no
+    /// masking and its own <c>ResultType</c> is used.
+    /// </summary>
+    TypeRef? WideIndexOperandType(IrExpression operand)
+    {
+        switch (operand)
+        {
+            case LoadElement { Array.ResultType: { Kind: TypeRefKind.SzArray or TypeRefKind.Array, ElementType: { } element } }:
+                return element;
+            case LoadIndirect load when WideIndexPointee(load.Address) is { } pointee:
+                return pointee;
+            // A sign-neutral wide binary renders unsigned whenever an operand
+            // renders unsigned at the same width (`v[j] + x` over a `ulong`
+            // element and a `ulong` is a `ulong` add), regardless of checkedness —
+            // `checked` never changes an expression's C# type. Its own stack
+            // ResultType keeps the signed operand type, so recover the rendered
+            // type from the unmasked operands. Add/Subtract/Multiply and the
+            // bitwise ops are sign-neutral; a shift's result type is its (unmasked)
+            // left operand's; Divide/Remainder/ShiftRight carry the sign in their
+            // opcode variant (div/div.un, rem/rem.un, shr/shr.un) via IsUnsigned.
+            case Binary binary:
+            {
+                switch (binary.Kind)
+                {
+                    case BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply
+                        or BinaryKind.And or BinaryKind.Or or BinaryKind.Xor:
+                    {
+                        var left = WideIndexOperandType(binary.Left);
+                        var right = WideIndexOperandType(binary.Right);
+                        if (IsWideInteger(left) && IsWideInteger(right) && TypeFamilies.Of(left) == TypeFamilies.Of(right))
+                            return TypeFamilies.IsUnsignedIntegerPrimitive(left) ? left
+                                : TypeFamilies.IsUnsignedIntegerPrimitive(right) ? right
+                                : left;
+                        return binary.ResultType;
+                    }
+                    case BinaryKind.ShiftLeft:
+                        return WideIndexOperandType(binary.Left);
+                    case BinaryKind.Divide or BinaryKind.Remainder or BinaryKind.ShiftRight:
+                        return binary.IsUnsigned
+                            ? TypeFamilies.UnsignedCounterpart(binary.ResultType) ?? binary.ResultType
+                            : binary.ResultType;
+                    default:
+                        return binary.ResultType;
+                }
+            }
+            // A bitwise `~` preserves its operand's type (`~v[j]` over a `ulong`
+            // element is a `ulong`, `~e` over an enum is that enum); a unary `-`
+            // cannot apply to `ulong`/`nuint` or to any enum, so UnaryText
+            // re-inserts a signed reinterpret (`-(long)v[j]`) and the negate then
+            // renders signed. Recover the rendered type from the unmasked operand
+            // (its ResultType is the masked stack type), mapping a negate over a
+            // non-negatable operand to the signed integer it now renders as: an
+            // enum to `long`/`int` by its underlying width, else the unsigned
+            // primitive's signed counterpart.
+            case Unary { Kind: UnaryKind.Negate } negate:
+            {
+                var inner = WideIndexOperandType(negate.Operand);
+                if (EnumUnderlyingType(inner) is { } underlying)
+                    return TypeRef.CoreLib("System", Is8ByteInteger(underlying) ? "Int64" : "Int32");
+                if (NegateReinterpretKeyword(inner) is not null)
+                    return TypeFamilies.SignedCounterpart(inner) ?? inner;
+                // An unresolved (cross-assembly) enum: UnaryText re-inserts the
+                // width-based reinterpret, so the negate renders signed at its
+                // masked stack width. Report that signed width so the strip is
+                // clean; SignedCounterpart maps a masked unsigned width to signed
+                // (Int64/Int32) and is a no-op on an already-signed width.
+                if (IsUnresolvedEnumLike(inner))
+                    return TypeFamilies.SignedCounterpart(negate.ResultType) ?? negate.ResultType;
+                return inner;
+            }
+            case Unary unary:
+                return WideIndexOperandType(unary.Operand);
+            default:
+                return operand.ResultType;
+        }
+    }
+
+    static TypeRef? WideIndexPointee(IrExpression address)
+        => address.ResultType is { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer } indirect ? indirect.ElementType : null;
+
+    /// <summary>
+    /// True for the two 8-byte integer primitives (<c>long</c>/<c>ulong</c>) — the
+    /// only enum underlying types wide enough to load through an <c>ldelem.i8</c>/
+    /// <c>ldind.i8</c> mask and the ones whose negate reinterprets as <c>long</c>
+    /// rather than <c>int</c>. Enums cannot be <c>nint</c>/<c>nuint</c>-backed, so
+    /// native integers are not considered here.
+    /// </summary>
+    static bool Is8ByteInteger(TypeRef? type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Int64" or "UInt64" };
+
+    /// <summary>
+    /// True when the emitted wide index cast <c>(long)</c>/<c>(ulong)</c> flips the
+    /// operand's signedness, so recompiling it inside a <c>checked</c> region would
+    /// add a <c>conv.ovf.i8.un</c>/<c>conv.ovf.u8</c> the original never had. Both
+    /// source and target are 8-byte, so only a sign change is checked-sensitive.
+    /// The operand's real signedness comes from the recovered index type: its
+    /// underlying type when it is an enum (an <c>ldelem.i8</c>/<c>ldind.i8</c> load
+    /// carries an 8-byte-backed enum), else the type itself. An unknown or
+    /// unclassifiable type is treated as a flip — wrapping is always
+    /// behavior-preserving, so it is the safe default.
+    /// </summary>
+    bool WideIndexCastSignChanges(TypeRef? indexType, bool castUnsigned)
+    {
+        var underlying = EnumUnderlyingType(indexType) ?? indexType;
+        if (underlying is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" } named)
+        {
+            if (named.Name == "Int64")
+                return castUnsigned;    // signed operand, unsigned cast → flip
+            if (named.Name == "UInt64")
+                return !castUnsigned;   // unsigned operand, signed cast → flip
+        }
+        return true;                    // unknown backing: wrap to be safe
+    }
+
     string Expression(IrExpression node) => node switch
     {
         LoadArgument { Index: 0, Name: "this" } => "this",
@@ -2308,8 +2521,7 @@ public sealed partial class CSharpPrinter
         NullCoalescingFieldAssignmentExpression n => $"{FieldTarget(n.Field, n.Instance)} ??= {CoerceText(n.Value, n.Field.Type)}",
         Coalesce co => CoalesceText(co),
         NullConditional nc => NullConditionalText(nc),
-        Unary { Kind: UnaryKind.Negate } u => $"-{Operand(u.Operand)}",
-        Unary u => $"~{Operand(u.Operand)}",
+        Unary u => UnaryText(u),
         AwaitExpression aw => $"await {Operand(aw.Operand)}",
         IncrementDecrement id => IncrementDecrementText(id),
         // The coercion node renders through the one rule — the node IS the
@@ -2345,7 +2557,7 @@ public sealed partial class CSharpPrinter
         RangeExpression r => $"{(r.HasStart ? Operand(r.Start!) : "")}..{(r.HasEnd ? Operand(r.End!) : "")}",
         IndexFromEnd i => $"^{Operand(i.Offset)}",
         LoadElement e when MultiDimArrayElementText(e) is { } text => text,
-        LoadElement e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
+        LoadElement e => $"{Operand(e.Array)}[{ArrayIndexText(e.Index)}]",
         NewArray n => ArrayCreationText(n.ElementType, [n.Length]),
         SpanLiteral s => $"new {TypeText(s.ElementType)}[] {{ {string.Join(", ", s.Elements.Select(Expression))} }}",
         ArrayLiteral a => $"new {TypeText(a.ElementType)}[] {{ {string.Join(", ", a.Elements.Select(Expression))} }}",
@@ -2370,7 +2582,7 @@ public sealed partial class CSharpPrinter
         LoadFieldAddress f => $"ref {FieldTarget(f.Field, f.Instance)}",
         FixedBufferElementAddress f => $"ref {FixedBufferElementText(f)}",
         LoadElementAddress e when MultiDimArrayElementAddressText(e) is { } text => $"ref {text}",
-        LoadElementAddress e => $"ref {Operand(e.Array)}[{Expression(e.Index)}]",
+        LoadElementAddress e => $"ref {Operand(e.Array)}[{ArrayIndexText(e.Index)}]",
         LoadIndirect l => DerefLoad(l),
         SizeOf s => $"sizeof({TypeText(s.Type)})",
         DefaultValue d => $"default({TypeText(d.Type)})",
@@ -2837,7 +3049,7 @@ public sealed partial class CSharpPrinter
         LoadArgumentAddress a => CSharpNaming.EscapeIdentifier(a.Name),
         LoadFieldAddress f => FieldTarget(f.Field, f.Instance),
         FixedBufferElementAddress f => FixedBufferElementText(f),
-        LoadElementAddress e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
+        LoadElementAddress e => $"{Operand(e.Array)}[{ArrayIndexText(e.Index)}]",
         // `unbox T` yields a managed pointer *into* the box. C#'s only spelling
         // for that place is `System.Runtime.CompilerServices.Unsafe.Unbox<T>(o)`
         // — a `ref T`-returning intrinsic. A *pure value read* of that place

@@ -195,7 +195,7 @@ public sealed partial class CSharpPrinter
         // of a field/property/method on the element) spells the element place
         // itself — C# auto-takes the address. The bare `ref pairs[0]` spelling
         // would be CS1525 in this value position (`(ref pairs[0]).A`).
-        LoadElementAddress e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
+        LoadElementAddress e => $"{Operand(e.Array)}[{ArrayIndexText(e.Index)}]",
         // An unbox yields a managed pointer into the box; a member access must
         // reach that in-box place, not a copy. Unlike a ref/out/write place, a
         // receiver is a value position where the cast `((T)o)` compiles, so it is
