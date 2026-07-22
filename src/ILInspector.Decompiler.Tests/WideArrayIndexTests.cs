@@ -134,4 +134,31 @@ public class WideArrayIndexTests
         // inside `checked`, so it stays bare with no spurious `unchecked(...)`.
         Assert.Equal("return checked(a[(long)values[j]] + 1);", Print(nameof(CfgSampleClass.LongEnumIndexChecked)));
     }
+
+    [Fact]
+    public void ULongSumIndexAsSigned_CastsWholeExpressionToLong()
+    {
+        // A `ulong` sum used as a signed index reports Int64 stack storage; the
+        // operand type is recovered through the binary as `ulong`, so it does not
+        // strip bare (which would re-insert `conv.ovf.i.un`) but casts the whole
+        // expression to `(long)`.
+        Assert.Equal("return a[(long)((ulong)v[j] + x)];", Print(nameof(CfgSampleClass.ULongSumIndexAsSigned)));
+    }
+
+    [Fact]
+    public void ULongElementSumIndexAsSigned_CastsWholeExpressionToLong()
+    {
+        // Both operands are masked `ulong` elements: the recovery sees through the
+        // `ldelem.i8` masking on each side, still typing the sum `ulong` and
+        // keeping the `(long)` cast.
+        Assert.Equal("return a[(long)(v[j] + w[k])];", Print(nameof(CfgSampleClass.ULongElementSumIndexAsSigned)));
+    }
+
+    [Fact]
+    public void ULongSumIndexBare_StripsBare()
+    {
+        // A bare `ulong` compound index matches the unsigned conversion, so it
+        // strips to the bare sum with no redundant `(ulong)` cast.
+        Assert.Equal("return a[v[j] + w[k]];", Print(nameof(CfgSampleClass.ULongSumIndexBare)));
+    }
 }

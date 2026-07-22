@@ -865,6 +865,22 @@ public class CfgSampleClass
     // `(long)`), so it stays bare with no spurious `unchecked(...)` wrapper.
     public static int LongEnumIndexChecked(int[] a, CfgLongPriority[] values, int j) => checked(a[(long)values[j]] + 1);
 
+    // Compound wide index (#2981 adversarial review): a sign-neutral wide binary
+    // reports Int64 stack storage even when it renders `ulong`, so the operand
+    // type must be recovered through the binary from its unmasked operands. A
+    // `ulong` sum used as a *signed* index keeps an explicit `(long)` cast around
+    // the whole expression — stripping it bare would re-insert `conv.ovf.i.un`.
+    public static int ULongSumIndexAsSigned(int[] a, ulong[] v, int j, ulong x) => a[unchecked((long)(v[j] + x))];
+
+    // Both operands are masked `ulong` elements (`ldelem.i8`): the recovery must
+    // see through the masking on each side, not just when one operand is a bare
+    // `ulong`. Still a signed index, so it keeps the `(long)` cast.
+    public static int ULongElementSumIndexAsSigned(int[] a, ulong[] v, ulong[] w, int j, int k) => a[unchecked((long)(v[j] + w[k]))];
+
+    // A bare `ulong` compound index (unsigned `conv.ovf.i.un`) strips to the bare
+    // sum just like a scalar `ulong`, with no redundant `(ulong)` cast.
+    public static int ULongSumIndexBare(int[] a, ulong[] v, ulong[] w, int j, int k) => a[v[j] + w[k]];
+
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
 
     // stelem.i1 stores into byte[], sbyte[], and bool[] alike, and stelem.i2 into

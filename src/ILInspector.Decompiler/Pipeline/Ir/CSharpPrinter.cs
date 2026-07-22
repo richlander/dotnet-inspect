@@ -2351,20 +2351,45 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
-    /// The index operand's real C# type, recovering the array element or
-    /// ref/pointer pointee type that a typed load opcode (<c>ldelem.i8</c> /
-    /// <c>ldind.i8</c>) reports only as its <c>Int64</c> storage width — masking a
-    /// <c>ulong</c> element or a wide enum. The bare-rendered <c>values[j]</c> /
-    /// <c>r</c> is spelled with that element/pointee type, so it is the type whose
-    /// signedness drives the re-inserted index conversion; for any other operand
-    /// the load carries no masking and its own <c>ResultType</c> is used.
+    /// The index operand's real, rendered wide C# type, recovering the array
+    /// element or ref/pointer pointee type that a typed load opcode
+    /// (<c>ldelem.i8</c> / <c>ldind.i8</c>) reports only as its <c>Int64</c> storage
+    /// width — masking a <c>ulong</c> element or a wide enum — and propagating that
+    /// through a sign-neutral wide binary (<c>add</c>/<c>sub</c>/<c>mul</c> and the
+    /// bitwise ops, whose stack <c>ResultType</c> keeps a signed operand type even
+    /// when the rendered expression is <c>ulong</c>). The bare-rendered operand is
+    /// spelled with that type, so it is the type whose signedness drives the
+    /// re-inserted index conversion; for any other operand the load carries no
+    /// masking and its own <c>ResultType</c> is used.
     /// </summary>
-    static TypeRef? WideIndexOperandType(IrExpression operand) => operand switch
+    static TypeRef? WideIndexOperandType(IrExpression operand)
     {
-        LoadElement { Array.ResultType: { Kind: TypeRefKind.SzArray or TypeRefKind.Array, ElementType: { } element } } => element,
-        LoadIndirect load when WideIndexPointee(load.Address) is { } pointee => pointee,
-        _ => operand.ResultType,
-    };
+        switch (operand)
+        {
+            case LoadElement { Array.ResultType: { Kind: TypeRefKind.SzArray or TypeRefKind.Array, ElementType: { } element } }:
+                return element;
+            case LoadIndirect load when WideIndexPointee(load.Address) is { } pointee:
+                return pointee;
+            // A sign-neutral wide binary renders unsigned whenever an operand
+            // renders unsigned at the same width (`v[j] + x` over a `ulong`
+            // element and a `ulong` is a `ulong` add). Its own stack ResultType
+            // keeps the signed operand type, so recover the rendered type from the
+            // unmasked operands — mirroring EffectiveType/RendersUnsigned, but
+            // seeing through the element/pointee masking those miss.
+            case Binary { IsChecked: false, Kind: BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply or BinaryKind.And or BinaryKind.Or or BinaryKind.Xor } binary:
+            {
+                var left = WideIndexOperandType(binary.Left);
+                var right = WideIndexOperandType(binary.Right);
+                if (IsWideInteger(left) && IsWideInteger(right) && TypeFamilies.Of(left) == TypeFamilies.Of(right))
+                    return TypeFamilies.IsUnsignedIntegerPrimitive(left) ? left
+                        : TypeFamilies.IsUnsignedIntegerPrimitive(right) ? right
+                        : left;
+                return binary.ResultType;
+            }
+            default:
+                return operand.ResultType;
+        }
+    }
 
     static TypeRef? WideIndexPointee(IrExpression address)
         => address.ResultType is { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer } indirect ? indirect.ElementType : null;
