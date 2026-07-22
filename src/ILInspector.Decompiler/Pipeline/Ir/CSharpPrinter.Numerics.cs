@@ -63,6 +63,36 @@ public sealed partial class CSharpPrinter
             && TypeFamilies.IsInteger(binary.ResultType);
 
     /// <summary>
+    /// Renders a unary <c>neg</c> (<c>-x</c>) or <c>not</c> (<c>~x</c>). A bitwise
+    /// complement never overflows, so it is checked-insensitive. An integer negate,
+    /// like a plain <c>add</c>/<c>sub</c>/<c>mul</c>, would silently acquire
+    /// overflow-checked semantics if recompiled inside a lexical <c>checked</c>
+    /// region — C# lowers a checked <c>-x</c> to <c>0 - x</c> as <c>sub.ovf</c>,
+    /// where the IL <c>neg</c> wraps — so wrap it in <c>unchecked(...)</c> and clear
+    /// the context for its operand, mirroring <see cref="BinaryText"/>.
+    /// </summary>
+    string UnaryText(Unary unary)
+    {
+        string op = unary.Kind == UnaryKind.Negate ? "-" : "~";
+        bool uncheckedOverflow = unary.Kind == UnaryKind.Negate
+            && _checkedContext
+            && TypeFamilies.IsInteger(unary.ResultType);
+        if (!uncheckedOverflow)
+            return $"{op}{Operand(unary.Operand)}";
+
+        bool saved = _checkedContext;
+        _checkedContext = false;
+        try
+        {
+            return $"unchecked({op}{Operand(unary.Operand)})";
+        }
+        finally
+        {
+            _checkedContext = saved;
+        }
+    }
+
+    /// <summary>
     /// Renders pointer additive arithmetic (<c>p + i</c>, <c>p - i</c>,
     /// <c>a - b</c>) without C#'s implicit <c>sizeof(element)</c> scaling. An IL
     /// pointer <c>add</c>/<c>sub</c> is byte-address arithmetic and already

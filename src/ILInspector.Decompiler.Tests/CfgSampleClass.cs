@@ -921,6 +921,13 @@ public class CfgSampleClass
 
     public static int NotLongIndexBare(int[] a, long i) => a[~i];
 
+    // Negate stripped bare inside a `checked` array-index context (#2981
+    // adversarial review): the index conv is dropped (signed `long` matches),
+    // but the bare `-i` would recompile as a checked negate (`0 - i` as
+    // `sub.ovf`) where the IL has an unchecked `neg`, so the negate is wrapped
+    // in `unchecked(...)`.
+    public static int NegLongIndexInChecked(int[] a, long i) => checked(a[unchecked(-i)] + 1);
+
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
 
     // stelem.i1 stores into byte[], sbyte[], and bool[] alike, and stelem.i2 into

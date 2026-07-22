@@ -233,4 +233,13 @@ public class WideArrayIndexTests
         // The bitwise-not analog of the signed-negate strip.
         Assert.Equal("return a[~i];", Print(nameof(CfgSampleClass.NotLongIndexBare)));
     }
+
+    [Fact]
+    public void NegLongIndexInChecked_WrapsNegateInUnchecked()
+    {
+        // The stripped bare `-i` index would recompile as an overflow-checked
+        // negate inside the enclosing `checked`, so the negate is wrapped in
+        // `unchecked(...)` to keep the original unchecked `neg`.
+        Assert.Equal("return checked(a[unchecked(-i)] + 1);", Print(nameof(CfgSampleClass.NegLongIndexInChecked)));
+    }
 }

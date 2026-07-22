@@ -2481,8 +2481,7 @@ public sealed partial class CSharpPrinter
         NullCoalescingFieldAssignmentExpression n => $"{FieldTarget(n.Field, n.Instance)} ??= {CoerceText(n.Value, n.Field.Type)}",
         Coalesce co => CoalesceText(co),
         NullConditional nc => NullConditionalText(nc),
-        Unary { Kind: UnaryKind.Negate } u => $"-{Operand(u.Operand)}",
-        Unary u => $"~{Operand(u.Operand)}",
+        Unary u => UnaryText(u),
         AwaitExpression aw => $"await {Operand(aw.Operand)}",
         IncrementDecrement id => IncrementDecrementText(id),
         // The coercion node renders through the one rule — the node IS the
