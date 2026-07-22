@@ -10,6 +10,38 @@ namespace ILInspector.Decompiler.Tests;
 public class FidelityCheckGeneratedFilterTests
 {
     [Fact]
+    public void Evaluate_PreservesIteratorPropertyDeclarationOrder()
+    {
+        var assemblyPath = CompileFixture("""
+            using System.Collections.Generic;
+
+            public class IteratorPropertyFixture
+            {
+                public IEnumerable<int> Before() { yield return 1; }
+                public IEnumerable<int> Values { get { yield return 2; } }
+                public IEnumerable<int> After() { yield return 3; }
+            }
+            """);
+        try
+        {
+            var results = FidelityCheck.Evaluate(assemblyPath)
+                .Where(result => result.Type == "IteratorPropertyFixture")
+                .ToList();
+
+            foreach (var method in new[] { "Before", "get_Values", "After" })
+            {
+                var result = Assert.Single(results, result => result.Method == method);
+                Assert.True(result.Status == FidelityCheck.CompileBackStatus.Exact,
+                    $"{method}: {result.Status}: {result.Detail}");
+            }
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void Evaluate_SkipsGeneratedCodeTypesAndMethods()
     {
         var assemblyPath = CompileFixture("""
