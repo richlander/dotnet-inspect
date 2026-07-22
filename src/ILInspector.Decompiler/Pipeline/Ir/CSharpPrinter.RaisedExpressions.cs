@@ -91,7 +91,10 @@ public sealed partial class CSharpPrinter
     /// expression body or <c>=&gt; { ... }</c> otherwise. A single parameter
     /// drops the parentheses. Zero-local bodies reuse the current printer so
     /// capture substitutions still bind to the outer scope; local-bearing bodies
-    /// are non-capturing and print through an isolated lambda scope.
+    /// are non-capturing and print through an isolated lambda scope. A block body
+    /// with more than one statement expands across lines like any other
+    /// statement block (see <see cref="LambdaBlockText"/>); a single-statement
+    /// block stays inline, matching a developer's own shorthand for a trivial body.
     /// </summary>
     string LambdaText(Lambda lambda)
     {
@@ -102,19 +105,73 @@ public sealed partial class CSharpPrinter
         if (lambda.ExpressionBody is { } expr)
             return $"{parameters} => {ExpressionTreeBodyText(lambda, expr)}";
 
-        if (NeedsNestedLambdaScope(lambda))
-            return $"{parameters} => {{ {LambdaBodyWithLocalScope(lambda)} }}";
-
-        var statements = lambda.Body.Blocks
-            .SelectMany(b => b.Children)
-            .Select(LambdaStatement)
-            .Where(s => s is not null);
-        if (LambdaReturnType(lambda) is { } returnType
-            && NeedsUnsupportedFallbackReturn(returnType, requiresAsyncBodyModifier: false, lambda.Body))
+        int statementCount = lambda.Body.Blocks.SelectMany(b => b.Children).Count();
+        if (LambdaReturnType(lambda) is { } fallbackReturnType
+            && NeedsUnsupportedFallbackReturn(fallbackReturnType, requiresAsyncBodyModifier: false, lambda.Body))
         {
-            statements = statements.Append("return default;");
+            statementCount++;
         }
-        return $"{parameters} => {{ {string.Join(" ", statements)} }}";
+
+        if (NeedsNestedLambdaScope(lambda))
+        {
+            string bodyText = LambdaBodyTextWithLocalScope(lambda);
+            return statementCount > 1
+                ? LambdaBlockText(parameters, bodyText)
+                : $"{parameters} => {{ {FlattenLambdaBodyText(bodyText)} }}";
+        }
+
+        // Building the child statement texts one indent level deeper keeps any
+        // nested lambda block expansion (a lambda-in-lambda) aligned to where
+        // that statement will actually land once LambdaBlockText re-applies
+        // _statementIndent for the outer braces below.
+        int enclosingIndent = _statementIndent;
+        _statementIndent = enclosingIndent + 1;
+        List<string> statements;
+        try
+        {
+            statements = lambda.Body.Blocks
+                .SelectMany(b => b.Children)
+                .Select(LambdaStatement)
+                .Where(s => s is not null)
+                .Select(s => s!)
+                .ToList();
+            if (LambdaReturnType(lambda) is { } returnType
+                && NeedsUnsupportedFallbackReturn(returnType, requiresAsyncBodyModifier: false, lambda.Body))
+            {
+                statements.Add("return default;");
+            }
+        }
+        finally
+        {
+            _statementIndent = enclosingIndent;
+        }
+
+        return statements.Count > 1
+            ? LambdaBlockText(parameters, string.Join(Environment.NewLine, statements))
+            : $"{parameters} => {{ {string.Join(" ", statements)} }}";
+    }
+
+    /// <summary>
+    /// Renders a multi-statement lambda block body expanded across lines, the
+    /// way every other statement block prints, instead of collapsed onto the
+    /// lambda's own line. <paramref name="bodyText"/> is one statement per line,
+    /// already indented relative to column 0 (as <see cref="Statement"/> output or
+    /// a nested <see cref="PrintBody"/> render is); braces align to <see
+    /// cref="_statementIndent"/> — the enclosing statement's own indentation —
+    /// rather than wherever the lambda happens to start inside that statement's
+    /// expression tree, matching how a developer would have written the block.
+    /// </summary>
+    string LambdaBlockText(string parameters, string bodyText)
+    {
+        string pad = new(' ', _statementIndent * 4);
+        string innerPad = new(' ', (_statementIndent + 1) * 4);
+        var sb = new StringBuilder();
+        sb.Append(parameters).Append(" =>").Append(Environment.NewLine);
+        sb.Append(pad).Append('{').Append(Environment.NewLine);
+        foreach (var line in bodyText.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries))
+            sb.Append(innerPad).Append(line).Append(Environment.NewLine);
+        sb.Append(pad).Append('}');
+        return sb.ToString();
     }
 
     // An expression-tree lambda body compiles (at the consuming site) into an
@@ -157,7 +214,8 @@ public sealed partial class CSharpPrinter
         => !lambda.Locals.IsEmpty
             || lambda.Body.Descendants.Any(node => node is LoadStackSlot or StoreStackSlot);
 
-    string LambdaBodyWithLocalScope(Lambda lambda)
+    /// <summary>Renders a locals-bearing lambda body through an isolated nested printer, trimmed but not yet flattened.</summary>
+    string LambdaBodyTextWithLocalScope(Lambda lambda)
     {
         var body = lambda.Body;
         body.Detach();
@@ -174,8 +232,7 @@ public sealed partial class CSharpPrinter
                 UsesUpdatedMemorySafetyRules = lambda.UsesUpdatedMemorySafetyRules,
                 SkipLocalsInit = lambda.SkipLocalsInit,
             };
-            var text = new CSharpPrinter(function, _options, CurrentScopeNames()).PrintBody(function).Trim();
-            return string.Join(" ", text.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries).Select(line => line.Trim()));
+            return new CSharpPrinter(function, _options, CurrentScopeNames()).PrintBody(function).Trim();
         }
         finally
         {
@@ -183,6 +240,9 @@ public sealed partial class CSharpPrinter
             lambda.ResetBody(body);
         }
     }
+
+    static string FlattenLambdaBodyText(string bodyText)
+        => string.Join(" ", bodyText.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries).Select(line => line.Trim()));
 
     string? LambdaStatement(IrNode node) => node switch
     {

@@ -30,7 +30,10 @@ public class LambdaRaisingPassTests
     {
         string output = PrintRaised(nameof(CfgSampleClass.StatementBodyLambda));
 
-        Assert.Contains("return x => {", output);
+        // A multi-statement block body now expands across lines, matching how
+        // every other statement block prints (issue #2952), instead of staying
+        // collapsed onto the lambda's own line.
+        Assert.Contains("return x =>\n{", output);
         Assert.Contains("Console.WriteLine(x);", output);
         Assert.Contains("return x + 1;", output);
         Assert.DoesNotContain("new Func", output);
@@ -41,11 +44,30 @@ public class LambdaRaisingPassTests
     {
         string output = PrintRaised(nameof(CfgSampleClass.CapturingLocalBodyLambda));
 
-        Assert.Contains("return x => {", output);
+        Assert.Contains("return x =>\n{", output);
         Assert.Contains(" = x + n;", output);
         Assert.Contains("return ", output);
         Assert.Contains(" * ", output);
         Assert.DoesNotContain("new Func", output);
+    }
+
+    // The printer #2952 shape at a deeper nesting level: a multi-statement
+    // lambda block body returned from inside an `if`, one indent level below
+    // the method body. The expanded block's braces must align to the
+    // *enclosing statement's* own indentation (4 spaces, matching the `if`
+    // body) rather than always aligning to column 0.
+    [Fact]
+    public void MultiStatementLambda_InsideNestedIf_AlignsBracesToEnclosingStatementIndent()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.StatementBodyLambdaInsideIf));
+
+        Assert.Contains(
+            "    return x =>\n" +
+            "    {\n" +
+            "        Console.WriteLine(x);\n" +
+            "        return x + 1;\n" +
+            "    };",
+            output);
     }
 
     [Fact]
@@ -101,7 +123,7 @@ public class LambdaRaisingPassTests
     {
         string output = PrintRaised(nameof(CfgSampleClass.LocalBodyLambda));
 
-        Assert.Contains("return x => {", output);
+        Assert.Contains("return x =>\n{", output);
         Assert.Contains(" = x + 1;", output);
         Assert.Contains("return ", output);
         Assert.Contains(" * ", output);
