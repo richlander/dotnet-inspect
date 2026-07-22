@@ -5225,3 +5225,19 @@ public class BackingFieldSample
     // Reads no field, so the walk reports nothing.
     public int NoFieldAccess(int x) => x + 1;
 }
+
+// Regression fixtures for #2982: a constant assigned in a chain (`a = b = c = false`)
+// compiles to `ldc.i4.0; dup; call set_C; dup; call set_B; call set_A` — the shared
+// literal is dup'd to each sink. The importer must re-materialize the dup'd constant
+// at each bool sink so it renders `A = false;`, not spill it into an int stack slot
+// (`int S = 0; A = S;`), which is CS0029 (cannot implicitly convert int to bool).
+public static class ChainedConstantAssignmentSamples
+{
+    public static bool A { get; set; }
+
+    public static bool B { get; set; }
+
+    public static bool C { get; set; }
+
+    public static void ChainedBoolFalse() => A = B = C = false;
+}
