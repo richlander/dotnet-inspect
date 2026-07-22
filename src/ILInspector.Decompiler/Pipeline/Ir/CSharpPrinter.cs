@@ -2418,9 +2418,16 @@ public sealed partial class CSharpPrinter
                 var inner = WideIndexOperandType(negate.Operand);
                 if (EnumUnderlyingType(inner) is { } underlying)
                     return TypeRef.CoreLib("System", Is8ByteInteger(underlying) ? "Int64" : "Int32");
-                return NegateReinterpretKeyword(inner) is not null
-                    ? TypeFamilies.SignedCounterpart(inner) ?? inner
-                    : inner;
+                if (NegateReinterpretKeyword(inner) is not null)
+                    return TypeFamilies.SignedCounterpart(inner) ?? inner;
+                // An unresolved (cross-assembly) enum: UnaryText re-inserts the
+                // width-based reinterpret, so the negate renders signed at its
+                // masked stack width. Report that signed width so the strip is
+                // clean; SignedCounterpart maps a masked unsigned width to signed
+                // (Int64/Int32) and is a no-op on an already-signed width.
+                if (IsUnresolvedEnumLike(inner))
+                    return TypeFamilies.SignedCounterpart(negate.ResultType) ?? negate.ResultType;
+                return inner;
             }
             case Unary unary:
                 return WideIndexOperandType(unary.Operand);

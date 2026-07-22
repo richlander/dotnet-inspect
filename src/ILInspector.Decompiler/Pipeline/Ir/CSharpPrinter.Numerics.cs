@@ -82,7 +82,7 @@ public sealed partial class CSharpPrinter
     {
         string op = unary.Kind == UnaryKind.Negate ? "-" : "~";
         string cast = unary.Kind == UnaryKind.Negate
-            && NegateOperandReinterpretKeyword(WideIndexOperandType(unary.Operand)) is { } keyword
+            && NegateOperandReinterpretKeyword(WideIndexOperandType(unary.Operand), unary.ResultType) is { } keyword
             ? $"({keyword})"
             : "";
         bool uncheckedOverflow = unary.Kind == UnaryKind.Negate
@@ -110,17 +110,55 @@ public sealed partial class CSharpPrinter
     /// <em>every</em> enum (an enum has no unary minus regardless of its underlying
     /// type). A primitive is handled by <see cref="NegateReinterpretKeyword"/>
     /// (<c>ulong</c>→<c>long</c>, <c>nuint</c>→<c>nint</c>; <c>uint</c> and the
-    /// signed/sub-int types negate directly). An enum always needs the reinterpret,
-    /// keyed on its underlying width: an 8-byte-backed enum reinterprets as
-    /// <c>long</c>, any narrower enum as <c>int</c> — all sub-8-byte integers are
-    /// <c>I4</c> on the eval stack, so <c>(int)</c> is the value-preserving view the
-    /// <c>neg</c> operated on. Every reinterpret here is an IL no-op, so re-inserting
-    /// it keeps the <c>neg</c> opcode-exact.
+    /// signed/sub-int types negate directly). A resolved enum always needs the
+    /// reinterpret, keyed on its underlying width: an 8-byte-backed enum
+    /// reinterprets as <c>long</c>, any narrower enum as <c>int</c> — all sub-8-byte
+    /// integers are <c>I4</c> on the eval stack, so <c>(int)</c> is the
+    /// value-preserving view the <c>neg</c> operated on. An enum whose shape did not
+    /// resolve (a cross-assembly enum renders as its type name but not as an enum
+    /// shape) still has no unary minus, so the reinterpret is recovered from
+    /// <paramref name="stackType"/> — the masked stack width the <c>neg</c> ran on
+    /// (an IL <c>neg</c> only ever applies to a numeric or enum operand, so a
+    /// non-primitive rendered type under one is always an enum). Every reinterpret
+    /// here is an IL no-op, so re-inserting it keeps the <c>neg</c> opcode-exact.
     /// </summary>
-    string? NegateOperandReinterpretKeyword(TypeRef? operandType)
+    string? NegateOperandReinterpretKeyword(TypeRef? operandType, TypeRef? stackType)
         => EnumUnderlyingType(operandType) is { } underlying
             ? (Is8ByteInteger(underlying) ? "long" : "int")
-            : NegateReinterpretKeyword(operandType);
+            : NegateReinterpretKeyword(operandType)
+                ?? (IsUnresolvedEnumLike(operandType) ? NegateWidthKeyword(stackType) : null);
+
+    /// <summary>
+    /// True for a rendered type that an IL <c>neg</c> can only be spelling as an
+    /// enum whose shape did not resolve: a type <c>Definition</c> that is not a
+    /// known numeric primitive (<see cref="TypeFamilies.Of"/> returns null for a
+    /// bare definition it cannot classify). A same-assembly enum resolves through
+    /// <c>EnumUnderlyingType</c> and a primitive is classified by
+    /// <see cref="TypeFamilies.Of"/>, so what remains under a <c>neg</c> is a
+    /// referenced-assembly enum or a core-library enum (both unresolved to a shape)
+    /// — a struct never reaches here because its unary minus is an
+    /// <c>op_UnaryNegation</c> call, not an IL <c>neg</c>.
+    /// </summary>
+    static bool IsUnresolvedEnumLike(TypeRef? type)
+        => type is { Kind: TypeRefKind.Definition } && TypeFamilies.Of(type) is null;
+
+    /// <summary>
+    /// The signed reinterpret keyword for a masked stack width: an 8-byte
+    /// (<c>Int64</c>/<c>UInt64</c>) value as <c>long</c>, a native integer as
+    /// <c>nint</c>, and any 4-byte-or-narrower integer (all <c>I4</c> on the eval
+    /// stack) as <c>int</c>. Null for a stack type that is not a recognised integer
+    /// primitive, so an unresolvable width emits no (possibly wrong) cast.
+    /// </summary>
+    static string? NegateWidthKeyword(TypeRef? stackType)
+        => stackType is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" } named
+            ? named.Name switch
+            {
+                "Int64" or "UInt64" => "long",
+                "IntPtr" or "UIntPtr" => "nint",
+                "Int32" or "UInt32" or "Int16" or "UInt16" or "SByte" or "Byte" or "Char" => "int",
+                _ => null,
+            }
+            : null;
 
     /// <summary>
     /// The signed cast keyword that makes an IL <c>neg</c> over an otherwise

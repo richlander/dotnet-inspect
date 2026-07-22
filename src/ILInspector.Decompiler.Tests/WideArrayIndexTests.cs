@@ -293,4 +293,16 @@ public class WideArrayIndexTests
         // enum-to-underlying conversion the source spelled, unrelated to the fix).
         Assert.Equal("return (int)(-(int)v[j]);", Print(nameof(CfgSampleClass.NegEnumUIntElementToInt)));
     }
+
+    [Fact]
+    public void NegCrossAssemblyEnumElementIndex_CastsOperandToInt()
+    {
+        // A cross-assembly (CoreLib) enum resolves to an Unknown shape, so its
+        // underlying width is unavailable via the enum map. The enum still has no
+        // unary minus, but the masked stack width is in the `ldelem.i4` opcode, so
+        // the reinterpret is recovered from it: `a[-(int)v[j]]`. The width fallback
+        // covers unresolved enums the underlying-based path cannot see, and used as
+        // a signed index it strips clean. Recompiles to `ldelem.i4; neg; conv.i`.
+        Assert.Equal("return a[-(int)v[j]];", Print(nameof(CfgSampleClass.NegCrossAssemblyEnumElementIndex)));
+    }
 }

@@ -951,6 +951,14 @@ public class CfgSampleClass
     // value-preserving no-op view the `neg` operated on. Opcode-exact: `ldelem.*; neg`.
     public static int NegEnumUIntElementToInt(CfgFlags[] v, int j) => -(int)v[j];
 
+    // A cross-assembly (CoreLib) enum used as an array index: DayOfWeek resolves
+    // to an Unknown shape (EnsureTypeMaps walks only this assembly's type defs),
+    // so the enum underlying is unavailable. C# still has no unary minus on the
+    // enum, but the masked stack width IS in the `ldelem.i4` opcode, so the
+    // reinterpret is recovered from it: `a[-(int)v[j]]`. Opcode-exact: `ldelem.i4;
+    // neg; conv.i`.
+    public static int NegCrossAssemblyEnumElementIndex(int[] a, System.DayOfWeek[] v, int j) => a[-(int)v[j]];
+
     // Genuinely-signed `long` neg/not indices recover as `long` and strip bare.
     public static int NegLongIndexBare(int[] a, long i) => a[-i];
 
