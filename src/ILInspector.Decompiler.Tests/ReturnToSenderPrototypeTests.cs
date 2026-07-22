@@ -403,6 +403,77 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_FullPreservesInitAccessorWhenTargetIsGetter()
+    {
+        // Issue #3000: a get/init auto-property targeted at its getter was rendered get-only
+        // (`{ get; }`), silently dropping the init setter while still recording set_Value Complete.
+        // The getter compose path must render a get/init auto-property under Full so the
+        // compiler-synthesized init accessor faithfully reproduces the original setter and stays
+        // represented (not flipped to a public `set`, which would lose the init-only shape).
+        var assemblyPath = CompileFixture("""
+            public class Holder
+            {
+                public int Value { get; init; }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "get_Value", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(MemberBodyProductionStatus.Complete, Assert.Single(result.FullBodies, body => body.Member == "Holder.get_Value").Status);
+            Assert.Equal(MemberBodyProductionStatus.Complete, Assert.Single(result.FullBodies, body => body.Member == "Holder.set_Value").Status);
+            Assert.Contains("Value { get; init; }", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("Value { get; set; }", result.Source, StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullPreservesInitAccessorWhenTargetIsSetter()
+    {
+        // Issue #3000: targeting the init setter itself must render a get/init auto-property, not
+        // `{ get; set; }`. Flipping init to a public set loses the init-only shape and produces a
+        // setter whose IL diverges from the original init accessor.
+        var assemblyPath = CompileFixture("""
+            public class Holder
+            {
+                public int Value { get; init; }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "set_Value", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(MemberBodyProductionStatus.Complete, Assert.Single(result.FullBodies, body => body.Member == "Holder.set_Value").Status);
+            Assert.Contains("Value { get; init; }", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("Value { get; set; }", result.Source, StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_FullEventAccessorTargetSurfacesRecompileFailure()
     {
         // Issue #3000: a plain (non-explicit-interface) event accessor target is method-routed, so

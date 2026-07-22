@@ -324,6 +324,7 @@ public enum CompileBackStubBodyKind
     TargetEventAccessorWithSibling,
     AutoProperty,
     AutoPropertyGetSet,
+    AutoPropertyGetInit,
     FieldInitializer,
 }
 
@@ -465,7 +466,8 @@ public static class CompileBackSourceComposer
                 request.SignatureText,
                 closure.Roots,
                 closure.Facts,
-                closure.MemberRequirements),
+                closure.MemberRequirements,
+                request.BodyPolicy),
             PropertySetterArtifactRequest setter => ComposePropertySetter(
                 request.AssemblyPath,
                 request.Reader,
@@ -1014,7 +1016,8 @@ public static class CompileBackSourceComposer
         string signatureText,
         IReadOnlySet<TypeDefinitionHandle> closureRoots,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
-        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements)
+        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
+        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var property = reader.GetPropertyDefinition(targetProperty);
@@ -1048,10 +1051,20 @@ public static class CompileBackSourceComposer
                 ToCompileBackParameters(propertyDeclaration.Signature.Parameters),
                 returnType,
                 TypeParameters: [],
+                // A read-write auto-property targeted at its getter must render both accessors so
+                // the compiler-synthesized sibling accessor faithfully reproduces the original
+                // setter rather than being silently dropped while still reported Complete (issue
+                // #3000 class). An init-only setter renders a get/init auto-property under Full so
+                // the init accessor is represented; the getter-only A/B path (Selected) keeps the
+                // minimal get-only shell (records rely on this).
                 targetIsAutoProperty
-                    ? accessors.Setter.IsNil || SetterIsInitOnly(reader, accessors.Setter)
+                    ? accessors.Setter.IsNil
                         ? CompileBackStubBodyKind.AutoProperty
-                        : CompileBackStubBodyKind.AutoPropertyGetSet
+                        : SetterIsInitOnly(reader, accessors.Setter)
+                            ? bodyPolicy == RoundTripBodyPolicy.Full
+                                ? CompileBackStubBodyKind.AutoPropertyGetInit
+                                : CompileBackStubBodyKind.AutoProperty
+                            : CompileBackStubBodyKind.AutoPropertyGetSet
                     : accessors.Setter.IsNil
                         ? CompileBackStubBodyKind.TargetBody
                         : CompileBackStubBodyKind.TargetGetterWithSetter,
@@ -1360,7 +1373,9 @@ public static class CompileBackSourceComposer
                 returnType,
                 TypeParameters: [],
                 targetIsAutoProperty
-                    ? CompileBackStubBodyKind.AutoPropertyGetSet
+                    ? SetterIsInitOnly(reader, targetSetter)
+                        ? CompileBackStubBodyKind.AutoPropertyGetInit
+                        : CompileBackStubBodyKind.AutoPropertyGetSet
                     : property.GetAccessors().Getter.IsNil
                         ? CompileBackStubBodyKind.TargetBody
                         : CompileBackStubBodyKind.TargetSetterWithGetter,
@@ -1831,14 +1846,20 @@ public static class CompileBackSourceComposer
 
     static List<ApiAccessor> PropertyAccessors(CompileBackMemberRequirement member)
     {
-        bool hasGetter = member.Kind == CompileBackMemberKind.PropertyGet
+        // AutoPropertyGetInit renders a get/init auto-property. The compiler-synthesized init
+        // accessor faithfully reproduces the original init setter body, so the sibling/target
+        // setter stays represented (not dropped) while remaining honest about its init-only shape.
+        bool isGetInit = member.StubBody is CompileBackStubBodyKind.AutoPropertyGetInit;
+        bool hasGetter = isGetInit
+            || member.Kind == CompileBackMemberKind.PropertyGet
             || member.StubBody is CompileBackStubBodyKind.AutoPropertyGetSet
                 or CompileBackStubBodyKind.ThrowGetSet
                 or CompileBackStubBodyKind.TargetSetterWithGetter;
-        bool hasSetter = member.Kind == CompileBackMemberKind.PropertySet
-            || member.StubBody is CompileBackStubBodyKind.AutoPropertyGetSet
-                or CompileBackStubBodyKind.ThrowGetSet
-                or CompileBackStubBodyKind.TargetGetterWithSetter;
+        bool hasSetter = !isGetInit
+            && (member.Kind == CompileBackMemberKind.PropertySet
+                || member.StubBody is CompileBackStubBodyKind.AutoPropertyGetSet
+                    or CompileBackStubBodyKind.ThrowGetSet
+                    or CompileBackStubBodyKind.TargetGetterWithSetter);
         var accessors = new List<ApiAccessor>();
         if (hasGetter)
         {
@@ -1850,6 +1871,8 @@ public static class CompileBackSourceComposer
         }
         if (hasSetter)
             accessors.Add(new ApiAccessor { Kind = "set" });
+        if (isGetInit)
+            accessors.Add(new ApiAccessor { Kind = "init" });
         return accessors;
     }
 
@@ -1865,6 +1888,8 @@ public static class CompileBackSourceComposer
             CompileBackStubBodyKind.AutoProperty
                 => new(member, CSharpBodyPolicy.Skeleton),
             CompileBackStubBodyKind.AutoPropertyGetSet
+                => new(member, CSharpBodyPolicy.Skeleton),
+            CompileBackStubBodyKind.AutoPropertyGetInit
                 => new(member, CSharpBodyPolicy.Skeleton),
             CompileBackStubBodyKind.Throw when requirement.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet
                 => new(member, CSharpBodyPolicy.Stub, PropertyBody(requirement, CSharpAccessorBody.Throw)),
