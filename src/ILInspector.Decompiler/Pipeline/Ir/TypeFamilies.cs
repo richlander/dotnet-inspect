@@ -64,6 +64,20 @@ public static class TypeFamilies
     {
         var leftFamily = Of(left);
         var rightFamily = Of(right);
+        // A binary op mixing a resolved primitive with an unresolved Definition
+        // is the flags-enum idiom: the enum's underlying integer drives the IL
+        // `or`/`and`/`add`, but the C# result type is the enum, on whichever side
+        // it sits. `flags | 0x20` and `0x20 | flags` are both `flags`-typed. Only
+        // an enum reaches a Binary opcode as a Definition operand — a struct or
+        // decimal `|`/`+` lowers to an operator-overload call, not this node — so
+        // preferring the Definition keeps a flags-enum OR/AND accumulation
+        // enum-typed instead of collapsing to the underlying integer, which would
+        // then need a cast on every arm and break at the next bare-integer arm
+        // (CS0019, #2990). Symmetric to the both-null fallthrough below.
+        if (left is { Kind: TypeRefKind.Definition } && leftFamily is null && rightFamily is not null)
+            return left;
+        if (right is { Kind: TypeRefKind.Definition } && rightFamily is null && leftFamily is not null)
+            return right;
         if (leftFamily is not { } lf || rightFamily is not { } rf)
             return left;
         // A bitwise And/Or/Xor that mixes a bool comparison with an integer
