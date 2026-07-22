@@ -292,27 +292,37 @@ public static class OutputFormatter
         else
         {
             ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-            if (writerOpts.IncludeSections is { Count: > 1 }
-                && Sections.PerformanceKinds.AllShareCommonView(writerOpts.IncludeSections))
-            {
-                // The @Performance kind sections share one row view, so render them as a single
-                // self-describing table: flatten the selected kinds into one kind-labeled list and
-                // emit one table (one header, aligned columns, correct --rows accounting). The
-                // leading Kind column replaces the per-section headings that markdown uses.
-                var groupRows = auditView.PerformanceGroupRows(writerOpts.IncludeSections);
-                var groupView = new PerformanceGroupView(groupRows);
-                var groupOpts = ConfigureTableWriterOptions(
-                    new MarkoutWriterOptions { Projection = writerOpts.Projection }, options.Tsv, options.Jsonl);
-                WriteTable(Console.Out, !options.NoHeader,
-                    (writer, formatter) => MarkoutSerializer.Serialize(groupView, writer, formatter, InspectionContext.Default, groupOpts),
-                    options.Rows);
-            }
-            else
-            {
-                WriteTable(Console.Out, !options.NoHeader,
-                    (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts),
-                    options.Rows);
-            }
+            WriteLibraryTabular(auditView, writerOpts, options);
+        }
+    }
+
+    /// <summary>
+    /// Renders one library inspection as tabular output (TSV/JSONL/pretty table). When the selected
+    /// sections are the kind-scoped <c>@Performance</c> group (all sharing one row view), they are
+    /// flattened into a single self-describing table with a leading <c>Kind</c> column — one header,
+    /// aligned columns, and correct <c>--rows</c> accounting — instead of concatenated per-kind
+    /// tables. This path is shared by the single- and multi-assembly renderers so both stay
+    /// consistent. <paramref name="writerOpts"/> must already have its TSV/JSONL format configured.
+    /// </summary>
+    private static void WriteLibraryTabular(
+        LibraryInspectionView auditView, MarkoutWriterOptions writerOpts, LibraryOptions options)
+    {
+        if (writerOpts.IncludeSections is { Count: > 1 }
+            && Sections.PerformanceKinds.AllShareCommonView(writerOpts.IncludeSections))
+        {
+            var groupRows = auditView.PerformanceGroupRows(writerOpts.IncludeSections);
+            var groupView = new PerformanceGroupView(groupRows);
+            var groupOpts = ConfigureTableWriterOptions(
+                new MarkoutWriterOptions { Projection = writerOpts.Projection }, options.Tsv, options.Jsonl);
+            WriteTable(Console.Out, !options.NoHeader,
+                (writer, formatter) => MarkoutSerializer.Serialize(groupView, writer, formatter, InspectionContext.Default, groupOpts),
+                options.Rows);
+        }
+        else
+        {
+            WriteTable(Console.Out, !options.NoHeader,
+                (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts),
+                options.Rows);
         }
     }
 
@@ -382,9 +392,7 @@ public static class OutputFormatter
                     Projection = BuildProjection(options.Columns, options.Fields),
                 };
                 ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-                WriteTable(Console.Out, !options.NoHeader,
-                    (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts),
-                    options.Rows);
+                WriteLibraryTabular(auditView, writerOpts, options);
             }
         }
     }

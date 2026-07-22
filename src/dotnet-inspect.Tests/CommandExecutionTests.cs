@@ -8046,6 +8046,49 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_TfmAll_PerformanceGroupTabular_IsKindLabeledPerAssembly()
+    {
+        // Regression: the multi-assembly renderer (WriteLibraryResults, reached via `library --tfm
+        // all` when a library ships under several TFMs) must apply the same @Performance flattening
+        // as the single-assembly path — each assembly emits one self-describing Kind-labeled table,
+        // never per-kind headers without a Kind column.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"perf-multitfm-{Guid.NewGuid():N}");
+        try
+        {
+            var content = Path.Combine(tempDir, "content");
+            foreach (var tfm in new[] { "net8.0", "net10.0" })
+            {
+                var dir = Path.Combine(content, "lib", tfm);
+                Directory.CreateDirectory(dir);
+                File.Copy(TestAssemblyPath, Path.Combine(dir, "Lib.dll"));
+            }
+            var packagePath = Path.Combine(tempDir, "Perf.MultiTfm.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var (exit, output, _) = await RunAppAsync(
+                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
+                "-S", "@Performance", "--tsv", "--rows", "-n", "3", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            // One flattened Kind-labeled table per TFM assembly; no bare per-kind "member\t" header.
+            Assert.Contains(lines, l => l.StartsWith("kind\tmember\t", StringComparison.Ordinal));
+            Assert.DoesNotContain(lines, l => l.StartsWith("member\t", StringComparison.Ordinal));
+            var kindHeaders = lines.Count(l => l.StartsWith("kind\tmember\t", StringComparison.Ordinal));
+            Assert.Equal(2, kindHeaders);
+            // Every data row is self-describing: its first field is a real kind label.
+            var kindLabels = PerformanceKinds.Sections.Select(PerformanceKinds.KindLabel).ToHashSet(StringComparer.Ordinal);
+            var dataRows = lines.Where(l => !l.StartsWith("kind\t", StringComparison.Ordinal)).ToArray();
+            Assert.NotEmpty(dataRows);
+            Assert.All(dataRows, l => Assert.Contains(l.Split('\t')[0], kindLabels));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageCommand_AllLibraries_AggregatesIntegrationsWithLibraryProvenance()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage(
