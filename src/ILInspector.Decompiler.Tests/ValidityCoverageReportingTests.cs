@@ -50,10 +50,15 @@ public class ValidityCoverageReportingTests
         // UnionSwitchExpressionPass::SameTailNode,
         // DynamicCallSitePass::TryGuardCacheLoad, and
         // FluentChainRecompositionPass::SinkStatement.
-        // #2973 removed the result-temp scattered-dispatch defect in
-        // YieldBreakLoopIteratorReconstruction::TryNormalizeContinueCondition
-        // and the existing InlineArrayCollectionPass::PlaceFromAddress sibling
-        // with the same single interleaved default-goto shape.
+        // #2973 (via #3017, trampoline) removed
+        // YieldBreakLoopIteratorReconstruction::TryNormalizeContinueCondition and
+        // FixedArrayRaising::SameLoadPlace: result-temp switch-expression /
+        // pattern defaults reached by a forward-goto trampoline. This branch
+        // additionally removes the InlineArrayCollectionPass::PlaceFromAddress
+        // sibling, which #3017's trampoline left as CS0161: the mixed
+        // return-tail candidate now keeps the interleaved default-goto default
+        // as the region's trailing terminator, so it returns instead of falling
+        // off the end.
         string[] expected =
 #if DEBUG
         [
@@ -65,7 +70,6 @@ public class ValidityCoverageReportingTests
             "ILInspector.Decompiler.Pipeline.BooleanFoldingPass::IsNullableCoalesceExpressionContext",
             "ILInspector.Decompiler.Pipeline.CSharpPrinter::ForLoopIncrementText",
             "ILInspector.Decompiler.Pipeline.DeconstructionAssignmentPass::TryMatchTupleSeed",
-            "ILInspector.Decompiler.Pipeline.FixedArrayRaising::SameLoadPlace",
             "ILInspector.Decompiler.Pipeline.IndexFromEndPass::LengthReceiver",
         ];
 #endif

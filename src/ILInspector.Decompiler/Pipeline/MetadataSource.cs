@@ -313,6 +313,16 @@ public sealed class MetadataSource : IDisposable
         };
     }
 
+    /// <summary>
+    /// The definition-backed type shape without signature-hint fallback. Importer
+    /// facts use this narrower result because a VALUETYPE signature byte cannot
+    /// distinguish an unresolved struct from an unresolved enum.
+    /// </summary>
+    internal TypeShapeKind ClassifyResolvedType(TypeRef type)
+        => type.Kind is TypeRefKind.SzArray or TypeRefKind.Array
+            ? TypeShapeKind.Class
+            : ResolveShapeKind(type);
+
     TypeShapeKind ResolveShapeKind(TypeRef type)
     {
         if (NamedDefinition(type) is not { } definition || string.IsNullOrEmpty(definition.Assembly))

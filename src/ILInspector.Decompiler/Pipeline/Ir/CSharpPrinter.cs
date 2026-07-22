@@ -1641,6 +1641,11 @@ public sealed partial class CSharpPrinter
             sb.Append(pad).AppendLine("do");
             sb.Append(pad).AppendLine("{");
             AppendContainer(sb, doWhile.Body, indent + 1);
+            // The body's own AppendStatement calls left _statementIndent at the
+            // deepest nested statement's level; restore it to this statement's
+            // own indent before the condition (itself part of this statement,
+            // not the body) renders, so a lambda inside it aligns correctly.
+            _statementIndent = indent;
             sb.Append(pad).Append("}").Append(Environment.NewLine).Append(pad)
                 .Append("while (").Append(Condition(doWhile.Condition)).AppendLine(");");
             return;
@@ -1653,6 +1658,11 @@ public sealed partial class CSharpPrinter
             sb.Append(pad).AppendLine("}");
             foreach (var clause in tryCatch.Clauses)
             {
+                // As in the do/while condition above, a preceding body (the try
+                // body, or an earlier catch's body) leaves _statementIndent
+                // deeper than this statement's own indent; restore it before
+                // CatchHeader (which may render a filter's `when (...)` lambda).
+                _statementIndent = indent;
                 sb.Append(pad).AppendLine(CatchHeader(clause));
                 sb.Append(pad).AppendLine("{");
                 AppendContainer(sb, clause.Body, indent + 1);
@@ -1740,6 +1750,11 @@ public sealed partial class CSharpPrinter
             var labelEnum = SwitchLabelEnumType(switchNode.Value);
             foreach (var section in switchNode.Sections)
             {
+                // A prior section's body (AppendContainer below) leaves
+                // _statementIndent deeper than this statement's own indent;
+                // restore it before this section's own labels render (a `when`
+                // pattern guard could, in principle, contain a lambda).
+                _statementIndent = indent;
                 foreach (var label in section.Labels)
                     sb.Append(labelPad).Append("case ").Append(SwitchLabelText(label, labelEnum)).AppendLine(":");
                 if (section.IsDefault)
@@ -2136,6 +2151,7 @@ public sealed partial class CSharpPrinter
             ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {CoerceText(s.Value, s.Type)};"
             : AssignmentText($"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
         DeconstructionAssignment d => $"({string.Join(", ", d.Targets.Select(DeconstructionTargetText))}) = {Expression(d.Source)};",
+        ChainedAssignment c => $"{string.Join(" = ", c.Targets.Select(ChainedAssignmentTargetText))} = {CoerceText(c.Value, c.InnermostTargetType)};",
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CoerceText(n.Value, n.LocalType)};",
         NullCoalescingFieldAssignment n => $"{FieldTarget(n.Field, n.Instance)} ??= {CoerceText(n.Value, n.Field.Type)};",
         NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {CoerceText(n.Value, n.PropertyType)};",
@@ -2231,6 +2247,13 @@ public sealed partial class CSharpPrinter
             target.Field!,
             target.IsThisInstance ? new LoadArgument(0, "this", target.Field!.DeclaringType) : null),
         _ => $"/* {target.Describe()} */",
+    };
+
+    string ChainedAssignmentTargetText(ChainedAssignmentTarget target) => target.Kind switch
+    {
+        ChainedAssignmentTargetKind.StaticProperty => PropertyTarget(target.Accessor!, null, [], target.PropertyName, target.IsVirtual),
+        ChainedAssignmentTargetKind.StaticField => FieldTarget(target.Field!, null),
+        _ => $"/* {target.Kind} */",
     };
 
     static TypeRef? StorePropertyTargetType(StoreProperty store)

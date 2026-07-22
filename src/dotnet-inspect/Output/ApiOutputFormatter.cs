@@ -1928,7 +1928,7 @@ public static class ApiOutputFormatter
                 opportunity.Shape,
                 opportunity.Operation,
                 opportunity.OperandToken is { } token ? MarkoutInline.Code($"0x{token:X8}") : null,
-                opportunity.Evidence,
+                MarkoutInline.Code(opportunity.Evidence),
                 opportunity.SafeFixDirection,
                 opportunity.Confidence,
                 LibraryMetadataService.IteratesInLoop(opportunity) ? "loop" : "",
@@ -2223,7 +2223,7 @@ public static class ApiOutputFormatter
             return body;
 
         bool hasLeadingComments = leadingBodyComments is { Count: > 0 };
-        if (!hasLeadingComments && preferExpressionBodied && Decompiler.CSharpExpressionBody.FromSingleStatement(body) is { } expressionBody)
+        if (!hasLeadingComments && preferExpressionBodied && CSharpExpressionBody.FromSingleStatement(body) is { } expressionBody)
             return $"{declaration} => {expressionBody};";
 
         var formattedBodyLines = body.ReplaceLineEndings("\n").Split('\n');

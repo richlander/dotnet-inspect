@@ -44,6 +44,12 @@ named same-assembly roots, and repeat until the closure stops growing or hits a
 budget. The new harness may reuse that algorithm for closure policy feedback,
 but it should not turn RTS into another C# shell generator.
 
+The broader tools-only reuse plan, including peer `cluster` and `all` scopes,
+selected versus full body policy, and layered IL/C# comparison, is described in
+[C# assembly round-trip testing](csharp-member-recompilation.md). ReturnToSender
+is one consumer of that capability; it is not the general compilation
+abstraction.
+
 The new harness should:
 
 1. build fixture libraries as part of the normal repo build;

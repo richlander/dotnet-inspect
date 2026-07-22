@@ -642,7 +642,13 @@ public static class IrImporter
                 type = type.ElementType;
             if (type is not { Kind: TypeRefKind.Definition } || !shapes.TryAdd(type, default))
                 return;
-            var shape = source.ResolveShape(type);
+            var shape = source.ClassifyResolvedType(type) switch
+            {
+                TypeShapeKind.Enum => TypeShape.Enum,
+                TypeShapeKind.Struct => TypeShape.ValueType,
+                TypeShapeKind.Class or TypeShapeKind.Interface or TypeShapeKind.Delegate => TypeShape.Reference,
+                _ => TypeShape.Unknown,
+            };
             shapes[type] = shape;
             if (source.IsUnionType(type))
                 unionTypes.Add(type);
@@ -1367,8 +1373,14 @@ public static class IrImporter
 
                 case ILOpCode.Dup:
                 {
-                    // Trees cannot share nodes: dup materializes through a slot.
                     var value = Pop(stack);
+                    // Trees cannot share nodes: dup materializes through a slot.
+                    // A dup'd pure constant that feeds a chained-assignment idiom
+                    // (`a = b = c = v`) is recomposed and its slot removed by
+                    // ChainedAssignmentPass; any non-chain dup'd constant slot is
+                    // re-materialized (cloned per use) by that same pass so the
+                    // per-sink typed literal is recovered (#2982) rather than
+                    // spilled through an int32-typed slot (CS0029).
                     int slot = state.NextDupSlot++;
                     body.Add(new StoreStackSlot(slot, value));
                     stack.Push(new LoadStackSlot(slot, value.ResultType));

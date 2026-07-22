@@ -38,6 +38,10 @@
          its signature is stamped [RequiresUnsafeAttribute]; used to verify the
          API surface marks it unsafe. -->
     <ProjectReference Include="../../src/ILInspector.Decompiler.Fixtures.NewUnsafe/ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" />
+    <!-- #1741 fixture: DiffAsmTarget exposes two overloads whose parameter types
+         share the FQN Shared.Token but come from different assemblies (LibA vs
+         LibB). Used to prove the structural signature keeps them distinct. -->
+    <ProjectReference Include="../../src/DiffAsmFixtures.Target/DiffAsmFixtures.Target.csproj" />
   </ItemGroup>
 
 </Project>

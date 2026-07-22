@@ -5,6 +5,34 @@ namespace DotnetInspector.Services.Tests;
 public class AssemblyDependencyResolverTests
 {
     [Fact]
+    public void Resolve_PlatformReference_RollsForwardToInstalledAssembly()
+    {
+        var current = typeof(System.Data.Common.DbDataReader).Assembly.GetName();
+        string token = Convert.ToHexString(current.GetPublicKeyToken()!).ToLowerInvariant();
+        var resolver = new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(
+            typeof(AssemblyDependencyResolverTests).Assembly.Location)
+        {
+            AllowPlatformAssemblyVersionRollForward = true,
+        });
+
+        var resolved = resolver.Resolve(
+            new AssemblyReferenceIdentity(current.Name!, new Version(1, 0, 0, 0), null, token),
+            AssemblyResolutionScope.Platform);
+
+        Assert.NotNull(resolved);
+        Assert.Equal(current.Name + ".dll", Path.GetFileName(resolved.Path));
+
+        var future = resolver.Resolve(
+            new AssemblyReferenceIdentity(
+                current.Name!,
+                new Version(current.Version!.Major + 1, 0, 0, 0),
+                null,
+                token),
+            AssemblyResolutionScope.Platform);
+        Assert.Null(future);
+    }
+
+    [Fact]
     public void ResolveAll_IncludesTargetByDefaultAndLetsHarnessExcludeIt()
     {
         string root = Directory.CreateTempSubdirectory("dotnet-inspect-assembly-deps-").FullName;

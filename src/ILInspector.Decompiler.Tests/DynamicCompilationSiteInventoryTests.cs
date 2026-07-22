@@ -69,17 +69,20 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["DefaultParameterValidityTests.cs"] = (1, "Runtime-varying validity gate: compiles per-case default-parameter signatures."),
             ["ReturnToSenderPrototypeTests.cs"] = (1, "Runtime construction: builds a shell input assembly asserting 30+ facts."),
             ["ReturnToSenderFixtureCatalogTests.cs"] = (1, "Input-generation seam: builds a temporary input assembly for the RTS catalog."),
+            ["RoundTripComparisonTests.cs"] = (1, "Round-trip oracle seam: compiles an exact donor fixture for typed C# and IL comparison."),
         };
 
-    // Fingerprint. Two independent +1 site additions stack on the 29 files /
+    // Fingerprint. Three independent +1 site additions stack on the 29 files /
     // 36 sites base (after CompileBackTypeIdentity migrated to a Built fixture):
     //   #2925 adds UnboxValueReadPassTests.cs (1 site): compiles the normalized
     //     unbox value-read source (cast vs Unsafe.Unbox) per case.
     //   #2935 adds FluentChainFormattingTests.cs (1 site): recompiles the
     //     printer's broken fluent-chain output.
-    //   Combined: 31 files, 38 sites.
-    const int ExpectedDynamicFiles = 31;
-    const int ExpectedDynamicSites = 38;
+    //   This branch adds RoundTripComparisonTests.cs (1 site): compiles an exact
+    //     donor fixture for typed C# and IL comparison.
+    //   Combined: 32 files, 39 sites.
+    const int ExpectedDynamicFiles = 32;
+    const int ExpectedDynamicSites = 39;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

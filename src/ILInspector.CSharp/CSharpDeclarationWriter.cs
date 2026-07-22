@@ -1424,10 +1424,64 @@ internal static class CSharpDeclarationWriter
         while (firstParameterStart < signature.Length && char.IsWhiteSpace(signature[firstParameterStart]))
             firstParameterStart++;
 
-        if (signature.AsSpan(firstParameterStart).StartsWith("this ".AsSpan(), StringComparison.Ordinal))
+        // Parameter attributes precede the extension receiver modifier in C#:
+        // [NotNull] this string value. The structured signature renderer has
+        // already attached those attributes, so insert `this` after every
+        // leading attribute list rather than at the raw parameter start.
+        var modifierStart = firstParameterStart;
+        while (modifierStart < signature.Length && signature[modifierStart] == '[')
+        {
+            var close = MatchingAttributeList(signature, modifierStart);
+            if (close < 0)
+                return signature;
+            modifierStart = close + 1;
+            while (modifierStart < signature.Length && char.IsWhiteSpace(signature[modifierStart]))
+                modifierStart++;
+        }
+
+        if (signature.AsSpan(modifierStart).StartsWith("this ".AsSpan(), StringComparison.Ordinal))
             return signature;
 
-        return signature.Insert(firstParameterStart, "this ");
+        return signature.Insert(modifierStart, "this ");
+    }
+
+    static int MatchingAttributeList(string text, int start)
+    {
+        var depth = 0;
+        char quote = '\0';
+        bool escaped = false;
+        for (var i = start; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (quote != '\0')
+            {
+                if (escaped)
+                {
+                    escaped = false;
+                    continue;
+                }
+                if (c == '\\')
+                {
+                    escaped = true;
+                    continue;
+                }
+                if (c == quote)
+                    quote = '\0';
+                continue;
+            }
+
+            if (c is '\'' or '"')
+            {
+                quote = c;
+                continue;
+            }
+            if (c == '[')
+                depth++;
+            else if (c == ']' && --depth == 0)
+                return i;
+        }
+
+        return -1;
     }
 
     static string AbbreviateSignature(string signature)

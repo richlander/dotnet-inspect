@@ -344,18 +344,42 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryPipeline_CatalogHiddenSections_AreExactlyThePerformanceKinds()
+    public void LibraryPipeline_CatalogHiddenSections_ExcludeAllMembersIncludeFeeders()
     {
         var pipeline = LibrarySections.CreatePipeline();
 
         var hidden = pipeline.GetCatalogHiddenSections();
 
-        // Catalog-hidden sections (ListedInCatalog=false) are still registered/selectable, but must
-        // be exactly the kind-scoped performance sections whose entrypoint is the @Performance
-        // category. This keeps discovery-list suppression a single, general mechanism.
-        Assert.Equal(
-            PerformanceKinds.Sections.OrderBy(n => n, StringComparer.Ordinal).ToArray(),
-            hidden.OrderBy(n => n, StringComparer.Ordinal).ToArray());
+        // Curated catalog: the -D top level lists only @All members (default-rendered
+        // sections plus Noisy cheap-but-verbose opt-ins) and real category doors.
+        // Everything else is catalog-hidden: reached through a category door (@Performance,
+        // @Source, @Audit, ...), the computed @Hidden pole, or --schema — never the -D top level.
+
+        // @All members are never catalog-hidden.
+        foreach (var allMember in new[]
+                 {
+                     "Library Info", "Symbols", "Signals", "References", "Dependencies",
+                     "Async Methods", "Custom Attributes", "Extension Methods",
+                     "P/Invoke Methods", "Type Forwarders", "Union Types"
+                 })
+        {
+            Assert.DoesNotContain(allMember, hidden);
+        }
+
+        // Feeders (category-doored), the @Hidden pole, and coordinate sections ARE catalog-hidden.
+        foreach (var kind in PerformanceKinds.Sections)
+            Assert.Contains(kind, hidden);
+        foreach (var feeder in new[]
+                 {
+                     "Top Leverage", "Non-normalized Paths", "SourceLink Integrity",
+                     "Source Files", "SourceLink Availability", "SourceLink Missing Files",
+                     "Switches", "Member Context"
+                 })
+        {
+            Assert.Contains(feeder, hidden);
+        }
+
+        // Every catalog-hidden section is still registered and selectable by name.
         foreach (var name in hidden)
         {
             Assert.Contains(name, pipeline.AllSectionNames);
@@ -1050,8 +1074,11 @@ public class SectionPipelineTests
         };
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+        var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "P/Invoke Methods" });
 
-        Assert.Contains("P/Invoke Methods", effective);
+        Assert.DoesNotContain("P/Invoke Methods", effective);
+        Assert.Contains("P/Invoke Methods", selected);
     }
 
     [Fact]

@@ -313,6 +313,7 @@ internal static class MemberCodeProvider
                 IncludeDepsJsonAssets = false,
                 IncludeAspNetCoreSharedFramework = false,
                 PreferImplementationAssemblies = true,
+                AllowPlatformAssemblyVersionRollForward = true,
             });
             return Decompiler.Pipeline.MetadataSource.Open(dllPath, pdbPath, resolver);
         }

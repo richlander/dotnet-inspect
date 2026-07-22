@@ -8,6 +8,112 @@ There are three major aspects in play:
 - Filter (data to shave off / retain)
 - How to render the data
 
+## Section taxonomy
+
+Sections grew organically into a tangle of overlapping flags — `Info`,
+`ExplicitOnly`, `ListedInCatalog`, an inferred "verbose" annotation, plus
+`IsExpensive`, `ProbeEffectiveness`, and `Capabilities`. One boolean
+(`ExplicitOnly`) was made to stand for three unrelated reasons a section stays
+out of the default view (expensive, feeder, niche), and catalog visibility was
+computed inconsistently across mechanisms. This section defines the principled
+model that replaces that tangle.
+
+### One primitive: the category
+
+**Every section is rooted by at least one category.** There are no homeless
+sections. Categories are the universal organizing and discovery unit.
+
+Two categories are poles rather than ordinary groupings, because they serve a
+different function than a curated `@Performance`-style door:
+
+- **`@All`** — the visible pole. Its members are every section worth showing on
+  its own. `@All` owns the top-level discovery catalog: **`-D` lists exactly
+  `@All`'s members plus the names of every other *listed* category.**
+- **`@Hidden`** — the invisible pole, and the **computed complement** of `@All`.
+  A section falls into `@Hidden` exactly when no *listed* category surfaces it.
+  You never author `@Hidden` membership; it falls out. `@Hidden`'s own name is
+  not listed in `-D`; its members are reached only via `--schema`, discovery
+  (`-D @Hidden`), or an exact-name request (`-S "SourceLink Integrity"`).
+  `@Hidden` is **discovery-only**: it is not a render selector, so `-S @Hidden`
+  is rejected. This guarantees its footgun-expensive members (SourceLink
+  Integrity) can never be executed as a group — only by exact name or `-v:d`.
+
+`--schema` is the union: `@All ∪ @Hidden` = the full section graph.
+
+### Two per-section declarations
+
+A section declares only two things. Everything else (`-D` contents, catalog
+visibility, the old "verbose"/"opt-in" annotations) is computed.
+
+1. **Render tier** — when the section auto-renders without `-S`:
+   - `Default` — the hero document (`-v:m`).
+   - `Terse` — the fuller document (`-v:n`); effective and low-noise.
+   - `Noisy` — cheap and effective but low signal-to-noise (Async Methods,
+     Custom Attributes, Extension Methods). Never auto-renders in the `-v`
+     ladder; shown only by `-S @All` or explicit selection.
+2. **Cost bit** — `Cheap` or `Expensive` (with a `Network` refinement for the
+   inherent-network exception).
+
+`Effective` is not a declared axis — it is the existing `CanRender` render
+filter: an auto-selected section that would produce zero rows is suppressed.
+Expensive sections are not effectiveness-probed (see the cost gate below).
+
+### The render ladder
+
+| Selector | Shows |
+| --- | --- |
+| `-v:q` / `-v:m` | primary `Default` section(s) |
+| `-v:n` | all `Default` + `Terse` sections (the clean default document) |
+| `-S @All` | adds `Noisy` sections; excludes expensive/unbounded sections. Its `Default` members (Signals, Symbols) may warm the PDB and run a bounded SourceLink-signal audit. |
+| `-v:d` | the cost axis: `Terse` document **plus** executed `Expensive`/`Network` sections |
+
+`@All` owns the **noise** axis (adds noisy, excludes expensive/unbounded work).
+`-v:d` owns the **cost** axis (adds expensive/network work). They are orthogonal knobs.
+
+### Two orthogonal gates
+
+- **Cost is an execution gate, not a membership gate.** An `Expensive` section
+  may still be *rooted* in a listed category (so it is discoverable by drilling
+  `-D @Category`), but **discovery never runs it**: `-D @Category`, `@All`, and
+  `-v:n` list it structurally and never execute it. It runs only via explicit
+  render selection (`-S <name>`, or `-S @Category` when the section is a member)
+  or `-v:d`. Because `-S @Category` is explicit selection, it executes its
+  members like exact names — so no render-selectable category may root an
+  *unbounded* member. SourceLink Integrity is the canonical unbounded case: it
+  is rooted only in `@Hidden`, which is **discovery-only** (`-S @Hidden` is
+  rejected), so it can never be executed as a group.
+- **Category listed/unlisted is the discovery gate.** A listed category's name
+  appears in `-D` as a door. `@Hidden` is unlisted, so its members are
+  `--schema`-only.
+
+### Invariants
+
+- **Discovery** of any `@category` (`-D @Category`) is always cheap: it lists
+  member names and never executes them. `--count` and `-S @Category` are *render
+  selection*, not discovery — they execute the selected members like exact names.
+- No **render-selectable** category (`@All`, `@Source`, `@Performance`,
+  `@Surface`, `@Resources`, `@Audit`) roots an *unbounded* member. The one
+  unbounded standalone section, SourceLink Integrity, is rooted only in the
+  **discovery-only** `@Hidden` pole.
+- `-D` = `@All` members + listed category names. Computed, never hand-flagged.
+- Every section is category-rooted; `@Hidden` is the catch-all for niche and
+  footgun-expensive standalone sections, and is discovery-only (not a render selector).
+- `@All` excludes expensive sections and feeders; its `Default` members (Signals,
+  Symbols) may perform bounded PDB warming and a SourceLink-signal audit, so
+  `-S @All` is bounded (no source-content download, no integrity fan-out) rather
+  than strictly network-free.
+
+### How the dimensions map
+
+| Section kind | Render tier | Cost | Category root |
+| --- | --- | --- | --- |
+| Hero (Signals, Symbols) | Default | cheap | `@All` |
+| Structural (Dependencies, References) | Terse | cheap | `@All` |
+| Noisy (Async / Custom Attributes / Extension Methods) | Noisy | cheap | `@All` + `@Surface` |
+| Feeder (Allocation Context) | — (opt-in) | cheap | `@Performance` / `@Audit` (listed door, not `@All`) |
+| Niche (Non-normalized Paths) | — (opt-in) | cheap | `@Hidden` |
+| Expensive (SourceLink Integrity, Vulnerabilities) | — (opt-in) | expensive | `@Hidden` or a listed door (listed, never auto-run) |
+
 ## Query paths
 
 There are three query paths, each offering a different level of curation and customization:

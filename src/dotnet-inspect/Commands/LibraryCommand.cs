@@ -50,7 +50,9 @@ public class LibraryCommand
                     verbosity: (int)options.Verbosity,
                     sectionCostAnnotations: pipeline.GetCostAnnotations(),
                     sectionCategories: pipeline.GetCategoryMap(),
-                    catalogHiddenSections: pipeline.GetCatalogHiddenSections());
+                    // --schema reveals the full catalog including the @Hidden pole; a static -D
+                    // without --schema keeps the curated top-level view.
+                    catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections());
             }
         }
 
@@ -68,6 +70,12 @@ public class LibraryCommand
             return 1;
         }
         options = normalized.Options;
+
+        // @Hidden is a discovery-only pole: it lists via -D @Hidden / --schema and its members
+        // render by exact name, but it is not a render selector. This keeps -S from fanning out to
+        // the unbounded SourceLink Integrity check (and other @Hidden members) as a group.
+        if (RejectHiddenRenderSelector(options.Select))
+            return 1;
 
         // -S/--select with values: resolve as section filter for backpressure
         var selectResult = SelectResolver.ResolveSelectAsSections(
@@ -668,6 +676,35 @@ public class LibraryCommand
             ILOffsetParameter = ilOffset,
             Select = select.Count == 0 ? null : [.. select]
         }, null);
+    }
+
+    // Catalog-hidden set for the effective (real-assembly) -D flows. IL-offset
+    // coordinate sections are excluded so they remain discoverable at the -D top
+    // level exactly when a coordinate makes them applicable (FilterEffective drops
+    // them otherwise); they stay grouped under @Hidden for --schema / -S.
+    private static IReadOnlySet<string> EffectiveCatalogHidden(SectionPipeline<LibraryInspection> pipeline)
+    {
+        var hidden = pipeline.GetCatalogHiddenSections()
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        hidden.ExceptWith(ILCoordinateSections);
+        return hidden;
+    }
+
+    // @Hidden is a discovery-only pole: it lists via -D @Hidden / --schema and its members
+    // render by exact name, but it is not a render selector. Rejecting -S @Hidden keeps render
+    // selection from fanning out to the unbounded SourceLink Integrity check (and other @Hidden
+    // members) as a group. Shared with the package embedded-library render path, which resolves
+    // -S against the same curated LibrarySections pipeline.
+    internal static bool RejectHiddenRenderSelector(string[]? select)
+    {
+        if (select is { Length: > 0 }
+            && select.Any(v => v.Equals(SectionPipeline<LibraryInspection>.HiddenCategory, StringComparison.OrdinalIgnoreCase)))
+        {
+            Console.Error.WriteLine("Error: @Hidden is discovery-only. List it with -D @Hidden or --schema, and render its members by exact name (for example -S \"SourceLink Integrity\").");
+            return true;
+        }
+
+        return false;
     }
 
     private static readonly string[] ILCoordinateSections =
@@ -1281,7 +1318,7 @@ public class LibraryCommand
             verbosity: (int)userVerbosity, rootLabel: rootLabel, fullSchema: schemaMap,
             sectionCostAnnotations: pipeline.GetCostAnnotations(),
             sectionCategories: pipeline.GetCategoryMap(),
-            catalogHiddenSections: pipeline.GetCatalogHiddenSections());
+            catalogHiddenSections: EffectiveCatalogHidden(pipeline));
     }
 
     // ── Effective sections cache ──
@@ -1353,7 +1390,7 @@ public class LibraryCommand
             verbosity: (int)userVerbosity, rootLabel: rootLabel,
             sectionCostAnnotations: LibrarySections.CreatePipeline().GetCostAnnotations(),
             sectionCategories: LibrarySections.CreatePipeline().GetCategoryMap(),
-            catalogHiddenSections: LibrarySections.CreatePipeline().GetCatalogHiddenSections());
+            catalogHiddenSections: EffectiveCatalogHidden(LibrarySections.CreatePipeline()));
     }
 
     /// <summary>

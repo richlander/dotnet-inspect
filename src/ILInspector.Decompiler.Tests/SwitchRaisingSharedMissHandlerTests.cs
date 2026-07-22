@@ -10,6 +10,7 @@ namespace ILInspector.Decompiler.Tests;
 // required literal equality between a case's exits, so a case whose two exits
 // were the miss-handler and the return it falls into (not the same block)
 // failed to unify and the whole table was left flat as an if-ladder.
+[Trait("Area", "Pass")]
 public class SwitchRaisingSharedMissHandlerTests
 {
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
@@ -66,13 +67,14 @@ public class SwitchRaisingSharedMissHandlerTests
 
     // The same shape, but reached through the string-equality-chain raiser
     // (RaiseStringEqualityChain -> FinishSwitchRaise) rather than the IL
-    // `switch` opcode raiser (Raise): FinishSwitchRaise has its own,
-    // independently-tiled Unify and must recognize the shared-miss-handler
-    // chain too, not just Raise's.
-    [Fact]
-    public void StringEqualityChainWithSharedMissHandler_StillRaisesToSwitch()
+    // `switch` opcode raiser (Raise). Both entry paths must preserve the shared
+    // region helper's one-hop and multi-hop exit-chain behavior.
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void StringEqualityChainWithSharedMissHandler_StillRaisesToSwitch(int chainLength)
     {
-        var function = BuildStringEqualityChainWithSharedMissHandler();
+        var function = BuildStringEqualityChainWithSharedMissHandler(chainLength);
 
         new SwitchRaisingPass().Run(function, PassContext.None);
         function.CheckInvariant();
@@ -81,6 +83,31 @@ public class SwitchRaisingSharedMissHandlerTests
         Assert.Equal(2, node.Sections.Count);
         Assert.DoesNotContain(node.Sections, s => s.IsDefault);
         Assert.Single(function.Descendants.OfType<Return>());
+
+        if (chainLength >= 2)
+        {
+            var output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
+            Assert.Contains("V_0 = -1;\nV_1 = 0;\nIL_0070:\nreturn V_0;", output);
+            Assert.Equal(2, output.Split("V_1 = 0;", StringSplitOptions.None).Length);
+        }
+    }
+
+    [Fact]
+    public void IlSwitch_MissHandlerChainCrossingCaseEntry_RemainsFlat()
+        => AssertMissHandlerChainCrossingCaseEntryRemainsFlat(
+            BuildTwoCaseSwitchWithSharedMissHandler(missCrossesCaseEntry: true));
+
+    [Fact]
+    public void StringEqualityChain_MissHandlerChainCrossingCaseEntry_RemainsFlat()
+        => AssertMissHandlerChainCrossingCaseEntryRemainsFlat(
+            BuildStringEqualityChainWithSharedMissHandler(missCrossesCaseEntry: true));
+
+    static void AssertMissHandlerChainCrossingCaseEntryRemainsFlat(IrFunction function)
+    {
+        new SwitchRaisingPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<Switch>());
     }
 
     // A longer transparent chain between the miss-handler and the join (two
@@ -113,7 +140,9 @@ public class SwitchRaisingSharedMissHandlerTests
     // miss-handler falls straight into the join; 2 inserts one extra
     // transparent pass-through block, exercising ChasesTo over a multi-hop
     // chain rather than a single hop.
-    static IrFunction BuildTwoCaseSwitchWithSharedMissHandler(int chainLength = 1)
+    static IrFunction BuildTwoCaseSwitchWithSharedMissHandler(
+        int chainLength = 1,
+        bool missCrossesCaseEntry = false)
     {
         var body = new BlockContainer();
 
@@ -141,20 +170,28 @@ public class SwitchRaisingSharedMissHandlerTests
         body.Add(case0Leaf);
 
         var case1 = new Block(0x20);
-        case1.Add(new ConditionalBranch(IntEqual(1, "k", 9), targetOffset: 0x28));
+        if (missCrossesCaseEntry)
+            case1.Add(new Branch(joinOffset));
+        else
+            case1.Add(new ConditionalBranch(IntEqual(1, "k", 9), targetOffset: 0x28));
         body.Add(case1);
 
-        var case1Miss = new Block(0x24);
-        case1Miss.Add(new Branch(0x30));
-        body.Add(case1Miss);
+        if (!missCrossesCaseEntry)
+        {
+            var case1Miss = new Block(0x24);
+            case1Miss.Add(new Branch(0x30));
+            body.Add(case1Miss);
 
-        var case1Leaf = new Block(0x28);
-        case1Leaf.Add(new StoreLocal(0, s_int, new Constant(200, s_int)));
-        case1Leaf.Add(new Branch(joinOffset));
-        body.Add(case1Leaf);
+            var case1Leaf = new Block(0x28);
+            case1Leaf.Add(new StoreLocal(0, s_int, new Constant(200, s_int)));
+            case1Leaf.Add(new Branch(joinOffset));
+            body.Add(case1Leaf);
+        }
 
         var sharedMiss = new Block(0x30);
         sharedMiss.Add(new StoreLocal(0, s_int, new Constant(-1, s_int)));   // falls through
+        if (missCrossesCaseEntry)
+            sharedMiss.Add(new Branch(0x20));
         body.Add(sharedMiss);
 
         if (chainLength >= 2)
@@ -183,10 +220,11 @@ public class SwitchRaisingSharedMissHandlerTests
     // bodies each have a case-local "no match" arm chaining into one shared
     // miss-handler that falls through into the method's single return, and a
     // matching arm that jumps straight to that return, skipping the
-    // miss-handler. FinishSwitchRaise ties its own separate Unify/tiling
-    // logic, mirroring Raise's, so it must recognize the same chained-exit
-    // shape independently.
-    static IrFunction BuildStringEqualityChainWithSharedMissHandler()
+    // miss-handler. This drives the same shared region logic through
+    // FinishSwitchRaise rather than Raise.
+    static IrFunction BuildStringEqualityChainWithSharedMissHandler(
+        int chainLength = 1,
+        bool missCrossesCaseEntry = false)
     {
         var body = new BlockContainer();
         var eq = new MethodRef(s_string, "op_Equality", s_bool, [s_string, s_string], HasThis: false);
@@ -219,21 +257,36 @@ public class SwitchRaisingSharedMissHandlerTests
         body.Add(caseALeaf);
 
         var caseB = new Block(0x50);
-        caseB.Add(new ConditionalBranch(IntEqual(1, "k", 2), targetOffset: 0x58));
+        if (missCrossesCaseEntry)
+            caseB.Add(new Branch(0x70));
+        else
+            caseB.Add(new ConditionalBranch(IntEqual(1, "k", 2), targetOffset: 0x58));
         body.Add(caseB);
 
-        var caseBMiss = new Block(0x54);
-        caseBMiss.Add(new Branch(0x60));
-        body.Add(caseBMiss);
+        if (!missCrossesCaseEntry)
+        {
+            var caseBMiss = new Block(0x54);
+            caseBMiss.Add(new Branch(0x60));
+            body.Add(caseBMiss);
 
-        var caseBLeaf = new Block(0x58);
-        caseBLeaf.Add(new StoreLocal(0, s_int, new Constant(2, s_int)));
-        caseBLeaf.Add(new Branch(0x70));
-        body.Add(caseBLeaf);
+            var caseBLeaf = new Block(0x58);
+            caseBLeaf.Add(new StoreLocal(0, s_int, new Constant(2, s_int)));
+            caseBLeaf.Add(new Branch(0x70));
+            body.Add(caseBLeaf);
+        }
 
         var sharedMiss = new Block(0x60);
         sharedMiss.Add(new StoreLocal(0, s_int, new Constant(-1, s_int)));   // falls through into the join
+        if (missCrossesCaseEntry)
+            sharedMiss.Add(new Branch(0x50));
         body.Add(sharedMiss);
+
+        if (chainLength >= 2)
+        {
+            var passThrough = new Block(0x68);
+            passThrough.Add(new StoreLocal(1, s_int, new Constant(0, s_int)));
+            body.Add(passThrough);
+        }
 
         var join = new Block(0x70);
         join.Add(new Return(new LoadLocal(0, s_int)));
@@ -243,7 +296,7 @@ public class SwitchRaisingSharedMissHandlerTests
             "M",
             TypeRef.Definition("Synthetic", "", "T"),
             new MethodSignature(s_int, [new Parameter("s", s_string), new Parameter("k", s_int)], HasThis: false, GenericParameterCount: 0),
-            [s_int],
+            chainLength >= 2 ? [s_int, s_int] : [s_int],
             body);
     }
 }

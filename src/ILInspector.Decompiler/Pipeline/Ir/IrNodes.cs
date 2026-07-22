@@ -2073,6 +2073,94 @@ public sealed class DeconstructionAssignment : IrNode
     }
 }
 
+/// <summary>The kind of lvalue a <see cref="ChainedAssignmentTarget"/> writes.</summary>
+public enum ChainedAssignmentTargetKind
+{
+    /// <summary>A static property setter (<c>Type.Name = …</c>).</summary>
+    StaticProperty,
+
+    /// <summary>A static field (<c>Type.Name = …</c>).</summary>
+    StaticField,
+}
+
+/// <summary>
+/// One lvalue of a raised chained assignment (<c>A = B = C = value</c>). The
+/// first slice covers receiver-free targets — static properties and static
+/// fields — where the dup'd value is written directly with no receiver or index
+/// to re-evaluate. Payload only (no child expressions), so the enclosing
+/// <see cref="ChainedAssignment"/> carries a single value child.
+/// </summary>
+public sealed record ChainedAssignmentTarget
+{
+    ChainedAssignmentTarget(ChainedAssignmentTargetKind kind, TypeRef targetType)
+    {
+        Kind = kind;
+        TargetType = targetType;
+    }
+
+    public static ChainedAssignmentTarget StaticProperty(MethodRef accessor, bool isVirtual)
+        => new(ChainedAssignmentTargetKind.StaticProperty, accessor.ParameterTypes[^1])
+        {
+            Accessor = accessor,
+            IsVirtual = isVirtual,
+        };
+
+    public static ChainedAssignmentTarget StaticField(FieldRef field)
+        => new(ChainedAssignmentTargetKind.StaticField, field.Type)
+        {
+            Field = field,
+        };
+
+    public ChainedAssignmentTargetKind Kind { get; }
+
+    /// <summary>The lvalue's type — the setter parameter type or the field type.</summary>
+    public TypeRef TargetType { get; }
+    public MethodRef? Accessor { get; private init; }
+    public bool IsVirtual { get; private init; }
+    public FieldRef? Field { get; private init; }
+    public string PropertyName => Accessor?.Name["set_".Length..] ?? "";
+
+    public IEnumerable<TypeRef> DirectTypes => Kind switch
+    {
+        ChainedAssignmentTargetKind.StaticProperty => Accessor!.ParameterTypes.Append(Accessor.DeclaringType),
+        ChainedAssignmentTargetKind.StaticField => [Field!.DeclaringType, Field.Type],
+        _ => [TargetType],
+    };
+}
+
+/// <summary>
+/// A raised C# chained (embedded) assignment: <c>A = B = C = value;</c>. The
+/// compiler lowers the chain to a dup-of-value idiom — the rvalue is evaluated
+/// once and <c>dup</c>'d to each successive sink, right to left — so the
+/// importer sees a run of independent stores of the same slot-carried value.
+/// <see cref="ChainedAssignmentPass"/> recomposes that run, keying on the shared
+/// dup slot (real evidence, not equal-value coincidence, so genuinely separate
+/// statements <c>A = v; B = v;</c> are never collapsed). <see cref="Targets"/>
+/// are in source order (outermost first); the single value child is the rvalue,
+/// typed at the innermost (rightmost) target so a bool/char/enum literal is
+/// recovered there and the outer assignments' implicit conversions stay implicit.
+/// </summary>
+public sealed class ChainedAssignment : IrNode
+{
+    public ChainedAssignment(IReadOnlyList<ChainedAssignmentTarget> targets, IrExpression value)
+    {
+        Targets = [.. targets];
+        AddChild(value);
+    }
+
+    /// <summary>Targets in source order (<c>A</c>, then <c>B</c>, then <c>C</c> for <c>A = B = C = v</c>).</summary>
+    public ImmutableArray<ChainedAssignmentTarget> Targets { get; }
+
+    public IrExpression Value => (IrExpression)Children[0];
+
+    /// <summary>The rightmost (innermost) target's type — the type the shared value flows into first.</summary>
+    public TypeRef InnermostTargetType => Targets[^1].TargetType;
+
+    public override IEnumerable<TypeRef> DirectTypes => Targets.SelectMany(target => target.DirectTypes);
+
+    public override string Describe() => $"ChainedAssignment ({Targets.Length} targets)";
+}
+
 /// <summary>
 /// A raised C# object or collection initializer, produced by
 /// <see cref="ObjectInitializerPass"/> from the compiler's lowering of
