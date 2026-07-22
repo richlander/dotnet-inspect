@@ -1424,10 +1424,25 @@ internal static class CSharpDeclarationWriter
         while (firstParameterStart < signature.Length && char.IsWhiteSpace(signature[firstParameterStart]))
             firstParameterStart++;
 
-        if (signature.AsSpan(firstParameterStart).StartsWith("this ".AsSpan(), StringComparison.Ordinal))
+        // Parameter attributes precede the extension receiver modifier in C#:
+        // [NotNull] this string value. The structured signature renderer has
+        // already attached those attributes, so insert `this` after every
+        // leading attribute list rather than at the raw parameter start.
+        var modifierStart = firstParameterStart;
+        while (modifierStart < signature.Length && signature[modifierStart] == '[')
+        {
+            var close = Matching(signature, modifierStart, '[', ']');
+            if (close < 0)
+                return signature;
+            modifierStart = close + 1;
+            while (modifierStart < signature.Length && char.IsWhiteSpace(signature[modifierStart]))
+                modifierStart++;
+        }
+
+        if (signature.AsSpan(modifierStart).StartsWith("this ".AsSpan(), StringComparison.Ordinal))
             return signature;
 
-        return signature.Insert(firstParameterStart, "this ");
+        return signature.Insert(modifierStart, "this ");
     }
 
     static string AbbreviateSignature(string signature)
