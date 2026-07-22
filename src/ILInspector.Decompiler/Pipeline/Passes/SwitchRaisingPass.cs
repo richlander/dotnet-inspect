@@ -104,25 +104,13 @@ public sealed class SwitchRaisingPass : IIrPass
         var owned = new HashSet<int>();
         int? join = null;
 
-        // See TryUnify's doc comment for the exit-unification rule (shared with
-        // FinishSwitchRaise's identical need below).
-        bool Unify(int j) => TryUnify(blocks, caseTargets, offsetToIndex, owned, ref join, j);
-
         // Each distinct case target grows into its single-entry region; the
         // region's exits unify to the shared join (or it terminates).
         var regions = new Dictionary<int, List<int>>();
         foreach (int target in caseTargets.Distinct())
-        {
-            if (!GrowRegion(blocks, target, s, offsetToIndex, preds, out var region, out var exits))
+            if (!TryAddOwnedRegion(blocks, target, s, caseTargets, offsetToIndex,
+                    preds, regions, owned, ref join))
                 return false;
-            if (owned.Overlaps(region))
-                return false;
-            foreach (int e in exits)
-                if (!Unify(e))
-                    return false;
-            regions[target] = region;
-            owned.UnionWith(region);
-        }
 
         // The default: a bare dispatch to a separate body laid out after the
         // cases, a bare jump to the join (omitted), an inline section, or — when
@@ -157,16 +145,10 @@ public sealed class SwitchRaisingPass : IIrPass
             else if (!isCase)
             {
                 // A separate default body laid out after the cases.
-                if (!GrowRegion(blocks, dt, s, offsetToIndex, preds, out var region, out var exits))
+                if (!TryAddOwnedRegion(blocks, dt, s, caseTargets, offsetToIndex,
+                        preds, regions, owned, ref join))
                     return false;
-                if (owned.Overlaps(region))
-                    return false;
-                foreach (int e in exits)
-                    if (!Unify(e))
-                        return false;
                 owned.Add(defaultIndex);
-                owned.UnionWith(region);
-                regions[dt] = region;
                 defaultBodyHead = dt;
             }
             else
@@ -177,28 +159,17 @@ public sealed class SwitchRaisingPass : IIrPass
         else
         {
             // An inline default section beginning right after the switch.
-            if (!GrowRegion(blocks, defaultIndex, s, offsetToIndex, preds, out var region, out var exits))
+            if (!TryAddOwnedRegion(blocks, defaultIndex, s, caseTargets, offsetToIndex,
+                    preds, regions, owned, ref join))
                 return false;
-            if (owned.Overlaps(region))
-                return false;
-            foreach (int e in exits)
-                if (!Unify(e))
-                    return false;
-            owned.UnionWith(region);
-            regions[defaultIndex] = region;
             defaultBodyHead = defaultIndex;
         }
 
         // The owned blocks must tile the contiguous span [s+1, regionEnd): the
         // join (if any) lies just past them, and no foreign block is interleaved.
         int regionEnd = join ?? owned.Max() + 1;
-        if (join is { } j2 && (j2 <= s || owned.Contains(j2)))
+        if (!OwnsTiledRegion(owned, defaultIndex, join, regionEnd))
             return false;
-        if (owned.Count != regionEnd - defaultIndex)
-            return false;
-        foreach (int idx in owned)
-            if (idx < defaultIndex || idx >= regionEnd)
-                return false;
 
         // Every section escapes to the join only through an unconditional branch,
         // a fall-through, or a terminator — never a conditional/switch (which
@@ -589,6 +560,45 @@ public sealed class SwitchRaisingPass : IIrPass
                 Add(idx, t);
         }
         return preds;
+    }
+
+    static bool TryAddOwnedRegion(
+        IReadOnlyList<Block> blocks,
+        int head,
+        int dispatchBoundary,
+        int[] caseTargets,
+        Dictionary<int, int> offsetToIndex,
+        Dictionary<int, List<int>> predecessors,
+        Dictionary<int, List<int>> regions,
+        HashSet<int> owned,
+        ref int? join)
+    {
+        if (!GrowRegion(blocks, head, dispatchBoundary, offsetToIndex, predecessors, out var region, out var exits))
+            return false;
+        if (owned.Overlaps(region))
+            return false;
+        int? originalJoin = join;
+        foreach (int exit in exits)
+            if (!TryUnify(blocks, caseTargets, offsetToIndex, owned, ref join, exit))
+            {
+                join = originalJoin;
+                return false;
+            }
+        regions[head] = region;
+        owned.UnionWith(region);
+        return true;
+    }
+
+    static bool OwnsTiledRegion(HashSet<int> owned, int firstBody, int? join, int regionEnd)
+    {
+        if (join is { } j && (j < firstBody || owned.Contains(j)))
+            return false;
+        if (owned.Count != regionEnd - firstBody)
+            return false;
+        foreach (int index in owned)
+            if (index < firstBody || index >= regionEnd)
+                return false;
+        return true;
     }
 
     /// <summary>
@@ -1214,26 +1224,12 @@ public sealed class SwitchRaisingPass : IIrPass
 
         var owned = new HashSet<int>();
         int? join = null;
-
-        // Uses the same exit-unification rule as Raise (see TryUnify's doc
-        // comment) — this is the fix for issue #2954/#2971: FinishSwitchRaise
-        // ties its own region-growing/tiling logic and previously had a
-        // separately-drifted copy of this decision.
-        bool Unify(int j) => TryUnify(blocks, caseTargets, offsetToIndex, owned, ref join, j);
         var regions = new Dictionary<int, List<int>>();
 
         foreach (int target in caseTargets.Distinct())
-        {
-            if (!GrowRegion(blocks, target, dispatchEnd, offsetToIndex, preds, out var region, out var exits))
+            if (!TryAddOwnedRegion(blocks, target, dispatchEnd, caseTargets, offsetToIndex,
+                    preds, regions, owned, ref join))
                 return false;
-            if (owned.Overlaps(region))
-                return false;
-            foreach (int e in exits)
-                if (!Unify(e))
-                    return false;
-            regions[target] = region;
-            owned.UnionWith(region);
-        }
 
         int? defaultBodyHead = null;
         int? defaultSharesTarget = null;
@@ -1248,28 +1244,17 @@ public sealed class SwitchRaisingPass : IIrPass
         }
         else
         {
-            if (!GrowRegion(blocks, defaultIndex, dispatchEnd, offsetToIndex, preds, out var region, out var exits))
+            if (!TryAddOwnedRegion(blocks, defaultIndex, dispatchEnd, caseTargets, offsetToIndex,
+                    preds, regions, owned, ref join))
                 return false;
-            if (owned.Overlaps(region))
-                return false;
-            foreach (int e in exits)
-                if (!Unify(e))
-                    return false;
-            owned.UnionWith(region);
-            regions[defaultIndex] = region;
             defaultBodyHead = defaultIndex;
         }
 
         // The body blocks must tile the contiguous span [dispatchEnd+1, regionEnd).
         int regionEnd = join ?? (owned.Count == 0 ? dispatchEnd + 1 : owned.Max() + 1);
-        if (join is { } j2 && (j2 <= dispatchEnd || owned.Contains(j2)))
-            return false;
         int firstBody = dispatchEnd + 1;
-        if (owned.Count != regionEnd - firstBody)
+        if (!OwnsTiledRegion(owned, firstBody, join, regionEnd))
             return false;
-        foreach (int o in owned)
-            if (o < firstBody || o >= regionEnd)
-                return false;
 
         foreach (var region in regions.Values)
             if (!ExitsAreUnconditional(blocks, region, offsetToIndex))
