@@ -366,6 +366,29 @@ public sealed class DynamicTypeViewTests
         Assert.Equal(liveCanonical, rtCanonical);
     }
 
+    // --- Identity keyword-vs-typename boundary: normalize the `dynamic` keyword to
+    //     `object` but never corrupt a real type whose name merely contains dynamic,
+    //     including generic-arity (`dynamic`1`) and nested (`Outer+dynamic`) forms. ---
+
+    [Theory]
+    // Keyword positions must normalize to object:
+    [InlineData("dynamic", "object")]
+    [InlineData("List<dynamic>", "List<object>")]
+    [InlineData("dynamic[]", "object[]")]
+    [InlineData("Dictionary<dynamic,object>", "Dictionary<object,object>")]
+    [InlineData("Func<object,dynamic>", "Func<object,object>")]
+    // Real type names that merely contain/equal "dynamic" must be left untouched:
+    [InlineData("MyDynamicType", "MyDynamicType")]
+    [InlineData("System.Dynamic.ExpandoObject", "System.Dynamic.ExpandoObject")]
+    [InlineData("Ns.dynamic", "Ns.dynamic")]
+    [InlineData("dynamic`1<System.Int32>", "dynamic`1<System.Int32>")]
+    [InlineData("Outer+dynamic", "Outer+dynamic")]
+    [InlineData("Outer/dynamic", "Outer/dynamic")]
+    public void NormalizeDynamicToObject_KeywordOnly_SparesRealTypeNames(string input, string expected)
+    {
+        Assert.Equal(expected, ApiMemberIdentity.NormalizeDynamicToObject(input));
+    }
+
     // --- Marker-form flag must not broadcast into inner nodes ---
 
     [Fact]

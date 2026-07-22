@@ -550,7 +550,7 @@ public static class ApiMemberIdentity
     /// fingerprint stability for the ubiquitous keyword case outweighs a global type named
     /// after a contextual keyword.
     /// </summary>
-    static string NormalizeDynamicToObject(string value)
+    internal static string NormalizeDynamicToObject(string value)
     {
         const string token = "dynamic";
         if (value.IndexOf(token, StringComparison.Ordinal) < 0)
@@ -575,7 +575,8 @@ public static class ApiMemberIdentity
         }
         return builder.ToString();
 
-        static bool IsTypeNameChar(char c) => char.IsLetterOrDigit(c) || c == '_' || c == '.';
+        static bool IsTypeNameChar(char c) =>
+            char.IsLetterOrDigit(c) || c is '_' or '.' or '`' or '+' or '/';
     }
 
     // Preserve the v1 Member Index digest contract for members that already have

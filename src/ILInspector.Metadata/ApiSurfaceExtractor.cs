@@ -447,11 +447,16 @@ public static class ApiSurfaceExtractor
                         TypeNodeProvider.Instance,
                         GenericContext.ForType(reader, typeDef),
                         (TypeNode)new DegradedTypeNode());
-                    int eventPos = 0;
-                    eventNode.ApplyNullability(eventNullableBytes, ref eventPos, 0);
-                    eventPos = 0;
-                    eventNode.ApplyDynamic(eventDynamicFlags, ref eventPos);
-                    eventType = eventNode.Render();
+                    // Skip a rejected/degraded decode: its bare "object"/"dynamic" render
+                    // would obliterate the resolved eventType string computed above.
+                    if (!eventNode.IsDegraded)
+                    {
+                        int eventPos = 0;
+                        eventNode.ApplyNullability(eventNullableBytes, ref eventPos, 0);
+                        eventPos = 0;
+                        eventNode.ApplyDynamic(eventDynamicFlags, ref eventPos);
+                        eventType = eventNode.Render();
+                    }
                 }
                 var adderAttributes = adder.Attributes;
                 var isVirtualEvent = (adderAttributes & MethodAttributes.Virtual) != 0;
@@ -1404,6 +1409,11 @@ public static class ApiSurfaceExtractor
             TypeNodeProvider.Instance,
             context,
             (TypeNode)new DegradedTypeNode());
+        // A rejected/degraded TypeSpec renders as a bare "object"/"dynamic", which would
+        // obliterate the fully resolved string fallback. Keep failure visible: trust the
+        // string resolver rather than silently collapsing the type.
+        if (node.IsDegraded)
+            return fallback;
         int position = 0;
         node.ApplyDynamic(flags, ref position);
         return node.Render();
