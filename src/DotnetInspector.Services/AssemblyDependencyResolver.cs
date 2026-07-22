@@ -18,6 +18,7 @@ public enum AssemblyDependencyProvenance
     DepsJsonAsset,
     ProjectAsset,
     CorpusAssembly,
+    InstalledPlatformAssembly,
 }
 
 public sealed record ResolvedAssemblyDependency(
@@ -38,6 +39,7 @@ public sealed record AssemblyDependencyResolutionOptions(string TargetAssemblyPa
     public bool IncludeSiblingAssemblies { get; init; } = true;
     public bool IncludeDepsJsonAssets { get; init; } = true;
     public bool PreferImplementationAssemblies { get; init; }
+    public bool AllowPlatformAssemblyVersionRollForward { get; init; }
     public bool ExcludeTargetAssembly { get; init; }
 }
 
@@ -159,7 +161,9 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
                 && dependency.Provenance is not (AssemblyDependencyProvenance.TrustedPlatformAssembly or AssemblyDependencyProvenance.SharedFramework))
                 continue;
 
-            if (!MatchesIdentity(identity, dependency.Path))
+            bool allowVersionRollForward = scope == AssemblyResolutionScope.Platform
+                && _options.AllowPlatformAssemblyVersionRollForward;
+            if (!MatchesIdentity(identity, dependency.Path, allowVersionRollForward))
                 continue;
 
             return new ResolvedAssemblyReference(
@@ -169,10 +173,36 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
                 dependency.Provenance.ToString());
         }
 
+        // The target may reference an older platform contract than the running
+        // inspector, and TPA contains only assemblies in the tool's own closure.
+        // Resolve the remaining platform name from installed packs/runtimes.
+        // Decompiler callers may opt into platform roll-forward, which ignores
+        // the assembly version while retaining culture and public-key-token checks.
+        if (scope == AssemblyResolutionScope.Platform && PlatformResolver.IsPlatformCandidate(identity.Name))
+        {
+            var (path, framework, _, _) = PlatformResolver.ResolveAssembly(
+                identity.Name,
+                useRuntimeAssemblies: _options.PreferImplementationAssemblies);
+            if (path is not null && MatchesIdentity(
+                identity,
+                path,
+                _options.AllowPlatformAssemblyVersionRollForward))
+            {
+                return new ResolvedAssemblyReference(
+                    identity,
+                    path,
+                    () => File.OpenRead(path),
+                    $"{AssemblyDependencyProvenance.InstalledPlatformAssembly}:{framework}");
+            }
+        }
+
         return null;
     }
 
-    static bool MatchesIdentity(AssemblyReferenceIdentity expected, string path)
+    static bool MatchesIdentity(
+        AssemblyReferenceIdentity expected,
+        string path,
+        bool allowVersionRollForward = false)
     {
         if (expected.Version is null
             && string.IsNullOrEmpty(expected.Culture)
@@ -187,7 +217,9 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
 
         if (!actual.Name.Equals(expected.Name, StringComparison.OrdinalIgnoreCase))
             return false;
-        if (expected.Version is not null && actual.Version != expected.Version)
+        if (expected.Version is not null
+            && actual.Version != expected.Version
+            && (!allowVersionRollForward || actual.Version < expected.Version))
             return false;
         if (!CultureMatches(expected.Culture, actual.Culture))
             return false;
