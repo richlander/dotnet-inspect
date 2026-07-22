@@ -121,6 +121,22 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                     body.UsesUpdatedMemorySafetyRules,
                     body.SkipLocalsInit,
                     container));
+                // Merge the raised body's resolved type info into the enclosing
+                // function. The body was imported from a separate method, so the
+                // host never materialized shapes/enum members/underlying types/
+                // union types for definitions only this local function references.
+                // The metadata-free printer reads these off the enclosing function
+                // for every local-function print path — inline (expression-bodied
+                // or block) and the reconstructed nested scope — so without the
+                // merge an enum-typed constant used only inside the local function
+                // renders as a bare int (CS1503/CS0266) even though the host body
+                // spells the same value correctly (issue #2983). Outer entries win
+                // on collision: a definition the host already resolved keeps its
+                // authoritative shape.
+                function.TypeShapes = MergeMap(function.TypeShapes, body.TypeShapes);
+                function.EnumMembers = MergeMap(function.EnumMembers, body.EnumMembers);
+                function.EnumUnderlyingTypes = MergeMap(function.EnumUnderlyingTypes, body.EnumUnderlyingTypes);
+                function.UnionTypes = MergeSet(function.UnionTypes, body.UnionTypes);
                 environment?.Elide();
             }
         }
@@ -309,5 +325,26 @@ public sealed class LocalFunctionRaisingPass : IIrPass
         yield return node;
         foreach (var descendant in node.Descendants)
             yield return descendant;
+    }
+
+    static IReadOnlyDictionary<TKey, TValue> MergeMap<TKey, TValue>(
+        IReadOnlyDictionary<TKey, TValue> outer, IReadOnlyDictionary<TKey, TValue> inner)
+        where TKey : notnull
+    {
+        if (inner.Count == 0)
+            return outer;
+        var result = outer as ImmutableDictionary<TKey, TValue> ?? ImmutableDictionary.CreateRange(outer);
+        foreach (var (key, value) in inner)
+            if (!result.ContainsKey(key))
+                result = result.SetItem(key, value);
+        return result;
+    }
+
+    static IReadOnlySet<TypeRef> MergeSet(IReadOnlySet<TypeRef> outer, IReadOnlySet<TypeRef> inner)
+    {
+        if (inner.Count == 0)
+            return outer;
+        var result = outer as ImmutableHashSet<TypeRef> ?? ImmutableHashSet.CreateRange(outer);
+        return result.Union(inner);
     }
 }

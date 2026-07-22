@@ -2620,6 +2620,7 @@ public sealed class LocalFunctionStatement : IrNode
     public bool UsesUpdatedMemorySafetyRules { get; }
     public bool SkipLocalsInit { get; }
     public BlockContainer Body => (BlockContainer)Children[0];
+
     public override IEnumerable<TypeRef> DirectTypes => Parameters.Select(p => p.Type).Append(ReturnType);
 
     /// <summary>The single returned expression when the body is one block ending in a bare <c>return expr;</c>.</summary>

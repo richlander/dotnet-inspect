@@ -1464,6 +1464,15 @@ public sealed partial class CSharpPrinter
             LocalNames = localFunction.LocalNames,
             UsesUpdatedMemorySafetyRules = localFunction.UsesUpdatedMemorySafetyRules,
             SkipLocalsInit = localFunction.SkipLocalsInit,
+            // The nested scope is metadata-free like the enclosing one; carry the
+            // enclosing function's resolved type maps so an enum constant renders
+            // by member name, not a bare int (issue #2983). LocalFunctionRaisingPass
+            // merges each raised body's maps into the enclosing function, so these
+            // include the definitions this local function references.
+            TypeShapes = _function.TypeShapes,
+            EnumMembers = _function.EnumMembers,
+            EnumUnderlyingTypes = _function.EnumUnderlyingTypes,
+            UnionTypes = _function.UnionTypes,
         };
 
         string pad = new(' ', indent * 4);

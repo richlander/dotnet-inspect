@@ -50,6 +50,37 @@ public class LocalFunctionRaisingPassTests
     }
 
     [Fact]
+    public void NestedScopeLocalFunction_SpellsEnumConstantArgumentByMember()
+    {
+        // #2983: a local function with its own local prints through a freshly
+        // reconstructed IrFunction (a nested metadata-free scope). That scope must
+        // carry the raised body's enum member map, or the enum constant argument
+        // renders as a bare int (`TakesPriority(2)` — CS1503) even though the
+        // enclosing body spells the same value correctly.
+        string output = PrintRaised(nameof(CfgSampleClass.EnumArgInLocalFunctionWithLocal));
+
+        Assert.Contains("static int Classify(int v)", output);   // raised into a nested scope
+        Assert.Contains("TakesPriority(CfgPriority.High)", output);
+        Assert.DoesNotContain("TakesPriority(2)", output);       // never a bare int
+        Assert.DoesNotContain("g__", output);
+    }
+
+    [Fact]
+    public void InlineLocalFunction_SpellsEnumConstantArgumentByMember()
+    {
+        // #2983 (inline path): a local function with no locals or stack slots
+        // prints INLINE through the enclosing function's scope. The enum is
+        // referenced only inside the local function, so the raise must merge the
+        // imported body's resolved maps into the enclosing function, or the enum
+        // constant argument renders as a bare int (`TakesPriority(0)` — CS1503).
+        string output = PrintRaised(nameof(CfgSampleClass.EnumArgInInlineLocalFunction));
+
+        Assert.Contains("TakesPriority(CfgPriority.Low)", output);
+        Assert.DoesNotContain("TakesPriority(0)", output);       // never a bare int
+        Assert.DoesNotContain("g__", output);
+    }
+
+    [Fact]
     public void CapturingLocalFunctionCalledTwice_RecoversSingleDeclarationAcrossBothCalls()
     {
         string output = PrintRaised(nameof(CfgSampleClass.CapturingCalledTwice));
