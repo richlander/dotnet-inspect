@@ -1132,11 +1132,14 @@ public class ReturnToSenderFixtureCatalogTests
             namespace SourceProbe;
 
             [System.AttributeUsage(System.AttributeTargets.Parameter)]
-            public sealed class ReceiverAttribute : System.Attribute;
+            public sealed class ReceiverAttribute(string marker) : System.Attribute
+            {
+                public string Marker { get; } = marker;
+            }
 
             public static class StringExtensions
             {
-                public static int Measure([Receiver] this string value) => value.Length;
+                public static int Measure([Receiver("]")] this string value) => value.Length;
             }
 
             public class Class1

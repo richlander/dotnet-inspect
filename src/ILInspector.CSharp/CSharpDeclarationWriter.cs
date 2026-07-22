@@ -1431,7 +1431,7 @@ internal static class CSharpDeclarationWriter
         var modifierStart = firstParameterStart;
         while (modifierStart < signature.Length && signature[modifierStart] == '[')
         {
-            var close = Matching(signature, modifierStart, '[', ']');
+            var close = MatchingAttributeList(signature, modifierStart);
             if (close < 0)
                 return signature;
             modifierStart = close + 1;
@@ -1443,6 +1443,45 @@ internal static class CSharpDeclarationWriter
             return signature;
 
         return signature.Insert(modifierStart, "this ");
+    }
+
+    static int MatchingAttributeList(string text, int start)
+    {
+        var depth = 0;
+        char quote = '\0';
+        bool escaped = false;
+        for (var i = start; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (quote != '\0')
+            {
+                if (escaped)
+                {
+                    escaped = false;
+                    continue;
+                }
+                if (c == '\\')
+                {
+                    escaped = true;
+                    continue;
+                }
+                if (c == quote)
+                    quote = '\0';
+                continue;
+            }
+
+            if (c is '\'' or '"')
+            {
+                quote = c;
+                continue;
+            }
+            if (c == '[')
+                depth++;
+            else if (c == ']' && --depth == 0)
+                return i;
+        }
+
+        return -1;
     }
 
     static string AbbreviateSignature(string signature)
