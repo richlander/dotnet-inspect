@@ -54,6 +54,13 @@ internal static class MethodDefinitionFacts
     internal static bool HasExtensionAttribute(MetadataReader reader, MethodDefinition method)
         => HasAttribute(reader, method.GetCustomAttributes(), "System.Runtime.CompilerServices", "ExtensionAttribute");
 
+    // [OverloadResolutionPriority] (C# 13) reorders applicable candidates before
+    // betterness, so a differently-typed sibling can win a shortened call the
+    // callee would otherwise take. Callers that reason from leading-signature
+    // ties must decline when this attribute is in play.
+    internal static bool HasOverloadResolutionPriorityAttribute(MetadataReader reader, MethodDefinition method)
+        => HasAttribute(reader, method.GetCustomAttributes(), "System.Runtime.CompilerServices", "OverloadResolutionPriorityAttribute");
+
     internal static bool IsPInvoke(MethodDefinition method)
         => (method.Attributes & System.Reflection.MethodAttributes.PinvokeImpl) != 0;
 
