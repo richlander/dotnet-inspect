@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using DotnetInspector.Options;
+using DotnetInspector.Sections;
 using ILInspector.Analysis;
 using ILInspector.Findings;
 using ILInspector.Metadata;
@@ -329,10 +330,22 @@ public class LibraryInspection
     public List<MethodLeverageSummary>? TopLeverage { get; set; }
 
     /// <summary>
-    /// Safe, local optimization opportunities inferred from IL/body evidence.
+    /// Safe, local optimization opportunities inferred from IL/body evidence. Internal backing
+    /// for the kind-scoped performance sections and the nested <see cref="Performance"/> JSON
+    /// projection; not serialized directly (see <see cref="Performance"/>).
     /// </summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [JsonIgnore]
     public List<OptimizationOpportunitySummary>? OptimizationOpportunities { get; set; }
+
+    /// <summary>
+    /// Nested performance projection: the optimization opportunities bucketed by kind, mirroring
+    /// the kind-scoped sections and the il-offset nested model. Null (absent) when the scan did
+    /// not run; each kind array is absent when it has no findings.
+    /// </summary>
+    [JsonPropertyName("performance")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public PerformanceProjection? Performance =>
+        PerformanceProjection.FromOpportunities(OptimizationOpportunities);
 
     private FindingInspection<ResourceLifecycleOccurrence>?
         _resourceLifecycleInspection;
@@ -1028,6 +1041,79 @@ public record class OptimizationOpportunitySummary
     public long? OpaquePaths { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Saturated { get; init; }
+}
+
+/// <summary>
+/// Nested performance projection: the optimization opportunities bucketed by kind, one array per
+/// kind-scoped section. Mirrors the il-offset nested model — each kind is absent (null) when it
+/// has no findings, so a consumer selecting the <c>@Performance</c> group receives exactly the
+/// kinds that were found.
+/// </summary>
+public sealed class PerformanceProjection
+{
+    [JsonPropertyName("boxing")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<OptimizationOpportunitySummary>? Boxing { get; set; }
+
+    [JsonPropertyName("arrays")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<OptimizationOpportunitySummary>? Arrays { get; set; }
+
+    [JsonPropertyName("closures_and_delegates")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<OptimizationOpportunitySummary>? ClosuresAndDelegates { get; set; }
+
+    [JsonPropertyName("enumerators")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<OptimizationOpportunitySummary>? Enumerators { get; set; }
+
+    [JsonPropertyName("loop_hot_paths")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<OptimizationOpportunitySummary>? LoopHotPaths { get; set; }
+
+    [JsonPropertyName("allocation_hotspots")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<OptimizationOpportunitySummary>? AllocationHotspots { get; set; }
+
+    [JsonPropertyName("async")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<OptimizationOpportunitySummary>? Async { get; set; }
+
+    [JsonPropertyName("other")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<OptimizationOpportunitySummary>? Other { get; set; }
+
+    /// <summary>
+    /// Buckets a flat opportunity list into the nested projection. Returns null (absent) when the
+    /// list is null or empty. Preserves the scanner's pre-ordering within each bucket.
+    /// </summary>
+    public static PerformanceProjection? FromOpportunities(
+        List<OptimizationOpportunitySummary>? opportunities)
+    {
+        if (opportunities is not { Count: > 0 })
+        {
+            return null;
+        }
+
+        var projection = new PerformanceProjection();
+        foreach (var opportunity in opportunities)
+        {
+            var bucket = PerformanceKinds.SectionForShape(opportunity.Shape) switch
+            {
+                SectionNames.PerformanceBoxing => projection.Boxing ??= [],
+                SectionNames.PerformanceArrays => projection.Arrays ??= [],
+                SectionNames.PerformanceClosures => projection.ClosuresAndDelegates ??= [],
+                SectionNames.PerformanceEnumerators => projection.Enumerators ??= [],
+                SectionNames.PerformanceLoops => projection.LoopHotPaths ??= [],
+                SectionNames.PerformanceHotspots => projection.AllocationHotspots ??= [],
+                SectionNames.PerformanceAsync => projection.Async ??= [],
+                _ => projection.Other ??= [],
+            };
+            bucket.Add(opportunity);
+        }
+
+        return projection;
+    }
 }
 
 /// <summary>

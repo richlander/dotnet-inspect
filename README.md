@@ -113,7 +113,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified authored Source evidence. |
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. Add `--project` to search project-referenced packages. |
 | Source mapping | `type`/`library`/`package -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, source fetching, URL verification, token+IL-offset to source-line resolution. |
-| Performance analysis *(experimental)* | `library`/`type`/`member -S "Top Leverage"`, `"Performance Triage"`, `"Resource Triage"`, `"Call Graph"`, `"Caller Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally), actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
+| Performance analysis *(experimental)* | `library -S @Performance` (kind sections: `"Performance: Boxing"`, `"Performance: Arrays"`, …), `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"`, `"Caller Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally), actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member -S "Fidelity Causes"` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--plaintext`, `--json`, Mermaid diagrams, section/field projection, `--count`, table row limiting, built-in head/tail limiting. |
 
@@ -190,29 +190,50 @@ names, and signal sets may change between releases.
 The whole-assembly call-graph analyzer ranks the members worth optimizing or
 hardening first. Select `Top Leverage` to rank members by direct callers,
 `Root Reach` (distinct entry points that transitively reach a member), fanout,
-depth, and loop calls; `Performance Triage` surfaces the highest-value
-allocation pay-dirt first — ranking in-loop (hot) and high-confidence
-opportunities ahead of raw leverage — across actionable rewrite shapes (small
-non-escaping arrays, temporary or span-to-array copies, capturing and instance
-method-group delegates, async state-machine setup, loop-invariant
-materialization, and value-type boxing) plus `allocation-hotspot` rows
-for methods that allocate heavily without matching a specific shape. Allocation
-rows also carry `Weight`, a coarse size x multiplicity x reach static prior that
-you can query or sort when choosing pre-profile instrumentation targets. Exact
-allocation and call-site rows also retain a `Candidate` id, their native
-`Finding` descriptor, `Provenance=exact`, `Operation`, and metadata `Token`.
-Aggregate rows are marked `Provenance=aggregate`; `unmatched` identifies an
-instruction-level row that could not be joined to a producer occurrence. Those fields let trace
-and version-diff tooling join a triage row to `analysis.allocation` or
-`analysis.call-site` evidence without parsing `Evidence` prose. Use
-`--top`, `--loop`, `--min-confidence`, and `--triage-shape` to ask the tool for
-the curated pay-dirt rows directly instead of post-processing. `--top` limits
-the ranked data before rendering; `-n N --rows` remains a renderer cap and is
-applied afterward if both are supplied. Drill candidates with `Call Graph`
-(bounded outbound tree) and `Caller Graph` (bounded reverse tree to entry
-points), and project per-node cost with `--fields`. Ranking rows carry a
-copyable `Stable` selector, `Visibility`, and `Selector`; add `--all` to drill
-non-public members.
+depth, and loop calls. At `library` scope the performance findings are surfaced
+as a curated group of kind-scoped sections — `Performance: Boxing`,
+`Performance: Arrays`, `Performance: Closures and delegates`,
+`Performance: Enumerators`, `Performance: Loop hot paths`,
+`Performance: Allocation hotspots`, and `Performance: Async` — that you can
+request individually (`-S "Performance: Boxing"`) or as a group (`-S
+@Performance`, also reachable via the legacy name `-S Performance`). The
+kind sections are catalog-hidden: they do not appear in the top-level
+`-D`/`-D --schema` discovery catalog, which lists the `@Performance` category
+as their single entrypoint. Drill in with `-D @Performance` to list the kinds,
+or `-D "Performance: Boxing"` for one kind's columns. Each
+section is absent when it has no findings, so the group renders exactly the
+kinds that were found; `--count -S @Performance` returns a per-kind count map
+(including zero rows) as a cheap way to discover which kinds are present before
+requesting them. In flattened tabular output (`--table`/`--tsv`/`--jsonl`) the
+group renders as one self-describing table with a leading `Kind` column, so
+every row states which performance kind it belongs to. These sections rank in-loop (hot) and high-confidence
+opportunities first across actionable rewrite shapes (small non-escaping
+arrays, temporary or span-to-array copies, capturing and instance method-group
+delegates, async state-machine setup, loop-invariant materialization, and
+value-type boxing) plus `allocation-hotspot` rows for methods that allocate
+heavily without matching a specific shape. The `type` and `member` commands keep
+the single `Performance Triage` lens.
+
+The tight markdown columns carry the ranked, human-facing fields; the full
+per-row diagnostics (shape, provenance, candidate id, native `Finding`, metadata
+`Token`, IL offset, allocation `Weight`, path/loop evidence, and the fix
+sentence) are preserved in the nested `performance` object of `--json`.
+Allocation rows carry `Weight`, a coarse size x multiplicity x reach static
+prior that you can query or sort when choosing pre-profile instrumentation
+targets. Exact allocation and call-site rows also retain a `Candidate` id, their
+native `Finding` descriptor, `Provenance=exact`, `Operation`, and metadata
+`Token`. Aggregate rows are marked `Provenance=aggregate`; `unmatched`
+identifies an instruction-level row that could not be joined to a producer
+occurrence. Those fields let trace and version-diff tooling join a triage row to
+`analysis.allocation` or `analysis.call-site` evidence without parsing
+`Evidence` prose. Use `--top`, `--loop`, `--min-confidence`, and
+`--triage-shape` to ask the tool for the curated pay-dirt rows directly instead
+of post-processing. `--top` limits the ranked data before rendering; `-n N`
+remains a renderer cap and is applied afterward if both are supplied. Drill
+candidates with `Call Graph` (bounded outbound tree) and `Caller Graph` (bounded
+reverse tree to entry points), and project per-node cost with `--fields`.
+Ranking rows carry a copyable `Stable` selector, `Visibility`, and `Selector`;
+add `--all` to drill non-public members.
 
 `CallerLoop`, `CallerLoopDepth`, and `CallerLoopWitness` expose a separate
 cross-method repetition fact. `CallerLoop=direct` means a resolved invocation
@@ -237,7 +258,9 @@ are not exposed in this curated section.
 ```bash
 dotnet-inspect library MyLib.dll -S "Top Leverage"
 dotnet-inspect type MyType --library MyLib.dll --all -S "Top Leverage"
-dotnet-inspect library MyLib.dll -S "Performance Triage"
+dotnet-inspect library MyLib.dll -S @Performance
+dotnet-inspect library MyLib.dll -S @Performance --count
+dotnet-inspect library MyLib.dll -S "Performance: Boxing" --json
 dotnet-inspect library MyLib.dll -S "Resource Triage" --jsonl
 dotnet-inspect library MyLib.dll --loop --min-confidence high --top 20 --tsv
 dotnet-inspect library MyLib.dll --triage-shape scan-method-in-loop-call,linq-scan-in-loop,string-build-in-loop --top 20 --tsv

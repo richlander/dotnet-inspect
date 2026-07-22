@@ -34,6 +34,15 @@ public interface ISectionDescriptor<TModel>
     static virtual bool Info => false;
 
     /// <summary>
+    /// When false, this section is omitted from the top-level discovery catalog (bare <c>-D</c> /
+    /// <c>-D --schema</c>) so a curated <c>@category</c> is the single discoverable entrypoint for it.
+    /// The section stays fully selectable and stays visible when drilling into its category
+    /// (<c>-D @Category</c>) or when named exactly. Use for large curated sub-groups (e.g. the
+    /// per-kind performance sections) that would otherwise flood the catalog with often-empty rows.
+    /// </summary>
+    static virtual bool ListedInCatalog => true;
+
+    /// <summary>
     /// When false, effective discovery (<c>-D</c>) lists this section using only its
     /// section pipeline's structural applicability gate and never renders it to confirm it produces
     /// content. Use for sections whose content probe is heavy (e.g. opening a whole-assembly

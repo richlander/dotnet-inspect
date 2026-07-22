@@ -7,4 +7,7 @@ public static class SectionCategoryNames
 {
     public const string Audit = "@Audit";
     public const string Source = "@Source";
+
+    /// <summary>Curated group of the kind-scoped performance sections (library scope).</summary>
+    public const string Performance = "@Performance";
 }

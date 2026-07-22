@@ -71,7 +71,14 @@ public static class LibrarySections
             .Add<ExtensionMethods>()
             .Add<UnsafeMembers>()
             .Add<TopLeverage>()
-            .Add<OptimizationOpportunities>()
+            .Add<PerformanceBoxing>()
+            .Add<PerformanceArrays>()
+            .Add<PerformanceClosures>()
+            .Add<PerformanceEnumerators>()
+            .Add<PerformanceLoops>()
+            .Add<PerformanceHotspots>()
+            .Add<PerformanceAsync>()
+            .Add<PerformanceOther>()
             .Add<ResourceTriage>()
             .Add<PInvokeMethods>()
             .Add<AsyncMethods>()
@@ -84,6 +91,7 @@ public static class LibrarySections
                 SectionNames.UnsafeMembers,
                 "P/Invoke Methods",
                 "Switches")
+            .AddCategory(SectionCategoryNames.Performance, PerformanceKinds.Sections)
             .AddCategory("@Integrations", [.. LibraryIntegrationCatalog.CategorySections, "Integration Opportunities", "Union Types"])
             .AddCategory("@Switches", "Switches");
     }
@@ -509,14 +517,100 @@ public static class LibrarySections
             => model.TopLeverage is { Count: > 0 } || model.HasMethodBodies;
     }
 
-    public sealed class OptimizationOpportunities : ISectionDescriptor<LibraryInspection>
+    // Kind-scoped performance sections. Each shares the holistic optimization-opportunity scan
+    // and gates render on its own bucket having rows (via the view's ShowWhenProperty). The
+    // `|| HasMethodBodies` applicability keeps the section selectable/scannable pre-scan, exactly
+    // as the retired monolith did; the empty-when-no-rows suppression is the view's job.
+    private static bool HasPerformanceKind(LibraryInspection model, string section)
+        => model.OptimizationOpportunities is { } rows
+           && rows.Any(o => PerformanceKinds.SectionForShape(o.Shape) == section);
+
+    public sealed class PerformanceBoxing : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => SectionNames.PerformanceTriage;
+        public static string Name => SectionNames.PerformanceBoxing;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerOptimizationOpportunities;
         public static bool CanRender(LibraryInspection model)
-            => model.OptimizationOpportunities is { Count: > 0 } || model.HasMethodBodies;
+            => HasPerformanceKind(model, SectionNames.PerformanceBoxing) || model.HasMethodBodies;
+    }
+
+    public sealed class PerformanceArrays : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.PerformanceArrays;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ListedInCatalog => false;
+        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static bool CanRender(LibraryInspection model)
+            => HasPerformanceKind(model, SectionNames.PerformanceArrays) || model.HasMethodBodies;
+    }
+
+    public sealed class PerformanceClosures : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.PerformanceClosures;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ListedInCatalog => false;
+        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static bool CanRender(LibraryInspection model)
+            => HasPerformanceKind(model, SectionNames.PerformanceClosures) || model.HasMethodBodies;
+    }
+
+    public sealed class PerformanceEnumerators : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.PerformanceEnumerators;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ListedInCatalog => false;
+        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static bool CanRender(LibraryInspection model)
+            => HasPerformanceKind(model, SectionNames.PerformanceEnumerators) || model.HasMethodBodies;
+    }
+
+    public sealed class PerformanceLoops : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.PerformanceLoops;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ListedInCatalog => false;
+        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static bool CanRender(LibraryInspection model)
+            => HasPerformanceKind(model, SectionNames.PerformanceLoops) || model.HasMethodBodies;
+    }
+
+    public sealed class PerformanceHotspots : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.PerformanceHotspots;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ListedInCatalog => false;
+        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static bool CanRender(LibraryInspection model)
+            => HasPerformanceKind(model, SectionNames.PerformanceHotspots) || model.HasMethodBodies;
+    }
+
+    public sealed class PerformanceAsync : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.PerformanceAsync;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ListedInCatalog => false;
+        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static bool CanRender(LibraryInspection model)
+            => HasPerformanceKind(model, SectionNames.PerformanceAsync) || model.HasMethodBodies;
+    }
+
+    public sealed class PerformanceOther : ISectionDescriptor<LibraryInspection>
+    {
+        public static string Name => SectionNames.PerformanceOther;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ListedInCatalog => false;
+        public static string? ScannerKey => ScannerOptimizationOpportunities;
+        public static bool CanRender(LibraryInspection model)
+            => HasPerformanceKind(model, SectionNames.PerformanceOther) || model.HasMethodBodies;
     }
 
     public sealed class ResourceTriage : ISectionDescriptor<LibraryInspection>

@@ -120,6 +120,11 @@ public static class OutputFormatResolver
         if (!tabularExplicitlySet || includeSections is not { Count: > 1 })
             return true;
 
+        // Sections that share a single row view (currently the @Performance kind sections) can be
+        // rendered as one concatenated tabular table, so multi-section tabular is allowed for them.
+        if (DotnetInspector.Sections.PerformanceKinds.AllShareCommonView(includeSections))
+            return true;
+
         Console.Error.WriteLine($"Error: Selection matches {includeSections.Count} sections: {string.Join(", ", includeSections)}.");
         Console.Error.WriteLine();
         Console.Error.WriteLine("--table, --tsv, and --jsonl display one section at a time.");

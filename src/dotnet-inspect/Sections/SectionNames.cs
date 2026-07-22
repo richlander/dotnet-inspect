@@ -178,6 +178,33 @@ public static class SectionNames
     /// <summary>Section for safe, local optimization opportunities inferred from IL/body evidence.</summary>
     public const string PerformanceTriage = "Performance Triage";
 
+    // Kind-scoped performance sections (library scope). Each renders one family of the
+    // optimization-opportunity scan, is explicit-only, and is absent when its family has no
+    // findings — following the il-offset context-section model. Grouped under @Performance.
+    /// <summary>Boxing (value type heap-allocated) performance findings.</summary>
+    public const string PerformanceBoxing = "Performance: Boxing";
+
+    /// <summary>Array-allocation performance findings (small arrays, byte-copies, span/stackalloc candidates).</summary>
+    public const string PerformanceArrays = "Performance: Arrays";
+
+    /// <summary>Closure/delegate-allocation performance findings.</summary>
+    public const string PerformanceClosures = "Performance: Closures and delegates";
+
+    /// <summary>Enumerator-allocation performance findings.</summary>
+    public const string PerformanceEnumerators = "Performance: Enumerators";
+
+    /// <summary>Loop hot-path performance findings (scan/materialize/build inside loops).</summary>
+    public const string PerformanceLoops = "Performance: Loop hot paths";
+
+    /// <summary>Aggregate allocation hotspot/fanout performance findings.</summary>
+    public const string PerformanceHotspots = "Performance: Allocation hotspots";
+
+    /// <summary>Async state-machine performance findings.</summary>
+    public const string PerformanceAsync = "Performance: Async";
+
+    /// <summary>Catch-all for performance findings whose shape has no dedicated section (keeps the scan non-lossy).</summary>
+    public const string PerformanceOther = "Performance: Other";
+
     /// <summary>Section for curated exception-path resource lifecycle candidates.</summary>
     public const string ResourceTriage = "Resource Triage";
 

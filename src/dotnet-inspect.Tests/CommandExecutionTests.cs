@@ -550,15 +550,15 @@ public class CommandExecutionTests
             "--where", "Member=*CreateAllocationFanout*",
             "--where", "OncePaths>=4",
             "--order-by", "OncePaths desc",
-            "--jsonl",
+            "--json",
             "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("\"shape\":\"allocation-fanout\"", output);
-        Assert.Contains("\"provenance\":\"aggregate\"", output);
-        Assert.Contains("\"direct_sites\":\"1\"", output);
-        Assert.Contains("\"once_paths\":\"4\"", output);
+        Assert.Contains("\"shape\": \"allocation-fanout\"", output);
+        Assert.Contains("\"provenance\": \"aggregate\"", output);
+        Assert.Contains("\"direct_sites\": 1", output);
+        Assert.Contains("\"once_paths\": 4", output);
     }
 
     [Fact]
@@ -568,12 +568,12 @@ public class CommandExecutionTests
             "library", TestAssemblyPath,
             "-S", "Performance Triage",
             "--where", "Member=*CreateAllocationFanout*",
-            "--jsonl",
+            "--json",
             "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.DoesNotContain("\"shape\":\"allocation-fanout\"", output);
+        Assert.DoesNotContain("\"shape\": \"allocation-fanout\"", output);
     }
 
     [Fact]
@@ -585,15 +585,15 @@ public class CommandExecutionTests
             "--triage-shape", "allocation-fanout",
             "--where", "Member=*BoxDirect*",
             "--where", "CallerLoop=direct",
-            "--jsonl",
+            "--json",
             "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("\"shape\":\"allocation-fanout\"", output);
-        Assert.Contains("\"caller_loop\":\"direct\"", output);
-        Assert.Contains("\"caller_loop_depth\":\"1\"", output);
-        Assert.Contains("\"direct_sites\":\"1\"", output);
+        Assert.Contains("\"shape\": \"allocation-fanout\"", output);
+        Assert.Contains("\"caller_loop\": \"direct\"", output);
+        Assert.Contains("\"caller_loop_depth\": 1", output);
+        Assert.Contains("\"direct_sites\": 1", output);
     }
 
     [Fact]
@@ -679,14 +679,15 @@ public class CommandExecutionTests
             "-S", "Performance Triage",
             "--where", "Allocation=boxed *",
             "--where", "Path=straight-line",
-            "--tsv",
+            "--json",
             "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("\tbox-value-type\t", output);
-        Assert.Contains("\tboxed System.Int32\tstraight-line\t", output);
-        Assert.DoesNotContain("\tstackalloc-candidate\t", output);
+        Assert.Contains("\"shape\": \"box-value-type\"", output);
+        Assert.Contains("\"allocation\": \"boxed System.Int32\"", output);
+        Assert.Contains("\"path\": \"straight-line\"", output);
+        Assert.DoesNotContain("\"shape\": \"stackalloc-candidate\"", output);
     }
 
     [Fact]
@@ -698,16 +699,16 @@ public class CommandExecutionTests
             "--where", "Finding=analysis.allocation",
             "--where", "Operation=box",
             "--top", "1",
-            "--jsonl",
+            "--json",
             "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("\"candidate\":\"pt~", output);
-        Assert.Contains("\"finding\":\"analysis.allocation\"", output);
-        Assert.Contains("\"provenance\":\"exact\"", output);
-        Assert.Contains("\"operation\":\"box\"", output);
-        Assert.Contains("\"token\":\"0x", output);
+        Assert.Contains("\"candidate\": \"pt~", output);
+        Assert.Contains("\"finding\": \"analysis.allocation\"", output);
+        Assert.Contains("\"provenance\": \"exact\"", output);
+        Assert.Contains("\"operation\": \"box\"", output);
+        Assert.Contains("\"token\": \"0x", output);
     }
 
     [Theory]
@@ -733,18 +734,23 @@ public class CommandExecutionTests
                 "--where", "CallerLoop=direct",
                 "--where", "CallerLoopDepth>=1",
                 "--order-by", "CallerLoopDepth desc",
-                "--jsonl",
+                command == "library" ? "--json" : "--jsonl",
                 "--tips", "q",
             ]);
+
+        // Library scope surfaces rich diagnostics in the nested `performance` JSON (pretty-printed);
+        // type/member scope keeps the flat triage row (compact JSONL).
+        string sep = command == "library" ? ": " : ":";
+        string depth = command == "library" ? "\"caller_loop_depth\": 1" : "\"caller_loop_depth\":\"1\"";
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("BoxDirect(int)", output);
-        Assert.Contains("\"caller_loop\":\"direct\"", output);
-        Assert.Contains("\"caller_loop_depth\":\"1\"", output);
+        Assert.Contains($"\"caller_loop\"{sep}\"direct\"", output);
+        Assert.Contains(depth, output);
         Assert.Contains("InvokeDirectInLoop", output);
-        Assert.Contains("\"loop\":\"\"", output);
-        Assert.Contains("\"candidate\":\"pt~", output);
+        Assert.Contains($"\"loop\"{sep}\"\"", output);
+        Assert.Contains($"\"candidate\"{sep}\"pt~", output);
     }
 
     [Theory]
@@ -758,13 +764,13 @@ public class CommandExecutionTests
             "-S", "Performance Triage",
             "--order-by", $"CallerLoopDepth {direction}",
             "--top", "1",
-            "--jsonl",
+            "--json",
             "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("\"caller_loop\":\"direct\"", output);
-        Assert.Contains("\"caller_loop_depth\":\"1\"", output);
+        Assert.Contains("\"caller_loop\": \"direct\"", output);
+        Assert.Contains("\"caller_loop_depth\": 1", output);
     }
 
     [Fact]
@@ -775,25 +781,24 @@ public class CommandExecutionTests
             "-S", "Performance Triage",
             "--where", "Finding=analysis.allocation",
             "--top", "1",
-            "--jsonl",
+            "--json",
             "--tips", "q");
 
         Assert.Equal(0, baseline.Exit);
         Assert.Empty(baseline.Error);
-        using var document = JsonDocument.Parse(baseline.Output.Trim());
-        string token = document.RootElement.GetProperty("token").GetString()!;
+        string token = FirstPerformanceRow(baseline.Output).GetProperty("token").GetString()!;
         string unpaddedToken = $"0x{token[2..].TrimStart('0')}";
 
         var filtered = await RunAppAsync(
             "library", TestAssemblyPath,
             "-S", "Performance Triage",
             "--where", $"Token={unpaddedToken}",
-            "--jsonl",
+            "--json",
             "--tips", "q");
 
         Assert.Equal(0, filtered.Exit);
         Assert.Empty(filtered.Error);
-        Assert.Contains($"\"token\":\"{token}\"", filtered.Output);
+        Assert.Contains($"\"token\": \"{token}\"", filtered.Output);
     }
 
     [Fact]
@@ -818,18 +823,19 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-S", "Performance Triage",
+            "-S", "Performance: Boxing",
             "--where", "Shape=box-value-type",
             "--order-by", "RootReach desc",
             "--top", "1",
-            "--tsv",
+            "--json",
             "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        var rows = output.TrimEnd().Split('\n');
-        Assert.Single(rows.Skip(1));
-        Assert.Contains("\tbox-value-type\t", rows[1]);
+        using var document = JsonDocument.Parse(output.Trim());
+        var boxing = document.RootElement.GetProperty("performance").GetProperty("boxing");
+        Assert.Equal(1, boxing.GetArrayLength());
+        Assert.Equal("box-value-type", boxing[0].GetProperty("shape").GetString());
     }
 
     [Fact]
@@ -858,14 +864,16 @@ public class CommandExecutionTests
             "-S", "Performance Triage",
             "--where", "Post Dominance=return-post-dominates",
             "--order-by", "PostDominance desc,RootReach desc",
-            "--tsv",
+            "--json",
             "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        var rows = output.TrimEnd().Split('\n').Skip(1).ToArray();
+        var rows = PerformanceRows(output);
         Assert.NotEmpty(rows);
-        Assert.All(rows, row => Assert.Contains("\treturn-post-dominates\t", row));
+        Assert.All(rows, row => Assert.Equal(
+            "return-post-dominates",
+            row.GetProperty("post_dominance").GetString()));
     }
 
     [Fact]
@@ -873,7 +881,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath,
-            "-S", "Performance Triage",
+            "-S", "Performance: Boxing",
             "--where", "Shape=box-value-type",
             "--top", "1",
             "--count",
@@ -883,6 +891,230 @@ public class CommandExecutionTests
         Assert.Empty(error);
         Assert.True(int.TryParse(output.Trim(), out var count), output);
         Assert.True(count > 1, $"expected post-filter count before --top, got {count}");
+    }
+
+    // ===== Performance sections (kind-scoped decomposition of the library "Performance Triage" monolith) =====
+
+    [Fact]
+    public async Task PerformanceSections_NotInDefaultView()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-v:m", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("## Performance", output);
+        Assert.DoesNotContain("Tip:", error);
+    }
+
+    [Fact]
+    public async Task PerformanceSection_SingleKind_RendersOnlyThatKind()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "Performance: Boxing", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Performance: Boxing", output);
+        Assert.DoesNotContain("## Performance: Arrays", output);
+        Assert.DoesNotContain("## Performance: Closures", output);
+    }
+
+    [Fact]
+    public async Task PerformanceGroup_RendersMultipleKindSections()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "@Performance", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Performance: Boxing", output);
+        Assert.Contains("## Performance: Arrays", output);
+        Assert.Contains("## Performance: Closures and delegates", output);
+    }
+
+    [Fact]
+    public async Task PerformanceGroup_JsonEmitsNestedProjection_NotRetiredMonolithKey()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "@Performance", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+
+        using var document = JsonDocument.Parse(output.Trim());
+        Assert.False(
+            document.RootElement.TryGetProperty("optimization_opportunities", out _),
+            "retired monolith key must be absent");
+
+        var performance = document.RootElement.GetProperty("performance");
+        Assert.True(performance.TryGetProperty("boxing", out var boxing));
+        Assert.True(boxing.GetArrayLength() > 0);
+        Assert.True(performance.TryGetProperty("arrays", out _));
+    }
+
+    [Fact]
+    public async Task PerformanceKind_AbsentWhenEmpty()
+    {
+        // A tiny fixture assembly with no async candidates: the async kind must be absent, not an
+        // empty section (il-offset gating parity).
+        var (exit, output, error) = await RunAppAsync(
+            "library", FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
+            "-S", "Performance: Async", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("## Performance: Async", output);
+    }
+
+    [Fact]
+    public async Task PerformanceGroup_CountEmitsPerKindMap()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "@Performance", "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Section | Count |", output);
+        Assert.Contains("Performance: Boxing", output);
+        // Empty kinds still report a zero row so agents can cheaply probe the whole category.
+        Assert.Contains("Performance: Other", output);
+    }
+
+    [Fact]
+    public async Task PerformanceLegacyName_RedirectsToGroup()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "Performance", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Performance: Boxing", output);
+        Assert.Contains("## Performance: Arrays", output);
+    }
+
+    [Fact]
+    public async Task PerformanceGroup_TabularRendersSingleKindLabeledTable()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "@Performance", "--tsv", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        // The flattened group renders as one self-describing table: exactly one header, and its
+        // leading column is the kind label so each row says which performance kind it belongs to.
+        var headerCount = lines.Count(line => line.StartsWith("kind\t", StringComparison.Ordinal));
+        Assert.Equal(1, headerCount);
+        Assert.StartsWith("kind\tmember\t", lines[0]);
+        // Rows from more than one kind are present and labeled (e.g. Boxing and Arrays).
+        var kinds = lines.Skip(1).Select(l => l.Split('\t')[0]).Distinct().ToList();
+        Assert.Contains("Boxing", kinds);
+        Assert.Contains("Arrays", kinds);
+    }
+
+    [Fact]
+    public async Task PerformanceGroup_JsonlEmitsOnlyValidRecords_NoBlankSeparators()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "@Performance", "--jsonl", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.NotEmpty(lines);
+        // Every emitted line must parse as JSON (no blank inter-section separators), and each record
+        // must carry its kind label so the flattened stream is self-describing.
+        foreach (var line in output.Replace("\r", "").Split('\n'))
+        {
+            if (line.Length == 0)
+                continue;
+            using var doc = JsonDocument.Parse(line);
+            Assert.True(doc.RootElement.TryGetProperty("kind", out _));
+        }
+        Assert.DoesNotContain(output.TrimEnd('\n').Split('\n'), line => line.Length == 0);
+    }
+
+    [Fact]
+    public async Task PerformanceGroup_NoHeaderTabular_PreservesEveryRow_NoBlankSeparators()
+    {
+        // With --no-header the flattened table emits no header line, so every line is a data row and
+        // identical rows must all survive. Row count must match the with-header data-row count, and
+        // no blank section separators may leak into the stream.
+        var withHeader = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "@Performance", "--tsv", "--order-by", "Allocation", "--tips", "q");
+        var noHeader = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "@Performance", "--tsv", "--no-header", "--order-by", "Allocation", "--tips", "q");
+
+        Assert.Equal(0, withHeader.Exit);
+        Assert.Equal(0, noHeader.Exit);
+
+        var dataRows = withHeader.Output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Count(line => !line.StartsWith("kind\t", StringComparison.Ordinal));
+        var noHeaderRows = noHeader.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+        Assert.Equal(dataRows, noHeaderRows.Length);
+        Assert.DoesNotContain(noHeader.Output.TrimEnd('\n').Split('\n'), line => line.Length == 0);
+    }
+
+    [Fact]
+    public async Task PerformanceTriageShape_SectionMappingIsCaseInsensitive()
+    {
+        // A differently-cased --triage-shape is accepted by validation; it must resolve to the same
+        // kind section its findings bucket into, not silently route to Performance: Other.
+        var lower = await RunAppAsync(
+            "library", "System.Text.Json", "--triage-shape", "box-value-type", "--count", "--tips", "q");
+        var upper = await RunAppAsync(
+            "library", "System.Text.Json", "--triage-shape", "BOX-VALUE-TYPE", "--count", "--tips", "q");
+
+        Assert.Equal(0, lower.Exit);
+        Assert.Equal(0, upper.Exit);
+        Assert.True(int.TryParse(lower.Output.Trim(), out var lowerCount) && lowerCount > 0, lower.Output);
+        Assert.Equal(lower.Output.Trim(), upper.Output.Trim());
+    }
+
+    [Fact]
+    public async Task PerformanceSections_CatalogHidden_CategoryDiscoverableAndDrillable()
+    {
+        // Bare -D (effective discovery) must not list the kind-scoped performance sections at the top
+        // level — the @Performance category is their single discoverable entrypoint — yet they must
+        // stay reachable by drilling into that category.
+        var bare = await RunAppAsync("library", "System.Text.Json", "-D", "--tips", "q");
+        Assert.Equal(0, bare.Exit);
+        var bareSectionNames = bare.Output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Where(l => l.Contains("| section", StringComparison.Ordinal))
+            .Select(ExtractSectionName)
+            .ToArray();
+        Assert.DoesNotContain(bareSectionNames, n => n.StartsWith("Performance: ", StringComparison.Ordinal));
+        Assert.Contains(bare.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries),
+            l => ExtractSectionName(l) == "@Performance" && l.Contains("category", StringComparison.Ordinal));
+
+        var drill = await RunAppAsync("library", "System.Text.Json", "-D", "@Performance", "--tips", "q");
+        Assert.Equal(0, drill.Exit);
+        Assert.Contains("Performance: Boxing", drill.Output);
+        Assert.Contains("Performance: Other", drill.Output);
+    }
+
+    [Fact]
+    public async Task PerformanceGroup_TableRendersOneHeader_AndRowsCapCountsDataRowsOnly()
+    {
+        // The flattened pretty table must be one aligned table: exactly one header regardless of how
+        // many kinds contribute, and a --rows cap must yield header + N data rows (embedded per-kind
+        // headers previously inflated the count and stole a row slot).
+        const int cap = 5;
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "@Performance", "--table", "--rows", "-n", cap.ToString(),
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var headerCount = lines.Count(l => l.StartsWith("Kind", StringComparison.Ordinal) && l.Contains("Member", StringComparison.Ordinal));
+        Assert.Equal(1, headerCount);
+        // One header + cap data rows.
+        Assert.Equal(cap + 1, lines.Length);
     }
 
     [Fact]
@@ -5382,7 +5614,7 @@ public class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains(CountOutput.SingleSectionRequiredMessage, error);
+        Assert.Contains(CountOutput.SectionRequiredMessage, error);
     }
 
     [Fact]
@@ -5865,7 +6097,6 @@ public class CommandExecutionTests
                 "OpenAPI",
                 "OpenTelemetry",
                 "Options",
-                "Performance Triage",
                 "Resource Triage",
                 "Resources",
                 "Return Address Context",
@@ -5882,6 +6113,12 @@ public class CommandExecutionTests
                 "Unsafe Members"
             ],
             optInNames);
+        // The kind-scoped performance sections are catalog-hidden (ListedInCatalog=false): the
+        // @Performance category is their single discoverable entrypoint, so they must not appear in
+        // the top-level catalog even though they remain selectable and drillable via -D @Performance.
+        Assert.DoesNotContain(names, name => name.StartsWith("Performance: ", StringComparison.Ordinal));
+        Assert.Contains(output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries),
+            line => ExtractSectionName(line) == "@Performance" && line.Contains("category", StringComparison.Ordinal));
         Assert.DoesNotContain(lines, line => line.StartsWith("Missing Source Files", StringComparison.Ordinal));
         Assert.DoesNotContain(lines, line => line.StartsWith("Source Integrity", StringComparison.Ordinal));
     }
@@ -5890,23 +6127,24 @@ public class CommandExecutionTests
     public async Task LibraryCommand_DiscoverPerformanceTriage_ListsRenderableColumns()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", TestAssemblyPath, "-D", "Performance Triage", "--tips", "q");
+            "library", TestAssemblyPath, "-D", "Performance: Boxing", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("not found", error);
+        // Tight markdown columns (rich diagnostics moved to nested --json).
         Assert.Contains("| Member | column |", output);
-        Assert.Contains("| Root Reach | column |", output);
-        Assert.Contains("| Shape | column |", output);
-        Assert.Contains("| Fix | column |", output);
-        Assert.Contains("| Confidence | column |", output);
+        Assert.Contains("| Evidence | column |", output);
+        Assert.Contains("| Allocation | column |", output);
         Assert.Contains("| Loop | column |", output);
+        Assert.Contains("| Reach | column |", output);
+        Assert.Contains("| Weight | column |", output);
+        Assert.Contains("| Confidence | column |", output);
+        // Row-query fields remain discoverable (shared triage filter/sort engine).
         Assert.Contains("| Triage desc | default-order |", output);
         Assert.Contains("| Loop desc | order-step |", output);
-        Assert.Contains("| Allocation | filterable |", output);
+        Assert.Contains("| Shape | filterable |", output);
         Assert.Contains("| RootReach | sortable |", output);
-        Assert.Contains("| Once Paths | column |", output);
         Assert.Contains("| OncePaths | sortable |", output);
-        Assert.Contains("| IL | column |", output);
     }
 
     [Fact]
@@ -7439,6 +7677,35 @@ public class CommandExecutionTests
         return marker >= 0 ? line[..marker].TrimEnd() : line.TrimEnd();
     }
 
+    private static JsonElement FirstPerformanceRow(string json)
+    {
+        var rows = PerformanceRows(json);
+        return rows.Count > 0
+            ? rows[0]
+            : throw new InvalidOperationException("no performance rows in output");
+    }
+
+    private static List<JsonElement> PerformanceRows(string json)
+    {
+        using var document = JsonDocument.Parse(json.Trim());
+        List<JsonElement> rows = [];
+        if (document.RootElement.TryGetProperty("performance", out var performance))
+        {
+            foreach (var kind in performance.EnumerateObject())
+            {
+                if (kind.Value.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var row in kind.Value.EnumerateArray())
+                    {
+                        rows.Add(row.Clone());
+                    }
+                }
+            }
+        }
+
+        return rows;
+    }
+
     private static List<(string Name, string Kind)> ExtractDiscoveryRows(string output)
     {
         List<(string Name, string Kind)> rows = [];
@@ -7771,6 +8038,49 @@ public class CommandExecutionTests
             Assert.Contains("## Library Info (lib/net10.0/Latest.One.dll)", output);
             Assert.Contains("## Library Info (lib/net10.0/Latest.Two.dll)", output);
             Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task LibraryCommand_TfmAll_PerformanceGroupTabular_IsKindLabeledPerAssembly()
+    {
+        // Regression: the multi-assembly renderer (WriteLibraryResults, reached via `library --tfm
+        // all` when a library ships under several TFMs) must apply the same @Performance flattening
+        // as the single-assembly path — each assembly emits one self-describing Kind-labeled table,
+        // never per-kind headers without a Kind column.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"perf-multitfm-{Guid.NewGuid():N}");
+        try
+        {
+            var content = Path.Combine(tempDir, "content");
+            foreach (var tfm in new[] { "net8.0", "net10.0" })
+            {
+                var dir = Path.Combine(content, "lib", tfm);
+                Directory.CreateDirectory(dir);
+                File.Copy(TestAssemblyPath, Path.Combine(dir, "Lib.dll"));
+            }
+            var packagePath = Path.Combine(tempDir, "Perf.MultiTfm.1.0.0.nupkg");
+            ZipFile.CreateFromDirectory(content, packagePath);
+
+            var (exit, output, _) = await RunAppAsync(
+                "library", "Lib.dll", "--package", packagePath, "--tfm", "all",
+                "-S", "@Performance", "--tsv", "--rows", "-n", "3", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            // One flattened Kind-labeled table per TFM assembly; no bare per-kind "member\t" header.
+            Assert.Contains(lines, l => l.StartsWith("kind\tmember\t", StringComparison.Ordinal));
+            Assert.DoesNotContain(lines, l => l.StartsWith("member\t", StringComparison.Ordinal));
+            var kindHeaders = lines.Count(l => l.StartsWith("kind\tmember\t", StringComparison.Ordinal));
+            Assert.Equal(2, kindHeaders);
+            // Every data row is self-describing: its first field is a real kind label.
+            var kindLabels = PerformanceKinds.Sections.Select(PerformanceKinds.KindLabel).ToHashSet(StringComparer.Ordinal);
+            var dataRows = lines.Where(l => !l.StartsWith("kind\t", StringComparison.Ordinal)).ToArray();
+            Assert.NotEmpty(dataRows);
+            Assert.All(dataRows, l => Assert.Contains(l.Split('\t')[0], kindLabels));
         }
         finally
         {

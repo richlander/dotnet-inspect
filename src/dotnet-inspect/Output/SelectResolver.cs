@@ -42,6 +42,20 @@ public static class SelectResolver
         ["Package README"] = DotnetInspector.Views.PackageSections.PackageReadme,
     };
 
+    /// <summary>
+    /// Bare names that expand to a whole category. Used so the retired library "Performance
+    /// Triage" monolith, and the ergonomic bare "Performance", resolve to the curated
+    /// <c>@Performance</c> group. Only applied when the category exists in the current command's
+    /// section set and the value is not itself an exact section name (so the type/member
+    /// "Performance Triage" section still resolves directly).
+    /// </summary>
+    static readonly Dictionary<string, string> CategoryAliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Performance"] = SectionCategoryNames.Performance,
+        ["Performance Triage"] = SectionCategoryNames.Performance,
+        ["Optimization Opportunities"] = SectionCategoryNames.Performance,
+    };
+
     public static bool IsAllSelector(string[]? select)
         => select?.Any(value => value.Equals(AllSelector, StringComparison.OrdinalIgnoreCase)) == true;
 
@@ -143,7 +157,21 @@ public static class SelectResolver
             foreach (var m in matches)
                 matched.Add(m);
             if (miss != null)
+            {
+                // Fall back to a category alias (e.g. retired "Performance Triage" / bare
+                // "Performance" -> @Performance) when the value is not an exact section here.
+                var isExact = knownSections.Any(s => s.Equals(value, StringComparison.OrdinalIgnoreCase));
+                if (!isExact
+                    && CategoryAliases.TryGetValue(value, out var aliasCategory)
+                    && categories.TryGetValue(aliasCategory, out var aliasSections))
+                {
+                    foreach (var section in aliasSections)
+                        matched.Add(section);
+                    continue;
+                }
+
                 unresolved.Add(miss);
+            }
         }
 
         return new(matched.Count > 0 ? matched : null, unresolved);

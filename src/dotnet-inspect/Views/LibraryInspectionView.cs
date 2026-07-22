@@ -784,44 +784,80 @@ public class LibraryInspectionView
                 Selector: m.Selector is { } selector ? MarkoutInline.Code(selector) : null))
             .ToList();
 
-    public bool HasOptimizationOpportunities => _data.OptimizationOpportunities is { Count: > 0 };
-
-    // Rows arrive pre-ordered from the scanner by triage priority (in-loop first, then
-    // confidence, then root reach), so the highest-value pay-dirt surfaces first.
-    [MarkoutSection(Name = "Performance Triage", ShowWhenProperty = nameof(HasOptimizationOpportunities))]
-    public List<OptimizationOpportunityRow>? OptimizationOpportunitiesSection =>
-        _data.OptimizationOpportunities?
-            .Select(o => new OptimizationOpportunityRow(
+    // Kind-scoped performance sections. The optimization-opportunity scan is holistic; each
+    // section renders the subset whose shape maps to it (see PerformanceKinds) with a tight,
+    // human column set. Rows arrive pre-ordered by triage priority (in-loop first, then
+    // confidence, then root reach). Deep per-row diagnostics remain in the JSON projection.
+    // Each section is absent when its kind has no findings (il-offset context-section model).
+    private List<PerformanceRow>? PerformanceRowsFor(string section)
+    {
+        var rows = _data.OptimizationOpportunities?
+            .Where(o => PerformanceKinds.SectionForShape(o.Shape) == section)
+            .Select(o => new PerformanceRow(
                 MarkoutInline.Code(o.Member),
-                o.Candidate is null ? null : MarkoutInline.Code(o.Candidate),
-                o.Finding,
-                o.Provenance,
-                o.RootReach.ToString(),
-                o.Shape,
-                o.Operation,
-                o.Token is null ? null : MarkoutInline.Code(o.Token),
                 o.Evidence,
-                o.Fix,
-                o.Confidence,
-                o.Loop,
-                o.CallerLoop,
-                o.CallerLoopDepth?.ToString(),
-                o.CallerLoopWitness,
                 o.Allocation is null ? null : MarkoutInline.Code(o.Allocation),
-                o.Path,
-                o.PathConfidence,
-                o.PostDominance,
-                o.IL is null ? null : MarkoutInline.Code(o.IL),
+                string.IsNullOrEmpty(o.Loop) ? null : o.Loop,
+                o.RootReach.ToString(),
                 o.Weight,
-                o.DirectSites?.ToString(),
-                o.OncePaths?.ToString(),
-                o.ConditionalPaths?.ToString(),
-                o.RepeatedPaths?.ToString(),
-                o.UnknownPaths?.ToString(),
-                o.CachedSites?.ToString(),
-                o.OpaquePaths?.ToString(),
-                o.Saturated))
+                o.Confidence))
             .ToList();
+        return rows is { Count: > 0 } ? rows : null;
+    }
+
+    // Flattens the selected performance kind sections into one kind-labeled list for tabular group
+    // output. Iterates PerformanceKinds.Sections (curated order) so rows stay grouped by kind, and
+    // reuses PerformanceRowsFor so the per-kind rows, ordering, and inline-code spelling are identical
+    // to the markdown sections — only a leading Kind label is added.
+    internal List<PerformanceGroupRow> PerformanceGroupRows(IReadOnlyCollection<string> selectedSections)
+    {
+        var rows = new List<PerformanceGroupRow>();
+        foreach (var section in PerformanceKinds.Sections)
+        {
+            if (!selectedSections.Contains(section))
+                continue;
+            var kindRows = PerformanceRowsFor(section);
+            if (kindRows is null)
+                continue;
+            var label = PerformanceKinds.KindLabel(section);
+            foreach (var row in kindRows)
+                rows.Add(new PerformanceGroupRow(
+                    label, row.Member, row.Evidence, row.Allocation, row.Loop, row.Reach, row.Weight, row.Confidence));
+        }
+        return rows;
+    }
+
+    [MarkoutIgnore] public bool HasPerformanceBoxing => PerformanceBoxingSection is not null;
+    [MarkoutSection(Name = SectionNames.PerformanceBoxing, ShowWhenProperty = nameof(HasPerformanceBoxing))]
+    public List<PerformanceRow>? PerformanceBoxingSection => PerformanceRowsFor(SectionNames.PerformanceBoxing);
+
+    [MarkoutIgnore] public bool HasPerformanceArrays => PerformanceArraysSection is not null;
+    [MarkoutSection(Name = SectionNames.PerformanceArrays, ShowWhenProperty = nameof(HasPerformanceArrays))]
+    public List<PerformanceRow>? PerformanceArraysSection => PerformanceRowsFor(SectionNames.PerformanceArrays);
+
+    [MarkoutIgnore] public bool HasPerformanceClosures => PerformanceClosuresSection is not null;
+    [MarkoutSection(Name = SectionNames.PerformanceClosures, ShowWhenProperty = nameof(HasPerformanceClosures))]
+    public List<PerformanceRow>? PerformanceClosuresSection => PerformanceRowsFor(SectionNames.PerformanceClosures);
+
+    [MarkoutIgnore] public bool HasPerformanceEnumerators => PerformanceEnumeratorsSection is not null;
+    [MarkoutSection(Name = SectionNames.PerformanceEnumerators, ShowWhenProperty = nameof(HasPerformanceEnumerators))]
+    public List<PerformanceRow>? PerformanceEnumeratorsSection => PerformanceRowsFor(SectionNames.PerformanceEnumerators);
+
+    [MarkoutIgnore] public bool HasPerformanceLoops => PerformanceLoopsSection is not null;
+    [MarkoutSection(Name = SectionNames.PerformanceLoops, ShowWhenProperty = nameof(HasPerformanceLoops))]
+    public List<PerformanceRow>? PerformanceLoopsSection => PerformanceRowsFor(SectionNames.PerformanceLoops);
+
+    [MarkoutIgnore] public bool HasPerformanceHotspots => PerformanceHotspotsSection is not null;
+    [MarkoutSection(Name = SectionNames.PerformanceHotspots, ShowWhenProperty = nameof(HasPerformanceHotspots))]
+    public List<PerformanceRow>? PerformanceHotspotsSection => PerformanceRowsFor(SectionNames.PerformanceHotspots);
+
+    [MarkoutIgnore] public bool HasPerformanceAsync => PerformanceAsyncSection is not null;
+    [MarkoutSection(Name = SectionNames.PerformanceAsync, ShowWhenProperty = nameof(HasPerformanceAsync))]
+    public List<PerformanceRow>? PerformanceAsyncSection => PerformanceRowsFor(SectionNames.PerformanceAsync);
+
+    [MarkoutIgnore] public bool HasPerformanceOther => PerformanceOtherSection is not null;
+    [MarkoutSection(Name = SectionNames.PerformanceOther, ShowWhenProperty = nameof(HasPerformanceOther))]
+    public List<PerformanceRow>? PerformanceOtherSection => PerformanceRowsFor(SectionNames.PerformanceOther);
 
     [MarkoutIgnore]
     public bool HasResourceTriage =>
@@ -1176,6 +1212,48 @@ public record ResourceTriageRow(
     string? Visibility,
     string? Stable,
     string? Selector);
+
+// Tight, human column set for the kind-scoped performance sections. Deep per-row diagnostics
+// (provenance, path counts, post-dominance, token, fix guidance) live in the JSON projection.
+[MarkoutSerializable]
+public record PerformanceRow(
+    string Member,
+    string Evidence,
+    [property: MarkoutSkipNull] string? Allocation,
+    [property: MarkoutSkipNull] string? Loop,
+    string Reach,
+    [property: MarkoutSkipNull] string? Weight,
+    string Confidence);
+
+/// <summary>
+/// A <see cref="PerformanceRow"/> prefixed with its kind label, used to flatten the per-kind
+/// performance sections into one self-describing tabular table (<c>-S @Performance --tsv</c>/
+/// <c>--jsonl</c>/<c>--table</c>). The leading <c>Kind</c> column tells consumers which performance
+/// kind each row belongs to, since the flattened table has no per-section headings.
+/// </summary>
+public record PerformanceGroupRow(
+    string Kind,
+    string Member,
+    string Evidence,
+    [property: MarkoutSkipNull] string? Allocation,
+    [property: MarkoutSkipNull] string? Loop,
+    string Reach,
+    [property: MarkoutSkipNull] string? Weight,
+    string Confidence);
+
+/// <summary>
+/// Single-section view that renders the flattened, kind-labeled performance rows as one table.
+/// Used only for tabular group output; markdown keeps the per-kind sections of
+/// <see cref="LibraryInspectionView"/> with their <c>## Performance: Kind</c> headings.
+/// </summary>
+[MarkoutSerializable]
+public sealed class PerformanceGroupView
+{
+    public PerformanceGroupView(List<PerformanceGroupRow> rows) => Performance = rows;
+
+    [MarkoutSection(Name = "Performance")]
+    public List<PerformanceGroupRow> Performance { get; }
+}
 
 [MarkoutSerializable]
 public record CustomAttributeRow(

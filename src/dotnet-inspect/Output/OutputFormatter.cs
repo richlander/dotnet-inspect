@@ -240,7 +240,15 @@ public static class OutputFormatter
             else if (selectInfo)
                 markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
             markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
-            CountOutput.WriteCountFromMarkdown(markdown);
+            if (options.IncludeSections is { Count: > 1 })
+            {
+                var ordered = pipeline.AllSectionNames.Where(options.IncludeSections.Contains).ToList();
+                CountOutput.WriteCountMapFromMarkdown(markdown, ordered);
+            }
+            else
+            {
+                CountOutput.WriteCountFromMarkdown(markdown);
+            }
             return;
         }
 
@@ -284,6 +292,34 @@ public static class OutputFormatter
         else
         {
             ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
+            WriteLibraryTabular(auditView, writerOpts, options);
+        }
+    }
+
+    /// <summary>
+    /// Renders one library inspection as tabular output (TSV/JSONL/pretty table). When the selected
+    /// sections are the kind-scoped <c>@Performance</c> group (all sharing one row view), they are
+    /// flattened into a single self-describing table with a leading <c>Kind</c> column — one header,
+    /// aligned columns, and correct <c>--rows</c> accounting — instead of concatenated per-kind
+    /// tables. This path is shared by the single- and multi-assembly renderers so both stay
+    /// consistent. <paramref name="writerOpts"/> must already have its TSV/JSONL format configured.
+    /// </summary>
+    private static void WriteLibraryTabular(
+        LibraryInspectionView auditView, MarkoutWriterOptions writerOpts, LibraryOptions options)
+    {
+        if (writerOpts.IncludeSections is { Count: > 1 }
+            && Sections.PerformanceKinds.AllShareCommonView(writerOpts.IncludeSections))
+        {
+            var groupRows = auditView.PerformanceGroupRows(writerOpts.IncludeSections);
+            var groupView = new PerformanceGroupView(groupRows);
+            var groupOpts = ConfigureTableWriterOptions(
+                new MarkoutWriterOptions { Projection = writerOpts.Projection }, options.Tsv, options.Jsonl);
+            WriteTable(Console.Out, !options.NoHeader,
+                (writer, formatter) => MarkoutSerializer.Serialize(groupView, writer, formatter, InspectionContext.Default, groupOpts),
+                options.Rows);
+        }
+        else
+        {
             WriteTable(Console.Out, !options.NoHeader,
                 (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts),
                 options.Rows);
@@ -316,7 +352,15 @@ public static class OutputFormatter
             else if (selectInfo)
                 markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
             markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
-            CountOutput.WriteCountFromMarkdown(markdown);
+            if (options.IncludeSections is { Count: > 1 })
+            {
+                var ordered = pipeline.AllSectionNames.Where(options.IncludeSections.Contains).ToList();
+                CountOutput.WriteCountMapFromMarkdown(markdown, ordered);
+            }
+            else
+            {
+                CountOutput.WriteCountFromMarkdown(markdown);
+            }
             return;
         }
 
@@ -348,9 +392,7 @@ public static class OutputFormatter
                     Projection = BuildProjection(options.Columns, options.Fields),
                 };
                 ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-                WriteTable(Console.Out, !options.NoHeader,
-                    (writer, formatter) => MarkoutSerializer.Serialize(auditView, writer, formatter, InspectionContext.Default, writerOpts),
-                    options.Rows);
+                WriteLibraryTabular(auditView, writerOpts, options);
             }
         }
     }

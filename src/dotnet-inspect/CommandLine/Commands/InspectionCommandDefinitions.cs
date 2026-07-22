@@ -386,11 +386,26 @@ public static class InspectionCommandDefinitions
             }
             if (!string.IsNullOrWhiteSpace(typeFilter))
                 select = [.. select ?? [], "Source Files"];
-            // Only surface Performance Triage from row filters when the user did not select sections
-            // with -S; an explicit selection like -S "Top Leverage" must not silently gain a second
-            // section and break single-section formats (--table/--tsv/--jsonl).
+            // Only surface performance sections from row filters when the user did not select
+            // sections with -S; an explicit selection like -S "Top Leverage" must not silently gain
+            // a second section and break single-section formats (--table/--tsv/--jsonl). When the
+            // filter is a single --triage-shape that maps to one kind section, target that section
+            // directly so tabular output stays single-section; otherwise surface the @Performance
+            // group (via the "Performance Triage" category alias).
             if (performanceTriage.HasFilters && !opts.IsDiscoveryMode(parseResult) && !hasExplicitSelect)
-                select = [.. select ?? [], SectionNames.PerformanceTriage];
+            {
+                var target = SectionNames.PerformanceTriage;
+                if (performanceTriage.Shapes is { Length: > 0 })
+                {
+                    var kinds = performanceTriage.Shapes
+                        .Select(PerformanceKinds.SectionForShape)
+                        .Distinct(StringComparer.Ordinal)
+                        .ToArray();
+                    if (kinds.Length == 1)
+                        target = kinds[0];
+                }
+                select = [.. select ?? [], target];
+            }
 
             var options = new LibraryOptions
             {

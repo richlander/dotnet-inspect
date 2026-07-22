@@ -201,10 +201,10 @@ Future semantic sections should use the same facts and nouns across scopes.
 | --- | --- | --- | --- | --- |
 | Exception | `Exception Context` | `Exception Regions` | `Exception Regions` with member column | optional `Exception Triage` |
 | Callsite | `Callsite Context` / `Return Address Context` | `Calls` | `Calls` with member column | `Top Leverage` / call graph summaries |
-| Allocation | `Allocation Context` | `Allocation Facts` | `Allocation Facts` with member column | `Performance Triage` |
+| Allocation | `Allocation Context` | `Allocation Facts` | `Allocation Facts` with member column | `@Performance` kind sections |
 | Resource lifecycle | optional `Resource Context` | optional `Resource Facts` | resource rows with member column | `Resource Triage` |
 | Safety | `Safety Context` | `Safety Facts` | `Safety Facts` with member column | `Safety Triage` or `Correctness Triage` |
-| Cost | `Cost Context` | `Cost Facts` / `Cost Overlay` | cost rows with member column | `Performance Triage` |
+| Cost | `Cost Context` | `Cost Facts` / `Cost Overlay` | cost rows with member column | `@Performance` kind sections |
 
 Rules:
 
@@ -214,6 +214,25 @@ Rules:
 4. Library views use `* Triage` only when ranked or curated.
 5. New offset semantic sections should have a member/type/library story unless
    intentionally point-only.
+
+At `library` scope the performance findings are decomposed into kind-scoped
+sections under the `@Performance` category (`Performance: Boxing`,
+`Performance: Arrays`, `Performance: Closures and delegates`,
+`Performance: Enumerators`, `Performance: Loop hot paths`,
+`Performance: Allocation hotspots`, `Performance: Async`, plus a non-lossy
+`Performance: Other`). They follow the il-offset section model: opt-in, absent
+when empty, selectable individually or as a group, with a nested `performance`
+JSON object (one array per kind with rows) and a per-kind `--count` map. The
+kind sections are catalog-hidden (`ListedInCatalog = false`): the top-level
+`-D`/`--schema` catalog lists only the `@Performance` category as their
+entrypoint, keeping discovery noise low while the sections stay selectable and
+drillable (`-D @Performance`). `ListedInCatalog` is a general section-descriptor
+flag (orthogonal to `ExplicitOnly` render gating), so any future curated group
+can hide its members behind a category with the same mechanism. Flattened
+tabular output (`--table`/`--tsv`/`--jsonl`) renders the group as one table with
+a leading `Kind` column so each row is self-describing. The
+`type`/`member` `Performance Triage` lens is a different, single-member view and
+keeps that name.
 
 ## Next semantic additions
 
