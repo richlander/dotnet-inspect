@@ -2151,6 +2151,7 @@ public sealed partial class CSharpPrinter
             ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {CoerceText(s.Value, s.Type)};"
             : AssignmentText($"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
         DeconstructionAssignment d => $"({string.Join(", ", d.Targets.Select(DeconstructionTargetText))}) = {Expression(d.Source)};",
+        ChainedAssignment c => $"{string.Join(" = ", c.Targets.Select(ChainedAssignmentTargetText))} = {CoerceText(c.Value, c.InnermostTargetType)};",
         NullCoalescingAssignment n => $"{LocalName(n.LocalIndex)} ??= {CoerceText(n.Value, n.LocalType)};",
         NullCoalescingFieldAssignment n => $"{FieldTarget(n.Field, n.Instance)} ??= {CoerceText(n.Value, n.Field.Type)};",
         NullCoalescingPropertyAssignment n => $"{PropertyTarget(n.Setter, n.Instance, n.IndexArguments, n.PropertyName, n.IsVirtual)} ??= {CoerceText(n.Value, n.PropertyType)};",
@@ -2246,6 +2247,13 @@ public sealed partial class CSharpPrinter
             target.Field!,
             target.IsThisInstance ? new LoadArgument(0, "this", target.Field!.DeclaringType) : null),
         _ => $"/* {target.Describe()} */",
+    };
+
+    string ChainedAssignmentTargetText(ChainedAssignmentTarget target) => target.Kind switch
+    {
+        ChainedAssignmentTargetKind.StaticProperty => PropertyTarget(target.Accessor!, null, [], target.PropertyName, target.IsVirtual),
+        ChainedAssignmentTargetKind.StaticField => FieldTarget(target.Field!, null),
+        _ => $"/* {target.Kind} */",
     };
 
     static TypeRef? StorePropertyTargetType(StoreProperty store)

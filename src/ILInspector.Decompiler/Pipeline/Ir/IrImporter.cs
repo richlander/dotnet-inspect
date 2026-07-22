@@ -1368,22 +1368,13 @@ public static class IrImporter
                 case ILOpCode.Dup:
                 {
                     var value = Pop(stack);
-                    // A pure constant has no identity or side effect to preserve,
-                    // so re-materializing it (a fresh clone per use) keeps the
-                    // tree-node invariant without a spill slot. A shared int slot
-                    // would fix the constant's stack type (int32) and strand each
-                    // consumer's semantic type: a dup'd bool constant threaded
-                    // into `set_X(bool)` sinks renders as `int S = 0; X = S;`
-                    // (CS0029, #2982), because per-sink identity recovery
-                    // (TypedConstantsPass) never reaches the slot store. Cloning
-                    // the constant to each sink lets that recovery fire per use.
-                    if (value is Constant)
-                    {
-                        stack.Push(value);
-                        stack.Push((IrExpression)value.Clone());
-                        break;
-                    }
                     // Trees cannot share nodes: dup materializes through a slot.
+                    // A dup'd pure constant that feeds a chained-assignment idiom
+                    // (`a = b = c = v`) is recomposed and its slot removed by
+                    // ChainedAssignmentPass; any non-chain dup'd constant slot is
+                    // re-materialized (cloned per use) by that same pass so the
+                    // per-sink typed literal is recovered (#2982) rather than
+                    // spilled through an int32-typed slot (CS0029).
                     int slot = state.NextDupSlot++;
                     body.Add(new StoreStackSlot(slot, value));
                     stack.Push(new LoadStackSlot(slot, value.ResultType));
