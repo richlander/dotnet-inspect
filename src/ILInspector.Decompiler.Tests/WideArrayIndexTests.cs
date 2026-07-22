@@ -305,4 +305,36 @@ public class WideArrayIndexTests
         // a signed index it strips clean. Recompiles to `ldelem.i4; neg; conv.i`.
         Assert.Equal("return a[-(int)v[j]];", Print(nameof(CfgSampleClass.NegCrossAssemblyEnumElementIndex)));
     }
+
+    [Fact]
+    public void NegExternalULongEnumElementIndex_CastsOperandToLong()
+    {
+        // The 8-byte cross-assembly mirror: a ulong-backed enum in a REFERENCED
+        // assembly is Unknown-shaped here, so its underlying width is unavailable via
+        // the enum map. The masked `ldelem.i8` still carries the width, so the width
+        // fallback recovers `(long)` — the only automated coverage of the 8-byte arm
+        // under the cross-assembly path (no core-library enum is 8-byte-backed). Used
+        // as a signed index it strips clean. Recompiles to `ldelem.i8; neg; conv.i`.
+        Assert.Equal("return a[-(long)v[j]];", Print(nameof(CfgSampleClass.NegExternalULongEnumElementIndex)));
+    }
+
+    [Fact]
+    public void NegExternalLongEnumElementToLong_CastsOperandToLong()
+    {
+        // The `long`-backed cross-assembly enum negated outside any index: the width
+        // fallback re-inserts `(long)` on the operand from the masked `ldelem.i8`.
+        // General printer path across the assembly boundary. Recompiles to
+        // `ldelem.i8; neg`.
+        Assert.Equal("return -(long)v[j];", Print(nameof(CfgSampleClass.NegExternalLongEnumElementToLong)));
+    }
+
+    [Fact]
+    public void NegExternalUIntEnumElementToInt_CastsOperandToInt()
+    {
+        // The 4-byte cross-assembly arm: a uint-backed referenced enum reinterprets
+        // the operand as `(int)` via the width fallback (sub-8-byte integers view as
+        // I4), mirroring the resolved NegEnumUIntElementToInt across the assembly
+        // boundary so the fallback does not over-widen the narrow arm.
+        Assert.Equal("return (int)(-(int)v[j]);", Print(nameof(CfgSampleClass.NegExternalUIntEnumElementToInt)));
+    }
 }

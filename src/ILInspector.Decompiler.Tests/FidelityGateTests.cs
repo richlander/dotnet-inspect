@@ -289,6 +289,10 @@ public class FidelityGateTests
     /// AnonNamed, AnonSingle, AnonNested, and AnonDeepNested are likewise below
     /// Full with changed anonymous-type ordinals. DayNumber and
     /// DoubleViaLocalFunction moved to the V1 difference docket above.
+    /// The wide-index / unary-negate block (#2981, PR #3012) pins the idiomatic
+    /// long/ulong array-index and enum-negate rendering, including the
+    /// cross-assembly (Unknown-shape enum) width fallback exercised by the
+    /// Neg*External* fixtures.
     /// </summary>
     static readonly string[] PinnedExact =
     {
@@ -382,6 +386,51 @@ public class FidelityGateTests
         "SpanElementCompoundAdd",
         "BoolBitwiseOrWidened",
         "CrossAssemblyEnumSwitch",
+        // Wide (long/ulong) array-index and unary-negate rendering (#2981, PR #3012):
+        // each decompiles to an idiomatic bare or single-cast index that must
+        // recompile opcode-exact, so a regression to checked((nint)i) or a lost/extra
+        // signed reinterpret is caught on every fidelity-gate run, not left to the
+        // sampled corpus. The Neg*External* trio additionally pins the cross-assembly
+        // (Unknown-shape enum) width fallback, including the 8-byte `long` arm that no
+        // core-library enum can exercise (ExternalULong/ExternalLong are 8-byte-backed).
+        "CheckedULongSumIndexAsSigned",
+        "FirstElement",
+        "LongArrayIndex",
+        "LongArrayIndexAsUnsigned",
+        "LongArrayIndexExpr",
+        "LongArrayIndexRef",
+        "LongArrayIndexStore",
+        "LongCheckedSumIndexBare",
+        "LongEnumArrayIndex",
+        "LongEnumIndexChecked",
+        "LongEnumRefArrayIndex",
+        "LongIndexAsUnsignedChecked",
+        "LongShlIndexBare",
+        "NegCrossAssemblyEnumElementIndex",
+        "NegEnumLongElementToLong",
+        "NegEnumUIntElementToInt",
+        "NegEnumULongElementIndexAsSigned",
+        "NegExternalLongEnumElementToLong",
+        "NegExternalUIntEnumElementToInt",
+        "NegExternalULongEnumElementIndex",
+        "NegLongIndexBare",
+        "NegLongIndexInChecked",
+        "NegNuintElementToNint",
+        "NegULongElementIndexAsSigned",
+        "NegULongElementToLong",
+        "NotLongIndexBare",
+        "NotULongElementIndexAsSigned",
+        "ULongArrayElementIndex",
+        "ULongArrayIndex",
+        "ULongArrayIndexAsSigned",
+        "ULongDivIndexAsSigned",
+        "ULongElementSumIndexAsSigned",
+        "ULongIndexAsSignedChecked",
+        "ULongRefIndexAsSigned",
+        "ULongRemIndexAsSigned",
+        "ULongShrIndexAsSigned",
+        "ULongSumIndexAsSigned",
+        "ULongSumIndexBare",
         "Finalize",
     };
 
