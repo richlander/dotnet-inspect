@@ -633,9 +633,17 @@ public static class CompileBackSourceComposer
                 bool setterReady = !concreteSetter || setterIsTarget || setter.Body is not null;
                 if (getterReady && setterReady)
                 {
+                    bool targetInvolved = getterIsTarget || setterIsTarget;
                     var basePropertyBody = policies.TryGetValue(member, out var existingPropertyPolicy)
                         ? existingPropertyPolicy.Body as CSharpPropertyBody
                         : null;
+                    // When the target accessor belongs to an auto/skeleton property, the base
+                    // Compose path already emitted the property's compiler-synthesized accessors
+                    // and there is no explicit target body to extend. Leave that policy untouched
+                    // rather than replacing it with empty accessor bodies, which would delete the
+                    // property's accessors (e.g. auto-properties -> `int Value {  }`, CS0548).
+                    if (targetInvolved && basePropertyBody is null)
+                        continue;
                     policies[member] = new CSharpMemberPolicy(
                         member,
                         CSharpBodyPolicy.Full,

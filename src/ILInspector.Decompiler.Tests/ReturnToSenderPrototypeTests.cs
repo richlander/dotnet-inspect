@@ -332,6 +332,42 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_FullPreservesAutoPropertyWhenTargetIsAutoAccessor()
+    {
+        // Issue #3000 regression guard: when the target is an auto-property accessor, the property
+        // has no explicit accessor body to preserve. The target-aware branch must leave the base
+        // auto-property skeleton intact rather than replacing it with empty accessor bodies (which
+        // deletes the accessors -> `int Value {  }`, CS0548, forcing a floor fallback).
+        var assemblyPath = CompileFixture("""
+            public class Holder
+            {
+                public int Value { get; } = 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "get_Value", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            var getter = Assert.Single(result.FullBodies, body => body.Member == "Holder.get_Value");
+            Assert.Equal(MemberBodyProductionStatus.Complete, getter.Status);
+            Assert.Contains("Value { get; }", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("Value {  }", result.Source, StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_FullEventAccessorTargetSurfacesRecompileFailure()
     {
         // Issue #3000: a plain (non-explicit-interface) event accessor target is method-routed, so
