@@ -328,9 +328,9 @@ public static class AuthoredSourceAcquisition
 
     /// <summary>
     /// True only for a plain, fully-qualified local filesystem path. Rejects relative paths, UNC
-    /// shares (<c>\\server\share</c>), and Win32 device paths (<c>\\?\</c>, <c>\\.\</c>) so an
-    /// untrusted PDB document name cannot trigger outbound SMB/network I/O before the checksum is
-    /// even evaluated.
+    /// shares (<c>\\server\share</c>), Win32 device paths (<c>\\?\</c>, <c>\\.\</c>), and paths on a
+    /// network-mapped drive so an untrusted PDB document name cannot trigger outbound SMB/network
+    /// I/O before the checksum is even evaluated.
     /// </summary>
     internal static bool IsLocalFileSystemPath(string path)
     {
@@ -350,8 +350,30 @@ public static class AuthoredSourceAcquisition
             return false;
         }
 
-        return !full.StartsWith(@"\\", StringComparison.Ordinal)
-            && !full.StartsWith("//", StringComparison.Ordinal);
+        if (full.StartsWith(@"\\", StringComparison.Ordinal)
+            || full.StartsWith("//", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        // Reject paths on a network-mapped drive (e.g. Z: -> \\server\share): reading one reaches
+        // the network even though the leading form is a local drive letter. GetDriveType is a local
+        // lookup and does not connect to the share.
+        try
+        {
+            var root = Path.GetPathRoot(full);
+            if (!string.IsNullOrEmpty(root) && new DriveInfo(root).DriveType == DriveType.Network)
+                return false;
+        }
+        catch (Exception ex) when (ex is ArgumentException
+            or IOException
+            or UnauthorizedAccessException
+            or System.Security.SecurityException)
+        {
+            // Indeterminate drive type: fall through to the reparse/size gates and the checksum.
+        }
+
+        return true;
     }
 
     /// <summary>
