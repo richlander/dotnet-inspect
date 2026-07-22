@@ -95,9 +95,12 @@ public static class AuthoredSourceAcquisition
                 SourceChecksumVerification.Unavailable);
         }
 
-        // Prefer a checksum-verified local file (e.g. a local build whose commit is not yet
-        // pushed) before reaching for the remote SourceLink URL. The checksum gate authenticates
-        // the on-disk bytes against the portable PDB, so this cannot surface unrelated content.
+        // Honor the source the portable PDB points at when it is present locally. A non-reproducible
+        // (local dev) build records a real local path, and the exact bytes that produced this binary
+        // may exist only here, so the remote SourceLink URL would 404 or serve different bytes. The
+        // checksum gate authenticates the on-disk bytes against the portable PDB, so this cannot
+        // surface unrelated content; remote SourceLink stays the fallback for reproducible (published)
+        // builds, whose normalized document paths are not local reads in the first place.
         if (TryReadVerifiedLocalSource(document) is { } localBytes)
             return FromContent(mapping, document, localBytes, methodName, subject);
 

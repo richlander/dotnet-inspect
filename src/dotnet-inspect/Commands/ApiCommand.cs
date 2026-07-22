@@ -556,9 +556,10 @@ public class ApiCommand
             if (methodInfo == null)
                 return new ResolvedMethodSource(null, pdbPath);
 
-            // Prefer a checksum-verified local source file (e.g. a local build whose commit is not
-            // yet pushed, so the remote SourceLink URL would 404) before fetching the remote URL.
-            // The checksum authenticates the on-disk bytes against the portable PDB.
+            // Honor the source the portable PDB records when it is present locally: a non-reproducible
+            // (local dev) build keeps a real local path whose exact compiled bytes may exist only here,
+            // so the remote SourceLink URL would 404 or differ. The checksum authenticates the on-disk
+            // bytes against the portable PDB; remote SourceLink is the fallback for reproducible builds.
             string? content = null;
             var localBytes = DotnetInspector.Services.AuthoredSourceAcquisition.TryReadVerifiedLocalSource(
                 methodInfo.FilePath, methodInfo.ChecksumAlgorithm, methodInfo.Checksum);
