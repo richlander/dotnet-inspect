@@ -650,10 +650,10 @@ public static class CompileBackSourceComposer
                         new CSharpPropertyBody(
                             getterIsTarget
                                 ? basePropertyBody?.Getter
-                                : getter.Body is { } getterBody ? CSharpAccessorBody.Block(getterBody.Source) : null,
+                                : getter.Body is { } getterBody ? CSharpAccessorBody.Block(getterBody.Source) : basePropertyBody?.Getter,
                             setterIsTarget
                                 ? basePropertyBody?.Setter
-                                : setter.Body is { } setterBody ? CSharpAccessorBody.Block(setterBody.Source) : null));
+                                : setter.Body is { } setterBody ? CSharpAccessorBody.Block(setterBody.Source) : basePropertyBody?.Setter));
                 }
             }
 
