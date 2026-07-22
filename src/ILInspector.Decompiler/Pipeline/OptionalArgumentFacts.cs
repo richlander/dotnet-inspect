@@ -163,13 +163,18 @@ internal static class OptionalArgumentFacts
             // extension named M may tie the callee's leading signature. Extensions
             // and instance methods in referenced assemblies stay the residual the
             // corpus fidelity gate backstops.
-            // The assembly-wide extension scan below reads only this manifest
-            // module's TypeDefinitions. In a multi-module assembly a competing
-            // extension can live in a linked netmodule the scan never sees (a
-            // same-assembly steal, not the accepted cross-assembly residual), so
-            // decline extension elision whenever the manifest carries code-bearing
-            // module files.
-            if (!ReceiverIsCrossAssembly(reader, callee.ParameterTypes[0]) || AssemblyHasMetadataModules(reader))
+            // The assembly-wide extension scan below reads only this reader's
+            // TypeDefinitions, so it sees the whole candidate set only for a
+            // single-module assembly manifest. Two multi-module shapes escape it,
+            // both same-assembly steals rather than the accepted cross-assembly
+            // residual, so decline extension elision in either: (a) a manifest that
+            // links code-bearing module files, whose netmodule extensions the scan
+            // never sees; and (b) a bare netmodule input (reader is not an
+            // assembly), whose sibling modules and assembly identity are unknowable
+            // from the module alone.
+            if (!reader.IsAssembly
+                || AssemblyHasMetadataModules(reader)
+                || !ReceiverIsCrossAssembly(reader, callee.ParameterTypes[0]))
                 return 0;
             siblings = AssemblyExtensionSiblings(reader, callee.Name);
         }
