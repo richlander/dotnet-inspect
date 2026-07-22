@@ -59,9 +59,23 @@ public class ReturnMergePassTests
     [Fact]
     public void SwitchAndGotoPredecessors_StayForSwitchRaising()
     {
-        var (function, defaultArm) = BuildMixedReturnTailCandidate(conditionalPredecessors: 0);
-        function.Body.Blocks[0].Children[0].ReplaceWith(
+        var (function, defaultArm) = BuildMixedReturnTailCandidate(conditionalPredecessors: 2);
+        var success = Assert.Single(function.Body.Blocks, block => block.StartOffset == 0x0003);
+        success.Children[0].ReplaceWith(
             new SwitchBranch(new Constant(0, Int32), [0x0005, 0x0005]));
+
+        new ReturnMergePass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.IsType<Branch>(Assert.Single(defaultArm.Children));
+    }
+
+    [Fact]
+    public void MixedPredecessorsWithFallthrough_StayForExistingStructuringRules()
+    {
+        var (function, defaultArm) = BuildMixedReturnTailCandidate(conditionalPredecessors: 2);
+        var success = Assert.Single(function.Body.Blocks, block => block.StartOffset == 0x0003);
+        success.Children[0].ReplaceWith(new StoreLocal(1, Int32, new Constant(1, Int32)));
 
         new ReturnMergePass().Run(function, PassContext.None);
         function.CheckInvariant();

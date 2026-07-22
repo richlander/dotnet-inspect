@@ -108,6 +108,8 @@ public sealed class ReturnMergePass : IIrPass
                 // terminator StructuringPass needs to prove the dispatch.
                 bool mixedScatteredCandidate = branchPreds.Count == 1
                     && conditionalPreds >= 2
+                    && !hasSwitchPred
+                    && fallthroughPred is null
                     && branchPredIndices[0] > conditionalPredIndices.Min()
                     && branchPredIndices[0] < conditionalPredIndices.Max()
                     && IsResultTempReturnTail(merge);
