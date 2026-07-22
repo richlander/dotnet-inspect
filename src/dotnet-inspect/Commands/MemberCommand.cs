@@ -282,7 +282,13 @@ public static class MemberCommand
                 var selectedMember = apiType.Members.Count == 1 ? apiType.Members[0] : null;
                 var sourceTypeName = selectedMember?.DeclaringType ?? apiType.FullName;
                 var sourceOverloadIndex = (selectedMember?.DeclaringOverloadIndex ?? effectiveOptions.OverloadIndex.Value) - 1;
-                var publicOnly = selectedMember?.Kind != "explicit-interface-implementation";
+                // A directly-requested single member (name + overload) is already explicitly named
+                // by the caller. When non-public members are in scope (--all), honor that request
+                // for Original Source / Source Diff regardless of accessibility; member inventories
+                // keep the public-only default. Explicit interface implementations stay resolvable.
+                var directRequest = selectedMember != null && effectiveOptions.IncludeAll;
+                var publicOnly = !directRequest
+                    && selectedMember?.Kind != "explicit-interface-implementation";
                 var resolved = await ApiCommand.ResolveMethodSourceAsync(
                     pdbLookupPath, sourceTypeName,
                     effectiveOptions.MemberFilter.First(),

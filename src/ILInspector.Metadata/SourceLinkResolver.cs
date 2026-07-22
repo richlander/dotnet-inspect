@@ -63,12 +63,18 @@ public class SourceLinkResolver
 
     /// <summary>
     /// Source location for a method, including the full line range from sequence points.
+    /// <paramref name="Checksum"/> is the portable-PDB document hash and
+    /// <paramref name="ChecksumAlgorithm"/> its algorithm name (e.g. "SHA256"); both may be null
+    /// when the PDB records no document hash. They let callers authenticate a local source file
+    /// on disk before preferring it over the remote SourceLink URL.
     /// </summary>
     public record MethodSourceInfo(
         string FilePath,
         string? SourceUrl,
         int StartLine,
-        int EndLine
+        int EndLine,
+        byte[]? Checksum = null,
+        string? ChecksumAlgorithm = null
     );
 
     /// <summary>
@@ -461,8 +467,16 @@ public class SourceLinkResolver
             if (minLine == int.MaxValue)
                 return null;
 
+            byte[]? checksum = null;
+            string? checksumAlgorithm = null;
+            if (!document.Hash.IsNil)
+            {
+                checksum = pdb.GetBlobBytes(document.Hash);
+                checksumAlgorithm = PdbContext.MapHashAlgorithm(pdb.GetGuid(document.HashAlgorithm));
+            }
+
             string? sourceUrl = ApplySourceLinkMapping(filePath);
-            return new MethodSourceInfo(filePath, sourceUrl, minLine, maxLine);
+            return new MethodSourceInfo(filePath, sourceUrl, minLine, maxLine, checksum, checksumAlgorithm);
         }
         catch
         {

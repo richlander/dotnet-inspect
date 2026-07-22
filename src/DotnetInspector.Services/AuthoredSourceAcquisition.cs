@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -93,6 +94,13 @@ public static class AuthoredSourceAcquisition
                 document,
                 SourceChecksumVerification.Unavailable);
         }
+
+        // Prefer a checksum-verified local file (e.g. a local build whose commit is not yet
+        // pushed) before reaching for the remote SourceLink URL. The checksum gate authenticates
+        // the on-disk bytes against the portable PDB, so this cannot surface unrelated content.
+        if (TryReadVerifiedLocalSource(document) is { } localBytes)
+            return FromContent(mapping, document, localBytes, methodName, subject);
+
         if (document.ResolvedUrl is not { Length: > 0 } url)
         {
             return Absent(document.Storage == SourceDocumentStorage.Embedded
@@ -206,20 +214,105 @@ public static class AuthoredSourceAcquisition
             return SourceChecksumVerification.Unsupported;
         }
 
-        if (HashMatches(document.ChecksumAlgorithm, content, expected))
-            return SourceChecksumVerification.Exact;
-        if (HashMatchesAfterLineEndingNormalization(
-            document.ChecksumAlgorithm,
-            content,
-            expected))
-        {
-            return SourceChecksumVerification.LineEndingNormalized;
-        }
+        return VerifyChecksum(document.ChecksumAlgorithm, expected, content);
+    }
 
-        return IsSupportedAlgorithm(document.ChecksumAlgorithm)
+    /// <summary>
+    /// Verifies fetched or on-disk source <paramref name="content"/> against a portable-PDB
+    /// document hash. Accepts an exact match or one recovered after CR/LF normalization. Returns
+    /// <see cref="SourceChecksumVerification.Unavailable"/> when no usable checksum is supplied.
+    /// </summary>
+    public static SourceChecksumVerification VerifyChecksum(
+        string? algorithm,
+        byte[]? expectedChecksum,
+        ReadOnlySpan<byte> content)
+    {
+        if (algorithm is not { Length: > 0 } || expectedChecksum is not { Length: > 0 })
+            return SourceChecksumVerification.Unavailable;
+
+        if (HashMatches(algorithm, content, expectedChecksum))
+            return SourceChecksumVerification.Exact;
+        if (HashMatchesAfterLineEndingNormalization(algorithm, content, expectedChecksum))
+            return SourceChecksumVerification.LineEndingNormalized;
+
+        return IsSupportedAlgorithm(algorithm)
             ? SourceChecksumVerification.Mismatch
             : SourceChecksumVerification.Unsupported;
     }
+
+    /// <summary>
+    /// Reads authored source from a local file, but only when its bytes authenticate against the
+    /// portable-PDB document checksum. The document path originates in an untrusted PDB, so the
+    /// checksum — not the path — authorizes the read: an attacker cannot precompute a matching hash
+    /// for an unknown local file, so a mismatched or absent checksum yields null. Returns null (the
+    /// caller falls back to the remote SourceLink URL) when the path is not a compiler source file,
+    /// is absent or unreadable, carries no usable checksum, or the content does not verify.
+    /// </summary>
+    public static byte[]? TryReadVerifiedLocalSource(
+        string? localPath,
+        string? checksumAlgorithm,
+        byte[]? checksum)
+    {
+        if (string.IsNullOrEmpty(localPath)
+            || checksumAlgorithm is not { Length: > 0 }
+            || checksum is not { Length: > 0 }
+            || !IsCompilerLanguageSourcePath(localPath))
+        {
+            return null;
+        }
+
+        byte[] content;
+        try
+        {
+            if (!File.Exists(localPath))
+                return null;
+            content = File.ReadAllBytes(localPath);
+        }
+        catch (Exception ex) when (ex is IOException
+            or UnauthorizedAccessException
+            or ArgumentException
+            or NotSupportedException)
+        {
+            return null;
+        }
+
+        return VerifyChecksum(checksumAlgorithm, checksum, content)
+            is SourceChecksumVerification.Exact
+                or SourceChecksumVerification.LineEndingNormalized
+            ? content
+            : null;
+    }
+
+    /// <summary>
+    /// Convenience overload that authenticates a local source file against a resolved
+    /// <see cref="SourceDocumentObservation"/> (its original PDB document path and checksum).
+    /// </summary>
+    public static byte[]? TryReadVerifiedLocalSource(SourceDocumentObservation document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        if (document.Checksum is not { Length: > 0 })
+            return null;
+
+        byte[] checksum;
+        try
+        {
+            checksum = Convert.FromHexString(document.Checksum);
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+
+        return TryReadVerifiedLocalSource(
+            document.OriginalPath,
+            document.ChecksumAlgorithm,
+            checksum);
+    }
+
+    static bool IsCompilerLanguageSourcePath(string path)
+        => path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".vb", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".fs", StringComparison.OrdinalIgnoreCase);
 
     static AuthoredMemberSourceInspection Absent(string detail)
         => new(
