@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -1048,7 +1049,9 @@ public static class CompileBackSourceComposer
                 returnType,
                 TypeParameters: [],
                 targetIsAutoProperty
-                    ? CompileBackStubBodyKind.AutoProperty
+                    ? accessors.Setter.IsNil || SetterIsInitOnly(reader, accessors.Setter)
+                        ? CompileBackStubBodyKind.AutoProperty
+                        : CompileBackStubBodyKind.AutoPropertyGetSet
                     : accessors.Setter.IsNil
                         ? CompileBackStubBodyKind.TargetBody
                         : CompileBackStubBodyKind.TargetGetterWithSetter,
@@ -2797,6 +2800,71 @@ public static class CompileBackSourceComposer
         }
 
         return false;
+    }
+
+    // An init-only setter carries a required custom modifier
+    // modreq(System.Runtime.CompilerServices.IsExternalInit) on its return type.
+    // Such properties (including record positional properties) must render as a
+    // get-only auto-property shell — the init assignment is expressed through the
+    // constructor, not a public `set` — so they must not be broadened to
+    // `{ get; set; }`.
+    static bool SetterIsInitOnly(MetadataReader reader, MethodDefinitionHandle setterHandle)
+    {
+        if (setterHandle.IsNil)
+            return false;
+        try
+        {
+            var setter = reader.GetMethodDefinition(setterHandle);
+            return setter.DecodeSignature(InitOnlyModifierDetector.Instance, genericContext: null).ReturnType;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    sealed class InitOnlyModifierDetector : ISignatureTypeProvider<bool, object?>
+    {
+        public static readonly InitOnlyModifierDetector Instance = new();
+
+        public bool GetPrimitiveType(PrimitiveTypeCode typeCode) => false;
+
+        public bool GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
+        {
+            var type = reader.GetTypeDefinition(handle);
+            return IsExternalInit(reader.GetString(type.Name), reader.GetString(type.Namespace));
+        }
+
+        public bool GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
+        {
+            var type = reader.GetTypeReference(handle);
+            return IsExternalInit(reader.GetString(type.Name), reader.GetString(type.Namespace));
+        }
+
+        public bool GetTypeFromSpecification(MetadataReader reader, object? context, TypeSpecificationHandle handle, byte rawTypeKind) => false;
+
+        public bool GetSZArrayType(bool elementType) => elementType;
+
+        public bool GetArrayType(bool elementType, ArrayShape shape) => elementType;
+
+        public bool GetByReferenceType(bool elementType) => elementType;
+
+        public bool GetPointerType(bool elementType) => elementType;
+
+        public bool GetGenericInstantiation(bool genericType, ImmutableArray<bool> typeArguments) => genericType;
+
+        public bool GetGenericMethodParameter(object? context, int index) => false;
+
+        public bool GetGenericTypeParameter(object? context, int index) => false;
+
+        public bool GetFunctionPointerType(MethodSignature<bool> signature) => false;
+
+        public bool GetModifiedType(bool modifier, bool unmodifiedType, bool isRequired) => (isRequired && modifier) || unmodifiedType;
+
+        public bool GetPinnedType(bool elementType) => elementType;
+
+        static bool IsExternalInit(string name, string ns)
+            => name == "IsExternalInit" && ns == "System.Runtime.CompilerServices";
     }
 
     static CompileBackTypeKind ShellKind(MetadataReader reader, TypeDefinition typeDef, IReadOnlyList<CompileBackFact>? facts = null)

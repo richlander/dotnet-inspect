@@ -368,6 +368,41 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_FullPreservesReadWriteAutoPropertyWhenTargetIsGetter()
+    {
+        // Issue #3000: a read-write auto-property targeted at its getter was rendered get-only
+        // (`{ get; }`), silently dropping the setter while still recording set_Value Complete.
+        // The getter compose path must select AutoPropertyGetSet when a setter exists so the
+        // preserved skeleton keeps both accessors.
+        var assemblyPath = CompileFixture("""
+            public class Holder
+            {
+                public int Value { get; set; }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "get_Value", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(MemberBodyProductionStatus.Complete, Assert.Single(result.FullBodies, body => body.Member == "Holder.get_Value").Status);
+            Assert.Equal(MemberBodyProductionStatus.Complete, Assert.Single(result.FullBodies, body => body.Member == "Holder.set_Value").Status);
+            Assert.Contains("Value { get; set; }", result.Source, StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_FullEventAccessorTargetSurfacesRecompileFailure()
     {
         // Issue #3000: a plain (non-explicit-interface) event accessor target is method-routed, so
