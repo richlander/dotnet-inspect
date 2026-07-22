@@ -540,6 +540,7 @@ public class ReturnToSenderPrototypeTests
                 RoundTripBodyPolicy.Full));
 
             Assert.Contains("public int Value { get; init; }", result.Source);
+            Assert.DoesNotContain("k__BackingField", result.Source);
             Assert.DoesNotContain("return this.Value", result.Source);
             Assert.DoesNotContain("this.Value = value", result.Source);
             Assert.False(result.UsedCompileBackFloor, result.Detail);
@@ -575,12 +576,50 @@ public class ReturnToSenderPrototypeTests
                 RoundTripBodyPolicy.Full));
 
             Assert.Contains("public int Value { get; set; }", result.Source);
+            Assert.DoesNotContain("k__BackingField", result.Source);
             Assert.DoesNotContain("return this.Value", result.Source);
             Assert.DoesNotContain("this.Value = value", result.Source);
             Assert.False(result.UsedCompileBackFloor, result.Detail);
             Assert.True(
                 result.BodyComplete,
                 string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullSuppressesStrayAutoPropertyBackingField()
+    {
+        // Issue #3036: when a type is pulled onto the RTS Full member surface and one of its
+        // members is a compiler-synthesized auto-property, the reconstruction preserved the
+        // auto-property skeleton but *also* emitted the raw `<Value>k__BackingField` (sanitized to
+        // `__Value_k__BackingField`) as a separate stray field. The compiler re-synthesizes the
+        // backing field for the auto-property, so the raw field must be suppressed to avoid a
+        // duplicate.
+        var assemblyPath = CompileFixture("""
+            public struct Holder
+            {
+                public int Value { get; init; }
+                public int M() => 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "M", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Contains("public int Value { get; init; }", result.Source);
+            Assert.DoesNotContain("k__BackingField", result.Source);
+            var type = Assert.Single(result.Plan.Types);
+            Assert.DoesNotContain(type.Members, member => member.Name.Contains("k__BackingField", StringComparison.Ordinal));
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
         }
         finally
         {
