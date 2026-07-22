@@ -281,6 +281,98 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_FullPreservesConcreteSiblingWhenTargetIsPropertyAccessor()
+    {
+        // Issue #3000: when the target is a property accessor, the sibling accessor's produced
+        // full body was silently dropped (kept a `throw null;` stub) while still reported Complete.
+        var assemblyPath = CompileFixture("""
+            public class Holder
+            {
+                private int _v;
+                public int Value
+                {
+                    get => _v;
+                    set { _v = value; }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "get_Value", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            var getter = Assert.Single(result.FullBodies, body => body.Member == "Holder.get_Value");
+            var setter = Assert.Single(result.FullBodies, body => body.Member == "Holder.set_Value");
+            Assert.Equal(MemberBodyProductionStatus.Complete, getter.Status);
+            Assert.Equal(MemberBodyProductionStatus.Complete, setter.Status);
+
+            // Evidence reports the sibling Complete, so the emitted sibling body must be the produced
+            // body, not a `throw null;` stub, and the target accessor body must be preserved.
+            Assert.Contains("_v = value;", result.Source, StringComparison.Ordinal);
+            Assert.Contains("return _v;", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("throw null", result.Source, StringComparison.Ordinal);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+
+            Assert.NotNull(result.Comparison);
+            Assert.Equal(RoundTripComparisonStatus.Completed, result.Comparison.Status);
+            var setterComparison = Assert.Single(
+                result.Comparison.Members,
+                member => member.Target.Method == setter.Method);
+            Assert.Equal(RoundTripEvidenceStatus.Exact, setterComparison.CSharpStatus);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullEventAccessorTargetSurfacesRecompileFailure()
+    {
+        // Issue #3000: a plain (non-explicit-interface) event accessor target is method-routed, so
+        // under Full policy the reconstructed type surface re-declares the event, whose synthesized
+        // accessor collides (CS0082) with the standalone target method. The Full closure fails to
+        // recompile and falls back to the compile-back floor. This must be reported honestly:
+        // BodyComplete is false (the Full reconstruction did not compile), not masked as Complete.
+        // Coherent Full reconstruction of plain event-accessor targets is a separate follow-up.
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public class Holder
+            {
+                private Action? _changed;
+                public event Action Changed
+                {
+                    add { _changed += value; }
+                    remove { _changed -= value; }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "add_Changed", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(result.UsedCompileBackFloor, result.Detail);
+            Assert.False(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_AllSeedsEverySupportedTopLevelRoot()
     {
         var assemblyPath = CompileFixture("""

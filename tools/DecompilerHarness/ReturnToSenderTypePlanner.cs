@@ -618,22 +618,34 @@ public static class CompileBackSourceComposer
                 bool concreteSetter = member.SetterToken is { } setterHandle && HasConcreteBody(setterHandle);
                 if (!concreteGetter && !concreteSetter)
                     continue;
-                var getter = member.GetterToken is { } getterToken && concreteGetter
+                bool getterIsTarget = member.GetterToken is { } getterTargetHandle && IsTargetToken(getterTargetHandle);
+                bool setterIsTarget = member.SetterToken is { } setterTargetHandle && IsTargetToken(setterTargetHandle);
+                var getter = member.GetterToken is { } getterToken && concreteGetter && !getterIsTarget
                     ? Produce(getterToken, $"{request.Type.FullName}.get_{member.Name}")
                     : default;
-                var setter = member.SetterToken is { } setterToken && concreteSetter
+                var setter = member.SetterToken is { } setterToken && concreteSetter && !setterIsTarget
                     ? Produce(setterToken, $"{request.Type.FullName}.set_{member.Name}")
                     : default;
-                bool getterReady = !concreteGetter || getter.Body is not null;
-                bool setterReady = !concreteSetter || setter.Body is not null;
+                // The target accessor's body is applied by the base Compose* path, not by Produce here;
+                // treat it as ready and preserve its already-applied body so the sibling's produced body
+                // is incorporated instead of clobbering the target with a null accessor.
+                bool getterReady = !concreteGetter || getterIsTarget || getter.Body is not null;
+                bool setterReady = !concreteSetter || setterIsTarget || setter.Body is not null;
                 if (getterReady && setterReady)
                 {
+                    var basePropertyBody = policies.TryGetValue(member, out var existingPropertyPolicy)
+                        ? existingPropertyPolicy.Body as CSharpPropertyBody
+                        : null;
                     policies[member] = new CSharpMemberPolicy(
                         member,
                         CSharpBodyPolicy.Full,
                         new CSharpPropertyBody(
-                            getter.Body is { } getterBody ? CSharpAccessorBody.Block(getterBody.Source) : null,
-                            setter.Body is { } setterBody ? CSharpAccessorBody.Block(setterBody.Source) : null));
+                            getterIsTarget
+                                ? basePropertyBody?.Getter
+                                : getter.Body is { } getterBody ? CSharpAccessorBody.Block(getterBody.Source) : null,
+                            setterIsTarget
+                                ? basePropertyBody?.Setter
+                                : setter.Body is { } setterBody ? CSharpAccessorBody.Block(setterBody.Source) : null));
                 }
             }
 
@@ -673,6 +685,9 @@ public static class CompileBackSourceComposer
             var handle = MetadataTokens.MethodDefinitionHandle(token & 0x00ffffff);
             return artifact.Reader.GetMethodDefinition(handle).RelativeVirtualAddress != 0;
         }
+
+        bool IsTargetToken(int token)
+            => MetadataTokens.MethodDefinitionHandle(token & 0x00ffffff) == artifact.TargetMethod;
     }
 
     public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
