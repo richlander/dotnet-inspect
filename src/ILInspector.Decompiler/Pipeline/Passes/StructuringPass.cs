@@ -105,6 +105,8 @@ public sealed class StructuringPass : IIrPass
         var unconditionalTargets = new HashSet<int>();
         var conditionalTargetCounts = new Dictionary<int, int>();
         var conditionalPredecessorIndices = new Dictionary<int, List<int>>();
+        var branchPredecessorIndices = new Dictionary<int, List<int>>();
+        var switchTargets = new HashSet<int>();
         var branchTargets = new HashSet<int>();
         for (int blockIndex = 0; blockIndex < blocks.Count; blockIndex++)
         {
@@ -114,6 +116,9 @@ public sealed class StructuringPass : IIrPass
                 if (child is Branch branch)
                 {
                     unconditionalTargets.Add(branch.TargetOffset);
+                    if (!branchPredecessorIndices.TryGetValue(branch.TargetOffset, out var branchPreds))
+                        branchPredecessorIndices[branch.TargetOffset] = branchPreds = new List<int>();
+                    branchPreds.Add(blockIndex);
                     branchTargets.Add(branch.TargetOffset);
                 }
                 else if (child is Leave leave)
@@ -134,6 +139,7 @@ public sealed class StructuringPass : IIrPass
                     foreach (int target in switchBranch.TargetOffsets)
                     {
                         unconditionalTargets.Add(target);
+                        switchTargets.Add(target);
                         branchTargets.Add(target);
                     }
                 }
@@ -167,11 +173,25 @@ public sealed class StructuringPass : IIrPass
         // guard. The contiguous `&&`/`||` false-exit chain (adjacent guards, no
         // arm between them) is deliberately excluded so it still combines into a
         // single condition (the #640 fidelity canary).
+        //
+        // A shared return is normally excluded when an unconditional goto also
+        // targets it — dropping the duplicated original would strand that goto.
+        // But a switch-expression default arm (`_ => false`) is reached both by
+        // scattered `when`-guard failures AND by a forward-goto trampoline
+        // (`{ goto default; }`, the else of an inner pattern test): the store-
+        // then-return default is the same shared tail (issue #2973). Such a
+        // trampoline is itself a dispatch arm that dissolves by inlining the
+        // terminator, so it does not strand a goto; admit the target when every
+        // unconditional predecessor is one of those pure forward trampolines
+        // (never a switch dispatch target). Structuring's all-or-nothing
+        // Validate is the backstop: if any trampoline cannot be dissolved, the
+        // whole slice stays in its valid goto form rather than dropping an edge.
         var scatteredReturnDispatchTargets = new HashSet<int>();
         foreach (var block in blocks)
         {
             int offset = block.StartOffset;
-            if (unconditionalTargets.Contains(offset)
+            if ((unconditionalTargets.Contains(offset)
+                    && !UnconditionalPredecessorsAreDissolvableTrampolines(blocks, offset, branchPredecessorIndices, switchTargets))
                 || fallenInto.Contains(offset)
                 || conditionalTargetCounts.GetValueOrDefault(offset) < 2
                 || !IsTerminatorBlock(block)
@@ -190,8 +210,17 @@ public sealed class StructuringPass : IIrPass
             if (!IsSharedTerminator(blocks[i], unconditionalTargets, conditionalTargetCounts, fallenInto, isComparisonTree, scatteredReturnDispatchTargets))
                 continue;
             snapshots[i] = blocks[i].Children.ToList();
-            if (i > 0 && !FallsThrough(blocks[i - 1]))
+            // A scattered dispatch target reached by a forward-goto trampoline
+            // (issue #2973) is inlined into its conditional guards but must stay
+            // in place: the trampoline arm reaches it by falling through the
+            // structured nest to this trailing return, so dropping it would
+            // strand that path off the end of a non-void method (CS0161).
+            if (i > 0 && !FallsThrough(blocks[i - 1])
+                && !(scatteredReturnDispatchTargets.Contains(blocks[i].StartOffset)
+                    && unconditionalTargets.Contains(blocks[i].StartOffset)))
+            {
                 droppable.Add(i);
+            }
         }
 
         var recorder = context.StructuringDiagnostics is null ? null : new StopRecorder();
@@ -1068,7 +1097,15 @@ public sealed class StructuringPass : IIrPass
     /// </summary>
     static bool IsSharedTerminator(Block block, HashSet<int> unconditionalTargets, Dictionary<int, int> conditionalTargetCounts, HashSet<int> fallenInto, bool isComparisonTree, HashSet<int> scatteredReturnDispatchTargets)
     {
-        if (!IsTerminatorBlock(block) || unconditionalTargets.Contains(block.StartOffset))
+        if (!IsTerminatorBlock(block))
+            return false;
+        // A scattered switch-expression default (issue #2973) is reached by a
+        // forward-goto trampoline, so it is an unconditional target; the
+        // collector already proved those predecessors are dissolvable
+        // trampolines before adding it, so let the scattered classification
+        // override the general unconditional-target exclusion.
+        bool scattered = scatteredReturnDispatchTargets.Contains(block.StartOffset);
+        if (!scattered && unconditionalTargets.Contains(block.StartOffset))
             return false;
         // A base/this constructor-chain call must stay the body's first statement
         // for the `: base(...)` lift to fire; inlining (which duplicates/nests the
@@ -1179,6 +1216,35 @@ public sealed class StructuringPass : IIrPass
                 return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Whether every unconditional predecessor of <paramref name="offset"/> is a
+    /// pure forward-goto trampoline — a block whose sole statement is
+    /// <c>goto offset</c> (issue #2973's switch-expression default arm, reached
+    /// by the else of an inner pattern test). Such a trampoline is a dispatch arm
+    /// that dissolves by inlining the terminator, so duplicating the shared
+    /// return does not strand its goto. A switch (jump-table) dispatch target is
+    /// never a trampoline, so it stays excluded. With no unconditional
+    /// predecessor the caller has already excluded the block, so this is only
+    /// consulted for genuine unconditional targets.
+    /// </summary>
+    static bool UnconditionalPredecessorsAreDissolvableTrampolines(
+        IReadOnlyList<Block> blocks,
+        int offset,
+        Dictionary<int, List<int>> branchPredecessorIndices,
+        HashSet<int> switchTargets)
+    {
+        if (switchTargets.Contains(offset))
+            return false;
+        if (!branchPredecessorIndices.TryGetValue(offset, out var predecessors))
+            return false;
+        foreach (int index in predecessors)
+        {
+            if (blocks[index].Children is not [Branch branch] || branch.TargetOffset != offset)
+                return false;
+        }
+        return true;
     }
 
     /// <summary>
@@ -1418,7 +1484,17 @@ public sealed class StructuringPass : IIrPass
                     {
                         result.Add(new IfStatement(condition, pastRegionArm, null));
                         for (int drop = target; drop < inlinedStop; drop++)
+                        {
+                            // A scattered switch-expression default (issue #2973)
+                            // pulled into this clone is the shared tail a sibling
+                            // trampoline arm still falls through to; dropping it
+                            // would strand that path off the end (CS0161). Keep it
+                            // as the region's trailing terminator (Validate already
+                            // walks it as the merge), inlining a duplicate here.
+                            if (ctx.ScatteredReturnDispatchTargets.Contains(blocks[drop].StartOffset))
+                                continue;
                             ctx.DroppableBlocks.Add(drop);
+                        }
                         i++;
                         break;
                     }
