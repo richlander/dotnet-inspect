@@ -834,6 +834,24 @@ public class CfgSampleClass
     // `a[(long)(r)]` rather than a CS0266 bare index.
     public static int LongEnumRefArrayIndex(int[] a, ref CfgLongPriority r) => a[(long)r];
 
+    // Signedness masking (#2981 adversarial review): `ldelem.i8` / `ldind.i8`
+    // report Int64 storage even for a `ulong` element/pointee, so the index
+    // conversion's own signedness (`conv.ovf.i` signed / `conv.ovf.i.un`
+    // unsigned) is the only witness of the source type. A `ulong` element used as
+    // a *signed* index must keep an explicit `(long)` cast — stripping it bare
+    // would re-insert `conv.ovf.i.un` and change overflow semantics.
+    public static int ULongArrayIndexAsSigned(int[] a, ulong[] v, int j) => a[(long)v[j]];
+
+    public static int ULongRefIndexAsSigned(int[] a, ref ulong r) => a[(long)r];
+
+    // The mirror: a `long` element used as an *unsigned* index keeps `(ulong)`.
+    public static int LongArrayIndexAsUnsigned(int[] a, long[] v, int j) => a[(ulong)v[j]];
+
+    // A plain `ulong` array element index strips to the bare index just like a
+    // `long` one — `ldelem.i8` masks it as Int64, but the recovered `ulong`
+    // element type matches the unsigned `conv.ovf.i.un`, so it is opcode-exact.
+    public static int ULongArrayElementIndex(int[] a, ulong[] v, int j) => a[v[j]];
+
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
 
     // stelem.i1 stores into byte[], sbyte[], and bool[] alike, and stelem.i2 into

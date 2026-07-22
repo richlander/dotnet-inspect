@@ -77,4 +77,36 @@ public class WideArrayIndexTests
         // underlying wide primitive, not stripped bare (CS0266).
         Assert.Equal("return a[(long)(r)];", Print(nameof(CfgSampleClass.LongEnumRefArrayIndex)));
     }
+
+    [Fact]
+    public void ULongArrayElementAsSigned_KeepsExplicitLongCast()
+    {
+        // `ldelem.i8` masks the `ulong` element as Int64, but the conversion is
+        // signed (`conv.ovf.i`). Stripping bare would spell a `ulong` index and
+        // re-insert `conv.ovf.i.un`, so the `(long)` cast must be kept.
+        Assert.Equal("return a[(long)v[j]];", Print(nameof(CfgSampleClass.ULongArrayIndexAsSigned)));
+    }
+
+    [Fact]
+    public void ULongRefAsSigned_KeepsExplicitLongCast()
+    {
+        // The ref analog (`ldind.i8`) of the masked-`ulong`-as-signed index.
+        Assert.Equal("return a[(long)(r)];", Print(nameof(CfgSampleClass.ULongRefIndexAsSigned)));
+    }
+
+    [Fact]
+    public void LongArrayElementAsUnsigned_KeepsExplicitULongCast()
+    {
+        // The mirror: a `long` element used as an unsigned index (`conv.ovf.i.un`)
+        // keeps a `(ulong)` cast, not stripped bare (which would be signed).
+        Assert.Equal("return a[(ulong)v[j]];", Print(nameof(CfgSampleClass.LongArrayIndexAsUnsigned)));
+    }
+
+    [Fact]
+    public void ULongArrayElementIndex_StripsBareLikeLong()
+    {
+        // A plain `ulong` element index: the recovered `ulong` element type
+        // matches the unsigned conversion, so it strips to the bare index.
+        Assert.Equal("return a[v[j]];", Print(nameof(CfgSampleClass.ULongArrayElementIndex)));
+    }
 }
