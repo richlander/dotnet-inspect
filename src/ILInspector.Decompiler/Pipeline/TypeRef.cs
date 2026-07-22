@@ -507,7 +507,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
 
     string DisplayName()
     {
-        if (Assembly == CoreLibrary && Namespace == "System" && s_keywords.TryGetValue(Name, out var keyword))
+        if (Assembly == CoreLibrary && Namespace == "System" && PrimitiveTypeNames.TryToKeywordForSystemType(Name, out var keyword))
             return keyword;
         // Nested types carry the metadata `Outer+Inner` name; C# refers to
         // them by the innermost simple name (the namespace-stripping
@@ -717,15 +717,4 @@ public sealed class TypeRef : IEquatable<TypeRef>
         int tick = name.IndexOf('`');
         return tick >= 0 && int.TryParse(name[(tick + 1)..], out int arity) ? arity : 0;
     }
-
-    static readonly Dictionary<string, string> s_keywords = new()
-    {
-        ["Boolean"] = "bool", ["Byte"] = "byte", ["SByte"] = "sbyte",
-        ["Char"] = "char", ["Int16"] = "short", ["UInt16"] = "ushort",
-        ["Int32"] = "int", ["UInt32"] = "uint", ["Int64"] = "long",
-        ["UInt64"] = "ulong", ["Single"] = "float", ["Double"] = "double",
-        ["Decimal"] = "decimal",
-        ["IntPtr"] = "nint", ["UIntPtr"] = "nuint", ["String"] = "string",
-        ["Object"] = "object", ["Void"] = "void",
-    };
 }
