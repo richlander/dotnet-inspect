@@ -649,7 +649,16 @@ public static class CompileBackSourceComposer
                     // and there is no explicit target body to extend. Leave that policy untouched
                     // rather than replacing it with empty accessor bodies, which would delete the
                     // property's accessors (e.g. auto-properties -> `int Value {  }`, CS0548).
-                    if (targetInvolved && basePropertyBody is null)
+                    //
+                    // The same applies to a NON-target auto-property sibling: producing explicit
+                    // bodies for it decompiles the compiler-synthesized accessors, which read/write
+                    // the unspeakable backing field. The decompiler renders that field access as the
+                    // property itself, yielding recursive `get { return this.P; }` / `init { this.P
+                    // = value; }`. That compiles but is semantically wrong while still reporting the
+                    // accessors Complete. Preserve the skeleton so the compiler re-synthesizes
+                    // faithful auto-property accessors.
+                    bool isAutoSkeleton = existingPropertyPolicy is { BodyPolicy: CSharpBodyPolicy.Skeleton };
+                    if (basePropertyBody is null && (targetInvolved || isAutoSkeleton))
                         continue;
                     policies[member] = new CSharpMemberPolicy(
                         member,

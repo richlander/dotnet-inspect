@@ -516,6 +516,79 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_FullAutoInitPropertySiblingStaysSkeletonNotRecursive()
+    {
+        // Issue #3000: under Full, a non-target auto init-property sibling was enriched by
+        // decompiling its compiler-synthesized accessors, which read/write the unspeakable
+        // backing field. The decompiler renders that as the property itself, producing recursive
+        // `get { return this.Value; }` / `init { this.Value = value; }` that compiles but is
+        // semantically wrong while the accessors were still reported Complete. The auto-property
+        // skeleton must be preserved so the compiler re-synthesizes faithful accessors.
+        var assemblyPath = CompileFixture("""
+            public readonly struct Holder
+            {
+                public int Value { get; init; }
+                public int M() => 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "M", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Contains("public int Value { get; init; }", result.Source);
+            Assert.DoesNotContain("return this.Value", result.Source);
+            Assert.DoesNotContain("this.Value = value", result.Source);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullAutoSetPropertySiblingStaysSkeletonNotRecursive()
+    {
+        // Issue #3000: the same recursion downgrade affected plain `{ get; set; }` auto-property
+        // siblings under Full (this class of bug predates the init work); the skeleton must be
+        // preserved so the accessor bodies are not the recursive `return this.Value` shape.
+        var assemblyPath = CompileFixture("""
+            public struct Holder
+            {
+                public int Value { get; set; }
+                public int M() => 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "M", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Contains("public int Value { get; set; }", result.Source);
+            Assert.DoesNotContain("return this.Value", result.Source);
+            Assert.DoesNotContain("this.Value = value", result.Source);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_FullPreservesExplicitInitAccessorWhenTargetIsSetter()
     {
         // Issue #3000: targeting a non-auto (explicit-body) init setter itself must render an
