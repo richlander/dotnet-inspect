@@ -2320,7 +2320,31 @@ public sealed partial class CSharpPrinter
         // conversion so C# re-inserts the same conv.ovf.i / conv.ovf.i.un — the
         // signed conv keeps `(long)`, the unsigned conv `(ulong)`, opcode-exact.
         if (convert.Operand.ResultType is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Int64" or "UInt64" })
-            return $"({(convert.IsUnsigned ? "ulong" : "long")}){Operand(convert.Operand)}";
+        {
+            string keyword = convert.IsUnsigned ? "ulong" : "long";
+            // The (long)/(ulong) reinterpret is a no-op in IL (source and target
+            // are both 8-byte); the only checked conversion here is the always-
+            // checked native-int index conv that stays outside the operand. Inside
+            // a lexical `checked` region a SIGN-CHANGING reinterpret would instead
+            // recompile to a conv.ovf.i8.un / conv.ovf.u8 the original never had, so
+            // wrap it in `unchecked(...)` and render the operand plain. A same-sign
+            // cast (a long-backed enum's `(long)`, a ulong-backed enum's `(ulong)`)
+            // emits no conv even when checked, so it stays bare to avoid noise.
+            if (_checkedContext && WideIndexCastSignChanges(indexType, convert.IsUnsigned))
+            {
+                bool saved = _checkedContext;
+                _checkedContext = false;
+                try
+                {
+                    return $"unchecked(({keyword}){Operand(convert.Operand)})";
+                }
+                finally
+                {
+                    _checkedContext = saved;
+                }
+            }
+            return $"({keyword}){Operand(convert.Operand)}";
+        }
 
         // Any other checked (nint) conversion recompiles to different IL: spell it.
         return Expression(index);
@@ -2344,6 +2368,30 @@ public sealed partial class CSharpPrinter
 
     static TypeRef? WideIndexPointee(IrExpression address)
         => address.ResultType is { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer } indirect ? indirect.ElementType : null;
+
+    /// <summary>
+    /// True when the emitted wide index cast <c>(long)</c>/<c>(ulong)</c> flips the
+    /// operand's signedness, so recompiling it inside a <c>checked</c> region would
+    /// add a <c>conv.ovf.i8.un</c>/<c>conv.ovf.u8</c> the original never had. Both
+    /// source and target are 8-byte, so only a sign change is checked-sensitive.
+    /// The operand's real signedness comes from the recovered index type: its
+    /// underlying type when it is an enum (an <c>ldelem.i8</c>/<c>ldind.i8</c> load
+    /// carries an 8-byte-backed enum), else the type itself. An unknown or
+    /// unclassifiable type is treated as a flip — wrapping is always
+    /// behavior-preserving, so it is the safe default.
+    /// </summary>
+    bool WideIndexCastSignChanges(TypeRef? indexType, bool castUnsigned)
+    {
+        var underlying = EnumUnderlyingType(indexType) ?? indexType;
+        if (underlying is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" } named)
+        {
+            if (named.Name == "Int64")
+                return castUnsigned;    // signed operand, unsigned cast → flip
+            if (named.Name == "UInt64")
+                return !castUnsigned;   // unsigned operand, signed cast → flip
+        }
+        return true;                    // unknown backing: wrap to be safe
+    }
 
     string Expression(IrExpression node) => node switch
     {

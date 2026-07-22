@@ -852,6 +852,19 @@ public class CfgSampleClass
     // element type matches the unsigned `conv.ovf.i.un`, so it is opcode-exact.
     public static int ULongArrayElementIndex(int[] a, ulong[] v, int j) => a[v[j]];
 
+    // Wide index cast inside a lexical `checked` region (#2981 adversarial
+    // review): the emitted `(long)`/`(ulong)` reinterpret is a no-op in IL (only
+    // the always-checked native-int index conv is checked). A SIGN-CHANGING cast
+    // must be wrapped in `unchecked(...)` — spelled bare inside `checked` it would
+    // recompile to a `conv.ovf.i8.un` / `conv.ovf.u8` the original never had.
+    public static int ULongIndexAsSignedChecked(int[] a, ulong[] v, int j) => checked(a[unchecked((long)v[j])] + 1);
+
+    public static int LongIndexAsUnsignedChecked(int[] a, long[] v, int j) => checked(a[unchecked((ulong)v[j])] + 1);
+
+    // A same-sign cast emits no conv even inside `checked` (a long-backed enum's
+    // `(long)`), so it stays bare with no spurious `unchecked(...)` wrapper.
+    public static int LongEnumIndexChecked(int[] a, CfgLongPriority[] values, int j) => checked(a[(long)values[j]] + 1);
+
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
 
     // stelem.i1 stores into byte[], sbyte[], and bool[] alike, and stelem.i2 into

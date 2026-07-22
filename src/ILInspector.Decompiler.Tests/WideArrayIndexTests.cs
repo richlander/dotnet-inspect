@@ -109,4 +109,29 @@ public class WideArrayIndexTests
         // matches the unsigned conversion, so it strips to the bare index.
         Assert.Equal("return a[v[j]];", Print(nameof(CfgSampleClass.ULongArrayElementIndex)));
     }
+
+    [Fact]
+    public void ULongIndexAsSignedChecked_WrapsCastInUnchecked()
+    {
+        // Inside a `checked` region the sign-changing `(long)` reinterpret would
+        // recompile to a `conv.ovf.i8.un` the original never had, so it is wrapped
+        // in `unchecked(...)`; the always-checked index conv stays outside.
+        Assert.Equal("return checked(a[unchecked((long)v[j])] + 1);", Print(nameof(CfgSampleClass.ULongIndexAsSignedChecked)));
+    }
+
+    [Fact]
+    public void LongIndexAsUnsignedChecked_WrapsCastInUnchecked()
+    {
+        // The mirror: a `long` element used as an unsigned index inside `checked`
+        // wraps its sign-changing `(ulong)` cast in `unchecked(...)`.
+        Assert.Equal("return checked(a[unchecked((ulong)v[j])] + 1);", Print(nameof(CfgSampleClass.LongIndexAsUnsignedChecked)));
+    }
+
+    [Fact]
+    public void LongEnumIndexChecked_KeepsBareCast()
+    {
+        // A same-sign cast (a long-backed enum's `(long)`) emits no conv even
+        // inside `checked`, so it stays bare with no spurious `unchecked(...)`.
+        Assert.Equal("return checked(a[(long)values[j]] + 1);", Print(nameof(CfgSampleClass.LongEnumIndexChecked)));
+    }
 }
