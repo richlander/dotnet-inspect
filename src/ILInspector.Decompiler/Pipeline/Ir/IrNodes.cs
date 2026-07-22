@@ -2533,24 +2533,6 @@ public sealed class LocalFunctionStatement : IrNode
     public bool SkipLocalsInit { get; }
     public BlockContainer Body => (BlockContainer)Children[0];
 
-    /// <summary>
-    /// The raised body's own resolved type info (shapes, enum members and
-    /// underlying types, union types), materialized when the body was imported.
-    /// A local function with its own locals or stack slots prints through a
-    /// freshly reconstructed <see cref="IrFunction"/> (a separate metadata-free
-    /// printer scope), so it must carry these maps forward or an enum-typed
-    /// constant in its body would render as a bare int (CS1503/CS0266) even
-    /// though the enclosing body spells the same value correctly.
-    /// </summary>
-    public IReadOnlyDictionary<TypeRef, TypeShape> TypeShapes { get; init; }
-        = ImmutableDictionary<TypeRef, TypeShape>.Empty;
-    public IReadOnlyDictionary<TypeRef, IReadOnlyDictionary<long, string>> EnumMembers { get; init; }
-        = ImmutableDictionary<TypeRef, IReadOnlyDictionary<long, string>>.Empty;
-    public IReadOnlyDictionary<TypeRef, TypeRef> EnumUnderlyingTypes { get; init; }
-        = ImmutableDictionary<TypeRef, TypeRef>.Empty;
-    public IReadOnlySet<TypeRef> UnionTypes { get; init; }
-        = ImmutableHashSet<TypeRef>.Empty;
-
     public override IEnumerable<TypeRef> DirectTypes => Parameters.Select(p => p.Type).Append(ReturnType);
 
     /// <summary>The single returned expression when the body is one block ending in a bare <c>return expr;</c>.</summary>

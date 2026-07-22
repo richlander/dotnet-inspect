@@ -193,6 +193,13 @@ public class FidelityGateTests
         // observes — the same benign reconstruction-ordinal diff as its sibling
         // StaticLocalFunctionWithLocal below.
         "EnumArgInLocalFunctionWithLocal",
+        // #2983 (inline path): the enum-argument-in-inline-local-function fixture.
+        // Its raised body has no locals or stack slots, so it prints inline through
+        // the enclosing scope and now spells the enum constant by member (the fix
+        // under test); the call opcodes stay identical (`ldarg call ret`), but
+        // recompiling reassigns the local function's synthesized ordinal, the same
+        // benign reconstruction-ordinal diff as its sibling below.
+        "EnumArgInInlineLocalFunction",
         "InvokeLocalCapture",
         "JustBreak",
         "LocalBodyLambda",
