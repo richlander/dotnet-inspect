@@ -411,6 +411,11 @@ public static class IrPasses
         // intrinsic. It stays BEFORE CoercionInsertionPass so the minted
         // UnboxAny value is coerced at its sink like any other.
         new UnboxValueReadPass(),
+        // Elide trailing arguments the compiler baked in for omitted C# optional
+        // parameters (ToWords(g, null) -> ToWords(g)); opcode-neutral taste, bounded
+        // by the importer's overload-safe count. Before coercion insertion so the
+        // trailing defaults are still bare constants, never wrapped sink values.
+        new OptionalArgumentElisionPass(),
         new CoercionInsertionPass(),
     ];
 

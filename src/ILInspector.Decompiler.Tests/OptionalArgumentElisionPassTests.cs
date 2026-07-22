@@ -1,0 +1,90 @@
+using ILInspector.Decompiler.Pipeline;
+
+namespace ILInspector.Decompiler.Tests;
+
+public class OptionalArgumentElisionPassTests
+{
+    // Cross-assembly enum spelling (DayOfWeek, StringSplitOptions) and the
+    // cross-assembly String.Split callee need the running-runtime resolver, the
+    // same pattern ExtensionMethodCallTests uses.
+    static readonly ILInspector.Metadata.IAssemblyReferenceResolver RuntimeResolver =
+        TestAssemblyReferenceResolvers.RuntimeAssemblies();
+
+    static string PrintRaised(string methodName)
+    {
+        using var context = new MetadataContext(RuntimeResolver);
+        using var source = MetadataSource.Open(typeof(OptionalArgumentElisionFixtures).Assembly.Location, null, RuntimeResolver, context);
+        var function = IrImporter.Import(source, typeof(OptionalArgumentElisionFixtures).FullName!, methodName);
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function!, method => IrImporter.Import(source, method));
+        Assert.True(result.Succeeded, string.Join("\n", result.Diagnostics.Select(d => d.Message)));
+        Assert.NotNull(result.Output);
+        return result.Output!.ReplaceLineEndings("\n").Trim();
+    }
+
+    [Fact]
+    public void TrailingNullDefault_IsElided()
+    {
+        string output = PrintRaised(nameof(OptionalArgumentElisionFixtures.CallSpeakElidesNull));
+
+        Assert.Contains("Speak(3)", output);
+        Assert.DoesNotContain("null", output);
+    }
+
+    [Fact]
+    public void TrailingEnumDefault_IsElided()
+    {
+        // The Humanizer ToWords witness reduced to a fixture: the trailing enum
+        // constant equal to the declared default drops.
+        string output = PrintRaised(nameof(OptionalArgumentElisionFixtures.CallAnnounceElidesEnum));
+
+        Assert.Contains("Announce(3)", output);
+        Assert.DoesNotContain("DayOfWeek", output);
+    }
+
+    [Fact]
+    public void SiblingOverloadTiesLeadingSignature_KeepsExplicitArgument()
+    {
+        // Log(message) has the callee's leading signature at the shorter arity, so
+        // eliding verbose would rebind to a different method. The trailing false
+        // must stay explicit.
+        string output = PrintRaised(nameof(OptionalArgumentElisionFixtures.CallLogKeepsSiblingTie));
+
+        Assert.Contains(", false)", output);
+    }
+
+    [Fact]
+    public void NonDefaultArgumentStopsTrailingRun()
+    {
+        // Triple(1, 9, 3): c==3 matches its default and drops, but b==9 breaks the
+        // run, so a==1 must stay even though it also equals its default (Triple(9)
+        // would bind 9 to a).
+        string output = PrintRaised(nameof(OptionalArgumentElisionFixtures.CallTripleTrailingRun));
+
+        Assert.Contains("Triple(1, 9)", output);
+        Assert.DoesNotContain("Triple(1, 9, 3)", output);
+        Assert.DoesNotContain("Triple(9)", output);
+    }
+
+    [Fact]
+    public void RetainedSubtypeArgument_KeepsExplicitArgument()
+    {
+        // Feed(Animal, int=1) is called with a Dog. Eliding to Feed(d) would rebind
+        // to the better-matching Feed(Dog) overload, so the identity check keeps
+        // the explicit trailing 1.
+        string output = PrintRaised(nameof(OptionalArgumentElisionFixtures.CallFeedKeepsSubtype));
+
+        Assert.Contains(", 1)", output);
+    }
+
+    [Fact]
+    public void CrossAssemblyCallee_IsNotElided()
+    {
+        // String.Split(char, StringSplitOptions.None) is cross-assembly; v1 only
+        // stamps same-assembly MethodDef callees, so the baked default stays.
+        string output = PrintRaised(nameof(OptionalArgumentElisionFixtures.CallSplitCrossAssembly));
+
+        Assert.Contains("StringSplitOptions", output);
+    }
+}
