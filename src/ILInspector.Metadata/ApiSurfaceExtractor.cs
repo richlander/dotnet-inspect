@@ -72,7 +72,12 @@ public static class ApiSurfaceExtractor
                 string baseTypeName = ResolveRequiredTypeName(
                     reader,
                     typeDef.BaseType);
-                apiType.BaseType = baseTypeName;
+                apiType.BaseType = ApplyDynamicView(
+                    reader,
+                    typeDef.BaseType,
+                    typeDef.GetCustomAttributes(),
+                    GenericContext.ForType(reader, typeDef),
+                    baseTypeName);
 
                 apiType.Kind = baseTypeName switch
                 {
@@ -123,6 +128,12 @@ public static class ApiSurfaceExtractor
                         reader,
                         iface.Interface,
                         typeContext);
+                    ifaceName = ApplyDynamicView(
+                        reader,
+                        iface.Interface,
+                        iface.GetCustomAttributes(),
+                        typeContext,
+                        ifaceName);
                     apiType.Interfaces.Add(ifaceName);
                 }
             }
@@ -424,6 +435,29 @@ public static class ApiSurfaceExtractor
                 eventNullableBytes ??= NullabilityReader.GetParameterNullableBytes(reader, adder.GetParameters(), 1);
                 if (eventNullableBytes is { Length: > 0 } && eventNullableBytes[0] == 2 && !eventType.EndsWith("?", StringComparison.Ordinal))
                     eventType += "?";
+                // A `dynamic` event handler (e.g. EventHandler<dynamic>) is always a
+                // generic instantiation, so re-decode the TypeSpec through the TypeNode
+                // tree to recover the dynamic view. Non-dynamic events are untouched.
+                if (evt.Type.Kind == HandleKind.TypeSpecification
+                    && DynamicReader.GetDynamicFlags(reader, evt.GetCustomAttributes()) is { } eventDynamicFlags)
+                {
+                    var eventNode = GuardedProviderDecode.TypeSpec(
+                        reader,
+                        (TypeSpecificationHandle)evt.Type,
+                        TypeNodeProvider.Instance,
+                        GenericContext.ForType(reader, typeDef),
+                        (TypeNode)new DegradedTypeNode());
+                    // Skip a rejected/degraded decode: its bare "object"/"dynamic" render
+                    // would obliterate the resolved eventType string computed above.
+                    if (!eventNode.IsDegraded)
+                    {
+                        int eventPos = 0;
+                        eventNode.ApplyNullability(eventNullableBytes, ref eventPos, 0);
+                        eventPos = 0;
+                        eventNode.ApplyDynamic(eventDynamicFlags, ref eventPos);
+                        eventType = eventNode.Render();
+                    }
+                }
                 var adderAttributes = adder.Attributes;
                 var isVirtualEvent = (adderAttributes & MethodAttributes.Virtual) != 0;
                 var isOverrideEvent = isVirtualEvent && (adderAttributes & MethodAttributes.NewSlot) == 0;
@@ -700,6 +734,9 @@ public static class ApiSurfaceExtractor
         var fieldBytes = NullabilityReader.GetNullableBytes(reader, field.GetCustomAttributes());
         int pos = 0;
         fieldNode.ApplyNullability(fieldBytes, ref pos, typeNullableContext);
+        var fieldDynamicFlags = DynamicReader.GetDynamicFlags(reader, field.GetCustomAttributes());
+        pos = 0;
+        fieldNode.ApplyDynamic(fieldDynamicFlags, ref pos);
         return (fieldNode.Render(), fieldNode.IsDegraded);
     }
 
@@ -883,6 +920,9 @@ public static class ApiSurfaceExtractor
         var returnBytes = NullabilityReader.GetParameterNullableBytes(reader, paramHandles, 0);
         int pos = 0;
         treeSignature.ReturnType.ApplyNullability(returnBytes, ref pos, nullableDefault);
+        var returnDynamicFlags = DynamicReader.GetParameterDynamicFlags(reader, paramHandles, 0);
+        pos = 0;
+        treeSignature.ReturnType.ApplyDynamic(returnDynamicFlags, ref pos);
 
         // Build parameter list with nullability
         var paramTypes = treeSignature.ParameterTypes;
@@ -895,6 +935,9 @@ public static class ApiSurfaceExtractor
             var paramBytes = NullabilityReader.GetParameterNullableBytes(reader, paramHandles, i + 1);
             pos = 0;
             paramTypes[i].ApplyNullability(paramBytes, ref pos, nullableDefault);
+            var paramDynamicFlags = DynamicReader.GetParameterDynamicFlags(reader, paramHandles, i + 1);
+            pos = 0;
+            paramTypes[i].ApplyDynamic(paramDynamicFlags, ref pos);
             string type = paramTypes[i].Render();
 
             // Parameter handles may include return parameter at SequenceNumber 0
@@ -1343,6 +1386,39 @@ public static class ApiSurfaceExtractor
             or "System.Int64" or "System.UInt64" or "System.Single" or "System.Double"
             or "System.Decimal" or "System.DateTime");
 
+    // Base types, interfaces, and events resolve to a display string via the
+    // string-based TypeResolver, which has no DynamicAttribute context. Only a
+    // generic instantiation (a TypeSpecification) can carry `dynamic`, so when
+    // one does, re-decode it through the TypeNode tree and apply the flags. Every
+    // other case (non-TypeSpec, or no DynamicAttribute) returns the string result
+    // unchanged, so this never alters non-dynamic output.
+    private static string ApplyDynamicView(
+        MetadataReader reader,
+        EntityHandle typeHandle,
+        CustomAttributeHandleCollection attributes,
+        GenericContext context,
+        string fallback)
+    {
+        if (typeHandle.Kind != HandleKind.TypeSpecification)
+            return fallback;
+        if (DynamicReader.GetDynamicFlags(reader, attributes) is not { } flags)
+            return fallback;
+        var node = GuardedProviderDecode.TypeSpec(
+            reader,
+            (TypeSpecificationHandle)typeHandle,
+            TypeNodeProvider.Instance,
+            context,
+            (TypeNode)new DegradedTypeNode());
+        // A rejected/degraded TypeSpec renders as a bare "object"/"dynamic", which would
+        // obliterate the fully resolved string fallback. Keep failure visible: trust the
+        // string resolver rather than silently collapsing the type.
+        if (node.IsDegraded)
+            return fallback;
+        int position = 0;
+        node.ApplyDynamic(flags, ref position);
+        return node.Render();
+    }
+
     private static string ResolveRequiredTypeName(
         MetadataReader reader,
         EntityHandle handle,
@@ -1482,6 +1558,9 @@ public static class ApiSurfaceExtractor
         var propBytes = NullabilityReader.GetNullableBytes(reader, prop.GetCustomAttributes());
         int pos = 0;
         treeSignature.ReturnType.ApplyNullability(propBytes, ref pos, typeNullableContext);
+        var propDynamicFlags = DynamicReader.GetDynamicFlags(reader, prop.GetCustomAttributes());
+        pos = 0;
+        treeSignature.ReturnType.ApplyDynamic(propDynamicFlags, ref pos);
 
         // Determine accessor visibility
         MethodAttributes getterAccess = 0;
@@ -1578,6 +1657,9 @@ public static class ApiSurfaceExtractor
             var paramBytes = NullabilityReader.GetParameterNullableBytes(reader, paramHandles, i + 1);
             pos = 0;
             paramTypes[i].ApplyNullability(paramBytes, ref pos, typeNullableContext);
+            var paramDynamicFlags = DynamicReader.GetParameterDynamicFlags(reader, paramHandles, i + 1);
+            pos = 0;
+            paramTypes[i].ApplyDynamic(paramDynamicFlags, ref pos);
             var paramType = paramTypes[i].Render();
             var (paramName, isParams, refKind, hasDefault, defaultValue, attributes) = GetParameterInfo(reader, paramHandles, i + 1);
             paramName ??= $"arg{i}";

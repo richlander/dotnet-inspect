@@ -385,12 +385,17 @@ public static class ApiMemberIdentity
         var memberName = member.Kind == "constructor"
             ? "#ctor"
             : ExtractMemberNameWithGeneric(signature, member.Name);
-        var parameters = ExtractCanonicalParameterList(signature);
+        // Raw-signature fallback (used when SignatureModel is absent, e.g. after a JSON
+        // round-trip where SignatureModel is [JsonIgnore]). member.Signature is the
+        // display string and carries `dynamic`, so scrub it back to `object` for identity
+        // exactly as the SignatureModel path does — otherwise a round-tripped member's
+        // fingerprint diverges from the same member read live.
+        var parameters = NormalizeDynamicToObject(ExtractCanonicalParameterList(signature));
         var canonical = $"{kindCode}:{declaringType}.{memberName}{parameters}";
         // Mirror the conversion-operator return-type disambiguation so member identity
         // is not dependent on whether SignatureModel was populated (the Try path above).
         if (IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(member.ReturnType))
-            canonical += $"~{NormalizeCanonicalCommas(member.ReturnType!)}";
+            canonical += $"~{NormalizeCanonicalCommas(NormalizeDynamicToObject(member.ReturnType!))}";
         return canonical;
     }
 
@@ -432,7 +437,7 @@ public static class ApiMemberIdentity
             // round-trips.
             var indexerParameters = member.SignatureModel is { Parameters.Count: > 0 } propertySignature
                 ? NormalizeCanonicalParameters(propertySignature.ParameterTypesSummary)
-                : ExtractCanonicalIndexerParameterList(member.Signature);
+                : NormalizeDynamicToObject(ExtractCanonicalIndexerParameterList(member.Signature));
             canonicalSignature = $"{kindCode}:{declaringType}.{member.Name}{indexerParameters}";
             return true;
         }
@@ -457,7 +462,7 @@ public static class ApiMemberIdentity
         // same "~ReturnType" delimiter as XML doc identity so conversion anchors
         // and XML lookups do not grow divergent spellings for the same fact.
         if (IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(signature.ReturnType))
-            canonical += $"~{NormalizeCanonicalCommas(signature.ReturnType!)}";
+            canonical += $"~{NormalizeCanonicalCommas(NormalizeDynamicToObject(signature.ReturnType!))}";
         canonicalSignature = canonical;
         return true;
     }
@@ -523,9 +528,66 @@ public static class ApiMemberIdentity
     }
 
     static string NormalizeCorrespondenceType(string type)
-        => type.Trim()
+        => NormalizeDynamicToObject(type.Trim())
             .Replace("+", ".", StringComparison.Ordinal)
             .Replace(", ", ",", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Collapses the display keyword <c>dynamic</c> back to <c>object</c> for identity
+    /// and matching. <c>dynamic</c> and <c>object</c> are the same metadata type, so the
+    /// display-only distinction must never reach canonical signatures, correspondence
+    /// keys, or XML-doc identity (which encode dynamic positions as <c>System.Object</c>).
+    /// This runs in string space by necessity: the display signature (<c>member.Signature</c>)
+    /// is serialized while the typed <c>SignatureModel</c> is <c>[JsonIgnore]</c>, so a
+    /// round-tripped member has only the rendered string to derive identity from — the same
+    /// reason nullability is normalized as text (see <see cref="NormalizeXmlDocParameterType"/>).
+    /// Boundary-aware so it never rewrites a dotted name segment or a longer identifier
+    /// (e.g. <c>System.Dynamic.X</c>, <c>Ns.dynamic</c>, or <c>MyDynamicType</c> are left
+    /// untouched). Known limitation: an identifier literally spelled <c>dynamic</c> in a
+    /// position where the keyword is legal — a type named <c>dynamic</c> in the global
+    /// namespace, or a generic parameter named <c>dynamic</c> (both C# <c>@dynamic</c>) —
+    /// renders as a bare <c>dynamic</c> token that this string pass collapses to
+    /// <c>object</c>, so an overload pair such as <c>M(@dynamic)</c> vs <c>M(object)</c>
+    /// shares one canonical signature. A generic parameter named <c>dynamic</c> is in
+    /// principle distinguishable — a declared type-parameter list survives serialization
+    /// (<c>ApiType.TypeParameters</c>) and XML-doc identity already carries generic-parameter
+    /// maps — but every identity site here (canonical signature, correspondence key, and
+    /// <see cref="NormalizeXmlDocParameterType"/>) runs this collapse in string space
+    /// *ahead of* generic-parameter resolution, so making all three parameter-aware is
+    /// tracked as follow-up rather than fixed piecemeal. A global type named <c>dynamic</c>
+    /// and a method-level generic parameter named <c>dynamic</c> have no round-trip-safe
+    /// discriminator at all. These identifiers are astronomically rare and the trade is
+    /// deliberate — preserving fingerprint stability for the ubiquitous keyword case
+    /// outweighs an identifier named after a contextual keyword.
+    /// </summary>
+    internal static string NormalizeDynamicToObject(string value)
+    {
+        const string token = "dynamic";
+        if (value.IndexOf(token, StringComparison.Ordinal) < 0)
+            return value;
+        var builder = new System.Text.StringBuilder(value.Length);
+        var index = 0;
+        while (index < value.Length)
+        {
+            if (index + token.Length <= value.Length
+                && string.CompareOrdinal(value, index, token, 0, token.Length) == 0
+                && (index == 0 || !IsTypeNameChar(value[index - 1]))
+                && (index + token.Length >= value.Length || !IsTypeNameChar(value[index + token.Length])))
+            {
+                builder.Append("object");
+                index += token.Length;
+            }
+            else
+            {
+                builder.Append(value[index]);
+                index++;
+            }
+        }
+        return builder.ToString();
+
+        static bool IsTypeNameChar(char c) =>
+            char.IsLetterOrDigit(c) || c is '_' or '.' or '`' or '+' or '/';
+    }
 
     // Preserve the v1 Member Index digest contract for members that already have
     // compatibility signature text. The legacy parser had edge-case behavior
@@ -567,7 +629,7 @@ public static class ApiMemberIdentity
     static string NormalizeCanonicalParameters(string parameterTypesSummary)
         => string.IsNullOrEmpty(parameterTypesSummary)
             ? "()"
-            : NormalizeCanonicalCommas(parameterTypesSummary);
+            : NormalizeCanonicalCommas(NormalizeDynamicToObject(parameterTypesSummary));
 
     static string NormalizeCanonicalCommas(string value)
         => value.Replace(", ", ",", StringComparison.Ordinal).Trim();
@@ -796,7 +858,7 @@ public static class ApiMemberIdentity
         IReadOnlyDictionary<string, int> typeParameterMap,
         IReadOnlyDictionary<string, int> methodParameterMap)
     {
-        var type = StripLeadingAttributes(parameter.Trim());
+        var type = StripLeadingAttributes(NormalizeDynamicToObject(parameter).Trim());
         var isByRef = false;
         foreach (var prefix in (string[])["ref ", "out ", "in ", "params ", "this "])
         {
