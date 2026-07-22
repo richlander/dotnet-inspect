@@ -245,6 +245,95 @@ public sealed class DynamicTypeViewTests
         var member = GetField(nameof(DynamicSampleClass.ObjectField));
         Assert.Equal("object", member.ReturnType);
     }
+
+    // --- Custom-modifier alignment: `in`/`ref readonly` carry a modreq(In) ---
+
+    [Fact]
+    public void Method_InDynamic_ConsumesModifierSlot()
+    {
+        // `in dynamic` decodes as ByRef(Modified(modreq In, object)). The
+        // DynamicAttribute transform-flags reserve a slot for the by-ref AND a
+        // slot for the custom modifier, so the walk must consume both before the
+        // object position or the `true` flag lands on the wrong node.
+        var member = GetMethod(nameof(DynamicSampleClass.TakesInDynamic));
+        Assert.Contains("dynamic value", member.Signature);
+        Assert.DoesNotContain("object", member.Signature);
+    }
+
+    [Fact]
+    public void Method_RefReadonlyDynamicReturn_ConsumesModifierSlot()
+    {
+        var member = GetMethod(nameof(DynamicSampleClass.RefReadonlyDynamic));
+        Assert.Contains("dynamic", member.Signature);
+        Assert.DoesNotContain("object", member.Signature);
+    }
+
+    // --- Extractor coverage: events and base types ---
+
+    [Fact]
+    public void Event_DynamicHandler()
+    {
+        var member = GetType(nameof(DynamicSampleClass)).Members
+            .First(m => m.Name == nameof(DynamicSampleClass.DynamicEvent) && m.Kind == "event");
+        Assert.Contains("EventHandler<dynamic>", member.Signature);
+        Assert.DoesNotContain("object", member.Signature);
+    }
+
+    [Fact]
+    public void BaseType_Dynamic()
+    {
+        var type = GetType(nameof(DynamicDerived));
+        Assert.NotNull(type.BaseType);
+        Assert.Contains("dynamic", type.BaseType!);
+        Assert.DoesNotContain("object", type.BaseType!);
+    }
+
+    // --- Identity isolation: canonical/XML-doc identity must stay `object` ---
+
+    [Fact]
+    public void Identity_DynamicParam_CanonicalUsesObjectNotDynamic()
+    {
+        var type = GetType(nameof(DynamicSampleClass));
+        var member = GetMethod(nameof(DynamicSampleClass.TakesDynamic));
+        var canonical = ApiMemberIdentity.GetCanonicalSignature(type, member);
+        Assert.Contains("object", canonical);
+        Assert.DoesNotContain("dynamic", canonical);
+    }
+
+    [Fact]
+    public void Identity_DynamicParam_XmlDocUsesObject()
+    {
+        var type = GetType(nameof(DynamicSampleClass));
+        var member = GetMethod(nameof(DynamicSampleClass.TakesDynamic));
+        Assert.True(ApiMemberIdentity.TryGetXmlDocMemberIdentity(type, member, out var identity));
+        Assert.Contains(identity.NormalizedParameters, p => p.Contains("System.Object"));
+        Assert.DoesNotContain(identity.NormalizedParameters, p => p.Contains("dynamic"));
+    }
+
+    [Fact]
+    public void Identity_NestedDynamic_CanonicalUsesObjectNotDynamic()
+    {
+        var type = GetType(nameof(DynamicSampleClass));
+        var member = GetMethod(nameof(DynamicSampleClass.TakesListOfDynamic));
+        var canonical = ApiMemberIdentity.GetCanonicalSignature(type, member);
+        Assert.DoesNotContain("dynamic", canonical);
+    }
+
+    // --- Marker-form flag must not broadcast into inner nodes ---
+
+    [Fact]
+    public void MarkerFlag_OnArray_DoesNotBroadcastToElement()
+    {
+        // A single-element (marker-form) flag array applies only to the first
+        // position; it must NOT broadcast `true` to inner element nodes. Only a
+        // bare top-level object ever carries the marker form in real metadata,
+        // but adversarial metadata can attach it to a composite.
+        var node = new SZArrayTypeNode(new PrimitiveTypeNode("object", true));
+        byte[] flags = [1];
+        int pos = 0;
+        node.ApplyDynamic(flags, ref pos);
+        Assert.Equal("object[]", node.Render());
+    }
 }
 
 // ===== Test fixture types with a spread of dynamic type shapes =====
@@ -269,4 +358,20 @@ public class DynamicSampleClass
     public void TakesFuncObjectDynamic(Func<object, dynamic> projector) { }
     public void MixedParams(object plain, dynamic flexible) { }
     public void TakesRefDynamic(ref dynamic value) { value = null!; }
+    public void TakesInDynamic(in dynamic value) { }
+
+    private static dynamic _refDynamic = null!;
+    public ref readonly dynamic RefReadonlyDynamic() => ref _refDynamic;
+
+    public event EventHandler<dynamic> DynamicEvent = null!;
+}
+
+/// <summary>Generic base used to exercise dynamic decoding of base types.</summary>
+public class DynamicBase<T>
+{
+}
+
+/// <summary>Derives from a generic base instantiated with <c>dynamic</c>.</summary>
+public class DynamicDerived : DynamicBase<dynamic>
+{
 }

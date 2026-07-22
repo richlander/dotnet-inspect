@@ -62,7 +62,13 @@ internal abstract class TypeNode
     /// </summary>
     protected void ConsumeDynamicFlag(byte[]? flags, ref int position, bool canBeDynamic)
     {
-        byte flag = ConsumeByte(flags, ref position, 0);
+        if (flags is null)
+            return;
+        // Unlike NullableAttribute, a single-element (marker-form) DynamicAttribute
+        // describes only the bare top-level object; it must NOT broadcast into inner
+        // nodes. Index strictly and treat positions past the end as non-dynamic.
+        byte flag = position < flags.Length ? flags[position] : (byte)0;
+        position++;
         if (canBeDynamic && flag != 0) IsDynamic = true;
     }
 
@@ -355,6 +361,16 @@ internal class PassthroughTypeNode(TypeNode inner) : TypeNode
 internal sealed class ModifiedTypeNode(TypeNode modifier, TypeNode inner, bool isRequired) : PassthroughTypeNode(inner)
 {
     public override bool IsDegraded => modifier.IsDegraded || base.IsDegraded;
+
+    public override void ApplyDynamic(byte[]? flags, ref int position)
+    {
+        // Roslyn reserves one (always-false) DynamicAttribute slot per custom
+        // modifier. Consume this modifier's slot before the modified type so the
+        // flag stream stays aligned (e.g. a `ref readonly dynamic` return encodes
+        // [byref, modreq(In), object] = [false, false, true]).
+        ConsumeDynamicFlag(flags, ref position, canBeDynamic: false);
+        base.ApplyDynamic(flags, ref position);
+    }
 
     public override bool HasRequiredModifier(string ns, string name)
         => (isRequired && ModifierMatches(ns, name)) || base.HasRequiredModifier(ns, name);

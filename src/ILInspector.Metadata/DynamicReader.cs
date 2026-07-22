@@ -15,7 +15,8 @@ namespace ILInspector.Metadata;
 /// <see cref="TypeNode.ApplyNullability"/> uses can consume them via
 /// <c>ApplyDynamic</c>. The marker form <c>[Dynamic]</c> (no constructor
 /// argument) is emitted only for a bare <c>dynamic</c> and is returned as a
-/// single-element array, which the walk applies uniformly.
+/// single-element array, which the walk consumes at the single (bare object)
+/// position without broadcasting to inner nodes.
 /// </remarks>
 public static class DynamicReader
 {

@@ -457,7 +457,7 @@ public static class ApiMemberIdentity
         // same "~ReturnType" delimiter as XML doc identity so conversion anchors
         // and XML lookups do not grow divergent spellings for the same fact.
         if (IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(signature.ReturnType))
-            canonical += $"~{NormalizeCanonicalCommas(signature.ReturnType!)}";
+            canonical += $"~{NormalizeCanonicalCommas(NormalizeDynamicToObject(signature.ReturnType!))}";
         canonicalSignature = canonical;
         return true;
     }
@@ -523,9 +523,45 @@ public static class ApiMemberIdentity
     }
 
     static string NormalizeCorrespondenceType(string type)
-        => type.Trim()
+        => NormalizeDynamicToObject(type.Trim())
             .Replace("+", ".", StringComparison.Ordinal)
             .Replace(", ", ",", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Collapses the display keyword <c>dynamic</c> back to <c>object</c> for identity
+    /// and matching. <c>dynamic</c> and <c>object</c> are the same metadata type, so the
+    /// display-only distinction must never reach canonical signatures, correspondence
+    /// keys, or XML-doc identity (which encode dynamic positions as <c>System.Object</c>).
+    /// Boundary-aware so it never rewrites a dotted name segment or a longer identifier
+    /// (e.g. <c>System.Dynamic.X</c> or <c>MyDynamicType</c> are left untouched).
+    /// </summary>
+    static string NormalizeDynamicToObject(string value)
+    {
+        const string token = "dynamic";
+        if (value.IndexOf(token, StringComparison.Ordinal) < 0)
+            return value;
+        var builder = new System.Text.StringBuilder(value.Length);
+        var index = 0;
+        while (index < value.Length)
+        {
+            if (index + token.Length <= value.Length
+                && string.CompareOrdinal(value, index, token, 0, token.Length) == 0
+                && (index == 0 || !IsTypeNameChar(value[index - 1]))
+                && (index + token.Length >= value.Length || !IsTypeNameChar(value[index + token.Length])))
+            {
+                builder.Append("object");
+                index += token.Length;
+            }
+            else
+            {
+                builder.Append(value[index]);
+                index++;
+            }
+        }
+        return builder.ToString();
+
+        static bool IsTypeNameChar(char c) => char.IsLetterOrDigit(c) || c == '_' || c == '.';
+    }
 
     // Preserve the v1 Member Index digest contract for members that already have
     // compatibility signature text. The legacy parser had edge-case behavior
@@ -567,7 +603,7 @@ public static class ApiMemberIdentity
     static string NormalizeCanonicalParameters(string parameterTypesSummary)
         => string.IsNullOrEmpty(parameterTypesSummary)
             ? "()"
-            : NormalizeCanonicalCommas(parameterTypesSummary);
+            : NormalizeCanonicalCommas(NormalizeDynamicToObject(parameterTypesSummary));
 
     static string NormalizeCanonicalCommas(string value)
         => value.Replace(", ", ",", StringComparison.Ordinal).Trim();
@@ -796,7 +832,7 @@ public static class ApiMemberIdentity
         IReadOnlyDictionary<string, int> typeParameterMap,
         IReadOnlyDictionary<string, int> methodParameterMap)
     {
-        var type = StripLeadingAttributes(parameter.Trim());
+        var type = StripLeadingAttributes(NormalizeDynamicToObject(parameter).Trim());
         var isByRef = false;
         foreach (var prefix in (string[])["ref ", "out ", "in ", "params ", "this "])
         {
