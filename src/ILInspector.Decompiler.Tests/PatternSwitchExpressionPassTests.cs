@@ -187,4 +187,153 @@ public class PatternSwitchExpressionPassTests
 
         Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
     }
+
+    // ── Inline cascade (issue #3028 PR A) ──────────────────────────────────
+
+    // The second recognized shape: a flat run of positive inline
+    // `if (P is Tk xk) { return vk; }` arms over one re-evaluable place, ending
+    // in a bare `return <default>`. No switch-value store; each arm reads the
+    // place directly. `IsPatternPass` produces this when every arm's bound local
+    // is used only inside its own matched branch.
+    static IrFunction InlineCascade(int parameterCount, params IrNode[] statements)
+    {
+        var block = new Block(0);
+        foreach (var statement in statements)
+            block.Add(statement);
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var parameters = Enumerable.Range(0, parameterCount)
+            .Select(i => new Parameter($"p{i}", Node))
+            .ToImmutableArray();
+        var signature = new MethodSignature(Node, parameters, HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Leaf, Node, Node, Node, Node), container);
+    }
+
+    static IfStatement InlineArm(IrExpression switchValue, TypeRef type, int localIndex, IrExpression armValue, IrExpression? guard = null, IrExpression? guardFailDefault = null)
+    {
+        var then = new Block();
+        if (guard is not null)
+        {
+            var guardThen = new Block();
+            guardThen.Add(new Return(armValue));
+            then.Add(new IfStatement(guard, guardThen, null));
+            then.Add(new Return(guardFailDefault!));
+        }
+        else
+        {
+            then.Add(new Return(armValue));
+        }
+        return new IfStatement(new IsPattern(switchValue, type, localIndex), then, null);
+    }
+
+    static LoadArgument Arg(int index) => new(index, $"p{index}", Node);
+
+    [Fact]
+    public void InlineCascade_CompiledFixture_RaisesToPatternSwitchExpression()
+    {
+        var function = Raised(typeof(InlinePatternSwitchSample), nameof(InlinePatternSwitchSample.Simplify));
+
+        var switchExpression = Assert.Single(function.Descendants.OfType<PatternSwitchExpression>());
+        Assert.Empty(function.Descendants.OfType<IfStatement>());
+        Assert.True(switchExpression.HasDefault);
+        Assert.Equal(4, switchExpression.Arms.Count);
+        Assert.Contains("LocalRef", switchExpression.Arms[0].PatternType.ToDisplayString());
+        Assert.Contains("ArgRef", switchExpression.Arms[1].PatternType.ToDisplayString());
+        Assert.Contains("FieldRef", switchExpression.Arms[2].PatternType.ToDisplayString());
+        Assert.Contains("ElementRef", switchExpression.Arms[3].PatternType.ToDisplayString());
+        Assert.All(switchExpression.Arms, arm => Assert.Null(arm.Subpattern));
+        Assert.All(switchExpression.Arms, arm => Assert.False(arm.HasGuard));
+
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
+        Assert.Contains("return address switch", output);
+        Assert.Contains("LocalRef local => new LocalRef(local.Index),", output);
+        Assert.Contains("ArgRef arg => new ArgRef(arg.Index, arg.Name),", output);
+        Assert.Contains("FieldRef field => new FieldRef(field.Field),", output);
+        Assert.Contains("ElementRef element => element,", output);
+        Assert.Contains("_ => null,", output);
+    }
+
+    [Fact]
+    public void Synthetic_InlineTwoArms_Raises()
+    {
+        var function = InlineCascade(
+            1,
+            InlineArm(Arg(0), Leaf, 0, new LoadLocal(0, Leaf)),
+            InlineArm(Arg(0), Node, 1, new LoadLocal(1, Node)),
+            new Return(new Constant(null, Node)));
+
+        RunPass(function);
+
+        var switchExpression = Assert.Single(function.Descendants.OfType<PatternSwitchExpression>());
+        Assert.Equal(2, switchExpression.Arms.Count);
+        Assert.True(switchExpression.HasDefault);
+        Assert.Empty(function.Descendants.OfType<IfStatement>());
+    }
+
+    [Fact]
+    public void Synthetic_InlineSingleArm_DoesNotRaise()
+    {
+        // A lone `if (P is T t) return v; return d;` is idiomatically an `if`,
+        // not a switch; the inline fold requires two or more arms.
+        var function = InlineCascade(
+            1,
+            InlineArm(Arg(0), Leaf, 0, new LoadLocal(0, Leaf)),
+            new Return(new Constant(null, Node)));
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    [Fact]
+    public void Synthetic_InlineDifferentReceivers_DoesNotRaise()
+    {
+        // Arm 1 tests p0 but arm 2 tests p1; there is no single switch value, so
+        // the arms are not a switch and must not fold.
+        var function = InlineCascade(
+            2,
+            InlineArm(Arg(0), Leaf, 0, new LoadLocal(0, Leaf)),
+            InlineArm(Arg(1), Node, 1, new LoadLocal(1, Node)),
+            new Return(new Constant(null, Node)));
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    [Fact]
+    public void Synthetic_InlineInterruptedCascade_DoesNotRaise()
+    {
+        // A non-arm statement between two inline arms breaks the cascade: the run
+        // is not a contiguous dispatch, so decline.
+        var function = InlineCascade(
+            1,
+            InlineArm(Arg(0), Leaf, 0, new LoadLocal(0, Leaf)),
+            new StoreLocal(2, Node, new Constant(null, Node)),
+            InlineArm(Arg(0), Node, 1, new LoadLocal(1, Node)),
+            new Return(new Constant(null, Node)));
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    [Fact]
+    public void Synthetic_InlineGuardFailYieldsNonDefault_DoesNotRaise()
+    {
+        // The first arm's guard-fail path returns 99 rather than the shared
+        // default; in a switch expression a failed `when` falls to the default, so
+        // a divergent guard-fail value means this is not a faithful switch.
+        var guard = new Call(new MethodRef(Leaf, "Ok", Bool, [Leaf], HasThis: false), isVirtual: false, [new LoadLocal(0, Leaf)]);
+        var function = InlineCascade(
+            1,
+            InlineArm(Arg(0), Leaf, 0, new LoadLocal(0, Leaf), guard, guardFailDefault: new Constant(99, Int32)),
+            InlineArm(Arg(0), Node, 1, new LoadLocal(1, Node)),
+            new Return(new Constant(null, Node)));
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
 }

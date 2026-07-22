@@ -1,27 +1,36 @@
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
-/// Raises a non-union nested type-pattern <c>as</c>/null-test if/return cascade
-/// over a plain receiver back into a <c>switch</c> expression with a default
-/// arm. This is the shape csc lowers a <c>value switch { T t when g =&gt; v, ...,
-/// _ =&gt; d }</c> to when the receiver is an ordinary expression (not a
-/// discriminated-union <c>.Value</c>) and one arm carries a single-level
-/// property subpattern (<c>U { Prop: T inner }</c>).
+/// Raises a non-union type-pattern if/return dispatch over a plain receiver back
+/// into a <c>switch</c> expression with a default arm. This is the shape csc
+/// lowers a <c>value switch { T t when g =&gt; v, ..., _ =&gt; d }</c> to when the
+/// receiver is an ordinary expression (not a discriminated-union <c>.Value</c>).
 ///
-/// The pass is deliberately narrow. It requires:
-/// <list type="bullet">
-///   <item>a switch value bound once to a temp from a re-evaluable place
-///   (<c>LoadArgument</c>/<c>LoadLocal</c>), read only by the arm type tests;</item>
-///   <item>every arm a pure <c>IsInstance</c> test of that temp (or, for the
-///   subpattern, of a property of the arm's bound local);</item>
-///   <item>every no-match and guard-fail path yielding the identical default
-///   value the trailing <c>return</c> yields;</item>
-///   <item>each pattern-bound local referenced only within its own arm.</item>
+/// Two lowered shapes are recognized, both producing a
+/// <see cref="PatternSwitchExpression"/>:
+/// <list type="number">
+///   <item>the nested <c>as</c>/null-test intro chain (<see cref="TryMatch"/>),
+///   where a switch value is bound once to a temp, each arm's matched body trails
+///   its <c>if (!Lk)</c> dispatch test, and the remaining arms nest in the
+///   dispatch <c>then</c> — csc's form when an arm carries a single-level property
+///   subpattern (<c>U { Prop: T inner }</c>) or a bound local outlives its test;</item>
+///   <item>the flat inline cascade (<see cref="TryMatchInlineArms"/>), a run of
+///   two or more positive <c>if (P is Tk xk) { ... }</c> arms over one
+///   re-evaluable place ending in a bare <c>return &lt;default&gt;</c> — csc's form
+///   when every arm's bound local is used only inside its own matched branch, so
+///   <c>IsPatternPass</c> folds each arm to a positive <c>is</c> test.</item>
 /// </list>
-/// Faithfully reproducing the same arms, order, guards, and default round-trips
-/// to the same lowering: guard-fail routing straight to the default (rather than
-/// the next arm) is valid precisely because the compiler proved the arm pattern
-/// types mutually exclusive.
+///
+/// The pass is deliberately narrow. Both shapes require a re-evaluable switch
+/// value (<c>LoadArgument</c>/<c>LoadLocal</c>) read only by the arm tests and not
+/// reassigned across them, every arm a pure type test of that value, every
+/// no-match and guard-fail path yielding the identical default the trailing
+/// <c>return</c> yields, and each pattern-bound local referenced only within its
+/// own arm. Faithfully reproducing the same arms, order, guards, and default
+/// round-trips to the same lowering: a failed <c>when</c> routing straight to the
+/// default (rather than the next arm) is valid precisely because the compiler
+/// proved the arm pattern types mutually exclusive, and the inline cascade
+/// preserves the compiler's top-to-bottom arm order.
 /// </summary>
 public sealed class PatternSwitchExpressionPass : IIrPass
 {
@@ -33,14 +42,29 @@ public sealed class PatternSwitchExpressionPass : IIrPass
     {
         foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
         {
-            if (container.Blocks is [var block] && TryMatch(function, block, out int startIndex, out var switchExpression))
+            if (container.Blocks is not [var block])
+                continue;
+
+            if (TryMatch(function, block, out int startIndex, out var switchExpression))
             {
-                block.SetChild(startIndex, new Return(switchExpression!));
-                for (int i = block.Children.Count - 1; i > startIndex; i--)
-                    block.Children[i].Detach();
+                FoldInto(block, startIndex, switchExpression!);
                 context.Stepper.StepOver("raise nested type-pattern dispatch to switch expression", block);
             }
+            else if (TryMatchInlineArms(function, block, out int inlineStart, out var inlineSwitch))
+            {
+                FoldInto(block, inlineStart, inlineSwitch!);
+                context.Stepper.StepOver("raise inline type-pattern if/return dispatch to switch expression", block);
+            }
         }
+    }
+
+    // Replace the recognized cascade — everything from `startIndex` to the end of
+    // the block — with a single `return <switch>`.
+    static void FoldInto(Block block, int startIndex, PatternSwitchExpression switchExpression)
+    {
+        block.SetChild(startIndex, new Return(switchExpression));
+        for (int i = block.Children.Count - 1; i > startIndex; i--)
+            block.Children[i].Detach();
     }
 
     bool TryMatch(IrFunction function, Block block, out int startIndex, out PatternSwitchExpression? switchExpression)
@@ -121,6 +145,151 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         }
 
         return false;
+    }
+
+    // The second recognized shape: a flat cascade of positive inline
+    // `IsPattern` arms over one re-evaluable place, ending in a bare
+    // `return <default>`:
+    //
+    //   if (P is T0 x0) { MATCHED0 }
+    //   if (P is T1 x1) { MATCHED1 }
+    //   ...
+    //   return <default>;
+    //
+    // csc lowers a `P switch { T0 x0 => v0, T1 x1 => v1, ..., _ => d }` to this
+    // when every arm's bound local is used only inside its own matched branch, so
+    // `IsPatternPass` folds each `x = P as Tk; if (x != null) { ... }` arm into a
+    // positive `P is Tk xk` test with the matched body nested in its `then`. The
+    // remaining arms follow as siblings (not nested), which is why the intro-chain
+    // parser above does not see them.
+    //
+    // Faithfulness: the arms are tried top-to-bottom exactly as the if/return
+    // cascade already does, so an unguarded fold reorders nothing regardless of
+    // type overlap. A guarded arm routes its guard-fail to the shared default —
+    // the same mutual-exclusivity evidence the intro-chain shape relies on — which
+    // `TryParseMatchedBody` requires by proving every non-value path reaches the
+    // default. Two arms are required: a lone `if (P is T t) return v; return d;`
+    // is idiomatically an `if`, not a switch, and folding it would be a broad,
+    // ambiguous reshape.
+    bool TryMatchInlineArms(IrFunction function, Block block, out int startIndex, out PatternSwitchExpression? switchExpression)
+    {
+        startIndex = -1;
+        switchExpression = null;
+
+        var children = block.Children;
+        // Need at least two arms plus the trailing default return.
+        if (children.Count < 3)
+            return false;
+
+        // The default is the value the block's trailing `return` yields.
+        if (children[^1] is not Return { Value: { } defaultValue })
+            return false;
+
+        // Locate the first inline arm; anything before it is left untouched.
+        int firstArm = -1;
+        IrExpression? switchValue = null;
+        for (int i = 0; i < children.Count - 1; i++)
+        {
+            if (IsInlineArm(children[i], out var isPattern) && IsReEvaluablePlace(isPattern.Value))
+            {
+                firstArm = i;
+                switchValue = isPattern.Value;
+                break;
+            }
+        }
+        if (firstArm < 0 || switchValue is null)
+            return false;
+
+        // Every statement from the first arm to the trailing default must be an
+        // inline arm over the identical switch value, whose matched branch yields a
+        // non-default value and whose every other path reaches the default.
+        var arms = new List<ArmData>();
+        for (int i = firstArm; i < children.Count - 1; i++)
+        {
+            if (!IsInlineArm(children[i], out var isPattern)
+                || !PlaceIdentity.SameOperand(isPattern.Value, switchValue))
+                return false;
+
+            var matched = ((IfStatement)children[i]).Then.Children;
+            if (!TryParseMatchedBody(matched, 0, isPattern.Type, isPattern.LocalIndex, defaultValue, out var arm, out int next)
+                || !ReachesDefaultTail(matched, next, defaultValue))
+                return false;
+
+            arms.Add(arm);
+        }
+        if (arms.Count < 2)
+            return false;
+
+        // Consumed nodes: the arm run plus the trailing default return.
+        var consumed = children.Skip(firstArm).ToList();
+
+        // The switch value must not be reassigned across the cascade, or the arm
+        // tests would not all read the same value the fold evaluates once.
+        if (!PlaceStableAcross(switchValue, consumed))
+            return false;
+
+        // Each pattern-bound local must be referenced only inside the cascade.
+        foreach (var arm in arms)
+        {
+            foreach (int local in PatternLocals(arm))
+            {
+                if (!ReferenceOwnership.LocalReferencedOrBoundOnlyWithin(function, local, consumed))
+                    return false;
+            }
+        }
+
+        var builtArms = arms.Select(a => new PatternSwitchExpressionArm(
+            a.PatternType,
+            a.LocalIndex,
+            a.Subpattern,
+            (IrExpression)a.Value.Clone(),
+            a.Guard is { } g ? (IrExpression)g.Clone() : null)).ToList();
+
+        switchExpression = new PatternSwitchExpression(
+            (IrExpression)switchValue.Clone(),
+            builtArms,
+            (IrExpression)defaultValue.Clone());
+        startIndex = firstArm;
+        return true;
+    }
+
+    // An inline arm: `if (P is Tk xk) { MATCHED }`, no `else`.
+    static bool IsInlineArm(IrNode node, out IsPattern isPattern)
+    {
+        if (node is IfStatement { HasElse: false, Condition: IsPattern pattern })
+        {
+            isPattern = pattern;
+            return true;
+        }
+        isPattern = null!;
+        return false;
+    }
+
+    // Whether the switch value's variable is never reassigned within the consumed
+    // cascade, so each arm test reads the value the fold evaluates once.
+    static bool PlaceStableAcross(IrExpression place, IReadOnlyList<IrNode> consumed)
+    {
+        (bool isArgument, int index) = place switch
+        {
+            LoadArgument argument => (true, argument.Index),
+            LoadLocal local => (false, local.Index),
+            _ => (false, -1),
+        };
+        if (index < 0)
+            return false;
+
+        foreach (var root in consumed)
+        {
+            foreach (var node in root.Descendants.Prepend(root))
+            {
+                bool reassigns = isArgument
+                    ? node is StoreArgument storeArgument && storeArgument.Index == index
+                    : node is StoreLocal storeLocal && storeLocal.Index == index;
+                if (reassigns)
+                    return false;
+            }
+        }
+        return true;
     }
 
     // A chain of arms whose collective no-match fall-through reaches the default.
