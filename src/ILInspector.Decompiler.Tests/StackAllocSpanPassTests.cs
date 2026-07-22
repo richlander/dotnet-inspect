@@ -207,6 +207,218 @@ public class StackAllocSpanPassTests
     }
 
     [Fact]
+    public void DirectPointerWithDynamicOneByteSize_Raises()
+    {
+        // For one-byte elements csc emits the count directly as localloc's
+        // byte size, with no checked multiply or nuint conversion.
+        var function = Build(StackAllocSpanConstructor(
+            TypeRef.CoreLib("System", "Span`1"),
+            new StackAllocate(new LoadLocal(0, Int32)),
+            new LoadLocal(0, Int32),
+            elementType: Byte));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<StackAllocate>());
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Equal(Byte, raised.ElementType);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DirectPointerWithDirectDynamicSizeForWiderElement_DoesNotRaise()
+    {
+        // A direct byte count only represents an element count when the
+        // element is exactly one byte wide.
+        var function = Build(StackAllocSpanConstructor(
+            TypeRef.CoreLib("System", "Span`1"),
+            new StackAllocate(new LoadLocal(0, Int32)),
+            new LoadLocal(0, Int32)));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DirectPointerWithCheckedMultiplyWithoutNuintConvert_DoesNotRaise()
+    {
+        // mul.ovf.un over int operands overflows at int width. The compiler's
+        // stackalloc lowering first converts the count to native unsigned
+        // width, so accepting this lookalike would change overflow behavior.
+        var size = new Binary(
+            BinaryKind.Multiply,
+            isChecked: true,
+            isUnsigned: true,
+            new LoadLocal(0, Int32),
+            new Constant(4, Int32));
+        var function = Build(StackAllocSpanConstructor(
+            TypeRef.CoreLib("System", "Span`1"),
+            new StackAllocate(size),
+            new LoadLocal(0, Int32)));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DirectPointerWithUserUIntPtrLookalike_DoesNotRaise()
+    {
+        var count = new LoadLocal(0, Int32);
+        var lookalike = TypeRef.Definition("UserAssembly", "System", "UIntPtr");
+        var converted = new IrConvert(lookalike, isChecked: false, isUnsigned: false, count);
+        var size = new Binary(BinaryKind.Multiply, isChecked: true, isUnsigned: true, converted, new Constant(4, Int32));
+        var function = Build(StackAllocSpanConstructor(
+            TypeRef.CoreLib("System", "Span`1"),
+            new StackAllocate(size),
+            new LoadLocal(0, Int32)));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DirectPointerWithUnsignedNuintConvert_DoesNotRaise()
+    {
+        var count = new LoadLocal(0, Int32);
+        var converted = new IrConvert(
+            TypeRef.CoreLib("System", "UIntPtr"),
+            isChecked: false,
+            isUnsigned: true,
+            count);
+        var size = new Binary(BinaryKind.Multiply, isChecked: true, isUnsigned: true, converted, new Constant(4, Int32));
+        var function = Build(StackAllocSpanConstructor(
+            TypeRef.CoreLib("System", "Span`1"),
+            new StackAllocate(size),
+            new LoadLocal(0, Int32)));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DirectPointerWithCheckedNuintConvert_DoesNotRaise()
+    {
+        var count = new LoadLocal(0, Int32);
+        var converted = new IrConvert(
+            TypeRef.CoreLib("System", "UIntPtr"),
+            isChecked: true,
+            isUnsigned: false,
+            count);
+        var size = new Binary(BinaryKind.Multiply, isChecked: true, isUnsigned: true, converted, new Constant(4, Int32));
+        var function = Build(StackAllocSpanConstructor(
+            TypeRef.CoreLib("System", "Span`1"),
+            new StackAllocate(size),
+            new LoadLocal(0, Int32)));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DirectPointerWithCheckedNuintCountMismatch_DoesNotRaise()
+    {
+        var converted = new IrConvert(
+            TypeRef.CoreLib("System", "UIntPtr"),
+            isChecked: false,
+            isUnsigned: false,
+            new LoadLocal(0, Int32));
+        var size = new Binary(BinaryKind.Multiply, isChecked: true, isUnsigned: true, converted, new Constant(4, Int32));
+        var function = Build(StackAllocSpanConstructor(
+            TypeRef.CoreLib("System", "Span`1"),
+            new StackAllocate(size),
+            new LoadLocal(1, Int32)));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DirectPointerWithCheckedNuintElementSizeMismatch_DoesNotRaise()
+    {
+        var converted = new IrConvert(
+            TypeRef.CoreLib("System", "UIntPtr"),
+            isChecked: false,
+            isUnsigned: false,
+            new LoadLocal(0, Int32));
+        var size = new Binary(BinaryKind.Multiply, isChecked: true, isUnsigned: true, converted, new Constant(8, Int32));
+        var function = Build(StackAllocSpanConstructor(
+            TypeRef.CoreLib("System", "Span`1"),
+            new StackAllocate(size),
+            new LoadLocal(0, Int32)));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DirectPointerWithCheckedNuintNegativeConstant_DoesNotRaise()
+    {
+        var converted = new IrConvert(
+            TypeRef.CoreLib("System", "UIntPtr"),
+            isChecked: false,
+            isUnsigned: false,
+            new Constant(-1, Int32));
+        var size = new Binary(BinaryKind.Multiply, isChecked: true, isUnsigned: true, converted, new Constant(4, Int32));
+        var function = Build(StackAllocSpanConstructor(
+            TypeRef.CoreLib("System", "Span`1"),
+            new StackAllocate(size),
+            count: -1));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<StackAllocArray>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DirectPointerWithCheckedNuintStructSize_Raises()
+    {
+        var guid = TypeRef.CoreLib("System", "Guid");
+        var count = new LoadLocal(0, Int32);
+        var converted = new IrConvert(
+            TypeRef.CoreLib("System", "UIntPtr"),
+            isChecked: false,
+            isUnsigned: false,
+            count);
+        var size = new Binary(BinaryKind.Multiply, isChecked: true, isUnsigned: true, new SizeOf(guid), converted);
+        var function = Build(StackAllocSpanConstructor(
+            TypeRef.CoreLib("System", "Span`1"),
+            new StackAllocate(size),
+            new LoadLocal(0, Int32),
+            elementType: guid));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<NewObject>());
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Equal(guid, raised.ElementType);
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void DirectPointerWithByteSizeCountMismatch_DoesNotRaise()
     {
         // The raw StackAllocate reserves 4 bytes, but the constructor claims
@@ -1103,9 +1315,9 @@ public class StackAllocSpanPassTests
     static NewObject StackAllocSpanConstructor(TypeRef spanDefinition, IrExpression pointer, int count, TypeRef? elementType = null)
         => StackAllocSpanConstructorWithPointer(spanDefinition, pointer, count, elementType);
 
-    static NewObject StackAllocSpanConstructor(TypeRef spanDefinition, IrExpression pointer, IrExpression count)
+    static NewObject StackAllocSpanConstructor(TypeRef spanDefinition, IrExpression pointer, IrExpression count, TypeRef? elementType = null)
     {
-        var span = TypeRef.GenericInstance(spanDefinition, [Int32]);
+        var span = TypeRef.GenericInstance(spanDefinition, [elementType ?? Int32]);
         var ctor = new MethodRef(span, ".ctor", Void, [VoidPointer, Int32], HasThis: true);
         return new NewObject(ctor, [pointer, count]);
     }
