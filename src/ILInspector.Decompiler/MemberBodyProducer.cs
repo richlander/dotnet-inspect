@@ -584,15 +584,7 @@ public static class MemberBodyProducer
                         {
                             sb.AppendLine(head);
                             sb.AppendLine("    {");
-                            if (CSharpExpressionBody.FromSingleStatement(body) is { } setExpr)
-                                sb.AppendLine($"        set => {setExpr};");
-                            else
-                            {
-                                sb.AppendLine("        set");
-                                sb.AppendLine("        {");
-                                AppendIndented(sb, body, "            ");
-                                sb.AppendLine("        }");
-                            }
+                            CSharpMemberLayout.Append(sb, "set", body, 8);
                             sb.AppendLine("    }");
                         }
                         else if (CSharpExpressionBody.FromSingleStatement(body) is { } getExpr)
@@ -603,10 +595,7 @@ public static class MemberBodyProducer
                         {
                             sb.AppendLine(head);
                             sb.AppendLine("    {");
-                            sb.AppendLine("        get");
-                            sb.AppendLine("        {");
-                            AppendIndented(sb, body, "            ");
-                            sb.AppendLine("        }");
+                            CSharpMemberLayout.Append(sb, "get", body, 8);
                             sb.AppendLine("    }");
                         }
                         break;
@@ -855,20 +844,7 @@ public static class MemberBodyProducer
         // An explicit base(...)/this(...) chain renders as a signature
         // initializer (the printer lifted it out of the body).
         string head = constructorChain is null ? signature : $"{signature} : {constructorChain}";
-        if (body is null)
-        {
-            sb.AppendLine($"    {head};");
-            return;
-        }
-        if (CSharpExpressionBody.FromSingleStatement(body) is { } expression)
-        {
-            sb.AppendLine($"    {head} => {expression};");
-            return;
-        }
-        sb.AppendLine($"    {head}");
-        sb.AppendLine("    {");
-        AppendIndented(sb, body, "        ");
-        sb.AppendLine("    }");
+        CSharpMemberLayout.Append(sb, head, body, 4);
     }
 
     static string TypeParameterDisplayName(TypeParameter typeParameter)
@@ -984,20 +960,7 @@ public static class MemberBodyProducer
         {
             var (keyword, body, _) = accessors[i];
             if (i > 0) sb.AppendLine();
-            if (body is null)
-            {
-                sb.AppendLine($"        {keyword};");
-                continue;
-            }
-            if (CSharpExpressionBody.FromSingleStatement(body) is { } accessorExpr)
-            {
-                sb.AppendLine($"        {keyword} => {accessorExpr};");
-                continue;
-            }
-            sb.AppendLine($"        {keyword}");
-            sb.AppendLine("        {");
-            AppendIndented(sb, body, "            ");
-            sb.AppendLine("        }");
+            CSharpMemberLayout.Append(sb, keyword, body, 8);
         }
         sb.AppendLine("    }");
     }
@@ -1233,18 +1196,6 @@ public static class MemberBodyProducer
 
     static string DiagnosticComment(DecompilerResult result)
         => string.Join("\n", result.Diagnostics.Select(d => $"// {d}"));
-
-    static void AppendIndented(StringBuilder sb, string body, string indent)
-    {
-        foreach (var line in body.Split('\n'))
-        {
-            string trimmed = line.TrimEnd();
-            if (trimmed.Length == 0)
-                sb.AppendLine();
-            else
-                sb.AppendLine($"{indent}{trimmed}");
-        }
-    }
 
     /// <summary>
     /// Shortens qualified type names against the assembly's own metadata
