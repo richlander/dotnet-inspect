@@ -385,12 +385,17 @@ public static class ApiMemberIdentity
         var memberName = member.Kind == "constructor"
             ? "#ctor"
             : ExtractMemberNameWithGeneric(signature, member.Name);
-        var parameters = ExtractCanonicalParameterList(signature);
+        // Raw-signature fallback (used when SignatureModel is absent, e.g. after a JSON
+        // round-trip where SignatureModel is [JsonIgnore]). member.Signature is the
+        // display string and carries `dynamic`, so scrub it back to `object` for identity
+        // exactly as the SignatureModel path does — otherwise a round-tripped member's
+        // fingerprint diverges from the same member read live.
+        var parameters = NormalizeDynamicToObject(ExtractCanonicalParameterList(signature));
         var canonical = $"{kindCode}:{declaringType}.{memberName}{parameters}";
         // Mirror the conversion-operator return-type disambiguation so member identity
         // is not dependent on whether SignatureModel was populated (the Try path above).
         if (IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(member.ReturnType))
-            canonical += $"~{NormalizeCanonicalCommas(member.ReturnType!)}";
+            canonical += $"~{NormalizeCanonicalCommas(NormalizeDynamicToObject(member.ReturnType!))}";
         return canonical;
     }
 
@@ -432,7 +437,7 @@ public static class ApiMemberIdentity
             // round-trips.
             var indexerParameters = member.SignatureModel is { Parameters.Count: > 0 } propertySignature
                 ? NormalizeCanonicalParameters(propertySignature.ParameterTypesSummary)
-                : ExtractCanonicalIndexerParameterList(member.Signature);
+                : NormalizeDynamicToObject(ExtractCanonicalIndexerParameterList(member.Signature));
             canonicalSignature = $"{kindCode}:{declaringType}.{member.Name}{indexerParameters}";
             return true;
         }
@@ -532,8 +537,18 @@ public static class ApiMemberIdentity
     /// and matching. <c>dynamic</c> and <c>object</c> are the same metadata type, so the
     /// display-only distinction must never reach canonical signatures, correspondence
     /// keys, or XML-doc identity (which encode dynamic positions as <c>System.Object</c>).
+    /// This runs in string space by necessity: the display signature (<c>member.Signature</c>)
+    /// is serialized while the typed <c>SignatureModel</c> is <c>[JsonIgnore]</c>, so a
+    /// round-tripped member has only the rendered string to derive identity from — the same
+    /// reason nullability is normalized as text (see <see cref="NormalizeXmlDocParameterType"/>).
     /// Boundary-aware so it never rewrites a dotted name segment or a longer identifier
-    /// (e.g. <c>System.Dynamic.X</c> or <c>MyDynamicType</c> are left untouched).
+    /// (e.g. <c>System.Dynamic.X</c>, <c>Ns.dynamic</c>, or <c>MyDynamicType</c> are left
+    /// untouched). Known limitation: a type literally named <c>dynamic</c> in the global
+    /// namespace (C# <c>@dynamic</c>) renders as a bare <c>dynamic</c> token indistinguishable
+    /// from the keyword once the typed model is gone, so its identity collapses to
+    /// <c>object</c>. That is astronomically rare and the trade is deliberate — preserving
+    /// fingerprint stability for the ubiquitous keyword case outweighs a global type named
+    /// after a contextual keyword.
     /// </summary>
     static string NormalizeDynamicToObject(string value)
     {

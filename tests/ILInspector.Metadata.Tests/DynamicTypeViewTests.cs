@@ -1,4 +1,5 @@
 using System.Reflection.PortableExecutable;
+using System.Text.Json;
 using ILInspector.Metadata;
 
 namespace ILInspector.Metadata.Tests;
@@ -319,6 +320,52 @@ public sealed class DynamicTypeViewTests
         Assert.DoesNotContain("dynamic", canonical);
     }
 
+    // --- Identity must survive a JSON round-trip (SignatureModel is [JsonIgnore],
+    //     so identity falls back to parsing the raw display signature, which carries
+    //     `dynamic`; the fallback must scrub it to `object` exactly like the live path). ---
+
+    [Fact]
+    public void Identity_DynamicParam_CanonicalStableAcrossJsonRoundTrip()
+    {
+        var liveType = GetType(nameof(DynamicSampleClass));
+        var liveMember = GetMethod(nameof(DynamicSampleClass.TakesDynamic));
+        var liveCanonical = ApiMemberIdentity.GetCanonicalSignature(liveType, liveMember);
+
+        var json = JsonSerializer.Serialize(Surface);
+        var roundTripped = JsonSerializer.Deserialize<ApiSurface>(json)!;
+        var rtType = roundTripped.Types.First(t => t.Name == nameof(DynamicSampleClass));
+        var rtMember = rtType.Members.First(m =>
+            m.Name == nameof(DynamicSampleClass.TakesDynamic) && m.Kind == "method");
+        Assert.Null(rtMember.SignatureModel);
+
+        var rtCanonical = ApiMemberIdentity.GetCanonicalSignature(rtType, rtMember);
+        Assert.DoesNotContain("dynamic", rtCanonical);
+        Assert.Contains("object", rtCanonical);
+        Assert.Equal(liveCanonical, rtCanonical);
+    }
+
+    [Fact]
+    public void Identity_DynamicIndexer_CanonicalStableAcrossJsonRoundTrip()
+    {
+        var liveType = GetType(nameof(DynamicSampleClass));
+        var liveIndexer = liveType.Members.First(m =>
+            m.Kind == "property" && m.SignatureModel is { Parameters.Count: > 0 });
+        var liveCanonical = ApiMemberIdentity.GetCanonicalSignature(liveType, liveIndexer);
+        Assert.DoesNotContain("dynamic", liveCanonical);
+
+        var json = JsonSerializer.Serialize(Surface);
+        var roundTripped = JsonSerializer.Deserialize<ApiSurface>(json)!;
+        var rtType = roundTripped.Types.First(t => t.Name == nameof(DynamicSampleClass));
+        var rtIndexer = rtType.Members.First(m =>
+            m.Kind == "property" && m.Signature != null
+            && m.Signature.Contains("this[", StringComparison.Ordinal));
+        Assert.Null(rtIndexer.SignatureModel);
+
+        var rtCanonical = ApiMemberIdentity.GetCanonicalSignature(rtType, rtIndexer);
+        Assert.DoesNotContain("dynamic", rtCanonical);
+        Assert.Equal(liveCanonical, rtCanonical);
+    }
+
     // --- Marker-form flag must not broadcast into inner nodes ---
 
     [Fact]
@@ -362,6 +409,8 @@ public class DynamicSampleClass
 
     private static dynamic _refDynamic = null!;
     public ref readonly dynamic RefReadonlyDynamic() => ref _refDynamic;
+
+    public dynamic this[dynamic key] { get => null!; set { } }
 
     public event EventHandler<dynamic> DynamicEvent = null!;
 }
