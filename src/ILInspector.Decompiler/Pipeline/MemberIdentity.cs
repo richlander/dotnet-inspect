@@ -624,6 +624,53 @@ public static class MemberIdentity
         };
     }
 
+    /// <summary>
+    /// True for a relational operator-spelled CALL — <c>op_LessThan</c>,
+    /// <c>op_LessThanOrEqual</c>, <c>op_GreaterThan</c>, or
+    /// <c>op_GreaterThanOrEqual</c> — declared on a known core-library value
+    /// type whose natural order is TOTAL: <see cref="decimal"/>,
+    /// <see cref="System.DateTime"/>, <see cref="System.DateTimeOffset"/>,
+    /// <see cref="System.TimeSpan"/>, <see cref="System.DateOnly"/>, or
+    /// <see cref="System.TimeOnly"/>. For these types the four relational
+    /// operators are exact De Morgan duals for EVERY pair of inputs — there is
+    /// no unordered/NaN pair — so <c>!(a &lt; b)</c> is always <c>a &gt;= b</c>.
+    /// This is the safety gate for the relational negation fold (#2955). It
+    /// deliberately EXCLUDES partial-order operator types — most notably
+    /// <see cref="System.Half"/>, whose IEEE-754 order is partial (<c>NaN</c> is
+    /// unordered, so <c>!(a &lt; b)</c> can differ from <c>a &gt;= b</c>) — and
+    /// every user-defined operator type, whose <c>&lt;</c>/<c>&gt;=</c> need not
+    /// be duals. <see cref="float"/>/<see cref="double"/> never reach this path:
+    /// they compile to native <c>clt</c>/<c>cgt</c>, folded (with the
+    /// unordered-flag guard) by the comparison path. The declaring type is
+    /// assembly-gated through <see cref="IsCoreLibraryType"/>, so a user type
+    /// masquerading as <c>System.Decimal</c> in its own assembly is not matched.
+    /// </summary>
+    public static bool IsTotalOrderRelationalOperator(MethodRef method)
+    {
+        if (method.HasThis || !method.TypeArguments.IsEmpty)
+            return false;
+
+        return method is
+        {
+            Name: "op_LessThan" or "op_LessThanOrEqual" or "op_GreaterThan" or "op_GreaterThanOrEqual",
+            DeclaringType: var declaringType,
+            ParameterTypes: [var left, var right],
+            ReturnType: var returnType,
+        }
+            && returnType.Equals(s_bool)
+            && left.Equals(declaringType)
+            && right.Equals(declaringType)
+            && IsTotalOrderValueType(declaringType);
+    }
+
+    static bool IsTotalOrderValueType(TypeRef declaringType)
+        => IsCoreLibraryType(declaringType, "System", "Decimal")
+            || IsCoreLibraryType(declaringType, "System", "DateTime")
+            || IsCoreLibraryType(declaringType, "System", "DateTimeOffset")
+            || IsCoreLibraryType(declaringType, "System", "TimeSpan")
+            || IsCoreLibraryType(declaringType, "System", "DateOnly")
+            || IsCoreLibraryType(declaringType, "System", "TimeOnly");
+
     static bool IsStringBinaryOperator(TypeRef declaringType, TypeRef left, TypeRef right)
         => IsCoreLibraryType(declaringType, "System", "String")
             && left.Equals(s_string)
