@@ -64,33 +64,63 @@ public sealed partial class CSharpPrinter
 
     /// <summary>
     /// Renders a unary <c>neg</c> (<c>-x</c>) or <c>not</c> (<c>~x</c>). A bitwise
-    /// complement never overflows, so it is checked-insensitive. An integer negate,
-    /// like a plain <c>add</c>/<c>sub</c>/<c>mul</c>, would silently acquire
-    /// overflow-checked semantics if recompiled inside a lexical <c>checked</c>
-    /// region — C# lowers a checked <c>-x</c> to <c>0 - x</c> as <c>sub.ovf</c>,
-    /// where the IL <c>neg</c> wraps — so wrap it in <c>unchecked(...)</c> and clear
-    /// the context for its operand, mirroring <see cref="BinaryText"/>.
+    /// complement never overflows and is valid on every integer, so it is spelled
+    /// bare. An integer negate needs two guards. (1) C# has no unary minus for
+    /// <c>ulong</c>/<c>nuint</c> (they promote to no signed type, so <c>-x</c> is
+    /// CS0023); an IL <c>neg</c> over such a value came from a signed reinterpret
+    /// cast (<c>-(long)x</c>) that is a no-op in IL and so is invisible in the
+    /// operand's masked stack type — re-insert it via
+    /// <see cref="NegateReinterpretKeyword"/> so the negate is legal and the
+    /// <c>neg</c> round-trips. (2) Like a plain <c>add</c>/<c>sub</c>/<c>mul</c>, a
+    /// negate would silently acquire overflow-checked semantics inside a lexical
+    /// <c>checked</c> region — C# lowers a checked <c>-x</c> to <c>0 - x</c> as
+    /// <c>sub.ovf</c>, where the IL <c>neg</c> wraps — so wrap it in
+    /// <c>unchecked(...)</c> and clear the context for its operand, mirroring
+    /// <see cref="BinaryText"/>.
     /// </summary>
     string UnaryText(Unary unary)
     {
         string op = unary.Kind == UnaryKind.Negate ? "-" : "~";
+        string cast = unary.Kind == UnaryKind.Negate
+            && NegateReinterpretKeyword(WideIndexOperandType(unary.Operand)) is { } keyword
+            ? $"({keyword})"
+            : "";
         bool uncheckedOverflow = unary.Kind == UnaryKind.Negate
             && _checkedContext
             && TypeFamilies.IsInteger(unary.ResultType);
         if (!uncheckedOverflow)
-            return $"{op}{Operand(unary.Operand)}";
+            return $"{op}{cast}{Operand(unary.Operand)}";
 
         bool saved = _checkedContext;
         _checkedContext = false;
         try
         {
-            return $"unchecked({op}{Operand(unary.Operand)})";
+            return $"unchecked({op}{cast}{Operand(unary.Operand)})";
         }
         finally
         {
             _checkedContext = saved;
         }
     }
+
+    /// <summary>
+    /// The signed cast keyword that makes an IL <c>neg</c> over an otherwise
+    /// non-negatable unsigned operand legal C#: <c>ulong</c>→<c>long</c>,
+    /// <c>nuint</c>→<c>nint</c>. <c>uint</c> is deliberately excluded — C# unary
+    /// minus already promotes it to <c>long</c> value-preservingly, so a cast there
+    /// would truncate. Every other type (already signed, sub-int, float, unknown)
+    /// needs no cast. The reinterpret is a no-op in IL, so re-inserting it keeps the
+    /// <c>neg</c> opcode-exact.
+    /// </summary>
+    static string? NegateReinterpretKeyword(TypeRef? operandType)
+        => operandType is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" } named
+            ? named.Name switch
+            {
+                "UInt64" => "long",
+                "UIntPtr" => "nint",
+                _ => null,
+            }
+            : null;
 
     /// <summary>
     /// Renders pointer additive arithmetic (<c>p + i</c>, <c>p - i</c>,

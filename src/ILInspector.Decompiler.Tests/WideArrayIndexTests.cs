@@ -242,4 +242,29 @@ public class WideArrayIndexTests
         // `unchecked(...)` to keep the original unchecked `neg`.
         Assert.Equal("return checked(a[unchecked(-i)] + 1);", Print(nameof(CfgSampleClass.NegLongIndexInChecked)));
     }
+
+    [Fact]
+    public void NegULongElementIndexAsSigned_CastsNegateOperand()
+    {
+        // C# cannot negate a `ulong`, so the dropped signed reinterpret is
+        // re-inserted on the OPERAND (`-(long)v[j]`), not around the negate —
+        // `(long)(-v[j])` would be CS0023. Recompiles to `ldelem.i8; neg`.
+        Assert.Equal("return a[-(long)v[j]];", Print(nameof(CfgSampleClass.NegULongElementIndexAsSigned)));
+    }
+
+    [Fact]
+    public void NegULongElementToLong_CastsNegateOperand_OutsideIndex()
+    {
+        // The fix is in the general printer, not array indexing: a masked `ulong`
+        // element negated outside any index still gets the operand cast.
+        Assert.Equal("return -(long)v[j];", Print(nameof(CfgSampleClass.NegULongElementToLong)));
+    }
+
+    [Fact]
+    public void NegNuintElementToNint_CastsNegateOperand()
+    {
+        // The `nuint` mirror: unary minus is illegal on `nuint`, so the operand is
+        // reinterpreted `(nint)` before the negate.
+        Assert.Equal("return -(nint)v[j];", Print(nameof(CfgSampleClass.NegNuintElementToNint)));
+    }
 }

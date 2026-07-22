@@ -2404,9 +2404,19 @@ public sealed partial class CSharpPrinter
                         return binary.ResultType;
                 }
             }
-            // A unary neg/not preserves its operand's type (`~v[j]` over a `ulong`
-            // element is a `ulong`), but its ResultType is that operand's masked
-            // stack type, so recover the rendered type from the unmasked operand.
+            // A bitwise `~` preserves its operand's type (`~v[j]` over a `ulong`
+            // element is a `ulong`); a unary `-` cannot apply to `ulong`/`nuint`,
+            // so UnaryText re-inserts a signed reinterpret (`-(long)v[j]`) and the
+            // negate then renders signed. Recover the rendered type from the
+            // unmasked operand (its ResultType is the masked stack type), mapping a
+            // negate over a non-negatable unsigned operand to its signed counterpart.
+            case Unary { Kind: UnaryKind.Negate } negate:
+            {
+                var inner = WideIndexOperandType(negate.Operand);
+                return NegateReinterpretKeyword(inner) is not null
+                    ? TypeFamilies.SignedCounterpart(inner) ?? inner
+                    : inner;
+            }
             case Unary unary:
                 return WideIndexOperandType(unary.Operand);
             default:

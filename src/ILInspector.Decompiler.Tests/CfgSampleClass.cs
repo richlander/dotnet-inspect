@@ -916,6 +916,24 @@ public class CfgSampleClass
     // `conv.ovf.i.un`.
     public static int NotULongElementIndexAsSigned(int[] a, ulong[] v, int j) => a[unchecked((long)(~v[j]))];
 
+    // Negate over a masked `ulong` element (#2981 adversarial review): C# has no
+    // unary minus for `ulong` (`-v[j]` is CS0023), so the IL `neg` came from a
+    // signed reinterpret cast that is a no-op in IL and vanished from the masked
+    // stack type. The printer must re-insert it on the negate's OPERAND
+    // (`-(long)v[j]`), not around the whole negate — `(long)(-v[j])` would still
+    // negate a `ulong`. Opcode-exact: `ldelem.i8; neg; conv.ovf.i`.
+    public static int NegULongElementIndexAsSigned(int[] a, ulong[] v, int j) => a[-(long)v[j]];
+
+    // The same signed reinterpret is a GENERAL printer concern, not array-index
+    // specific: a masked `ulong` element negated outside any index still needs the
+    // `(long)` on the operand. Opcode-exact: `ldelem.i8; neg`.
+    public static long NegULongElementToLong(ulong[] v, int j) => -(long)v[j];
+
+    // The `nuint` mirror: unary minus is likewise illegal on `nuint`, so a masked
+    // `nuint` element negate re-inserts `(nint)` on the operand. Opcode-exact:
+    // `ldelem.i; neg`.
+    public static nint NegNuintElementToNint(nuint[] v, int j) => -(nint)v[j];
+
     // Genuinely-signed `long` neg/not indices recover as `long` and strip bare.
     public static int NegLongIndexBare(int[] a, long i) => a[-i];
 
