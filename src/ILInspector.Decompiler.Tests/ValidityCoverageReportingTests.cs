@@ -50,9 +50,14 @@ public class ValidityCoverageReportingTests
         // UnionSwitchExpressionPass::SameTailNode,
         // DynamicCallSitePass::TryGuardCacheLoad, and
         // FluentChainRecompositionPass::SinkStatement.
-        // YieldBreakLoopIteratorReconstruction::TryNormalizeContinueCondition is a
-        // distinct result-temp switch-expression shape the fix does not cover and
-        // remains pinned as tracked follow-up.
+        // #2973 removed the last two scattered-return defects,
+        // YieldBreakLoopIteratorReconstruction::TryNormalizeContinueCondition and
+        // FixedArrayRaising::SameLoadPlace: result-temp switch-expression /
+        // pattern defaults reached by a forward-goto trampoline. The default
+        // return is now admitted as a scattered dispatch target and kept as the
+        // region's trailing terminator (rather than dropped by the sibling arm's
+        // past-region inline), so the trampoline path returns instead of falling
+        // off the end.
         string[] expected =
 #if DEBUG
         [
@@ -64,10 +69,8 @@ public class ValidityCoverageReportingTests
             "ILInspector.Decompiler.Pipeline.BooleanFoldingPass::IsNullableCoalesceExpressionContext",
             "ILInspector.Decompiler.Pipeline.CSharpPrinter::ForLoopIncrementText",
             "ILInspector.Decompiler.Pipeline.DeconstructionAssignmentPass::TryMatchTupleSeed",
-            "ILInspector.Decompiler.Pipeline.FixedArrayRaising::SameLoadPlace",
             "ILInspector.Decompiler.Pipeline.IndexFromEndPass::LengthReceiver",
             "ILInspector.Decompiler.Pipeline.InlineArrayCollectionPass::PlaceFromAddress",
-            "ILInspector.Decompiler.Pipeline.YieldBreakLoopIteratorReconstruction::TryNormalizeContinueCondition",
         ];
 #endif
         Assert.Equal(expected, actual);
