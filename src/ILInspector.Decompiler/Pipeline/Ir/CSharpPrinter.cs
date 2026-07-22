@@ -2180,8 +2180,8 @@ public sealed partial class CSharpPrinter
                 && PlaceIdentity.SameOperands(load.IndexArguments, s.IndexArguments),
             StorePropertyTargetType(s)),
         EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual)} {(e.IsAdd ? "+=" : "-=")} {CoerceText(e.Value, e.Accessor.ParameterTypes[0])};",
-        StoreElement s when InlineReceiverTempStoreValue(s) is { } value => $"{Operand(s.Array)}[{Expression(s.Index)}] = {value};",
-        StoreElement s => $"{Operand(s.Array)}[{Expression(s.Index)}] = {CoerceText(s.Value, StoreElementTargetType(s))};",
+        StoreElement s when InlineReceiverTempStoreValue(s) is { } value => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {value};",
+        StoreElement s => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {CoerceText(s.Value, StoreElementTargetType(s))};",
         StoreIndirect s => AssignmentText(
             IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),
             s.Value,
@@ -2260,6 +2260,55 @@ public sealed partial class CSharpPrinter
     TypeRef? StoreElementTargetType(StoreElement store)
         => CoercionSinks.StoreElementTarget(store, _function.TypeShapes);
 
+    /// <summary>
+    /// The C# text for a single-dimension array element index. C# implicitly
+    /// converts a wide (<c>long</c>/<c>ulong</c>) array index to native int with
+    /// a checked range conversion (<c>conv.ovf.i</c> / <c>conv.ovf.i.un</c>) that
+    /// is always overflow-checked, regardless of the enclosing
+    /// <c>checked</c>/<c>unchecked</c> context. Spelling that conversion
+    /// explicitly (<c>a[checked((nint)i)]</c>) is verbose, unidiomatic, and
+    /// round-trips to a redundant widen-then-renarrow, so a compiler-inserted
+    /// wide-index conversion is stripped to the bare index (<c>a[i]</c>), which
+    /// recompiles to the identical IL. Any other index expression is spelled
+    /// unchanged.
+    /// </summary>
+    string ArrayIndexText(IrExpression index)
+        => WideArrayIndexOperand(index) is { } operand ? Expression(operand) : Expression(index);
+
+    /// <summary>
+    /// The source operand of a compiler-inserted wide array-index conversion, or
+    /// null when <paramref name="index"/> is not one. Matches only the exact
+    /// conversions the C# compiler emits for a <c>long</c>/<c>ulong</c>
+    /// single-dimension array index: a checked conversion to
+    /// <see cref="System.IntPtr"/> whose operand is <c>Int64</c>
+    /// (<c>conv.ovf.i</c>) or, when unsigned, <c>UInt64</c>
+    /// (<c>conv.ovf.i.un</c>). A conversion from any other source type would
+    /// recompile to different IL, so it is left spelled.
+    /// </summary>
+    static IrExpression? WideArrayIndexOperand(IrExpression index)
+    {
+        if (index is not Convert
+            {
+                IsChecked: true,
+                Target: { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "IntPtr" },
+            } convert)
+        {
+            return null;
+        }
+
+        string? source = convert.Operand.ResultType is
+            { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" } type
+            ? type.Name
+            : null;
+
+        return (convert.IsUnsigned, source) switch
+        {
+            (false, "Int64") => convert.Operand,
+            (true, "UInt64") => convert.Operand,
+            _ => null,
+        };
+    }
+
     string Expression(IrExpression node) => node switch
     {
         LoadArgument { Index: 0, Name: "this" } => "this",
@@ -2337,7 +2386,7 @@ public sealed partial class CSharpPrinter
         RangeExpression r => $"{(r.HasStart ? Operand(r.Start!) : "")}..{(r.HasEnd ? Operand(r.End!) : "")}",
         IndexFromEnd i => $"^{Operand(i.Offset)}",
         LoadElement e when MultiDimArrayElementText(e) is { } text => text,
-        LoadElement e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
+        LoadElement e => $"{Operand(e.Array)}[{ArrayIndexText(e.Index)}]",
         NewArray n => ArrayCreationText(n.ElementType, [n.Length]),
         SpanLiteral s => $"new {TypeText(s.ElementType)}[] {{ {string.Join(", ", s.Elements.Select(Expression))} }}",
         ArrayLiteral a => $"new {TypeText(a.ElementType)}[] {{ {string.Join(", ", a.Elements.Select(Expression))} }}",
@@ -2362,7 +2411,7 @@ public sealed partial class CSharpPrinter
         LoadFieldAddress f => $"ref {FieldTarget(f.Field, f.Instance)}",
         FixedBufferElementAddress f => $"ref {FixedBufferElementText(f)}",
         LoadElementAddress e when MultiDimArrayElementAddressText(e) is { } text => $"ref {text}",
-        LoadElementAddress e => $"ref {Operand(e.Array)}[{Expression(e.Index)}]",
+        LoadElementAddress e => $"ref {Operand(e.Array)}[{ArrayIndexText(e.Index)}]",
         LoadIndirect l => DerefLoad(l),
         SizeOf s => $"sizeof({TypeText(s.Type)})",
         DefaultValue d => $"default({TypeText(d.Type)})",
@@ -2829,7 +2878,7 @@ public sealed partial class CSharpPrinter
         LoadArgumentAddress a => CSharpNaming.EscapeIdentifier(a.Name),
         LoadFieldAddress f => FieldTarget(f.Field, f.Instance),
         FixedBufferElementAddress f => FixedBufferElementText(f),
-        LoadElementAddress e => $"{Operand(e.Array)}[{Expression(e.Index)}]",
+        LoadElementAddress e => $"{Operand(e.Array)}[{ArrayIndexText(e.Index)}]",
         // `unbox T` yields a managed pointer *into* the box. C#'s only spelling
         // for that place is `System.Runtime.CompilerServices.Unsafe.Unbox<T>(o)`
         // — a `ref T`-returning intrinsic. A *pure value read* of that place

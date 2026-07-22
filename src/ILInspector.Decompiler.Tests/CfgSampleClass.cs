@@ -808,6 +808,20 @@ public class CfgSampleClass
 
     public static int SpanLastHandWritten(System.Span<int> span) => span[span.Length - 1];
 
+    // Wide (long/ulong) array index: the compiler inserts a checked native-int
+    // range conversion (conv.ovf.i / conv.ovf.i.un) that C# spells implicitly,
+    // so the decompiled index must read as the bare source expression, not
+    // `a[checked((nint)i)]`. Kept opcode-exact by the fidelity gate.
+    public static int LongArrayIndex(int[] a, long i) => a[i];
+
+    public static int ULongArrayIndex(int[] a, ulong i) => a[i];
+
+    public static void LongArrayIndexStore(int[] a, long i, int v) => a[i] = v;
+
+    public static ref int LongArrayIndexRef(int[] a, long i) => ref a[i];
+
+    public static int LongArrayIndexExpr(int[] a, long i, long j) => a[i + j];
+
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
 
     // stelem.i1 stores into byte[], sbyte[], and bool[] alike, and stelem.i2 into
