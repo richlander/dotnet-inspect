@@ -88,7 +88,12 @@ internal static class OptionalArgumentFacts
             var constantHandle = parameter.GetDefaultValue();
             if (constantHandle.IsNil)
                 continue;
-            defaults[index] = new ParameterDefault(true, ReadConstantValue(reader, reader.GetConstant(constantHandle)));
+            // An undecodable constant type must not become a spurious null default
+            // (which would then match a null/0 argument); leave the parameter as
+            // "no default" so the pass keeps the explicit argument.
+            if (!TryReadConstantValue(reader, reader.GetConstant(constantHandle), out var value))
+                continue;
+            defaults[index] = new ParameterDefault(true, value);
             any = true;
         }
         return any ? ImmutableArray.Create(defaults) : default;
@@ -190,26 +195,29 @@ internal static class OptionalArgumentFacts
         return true;
     }
 
-    static object? ReadConstantValue(MetadataReader reader, SrmConstant constant)
+    static bool TryReadConstantValue(MetadataReader reader, SrmConstant constant, out object? value)
     {
         var blob = reader.GetBlobReader(constant.Value);
-        return constant.TypeCode switch
+        switch (constant.TypeCode)
         {
-            ConstantTypeCode.Boolean => blob.ReadBoolean(),
-            ConstantTypeCode.Char => blob.ReadChar(),
-            ConstantTypeCode.SByte => blob.ReadSByte(),
-            ConstantTypeCode.Byte => blob.ReadByte(),
-            ConstantTypeCode.Int16 => blob.ReadInt16(),
-            ConstantTypeCode.UInt16 => blob.ReadUInt16(),
-            ConstantTypeCode.Int32 => blob.ReadInt32(),
-            ConstantTypeCode.UInt32 => blob.ReadUInt32(),
-            ConstantTypeCode.Int64 => blob.ReadInt64(),
-            ConstantTypeCode.UInt64 => blob.ReadUInt64(),
-            ConstantTypeCode.Single => blob.ReadSingle(),
-            ConstantTypeCode.Double => blob.ReadDouble(),
-            ConstantTypeCode.String => blob.ReadUTF16(blob.Length),
-            ConstantTypeCode.NullReference => null,
-            _ => null,
-        };
+            case ConstantTypeCode.Boolean: value = blob.ReadBoolean(); return true;
+            case ConstantTypeCode.Char: value = blob.ReadChar(); return true;
+            case ConstantTypeCode.SByte: value = blob.ReadSByte(); return true;
+            case ConstantTypeCode.Byte: value = blob.ReadByte(); return true;
+            case ConstantTypeCode.Int16: value = blob.ReadInt16(); return true;
+            case ConstantTypeCode.UInt16: value = blob.ReadUInt16(); return true;
+            case ConstantTypeCode.Int32: value = blob.ReadInt32(); return true;
+            case ConstantTypeCode.UInt32: value = blob.ReadUInt32(); return true;
+            case ConstantTypeCode.Int64: value = blob.ReadInt64(); return true;
+            case ConstantTypeCode.UInt64: value = blob.ReadUInt64(); return true;
+            case ConstantTypeCode.Single: value = blob.ReadSingle(); return true;
+            case ConstantTypeCode.Double: value = blob.ReadDouble(); return true;
+            case ConstantTypeCode.String: value = blob.ReadUTF16(blob.Length); return true;
+            case ConstantTypeCode.NullReference: value = null; return true;
+            // Invalid / unrecognized (e.g. an attributed decimal/DateTime default
+            // never has a Constant row, so this is not reached for well-formed
+            // metadata): decline rather than record a guessed value.
+            default: value = null; return false;
+        }
     }
 }

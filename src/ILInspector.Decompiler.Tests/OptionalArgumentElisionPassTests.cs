@@ -44,6 +44,17 @@ public class OptionalArgumentElisionPassTests
     }
 
     [Fact]
+    public void InstanceMethodTrailingNullDefault_IsElided()
+    {
+        // An instance (HasThis) callee: the receiver stays and only the baked
+        // trailing null default drops, exercising the receiver-offset path.
+        string output = PrintRaised(nameof(OptionalArgumentElisionFixtures.CallGreetElidesNull));
+
+        Assert.Contains("Greet(\"Ada\")", output);
+        Assert.DoesNotContain("null", output);
+    }
+
+    [Fact]
     public void SiblingOverloadTiesLeadingSignature_KeepsExplicitArgument()
     {
         // Log(message) has the callee's leading signature at the shorter arity, so
@@ -86,5 +97,16 @@ public class OptionalArgumentElisionPassTests
         string output = PrintRaised(nameof(OptionalArgumentElisionFixtures.CallSplitCrossAssembly));
 
         Assert.Contains("StringSplitOptions", output);
+    }
+
+    [Fact]
+    public void DerivedReceiverStealsShortenedCall_KeepsExplicitArgument()
+    {
+        // The optional method is on the base (Reporter.Emit(string, bool = false)),
+        // but a shorter LoudReporter.Emit(string) would capture Emit("x") through
+        // the derived receiver. The receiver-static-type guard keeps false explicit.
+        string output = PrintRaised(nameof(OptionalArgumentElisionFixtures.CallReporterKeepsDerivedSteal));
+
+        Assert.Contains(", false)", output);
     }
 }

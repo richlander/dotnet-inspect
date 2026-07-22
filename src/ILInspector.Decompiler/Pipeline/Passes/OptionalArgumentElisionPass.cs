@@ -61,6 +61,22 @@ public sealed class OptionalArgumentElisionPass : IIrPass
         if (arguments.Count - receiverCount != n)
             return 0;
 
+        // Overload resolution on the shortened instance call uses the receiver's
+        // static type, not the callee's declaring type. If the receiver is a
+        // subtype of the declaring type, a shorter same-named overload introduced
+        // by that subtype can capture the shortened call — demonstrated: a base
+        // optional method (`Base.Log(string, bool = false)`) called through a
+        // derived receiver whose `Derived.Log(string)` steals `Log("x")`. The
+        // importer's sibling scan only sees the declaring type, so require the
+        // receiver to be exactly the declaring type; then no more-derived overload
+        // participates. (Static and extension callees have no receiver subtype.)
+        if (callee.HasThis)
+        {
+            var receiverType = arguments[0].ResultType;
+            if (receiverType is null || !receiverType.Equals(callee.DeclaringType))
+                return 0;
+        }
+
         int drop = 0;
         for (int k = 1; k <= safe; k++)
         {
