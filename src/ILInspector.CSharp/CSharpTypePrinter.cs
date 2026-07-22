@@ -371,7 +371,7 @@ public sealed class CSharpTypePrinter
             if (body.Getter is not null)
                 accessors.Add(AccessorHead(member.Member, "get") + ";");
             if (body.Setter is not null)
-                accessors.Add(AccessorHead(member.Member, "set") + ";");
+                accessors.Add(AccessorHead(member.Member, SetterKeyword(member.Member)) + ";");
             return [$"{PadDeclaration(declaration, pad)} {{ {string.Join(" ", accessors)} }}"];
         }
 
@@ -381,10 +381,19 @@ public sealed class CSharpTypePrinter
             $"{pad}{{"
         };
         AddAccessor(lines, member.Member, "get", body.Getter, indent + 1);
-        AddAccessor(lines, member.Member, "set", body.Setter, indent + 1);
+        AddAccessor(lines, member.Member, SetterKeyword(member.Member), body.Setter, indent + 1);
         lines.Add($"{pad}}}");
         return lines;
     }
+
+    // An init-only property's write accessor is spelled `init`, not `set`. Honor the
+    // accessor model so full-body rendering does not silently downgrade `init` to a
+    // public `set` (dropping the required modreq(IsExternalInit)).
+    static string SetterKeyword(ApiMember member)
+        => member.SignatureModel?.Accessors is { } accessors
+            && accessors.Any(accessor => accessor.Kind == "init")
+            ? "init"
+            : "set";
 
     static IEnumerable<string> RenderEvent(
         PreparedType type,

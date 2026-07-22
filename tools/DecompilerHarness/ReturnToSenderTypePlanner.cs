@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -317,12 +318,17 @@ public enum CompileBackStubBodyKind
     None,
     Throw,
     ThrowGetSet,
+    ThrowGetInit,
     TargetBody,
     TargetGetterWithSetter,
+    TargetGetterWithInitSetter,
     TargetSetterWithGetter,
+    TargetInitSetterWithGetter,
+    TargetInitBody,
     TargetEventAccessorWithSibling,
     AutoProperty,
     AutoPropertyGetSet,
+    AutoPropertyGetInit,
     FieldInitializer,
 }
 
@@ -464,7 +470,8 @@ public static class CompileBackSourceComposer
                 request.SignatureText,
                 closure.Roots,
                 closure.Facts,
-                closure.MemberRequirements),
+                closure.MemberRequirements,
+                request.BodyPolicy),
             PropertySetterArtifactRequest setter => ComposePropertySetter(
                 request.AssemblyPath,
                 request.Reader,
@@ -618,22 +625,51 @@ public static class CompileBackSourceComposer
                 bool concreteSetter = member.SetterToken is { } setterHandle && HasConcreteBody(setterHandle);
                 if (!concreteGetter && !concreteSetter)
                     continue;
-                var getter = member.GetterToken is { } getterToken && concreteGetter
+                bool getterIsTarget = member.GetterToken is { } getterTargetHandle && IsTargetToken(getterTargetHandle);
+                bool setterIsTarget = member.SetterToken is { } setterTargetHandle && IsTargetToken(setterTargetHandle);
+                var getter = member.GetterToken is { } getterToken && concreteGetter && !getterIsTarget
                     ? Produce(getterToken, $"{request.Type.FullName}.get_{member.Name}")
                     : default;
-                var setter = member.SetterToken is { } setterToken && concreteSetter
+                var setter = member.SetterToken is { } setterToken && concreteSetter && !setterIsTarget
                     ? Produce(setterToken, $"{request.Type.FullName}.set_{member.Name}")
                     : default;
-                bool getterReady = !concreteGetter || getter.Body is not null;
-                bool setterReady = !concreteSetter || setter.Body is not null;
+                // The target accessor's body is applied by the base Compose* path, not by Produce here;
+                // treat it as ready and preserve its already-applied body so the sibling's produced body
+                // is incorporated instead of clobbering the target with a null accessor.
+                bool getterReady = !concreteGetter || getterIsTarget || getter.Body is not null;
+                bool setterReady = !concreteSetter || setterIsTarget || setter.Body is not null;
                 if (getterReady && setterReady)
                 {
+                    bool targetInvolved = getterIsTarget || setterIsTarget;
+                    var basePropertyBody = policies.TryGetValue(member, out var existingPropertyPolicy)
+                        ? existingPropertyPolicy.Body as CSharpPropertyBody
+                        : null;
+                    // When the target accessor belongs to an auto/skeleton property, the base
+                    // Compose path already emitted the property's compiler-synthesized accessors
+                    // and there is no explicit target body to extend. Leave that policy untouched
+                    // rather than replacing it with empty accessor bodies, which would delete the
+                    // property's accessors (e.g. auto-properties -> `int Value {  }`, CS0548).
+                    //
+                    // The same applies to a NON-target auto-property sibling: producing explicit
+                    // bodies for it decompiles the compiler-synthesized accessors, which read/write
+                    // the unspeakable backing field. The decompiler renders that field access as the
+                    // property itself, yielding recursive `get { return this.P; }` / `init { this.P
+                    // = value; }`. That compiles but is semantically wrong while still reporting the
+                    // accessors Complete. Preserve the skeleton so the compiler re-synthesizes
+                    // faithful auto-property accessors.
+                    bool isAutoSkeleton = existingPropertyPolicy is { BodyPolicy: CSharpBodyPolicy.Skeleton };
+                    if (basePropertyBody is null && (targetInvolved || isAutoSkeleton))
+                        continue;
                     policies[member] = new CSharpMemberPolicy(
                         member,
                         CSharpBodyPolicy.Full,
                         new CSharpPropertyBody(
-                            getter.Body is { } getterBody ? CSharpAccessorBody.Block(getterBody.Source) : null,
-                            setter.Body is { } setterBody ? CSharpAccessorBody.Block(setterBody.Source) : null));
+                            getterIsTarget
+                                ? basePropertyBody?.Getter
+                                : getter.Body is { } getterBody ? CSharpAccessorBody.Block(getterBody.Source) : basePropertyBody?.Getter,
+                            setterIsTarget
+                                ? basePropertyBody?.Setter
+                                : setter.Body is { } setterBody ? CSharpAccessorBody.Block(setterBody.Source) : basePropertyBody?.Setter));
                 }
             }
 
@@ -673,6 +709,9 @@ public static class CompileBackSourceComposer
             var handle = MetadataTokens.MethodDefinitionHandle(token & 0x00ffffff);
             return artifact.Reader.GetMethodDefinition(handle).RelativeVirtualAddress != 0;
         }
+
+        bool IsTargetToken(int token)
+            => MetadataTokens.MethodDefinitionHandle(token & 0x00ffffff) == artifact.TargetMethod;
     }
 
     public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
@@ -990,7 +1029,8 @@ public static class CompileBackSourceComposer
         string signatureText,
         IReadOnlySet<TypeDefinitionHandle> closureRoots,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
-        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements)
+        IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
+        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var property = reader.GetPropertyDefinition(targetProperty);
@@ -1024,11 +1064,25 @@ public static class CompileBackSourceComposer
                 ToCompileBackParameters(propertyDeclaration.Signature.Parameters),
                 returnType,
                 TypeParameters: [],
+                // A read-write auto-property targeted at its getter must render both accessors so
+                // the compiler-synthesized sibling accessor faithfully reproduces the original
+                // setter rather than being silently dropped while still reported Complete (issue
+                // #3000 class). An init-only setter renders a get/init auto-property under Full so
+                // the init accessor is represented; the getter-only A/B path (Selected) keeps the
+                // minimal get-only shell (records rely on this).
                 targetIsAutoProperty
-                    ? CompileBackStubBodyKind.AutoProperty
+                    ? accessors.Setter.IsNil
+                        ? CompileBackStubBodyKind.AutoProperty
+                        : SetterIsInitOnly(reader, accessors.Setter)
+                            ? bodyPolicy == RoundTripBodyPolicy.Full
+                                ? CompileBackStubBodyKind.AutoPropertyGetInit
+                                : CompileBackStubBodyKind.AutoProperty
+                            : CompileBackStubBodyKind.AutoPropertyGetSet
                     : accessors.Setter.IsNil
                         ? CompileBackStubBodyKind.TargetBody
-                        : CompileBackStubBodyKind.TargetGetterWithSetter,
+                        : SetterIsInitOnly(reader, accessors.Setter)
+                            ? CompileBackStubBodyKind.TargetGetterWithInitSetter
+                            : CompileBackStubBodyKind.TargetGetterWithSetter,
                 targetIsAutoProperty ? null : targetBody,
                 targetIsAutoProperty
                     ? [
@@ -1334,10 +1388,16 @@ public static class CompileBackSourceComposer
                 returnType,
                 TypeParameters: [],
                 targetIsAutoProperty
-                    ? CompileBackStubBodyKind.AutoPropertyGetSet
+                    ? SetterIsInitOnly(reader, targetSetter)
+                        ? CompileBackStubBodyKind.AutoPropertyGetInit
+                        : CompileBackStubBodyKind.AutoPropertyGetSet
                     : property.GetAccessors().Getter.IsNil
-                        ? CompileBackStubBodyKind.TargetBody
-                        : CompileBackStubBodyKind.TargetSetterWithGetter,
+                        ? SetterIsInitOnly(reader, targetSetter)
+                            ? CompileBackStubBodyKind.TargetInitBody
+                            : CompileBackStubBodyKind.TargetBody
+                        : SetterIsInitOnly(reader, targetSetter)
+                            ? CompileBackStubBodyKind.TargetInitSetterWithGetter
+                            : CompileBackStubBodyKind.TargetSetterWithGetter,
                 targetIsAutoProperty ? null : targetBody,
                 targetIsAutoProperty
                     ? [
@@ -1805,14 +1865,31 @@ public static class CompileBackSourceComposer
 
     static List<ApiAccessor> PropertyAccessors(CompileBackMemberRequirement member)
     {
-        bool hasGetter = member.Kind == CompileBackMemberKind.PropertyGet
+        // AutoPropertyGetInit renders a get/init auto-property. The compiler-synthesized init
+        // accessor faithfully reproduces the original init setter body, so the sibling/target
+        // setter stays represented (not dropped) while remaining honest about its init-only shape.
+        bool isAutoGetInit = member.StubBody is CompileBackStubBodyKind.AutoPropertyGetInit;
+        // Explicit-body init accessors must be spelled `init`, not `set`; otherwise the round-trip
+        // silently downgrades an init-only property to a public setter (dropping the required
+        // modreq(IsExternalInit)) while still reporting the body Complete.
+        bool setterIsInit = member.StubBody is CompileBackStubBodyKind.TargetGetterWithInitSetter
+            or CompileBackStubBodyKind.TargetInitSetterWithGetter
+            or CompileBackStubBodyKind.TargetInitBody
+            or CompileBackStubBodyKind.ThrowGetInit;
+        bool hasGetter = isAutoGetInit
+            || member.Kind == CompileBackMemberKind.PropertyGet
             || member.StubBody is CompileBackStubBodyKind.AutoPropertyGetSet
                 or CompileBackStubBodyKind.ThrowGetSet
-                or CompileBackStubBodyKind.TargetSetterWithGetter;
-        bool hasSetter = member.Kind == CompileBackMemberKind.PropertySet
-            || member.StubBody is CompileBackStubBodyKind.AutoPropertyGetSet
-                or CompileBackStubBodyKind.ThrowGetSet
-                or CompileBackStubBodyKind.TargetGetterWithSetter;
+                or CompileBackStubBodyKind.ThrowGetInit
+                or CompileBackStubBodyKind.TargetSetterWithGetter
+                or CompileBackStubBodyKind.TargetInitSetterWithGetter;
+        bool hasSetter = !isAutoGetInit
+            && (member.Kind == CompileBackMemberKind.PropertySet
+                || member.StubBody is CompileBackStubBodyKind.AutoPropertyGetSet
+                    or CompileBackStubBodyKind.ThrowGetSet
+                    or CompileBackStubBodyKind.ThrowGetInit
+                    or CompileBackStubBodyKind.TargetGetterWithSetter
+                    or CompileBackStubBodyKind.TargetGetterWithInitSetter);
         var accessors = new List<ApiAccessor>();
         if (hasGetter)
         {
@@ -1823,7 +1900,9 @@ public static class CompileBackSourceComposer
             });
         }
         if (hasSetter)
-            accessors.Add(new ApiAccessor { Kind = "set" });
+            accessors.Add(new ApiAccessor { Kind = setterIsInit ? "init" : "set" });
+        if (isAutoGetInit)
+            accessors.Add(new ApiAccessor { Kind = "init" });
         return accessors;
     }
 
@@ -1839,6 +1918,8 @@ public static class CompileBackSourceComposer
             CompileBackStubBodyKind.AutoProperty
                 => new(member, CSharpBodyPolicy.Skeleton),
             CompileBackStubBodyKind.AutoPropertyGetSet
+                => new(member, CSharpBodyPolicy.Skeleton),
+            CompileBackStubBodyKind.AutoPropertyGetInit
                 => new(member, CSharpBodyPolicy.Skeleton),
             CompileBackStubBodyKind.Throw when requirement.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet
                 => new(member, CSharpBodyPolicy.Stub, PropertyBody(requirement, CSharpAccessorBody.Throw)),
@@ -1864,9 +1945,19 @@ public static class CompileBackSourceComposer
                     member,
                     CSharpBodyPolicy.Stub,
                     new CSharpPropertyBody(CSharpAccessorBody.Throw, CSharpAccessorBody.Throw)),
+            CompileBackStubBodyKind.ThrowGetInit
+                => new(
+                    member,
+                    CSharpBodyPolicy.Stub,
+                    new CSharpPropertyBody(CSharpAccessorBody.Throw, CSharpAccessorBody.Throw)),
             CompileBackStubBodyKind.TargetBody when requirement.Kind == CompileBackMemberKind.Field
                 => new(member, CSharpBodyPolicy.Full, new CSharpFieldInitializer(requirement.TargetBody!)),
             CompileBackStubBodyKind.TargetBody when requirement.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    PropertyBody(requirement, CSharpAccessorBody.Block(requirement.TargetBody!))),
+            CompileBackStubBodyKind.TargetInitBody
                 => new(
                     member,
                     CSharpBodyPolicy.Full,
@@ -1909,7 +2000,21 @@ public static class CompileBackSourceComposer
                     new CSharpPropertyBody(
                         CSharpAccessorBody.Block(requirement.TargetBody!),
                         CSharpAccessorBody.Throw)),
+            CompileBackStubBodyKind.TargetGetterWithInitSetter
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    new CSharpPropertyBody(
+                        CSharpAccessorBody.Block(requirement.TargetBody!),
+                        CSharpAccessorBody.Throw)),
             CompileBackStubBodyKind.TargetSetterWithGetter
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    new CSharpPropertyBody(
+                        CSharpAccessorBody.Throw,
+                        CSharpAccessorBody.Block(requirement.TargetBody!))),
+            CompileBackStubBodyKind.TargetInitSetterWithGetter
                 => new(
                     member,
                     CSharpBodyPolicy.Full,
@@ -2776,6 +2881,71 @@ public static class CompileBackSourceComposer
         return false;
     }
 
+    // An init-only setter carries a required custom modifier
+    // modreq(System.Runtime.CompilerServices.IsExternalInit) on its return type.
+    // Such properties (including record positional properties) must render as a
+    // get-only auto-property shell — the init assignment is expressed through the
+    // constructor, not a public `set` — so they must not be broadened to
+    // `{ get; set; }`.
+    static bool SetterIsInitOnly(MetadataReader reader, MethodDefinitionHandle setterHandle)
+    {
+        if (setterHandle.IsNil)
+            return false;
+        try
+        {
+            var setter = reader.GetMethodDefinition(setterHandle);
+            return setter.DecodeSignature(InitOnlyModifierDetector.Instance, genericContext: null).ReturnType;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    sealed class InitOnlyModifierDetector : ISignatureTypeProvider<bool, object?>
+    {
+        public static readonly InitOnlyModifierDetector Instance = new();
+
+        public bool GetPrimitiveType(PrimitiveTypeCode typeCode) => false;
+
+        public bool GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind)
+        {
+            var type = reader.GetTypeDefinition(handle);
+            return IsExternalInit(reader.GetString(type.Name), reader.GetString(type.Namespace));
+        }
+
+        public bool GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
+        {
+            var type = reader.GetTypeReference(handle);
+            return IsExternalInit(reader.GetString(type.Name), reader.GetString(type.Namespace));
+        }
+
+        public bool GetTypeFromSpecification(MetadataReader reader, object? context, TypeSpecificationHandle handle, byte rawTypeKind) => false;
+
+        public bool GetSZArrayType(bool elementType) => elementType;
+
+        public bool GetArrayType(bool elementType, ArrayShape shape) => elementType;
+
+        public bool GetByReferenceType(bool elementType) => elementType;
+
+        public bool GetPointerType(bool elementType) => elementType;
+
+        public bool GetGenericInstantiation(bool genericType, ImmutableArray<bool> typeArguments) => genericType;
+
+        public bool GetGenericMethodParameter(object? context, int index) => false;
+
+        public bool GetGenericTypeParameter(object? context, int index) => false;
+
+        public bool GetFunctionPointerType(MethodSignature<bool> signature) => false;
+
+        public bool GetModifiedType(bool modifier, bool unmodifiedType, bool isRequired) => (isRequired && modifier) || unmodifiedType;
+
+        public bool GetPinnedType(bool elementType) => elementType;
+
+        static bool IsExternalInit(string name, string ns)
+            => name == "IsExternalInit" && ns == "System.Runtime.CompilerServices";
+    }
+
     static CompileBackTypeKind ShellKind(MetadataReader reader, TypeDefinition typeDef, IReadOnlyList<CompileBackFact>? facts = null)
     {
         if ((typeDef.Attributes & TypeAttributes.Interface) != 0)
@@ -3133,18 +3303,25 @@ public static class CompileBackSourceComposer
             bool isAutoProperty = !accessors.Getter.IsNil
                 && IsAutoProperty(reader, typeDef, property, accessors.Getter, returnType.DisplayName);
             bool hasSetter = !accessors.Setter.IsNil;
+            bool isInitSetter = hasSetter && SetterIsInitOnly(reader, accessors.Setter);
             bool isAbstractAccessor = !accessor.IsNil && propertyDeclaration.IsAbstract;
             var noBodyProperty = (typeDef.Attributes & TypeAttributes.Interface) != 0 || isAbstractAccessor;
             var stubBody = noBodyProperty
                 ? hasSetter
-                    ? CompileBackStubBodyKind.AutoPropertyGetSet
+                    ? isInitSetter
+                        ? CompileBackStubBodyKind.AutoPropertyGetInit
+                        : CompileBackStubBodyKind.AutoPropertyGetSet
                     : CompileBackStubBodyKind.None
                 : hasSetter && isAutoProperty
-                    ? CompileBackStubBodyKind.AutoPropertyGetSet
+                    ? isInitSetter
+                        ? CompileBackStubBodyKind.AutoPropertyGetInit
+                        : CompileBackStubBodyKind.AutoPropertyGetSet
                     : isAutoProperty
                         ? CompileBackStubBodyKind.AutoProperty
                         : hasSetter
-                            ? CompileBackStubBodyKind.ThrowGetSet
+                            ? isInitSetter
+                                ? CompileBackStubBodyKind.ThrowGetInit
+                                : CompileBackStubBodyKind.ThrowGetSet
                             : CompileBackStubBodyKind.Throw;
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(typeIdentity.FullName, Identifier(propertyName), 0, $"property {propertyReturnType}"),
@@ -3905,18 +4082,25 @@ public static class CompileBackSourceComposer
                 bool isAutoProperty = !accessors.Getter.IsNil
                     && IsAutoProperty(reader, typeDef, property, accessors.Getter, returnType.DisplayName);
                 bool hasSetter = !accessors.Setter.IsNil;
+                bool isInitSetter = hasSetter && SetterIsInitOnly(reader, accessors.Setter);
                 bool isAbstractAccessor = !accessor.IsNil && propertyDeclaration.IsAbstract;
                 var noBodyProperty = requirement.RequiredKind == CompileBackTypeKind.Interface || isAbstractAccessor;
                 var stubBody = noBodyProperty
                     ? hasSetter
-                        ? CompileBackStubBodyKind.AutoPropertyGetSet
+                        ? isInitSetter
+                            ? CompileBackStubBodyKind.AutoPropertyGetInit
+                            : CompileBackStubBodyKind.AutoPropertyGetSet
                         : CompileBackStubBodyKind.None
                     : hasSetter && isAutoProperty
-                        ? CompileBackStubBodyKind.AutoPropertyGetSet
+                        ? isInitSetter
+                            ? CompileBackStubBodyKind.AutoPropertyGetInit
+                            : CompileBackStubBodyKind.AutoPropertyGetSet
                         : isAutoProperty
                             ? CompileBackStubBodyKind.AutoProperty
                             : hasSetter
-                                ? CompileBackStubBodyKind.ThrowGetSet
+                                ? isInitSetter
+                                    ? CompileBackStubBodyKind.ThrowGetInit
+                                    : CompileBackStubBodyKind.ThrowGetSet
                                 : CompileBackStubBodyKind.Throw;
                 members.Add(new CompileBackMemberRequirement(
                     new CompileBackMethodIdentity(requirement.Type.FullName, Identifier(propertyName), 0, $"property {propertyReturnType}"),

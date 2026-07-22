@@ -281,6 +281,509 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_FullPreservesConcreteSiblingWhenTargetIsPropertyAccessor()
+    {
+        // Issue #3000: when the target is a property accessor, the sibling accessor's produced
+        // full body was silently dropped (kept a `throw null;` stub) while still reported Complete.
+        var assemblyPath = CompileFixture("""
+            public class Holder
+            {
+                private int _v;
+                public int Value
+                {
+                    get => _v;
+                    set { _v = value; }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "get_Value", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            var getter = Assert.Single(result.FullBodies, body => body.Member == "Holder.get_Value");
+            var setter = Assert.Single(result.FullBodies, body => body.Member == "Holder.set_Value");
+            Assert.Equal(MemberBodyProductionStatus.Complete, getter.Status);
+            Assert.Equal(MemberBodyProductionStatus.Complete, setter.Status);
+
+            // Evidence reports the sibling Complete, so the emitted sibling body must be the produced
+            // body, not a `throw null;` stub, and the target accessor body must be preserved.
+            Assert.Contains("_v = value;", result.Source, StringComparison.Ordinal);
+            Assert.Contains("return _v;", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("throw null", result.Source, StringComparison.Ordinal);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+
+            Assert.NotNull(result.Comparison);
+            Assert.Equal(RoundTripComparisonStatus.Completed, result.Comparison.Status);
+            var setterComparison = Assert.Single(
+                result.Comparison.Members,
+                member => member.Target.Method == setter.Method);
+            Assert.Equal(RoundTripEvidenceStatus.Exact, setterComparison.CSharpStatus);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullPreservesAutoPropertyWhenTargetIsAutoAccessor()
+    {
+        // Issue #3000 regression guard: when the target is an auto-property accessor, the property
+        // has no explicit accessor body to preserve. The target-aware branch must leave the base
+        // auto-property skeleton intact rather than replacing it with empty accessor bodies (which
+        // deletes the accessors -> `int Value {  }`, CS0548, forcing a floor fallback).
+        var assemblyPath = CompileFixture("""
+            public class Holder
+            {
+                public int Value { get; } = 42;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "get_Value", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            var getter = Assert.Single(result.FullBodies, body => body.Member == "Holder.get_Value");
+            Assert.Equal(MemberBodyProductionStatus.Complete, getter.Status);
+            Assert.Contains("Value { get; }", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("Value {  }", result.Source, StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullPreservesReadWriteAutoPropertyWhenTargetIsGetter()
+    {
+        // Issue #3000: a read-write auto-property targeted at its getter was rendered get-only
+        // (`{ get; }`), silently dropping the setter while still recording set_Value Complete.
+        // The getter compose path must select AutoPropertyGetSet when a setter exists so the
+        // preserved skeleton keeps both accessors.
+        var assemblyPath = CompileFixture("""
+            public class Holder
+            {
+                public int Value { get; set; }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "get_Value", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(MemberBodyProductionStatus.Complete, Assert.Single(result.FullBodies, body => body.Member == "Holder.get_Value").Status);
+            Assert.Equal(MemberBodyProductionStatus.Complete, Assert.Single(result.FullBodies, body => body.Member == "Holder.set_Value").Status);
+            Assert.Contains("Value { get; set; }", result.Source, StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullPreservesInitAccessorWhenTargetIsGetter()
+    {
+        // Issue #3000: a get/init auto-property targeted at its getter was rendered get-only
+        // (`{ get; }`), silently dropping the init setter while still recording set_Value Complete.
+        // The getter compose path must render a get/init auto-property under Full so the
+        // compiler-synthesized init accessor faithfully reproduces the original setter and stays
+        // represented (not flipped to a public `set`, which would lose the init-only shape).
+        var assemblyPath = CompileFixture("""
+            public class Holder
+            {
+                public int Value { get; init; }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "get_Value", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(MemberBodyProductionStatus.Complete, Assert.Single(result.FullBodies, body => body.Member == "Holder.get_Value").Status);
+            Assert.Equal(MemberBodyProductionStatus.Complete, Assert.Single(result.FullBodies, body => body.Member == "Holder.set_Value").Status);
+            Assert.Contains("Value { get; init; }", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("Value { get; set; }", result.Source, StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullPreservesInitAccessorWhenTargetIsSetter()
+    {
+        // Issue #3000: targeting the init setter itself must render a get/init auto-property, not
+        // `{ get; set; }`. Flipping init to a public set loses the init-only shape and produces a
+        // setter whose IL diverges from the original init accessor.
+        var assemblyPath = CompileFixture("""
+            public class Holder
+            {
+                public int Value { get; init; }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "set_Value", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(MemberBodyProductionStatus.Complete, Assert.Single(result.FullBodies, body => body.Member == "Holder.set_Value").Status);
+            Assert.Contains("Value { get; init; }", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("Value { get; set; }", result.Source, StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullPreservesExplicitInitAccessorWhenTargetIsGetter()
+    {
+        // Issue #3000: a non-auto (explicit-body) get/init property targeted at its getter was
+        // rendered with a public `set` accessor, silently downgrading the init-only property
+        // (dropping the required modreq(IsExternalInit)) while still reporting set_Value Complete.
+        // The getter compose path must route the sibling init setter through the init-aware stub
+        // kind so the accessor is spelled `init`, preserving the init-only shape.
+        var assemblyPath = CompileFixture("""
+            public class Holder
+            {
+                private int _value;
+                public int Value
+                {
+                    get => _value;
+                    init => _value = value;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "get_Value", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(MemberBodyProductionStatus.Complete, Assert.Single(result.FullBodies, body => body.Member == "Holder.get_Value").Status);
+            Assert.Equal(MemberBodyProductionStatus.Complete, Assert.Single(result.FullBodies, body => body.Member == "Holder.set_Value").Status);
+            Assert.Contains("init", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("set", result.Source, StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullAutoInitPropertySiblingStaysSkeletonNotRecursive()
+    {
+        // Issue #3000: under Full, a non-target auto init-property sibling was enriched by
+        // decompiling its compiler-synthesized accessors, which read/write the unspeakable
+        // backing field. The decompiler renders that as the property itself, producing recursive
+        // `get { return this.Value; }` / `init { this.Value = value; }` that compiles but is
+        // semantically wrong while the accessors were still reported Complete. The auto-property
+        // skeleton must be preserved so the compiler re-synthesizes faithful accessors.
+        var assemblyPath = CompileFixture("""
+            public readonly struct Holder
+            {
+                public int Value { get; init; }
+                public int M() => 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "M", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Contains("public int Value { get; init; }", result.Source);
+            Assert.DoesNotContain("return this.Value", result.Source);
+            Assert.DoesNotContain("this.Value = value", result.Source);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullAutoSetPropertySiblingStaysSkeletonNotRecursive()
+    {
+        // Issue #3000: the same recursion downgrade affected plain `{ get; set; }` auto-property
+        // siblings under Full (this class of bug predates the init work); the skeleton must be
+        // preserved so the accessor bodies are not the recursive `return this.Value` shape.
+        var assemblyPath = CompileFixture("""
+            public struct Holder
+            {
+                public int Value { get; set; }
+                public int M() => 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "M", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Contains("public int Value { get; set; }", result.Source);
+            Assert.DoesNotContain("return this.Value", result.Source);
+            Assert.DoesNotContain("this.Value = value", result.Source);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullPreservesExplicitInitAccessorWhenTargetIsSetter()
+    {
+        // Issue #3000: targeting a non-auto (explicit-body) init setter itself must render an
+        // `init` accessor, not a public `set`. Flipping init to set loses the init-only shape.
+        var assemblyPath = CompileFixture("""
+            public class Holder
+            {
+                private int _value;
+                public int Value
+                {
+                    get => _value;
+                    init => _value = value;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "set_Value", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(MemberBodyProductionStatus.Complete, Assert.Single(result.FullBodies, body => body.Member == "Holder.set_Value").Status);
+            Assert.Contains("init", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("set", result.Source, StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullMemberSurfacePreservesSiblingInitAccessor()
+    {
+        // Issue #3000: targeting a plain method under Full adds the whole declaring type to the
+        // member surface, so its sibling explicit-body init property flows through the surface
+        // stub-selection path. That path hardcoded `set` (ThrowGetSet / AutoPropertyGetSet),
+        // silently downgrading the init-only setter to a public `set` while Enrich filled the real
+        // body and reported it Complete. The surface path must route init setters through the
+        // init-aware stub kind so the accessor is spelled `init`.
+        var assemblyPath = CompileFixture("""
+            public class Holder
+            {
+                private int _value;
+                public int Value
+                {
+                    get => _value;
+                    init => _value = value;
+                }
+
+                public int M() => 1;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "M", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Contains("init", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("set", result.Source, StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RecordSurfacePreservesSiblingInitAccessor()
+    {
+        // Issue #3000: targeting a record's compiler ToString pulls the whole record onto the
+        // member surface, so a sibling auto init-property flows through the surface stub path.
+        // Before the fix that path emitted `{ get; set; }`, silently dropping the init-only shape
+        // while reporting BodyComplete. The surface path must spell the auto init accessor `init`.
+        var assemblyPath = CompileFixture("""
+            public record Holder(int A)
+            {
+                public int Value { get; init; }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "ToString", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Selected));
+
+            Assert.Contains("init", result.Source, StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_InterfaceSurfacePreservesInitAccessor()
+    {
+        // Issue #3000: pulling an interface dependency onto the surface routed its `init` property
+        // through the no-body (interface) stub branch, which emitted `{ get; set; }` and stripped
+        // the init-only shape. The no-body branch must also honor init and render `{ get; init; }`.
+        var assemblyPath = CompileFixture("""
+            public interface IHolder
+            {
+                int Value { get; init; }
+            }
+            public class Holder : IHolder
+            {
+                public int Value { get; init; }
+                public void Method(IHolder holder)
+                {
+                    var x = holder.Value;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "Method", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Selected));
+
+            Assert.Contains("init", result.Source, StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullEventAccessorTargetSurfacesRecompileFailure()
+    {
+        // Issue #3000: a plain (non-explicit-interface) event accessor target is method-routed, so
+        // under Full policy the reconstructed type surface re-declares the event, whose synthesized
+        // accessor collides (CS0082) with the standalone target method. The Full closure fails to
+        // recompile and falls back to the compile-back floor. This must be reported honestly:
+        // BodyComplete is false (the Full reconstruction did not compile), not masked as Complete.
+        // Coherent Full reconstruction of plain event-accessor targets is a separate follow-up.
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public class Holder
+            {
+                private Action? _changed;
+                public event Action Changed
+                {
+                    add { _changed += value; }
+                    remove { _changed -= value; }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "add_Changed", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(result.UsedCompileBackFloor, result.Detail);
+            Assert.False(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_AllSeedsEverySupportedTopLevelRoot()
     {
         var assemblyPath = CompileFixture("""
@@ -4613,7 +5116,7 @@ public class ReturnToSenderPrototypeTests
                     Assert.True(
                         toString.Status == FidelityCheck.CompileBackStatus.Exact,
                         $"{toString.Status}: {toString.Detail}{Environment.NewLine}{toString.Source}");
-                    Assert.Contains("public string Name { get; set; }", toString.Source);
+                    Assert.Contains("public string Name { get; init; }", toString.Source);
                     Assert.DoesNotContain("public string Name;", toString.Source);
                 },
                 typedEquals =>

@@ -79,7 +79,8 @@ static class ReturnToSender
         public IReadOnlyList<FullBodyProduction> FullBodies { get; init; } = [];
         public bool BodyComplete
             => BodyPolicy != RoundTripBodyPolicy.Full
-               || FullBodies.All(body => body.Status == MemberBodyProductionStatus.Complete);
+               || (!UsedCompileBackFloor
+                   && FullBodies.All(body => body.Status == MemberBodyProductionStatus.Complete));
         public RoundTripComparisonResult? Comparison { get; init; }
         public RoundTripCompilationProvenance? Compilation { get; init; }
         [JsonIgnore]
