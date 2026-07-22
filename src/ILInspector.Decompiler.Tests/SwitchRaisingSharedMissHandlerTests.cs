@@ -10,6 +10,7 @@ namespace ILInspector.Decompiler.Tests;
 // required literal equality between a case's exits, so a case whose two exits
 // were the miss-handler and the return it falls into (not the same block)
 // failed to unify and the whole table was left flat as an if-ladder.
+[Trait("Area", "Pass")]
 public class SwitchRaisingSharedMissHandlerTests
 {
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
