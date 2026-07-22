@@ -35,6 +35,7 @@ public class LadderRung9GateTests
         "DynamicEventRemove",
         "DynamicGetIndex",
         "DynamicGetLength",
+        "DynamicGetLengthOfObject",
         "DynamicInvoke",
         "DynamicInvokeMember",
         "DynamicNamedOut",
@@ -95,7 +96,23 @@ public class LadderRung9GateTests
         var members = LoadRaisedMembers();
         var member = members.Single(m => m.Name == "DynamicGetLength");
         Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
-        Assert.Contains("((dynamic)value).Length;", member.Body);
+        // `value` is a top-level `dynamic` parameter, so the redundant
+        // `((dynamic)value)` cast is dropped and the access spells `value.Length`
+        // (issue #2984).
+        Assert.Contains("value.Length;", member.Body);
+        Assert.DoesNotContain("((dynamic)value)", member.Body);
+    }
+
+    [Fact]
+    public void Rung9Fixture_KeepsCastForObjectReceiver()
+    {
+        // Close negative for #2984: the receiver is a genuine `object` parameter
+        // (no [DynamicAttribute]); the access is dynamic only through the explicit
+        // source cast, so the `((dynamic)value)` cast must be preserved.
+        var members = LoadRaisedMembers();
+        var member = members.Single(m => m.Name == "DynamicGetLengthOfObject");
+        Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
+        Assert.Contains("((dynamic)value).Length", member.Body);
     }
 
     [Fact]

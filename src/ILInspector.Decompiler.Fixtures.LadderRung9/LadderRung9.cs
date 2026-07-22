@@ -20,6 +20,15 @@ public class DynamicAndExpressionTrees
         return value.Length;
     }
 
+    // Close negative for #2984: the receiver is a genuine `object` parameter (no
+    // [DynamicAttribute]); the member access only becomes dynamic through the
+    // explicit `(dynamic)` cast in source. The redundant-cast drop must NOT fire
+    // here — the static type really is object — so `((dynamic)value)` is kept.
+    public object DynamicGetLengthOfObject(object value)
+    {
+        return ((dynamic)value).Length;
+    }
+
     public object DynamicInvoke(dynamic function, int value)
     {
         return function(value);

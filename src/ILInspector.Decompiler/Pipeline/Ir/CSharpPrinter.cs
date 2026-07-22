@@ -1503,7 +1503,7 @@ public sealed partial class CSharpPrinter
         if (node is LocalFunctionStatement localFunction)
         {
             string modifier = localFunction.IsStatic ? "static " : "";
-            string parameters = string.Join(", ", localFunction.Parameters.Select(p => $"{TypeText(p.Type)} {CSharpNaming.EscapeIdentifier(p.Name)}"));
+            string parameters = string.Join(", ", localFunction.Parameters.Select(p => $"{ParameterTypeText(p)} {CSharpNaming.EscapeIdentifier(p.Name)}"));
             string header = $"{modifier}{TypeText(localFunction.ReturnType)} {CSharpNaming.EscapeIdentifier(localFunction.Name)}({parameters})";
             if (localFunction.ExpressionBody is { } body)
             {
@@ -2570,7 +2570,7 @@ public sealed partial class CSharpPrinter
         AddressOfMethod m => AddressOfMethodText(m),
         LoadFunctionPointer p => $"/* {p.Describe()} */",
         LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
-        DynamicGetMember d => $"((dynamic){Operand(d.Receiver)}).{CSharpNaming.EscapeIdentifier(d.PropertyName)}",
+        DynamicGetMember d => DynamicGetMemberText(d),
         NewObject n when MultiDimArrayCreationText(n) is { } text => text,
         NewObject n => $"new {TypeText(n.Constructor.DeclaringType)}({Arguments(n.Arguments, n.Constructor.ParameterTypes, n.Constructor.ParameterRefKinds)})",
         TupleExpression t => $"({Arguments(t.Elements)})",
@@ -2634,6 +2634,38 @@ public sealed partial class CSharpPrinter
             RuntimeTokenKind.Method => $"/* {token.Describe()} */ default(System.RuntimeMethodHandle)",
             _ => $"/* {token.Describe()} */ null",
         };
+
+    string DynamicGetMemberText(DynamicGetMember d)
+    {
+        string member = CSharpNaming.EscapeIdentifier(d.PropertyName);
+        // A dynamic member access needs no member signature — the name is a
+        // string handed to Binder.GetMember and resolved at runtime — so a
+        // receiver whose static type is already `dynamic` binds `receiver.Member`
+        // with no cast. The `(dynamic)` cast is only required to coerce an
+        // `object`-typed operand (or a mixed expression) into dynamic dispatch.
+        // Drop it when the operand's source (a dynamic parameter, or a hoisted
+        // display-class field carrying [DynamicAttribute]) recovers a dynamic
+        // type view.
+        if (IsDynamicTypedReceiver(d.Receiver))
+            return $"{Operand(d.Receiver)}.{member}";
+        return $"((dynamic){Operand(d.Receiver)}).{member}";
+    }
+
+    static bool IsDynamicTypedReceiver(IrExpression receiver) => receiver switch
+    {
+        LoadArgument { IsDynamic: true } => true,
+        LoadField { Field.IsDynamic: true } => true,
+        _ => false,
+    };
+
+    // A parameter authored as top-level `dynamic` must be spelled `dynamic` in
+    // the declaration, not `object` (its TypeRef). This keeps a local-function
+    // header consistent with a body that drops the redundant `(dynamic)` cast on
+    // the parameter: `object Get(object v) => v.Length;` is CS1061, whereas
+    // `object Get(dynamic v) => v.Length;` binds. Top-level method signatures are
+    // spelled by the metadata signature printer; this covers the printer-owned
+    // local-function declaration path.
+    string ParameterTypeText(Parameter p) => p.IsDynamic ? "dynamic" : TypeText(p.Type);
 
     string CoalesceText(Coalesce co, TypeRef? target = null)
     {

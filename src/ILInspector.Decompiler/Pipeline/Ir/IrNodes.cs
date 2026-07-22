@@ -197,6 +197,16 @@ public sealed record FieldRef(TypeRef DeclaringType, string Name, TypeRef Type)
     public MetadataFactState DeclaringTypeCompilerGenerated { get; init; } = MetadataFactState.Unknown;
 
     /// <summary>
+    /// True when this field's top-level type was authored as <c>dynamic</c> (a
+    /// <c>System.Object</c> position carrying <c>[DynamicAttribute]</c>) — most
+    /// notably a captured <c>dynamic</c> local/parameter hoisted into a
+    /// <c>&lt;&gt;c__DisplayClass</c> field. The printer uses this to drop a
+    /// redundant <c>(dynamic)</c> cast when a load of this field is the receiver
+    /// of a raised dynamic member access.
+    /// </summary>
+    public bool IsDynamic { get; init; }
+
+    /// <summary>
     /// Positive metadata evidence that this field is a C# fixed buffer source
     /// field. Null means no proof, not proof of absence.
     /// </summary>
@@ -1628,6 +1638,14 @@ public sealed class LoadArgument : IrExpression
     public int Index { get; }
     public string Name { get; }
     public TypeRef Type { get; }
+
+    /// <summary>
+    /// True when this parameter's top-level type was authored as <c>dynamic</c>
+    /// (a <c>System.Object</c> position carrying <c>[DynamicAttribute]</c>). The
+    /// printer uses this to drop a redundant <c>(dynamic)</c> cast when this load
+    /// is the receiver of a raised dynamic member access.
+    /// </summary>
+    public bool IsDynamic { get; init; }
     public override TypeRef? ResultType => Type;
 
     public override string Describe() => $"LoadArgument {Index} ({Type.ToDisplayString()} {Name})";

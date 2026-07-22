@@ -61,6 +61,17 @@ public static class DynamicReader
     }
 
     /// <summary>
+    /// True when a transform-flags array marks the top-level (outermost) type
+    /// position as <c>dynamic</c>. The flags are a preorder walk over the type;
+    /// index 0 is the whole type, so only a bare <c>dynamic</c> (a
+    /// <c>System.Object</c> authored as <c>dynamic</c>) sets it — a nested
+    /// position such as <c>Func&lt;dynamic&gt;</c> leaves index 0 false. Null
+    /// (attribute absent) means the position is a plain object.
+    /// </summary>
+    public static bool IsTopLevelDynamic(byte[]? dynamicFlags)
+        => dynamicFlags is { Length: > 0 } flags && flags[0] == 1;
+
+    /// <summary>
     /// Gets DynamicAttribute transform flags for a specific parameter by sequence
     /// number. Sequence 0 = return type, 1+ = parameters.
     /// </summary>
