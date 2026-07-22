@@ -48,7 +48,8 @@ internal static class LoweringCoverage
     [Completeness(CompletenessLevel.Partial, "new { a = x, ... } from the generated anonymous-type constructor, with projection shorthand and nested anonymous-object members recovered recursively; the anonymous type's compiler-generated equality/ToString members are not part of the literal and are unaffected")]
     public static AnonymousObjectPass AnonymousObjectCreation => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative AsOperator => default!;
-    [Completeness(CompletenessLevel.Full)] public static ImporterNative AssignmentOperator => default!;
+    [Completeness(CompletenessLevel.Partial, "embedded/chained assignment (a = b = c = v) recomposed from the dup-of-value idiom into one statement for static-property and static-field targets, source order preserved and the innermost sink's per-sink literal/coercion recovered; simple single-target assignments are importer-native, and instance-member, local, and expression-position (escaping) chains are not raised — a non-chain dup'd constant is still re-materialized at its sink")]
+    public static ChainedAssignmentPass AssignmentOperator => new();
     [Completeness(CompletenessLevel.Partial, "runtime-async (async v2) exact corelib AsyncHelpers.Await call sites and the exact AwaitAwaiter/UnsafeAwaitAwaiter guard-helper-GetResult scaffold recovered to `await`, multi-await order preserved; classic state-machine async fixture overlay raised for single, sequential, branch, loop, and try/finally awaits")]
     public static AwaitRecoveryPass Await => new();
     [Completeness(CompletenessLevel.Full)] public static ImporterNative BasePatternSwitchLocalRewriter => default!;

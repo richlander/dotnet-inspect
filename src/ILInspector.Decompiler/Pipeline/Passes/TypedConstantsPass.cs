@@ -65,6 +65,13 @@ public sealed class TypedConstantsPass : IIrPass
                 case StoreProperty { Value: { } value } store:
                     Retype(value, store.Accessor.ParameterTypes is { IsDefault: false, Length: > 0 } setter ? setter[^1] : null, shapes, stepper);
                     break;
+                // A chained assignment shares one value across every target; the
+                // innermost (rightmost) sink is where it first lands, so its type
+                // recovers the literal (a bool chain's `0` is `false`). The outer
+                // targets' implicit widenings stay implicit in the spelling.
+                case ChainedAssignment { Value: { } value } chain:
+                    Retype(value, chain.InnermostTargetType, shapes, stepper);
+                    break;
                 case NullCoalescingAssignment { Value: { } value } assign:
                     Retype(value, assign.LocalType, shapes, stepper);
                     break;

@@ -70,6 +70,14 @@ public static class IrPasses
         // Raise ValueTuple receiver-spill + ItemN target stores back into tuple
         // deconstruction after property-sugar has normalized setter calls.
         new DeconstructionAssignmentPass(),
+        // Raise the dup-of-value lowering of a chained assignment (a = b = c = v)
+        // into one ChainedAssignment, keyed on the shared dup slot. Runs after
+        // property-sugar so setters are StoreProperty nodes and before the
+        // object-initializer pass (whose NewObject-seeded chains never overlap).
+        // Also re-materializes any leftover dup'd constant slot to preserve the
+        // per-sink typed literal (#2982) now that the importer keeps dup'd
+        // constants on the slot path.
+        new ChainedAssignmentPass(),
         // Raise the object/collection-initializer lowering (a NewObject threaded
         // through a dup chain and mutated by a run of member stores or Add calls)
         // back into new T { X = a, ... }. Runs after property-sugar so the member

@@ -207,6 +207,12 @@ public static class CoercionSinks
                     when store.Accessor.ParameterTypes is { IsDefault: false, Length: > 0 } setter:
                     yield return new(value, setter[^1]);
                     break;
+                // A chained assignment's single value lands at the innermost
+                // sink; coerce it there so the shared literal is decided at that
+                // type (the same sink TypedConstantsPass retypes it to).
+                case ChainedAssignment { Value: { } value } chain:
+                    yield return new(value, chain.InnermostTargetType);
+                    break;
                 case NullCoalescingAssignment { Value: { } value, LocalType: { } type }:
                     yield return new(value, type);
                     break;
