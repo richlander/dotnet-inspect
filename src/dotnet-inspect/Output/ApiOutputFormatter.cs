@@ -2223,7 +2223,7 @@ public static class ApiOutputFormatter
             return body;
 
         bool hasLeadingComments = leadingBodyComments is { Count: > 0 };
-        if (!hasLeadingComments && preferExpressionBodied && Decompiler.CSharpExpressionBody.FromSingleStatement(body) is { } expressionBody)
+        if (!hasLeadingComments && preferExpressionBodied && CSharpExpressionBody.FromSingleStatement(body) is { } expressionBody)
             return $"{declaration} => {expressionBody};";
 
         var formattedBodyLines = body.ReplaceLineEndings("\n").Split('\n');
