@@ -64,13 +64,13 @@ public sealed partial class CSharpPrinter
 
     /// <summary>
     /// Renders a unary <c>neg</c> (<c>-x</c>) or <c>not</c> (<c>~x</c>). A bitwise
-    /// complement never overflows and is valid on every integer, so it is spelled
-    /// bare. An integer negate needs two guards. (1) C# has no unary minus for
-    /// <c>ulong</c>/<c>nuint</c> (they promote to no signed type, so <c>-x</c> is
-    /// CS0023); an IL <c>neg</c> over such a value came from a signed reinterpret
-    /// cast (<c>-(long)x</c>) that is a no-op in IL and so is invisible in the
-    /// operand's masked stack type — re-insert it via
-    /// <see cref="NegateReinterpretKeyword"/> so the negate is legal and the
+    /// complement never overflows and is valid on every integer and every enum, so
+    /// it is spelled bare. An integer negate needs two guards. (1) C# has no unary
+    /// minus for <c>ulong</c>/<c>nuint</c> or for <em>any</em> enum (they promote to
+    /// no signed type, so <c>-x</c> is CS0023); an IL <c>neg</c> over such a value
+    /// came from a signed reinterpret cast (<c>-(long)x</c>) that is a no-op in IL
+    /// and so is invisible in the operand's masked stack type — re-insert it via
+    /// <see cref="NegateOperandReinterpretKeyword"/> so the negate is legal and the
     /// <c>neg</c> round-trips. (2) Like a plain <c>add</c>/<c>sub</c>/<c>mul</c>, a
     /// negate would silently acquire overflow-checked semantics inside a lexical
     /// <c>checked</c> region — C# lowers a checked <c>-x</c> to <c>0 - x</c> as
@@ -82,7 +82,7 @@ public sealed partial class CSharpPrinter
     {
         string op = unary.Kind == UnaryKind.Negate ? "-" : "~";
         string cast = unary.Kind == UnaryKind.Negate
-            && NegateReinterpretKeyword(WideIndexOperandType(unary.Operand)) is { } keyword
+            && NegateOperandReinterpretKeyword(WideIndexOperandType(unary.Operand)) is { } keyword
             ? $"({keyword})"
             : "";
         bool uncheckedOverflow = unary.Kind == UnaryKind.Negate
@@ -104,13 +104,33 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
+    /// The signed cast keyword that makes an IL <c>neg</c> legal on an operand whose
+    /// rendered type has no C# unary minus, or null when the operand's unary minus
+    /// is already legal. C# forbids unary minus on <c>ulong</c>, <c>nuint</c>, and
+    /// <em>every</em> enum (an enum has no unary minus regardless of its underlying
+    /// type). A primitive is handled by <see cref="NegateReinterpretKeyword"/>
+    /// (<c>ulong</c>→<c>long</c>, <c>nuint</c>→<c>nint</c>; <c>uint</c> and the
+    /// signed/sub-int types negate directly). An enum always needs the reinterpret,
+    /// keyed on its underlying width: an 8-byte-backed enum reinterprets as
+    /// <c>long</c>, any narrower enum as <c>int</c> — all sub-8-byte integers are
+    /// <c>I4</c> on the eval stack, so <c>(int)</c> is the value-preserving view the
+    /// <c>neg</c> operated on. Every reinterpret here is an IL no-op, so re-inserting
+    /// it keeps the <c>neg</c> opcode-exact.
+    /// </summary>
+    string? NegateOperandReinterpretKeyword(TypeRef? operandType)
+        => EnumUnderlyingType(operandType) is { } underlying
+            ? (Is8ByteInteger(underlying) ? "long" : "int")
+            : NegateReinterpretKeyword(operandType);
+
+    /// <summary>
     /// The signed cast keyword that makes an IL <c>neg</c> over an otherwise
-    /// non-negatable unsigned operand legal C#: <c>ulong</c>→<c>long</c>,
-    /// <c>nuint</c>→<c>nint</c>. <c>uint</c> is deliberately excluded — C# unary
-    /// minus already promotes it to <c>long</c> value-preservingly, so a cast there
-    /// would truncate. Every other type (already signed, sub-int, float, unknown)
-    /// needs no cast. The reinterpret is a no-op in IL, so re-inserting it keeps the
-    /// <c>neg</c> opcode-exact.
+    /// non-negatable unsigned <em>primitive</em> operand legal C#: <c>ulong</c>→
+    /// <c>long</c>, <c>nuint</c>→<c>nint</c>. <c>uint</c> is deliberately excluded —
+    /// C# unary minus already promotes it to <c>long</c> value-preservingly, so a
+    /// cast there would truncate. Every other type (already signed, sub-int, float,
+    /// unknown) needs no cast. Enum operands are handled by
+    /// <see cref="NegateOperandReinterpretKeyword"/>. The reinterpret is a no-op in
+    /// IL, so re-inserting it keeps the <c>neg</c> opcode-exact.
     /// </summary>
     static string? NegateReinterpretKeyword(TypeRef? operandType)
         => operandType is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" } named

@@ -2362,7 +2362,7 @@ public sealed partial class CSharpPrinter
     /// the re-inserted index conversion; for any other operand the load carries no
     /// masking and its own <c>ResultType</c> is used.
     /// </summary>
-    static TypeRef? WideIndexOperandType(IrExpression operand)
+    TypeRef? WideIndexOperandType(IrExpression operand)
     {
         switch (operand)
         {
@@ -2405,14 +2405,19 @@ public sealed partial class CSharpPrinter
                 }
             }
             // A bitwise `~` preserves its operand's type (`~v[j]` over a `ulong`
-            // element is a `ulong`); a unary `-` cannot apply to `ulong`/`nuint`,
-            // so UnaryText re-inserts a signed reinterpret (`-(long)v[j]`) and the
-            // negate then renders signed. Recover the rendered type from the
-            // unmasked operand (its ResultType is the masked stack type), mapping a
-            // negate over a non-negatable unsigned operand to its signed counterpart.
+            // element is a `ulong`, `~e` over an enum is that enum); a unary `-`
+            // cannot apply to `ulong`/`nuint` or to any enum, so UnaryText
+            // re-inserts a signed reinterpret (`-(long)v[j]`) and the negate then
+            // renders signed. Recover the rendered type from the unmasked operand
+            // (its ResultType is the masked stack type), mapping a negate over a
+            // non-negatable operand to the signed integer it now renders as: an
+            // enum to `long`/`int` by its underlying width, else the unsigned
+            // primitive's signed counterpart.
             case Unary { Kind: UnaryKind.Negate } negate:
             {
                 var inner = WideIndexOperandType(negate.Operand);
+                if (EnumUnderlyingType(inner) is { } underlying)
+                    return TypeRef.CoreLib("System", Is8ByteInteger(underlying) ? "Int64" : "Int32");
                 return NegateReinterpretKeyword(inner) is not null
                     ? TypeFamilies.SignedCounterpart(inner) ?? inner
                     : inner;
@@ -2426,6 +2431,16 @@ public sealed partial class CSharpPrinter
 
     static TypeRef? WideIndexPointee(IrExpression address)
         => address.ResultType is { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer } indirect ? indirect.ElementType : null;
+
+    /// <summary>
+    /// True for the two 8-byte integer primitives (<c>long</c>/<c>ulong</c>) — the
+    /// only enum underlying types wide enough to load through an <c>ldelem.i8</c>/
+    /// <c>ldind.i8</c> mask and the ones whose negate reinterprets as <c>long</c>
+    /// rather than <c>int</c>. Enums cannot be <c>nint</c>/<c>nuint</c>-backed, so
+    /// native integers are not considered here.
+    /// </summary>
+    static bool Is8ByteInteger(TypeRef? type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Int64" or "UInt64" };
 
     /// <summary>
     /// True when the emitted wide index cast <c>(long)</c>/<c>(ulong)</c> flips the

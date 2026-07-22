@@ -267,4 +267,30 @@ public class WideArrayIndexTests
         // reinterpreted `(nint)` before the negate.
         Assert.Equal("return -(nint)v[j];", Print(nameof(CfgSampleClass.NegNuintElementToNint)));
     }
+
+    [Fact]
+    public void NegEnumULongElementIndex_CastsOperandToLong()
+    {
+        // Unary minus is illegal on EVERY enum, not just `ulong`/`nuint`. An
+        // 8-byte-backed enum negate re-inserts `(long)` on the operand and, used as
+        // a signed index, strips clean. `(long)(-v[j])` would be CS0023.
+        Assert.Equal("return a[-(long)v[j]];", Print(nameof(CfgSampleClass.NegEnumULongElementIndexAsSigned)));
+    }
+
+    [Fact]
+    public void NegEnumLongElementToLong_CastsOperandToLong()
+    {
+        // A `long`-backed enum negated outside any index still needs the operand
+        // cast — the enum has no unary minus. General printer path, not indexing.
+        Assert.Equal("return -(long)v[j];", Print(nameof(CfgSampleClass.NegEnumLongElementToLong)));
+    }
+
+    [Fact]
+    public void NegEnumUIntElementToInt_CastsOperandToInt()
+    {
+        // A 4-byte (`uint`-backed) enum reinterprets the operand as `(int)`, the
+        // value-preserving `I4` view the `neg` ran on (the outer `(int)` is the
+        // enum-to-underlying conversion the source spelled, unrelated to the fix).
+        Assert.Equal("return (int)(-(int)v[j]);", Print(nameof(CfgSampleClass.NegEnumUIntElementToInt)));
+    }
 }

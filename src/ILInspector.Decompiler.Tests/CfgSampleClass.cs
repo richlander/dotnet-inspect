@@ -934,6 +934,23 @@ public class CfgSampleClass
     // `ldelem.i; neg`.
     public static nint NegNuintElementToNint(nuint[] v, int j) => -(nint)v[j];
 
+    // Enum mirror (#2981 adversarial review): C# has no unary minus for ANY enum,
+    // regardless of its underlying type. A negate over an enum element likewise
+    // came from a signed reinterpret that vanished, so the operand cast is
+    // re-inserted keyed on the underlying width — an 8-byte-backed enum as
+    // `(long)`, a narrower one as `(int)`. An 8-byte-backed enum used as a signed
+    // index strips clean. Opcode-exact: `ldelem.i8; neg; conv.ovf.i`.
+    public static int NegEnumULongElementIndexAsSigned(int[] a, CfgULong[] v, int j) => a[-(long)v[j]];
+
+    // A `long`-backed enum negated outside any index: still no unary minus on the
+    // enum, so `(long)` is re-inserted on the operand. Opcode-exact: `ldelem.i8; neg`.
+    public static long NegEnumLongElementToLong(CfgLongPriority[] v, int j) => -(long)v[j];
+
+    // A 4-byte (`uint`-backed) enum negate reinterprets the operand as `(int)` —
+    // sub-8-byte integers are `I4` on the eval stack, so `(int)` is the
+    // value-preserving no-op view the `neg` operated on. Opcode-exact: `ldelem.*; neg`.
+    public static int NegEnumUIntElementToInt(CfgFlags[] v, int j) => -(int)v[j];
+
     // Genuinely-signed `long` neg/not indices recover as `long` and strip bare.
     public static int NegLongIndexBare(int[] a, long i) => a[-i];
 
