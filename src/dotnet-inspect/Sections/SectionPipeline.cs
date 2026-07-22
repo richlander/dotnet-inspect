@@ -12,6 +12,7 @@ public sealed class SectionEntry<TModel>
     public required bool IsExpensive { get; init; }
     public bool ExplicitOnly { get; init; }
     public bool Info { get; init; }
+    public bool Noisy { get; init; }
     public bool ListedInCatalog { get; init; } = true;
     public bool ProbeEffectiveness { get; init; } = true;
     public SectionCapabilities Capabilities { get; init; }
@@ -42,9 +43,34 @@ public sealed class SectionPipeline<TModel>
 {
     private readonly List<SectionEntry<TModel>> _entries = [];
     private readonly List<SectionCategory> _categories = [];
+    private bool _curatedCatalog;
 
     public const string DefaultCategory = "@Default";
     public const string AllCategory = "@All";
+    public const string HiddenCategory = "@Hidden";
+
+    /// <summary>
+    /// Opts this pipeline into the curated-catalog taxonomy: <c>@All</c> is the visible pole
+    /// (Default + Terse + <see cref="SectionEntry{TModel}.Noisy"/> sections, excluding expensive and
+    /// feeder sections), the top-level <c>-D</c> catalog lists exactly the <c>@All</c> members, and
+    /// <c>@Hidden</c> is the computed complement (sections surfaced by no listed category), reachable
+    /// only via <c>--schema</c> or by exact name. Pipelines that do not opt in keep the legacy model
+    /// where <c>@All</c> is every renderable section. Transitional: removed once every command migrates.
+    /// </summary>
+    public SectionPipeline<TModel> UseCuratedCatalog()
+    {
+        _curatedCatalog = true;
+        return this;
+    }
+
+    /// <summary>
+    /// Membership test for the visible <c>@All</c> pole (curated catalogs only), computed from flags
+    /// alone so it is independent of any model: a section is included when it is cheap and is either
+    /// auto-selectable by verbosity or an explicitly opt-in <see cref="SectionEntry{TModel}.Noisy"/>
+    /// surface section. Expensive sections and non-noisy feeders are excluded.
+    /// </summary>
+    private static bool IsAllMember(SectionEntry<TModel> entry)
+        => !entry.IsExpensive && (!entry.ExplicitOnly || entry.Noisy);
 
     /// <summary>
     /// Registers a section descriptor. The descriptor type is never instantiated —
@@ -59,6 +85,7 @@ public sealed class SectionPipeline<TModel>
             IsExpensive = TDescriptor.IsExpensive,
             ExplicitOnly = TDescriptor.ExplicitOnly,
             Info = TDescriptor.Info,
+            Noisy = TDescriptor.Noisy,
             ListedInCatalog = TDescriptor.ListedInCatalog,
             ProbeEffectiveness = TDescriptor.ProbeEffectiveness,
             Capabilities = TDescriptor.Capabilities,
@@ -116,14 +143,36 @@ public sealed class SectionPipeline<TModel>
         Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase)
         {
             [DefaultCategory] = InfoSectionNames,
-            [AllCategory] = SelectableSectionNames
+            [AllCategory] = _curatedCatalog
+                ? _entries.Where(e => IsSelectable(e) && IsAllMember(e)).Select(e => e.Name).ToArray()
+                : SelectableSectionNames
         };
 
         foreach (var category in _categories)
             categories[category.Name] = category.Sections;
 
+        if (_curatedCatalog)
+            categories[HiddenCategory] = GetHiddenSections().ToArray();
+
         return categories;
     }
+
+    /// <summary>
+    /// The computed <c>@Hidden</c> pole (curated catalogs only): selectable sections that are not
+    /// <see cref="IsAllMember"/> and are surfaced by no registered category door. They are reachable
+    /// only via <c>--schema</c>, <c>-S @Hidden</c>, or by exact name. Never hand-authored.
+    /// </summary>
+    private IEnumerable<SectionEntry<TModel>> GetHiddenSectionEntries()
+    {
+        var listed = _categories
+            .SelectMany(c => c.Sections)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return _entries.Where(e => IsSelectable(e) && !IsAllMember(e) && !listed.Contains(e.Name));
+    }
+
+    private IEnumerable<string> GetHiddenSections()
+        => GetHiddenSectionEntries().Select(e => e.Name);
 
     /// <summary>
     /// Names of sections omitted from the top-level discovery catalog
@@ -131,9 +180,13 @@ public sealed class SectionPipeline<TModel>
     /// under their curated <c>@category</c>; they remain selectable and drillable by exact name.
     /// </summary>
     public IReadOnlySet<string> GetCatalogHiddenSections()
-        => _entries.Where(e => !e.ListedInCatalog)
-            .Select(e => e.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        => _curatedCatalog
+            ? _entries.Where(e => IsSelectable(e) && !IsAllMember(e))
+                .Select(e => e.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : _entries.Where(e => !e.ListedInCatalog)
+                .Select(e => e.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Maps each section name to a short annotation for discovery output:
@@ -285,6 +338,7 @@ public sealed class SectionPipeline<TModel>
     {
         var all = _entries
             .Where(entry => entry.CanRender(model))
+            .Where(entry => !_curatedCatalog || IsAllMember(entry))
             .Select(entry => entry.Name)
             .Where(name => !string.Equals(name, "Summary", StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase)
