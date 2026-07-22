@@ -1937,6 +1937,62 @@ internal static class GeneratedFixtureCatalog
         [],
         ["assertion", "inverse-ledger", "coverage", "union"]);
 
+    // PatternSwitchExpression is the non-union type-pattern switch: an ordinary
+    // receiver (not a union .Value), a single-level property-subpattern arm, and
+    // a bool method-call when-guard whose negation stays a LogicalNot (a folded
+    // relational guard lowers to an inverted comparison the pass declines). It
+    // gets its own fixture — the coverage fixture cannot produce this exact
+    // compiler-lowered shape.
+    public static readonly GeneratedFixtureDefinition AssertionPatternSwitch = new(
+        "assertion.pattern-switch",
+        """
+        #nullable enable
+        namespace GeneratedFixtures.PatternSwitch
+        {
+            public abstract class Node
+            {
+            }
+
+            public sealed class Leaf : Node
+            {
+                public Leaf(int weight) => Weight = weight;
+
+                public int Weight { get; }
+            }
+
+            public sealed class Wrapper : Node
+            {
+                public Wrapper(Node inner) => Inner = inner;
+
+                public Node Inner { get; }
+            }
+
+            public static class Dispatch
+            {
+                public static bool Classify(Node node, int threshold, out int result)
+                {
+                    result = 0;
+                    return node switch
+                    {
+                        Leaf leaf when Exceeds(leaf.Weight, threshold) => Capture(leaf.Weight, out result),
+                        Wrapper { Inner: Leaf inner } when Exceeds(inner.Weight, threshold) => Capture(-inner.Weight, out result),
+                        _ => false,
+                    };
+                }
+
+                static bool Exceeds(int value, int threshold) => value > threshold;
+
+                static bool Capture(int value, out int result)
+                {
+                    result = value;
+                    return true;
+                }
+            }
+        }
+        """,
+        [],
+        ["assertion", "inverse-ledger", "coverage", "pattern-switch"]);
+
     public static IReadOnlyList<GeneratedFixtureDefinition> All { get; } =
     [
         SharedReturnHasRows,
@@ -2008,6 +2064,7 @@ internal static class GeneratedFixtureCatalog
     [
         AssertionNodeCoverage,
         AssertionUnionSwitch,
+        AssertionPatternSwitch,
     ];
 
     public static IReadOnlyList<GeneratedFixtureDefinition> Catalog { get; } =

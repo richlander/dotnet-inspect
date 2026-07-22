@@ -154,6 +154,17 @@ internal static class CSharpSpellability
                     if (unionSwitch.DefaultValue is { } defaultValue)
                         pending.Push(defaultValue);
                     break;
+                case PatternSwitchExpression patternSwitch:
+                    pending.Push(patternSwitch.Value);
+                    foreach (var arm in patternSwitch.Arms)
+                    {
+                        if (arm.Guard is { } guard)
+                            pending.Push(guard);
+                        pending.Push(arm.Value);
+                    }
+                    if (patternSwitch.DefaultValue is { } patternDefault)
+                        pending.Push(patternDefault);
+                    break;
                 case LoadArgument load
                     when seenPlaces.Add((PlaceKind.Argument, load.Index)):
                     foreach (var store in bodyNodes.OfType<StoreArgument>())

@@ -72,6 +72,7 @@ public static class ReferenceOwnership
         IsPattern p => p.LocalIndex == index,
         RecursivePropertyDeclarationPattern r => r.LocalIndex == index,
         UnionSwitchExpressionArm a => a.LocalIndex == index,
+        PatternSwitchExpressionArm p => p.LocalIndex == index || p.Subpattern?.LocalIndex == index,
         CatchClause c => c.VariableIndex == index,
         DeconstructionAssignment d => d.LocalIndices.Contains(index),
         _ => false,

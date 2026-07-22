@@ -829,6 +829,113 @@ public sealed class TupleSwitchExpressionArm : IrNode
 }
 
 /// <summary>
+/// A raised type / single-level property-declaration-pattern switch expression
+/// over an arbitrary receiver:
+/// <c>expression switch { Comparison c when g =&gt; v, LogicalNot { Operand: Comparison c } when g =&gt; w, _ =&gt; false }</c>.
+/// Unlike <see cref="UnionSwitchExpression"/> the receiver is any expression (not
+/// a discriminated-union <c>Value</c> getter) and arms may carry a single-level
+/// property subpattern. Produced by <see cref="PatternSwitchExpressionPass"/> from
+/// the compiler's nested type-test <c>as</c>/null-test if/return dispatch, when
+/// every arm is mutually exclusive and side-effect-free and the fall-through
+/// yields one shared default value.
+/// </summary>
+[Inverse.InverseOf(
+    Inverse.Forward.RoslynBoundConvertedSwitchExpression,
+    naming: Inverse.NameProvenance.Native,
+    forwardName: "BoundConvertedSwitchExpression (type / single-level property-pattern arms over an arbitrary receiver)",
+    precondition: "each arm is a mutually-exclusive type or single-level property-declaration pattern (optionally when-guarded) yielding one return value, the fall-through default yields the trailing value; result is the arms' shared type",
+    witness: "PatternSwitchExpressionPassTests, corpus compile-back")]
+public sealed class PatternSwitchExpression : IrExpression
+{
+    readonly bool _hasDefault;
+
+    public PatternSwitchExpression(
+        IrExpression value,
+        IEnumerable<PatternSwitchExpressionArm> arms,
+        IrExpression? defaultValue = null)
+    {
+        AddChild(value);
+        foreach (var arm in arms)
+            AddChild(arm);
+        if (defaultValue is not null)
+        {
+            _hasDefault = true;
+            AddChild(defaultValue);
+        }
+    }
+
+    public IrExpression Value => (IrExpression)Children[0];
+    public bool HasDefault => _hasDefault;
+    public IReadOnlyList<PatternSwitchExpressionArm> Arms
+        => Children.Skip(1).Take(Children.Count - 1 - (_hasDefault ? 1 : 0)).Cast<PatternSwitchExpressionArm>().ToList();
+    public IrExpression? DefaultValue => _hasDefault ? (IrExpression)Children[^1] : null;
+    public override TypeRef? ResultType
+        => Arms.Select(a => a.Value.ResultType).Append(DefaultValue?.ResultType).FirstOrDefault(t => t is not null);
+
+    public override string Describe() => $"PatternSwitchExpression ({Arms.Count} arms{(_hasDefault ? " + default" : "")})";
+}
+
+/// <summary>
+/// A single-level recursive property subpattern carried by a
+/// <see cref="PatternSwitchExpressionArm"/>: the <c>{ Property: T inner }</c> in
+/// <c>LogicalNot { Operand: Comparison comparison }</c>. Immutable value data
+/// (copied by <see cref="IrNode.Clone"/> via <c>MemberwiseClone</c>).
+/// </summary>
+public sealed record PropertySubpattern(MethodRef Accessor, TypeRef PatternType, int LocalIndex)
+{
+    public string PropertyName => Accessor.Name["get_".Length..];
+}
+
+/// <summary>One arm of a <see cref="PatternSwitchExpression"/>: a type pattern
+/// (with optional single-level property subpattern and optional <c>when</c> guard)
+/// and the value it yields.</summary>
+public sealed class PatternSwitchExpressionArm : IrNode
+{
+    readonly bool _hasGuard;
+
+    public PatternSwitchExpressionArm(
+        TypeRef patternType,
+        int? localIndex,
+        PropertySubpattern? subpattern,
+        IrExpression value,
+        IrExpression? guard = null)
+    {
+        PatternType = patternType;
+        LocalIndex = localIndex;
+        Subpattern = subpattern;
+        if (guard is not null)
+        {
+            _hasGuard = true;
+            AddChild(guard);
+        }
+        AddChild(value);
+    }
+
+    /// <summary>The arm's outer type pattern — the <c>Comparison</c> / <c>LogicalNot</c>.</summary>
+    public TypeRef PatternType { get; }
+
+    /// <summary>The local bound by the outer type pattern, or <c>null</c> when it binds nothing (a property-subpattern arm binds only the inner local).</summary>
+    public int? LocalIndex { get; }
+
+    /// <summary>The single-level property subpattern, or <c>null</c> for a bare type pattern.</summary>
+    public PropertySubpattern? Subpattern { get; }
+
+    public bool HasGuard => _hasGuard;
+    public IrExpression? Guard => _hasGuard ? (IrExpression)Children[0] : null;
+    public IrExpression Value => (IrExpression)Children[_hasGuard ? 1 : 0];
+
+    public override IEnumerable<TypeRef> DirectTypes
+        => Subpattern is { } sub ? [PatternType, sub.PatternType] : [PatternType];
+
+    public override string Describe()
+    {
+        string local = LocalIndex is { } index ? $" V_{index}" : "";
+        string sub = Subpattern is { } s ? $" {{ {s.PropertyName}: {s.PatternType.ToDisplayString()} V_{s.LocalIndex} }}" : "";
+        return $"arm {PatternType.ToDisplayString()}{local}{sub}";
+    }
+}
+
+/// <summary>
 /// A raised <c>lock</c> statement. Produced by the lock-sugar pass from the
 /// csc Monitor lowering — <c>Monitor.Enter(obj, ref taken)</c> in a try whose
 /// finally is <c>if (taken) Monitor.Exit(obj)</c>.

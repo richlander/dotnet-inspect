@@ -289,7 +289,10 @@ public static class IrPasses
         // arms normalize from store/return accumulator blocks to direct returns,
         // the shape this deliberately narrow pass recognizes.
         new UnionSwitchExpressionPass(),
-        // Raise the csc reference-type using lowering (resource local +
+        // Raise a non-union nested type-pattern if/return cascade over a plain
+        // receiver (with a single-level property subpattern arm) into a switch
+        // expression. Runs after the union pass, which owns the `.Value` shape.
+        new PatternSwitchExpressionPass(),
         // try/finally with an IDisposable.Dispose null guard) back into a
         // using statement. Runs after return sinking so a `return` from inside
         // the protected body stays inside the using body.

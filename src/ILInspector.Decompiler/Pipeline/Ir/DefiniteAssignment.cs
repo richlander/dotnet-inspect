@@ -153,6 +153,31 @@ static class DefiniteAssignment
                     }
                     return;
                 }
+                case PatternSwitchExpression patternSwitch:
+                {
+                    CheckReads(patternSwitch.Value, assigned);
+                    foreach (var arm in patternSwitch.Arms)
+                    {
+                        // Each arm is mutually exclusive with its siblings, so it
+                        // gets its own copy of the pre-switch set — an out-assignment
+                        // in one arm's value must not leak into another arm or the
+                        // outer scope. The pattern-bound locals (outer + subpattern)
+                        // are in scope for the guard and value.
+                        var armSet = new HashSet<int>(assigned);
+                        if (arm.LocalIndex is { } local)
+                            armSet.Add(local);
+                        if (arm.Subpattern is { } subpattern)
+                            armSet.Add(subpattern.LocalIndex);
+                        CheckReads(arm.Guard, armSet);
+                        CheckReads(arm.Value, armSet);
+                    }
+                    if (patternSwitch.DefaultValue is { } patternDefault)
+                    {
+                        var defaultSet = new HashSet<int>(assigned);
+                        CheckReads(patternDefault, defaultSet);
+                    }
+                    return;
+                }
                 case NullConditional nullConditional:
                 {
                     var memberSet = new HashSet<int>(assigned);
@@ -247,6 +272,12 @@ static class DefiniteAssignment
                     return;
                 case UnionSwitchExpression unionSwitch:
                     AddVerifiedOutLocals(unionSwitch.Value, assigned);
+                    return;
+                case PatternSwitchExpression patternSwitch:
+                    // Only the receiver is unconditionally evaluated; arm values
+                    // (and their out-assignments) are mutually exclusive and must
+                    // not contribute to the unconditional gen set.
+                    AddVerifiedOutLocals(patternSwitch.Value, assigned);
                     return;
                 case NullConditional:
                     return;

@@ -311,6 +311,26 @@ public sealed partial class CSharpPrinter
     string UnionSwitchReceiverText(IrExpression value)
         => UnionValueReceiverText(value) ?? Operand(value);
 
+    /// <summary>The single-line form of a type / property-pattern switch expression, used when it is nested inside another expression.</summary>
+    string PatternSwitchExpressionInline(PatternSwitchExpression node, TypeRef? target = null)
+    {
+        var arms = node.Arms.Select(arm => PatternSwitchArmText(arm, target));
+        if (node.DefaultValue is { } defaultValue)
+            arms = arms.Append($"_ => {SwitchArmValueText(defaultValue, target)}");
+        return $"{Operand(node.Value)} switch {{ {string.Join(", ", arms)} }}";
+    }
+
+    /// <summary>One arm of a <see cref="PatternSwitchExpression"/>: <c>Type[ local]</c> or
+    /// <c>Type { Property: Inner inner }</c>, an optional <c>when</c> guard, and the yielded value.</summary>
+    string PatternSwitchArmText(PatternSwitchExpressionArm arm, TypeRef? target = null)
+    {
+        string pattern = arm.Subpattern is { } sub
+            ? $"{TypeText(arm.PatternType)}{(arm.LocalIndex is { } outer ? $" {LocalName(outer)}" : "")} {{ {CSharpNaming.EscapeIdentifier(sub.PropertyName)}: {TypeText(sub.PatternType)} {LocalName(sub.LocalIndex)} }}"
+            : $"{TypeText(arm.PatternType)}{(arm.LocalIndex is { } index ? $" {LocalName(index)}" : "")}";
+        string guard = arm.Guard is { } g ? $" when {RenderedCondition(g).At(Precedence.NullCoalescing)}" : "";
+        return $"{pattern}{guard} => {SwitchArmValueText(arm.Value, target)}";
+    }
+
     /// <summary>The single-line form of a tuple relational-pattern switch expression, used when it is nested inside another expression.</summary>
     string TupleSwitchExpressionInline(TupleSwitchExpression node, TypeRef? target = null)
     {

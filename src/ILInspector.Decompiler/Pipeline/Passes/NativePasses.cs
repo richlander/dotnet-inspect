@@ -47,6 +47,8 @@ internal static class NativePasses
     public static UnionSwitchExpressionPass UnionSwitchExpression => new();
     [Native(NativeCategory.EmitArtifact, "an exhaustive nested if/return comparison tree over independent same-anchored places folded to one tuple relational-pattern switch expression")]
     public static TupleSwitchExpressionPass TupleSwitchExpression => new();
+    [Native(NativeCategory.EmitArtifact, "a non-union nested type-pattern as/null-test if/return cascade over a plain receiver (with a single-level property subpattern arm) collapsed to a switch expression with a default arm")]
+    public static PatternSwitchExpressionPass PatternSwitchExpression => new();
     [Native(NativeCategory.EmitArtifact, "a prologue if (c) goto L; return X; guard folded to a structured if even when the rest of the body stays EH-entangled-flat")]
     public static PrologueGuardReturnPass PrologueGuardReturn => new();
     [Native(NativeCategory.EmitArtifact, "return-accumulator temp spilled across an EH/lock region eliminated")]
