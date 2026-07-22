@@ -849,7 +849,7 @@ public class PdbContext : IDisposable
     private static readonly Guid s_hashSha1 = new("ff1816ec-aa5e-4d10-87f7-6f4963833460");
     private static readonly Guid s_hashSha256 = new("8829d00f-11b8-4213-878b-770e8597ac16");
 
-    private static string? MapHashAlgorithm(Guid algorithm)
+    internal static string? MapHashAlgorithm(Guid algorithm)
     {
         if (algorithm == s_hashSha256) return "SHA256";
         if (algorithm == s_hashSha1) return "SHA1";

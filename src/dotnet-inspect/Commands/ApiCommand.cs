@@ -553,18 +553,35 @@ public class ApiCommand
                 return new ResolvedMethodSource(null, pdbPath);
 
             var methodInfo = service.ResolveMethodSource(typeName, methodName, overloadIndex, publicOnly);
-            if (methodInfo?.SourceUrl == null)
+            if (methodInfo == null)
                 return new ResolvedMethodSource(null, pdbPath);
 
-            var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-            var content = await fetcher.FetchSourceAsync(methodInfo.SourceUrl);
+            // Honor the source the portable PDB records when it is present locally: a non-reproducible
+            // (local dev) build keeps a real local path whose exact compiled bytes may exist only here,
+            // so the remote SourceLink URL would 404 or differ. The checksum authenticates the on-disk
+            // bytes against the portable PDB; remote SourceLink is the fallback for reproducible builds.
+            string? content = null;
+            var localBytes = DotnetInspector.Services.AuthoredSourceAcquisition.TryReadVerifiedLocalSource(
+                methodInfo.FilePath, methodInfo.ChecksumAlgorithm, methodInfo.Checksum);
+            if (localBytes != null)
+            {
+                content = DotnetInspector.Services.AuthoredSourceAcquisition.DecodeSourceText(localBytes)
+                    .Replace("\r\n", "\n").Replace("\r", "\n");
+            }
+            else if (methodInfo.SourceUrl != null)
+            {
+                var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
+                content = await fetcher.FetchSourceAsync(methodInfo.SourceUrl);
+            }
+
             if (content == null)
                 return new ResolvedMethodSource(null, pdbPath);
 
             var sourceCode = SourceLinkResolver.ExtractMethodBody(
                 content, methodInfo.StartLine, methodInfo.EndLine, methodName);
 
-            return new ResolvedMethodSource(new MethodSourceContext(sourceCode, methodInfo.SourceUrl), pdbPath);
+            return new ResolvedMethodSource(
+                new MethodSourceContext(sourceCode, methodInfo.SourceUrl ?? methodInfo.FilePath), pdbPath);
         }
         catch (Exception ex)
         {

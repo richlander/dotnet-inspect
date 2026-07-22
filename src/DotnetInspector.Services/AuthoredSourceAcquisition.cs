@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -93,6 +94,16 @@ public static class AuthoredSourceAcquisition
                 document,
                 SourceChecksumVerification.Unavailable);
         }
+
+        // Honor the source the portable PDB points at when it is present locally. A non-reproducible
+        // (local dev) build records a real local path, and the exact bytes that produced this binary
+        // may exist only here, so the remote SourceLink URL would 404 or serve different bytes. The
+        // checksum gate authenticates the on-disk bytes against the portable PDB, so this cannot
+        // surface unrelated content; remote SourceLink stays the fallback for reproducible (published)
+        // builds, whose normalized document paths are not local reads in the first place.
+        if (TryReadVerifiedLocalSource(document) is { } localBytes)
+            return FromContent(mapping, document, localBytes, methodName, subject);
+
         if (document.ResolvedUrl is not { Length: > 0 } url)
         {
             return Absent(document.Storage == SourceDocumentStorage.Embedded
@@ -156,9 +167,7 @@ public static class AuthoredSourceAcquisition
 
         try
         {
-            string sourceText = Encoding.UTF8.GetString(content);
-            if (sourceText.Length > 0 && sourceText[0] == '\uFEFF')
-                sourceText = sourceText[1..];
+            string sourceText = DecodeSourceText(content);
             string memberText = SourceLinkResolver.ExtractMethodBody(
                 sourceText,
                 mapping.StartLine,
@@ -206,19 +215,182 @@ public static class AuthoredSourceAcquisition
             return SourceChecksumVerification.Unsupported;
         }
 
-        if (HashMatches(document.ChecksumAlgorithm, content, expected))
-            return SourceChecksumVerification.Exact;
-        if (HashMatchesAfterLineEndingNormalization(
-            document.ChecksumAlgorithm,
-            content,
-            expected))
-        {
-            return SourceChecksumVerification.LineEndingNormalized;
-        }
+        return VerifyChecksum(document.ChecksumAlgorithm, expected, content);
+    }
 
-        return IsSupportedAlgorithm(document.ChecksumAlgorithm)
+    /// <summary>
+    /// Verifies fetched or on-disk source <paramref name="content"/> against a portable-PDB
+    /// document hash. Accepts an exact match or one recovered after CR/LF normalization. Returns
+    /// <see cref="SourceChecksumVerification.Unavailable"/> when no usable checksum is supplied.
+    /// </summary>
+    public static SourceChecksumVerification VerifyChecksum(
+        string? algorithm,
+        byte[]? expectedChecksum,
+        ReadOnlySpan<byte> content)
+    {
+        if (algorithm is not { Length: > 0 } || expectedChecksum is not { Length: > 0 })
+            return SourceChecksumVerification.Unavailable;
+
+        if (HashMatches(algorithm, content, expectedChecksum))
+            return SourceChecksumVerification.Exact;
+        if (HashMatchesAfterLineEndingNormalization(algorithm, content, expectedChecksum))
+            return SourceChecksumVerification.LineEndingNormalized;
+
+        return IsSupportedAlgorithm(algorithm)
             ? SourceChecksumVerification.Mismatch
             : SourceChecksumVerification.Unsupported;
+    }
+
+    /// <summary>
+    /// Reads authored source from a local file, but only when its bytes authenticate against the
+    /// portable-PDB document checksum. The document path originates in an untrusted PDB, so the
+    /// checksum — not the path — authorizes the read: an attacker cannot precompute a matching hash
+    /// for an unknown local file, so a mismatched or absent checksum yields null. Returns null (the
+    /// caller falls back to the remote SourceLink URL) when the path is not a compiler source file,
+    /// is absent or unreadable, carries no usable checksum, or the content does not verify.
+    /// </summary>
+    public static byte[]? TryReadVerifiedLocalSource(
+        string? localPath,
+        string? checksumAlgorithm,
+        byte[]? checksum)
+    {
+        if (string.IsNullOrEmpty(localPath)
+            || checksumAlgorithm is not { Length: > 0 }
+            || checksum is not { Length: > 0 }
+            || !IsCompilerLanguageSourcePath(localPath)
+            || !IsLocalFileSystemPath(localPath))
+        {
+            return null;
+        }
+
+        byte[] content;
+        try
+        {
+            // The document path is attacker-influenced, so bound the I/O even though the checksum
+            // authenticates the content: skip missing files, reparse points (symlinks that could
+            // redirect the read), and oversized files.
+            var info = new FileInfo(localPath);
+            if (!info.Exists
+                || (info.Attributes & FileAttributes.ReparsePoint) != 0
+                || info.Length > MaxLocalSourceBytes)
+            {
+                return null;
+            }
+            content = File.ReadAllBytes(localPath);
+        }
+        catch (Exception ex) when (ex is IOException
+            or UnauthorizedAccessException
+            or ArgumentException
+            or NotSupportedException
+            or System.Security.SecurityException)
+        {
+            return null;
+        }
+
+        return VerifyChecksum(checksumAlgorithm, checksum, content)
+            is SourceChecksumVerification.Exact
+                or SourceChecksumVerification.LineEndingNormalized
+            ? content
+            : null;
+    }
+
+    /// <summary>
+    /// Convenience overload that authenticates a local source file against a resolved
+    /// <see cref="SourceDocumentObservation"/> (its original PDB document path and checksum).
+    /// </summary>
+    public static byte[]? TryReadVerifiedLocalSource(SourceDocumentObservation document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        if (document.Checksum is not { Length: > 0 })
+            return null;
+
+        byte[] checksum;
+        try
+        {
+            checksum = Convert.FromHexString(document.Checksum);
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+
+        return TryReadVerifiedLocalSource(
+            document.OriginalPath,
+            document.ChecksumAlgorithm,
+            checksum);
+    }
+
+    static bool IsCompilerLanguageSourcePath(string path)
+        => path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".vb", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".fs", StringComparison.OrdinalIgnoreCase);
+
+    // Upper bound on a local source file we are willing to read. Authored source files are small;
+    // this only guards against an attacker-directed path pointing at a pathologically large file.
+    const long MaxLocalSourceBytes = 64L * 1024 * 1024;
+
+    /// <summary>
+    /// True only for a plain, fully-qualified local filesystem path. Rejects relative paths, UNC
+    /// shares (<c>\\server\share</c>), Win32 device paths (<c>\\?\</c>, <c>\\.\</c>), and paths on a
+    /// network-mapped drive so an untrusted PDB document name cannot trigger outbound SMB/network
+    /// I/O before the checksum is even evaluated.
+    /// </summary>
+    internal static bool IsLocalFileSystemPath(string path)
+    {
+        if (!Path.IsPathFullyQualified(path))
+            return false;
+
+        string full;
+        try
+        {
+            full = Path.GetFullPath(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException
+            or NotSupportedException
+            or PathTooLongException
+            or System.Security.SecurityException)
+        {
+            return false;
+        }
+
+        if (full.StartsWith(@"\\", StringComparison.Ordinal)
+            || full.StartsWith("//", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        // Reject paths on a network-mapped drive (e.g. Z: -> \\server\share): reading one reaches
+        // the network even though the leading form is a local drive letter. GetDriveType is a local
+        // lookup and does not connect to the share.
+        try
+        {
+            var root = Path.GetPathRoot(full);
+            if (!string.IsNullOrEmpty(root) && new DriveInfo(root).DriveType == DriveType.Network)
+                return false;
+        }
+        catch (Exception ex) when (ex is ArgumentException
+            or IOException
+            or UnauthorizedAccessException
+            or System.Security.SecurityException)
+        {
+            // Indeterminate drive type: fall through to the reparse/size gates and the checksum.
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Decodes source bytes to text using the byte-order mark to select the encoding
+    /// (UTF-8/UTF-16/UTF-32), defaulting to UTF-8 when no BOM is present, and strips the BOM.
+    /// This mirrors the remote path's <see cref="System.Net.Http.HttpContent.ReadAsStringAsync()"/>
+    /// decoding so a checksum-verified local file in any of those encodings renders identically.
+    /// </summary>
+    public static string DecodeSourceText(byte[] content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        using var stream = new MemoryStream(content, writable: false);
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        return reader.ReadToEnd();
     }
 
     static AuthoredMemberSourceInspection Absent(string detail)
