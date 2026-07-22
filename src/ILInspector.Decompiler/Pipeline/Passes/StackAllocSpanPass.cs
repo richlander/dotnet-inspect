@@ -71,7 +71,7 @@ public sealed class StackAllocSpanPass : IIrPass
             StoreStackSlot? ownedStore = null;
             IrExpression source;
 
-            if (TryNormalizeConstantStackAlloc(pointer, count, element, out var directSource))
+            if (TryNormalizeStackAllocSource(pointer, count, element, out var directSource))
             {
                 source = directSource;
             }
@@ -184,7 +184,7 @@ public sealed class StackAllocSpanPass : IIrPass
             return false;
 
         var store = stores[0];
-        if (!TryNormalizeConstantStackAlloc(store.Value, count, element, out var normalized) || store.Parent is not Block parentBlock)
+        if (!TryNormalizeStackAllocSource(store.Value, count, element, out var normalized) || store.Parent is not Block parentBlock)
             return false;
 
         var loadStatement = GetStatement(load);
@@ -311,12 +311,13 @@ public sealed class StackAllocSpanPass : IIrPass
     /// which for primitive element types the compiler folds to a literal
     /// <see cref="Constant"/> rather than emitting a symbolic
     /// <see cref="SizeOf"/> node (struct/generic element types still emit
-    /// <see cref="SizeOf"/>). Either operand order is accepted. Separately,
-    /// when both the size and count are literal constants (e.g.
-    /// <c>stackalloc byte[4]</c>, which the compiler folds to a bare
-    /// <see cref="Constant"/> with no multiply at all), a known fixed
-    /// primitive byte size for <paramref name="element"/> and an exact
-    /// arithmetic match is required.</para>
+    /// <see cref="SizeOf"/>). Either operand order is accepted. For one-byte
+    /// primitive elements, the compiler omits the multiply entirely and uses
+    /// the element count directly as the byte count; that shape requires the
+    /// two expressions to be structurally identical. Separately, when both
+    /// the size and count are literal constants, a known fixed primitive byte
+    /// size for <paramref name="element"/> and an exact arithmetic match is
+    /// required.</para>
     ///
     /// <para>A dynamic count reaching this pass through a <see cref="StackAllocArray"/>
     /// source (the initializer/slot path) is unaffected by any of this: that
@@ -327,6 +328,12 @@ public sealed class StackAllocSpanPass : IIrPass
     {
         var unwrappedSize = Unconvert(size);
         var unwrappedCount = Unconvert(count);
+
+        if (unwrappedCount is Constant { Value: int constantCount } && constantCount < 0)
+            return false;
+
+        if (GetSizeOf(element) == 1 && IsSameInt32Expression(unwrappedSize, unwrappedCount))
+            return true;
 
         if (unwrappedSize is Binary { Kind: BinaryKind.Multiply, IsChecked: true, IsUnsigned: true } multiply
             && (IsCheckedByteSizeProduct(multiply.Left, multiply.Right, unwrappedCount, element)
@@ -341,8 +348,9 @@ public sealed class StackAllocSpanPass : IIrPass
 
     /// <summary>
     /// One operand order of the checked-multiply byte-size proof: <paramref
-    /// name="countOperand"/> (after peeling an <c>int</c>-to-<c>nuint</c>
-    /// convert) must structurally equal <paramref name="count"/>, and
+    /// name="countOperand"/> must be the compiler's exact unchecked, signed
+    /// <c>int</c>-to-<c>nuint</c> conversion over <paramref name="count"/>,
+    /// and
     /// <paramref name="elementSizeOperand"/> must be a known byte size for
     /// <paramref name="element"/> -- either a symbolic <see cref="SizeOf"/>
     /// node or, for primitives, a folded literal <see cref="Constant"/>.
@@ -351,19 +359,31 @@ public sealed class StackAllocSpanPass : IIrPass
     {
         bool isElementSize = (elementSizeOperand is SizeOf sizeOf && sizeOf.Type.Equals(element))
             || (elementSizeOperand is Constant { Value: int sizeValue } && GetSizeOf(element) == sizeValue);
-        return isElementSize && StructurallyEqual(PeelNuintConvert(countOperand), count);
+        return isElementSize && IsCompilerNuintCount(countOperand, count);
     }
 
     /// <summary>
-    /// Peels a single <c>int</c>-to-<c>nuint</c> convert -- the conversion
-    /// the compiler emits to widen a dynamic stackalloc count before the
-    /// checked byte-size multiply. This is not an implicit C# conversion (so
-    /// <see cref="Unconvert"/> never strips it), but it is exactly the
-    /// conversion the compiler always inserts here, so it is safe to peel in
-    /// this one, specific structural position only.
+    /// Matches the exact conversion the compiler emits to widen a stackalloc
+    /// element count before the checked byte-size multiply. Requiring corelib
+    /// <c>System.UIntPtr</c>, an <c>int</c> operand, and the observed unchecked
+    /// signed-conversion flags prevents lookalike or width-changing converts
+    /// from being treated as the compiler's native-width count.
     /// </summary>
-    static IrExpression PeelNuintConvert(IrExpression expression)
-        => expression is Convert { Target: { Name: "UIntPtr" }, IsChecked: false } convert ? convert.Operand : expression;
+    static bool IsCompilerNuintCount(IrExpression expression, IrExpression count)
+        => expression is Convert
+        {
+            Target: { } target,
+            IsChecked: false,
+            IsUnsigned: false,
+            Operand: { } operand,
+        }
+        && MemberIdentity.IsCoreLibraryType(target, "System", "UIntPtr")
+        && IsSameInt32Expression(operand, count);
+
+    static bool IsSameInt32Expression(IrExpression left, IrExpression right)
+        => MemberIdentity.IsCoreLibraryType(left.ResultType, "System", "Int32")
+            && MemberIdentity.IsCoreLibraryType(right.ResultType, "System", "Int32")
+            && StructurallyEqual(left, right);
 
     /// <summary>
     /// Strips only <see cref="Convert"/> wrappers proven value-preserving --
@@ -420,14 +440,12 @@ public sealed class StackAllocSpanPass : IIrPass
     /// underlying <see cref="StackAllocate"/> or <see cref="StackAllocArray"/>
     /// node itself. Requires the discarded byte size (<see cref="StackAllocate.Size"/>)
     /// or element count (<see cref="StackAllocArray.Count"/>) to be provably
-    /// safe to drop: either generically <see cref="IsSideEffectFree"/>, or --
-    /// for a <see cref="StackAllocate"/> size only -- the real compiler's
-    /// checked byte-size product proven equal to <paramref name="count"/> *
-    /// <paramref name="element"/>'s size by <see cref="IsProvenByteSize"/>.
-    /// That proof, not mere purity, is what makes discarding this specific
-    /// shape sound: the checked multiply's only possible effect is the same
-    /// overflow throw the raised <c>stackalloc T[n]</c> form's own byte-size
-    /// computation reproduces, so nothing observable is silently erased.
+    /// safe to drop. A <see cref="StackAllocate"/> requires the compiler-shape
+    /// equivalence proof in <see cref="IsProvenByteSize"/>; generic purity is
+    /// insufficient because a pure but unrelated byte count would still
+    /// describe a different allocation. A <see cref="StackAllocArray"/> count
+    /// must be <see cref="IsSideEffectFree"/> and is checked separately for
+    /// count agreement below.
     /// For <see cref="StackAllocArray"/> that agreement is instead checked
     /// separately below (by count or by <see cref="StructurallyEqual"/>).
     /// Returning the unwrapped node (rather than a possibly-<c>Convert</c>-
@@ -436,7 +454,7 @@ public sealed class StackAllocSpanPass : IIrPass
     /// initializer count) see through the wrapper instead of silently skipping
     /// validation.
     /// </summary>
-    static bool TryNormalizeConstantStackAlloc(IrExpression pointer, IrExpression count, TypeRef element, out IrExpression normalized)
+    static bool TryNormalizeStackAllocSource(IrExpression pointer, IrExpression count, TypeRef element, out IrExpression normalized)
     {
         var candidate = pointer;
         if (candidate is Convert { IsChecked: false, Operand: StackAllocate or StackAllocArray, Target: { } target } converted && IsPointerLikeTarget(target))
@@ -444,7 +462,7 @@ public sealed class StackAllocSpanPass : IIrPass
 
         switch (candidate)
         {
-            case StackAllocate { Size: { } size } when IsSideEffectFree(size) || IsProvenByteSize(size, count, element):
+            case StackAllocate { Size: { } size } when IsProvenByteSize(size, count, element):
             case StackAllocArray { Count: { } arrayCount } when IsSideEffectFree(arrayCount):
                 normalized = candidate;
                 return true;

@@ -12,6 +12,7 @@ using Microsoft.CodeAnalysis.CSharp;
 
 using LegacyFixtures = ILInspector.Decompiler.Fixtures.LegacyUnsafe.UnsafeFixtures;
 using NewFixtures = ILInspector.Decompiler.Fixtures.NewUnsafe.UnsafeFixtures;
+using NewDynamicStackallocFixtures = ILInspector.Decompiler.Fixtures.NewUnsafe.DynamicStackallocFixtures;
 using NewStackallocFixtures = ILInspector.Decompiler.Fixtures.NewUnsafe.StackallocInitializerResiduals;
 using ChainB = ILInspector.Decompiler.Fixtures.UnsafeChainB.LibraryB;
 using ChainC = ILInspector.Decompiler.Fixtures.UnsafeChainC.Program;
@@ -58,6 +59,9 @@ public class UnsafeEmitterTests
 
     static string DecompileNew(string method) =>
         Decompile(typeof(NewFixtures).Assembly.Location, typeof(NewFixtures).FullName!, method);
+
+    static string DecompileNewDynamicStackalloc(string method) =>
+        Decompile(typeof(NewDynamicStackallocFixtures).Assembly.Location, typeof(NewDynamicStackallocFixtures).FullName!, method);
 
     static string DecompileLegacy(string method) =>
         Decompile(typeof(LegacyFixtures).Assembly.Location, typeof(LegacyFixtures).FullName!, method);
@@ -736,6 +740,18 @@ public class UnsafeEmitterTests
         Assert.DoesNotContain("unsafe", output);
         // Safe case keeps the inline `Span<int> s = stackalloc int[n]` form.
         Assert.Contains("stackalloc int[", output);
+        Assert.DoesNotContain("new Span", output);
+    }
+
+    [Theory]
+    [InlineData(nameof(NewDynamicStackallocFixtures.ByteCount), "byte")]
+    [InlineData(nameof(NewDynamicStackallocFixtures.GuidCount), "Guid")]
+    public void NewRulesModule_DynamicStackAllocCompilerShapes_Raise(string method, string element)
+    {
+        var output = DecompileNewDynamicStackalloc(method);
+
+        Assert.DoesNotContain("unsafe", output);
+        Assert.Contains($"stackalloc {element}[", output);
         Assert.DoesNotContain("new Span", output);
     }
 
