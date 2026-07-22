@@ -161,4 +161,52 @@ public class WideArrayIndexTests
         // strips to the bare sum with no redundant `(ulong)` cast.
         Assert.Equal("return a[v[j] + w[k]];", Print(nameof(CfgSampleClass.ULongSumIndexBare)));
     }
+
+    [Fact]
+    public void CheckedULongSumIndexAsSigned_CastsWholeExpressionToLong()
+    {
+        // `checked` never changes an expression's C# type: a `checked` `ulong` sum
+        // used as a signed index is still `ulong`, so the recovery keeps the
+        // `(long)` cast. Stripping bare would re-insert `conv.ovf.i.un`.
+        Assert.Equal("return a[(long)checked(v[j] + x)];", Print(nameof(CfgSampleClass.CheckedULongSumIndexAsSigned)));
+    }
+
+    [Fact]
+    public void ULongShrIndexAsSigned_KeepsLongCast()
+    {
+        // An unsigned shift-right (`shr.un`) result takes the shifted operand's
+        // `ulong` type; used as a signed index it keeps the `(long)` cast.
+        Assert.Equal("return a[(long)((ulong)v[j] >> 1)];", Print(nameof(CfgSampleClass.ULongShrIndexAsSigned)));
+    }
+
+    [Fact]
+    public void ULongDivIndexAsSigned_KeepsLongCast()
+    {
+        // An unsigned divide (`div.un`) carries its signedness in the opcode
+        // variant; a `ulong` quotient used as a signed index keeps the `(long)`.
+        Assert.Equal("return a[(long)((ulong)v[j] / d)];", Print(nameof(CfgSampleClass.ULongDivIndexAsSigned)));
+    }
+
+    [Fact]
+    public void ULongRemIndexAsSigned_KeepsLongCast()
+    {
+        // An unsigned remainder (`rem.un`) analog of the divide case.
+        Assert.Equal("return a[(long)((ulong)v[j] % d)];", Print(nameof(CfgSampleClass.ULongRemIndexAsSigned)));
+    }
+
+    [Fact]
+    public void LongShlIndexBare_StripsBare()
+    {
+        // A genuinely-signed `long` shift-left index recovers as `long`, matching
+        // the signed `conv.ovf.i`, so it strips bare with no spurious `(long)`.
+        Assert.Equal("return a[i << 1];", Print(nameof(CfgSampleClass.LongShlIndexBare)));
+    }
+
+    [Fact]
+    public void LongCheckedSumIndexBare_StripsBare()
+    {
+        // A `checked` signed `long` add index likewise recovers as `long` and
+        // strips bare — checkedness does not force a cast.
+        Assert.Equal("return a[checked(i + j)];", Print(nameof(CfgSampleClass.LongCheckedSumIndexBare)));
+    }
 }

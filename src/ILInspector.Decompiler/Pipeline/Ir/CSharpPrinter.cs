@@ -2355,11 +2355,10 @@ public sealed partial class CSharpPrinter
     /// element or ref/pointer pointee type that a typed load opcode
     /// (<c>ldelem.i8</c> / <c>ldind.i8</c>) reports only as its <c>Int64</c> storage
     /// width — masking a <c>ulong</c> element or a wide enum — and propagating that
-    /// through a sign-neutral wide binary (<c>add</c>/<c>sub</c>/<c>mul</c> and the
-    /// bitwise ops, whose stack <c>ResultType</c> keeps a signed operand type even
-    /// when the rendered expression is <c>ulong</c>). The bare-rendered operand is
-    /// spelled with that type, so it is the type whose signedness drives the
-    /// re-inserted index conversion; for any other operand the load carries no
+    /// through a wide binary (whose stack <c>ResultType</c> keeps a signed operand
+    /// type even when the rendered expression is <c>ulong</c>). The bare-rendered
+    /// operand is spelled with that type, so it is the type whose signedness drives
+    /// the re-inserted index conversion; for any other operand the load carries no
     /// masking and its own <c>ResultType</c> is used.
     /// </summary>
     static TypeRef? WideIndexOperandType(IrExpression operand)
@@ -2372,19 +2371,37 @@ public sealed partial class CSharpPrinter
                 return pointee;
             // A sign-neutral wide binary renders unsigned whenever an operand
             // renders unsigned at the same width (`v[j] + x` over a `ulong`
-            // element and a `ulong` is a `ulong` add). Its own stack ResultType
-            // keeps the signed operand type, so recover the rendered type from the
-            // unmasked operands — mirroring EffectiveType/RendersUnsigned, but
-            // seeing through the element/pointee masking those miss.
-            case Binary { IsChecked: false, Kind: BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply or BinaryKind.And or BinaryKind.Or or BinaryKind.Xor } binary:
+            // element and a `ulong` is a `ulong` add), regardless of checkedness —
+            // `checked` never changes an expression's C# type. Its own stack
+            // ResultType keeps the signed operand type, so recover the rendered
+            // type from the unmasked operands. Add/Subtract/Multiply and the
+            // bitwise ops are sign-neutral; a shift's result type is its (unmasked)
+            // left operand's; Divide/Remainder/ShiftRight carry the sign in their
+            // opcode variant (div/div.un, rem/rem.un, shr/shr.un) via IsUnsigned.
+            case Binary binary:
             {
-                var left = WideIndexOperandType(binary.Left);
-                var right = WideIndexOperandType(binary.Right);
-                if (IsWideInteger(left) && IsWideInteger(right) && TypeFamilies.Of(left) == TypeFamilies.Of(right))
-                    return TypeFamilies.IsUnsignedIntegerPrimitive(left) ? left
-                        : TypeFamilies.IsUnsignedIntegerPrimitive(right) ? right
-                        : left;
-                return binary.ResultType;
+                switch (binary.Kind)
+                {
+                    case BinaryKind.Add or BinaryKind.Subtract or BinaryKind.Multiply
+                        or BinaryKind.And or BinaryKind.Or or BinaryKind.Xor:
+                    {
+                        var left = WideIndexOperandType(binary.Left);
+                        var right = WideIndexOperandType(binary.Right);
+                        if (IsWideInteger(left) && IsWideInteger(right) && TypeFamilies.Of(left) == TypeFamilies.Of(right))
+                            return TypeFamilies.IsUnsignedIntegerPrimitive(left) ? left
+                                : TypeFamilies.IsUnsignedIntegerPrimitive(right) ? right
+                                : left;
+                        return binary.ResultType;
+                    }
+                    case BinaryKind.ShiftLeft:
+                        return WideIndexOperandType(binary.Left);
+                    case BinaryKind.Divide or BinaryKind.Remainder or BinaryKind.ShiftRight:
+                        return binary.IsUnsigned
+                            ? TypeFamilies.UnsignedCounterpart(binary.ResultType) ?? binary.ResultType
+                            : binary.ResultType;
+                    default:
+                        return binary.ResultType;
+                }
             }
             default:
                 return operand.ResultType;

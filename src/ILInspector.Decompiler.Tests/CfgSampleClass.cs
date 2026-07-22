@@ -881,6 +881,34 @@ public class CfgSampleClass
     // sum just like a scalar `ulong`, with no redundant `(ulong)` cast.
     public static int ULongSumIndexBare(int[] a, ulong[] v, ulong[] w, int j, int k) => a[v[j] + w[k]];
 
+    // Checked-context inner binary (#2981 adversarial review): `checked(v[j] + x)`
+    // over a `ulong` element is a `ulong` add, but the compiler-inserted index
+    // conv is still signed (`conv.ovf.i`) because the *outer* cast is `(long)`.
+    // The operand-type recovery must see through the binary regardless of its
+    // checkedness — `checked` never changes an expression's C# type — and keep
+    // the `(long)` cast; stripping bare would re-insert `conv.ovf.i.un`.
+    public static int CheckedULongSumIndexAsSigned(int[] a, ulong[] v, int j, ulong x) => a[unchecked((long)checked(v[j] + x))];
+
+    // Unsigned shift-right (`shr.un`): `ulong >> count` is a `ulong`. The result
+    // type is the shifted (left) operand's, recovered through the mask, so a
+    // signed index keeps the `(long)` cast (bare would flip to `conv.ovf.i.un`).
+    public static int ULongShrIndexAsSigned(int[] a, ulong[] v, int j) => a[unchecked((long)(v[j] >> 1))];
+
+    // Unsigned divide (`div.un`) / remainder (`rem.un`): the signedness lives in
+    // the opcode variant, not the sign-erased Int64 stack type. A `ulong`
+    // quotient/remainder used as a signed index keeps the `(long)` cast.
+    public static int ULongDivIndexAsSigned(int[] a, ulong[] v, int j, ulong d) => a[unchecked((long)(v[j] / d))];
+
+    public static int ULongRemIndexAsSigned(int[] a, ulong[] v, int j, ulong d) => a[unchecked((long)(v[j] % d))];
+
+    // Negatives for the finding #5 recovery: a genuinely-signed `long` shift-left
+    // and a `checked` signed `long` add must still strip to the bare index — the
+    // recovered `long` type matches the signed `conv.ovf.i`, so no spurious
+    // `(long)` cast is emitted.
+    public static int LongShlIndexBare(int[] a, long i) => a[i << 1];
+
+    public static int LongCheckedSumIndexBare(int[] a, long i, long j) => a[checked(i + j)];
+
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
 
     // stelem.i1 stores into byte[], sbyte[], and bool[] alike, and stelem.i2 into
