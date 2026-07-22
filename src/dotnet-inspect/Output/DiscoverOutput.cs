@@ -21,7 +21,8 @@ public static class DiscoverOutput
     public static int Execute(string[]? discover, DocumentSchema schema,
         bool tree = false, bool markdown = false, bool json = false, bool tsv = false, bool jsonl = false, int verbosity = 0,
         string? rootLabel = null, IReadOnlyDictionary<string, string>? sectionCostAnnotations = null,
-        IReadOnlyDictionary<string, string[]>? sectionCategories = null)
+        IReadOnlyDictionary<string, string[]>? sectionCategories = null,
+        IReadOnlySet<string>? catalogHiddenSections = null)
     {
         sectionCategories = FilterCategories(sectionCategories, schema.SectionNames);
 
@@ -37,9 +38,9 @@ public static class DiscoverOutput
             tree = true;
 
         if (tree)
-            return WriteTree(discover, schema, rootLabel, sectionCostAnnotations, sectionCategories);
+            return WriteTree(discover, schema, rootLabel, sectionCostAnnotations, sectionCategories, catalogHiddenSections);
 
-        var rows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories);
+        var rows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections);
         if (rows == null)
             return 1;
 
@@ -74,7 +75,8 @@ public static class DiscoverOutput
         bool tree = false, bool markdown = false, bool json = false, bool tsv = false, bool jsonl = false, int verbosity = 0,
         string? rootLabel = null, DocumentSchema? fullSchema = null,
         IReadOnlyDictionary<string, string>? sectionCostAnnotations = null,
-        IReadOnlyDictionary<string, string[]>? sectionCategories = null)
+        IReadOnlyDictionary<string, string[]>? sectionCategories = null,
+        IReadOnlySet<string>? catalogHiddenSections = null)
     {
         // Build a filtered schema with only effective sections
         var filtered = new DocumentSchema();
@@ -98,7 +100,7 @@ public static class DiscoverOutput
             discover = remaining;
         }
 
-        return Execute(discover, filtered, tree, markdown, json, tsv, jsonl, verbosity, rootLabel, sectionCostAnnotations, sectionCategories);
+        return Execute(discover, filtered, tree, markdown, json, tsv, jsonl, verbosity, rootLabel, sectionCostAnnotations, sectionCategories, catalogHiddenSections);
     }
 
     /// <summary>
@@ -303,7 +305,8 @@ public static class DiscoverOutput
         string[]? discover,
         DocumentSchema schema,
         IReadOnlyDictionary<string, string>? sectionCostAnnotations = null,
-        IReadOnlyDictionary<string, string[]>? sectionCategories = null)
+        IReadOnlyDictionary<string, string[]>? sectionCategories = null,
+        IReadOnlySet<string>? catalogHiddenSections = null)
     {
         // Bare -D: regular sections, @categories, then opt-in sections.
         // Each group is alpha sorted.
@@ -315,6 +318,10 @@ public static class DiscoverOutput
                 .ToList() ?? new List<DiscoveryRow>();
 
             var sectionRows = items
+                // Catalog-hidden sections (ListedInCatalog=false) are omitted from the top-level
+                // listing so their curated @category is the single discoverable entrypoint; they
+                // remain reachable by drilling into that category (-D @Category) or by exact name.
+                .Where(i => catalogHiddenSections is null || !catalogHiddenSections.Contains(i.Name))
                 .Select(i => new DiscoveryRow(i.Name, AnnotateKind(i.Kind, i.Name, sectionCostAnnotations)))
                 .ToList();
 
@@ -458,7 +465,8 @@ public static class DiscoverOutput
 
     private static int WriteTree(string[]? discover, DocumentSchema schema, string? rootLabel = null,
         IReadOnlyDictionary<string, string>? sectionCostAnnotations = null,
-        IReadOnlyDictionary<string, string[]>? sectionCategories = null)
+        IReadOnlyDictionary<string, string[]>? sectionCategories = null,
+        IReadOnlySet<string>? catalogHiddenSections = null)
     {
         var nodes = new List<TreeNode>();
 
@@ -504,6 +512,9 @@ public static class DiscoverOutput
         else
         {
             var sectionRows = schema.SectionNames
+                // Catalog-hidden sections appear only under their category node (drill-in), not as
+                // top-level entries — same entrypoint model as the flat bare -D listing.
+                .Where(name => catalogHiddenSections is null || !catalogHiddenSections.Contains(name))
                 .Select(name => new DiscoveryRow(name, AnnotateKind("section", name, sectionCostAnnotations)))
                 .ToList();
             var categoryRows = sectionCategories?

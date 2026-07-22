@@ -57,6 +57,19 @@ public static class PerformanceKinds
     // the accepted shape would silently route to Performance: Other and hide the matching rows.
     private static string? NormalizeShape(string? shape) => shape?.ToLowerInvariant();
 
+    /// <summary>
+    /// The short kind label for a performance section (the part after <c>"Performance: "</c>), used
+    /// as the leading <c>Kind</c> column when the sections are flattened into one self-describing
+    /// tabular table. Markdown keeps the full <c>## Performance: Kind</c> heading instead.
+    /// </summary>
+    public static string KindLabel(string section)
+    {
+        const string prefix = "Performance: ";
+        return section.StartsWith(prefix, StringComparison.Ordinal)
+            ? section[prefix.Length..]
+            : section;
+    }
+
     /// <summary>The snake_case JSON key for a performance section under the nested <c>performance</c> object.</summary>
     public static string StructuredKey(string section) => section switch
     {

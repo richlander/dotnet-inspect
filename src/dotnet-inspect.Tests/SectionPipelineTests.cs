@@ -343,6 +343,25 @@ public class SectionPipelineTests
         Assert.Contains("Union Types", pipeline.AllSectionNames);
     }
 
+    [Fact]
+    public void LibraryPipeline_CatalogHiddenSections_AreExactlyThePerformanceKinds()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+
+        var hidden = pipeline.GetCatalogHiddenSections();
+
+        // Catalog-hidden sections (ListedInCatalog=false) are still registered/selectable, but must
+        // be exactly the kind-scoped performance sections whose entrypoint is the @Performance
+        // category. This keeps discovery-list suppression a single, general mechanism.
+        Assert.Equal(
+            PerformanceKinds.Sections.OrderBy(n => n, StringComparer.Ordinal).ToArray(),
+            hidden.OrderBy(n => n, StringComparer.Ordinal).ToArray());
+        foreach (var name in hidden)
+        {
+            Assert.Contains(name, pipeline.AllSectionNames);
+        }
+    }
+
     [Theory]
     [MemberData(nameof(DiscoverablePipelineCases))]
     public void DiscoverableSections_ContainEverySelectableSection(

@@ -530,6 +530,7 @@ public static class LibrarySections
         public static string Name => SectionNames.PerformanceBoxing;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerOptimizationOpportunities;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceBoxing) || model.HasMethodBodies;
@@ -540,6 +541,7 @@ public static class LibrarySections
         public static string Name => SectionNames.PerformanceArrays;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerOptimizationOpportunities;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceArrays) || model.HasMethodBodies;
@@ -550,6 +552,7 @@ public static class LibrarySections
         public static string Name => SectionNames.PerformanceClosures;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerOptimizationOpportunities;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceClosures) || model.HasMethodBodies;
@@ -560,6 +563,7 @@ public static class LibrarySections
         public static string Name => SectionNames.PerformanceEnumerators;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerOptimizationOpportunities;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceEnumerators) || model.HasMethodBodies;
@@ -570,6 +574,7 @@ public static class LibrarySections
         public static string Name => SectionNames.PerformanceLoops;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerOptimizationOpportunities;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceLoops) || model.HasMethodBodies;
@@ -580,6 +585,7 @@ public static class LibrarySections
         public static string Name => SectionNames.PerformanceHotspots;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerOptimizationOpportunities;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceHotspots) || model.HasMethodBodies;
@@ -590,6 +596,7 @@ public static class LibrarySections
         public static string Name => SectionNames.PerformanceAsync;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerOptimizationOpportunities;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceAsync) || model.HasMethodBodies;
@@ -600,6 +607,7 @@ public static class LibrarySections
         public static string Name => SectionNames.PerformanceOther;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerOptimizationOpportunities;
         public static bool CanRender(LibraryInspection model)
             => HasPerformanceKind(model, SectionNames.PerformanceOther) || model.HasMethodBodies;

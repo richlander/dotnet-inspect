@@ -73,6 +73,21 @@ public class PerformanceKindsTests
     }
 
     [Fact]
+    public void KindLabel_StripsPerformancePrefix_ForFlattenedTabularColumn()
+    {
+        Assert.Equal("Boxing", PerformanceKinds.KindLabel(SectionNames.PerformanceBoxing));
+        Assert.Equal("Closures and delegates", PerformanceKinds.KindLabel(SectionNames.PerformanceClosures));
+        Assert.Equal("Allocation hotspots", PerformanceKinds.KindLabel(SectionNames.PerformanceHotspots));
+        // A label for every section, and none retains the "Performance: " prefix.
+        foreach (var section in PerformanceKinds.Sections)
+        {
+            var label = PerformanceKinds.KindLabel(section);
+            Assert.False(string.IsNullOrEmpty(label));
+            Assert.DoesNotContain("Performance: ", label, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public void AllShareCommonView_TrueForPerformanceKinds_FalseOtherwise()
     {
         Assert.True(PerformanceKinds.AllShareCommonView(PerformanceKinds.Sections));

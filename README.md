@@ -196,11 +196,17 @@ as a curated group of kind-scoped sections — `Performance: Boxing`,
 `Performance: Enumerators`, `Performance: Loop hot paths`,
 `Performance: Allocation hotspots`, and `Performance: Async` — that you can
 request individually (`-S "Performance: Boxing"`) or as a group (`-S
-@Performance`, also reachable via the legacy name `-S Performance`). Each
+@Performance`, also reachable via the legacy name `-S Performance`). The
+kind sections are catalog-hidden: they do not appear in the top-level
+`-D`/`-D --schema` discovery catalog, which lists the `@Performance` category
+as their single entrypoint. Drill in with `-D @Performance` to list the kinds,
+or `-D "Performance: Boxing"` for one kind's columns. Each
 section is absent when it has no findings, so the group renders exactly the
 kinds that were found; `--count -S @Performance` returns a per-kind count map
 (including zero rows) as a cheap way to discover which kinds are present before
-requesting them. These sections rank in-loop (hot) and high-confidence
+requesting them. In flattened tabular output (`--table`/`--tsv`/`--jsonl`) the
+group renders as one self-describing table with a leading `Kind` column, so
+every row states which performance kind it belongs to. These sections rank in-loop (hot) and high-confidence
 opportunities first across actionable rewrite shapes (small non-escaping
 arrays, temporary or span-to-array copies, capturing and instance method-group
 delegates, async state-machine setup, loop-invariant materialization, and

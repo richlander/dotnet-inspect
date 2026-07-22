@@ -26,7 +26,11 @@
   redirect to the group). Markdown carries tight ranked columns; full per-row
   diagnostics move to the nested `performance` JSON object (retiring the
   `optimization_opportunities` key). `--count -S @Performance` returns a
-  per-kind count map. The `type`/`member` `Performance Triage` lens is
+  per-kind count map. The kind sections are catalog-hidden: the top-level
+  `-D`/`--schema` catalog lists only the `@Performance` category as their
+  entrypoint (drill in with `-D @Performance`), and flattened tabular output
+  (`--table`/`--tsv`/`--jsonl`) renders the group as one table with a leading
+  `Kind` column. The `type`/`member` `Performance Triage` lens is
   unchanged (#2833).
 
 ### Output and projections

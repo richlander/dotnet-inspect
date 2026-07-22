@@ -49,7 +49,8 @@ public class LibraryCommand
                     tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                     verbosity: (int)options.Verbosity,
                     sectionCostAnnotations: pipeline.GetCostAnnotations(),
-                    sectionCategories: pipeline.GetCategoryMap());
+                    sectionCategories: pipeline.GetCategoryMap(),
+                    catalogHiddenSections: pipeline.GetCatalogHiddenSections());
             }
         }
 
@@ -1279,7 +1280,8 @@ public class LibraryCommand
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
             verbosity: (int)userVerbosity, rootLabel: rootLabel, fullSchema: schemaMap,
             sectionCostAnnotations: pipeline.GetCostAnnotations(),
-            sectionCategories: pipeline.GetCategoryMap());
+            sectionCategories: pipeline.GetCategoryMap(),
+            catalogHiddenSections: pipeline.GetCatalogHiddenSections());
     }
 
     // ── Effective sections cache ──
@@ -1350,7 +1352,8 @@ public class LibraryCommand
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
             verbosity: (int)userVerbosity, rootLabel: rootLabel,
             sectionCostAnnotations: LibrarySections.CreatePipeline().GetCostAnnotations(),
-            sectionCategories: LibrarySections.CreatePipeline().GetCategoryMap());
+            sectionCategories: LibrarySections.CreatePipeline().GetCategoryMap(),
+            catalogHiddenSections: LibrarySections.CreatePipeline().GetCatalogHiddenSections());
     }
 
     /// <summary>

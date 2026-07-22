@@ -805,6 +805,28 @@ public class LibraryInspectionView
         return rows is { Count: > 0 } ? rows : null;
     }
 
+    // Flattens the selected performance kind sections into one kind-labeled list for tabular group
+    // output. Iterates PerformanceKinds.Sections (curated order) so rows stay grouped by kind, and
+    // reuses PerformanceRowsFor so the per-kind rows, ordering, and inline-code spelling are identical
+    // to the markdown sections — only a leading Kind label is added.
+    internal List<PerformanceGroupRow> PerformanceGroupRows(IReadOnlyCollection<string> selectedSections)
+    {
+        var rows = new List<PerformanceGroupRow>();
+        foreach (var section in PerformanceKinds.Sections)
+        {
+            if (!selectedSections.Contains(section))
+                continue;
+            var kindRows = PerformanceRowsFor(section);
+            if (kindRows is null)
+                continue;
+            var label = PerformanceKinds.KindLabel(section);
+            foreach (var row in kindRows)
+                rows.Add(new PerformanceGroupRow(
+                    label, row.Member, row.Evidence, row.Allocation, row.Loop, row.Reach, row.Weight, row.Confidence));
+        }
+        return rows;
+    }
+
     [MarkoutIgnore] public bool HasPerformanceBoxing => PerformanceBoxingSection is not null;
     [MarkoutSection(Name = SectionNames.PerformanceBoxing, ShowWhenProperty = nameof(HasPerformanceBoxing))]
     public List<PerformanceRow>? PerformanceBoxingSection => PerformanceRowsFor(SectionNames.PerformanceBoxing);
@@ -1202,6 +1224,36 @@ public record PerformanceRow(
     string Reach,
     [property: MarkoutSkipNull] string? Weight,
     string Confidence);
+
+/// <summary>
+/// A <see cref="PerformanceRow"/> prefixed with its kind label, used to flatten the per-kind
+/// performance sections into one self-describing tabular table (<c>-S @Performance --tsv</c>/
+/// <c>--jsonl</c>/<c>--table</c>). The leading <c>Kind</c> column tells consumers which performance
+/// kind each row belongs to, since the flattened table has no per-section headings.
+/// </summary>
+public record PerformanceGroupRow(
+    string Kind,
+    string Member,
+    string Evidence,
+    [property: MarkoutSkipNull] string? Allocation,
+    [property: MarkoutSkipNull] string? Loop,
+    string Reach,
+    [property: MarkoutSkipNull] string? Weight,
+    string Confidence);
+
+/// <summary>
+/// Single-section view that renders the flattened, kind-labeled performance rows as one table.
+/// Used only for tabular group output; markdown keeps the per-kind sections of
+/// <see cref="LibraryInspectionView"/> with their <c>## Performance: Kind</c> headings.
+/// </summary>
+[MarkoutSerializable]
+public sealed class PerformanceGroupView
+{
+    public PerformanceGroupView(List<PerformanceGroupRow> rows) => Performance = rows;
+
+    [MarkoutSection(Name = "Performance")]
+    public List<PerformanceGroupRow> Performance { get; }
+}
 
 [MarkoutSerializable]
 public record CustomAttributeRow(

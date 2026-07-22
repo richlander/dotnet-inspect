@@ -223,6 +223,14 @@ sections under the `@Performance` category (`Performance: Boxing`,
 `Performance: Other`). They follow the il-offset section model: opt-in, absent
 when empty, selectable individually or as a group, with a nested `performance`
 JSON object (one array per kind with rows) and a per-kind `--count` map. The
+kind sections are catalog-hidden (`ListedInCatalog = false`): the top-level
+`-D`/`--schema` catalog lists only the `@Performance` category as their
+entrypoint, keeping discovery noise low while the sections stay selectable and
+drillable (`-D @Performance`). `ListedInCatalog` is a general section-descriptor
+flag (orthogonal to `ExplicitOnly` render gating), so any future curated group
+can hide its members behind a category with the same mechanism. Flattened
+tabular output (`--table`/`--tsv`/`--jsonl`) renders the group as one table with
+a leading `Kind` column so each row is self-describing. The
 `type`/`member` `Performance Triage` lens is a different, single-member view and
 keeps that name.
 

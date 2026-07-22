@@ -12,6 +12,7 @@ public sealed class SectionEntry<TModel>
     public required bool IsExpensive { get; init; }
     public bool ExplicitOnly { get; init; }
     public bool Info { get; init; }
+    public bool ListedInCatalog { get; init; } = true;
     public bool ProbeEffectiveness { get; init; } = true;
     public SectionCapabilities Capabilities { get; init; }
     public required string? ScannerKey { get; init; }
@@ -58,6 +59,7 @@ public sealed class SectionPipeline<TModel>
             IsExpensive = TDescriptor.IsExpensive,
             ExplicitOnly = TDescriptor.ExplicitOnly,
             Info = TDescriptor.Info,
+            ListedInCatalog = TDescriptor.ListedInCatalog,
             ProbeEffectiveness = TDescriptor.ProbeEffectiveness,
             Capabilities = TDescriptor.Capabilities,
             ScannerKey = TDescriptor.ScannerKey,
@@ -122,6 +124,16 @@ public sealed class SectionPipeline<TModel>
 
         return categories;
     }
+
+    /// <summary>
+    /// Names of sections omitted from the top-level discovery catalog
+    /// (<see cref="SectionEntry{TModel}.ListedInCatalog"/> is false). Discovery lists these only
+    /// under their curated <c>@category</c>; they remain selectable and drillable by exact name.
+    /// </summary>
+    public IReadOnlySet<string> GetCatalogHiddenSections()
+        => _entries.Where(e => !e.ListedInCatalog)
+            .Select(e => e.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Maps each section name to a short annotation for discovery output:

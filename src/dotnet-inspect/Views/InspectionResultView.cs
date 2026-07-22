@@ -450,6 +450,8 @@ public record PackageSourceFileRow(
 [MarkoutContext(typeof(ResourceRow))]
 [MarkoutContext(typeof(ResourceTriageRow))]
 [MarkoutContext(typeof(PerformanceRow))]
+[MarkoutContext(typeof(PerformanceGroupRow))]
+[MarkoutContext(typeof(PerformanceGroupView))]
 [MarkoutContext(typeof(CustomAttributeRow))]
 [MarkoutContext(typeof(TypeForwarderRow))]
 [MarkoutContext(typeof(AuditSignalRow))]

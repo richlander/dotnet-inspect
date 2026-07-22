@@ -993,17 +993,23 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task PerformanceGroup_TabularRendersSingleCollapsedHeader()
+    public async Task PerformanceGroup_TabularRendersSingleKindLabeledTable()
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "System.Text.Json", "-S", "@Performance", "--tsv", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        var headerCount = output
-            .Split('\n')
-            .Count(line => line.StartsWith("member\t", StringComparison.Ordinal));
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        // The flattened group renders as one self-describing table: exactly one header, and its
+        // leading column is the kind label so each row says which performance kind it belongs to.
+        var headerCount = lines.Count(line => line.StartsWith("kind\t", StringComparison.Ordinal));
         Assert.Equal(1, headerCount);
+        Assert.StartsWith("kind\tmember\t", lines[0]);
+        // Rows from more than one kind are present and labeled (e.g. Boxing and Arrays).
+        var kinds = lines.Skip(1).Select(l => l.Split('\t')[0]).Distinct().ToList();
+        Assert.Contains("Boxing", kinds);
+        Assert.Contains("Arrays", kinds);
     }
 
     [Fact]
@@ -1017,13 +1023,14 @@ public class CommandExecutionTests
 
         var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.NotEmpty(lines);
-        // The blank lines Markout inserts between sections are invalid jsonl records; they must be
-        // stripped so every emitted line parses.
+        // Every emitted line must parse as JSON (no blank inter-section separators), and each record
+        // must carry its kind label so the flattened stream is self-describing.
         foreach (var line in output.Replace("\r", "").Split('\n'))
         {
             if (line.Length == 0)
                 continue;
-            using var _ = JsonDocument.Parse(line);
+            using var doc = JsonDocument.Parse(line);
+            Assert.True(doc.RootElement.TryGetProperty("kind", out _));
         }
         Assert.DoesNotContain(output.TrimEnd('\n').Split('\n'), line => line.Length == 0);
     }
@@ -1031,9 +1038,9 @@ public class CommandExecutionTests
     [Fact]
     public async Task PerformanceGroup_NoHeaderTabular_PreservesEveryRow_NoBlankSeparators()
     {
-        // With --no-header the first line is a data row, not a header; header-collapse must not treat
-        // it as a header and drop identical data rows. Row count must match the with-header data-row
-        // count, and no blank section separators may leak into the stream.
+        // With --no-header the flattened table emits no header line, so every line is a data row and
+        // identical rows must all survive. Row count must match the with-header data-row count, and
+        // no blank section separators may leak into the stream.
         var withHeader = await RunAppAsync(
             "library", "System.Text.Json", "-S", "@Performance", "--tsv", "--order-by", "Allocation", "--tips", "q");
         var noHeader = await RunAppAsync(
@@ -1044,7 +1051,7 @@ public class CommandExecutionTests
 
         var dataRows = withHeader.Output
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Count(line => !line.StartsWith("member\t", StringComparison.Ordinal));
+            .Count(line => !line.StartsWith("kind\t", StringComparison.Ordinal));
         var noHeaderRows = noHeader.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
 
         Assert.Equal(dataRows, noHeaderRows.Length);
@@ -1065,6 +1072,49 @@ public class CommandExecutionTests
         Assert.Equal(0, upper.Exit);
         Assert.True(int.TryParse(lower.Output.Trim(), out var lowerCount) && lowerCount > 0, lower.Output);
         Assert.Equal(lower.Output.Trim(), upper.Output.Trim());
+    }
+
+    [Fact]
+    public async Task PerformanceSections_CatalogHidden_CategoryDiscoverableAndDrillable()
+    {
+        // Bare -D (effective discovery) must not list the kind-scoped performance sections at the top
+        // level — the @Performance category is their single discoverable entrypoint — yet they must
+        // stay reachable by drilling into that category.
+        var bare = await RunAppAsync("library", "System.Text.Json", "-D", "--tips", "q");
+        Assert.Equal(0, bare.Exit);
+        var bareSectionNames = bare.Output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Where(l => l.Contains("| section", StringComparison.Ordinal))
+            .Select(ExtractSectionName)
+            .ToArray();
+        Assert.DoesNotContain(bareSectionNames, n => n.StartsWith("Performance: ", StringComparison.Ordinal));
+        Assert.Contains(bare.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries),
+            l => ExtractSectionName(l) == "@Performance" && l.Contains("category", StringComparison.Ordinal));
+
+        var drill = await RunAppAsync("library", "System.Text.Json", "-D", "@Performance", "--tips", "q");
+        Assert.Equal(0, drill.Exit);
+        Assert.Contains("Performance: Boxing", drill.Output);
+        Assert.Contains("Performance: Other", drill.Output);
+    }
+
+    [Fact]
+    public async Task PerformanceGroup_TableRendersOneHeader_AndRowsCapCountsDataRowsOnly()
+    {
+        // The flattened pretty table must be one aligned table: exactly one header regardless of how
+        // many kinds contribute, and a --rows cap must yield header + N data rows (embedded per-kind
+        // headers previously inflated the count and stole a row slot).
+        const int cap = 5;
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "@Performance", "--table", "--rows", "-n", cap.ToString(),
+            "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var headerCount = lines.Count(l => l.StartsWith("Kind", StringComparison.Ordinal) && l.Contains("Member", StringComparison.Ordinal));
+        Assert.Equal(1, headerCount);
+        // One header + cap data rows.
+        Assert.Equal(cap + 1, lines.Length);
     }
 
     [Fact]
@@ -6047,14 +6097,6 @@ public class CommandExecutionTests
                 "OpenAPI",
                 "OpenTelemetry",
                 "Options",
-                "Performance: Allocation hotspots",
-                "Performance: Arrays",
-                "Performance: Async",
-                "Performance: Boxing",
-                "Performance: Closures and delegates",
-                "Performance: Enumerators",
-                "Performance: Loop hot paths",
-                "Performance: Other",
                 "Resource Triage",
                 "Resources",
                 "Return Address Context",
@@ -6071,6 +6113,12 @@ public class CommandExecutionTests
                 "Unsafe Members"
             ],
             optInNames);
+        // The kind-scoped performance sections are catalog-hidden (ListedInCatalog=false): the
+        // @Performance category is their single discoverable entrypoint, so they must not appear in
+        // the top-level catalog even though they remain selectable and drillable via -D @Performance.
+        Assert.DoesNotContain(names, name => name.StartsWith("Performance: ", StringComparison.Ordinal));
+        Assert.Contains(output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries),
+            line => ExtractSectionName(line) == "@Performance" && line.Contains("category", StringComparison.Ordinal));
         Assert.DoesNotContain(lines, line => line.StartsWith("Missing Source Files", StringComparison.Ordinal));
         Assert.DoesNotContain(lines, line => line.StartsWith("Source Integrity", StringComparison.Ordinal));
     }
