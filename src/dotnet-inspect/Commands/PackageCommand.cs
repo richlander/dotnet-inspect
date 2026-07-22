@@ -1840,6 +1840,12 @@ public class PackageCommand
         string version,
         InspectionOptions options)
     {
+        // The embedded-library path resolves -S against the same curated LibrarySections pipeline,
+        // so it enforces the same @Hidden discovery-only guard as the direct library command
+        // (the single-library path delegates to LibraryCommand.ExecuteAsync, which already guards).
+        if (LibraryCommand.RejectHiddenRenderSelector(options.Select))
+            return 1;
+
         var selected = ResolveAllPackageLibraries(extractPath, packageName, version, options);
         if (selected == null)
             return 1;

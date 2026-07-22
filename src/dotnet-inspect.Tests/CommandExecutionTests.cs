@@ -8051,6 +8051,28 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PackageCommand_AllLibraries_RejectsHiddenRenderSelector()
+    {
+        // The embedded-library render path resolves -S against the same curated LibrarySections
+        // pipeline, so it enforces the same @Hidden discovery-only guard as the direct library
+        // command: -S @Hidden must be rejected before any resolution/fetch, while exact-name
+        // render of a @Hidden member stays allowed.
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (exit, _, error) = await RunAppAsync(
+                "package", packagePath, "--all-libraries", "-S", "@Hidden", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains("discovery-only", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PackageCommand_AllLibraries_RendersLibraryInfoPerHighestTfmLibrary()
     {
         var (packagePath, tempDir) = CreateLocalLibPackage();

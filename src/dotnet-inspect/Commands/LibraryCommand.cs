@@ -74,12 +74,8 @@ public class LibraryCommand
         // @Hidden is a discovery-only pole: it lists via -D @Hidden / --schema and its members
         // render by exact name, but it is not a render selector. This keeps -S from fanning out to
         // the unbounded SourceLink Integrity check (and other @Hidden members) as a group.
-        if (options.Select is { Length: > 0 }
-            && options.Select.Any(v => v.Equals(SectionPipeline<LibraryInspection>.HiddenCategory, StringComparison.OrdinalIgnoreCase)))
-        {
-            Console.Error.WriteLine("Error: @Hidden is discovery-only. List it with -D @Hidden or --schema, and render its members by exact name (for example -S \"SourceLink Integrity\").");
+        if (RejectHiddenRenderSelector(options.Select))
             return 1;
-        }
 
         // -S/--select with values: resolve as section filter for backpressure
         var selectResult = SelectResolver.ResolveSelectAsSections(
@@ -692,6 +688,23 @@ public class LibraryCommand
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
         hidden.ExceptWith(ILCoordinateSections);
         return hidden;
+    }
+
+    // @Hidden is a discovery-only pole: it lists via -D @Hidden / --schema and its members
+    // render by exact name, but it is not a render selector. Rejecting -S @Hidden keeps render
+    // selection from fanning out to the unbounded SourceLink Integrity check (and other @Hidden
+    // members) as a group. Shared with the package embedded-library render path, which resolves
+    // -S against the same curated LibrarySections pipeline.
+    internal static bool RejectHiddenRenderSelector(string[]? select)
+    {
+        if (select is { Length: > 0 }
+            && select.Any(v => v.Equals(SectionPipeline<LibraryInspection>.HiddenCategory, StringComparison.OrdinalIgnoreCase)))
+        {
+            Console.Error.WriteLine("Error: @Hidden is discovery-only. List it with -D @Hidden or --schema, and render its members by exact name (for example -S \"SourceLink Integrity\").");
+            return true;
+        }
+
+        return false;
     }
 
     private static readonly string[] ILCoordinateSections =
