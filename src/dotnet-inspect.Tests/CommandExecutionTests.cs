@@ -920,6 +920,45 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PerformanceAsyncEvidence_RendersAsCodeSpan_WithoutHtmlEscapingCompilerName()
+    {
+        // Evidence embeds compiler-generated names with angle brackets (e.g. the async state
+        // machine <GetAsyncEnumerator>d__1). It must render as a code span like the Member and
+        // Allocation columns, showing the brackets literally — not HTML-escaped as &lt;/&gt;.
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "Performance: Async", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Performance: Async", output);
+        Assert.Contains("async state-machine allocation (<", output);
+        Assert.DoesNotContain("async state-machine allocation (&lt;", output);
+
+        // Machine output stays raw (no code-span markup, unescaped brackets).
+        var (tsvExit, tsv, _) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "Performance: Async", "--tsv", "--tips", "q");
+        Assert.Equal(0, tsvExit);
+        Assert.Contains("async state-machine allocation (<", tsv);
+        Assert.DoesNotContain("&lt;", tsv);
+    }
+
+    [Fact]
+    public async Task PerformanceTriageEvidence_TypeScope_RendersAsCodeSpan_WithoutHtmlEscapingGenerics()
+    {
+        // The type/member Performance Triage lens has the same Evidence column; a generic value-type
+        // box (box System.Memory<T>) must render as a code span with literal angle brackets, not the
+        // HTML-escaped &lt;T&gt;. The Allocation column already renders it literally.
+        var (exit, output, error) = await RunAppAsync(
+            "type", "System.Text.Json.Serialization.Converters.MemoryConverter",
+            "--platform", "System.Text.Json", "--all", "-S", "Performance Triage", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("box System.Memory<T>", output);
+        Assert.DoesNotContain("box System.Memory&lt;T&gt;", output);
+    }
+
+    [Fact]
     public async Task PerformanceGroup_RendersMultipleKindSections()
     {
         var (exit, output, error) = await RunAppAsync(

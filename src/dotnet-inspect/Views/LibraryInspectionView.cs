@@ -795,7 +795,7 @@ public class LibraryInspectionView
             .Where(o => PerformanceKinds.SectionForShape(o.Shape) == section)
             .Select(o => new PerformanceRow(
                 MarkoutInline.Code(o.Member),
-                o.Evidence,
+                MarkoutInline.Code(o.Evidence),
                 o.Allocation is null ? null : MarkoutInline.Code(o.Allocation),
                 string.IsNullOrEmpty(o.Loop) ? null : o.Loop,
                 o.RootReach.ToString(),
