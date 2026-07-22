@@ -36,8 +36,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// extension callee renders in receiver syntax, so its candidates are
 /// <em>every</em> extension method of the same name in the assembly, and elision
 /// additionally requires the receiver type to live in another assembly (a
-/// same-assembly instance method would beat the extension). Extensions and
-/// instance methods in referenced assemblies are the residual the
+/// same-assembly instance method would beat the extension) and the manifest to
+/// carry no code-bearing netmodules (whose extensions the scan cannot see).
+/// Extensions and instance methods in referenced assemblies are the residual the
 /// recompile/corpus fidelity gate backstops.</para>
 /// </summary>
 internal static class OptionalArgumentFacts
@@ -162,7 +163,13 @@ internal static class OptionalArgumentFacts
             // extension named M may tie the callee's leading signature. Extensions
             // and instance methods in referenced assemblies stay the residual the
             // corpus fidelity gate backstops.
-            if (!ReceiverIsCrossAssembly(reader, callee.ParameterTypes[0]))
+            // The assembly-wide extension scan below reads only this manifest
+            // module's TypeDefinitions. In a multi-module assembly a competing
+            // extension can live in a linked netmodule the scan never sees (a
+            // same-assembly steal, not the accepted cross-assembly residual), so
+            // decline extension elision whenever the manifest carries code-bearing
+            // module files.
+            if (!ReceiverIsCrossAssembly(reader, callee.ParameterTypes[0]) || AssemblyHasMetadataModules(reader))
                 return 0;
             siblings = AssemblyExtensionSiblings(reader, callee.Name);
         }
@@ -245,8 +252,7 @@ internal static class OptionalArgumentFacts
         return index.TryGetValue(name, out var siblings) ? siblings : NoSiblings;
     }
 
-    static Dictionary<string, List<SiblingSignature>> BuildExtensionSiblingIndex(MetadataReader reader)
-    {
+    static Dictionary<string, List<SiblingSignature>> BuildExtensionSiblingIndex(MetadataReader reader)    {
         var index = new Dictionary<string, List<SiblingSignature>>(StringComparer.Ordinal);
         foreach (var typeHandle in reader.TypeDefinitions)
         {
@@ -275,6 +281,22 @@ internal static class OptionalArgumentFacts
             }
         }
         return index;
+    }
+
+    /// <summary>
+    /// Whether the manifest assembly links code-bearing module files (netmodules).
+    /// The extension scan reads only this reader's <see cref="MetadataReader.TypeDefinitions"/>,
+    /// so a competing extension in another module of the same assembly is invisible
+    /// to it; the extension path declines outright in that case.
+    /// </summary>
+    static bool AssemblyHasMetadataModules(MetadataReader reader)
+    {
+        if (!reader.IsAssembly)
+            return false;
+        foreach (var handle in reader.AssemblyFiles)
+            if (reader.GetAssemblyFile(handle).ContainsMetadata)
+                return true;
+        return false;
     }
 
     /// <summary>
