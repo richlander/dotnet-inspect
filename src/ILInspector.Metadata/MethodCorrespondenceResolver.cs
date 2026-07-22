@@ -15,9 +15,10 @@ public enum MethodCorrespondenceStatus
 
 /// <summary>
 /// Total cross-reader correspondence for one metadata method definition.
-/// Exact correspondence requires one target method with the same product-owned
-/// canonical member identity; display names and metadata row numbers are not
-/// used as cross-module identity.
+/// Exact correspondence requires exactly one target method with the same
+/// structural cross-module identity (see <see cref="MethodStructuralSignature"/>);
+/// display names and metadata row numbers are never used as cross-module
+/// identity.
 /// </summary>
 public sealed record MethodCorrespondenceResult(
     MethodCorrespondenceStatus Status,
@@ -52,21 +53,20 @@ public static class MethodCorrespondenceResolver
                 sourceMethod,
                 IsExtensionMethod(sourceReader, sourceType, sourceMethod));
 
+            // Correspondence is decided by a structural cross-module identity, not
+            // the display-oriented canonical signature: the structural key carries
+            // return type, calling convention, generic arity (positionally), custom
+            // modifiers, and the nested-versus-namespace boundary, so genuinely
+            // distinct CLR methods cannot collide and a renamed generic parameter
+            // cannot break a real match.
+            string sourceKey = MethodStructuralSignature.Build(sourceReader, sourceMethod);
+
             List<MetadataMethodAddress> candidates = [];
             foreach (var targetHandle in targetReader.MethodDefinitions)
             {
                 var targetMethod = targetReader.GetMethodDefinition(targetHandle);
-                var targetTypeHandle = targetMethod.GetDeclaringType();
-                var targetType = targetReader.GetTypeDefinition(targetTypeHandle);
-                var targetAnchor = ApiMemberIdentity.CreateMethodAnchor(
-                    targetReader,
-                    targetTypeHandle,
-                    targetMethod,
-                    IsExtensionMethod(targetReader, targetType, targetMethod));
-                if (string.Equals(
-                    anchor.CanonicalSignature,
-                    targetAnchor.CanonicalSignature,
-                    StringComparison.Ordinal))
+                string targetKey = MethodStructuralSignature.Build(targetReader, targetMethod);
+                if (string.Equals(sourceKey, targetKey, StringComparison.Ordinal))
                 {
                     candidates.Add(MetadataMethodAddress.Create(targetReader, targetHandle));
                 }
@@ -79,7 +79,7 @@ public static class MethodCorrespondenceResolver
                     anchor,
                     Target: null,
                     Candidates: [],
-                    Failure: "no target method has the same canonical identity"),
+                    Failure: "no target method has the same structural identity"),
                 1 => new MethodCorrespondenceResult(
                     MethodCorrespondenceStatus.Exact,
                     anchor,
@@ -91,7 +91,7 @@ public static class MethodCorrespondenceResolver
                     anchor,
                     Target: null,
                     candidates,
-                    Failure: $"{candidates.Count} target methods have the same canonical identity"),
+                    Failure: $"{candidates.Count} target methods have the same structural identity"),
             };
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)

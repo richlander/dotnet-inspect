@@ -31,8 +31,12 @@ public sealed record MemberBodyProductionResult(
     /// <summary>
     /// The raised product IR that produced <see cref="Body"/>. Kept internal so
     /// trusted product/harness consumers can derive typed closure evidence from
-    /// the exact projection without re-importing or reverse-engineering source;
-    /// the public result remains fully materialized and metadata-lifetime-free.
+    /// the exact projection without re-importing or reverse-engineering source.
+    /// The publicly exposed members (<see cref="Body"/> and
+    /// <see cref="Projection"/>) are fully materialized and hold no borrowed
+    /// metadata. This IR seam is not: it may reference state owned by the
+    /// producing <c>MetadataSource</c>, so it is valid only while that source is
+    /// alive and must not be cached beyond the borrow session.
     /// </summary>
     internal Pipeline.IrFunction? RaisedFunction { get; init; }
 }
@@ -152,7 +156,7 @@ public static class MemberBodyProducer
                 RaisedFunction = function,
             };
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return Failed(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
