@@ -96,6 +96,77 @@ public sealed class DynamicCallSitePass : IIrPass
     }
 
     /// <summary>
+    /// Proves the <c>typeof(...)</c> binder-context argument against the body's
+    /// declaring type. The direct case (an ordinary method) requires exact
+    /// equality. When the body is instead a compiler-generated environment
+    /// method (a capturing lambda's display-class instance method, or an
+    /// iterator/async state-machine's <c>MoveNext</c>), the binder context is
+    /// authored against the enclosing type the compiler captured from — proven
+    /// here via the declaring type's own metadata-decoded
+    /// <see cref="TypeRef.EnclosingType"/> chain (never by parsing the
+    /// generated type's <c>+</c>-joined name), and only once the declaring
+    /// type's <c>[CompilerGenerated]</c> attribute evidence
+    /// (<see cref="IrFunction.DeclaringTypeCompilerGenerated"/>) and a
+    /// corroborating generated-name shape both hold. When that enclosing type is
+    /// generic, the context is its self-instantiation (see
+    /// <see cref="IsGenericSelfInstantiation"/>).
+    /// </summary>
+    static bool IsProvenBinderContext(TypeRef context, IrFunction function)
+    {
+        if (context.Equals(function.DeclaringType))
+            return true;
+
+        if (function.DeclaringTypeCompilerGenerated != MetadataFactState.Yes)
+            return false;
+
+        var declaringType = function.DeclaringType;
+        if (!GeneratedCodeIdentity.IsDisplayClassName(declaringType)
+            && !GeneratedCodeIdentity.IsIteratorStateMachineTypeName(declaringType))
+            return false;
+
+        return declaringType.EnclosingType is { } enclosing
+            && (context.Equals(enclosing) || IsGenericSelfInstantiation(context, enclosing));
+    }
+
+    /// <summary>
+    /// Recognizes the binder context a compiler-generated body carries when the
+    /// authored enclosing type is generic. For a lambda or iterator inside
+    /// <c>Host&lt;T&gt;</c>, csc emits the GetMember context as
+    /// <c>typeof(Host&lt;T&gt;)</c> — a <see cref="TypeRefKind.GenericInstance"/>
+    /// of the enclosing definition instantiated with the type's own type
+    /// parameters in declaration order — while
+    /// <see cref="TypeRef.EnclosingType"/> decodes to the bare generic
+    /// definition, so the exact-equality direct check declines on the
+    /// GenericInstance-vs-Definition kind mismatch. Only that self-instantiation
+    /// is accepted: the element type must equal the enclosing definition and
+    /// every argument must be the type generic parameter at its own position.
+    /// A concrete argument (<c>typeof(Host&lt;int&gt;)</c>), a reordered
+    /// parameter, or a method type parameter denotes a different accessibility
+    /// context and declines.
+    /// </summary>
+    static bool IsGenericSelfInstantiation(TypeRef context, TypeRef enclosing)
+    {
+        if (context.Kind != TypeRefKind.GenericInstance)
+            return false;
+
+        if (context.ElementType is not { } definition || !definition.Equals(enclosing))
+            return false;
+
+        var arguments = context.TypeArguments;
+        if (arguments.IsDefaultOrEmpty)
+            return false;
+
+        for (int i = 0; i < arguments.Length; i++)
+        {
+            var argument = arguments[i];
+            if (argument.Kind != TypeRefKind.GenericParameter || argument.GenericParameterIndex != i)
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Identifies a cache lazy-init guard and proves its polarity: the setup arm
     /// must be the arm the runtime selects when the cache is still null.
     /// <c>if (!cache) { setup } else {}</c> puts setup in the then arm;
@@ -218,7 +289,7 @@ public sealed class DynamicCallSitePass : IIrPass
         // --- [1] Context definition: typeof(DeclaringType) ---
         if (!TryDefinitionKey(statements[1], out var contextKey, out var contextValue))
             return false;
-        if (contextValue is not TypeOf contextTypeOf || !contextTypeOf.Type.Equals(function.DeclaringType))
+        if (contextValue is not TypeOf contextTypeOf || !IsProvenBinderContext(contextTypeOf.Type, function))
             return false;
 
         // The two setup definitions occupy distinct storage (no duplicate

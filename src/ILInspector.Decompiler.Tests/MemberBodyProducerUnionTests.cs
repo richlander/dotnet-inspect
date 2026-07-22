@@ -8,6 +8,7 @@ using Microsoft.CodeAnalysis.CSharp;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "RoundTrip")]
 public class MemberBodyProducerUnionTests
 {
     [Fact]
@@ -1323,7 +1324,7 @@ public class MemberBodyProducerUnionTests
         Assert.Equal("""
             return pet switch
             {
-                Cat cat when !(cat.Name == "cat") => "z",
+                Cat cat when cat.Name != "cat" => "z",
                 Dog dog => dog.Name,
                 _ => "other",
             };
@@ -1585,7 +1586,7 @@ public class MemberBodyProducerUnionTests
             """, RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueSwitchNotNull"));
         var classValueSwitchNotNamedCat = RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueSwitchNotNamedCat");
         Assert.Contains("pet.Value as Cat", classValueSwitchNotNamedCat);
-        Assert.Contains("V_1.Name == \"cat\"", classValueSwitchNotNamedCat);
+        Assert.Contains("V_1.Name != \"cat\"", classValueSwitchNotNamedCat);
         var classValueSwitchNull = RenderMember(assembly.Path, "UnionFixtures.Matcher", "ValueSwitchNull");
         Assert.Contains("pet.Value", classValueSwitchNull);
         Assert.DoesNotContain("return pet switch", classValueSwitchNull);

@@ -3,6 +3,7 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class ExpressionInliningPassTests
 {
     static readonly TypeRef Holder = TypeRef.CoreLib("Synthetic", "Holder");

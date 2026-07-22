@@ -16,6 +16,7 @@ namespace ILInspector.Decompiler.Tests;
 
 [Trait("Speed", "Slow")]
 [Collection(ConsoleMutatorCollection.Name)]
+[Trait("Area", "RoundTrip")]
 public class ReturnToSenderPrototypeTests
 {
     [Fact]

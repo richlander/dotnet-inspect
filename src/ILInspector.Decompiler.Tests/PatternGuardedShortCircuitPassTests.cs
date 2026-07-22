@@ -11,6 +11,7 @@ namespace ILInspector.Decompiler.Tests;
 /// recovering <c>target = subject is T x &amp;&amp; x.CompareTo(default(T)) &gt; 0</c>
 /// (the FluentAssertions <c>BePositive</c> shape).
 /// </summary>
+[Trait("Area", "Pass")]
 public class PatternGuardedShortCircuitPassTests
 {
     static string Print(Type declaringType, string methodName)

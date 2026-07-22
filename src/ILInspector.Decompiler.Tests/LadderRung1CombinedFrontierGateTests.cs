@@ -24,6 +24,7 @@ namespace ILInspector.Decompiler.Tests;
 /// path raises it, guarded by <see cref="LadderRung1ProductPathGateTests"/>. That
 /// remaining residual is the lambda, not structuring.)</para>
 /// </summary>
+[Trait("Area", "Validity")]
 public class LadderRung1CombinedFrontierGateTests
 {
     static string FixturePath => typeof(LadderRung1.CombinedFrontier).Assembly.Location;

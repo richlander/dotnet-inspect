@@ -3,6 +3,7 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class ObjectInitializerPassTests
 {
     static IrFunction Raised(string methodName)

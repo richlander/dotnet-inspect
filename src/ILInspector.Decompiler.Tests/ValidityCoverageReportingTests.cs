@@ -4,6 +4,7 @@ using ILInspector.Decompiler.Pipeline;
 namespace ILInspector.Decompiler.Tests;
 
 [Collection(ConsoleMutatorCollection.Name)]
+[Trait("Area", "Validity")]
 public class ValidityCoverageReportingTests
 {
     static readonly object ConsoleGate = new();
@@ -42,13 +43,16 @@ public class ValidityCoverageReportingTests
             .ToArray();
 
         // Release census refreshed against the merged head (verified by dumping
-        // the live CS0161 population). Three entries were added relative to the
-        // prior pin: TupleSwitchExpressionPass::TryNumericValue and
-        // YieldBreakLoopIteratorReconstruction::TryNormalizeContinueCondition
-        // were pre-existing drift (present on base, unrelated to fluent chains;
-        // see #2959), and FluentChainRecompositionPass::SinkStatement is this
-        // change's new pattern-matching helper that the decompiler renders with
-        // a missing-return path (same idiom as the other census members).
+        // the live CS0161 population). #2959 removed six scattered-return
+        // dispatch defects — the shared return is now duplicated into each guard
+        // instead of dropping an edge: TupleSwitchExpressionPass::TryNumericValue,
+        // IsPatternPass::IsPatternLocalNull, NullConditionalPass::MemberReceiver,
+        // UnionSwitchExpressionPass::SameTailNode,
+        // DynamicCallSitePass::TryGuardCacheLoad, and
+        // FluentChainRecompositionPass::SinkStatement.
+        // YieldBreakLoopIteratorReconstruction::TryNormalizeContinueCondition is a
+        // distinct result-temp switch-expression shape the fix does not cover and
+        // remains pinned as tracked follow-up.
         string[] expected =
 #if DEBUG
         [
@@ -60,15 +64,9 @@ public class ValidityCoverageReportingTests
             "ILInspector.Decompiler.Pipeline.BooleanFoldingPass::IsNullableCoalesceExpressionContext",
             "ILInspector.Decompiler.Pipeline.CSharpPrinter::ForLoopIncrementText",
             "ILInspector.Decompiler.Pipeline.DeconstructionAssignmentPass::TryMatchTupleSeed",
-            "ILInspector.Decompiler.Pipeline.DynamicCallSitePass::TryGuardCacheLoad",
             "ILInspector.Decompiler.Pipeline.FixedArrayRaising::SameLoadPlace",
-            "ILInspector.Decompiler.Pipeline.FluentChainRecompositionPass::SinkStatement",
             "ILInspector.Decompiler.Pipeline.IndexFromEndPass::LengthReceiver",
             "ILInspector.Decompiler.Pipeline.InlineArrayCollectionPass::PlaceFromAddress",
-            "ILInspector.Decompiler.Pipeline.IsPatternPass::IsPatternLocalNull",
-            "ILInspector.Decompiler.Pipeline.NullConditionalPass::MemberReceiver",
-            "ILInspector.Decompiler.Pipeline.TupleSwitchExpressionPass::TryNumericValue",
-            "ILInspector.Decompiler.Pipeline.UnionSwitchExpressionPass::SameTailNode",
             "ILInspector.Decompiler.Pipeline.YieldBreakLoopIteratorReconstruction::TryNormalizeContinueCondition",
         ];
 #endif

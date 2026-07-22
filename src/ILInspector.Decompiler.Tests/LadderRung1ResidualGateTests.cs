@@ -14,6 +14,7 @@ namespace ILInspector.Decompiler.Tests;
 /// the current lower-altitude shape so a future raise that improves the altitude
 /// is a deliberate, visible change.
 /// </summary>
+[Trait("Area", "Validity")]
 public class LadderRung1ResidualGateTests
 {
     static string FixturePath => typeof(LadderRung1.OwnedResiduals).Assembly.Location;

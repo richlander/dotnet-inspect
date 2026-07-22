@@ -3,6 +3,7 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class IdentityConvertPassTests
 {
     static IrFunction Raised(string methodName)

@@ -15,6 +15,7 @@ namespace ILInspector.Decompiler.Tests;
 /// members, so this guard treats their arrow spelling as a whole-type
 /// type-source rendering preference, not as independent source recovery proof.
 /// </summary>
+[Trait("Area", "Validity")]
 public class LadderRung3GateTests
 {
     static string FixturePath => typeof(LadderRung3.Program).Assembly.Location;

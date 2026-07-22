@@ -8,6 +8,7 @@ namespace ILInspector.Decompiler.Tests;
 // It reuses ConstructorChainArgumentPass's effect-order proof, so it must make
 // the fold only when it reorders no effect, and must leave a re-used receiver
 // (e.g. a lock copy) or a non-chain-link head untouched.
+[Trait("Area", "Pass")]
 public class FluentChainRecompositionPassTests
 {
     static readonly TypeRef Chain = TypeRef.Definition("synthetic", "", "AssertionChain");

@@ -9,6 +9,7 @@ using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Corpus")]
 public class CorpusSensorComparisonTests
 {
     [Fact]

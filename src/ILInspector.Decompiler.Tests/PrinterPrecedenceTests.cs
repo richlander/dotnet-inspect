@@ -44,6 +44,7 @@ public class PrinterPrecedenceTests
 
     [Fact]
     [Trait("Speed", "Slow")]
+    [Trait("Area", "Fidelity")]
     public void StoreElement_CompoundArrayReceiver_RecompilesExactly()
     {
         var result = Assert.Single(

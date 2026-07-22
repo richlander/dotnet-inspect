@@ -24,6 +24,7 @@ namespace ILInspector.Decompiler.Tests;
 ///    the closure always bailed).
 /// </summary>
 [Trait("Speed", "Slow")]
+[Trait("Area", "Fidelity")]
 public class ClusterCaptureTests
 {
     const string FixtureType = "ILInspector.Decompiler.Tests.CfgSampleClass";

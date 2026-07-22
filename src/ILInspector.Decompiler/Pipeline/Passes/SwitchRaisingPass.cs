@@ -104,31 +104,9 @@ public sealed class SwitchRaisingPass : IIrPass
         var owned = new HashSet<int>();
         int? join = null;
 
-        // Two exits unify not only when identical, but when one flows into the
-        // other through a chain of plain, unclaimed, single-successor blocks —
-        // e.g. a case-local "no match" arm and a shared miss-handler that falls
-        // into the same terminating return. The upstream (earlier) block becomes
-        // the join, so the chain is naturally emitted once as switch-trailing
-        // code; the tiling check below still rejects the join if some other
-        // owned block ends up past it.
-        bool Unify(int j)
-        {
-            if (join is not { } existing)
-            {
-                join = j;
-                return true;
-            }
-            if (existing == j)
-                return true;
-            if (ChasesTo(blocks, existing, j, caseTargets, offsetToIndex, owned))
-                return true;   // existing join already flows into j — keep it
-            if (ChasesTo(blocks, j, existing, caseTargets, offsetToIndex, owned))
-            {
-                join = j;   // j is upstream of the existing join — adopt it
-                return true;
-            }
-            return false;
-        }
+        // See TryUnify's doc comment for the exit-unification rule (shared with
+        // FinishSwitchRaise's identical need below).
+        bool Unify(int j) => TryUnify(blocks, caseTargets, offsetToIndex, owned, ref join, j);
 
         // Each distinct case target grows into its single-entry region; the
         // region's exits unify to the shared join (or it terminates).
@@ -611,6 +589,41 @@ public sealed class SwitchRaisingPass : IIrPass
                 Add(idx, t);
         }
         return preds;
+    }
+
+    /// <summary>
+    /// Decides whether exit <paramref name="j"/> unifies with the current
+    /// candidate join in <paramref name="join"/>: two exits unify not only when
+    /// identical, but when one flows into the other through a chain of plain,
+    /// unclaimed, single-successor blocks (see <see cref="ChasesTo"/>) — e.g. a
+    /// case-local "no match" arm and a shared miss-handler that falls into the
+    /// same terminating return. The upstream (earlier) block becomes the join,
+    /// so the chain is naturally emitted once as trailing code after the switch;
+    /// the caller's own tiling check afterward still rejects the join if some
+    /// other owned block ends up past it.
+    ///
+    /// Shared by <see cref="Raise"/> and <see cref="FinishSwitchRaise"/> — the
+    /// two independent case-region-growing raisers — so a fix to this decision
+    /// applies to both instead of risking the two drifting out of sync (see
+    /// issue #2971).
+    /// </summary>
+    static bool TryUnify(IReadOnlyList<Block> blocks, int[] caseTargets, Dictionary<int, int> offsetToIndex, HashSet<int> owned, ref int? join, int j)
+    {
+        if (join is not { } existing)
+        {
+            join = j;
+            return true;
+        }
+        if (existing == j)
+            return true;
+        if (ChasesTo(blocks, existing, j, caseTargets, offsetToIndex, owned))
+            return true;   // existing join already flows into j — keep it
+        if (ChasesTo(blocks, j, existing, caseTargets, offsetToIndex, owned))
+        {
+            join = j;   // j is upstream of the existing join — adopt it
+            return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -1202,28 +1215,11 @@ public sealed class SwitchRaisingPass : IIrPass
         var owned = new HashSet<int>();
         int? join = null;
 
-        // See the matching comment on Unify in Raise: two exits also unify when
-        // one flows into the other through a chain of plain, unclaimed,
-        // single-successor blocks (a case-local miss arm chaining into a shared
-        // miss-handler that falls into the same terminating join).
-        bool Unify(int j)
-        {
-            if (join is not { } existing)
-            {
-                join = j;
-                return true;
-            }
-            if (existing == j)
-                return true;
-            if (ChasesTo(blocks, existing, j, caseTargets, offsetToIndex, owned))
-                return true;   // existing join already flows into j — keep it
-            if (ChasesTo(blocks, j, existing, caseTargets, offsetToIndex, owned))
-            {
-                join = j;   // j is upstream of the existing join — adopt it
-                return true;
-            }
-            return false;
-        }
+        // Uses the same exit-unification rule as Raise (see TryUnify's doc
+        // comment) — this is the fix for issue #2954/#2971: FinishSwitchRaise
+        // ties its own region-growing/tiling logic and previously had a
+        // separately-drifted copy of this decision.
+        bool Unify(int j) => TryUnify(blocks, caseTargets, offsetToIndex, owned, ref join, j);
         var regions = new Dictionary<int, List<int>>();
 
         foreach (int target in caseTargets.Distinct())

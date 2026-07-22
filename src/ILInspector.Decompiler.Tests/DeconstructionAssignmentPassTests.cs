@@ -2,6 +2,7 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class DeconstructionAssignmentPassTests
 {
     static IrFunction Raised(string methodName, Type? type = null)

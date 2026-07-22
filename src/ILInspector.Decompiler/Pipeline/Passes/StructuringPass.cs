@@ -41,6 +41,15 @@ public sealed class StructuringPass : IIrPass
         public required Dictionary<int, IReadOnlyList<IrNode>> TerminatorSnapshots { get; init; }
         public required HashSet<int> FallenInto { get; init; }
         public required bool IsComparisonTree { get; init; }
+        /// <summary>
+        /// Return-terminator offsets reached by two or more conditional guards
+        /// scattered across nesting levels (a return arm sits between their
+        /// blocks) — a shared join strict nesting cannot express, so its return
+        /// is duplicated into each guard. Distinct from the contiguous
+        /// <c>&amp;&amp;</c>/<c>||</c> false-exit chain (adjacent guards, no arm
+        /// between them), which is left to combine (the #640 fidelity canary).
+        /// </summary>
+        public required HashSet<int> ScatteredReturnDispatchTargets { get; init; }
         public int? RegionExitLeaveTarget { get; init; }
 
         /// <summary>
@@ -95,9 +104,11 @@ public sealed class StructuringPass : IIrPass
         // the standard forms already raise cleanly stays untouched.
         var unconditionalTargets = new HashSet<int>();
         var conditionalTargetCounts = new Dictionary<int, int>();
+        var conditionalPredecessorIndices = new Dictionary<int, List<int>>();
         var branchTargets = new HashSet<int>();
-        foreach (var block in blocks)
+        for (int blockIndex = 0; blockIndex < blocks.Count; blockIndex++)
         {
+            var block = blocks[blockIndex];
             foreach (var child in block.Children)
             {
                 if (child is Branch branch)
@@ -113,6 +124,9 @@ public sealed class StructuringPass : IIrPass
                 {
                     conditionalTargetCounts[conditional.TargetOffset] =
                         conditionalTargetCounts.GetValueOrDefault(conditional.TargetOffset) + 1;
+                    if (!conditionalPredecessorIndices.TryGetValue(conditional.TargetOffset, out var preds))
+                        conditionalPredecessorIndices[conditional.TargetOffset] = preds = new List<int>();
+                    preds.Add(blockIndex);
                     branchTargets.Add(conditional.TargetOffset);
                 }
                 else if (child is SwitchBranch switchBranch)
@@ -146,11 +160,34 @@ public sealed class StructuringPass : IIrPass
         // small selections keep their ternary/boolean shape.
         bool isComparisonTree = ComparisonTrees.IsLikely(container);
 
+        // A shared return reached by two or more conditional guards scattered
+        // across nesting levels — a return arm sits between the guard blocks — is
+        // a join strict nesting cannot express (each guard reaches it from a
+        // different region), so structuring must duplicate the return into each
+        // guard. The contiguous `&&`/`||` false-exit chain (adjacent guards, no
+        // arm between them) is deliberately excluded so it still combines into a
+        // single condition (the #640 fidelity canary).
+        var scatteredReturnDispatchTargets = new HashSet<int>();
+        foreach (var block in blocks)
+        {
+            int offset = block.StartOffset;
+            if (unconditionalTargets.Contains(offset)
+                || fallenInto.Contains(offset)
+                || conditionalTargetCounts.GetValueOrDefault(offset) < 2
+                || !IsTerminatorBlock(block)
+                || block.Children[^1] is not Return)
+            {
+                continue;
+            }
+            if (IsScatteredDispatch(blocks, conditionalPredecessorIndices[offset], branchTargets))
+                scatteredReturnDispatchTargets.Add(offset);
+        }
+
         var droppable = new HashSet<int>();
         var snapshots = new Dictionary<int, IReadOnlyList<IrNode>>();
         for (int i = 0; i < blocks.Count; i++)
         {
-            if (!IsSharedTerminator(blocks[i], unconditionalTargets, conditionalTargetCounts, fallenInto, isComparisonTree))
+            if (!IsSharedTerminator(blocks[i], unconditionalTargets, conditionalTargetCounts, fallenInto, isComparisonTree, scatteredReturnDispatchTargets))
                 continue;
             snapshots[i] = blocks[i].Children.ToList();
             if (i > 0 && !FallsThrough(blocks[i - 1]))
@@ -169,6 +206,7 @@ public sealed class StructuringPass : IIrPass
             TerminatorSnapshots = snapshots,
             FallenInto = fallenInto,
             IsComparisonTree = isComparisonTree,
+            ScatteredReturnDispatchTargets = scatteredReturnDispatchTargets,
             RegionExitLeaveTarget = NormalEhContinuationTarget(container),
             Recorder = recorder,
         };
@@ -925,6 +963,7 @@ public sealed class StructuringPass : IIrPass
             TerminatorSnapshots = new Dictionary<int, IReadOnlyList<IrNode>>(),
             FallenInto = fallenInto,
             IsComparisonTree = false,
+            ScatteredReturnDispatchTargets = [],
             RegionExitLeaveTarget = null,
             Recorder = null,
         };
@@ -1027,7 +1066,7 @@ public sealed class StructuringPass : IIrPass
     ///     reached only by its one equality test, jumping past its region to the
     ///     (now dissolved) tail. Inlining it is what lets the tree nest at all.
     /// </summary>
-    static bool IsSharedTerminator(Block block, HashSet<int> unconditionalTargets, Dictionary<int, int> conditionalTargetCounts, HashSet<int> fallenInto, bool isComparisonTree)
+    static bool IsSharedTerminator(Block block, HashSet<int> unconditionalTargets, Dictionary<int, int> conditionalTargetCounts, HashSet<int> fallenInto, bool isComparisonTree, HashSet<int> scatteredReturnDispatchTargets)
     {
         if (!IsTerminatorBlock(block) || unconditionalTargets.Contains(block.StartOffset))
             return false;
@@ -1052,25 +1091,94 @@ public sealed class StructuringPass : IIrPass
             //     standard-guard raising untouched.
             Throw => conditionalPredecessors >= 2
                 || (conditionalPredecessors >= 1 && fallenInto.Contains(block.StartOffset)),
-            // A shared return-tail merge is NOT inlined here: a return block with
-            // two or more conditional predecessors is also exactly the false-exit
-            // of an `&&`/`||` short-circuit guard chain (`if (a > 0 && b > 0)
-            // return X; return Y;` lowers to two conditionals both targeting the
-            // `return Y` block). Inlining the shared return into each guard splits
-            // the chain before it can combine into a single `if (a && b)`,
-            // changing the recompiled opcodes (the #640 fidelity canary). A
-            // genuine shared return-tail merge (String::Trim) needs the combiner
-            // to defer to it first — a separate slice, not this terminator rule.
-            // A comparison-tree case body: a return leaf reached only by its
-            // equality test and never by fallthrough, in a container that is a
-            // genuine multi-way tree. Inlining it as a guard clause is what lets
-            // the tree nest. Gated to trees so a small selection's return is left
-            // to the ternary/boolean passes rather than duplicated into guards.
-            Return => isComparisonTree
-                && conditionalPredecessors >= 1
-                && !fallenInto.Contains(block.StartOffset),
+            // A shared return-tail merge with two or more conditional
+            // predecessors is normally left standing: it is also exactly the
+            // false-exit of an `&&`/`||` short-circuit guard chain
+            // (`if (a > 0 && b > 0) return X; return Y;` lowers to two
+            // conditionals both targeting the `return Y` block). Inlining the
+            // shared return into each guard splits the chain before it can
+            // combine into a single `if (a && b)`, changing the recompiled
+            // opcodes (the #640 fidelity canary). Two shapes override that:
+            //   • A comparison-tree case body: a return leaf reached only by its
+            //     equality test and never by fallthrough, in a container that is
+            //     a genuine multi-way tree. Inlining it as a guard clause is what
+            //     lets the tree nest.
+            //   • A scattered dispatch: a return reached by two or more
+            //     conditional guards at different nesting levels (a return arm
+            //     sits between them). Strict nesting can only place it after one
+            //     guard and would drop the others off the end of a non-void
+            //     method (CS0161, issue #2959); duplicating the return into each
+            //     guard is the only sound structuring. The contiguous
+            //     short-circuit chain (adjacent guards, no arm between them) is
+            //     not scattered, so the canary is preserved.
+            Return => !fallenInto.Contains(block.StartOffset)
+                && ((isComparisonTree && conditionalPredecessors >= 1)
+                    || scatteredReturnDispatchTargets.Contains(block.StartOffset)),
             _ => false,
         };
+    }
+
+    /// <summary>
+    /// Whether the conditional predecessors of a shared return are scattered
+    /// across nesting levels (a <c>return</c>/<c>throw</c> dispatch arm sits
+    /// between two of them in block order) rather than forming a single
+    /// contiguous <c>&amp;&amp;</c>/<c>||</c> guard chain. For each interleaved
+    /// terminator, the guard that produced it (found by walking back over the
+    /// arm's plain fall-through statement blocks) must branch forward PAST the
+    /// predecessor span — to the shared return or another downstream terminal —
+    /// which marks a genuine dispatch arm closing a region strict nesting cannot
+    /// keep open, so the return must be duplicated into each guard. A
+    /// <c>throw</c>/<c>return</c> sub-expression nested inside a short-circuit
+    /// condition is instead the fall-through arm of a test that branches forward
+    /// WITHIN the span to continue evaluating the same condition; that arm stays
+    /// combined under one guard (the #640-style fidelity canary), so it is
+    /// excluded.
+    /// </summary>
+    static bool IsScatteredDispatch(
+        IReadOnlyList<Block> blocks,
+        List<int> predecessorIndices,
+        HashSet<int> branchTargets)
+    {
+        int lo = int.MaxValue;
+        int hi = int.MinValue;
+        foreach (int index in predecessorIndices)
+        {
+            if (index < lo) lo = index;
+            if (index > hi) hi = index;
+        }
+        int spanEndOffset = blocks[hi].StartOffset;
+        for (int i = lo + 1; i < hi; i++)
+        {
+            var block = blocks[i];
+            if (block.Children.Count == 0 || block.Children[^1] is not (Return or Throw))
+                continue;
+            // Find the guard that produced this interleaved terminator: walk back
+            // over the arm's plain fall-through statement blocks (last child is
+            // not a control-flow node and the block is not a merge target) to the
+            // nearest conditional-branch guard.
+            int j = i - 1;
+            while (j > lo
+                && blocks[j].Children.Count > 0
+                && blocks[j].Children[^1] is not (Return or Throw or Branch or Leave or ConditionalBranch or SwitchBranch or EndFinally or EndFilter)
+                && !branchTargets.Contains(blocks[j].StartOffset))
+            {
+                j--;
+            }
+            if (blocks[j].Children.Count == 0 || blocks[j].Children[^1] is not ConditionalBranch guard)
+                continue;
+            // A genuine dispatch arm's guard leads to a separate outcome: it
+            // branches forward PAST the predecessor span (to the shared return
+            // itself or another downstream terminal), so the arm terminates a
+            // region strict nesting closes before the shared return. A `throw`/
+            // `return` sub-expression nested inside a short-circuit `&&`/`||`/
+            // ternary condition is instead the fall-through arm of a test that
+            // branches forward WITHIN the span to continue evaluating the same
+            // condition; that arm must stay combined under one guard (the
+            // #640-style fidelity canary), so it is excluded.
+            if (guard.TargetOffset > spanEndOffset)
+                return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -1095,7 +1203,7 @@ public sealed class StructuringPass : IIrPass
 
     /// <summary>A terminator block that may be inlined into a guard at <paramref name="index"/>.</summary>
     static bool IsInlinableTerminator(Ctx ctx, int index) =>
-        IsSharedTerminator(ctx.Blocks[index], ctx.UnconditionalTargets, ctx.ConditionalTargetCounts, ctx.FallenInto, ctx.IsComparisonTree);
+        IsSharedTerminator(ctx.Blocks[index], ctx.UnconditionalTargets, ctx.ConditionalTargetCounts, ctx.FallenInto, ctx.IsComparisonTree, ctx.ScatteredReturnDispatchTargets);
 
     /// <summary>Whether control reaching the end of this block continues into its successor (vs. returning, throwing, or branching away).</summary>
     static bool FallsThrough(Block block) =>

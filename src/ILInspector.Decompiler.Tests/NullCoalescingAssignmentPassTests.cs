@@ -3,6 +3,7 @@ using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class NullCoalescingAssignmentPassTests
 {
     static IrFunction Raised(string methodName)

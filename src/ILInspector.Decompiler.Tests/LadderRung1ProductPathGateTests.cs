@@ -28,6 +28,7 @@ namespace ILInspector.Decompiler.Tests;
 /// cross-assembly out-variable to <c>out</c>. It is the reusable model for any
 /// rung that needs to guard seam-sensitive constructs at product fidelity.</para>
 /// </summary>
+[Trait("Area", "Validity")]
 public class LadderRung1ProductPathGateTests
 {
     static string FixturePath => typeof(LadderRung1.ProductSurface).Assembly.Location;

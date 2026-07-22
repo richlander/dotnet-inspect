@@ -6,6 +6,7 @@ using ILInspector.Research;
 namespace ILInspector.Decompiler.Tests;
 
 [Trait("Speed", "Slow")]
+[Trait("Area", "RoundTrip")]
 public class ReturnToSenderEvidenceTests
 {
     [Fact]

@@ -3,6 +3,7 @@ using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class RangeFromGetSubArrayPassTests
 {
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");

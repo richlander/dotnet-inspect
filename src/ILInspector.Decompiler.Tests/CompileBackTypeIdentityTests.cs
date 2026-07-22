@@ -14,6 +14,7 @@ namespace ILInspector.Decompiler.Tests;
 // (issue #2778). Each case pins index-key == CSharpIdentifier.Sanitize(<arity-stripped
 // metadata name>) against the real compiled type-identity fixture assembly
 // (FixtureIds.DecompilerTypeIdentity), whose source retains the exact type shapes.
+[Trait("Area", "RoundTrip")]
 public class CompileBackTypeIdentityTests
 {
     [Fact]

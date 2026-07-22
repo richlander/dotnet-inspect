@@ -2,6 +2,7 @@ using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
 
+[Trait("Area", "Pass")]
 public class RedundantBranchEliminationPassTests
 {
     static readonly TypeRef s_bool = TypeRef.CoreLib("System", "Boolean");

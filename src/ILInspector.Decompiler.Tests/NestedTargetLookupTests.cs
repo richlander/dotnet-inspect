@@ -10,6 +10,7 @@ namespace ILInspector.Decompiler.Tests;
 /// <c>target-method-not-found</c> bucket and the check silently stopped measuring
 /// that part of the changed population.
 /// </summary>
+[Trait("Area", "Fidelity")]
 public class NestedTargetLookupTests
 {
     const string Outer = "ILInspector.Decompiler.Tests.NestedTargetFixture";

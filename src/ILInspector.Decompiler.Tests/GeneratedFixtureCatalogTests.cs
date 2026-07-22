@@ -14,6 +14,7 @@ namespace ILInspector.Decompiler.Tests;
 /// report by stable fixture ID instead of only by metadata method name.
 /// </summary>
 [Trait("Speed", "Slow")]
+[Trait("Area", "RoundTrip")]
 public class GeneratedFixtureCatalogTests
 {
     [Fact]

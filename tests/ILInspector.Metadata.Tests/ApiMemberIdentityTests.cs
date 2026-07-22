@@ -251,6 +251,193 @@ public class ApiMemberIdentityTests
         Assert.Contains(canonicals, canonical => canonical.EndsWith("~long", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void FallbackCanonicalSignature_AttributedParameterMatchesLiveAfterJsonRoundTrip()
+    {
+        using var stream = File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var liveType = surface.Types.Single(
+            type => type.Name.EndsWith(nameof(AttributedParameterFixture), StringComparison.Ordinal));
+        var liveMember = liveType.Members.Single(
+            member => member.Name == nameof(AttributedParameterFixture.M));
+        Assert.NotNull(liveMember.SignatureModel);
+        Assert.Contains("DateTimeConstant", liveMember.Signature, StringComparison.Ordinal);
+
+        var json = JsonSerializer.Serialize(surface);
+        var roundTripped = JsonSerializer.Deserialize<ApiSurface>(json)!;
+        var persistedType = roundTripped.Types.Single(
+            type => type.Name.EndsWith(nameof(AttributedParameterFixture), StringComparison.Ordinal));
+        var persistedMember = persistedType.Members.Single(
+            member => member.Name == nameof(AttributedParameterFixture.M));
+        Assert.Null(persistedMember.SignatureModel);
+
+        var liveCanonical = ApiMemberIdentity.GetCanonicalSignature(liveType, liveMember);
+        var persistedCanonical = ApiMemberIdentity.GetCanonicalSignature(persistedType, persistedMember);
+
+        Assert.Equal(liveCanonical, persistedCanonical);
+        Assert.EndsWith(".M(System.DateTime,int)", persistedCanonical, StringComparison.Ordinal);
+        Assert.DoesNotContain("Optional", persistedCanonical, StringComparison.Ordinal);
+        Assert.DoesNotContain("DateTimeConstant", persistedCanonical, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FallbackCanonicalSignature_AttributedIndexerMatchesLiveAfterJsonRoundTrip()
+    {
+        using var stream = File.OpenRead(typeof(ApiMemberIdentityTests).Assembly.Location);
+        using var peReader = new PEReader(stream);
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var liveType = surface.Types.Single(
+            type => type.Name.EndsWith(nameof(AttributedParameterFixture), StringComparison.Ordinal));
+        var liveIndexer = liveType.Members.Single(
+            member => member.Kind == "property" && member.Name == "Item");
+        Assert.NotNull(liveIndexer.SignatureModel);
+        Assert.Contains("DateTimeConstant", liveIndexer.Signature, StringComparison.Ordinal);
+
+        var json = JsonSerializer.Serialize(surface);
+        var roundTripped = JsonSerializer.Deserialize<ApiSurface>(json)!;
+        var persistedType = roundTripped.Types.Single(
+            type => type.Name.EndsWith(nameof(AttributedParameterFixture), StringComparison.Ordinal));
+        var persistedIndexer = persistedType.Members.Single(
+            member => member.Kind == "property" && member.Name == "Item");
+        Assert.Null(persistedIndexer.SignatureModel);
+
+        var liveCanonical = ApiMemberIdentity.GetCanonicalSignature(liveType, liveIndexer);
+        var persistedCanonical = ApiMemberIdentity.GetCanonicalSignature(persistedType, persistedIndexer);
+
+        Assert.Equal(liveCanonical, persistedCanonical);
+        Assert.EndsWith(".Item(System.DateTime)", persistedCanonical, StringComparison.Ordinal);
+        Assert.DoesNotContain("Optional", persistedCanonical, StringComparison.Ordinal);
+        Assert.DoesNotContain("DateTimeConstant", persistedCanonical, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FallbackCanonicalSignature_StripsMultipleLeadingAttributeLists()
+    {
+        var type = new ApiType { Namespace = "N", Name = "C" };
+        var member = new ApiMember
+        {
+            Name = "M",
+            Kind = "method",
+            Signature = "void M([A][B(typeof(int[]))] System.DateTime when, int[] values)",
+        };
+
+        Assert.Equal(
+            "M:N.C.M(System.DateTime,int[])",
+            ApiMemberIdentity.GetCanonicalSignature(type, member));
+    }
+
+    [Theory]
+    [InlineData("void M(System.String text = \"]\", System.Int32 count = 0)")]
+    [InlineData("void M(System.String text = \"[\", System.Int32 count = 0)")]
+    [InlineData("void M(System.String text = \"<>()\", System.Int32 count = 0)")]
+    [InlineData("void M(System.String text = \"a\\\"]b\", System.Int32 count = 0)")]
+    [InlineData("void M(System.String text = \"ok\", System.Int32 count = 0)")]
+    public void FallbackCanonicalSignature_IgnoresDelimitersInsideStringDefaults(string signature)
+    {
+        var type = new ApiType { Namespace = "N", Name = "C" };
+        var member = new ApiMember { Name = "M", Kind = "method", Signature = signature };
+
+        Assert.Equal(
+            "M:N.C.M(System.String,System.Int32)",
+            ApiMemberIdentity.GetCanonicalSignature(type, member));
+    }
+
+    [Fact]
+    public void FallbackCanonicalSignature_IgnoresDelimitersInsideCharDefault()
+    {
+        var type = new ApiType { Namespace = "N", Name = "C" };
+        var member = new ApiMember
+        {
+            Name = "M",
+            Kind = "method",
+            Signature = "void M(System.Char sep = ']', System.Int32 count = 0)",
+        };
+
+        Assert.Equal(
+            "M:N.C.M(System.Char,System.Int32)",
+            ApiMemberIdentity.GetCanonicalSignature(type, member));
+    }
+
+    [Theory]
+    [InlineData("void M)(int a")]
+    [InlineData("foo)bar(")]
+    [InlineData("void M) int a")]
+    public void FallbackCanonicalSignature_DoesNotThrowOnMalformedParentheses(string signature)
+    {
+        var type = new ApiType { Namespace = "N", Name = "C" };
+        var member = new ApiMember { Name = "M", Kind = "method", Signature = signature };
+
+        var canonical = ApiMemberIdentity.GetCanonicalSignature(type, member);
+
+        Assert.False(string.IsNullOrEmpty(canonical));
+    }
+
+    [Theory]
+    [InlineData("void M(SetTree<T> t', FSharpList<T> acc)", "M:N.C.M(SetTree<T>,FSharpList<T>)")]
+    [InlineData("void M(System.Int32 x' = 5, System.Int32 y)", "M:N.C.M(System.Int32,System.Int32)")]
+    [InlineData("void M(System.Int32 x=', System.Int32 y)", "M:N.C.M(System.Int32,System.Int32)")]
+    public void FallbackCanonicalSignature_TreatsQuotesOutsideDefaultsAsOrdinary(string signature, string expected)
+    {
+        var type = new ApiType { Namespace = "N", Name = "C" };
+        var member = new ApiMember { Name = "M", Kind = "method", Signature = signature };
+
+        Assert.Equal(expected, ApiMemberIdentity.GetCanonicalSignature(type, member));
+    }
+
+    [Theory]
+    // An F# double-backtick identifier can legally contain spaces, '=', and an
+    // apostrophe (e.g. ``x = '``), which the formatter emits verbatim. The default
+    // separator " = " inside such a name must not cause the following apostrophe to
+    // be read as a char literal that swallows the parameter-separating comma. This
+    // is compiler-emittable and was handled correctly on main; the fallback must not
+    // regress it.
+    [InlineData("void M(System.Int32 x = ', System.Int32 y)", "M:N.C.M(System.Int32,System.Int32)")]
+    [InlineData("void M(System.Int32 x = \", System.Int32 y)", "M:N.C.M(System.Int32,System.Int32)")]
+    public void FallbackCanonicalSignature_DoesNotInterpretQuotesInDefaultRegion(string signature, string expected)
+    {
+        var type = new ApiType { Namespace = "N", Name = "C" };
+        var member = new ApiMember { Name = "M", Kind = "method", Signature = signature };
+
+        Assert.Equal(expected, ApiMemberIdentity.GetCanonicalSignature(type, member));
+    }
+
+    [Theory]
+    // Brackets outside a leading attribute list must be treated as ordinary text so
+    // they never suppress the parameter-separating comma. This covers array types
+    // (int[]) and compiler-emittable F# double-backtick names that contain an
+    // unmatched bracket (e.g. ``x[``, emitted verbatim as "System.Int32 x["), which
+    // main handled and the fallback must not regress. Bracket nesting is tracked
+    // only inside the leading "[...]" attribute list.
+    [InlineData("void M(System.Int32 x[, System.Int32 y)", "M:N.C.M(System.Int32,System.Int32)")]
+    [InlineData("void M(System.Int32 x], System.Int32 y)", "M:N.C.M(System.Int32,System.Int32)")]
+    [InlineData("void M(System.Int32[] a, System.Int32[] b)", "M:N.C.M(System.Int32[],System.Int32[])")]
+    public void FallbackCanonicalSignature_TreatsBracketsOutsideAttributesAsOrdinary(string signature, string expected)
+    {
+        var type = new ApiType { Namespace = "N", Name = "C" };
+        var member = new ApiMember { Name = "M", Kind = "method", Signature = signature };
+
+        Assert.Equal(expected, ApiMemberIdentity.GetCanonicalSignature(type, member));
+    }
+
+    [Theory]
+    // main uses a single combined depth counter over '<'/'>'/'('/')' , so an F#
+    // quoted name like ``x<)`` (emitted verbatim as "System.Int32 x<)") relies on
+    // '<' and ')' cross-cancelling to keep depth at 0 at the separator comma.
+    // Splitting that into independent angle/paren counters dropped the second
+    // parameter; the fallback must preserve main's combined-counter behavior.
+    [InlineData("void M(System.Int32 x<), System.Int32 y)", "M:N.C.M(System.Int32,System.Int32)")]
+    [InlineData("void M(System.Int32 x)<, System.Int32 y)", "M:N.C.M(System.Int32,System.Int32)")]
+    public void FallbackCanonicalSignature_PreservesCombinedAngleParenDepth(string signature, string expected)
+    {
+        var type = new ApiType { Namespace = "N", Name = "C" };
+        var member = new ApiMember { Name = "M", Kind = "method", Signature = signature };
+
+        Assert.Equal(expected, ApiMemberIdentity.GetCanonicalSignature(type, member));
+    }
+
     static (TypeDefinitionHandle TypeHandle, MethodDefinition Method) FindFixtureMethod(MetadataReader reader)
     {
         foreach (var typeHandle in reader.TypeDefinitions)
@@ -309,5 +496,21 @@ public class ApiMemberIdentityTests
         public int this[int index] => index;
 
         public int this[string key] => key.Length;
+    }
+
+    sealed class AttributedParameterFixture
+    {
+        public void M(
+            [System.Runtime.InteropServices.Optional]
+            [System.Runtime.CompilerServices.DateTimeConstant(630822816000000000L)]
+            DateTime when,
+            int count)
+        {
+        }
+
+        public int this[
+            [System.Runtime.InteropServices.Optional]
+            [System.Runtime.CompilerServices.DateTimeConstant(630822816000000000L)]
+            DateTime when] => when.Year;
     }
 }

@@ -28,6 +28,7 @@ namespace ILInspector.Decompiler.Tests;
 /// Like <see cref="LadderRung1GateTests"/> this is the fast depth-scoped bar, not
 /// a corpus sweep or compile-back opcode check.
 /// </summary>
+[Trait("Area", "Validity")]
 public class LadderRung1FoundationGateTests
 {
     static string FixturePath => typeof(LadderRung1.Foundation).Assembly.Location;
