@@ -1964,10 +1964,10 @@ public static class IrImporter
             if (index == 0)
                 return new LoadArgument(0, "this", method.DeclaringType);
             var p = method.Signature.Parameters[index - 1];
-            return new LoadArgument(index, p.Name, p.Type);
+            return new LoadArgument(index, p.Name, p.Type) { IsDynamic = p.IsDynamic };
         }
         var parameter = method.Signature.Parameters[index];
-        return new LoadArgument(index, parameter.Name, parameter.Type);
+        return new LoadArgument(index, parameter.Name, parameter.Type) { IsDynamic = parameter.IsDynamic };
     }
 
     static LoadArgumentAddress MakeLoadArgumentAddress(ImportedMethod method, int index)
@@ -2555,6 +2555,7 @@ public static class IrImporter
                     BackingPropertyName = BackingPropertyName(reader, declaringType, name),
                     DeclaringTypeCompilerGenerated = FactState(MethodDefinitionFacts.HasCompilerGeneratedAttribute(reader, declaringType.GetCustomAttributes())),
                     FixedBuffer = FixedBufferFieldInfo(reader, field.GetCustomAttributes()),
+                    IsDynamic = DynamicReader.IsTopLevelDynamic(DynamicReader.GetDynamicFlags(reader, field.GetCustomAttributes())),
                 };
             }
             case HandleKind.MemberReference:
@@ -2569,6 +2570,7 @@ public static class IrImporter
                 {
                     BackingPropertyName = MemberReferenceBackingPropertyName(reader, member, name),
                     DeclaringTypeCompilerGenerated = MemberReferenceDefinitionFacts(reader, member, name, false, []).DeclaringTypeCompilerGenerated,
+                    IsDynamic = MemberReferenceFieldIsDynamic(reader, member, name),
                 };
             }
             default:
@@ -2634,6 +2636,26 @@ public static class IrImporter
         if (DeclaringTypeDefinition(reader, member.Parent) is not { } typeHandle)
             return null;
         return BackingPropertyName(reader, reader.GetTypeDefinition(typeHandle), fieldName);
+    }
+
+    // A field referenced through a MemberReference (e.g. a captured `dynamic`
+    // hoisted into a generic display-class field, accessed via a generic-instance
+    // TypeSpec parent) carries its [DynamicAttribute] on the underlying same-
+    // assembly FieldDefinition, not on the reference. Resolve to the definition
+    // and decode the top-level dynamic flag so the printer can drop the redundant
+    // ((dynamic)x) cast for the generic-enclosing case too (issue #2984).
+    static bool MemberReferenceFieldIsDynamic(MetadataReader reader, MemberReference member, string fieldName)
+    {
+        if (DeclaringTypeDefinition(reader, member.Parent) is not { } typeHandle)
+            return false;
+        var declaringType = reader.GetTypeDefinition(typeHandle);
+        foreach (var fieldHandle in declaringType.GetFields())
+        {
+            var field = reader.GetFieldDefinition(fieldHandle);
+            if (string.Equals(reader.GetString(field.Name), fieldName, StringComparison.Ordinal))
+                return DynamicReader.IsTopLevelDynamic(DynamicReader.GetDynamicFlags(reader, field.GetCustomAttributes()));
+        }
+        return false;
     }
 
     /// <summary>

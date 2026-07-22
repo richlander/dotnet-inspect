@@ -26,8 +26,14 @@ public sealed record MethodBody(
     ImmutableArray<HandlerRegion> Handlers,
     bool SkipLocalsInit = false);
 
-/// <summary>A parameter: name, symbolic type, and whether metadata declares an optional default.</summary>
-public sealed record Parameter(string Name, TypeRef Type, bool HasDefault = false);
+/// <summary>
+/// A parameter: name, symbolic type, whether metadata declares an optional
+/// default, and whether the top-level type was authored as <c>dynamic</c>
+/// (a <c>System.Object</c> position carrying <c>[DynamicAttribute]</c>). The
+/// dynamic view lets the printer drop a redundant <c>(dynamic)</c> cast on a
+/// raised dynamic member access whose receiver is this parameter.
+/// </summary>
+public sealed record Parameter(string Name, TypeRef Type, bool HasDefault = false, bool IsDynamic = false);
 
 /// <summary>A method signature with symbolic types throughout.</summary>
 public sealed record MethodSignature(

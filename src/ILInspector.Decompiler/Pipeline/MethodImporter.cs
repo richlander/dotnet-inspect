@@ -62,6 +62,7 @@ public static class MethodImporter
         var parameters = ImmutableArray.CreateBuilder<Parameter>(decoded.ParameterTypes.Length);
         var namesByIndex = new Dictionary<int, string>();
         var hasDefaultByIndex = new Dictionary<int, bool>();
+        var dynamicByIndex = new Dictionary<int, bool>();
         foreach (var parameterHandle in method.GetParameters())
         {
             var parameter = reader.GetParameter(parameterHandle);
@@ -69,13 +70,16 @@ public static class MethodImporter
             {
                 namesByIndex[parameter.SequenceNumber - 1] = reader.GetString(parameter.Name);
                 hasDefaultByIndex[parameter.SequenceNumber - 1] = HasDefault(reader, parameter);
+                dynamicByIndex[parameter.SequenceNumber - 1] = DynamicReader.IsTopLevelDynamic(
+                    DynamicReader.GetDynamicFlags(reader, parameter.GetCustomAttributes()));
             }
         }
         for (int i = 0; i < decoded.ParameterTypes.Length; i++)
             parameters.Add(new Parameter(
                 namesByIndex.GetValueOrDefault(i, $"arg{i}"),
                 decoded.ParameterTypes[i],
-                hasDefaultByIndex.GetValueOrDefault(i)));
+                hasDefaultByIndex.GetValueOrDefault(i),
+                dynamicByIndex.GetValueOrDefault(i)));
 
         var signature = new MethodSignature(
             decoded.ReturnType,

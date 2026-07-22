@@ -404,6 +404,20 @@ public sealed class DynamicTypeViewTests
         node.ApplyDynamic(flags, ref pos);
         Assert.Equal("object[]", node.Render());
     }
+
+    // --- IsTopLevelDynamic predicate: only the outermost (index-0) position ---
+
+    [Theory]
+    [InlineData(null, false)]              // attribute absent -> plain object
+    [InlineData(new byte[] { }, false)]    // empty flags -> not dynamic
+    [InlineData(new byte[] { 0 }, false)]  // object at the top-level position
+    [InlineData(new byte[] { 1 }, true)]   // bare `dynamic` (or marker form)
+    [InlineData(new byte[] { 0, 1 }, false)] // `Func<dynamic>` -> nested, not top-level
+    [InlineData(new byte[] { 1, 0 }, true)]  // `dynamic` outer with a non-dynamic arg
+    public void IsTopLevelDynamic_ReadsOutermostPositionOnly(byte[]? flags, bool expected)
+    {
+        Assert.Equal(expected, DynamicReader.IsTopLevelDynamic(flags));
+    }
 }
 
 // ===== Test fixture types with a spread of dynamic type shapes =====

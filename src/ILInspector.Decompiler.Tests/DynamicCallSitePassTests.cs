@@ -219,7 +219,11 @@ public class DynamicCallSitePassTests
     {
         var f = LoadCanonicalFunction();
         var output = RaiseAndPrint(f);
-        Assert.Contains("((dynamic)value).Length", output);
+        // `value` is a top-level `dynamic` parameter, so the receiver's static
+        // type is already dynamic and the redundant `((dynamic)value)` cast is
+        // dropped (issue #2984).
+        Assert.Contains("value.Length", output);
+        Assert.DoesNotContain("((dynamic)value)", output);
     }
 
     [Fact]
@@ -238,7 +242,8 @@ public class DynamicCallSitePassTests
         var f = LoadCanonicalFunction();
         BinderCall(f).Arguments[1].ReplaceWith(new Constant("class", StringType));
         var output = RaiseAndPrint(f);
-        Assert.Contains("((dynamic)value).@class", output);
+        Assert.Contains("value.@class", output);
+        Assert.DoesNotContain("((dynamic)value)", output);
     }
 
     [Fact]
@@ -1416,9 +1421,11 @@ public class DynamicCallSitePassTests
     public void ImmediateUse_FieldAssignment_Raises()
     {
         // Compiler-backed: `_last = value.Length;` — the dynamic access is the
-        // value of a field store, not a return.
+        // value of a field store, not a return. `value` is a top-level dynamic
+        // parameter, so the redundant cast is dropped (#2984).
         var output = RaiseMemberContext("AssignToField");
-        Assert.Contains("_last = ((dynamic)value).Length;", output);
+        Assert.Contains("_last = value.Length;", output);
+        Assert.DoesNotContain("((dynamic)value)", output);
         Assert.DoesNotContain("Binder.GetMember", output);
     }
 
@@ -1427,18 +1434,22 @@ public class DynamicCallSitePassTests
     {
         // Compiler-backed: `return Identity(value.Length);` — the GetMember
         // access is a call argument (nested inside an unrelated InvokeMember
-        // site that legitimately stays explicit).
+        // site that legitimately stays explicit). `value` is a top-level
+        // dynamic parameter, so the redundant cast is dropped (#2984).
         var output = RaiseMemberContext("UseAsArgument");
-        Assert.Contains("((dynamic)value).Length", output);
+        Assert.Contains("value.Length", output);
+        Assert.DoesNotContain("((dynamic)value)", output);
         Assert.DoesNotContain("Binder.GetMember", output);
     }
 
     [Fact]
     public void ImmediateUse_LocalInitializer_Raises()
     {
-        // Compiler-backed: `object length = value.Length;` used twice.
+        // Compiler-backed: `object length = value.Length;` used twice. `value`
+        // is a top-level dynamic parameter, so the redundant cast is dropped.
         var output = RaiseMemberContext("AssignToLocal");
-        Assert.Contains("((dynamic)value).Length", output);
+        Assert.Contains("value.Length", output);
+        Assert.DoesNotContain("((dynamic)value)", output);
         Assert.DoesNotContain("Binder.GetMember", output);
     }
 
@@ -1447,9 +1458,11 @@ public class DynamicCallSitePassTests
     {
         // A local function is declared on the authored enclosing type, so the
         // GetMember context typeof matches the body's declaring type and the
-        // nested site raises.
+        // nested site raises. `value` is captured into a display-class field
+        // that carries [DynamicAttribute], so the redundant cast is dropped.
         var output = RaiseMemberContext("InLocalFunction");
-        Assert.Contains("((dynamic)value).Length", output);
+        Assert.Contains("value.Length", output);
+        Assert.DoesNotContain("((dynamic)value)", output);
     }
 
     [Fact]
@@ -1472,7 +1485,11 @@ public class DynamicCallSitePassTests
             }
         }
         Assert.NotNull(displayClassOutput);
-        Assert.Contains("((dynamic)value).Length", displayClassOutput);
+        // The captured `value` is hoisted into a display-class field that
+        // carries [DynamicAttribute] (csc emits the attribute on lambda
+        // display-class fields), so the redundant cast is dropped (#2984).
+        Assert.Contains("value.Length", displayClassOutput);
+        Assert.DoesNotContain("((dynamic)value)", displayClassOutput);
         Assert.DoesNotContain("Binder.GetMember", displayClassOutput);
     }
 
@@ -1607,7 +1624,12 @@ public class DynamicCallSitePassTests
             }
         }
         Assert.NotNull(displayClassOutput);
-        Assert.Contains("((dynamic)value).Length", displayClassOutput);
+        // The captured `value` is hoisted into a generic display-class field
+        // (Host<T>'s environment) accessed via a generic-instance MemberReference;
+        // its underlying FieldDefinition carries [DynamicAttribute], so the
+        // redundant cast is dropped through the MemberReference decode (#2984).
+        Assert.Contains("value.Length", displayClassOutput);
+        Assert.DoesNotContain("((dynamic)value)", displayClassOutput);
         Assert.DoesNotContain("Binder.GetMember", displayClassOutput);
     }
 

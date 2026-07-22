@@ -2547,7 +2547,7 @@ public sealed partial class CSharpPrinter
         AddressOfMethod m => AddressOfMethodText(m),
         LoadFunctionPointer p => $"/* {p.Describe()} */",
         LoadProperty p => PropertyTarget(p.Accessor, p.HasInstance ? p.Instance : null, p.IndexArguments, p.PropertyName, p.IsVirtual),
-        DynamicGetMember d => $"((dynamic){Operand(d.Receiver)}).{CSharpNaming.EscapeIdentifier(d.PropertyName)}",
+        DynamicGetMember d => DynamicGetMemberText(d),
         NewObject n when MultiDimArrayCreationText(n) is { } text => text,
         NewObject n => $"new {TypeText(n.Constructor.DeclaringType)}({Arguments(n.Arguments, n.Constructor.ParameterTypes, n.Constructor.ParameterRefKinds)})",
         TupleExpression t => $"({Arguments(t.Elements)})",
@@ -2611,6 +2611,29 @@ public sealed partial class CSharpPrinter
             RuntimeTokenKind.Method => $"/* {token.Describe()} */ default(System.RuntimeMethodHandle)",
             _ => $"/* {token.Describe()} */ null",
         };
+
+    string DynamicGetMemberText(DynamicGetMember d)
+    {
+        string member = CSharpNaming.EscapeIdentifier(d.PropertyName);
+        // A dynamic member access needs no member signature — the name is a
+        // string handed to Binder.GetMember and resolved at runtime — so a
+        // receiver whose static type is already `dynamic` binds `receiver.Member`
+        // with no cast. The `(dynamic)` cast is only required to coerce an
+        // `object`-typed operand (or a mixed expression) into dynamic dispatch.
+        // Drop it when the operand's source (a dynamic parameter, or a hoisted
+        // display-class field carrying [DynamicAttribute]) recovers a dynamic
+        // type view.
+        if (IsDynamicTypedReceiver(d.Receiver))
+            return $"{Operand(d.Receiver)}.{member}";
+        return $"((dynamic){Operand(d.Receiver)}).{member}";
+    }
+
+    static bool IsDynamicTypedReceiver(IrExpression receiver) => receiver switch
+    {
+        LoadArgument { IsDynamic: true } => true,
+        LoadField { Field.IsDynamic: true } => true,
+        _ => false,
+    };
 
     string CoalesceText(Coalesce co, TypeRef? target = null)
     {
