@@ -2712,6 +2712,28 @@ public class RaisingPassTests
     }
 
     [Fact]
+    public void StackAllocSpanInitializerThroughSlot_RaisesAtFullFidelity()
+    {
+        // #2907 real-compiled regression: before StackAllocSpanPass resolved
+        // the slot indirection, this shape imported at (an incorrectly)
+        // Full fidelity while printing the invalid
+        // `new Span<int>((void*)(stackalloc int[] { 1, 2, 3 }), 3)` (CS8346).
+        using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.StackAllocSpanInitializerThroughSlot));
+        Assert.NotNull(function);
+
+        IrPasses.Run(function);
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Empty(function.Descendants.OfType<NewObject>());
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.True(raised.HasInitializer);
+
+        string output = CSharpPrinter.Print(function).Output!;
+        Assert.Contains("Consume(stackalloc int[] { 1, 2, 3 });", output);
+    }
+
+    [Fact]
     public void StackAlloc_ReturningPointer_PrintsPointerLocal()
     {
         // A stackalloc expression cannot be returned directly as a pointer, nor

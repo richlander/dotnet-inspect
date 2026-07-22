@@ -3977,6 +3977,22 @@ public class CfgSampleClass
         return buffer[0];
     }
 
+    // #2907: a Span-wrapped stackalloc with an initializer (`Span<int> s =
+    // stackalloc int[] { 1, 2, 3 }`) lowers to a `localloc` result stored to a
+    // stack slot, an initializer copy (cpblk over a `ReadOnlySpan<int>` span
+    // literal), and a `new Span<int>(void*, int)` ctor that reads the slot.
+    // StackAllocInitializerPass recovers the initializer into the slot's
+    // stored StackAllocArray but never touches the ctor call, so
+    // StackAllocSpanPass alone must resolve the slot indirection to raise the
+    // whole shape to `Consume(stackalloc int[] { 1, 2, 3 });` at Full
+    // fidelity -- otherwise the unraised ctor prints an invalid
+    // `new Span<int>((void*)(stackalloc int[] { 1, 2, 3 }), 3)` (CS8346: a
+    // stackalloc may not appear in argument position).
+    public static void StackAllocSpanInitializerThroughSlot()
+        => Consume(stackalloc int[] { 1, 2, 3 });
+
+    static void Consume(Span<int> s) { }
+
     // A reference-type stack join: the ternary's two branches push a derived
     // and a base instance into one slot that merges to their common base
     // JoinBase. The importer types the slot JoinBase — an actual ancestor it
