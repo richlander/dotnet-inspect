@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Runtime.CompilerServices;
 
 using SrmConstant = System.Reflection.Metadata.Constant;
 
@@ -25,9 +26,17 @@ namespace ILInspector.Decompiler.Pipeline;
 /// same-named sibling can rebind the shortened call only by <em>tying</em> the
 /// callee — sharing its leading parameter types. <see cref="SafeTrailingElidableCount"/>
 /// counts the trailing defaulted run for which no such leading-signature
-/// duplicate exists on the declaring type; a generic callee declines to zero. The
-/// recompile/corpus fidelity gate is the empirical backstop for any residual
-/// overload-resolution miss.</para>
+/// duplicate exists among the callee's rebind candidates; any same-named generic
+/// sibling declines the whole callee (a generic candidate can unify with the
+/// retained arguments and win the fewer-declared-parameters tie-break). For a
+/// non-extension callee the candidate set is the declaring type's own methods
+/// (static calls are fully qualified; instance calls are pinned by the pass-time
+/// receiver guard). An extension callee renders in receiver syntax, so its
+/// candidates are <em>every</em> extension method of the same name in the
+/// assembly, and elision additionally requires the receiver type to live in
+/// another assembly (a same-assembly instance method would beat the extension).
+/// Extensions and instance methods in referenced assemblies are the residual the
+/// recompile/corpus fidelity gate backstops.</para>
 /// </summary>
 internal static class OptionalArgumentFacts
 {
@@ -134,56 +143,177 @@ internal static class OptionalArgumentFacts
 
         // A generic declaring type or generic method makes cross-instantiation
         // reasoning unsound here; decline in v1.
-        if (callee.DeclaringType.Kind == TypeRefKind.GenericInstance || !callee.TypeArguments.IsDefaultOrEmpty)
+        if (callee.DeclaringType.Kind == TypeRefKind.GenericInstance
+            || !callee.TypeArguments.IsDefaultOrEmpty
+            || method.GetGenericParameters().Count > 0)
             return 0;
 
-        var siblings = SiblingOverloads(reader, method, handle, callee.Name);
+        List<SiblingSignature> siblings;
+        if (MethodDefinitionFacts.HasExtensionAttribute(reader, method))
+        {
+            // An extension call renders in receiver syntax (r.M(args)), so the
+            // recompiler resolves M across every extension class in scope plus the
+            // receiver type's own instance methods — not just the callee's
+            // declaring class. Bound what we can prove locally: (1) the receiver
+            // type must live in another assembly, so no same-assembly instance
+            // method can capture the shortened call, and (2) no same-assembly
+            // extension named M may tie the callee's leading signature. Extensions
+            // and instance methods in referenced assemblies stay the residual the
+            // corpus fidelity gate backstops.
+            if (!ReceiverIsCrossAssembly(reader, callee.ParameterTypes[0]))
+                return 0;
+            siblings = AssemblyExtensionSiblings(reader, callee.Name);
+        }
+        else
+        {
+            // A non-extension call resolves within the callee's declaring type:
+            // static calls are fully qualified, and instance calls use the
+            // receiver's static type, which the pass-time receiver guard pins to
+            // the declaring type. Its own methods are the only rebind candidates.
+            siblings = DeclaringTypeSiblings(reader, method, callee.Name);
+        }
+
+        // A same-named generic sibling can unify with the retained arguments and
+        // win the "fewer declared parameters" tie-break over an optional-using
+        // callee (verified: Pick(int, int = 0) loses Pick(v) to Pick<T>(T)). The
+        // leading-signature identity check below cannot model unification, so
+        // decline the whole callee when any generic sibling shares the name.
+        foreach (var sibling in siblings)
+            if (sibling.Handle != handle && sibling.IsGeneric)
+                return 0;
 
         int safe = 0;
         for (int k = 1; k <= trailingDefaults; k++)
         {
-            if (!AritySafe(callee, siblings, n - k))
+            if (!AritySafe(callee, siblings, handle, n - k))
                 break;
             safe = k;
         }
         return safe;
     }
 
-    static List<ImmutableArray<TypeRef>> SiblingOverloads(MetadataReader reader, MethodDefinition self, MethodDefinitionHandle selfHandle, string name)
+    /// <summary>
+    /// A same-named overload candidate: its handle (to exclude the callee itself),
+    /// its decoded parameter types (leading-signature comparison), and whether it
+    /// is generic (a generic candidate declines the whole callee).
+    /// </summary>
+    readonly record struct SiblingSignature(MethodDefinitionHandle Handle, ImmutableArray<TypeRef> ParameterTypes, bool IsGeneric);
+
+    static readonly List<SiblingSignature> NoSiblings = [];
+
+    // The assembly-wide extension index is a full metadata scan; cache it per
+    // reader so a corpus run pays for it once per assembly.
+    static readonly ConditionalWeakTable<MetadataReader, Dictionary<string, List<SiblingSignature>>> ExtensionSiblingCache = new();
+
+    static List<SiblingSignature> DeclaringTypeSiblings(MetadataReader reader, MethodDefinition self, string name)
     {
-        var siblings = new List<ImmutableArray<TypeRef>>();
+        var siblings = new List<SiblingSignature>();
         var declaringType = reader.GetTypeDefinition(self.GetDeclaringType());
         var typeScope = new GenericScope(MethodDefinitionFacts.GenericParameterNames(reader, declaringType.GetGenericParameters()), []);
         foreach (var handle in declaringType.GetMethods())
         {
-            if (handle == selfHandle)
-                continue;
             var method = reader.GetMethodDefinition(handle);
             if (!string.Equals(reader.GetString(method.Name), name, StringComparison.Ordinal))
                 continue;
-            siblings.Add(GuardedDecode.MethodSignature(reader, method, typeScope).ParameterTypes);
+            siblings.Add(new SiblingSignature(
+                handle,
+                GuardedDecode.MethodSignature(reader, method, typeScope).ParameterTypes,
+                method.GetGenericParameters().Count > 0));
         }
         return siblings;
     }
 
     /// <summary>
-    /// Whether dropping the callee down to <paramref name="arity"/> leading
-    /// arguments is safe: no sibling with at least that many parameters shares the
-    /// callee's first <paramref name="arity"/> parameter types. A sibling that
-    /// differs at any leading position cannot rebind (the callee's identity match
-    /// on the retained arguments is strictly better), so only a leading-signature
-    /// duplicate blocks.
+    /// Every extension method named <paramref name="name"/> anywhere in the
+    /// assembly — the candidate set a shortened extension call's receiver-syntax
+    /// overload resolution draws from. Built once per reader and cached.
     /// </summary>
-    static bool AritySafe(MethodRef callee, List<ImmutableArray<TypeRef>> siblings, int arity)
+    static List<SiblingSignature> AssemblyExtensionSiblings(MetadataReader reader, string name)
+    {
+        var index = ExtensionSiblingCache.GetValue(reader, BuildExtensionSiblingIndex);
+        return index.TryGetValue(name, out var siblings) ? siblings : NoSiblings;
+    }
+
+    static Dictionary<string, List<SiblingSignature>> BuildExtensionSiblingIndex(MetadataReader reader)
+    {
+        var index = new Dictionary<string, List<SiblingSignature>>(StringComparer.Ordinal);
+        foreach (var typeHandle in reader.TypeDefinitions)
+        {
+            var type = reader.GetTypeDefinition(typeHandle);
+            // The compiler marks an extension method's declaring class with
+            // [Extension] as well; skip classes that hold no extensions.
+            if (!ILInspector.Metadata.AttributeReader.HasExtensionAttribute(reader, type.GetCustomAttributes()))
+                continue;
+            var typeScope = new GenericScope(MethodDefinitionFacts.GenericParameterNames(reader, type.GetGenericParameters()), []);
+            foreach (var handle in type.GetMethods())
+            {
+                var method = reader.GetMethodDefinition(handle);
+                if (!MethodDefinitionFacts.HasExtensionAttribute(reader, method))
+                    continue;
+                string name = reader.GetString(method.Name);
+                if (!index.TryGetValue(name, out var siblings))
+                {
+                    siblings = [];
+                    index[name] = siblings;
+                }
+                siblings.Add(new SiblingSignature(
+                    handle,
+                    GuardedDecode.MethodSignature(reader, method, typeScope).ParameterTypes,
+                    method.GetGenericParameters().Count > 0));
+            }
+        }
+        return index;
+    }
+
+    /// <summary>
+    /// Whether an extension callee's receiver type is rooted in another assembly.
+    /// A same-assembly receiver could declare an instance method (possibly
+    /// inherited) that captures the shortened call — instance methods beat
+    /// extensions — and clearing its full method set is not cheap, so decline. A
+    /// receiver rooted elsewhere has its instance methods there too, out of this
+    /// assembly's reach. Arrays and generic instances are cleared through their
+    /// element type.
+    /// </summary>
+    static bool ReceiverIsCrossAssembly(MetadataReader reader, TypeRef receiver)
+    {
+        string? rootAssembly = RootAssembly(receiver);
+        if (string.IsNullOrEmpty(rootAssembly))
+            return false;
+        string current = reader.IsAssembly
+            ? TypeRefDecoder.Canonical(reader.GetString(reader.GetAssemblyDefinition().Name))
+            : "";
+        return !string.Equals(rootAssembly, current, StringComparison.Ordinal);
+    }
+
+    static string? RootAssembly(TypeRef type) => type.Kind switch
+    {
+        TypeRefKind.Definition => type.Assembly,
+        TypeRefKind.GenericInstance or TypeRefKind.SzArray or TypeRefKind.Array
+            or TypeRefKind.Pointer or TypeRefKind.ByRef or TypeRefKind.Pinned
+            => type.ElementType is { } element ? RootAssembly(element) : null,
+        _ => null,
+    };
+
+    /// <summary>
+    /// Whether dropping the callee down to <paramref name="arity"/> leading
+    /// arguments is safe: no candidate (other than the callee itself) with at
+    /// least that many parameters shares the callee's first <paramref name="arity"/>
+    /// parameter types. A candidate that differs at any leading position cannot
+    /// rebind (the callee's identity match on the retained arguments is strictly
+    /// better), so only a leading-signature duplicate blocks.
+    /// </summary>
+    static bool AritySafe(MethodRef callee, List<SiblingSignature> siblings, MethodDefinitionHandle selfHandle, int arity)
     {
         foreach (var sibling in siblings)
         {
-            if (sibling.Length < arity)
+            if (sibling.Handle == selfHandle)
+                continue;  // the callee cannot rebind to itself
+            if (sibling.ParameterTypes.Length < arity)
                 continue;  // too few parameters to tie the callee at this arity
             bool sharesLeadingSignature = true;
             for (int i = 0; i < arity; i++)
             {
-                if (!sibling[i].Equals(callee.ParameterTypes[i]))
+                if (!sibling.ParameterTypes[i].Equals(callee.ParameterTypes[i]))
                 {
                     sharesLeadingSignature = false;
                     break;

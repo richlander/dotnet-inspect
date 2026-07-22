@@ -39,6 +39,13 @@ public class OptionalArgumentElisionFixtures
     class Reporter { public virtual string Emit(string message, bool loud = false) => loud ? message : ""; }
     sealed class LoudReporter : Reporter { public string Emit(string message) => message + "!"; }
 
+    // Generic-sibling steal hazard: Pick(5, 0) binds the non-generic
+    // Pick(int, int = 0), but eliding to Pick(5) would rebind to the generic
+    // Pick<int>(int) — the "fewer declared parameters" tie-break beats the
+    // optional-using candidate. Any same-named generic sibling declines elision.
+    static int Pick(int value, int seed = 0) => value + seed;
+    static int Pick<T>(T value) => value?.GetHashCode() ?? 0;
+
     // --- Callers under test ---
 
     public int CallSpeakElidesNull() => Speak(3);
@@ -58,4 +65,42 @@ public class OptionalArgumentElisionFixtures
         LoudReporter r = new LoudReporter();
         return r.Emit("x", false);
     }
+
+    // A lone extension on a cross-assembly receiver (string): the witness shape
+    // (ToWords is itself a static extension). No competing same-named extension
+    // exists, so the trailing null default drops in receiver syntax.
+    public string CallExtensionElidesTrailingNull(string s) => s.WithTag(2);
+
+    // Cross-class extension steal: eliding the trailing null would rebind
+    // s.Pin(2, null) to StealerExtensions.Pin(string, int). The assembly-wide
+    // extension scan finds the tie and keeps the explicit argument.
+    public string CallExtensionKeepsCrossClassSteal(string s) => s.Pin(2, null);
+
+    // Generic sibling present on the declaring type: the explicit trailing 0 stays.
+    public int CallPickKeepsGenericSibling() => Pick(5, 0);
+}
+
+// --- Extension-method fixtures (assembly-wide overload scan + receiver guard) ---
+// Extension methods must live in top-level, non-generic static classes, so these
+// sit beside the fixture class rather than nested inside it.
+
+internal static class TagExtensions
+{
+    public static string WithTag(this string value, int weight, string? tag = null)
+        => tag is null ? $"{value}:{weight}" : $"{value}:{weight}:{tag}";
+}
+
+// The intended callee: a trailing optional after one real parameter.
+internal static class IntendedExtensions
+{
+    public static string Pin(this string value, int weight, string? tag = null)
+        => tag is null ? $"{value}#{weight}" : $"{value}#{weight}#{tag}";
+}
+
+// The thief: a shorter same-named extension on the same receiver that ties the
+// intended callee's leading signature at the shortened arity, in a different
+// class the old declaring-type-only scan never saw.
+internal static class StealerExtensions
+{
+    public static string Pin(this string value, int weight) => $"{value}!{weight}";
 }

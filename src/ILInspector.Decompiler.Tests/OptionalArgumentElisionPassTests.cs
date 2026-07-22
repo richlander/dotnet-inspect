@@ -109,4 +109,39 @@ public class OptionalArgumentElisionPassTests
 
         Assert.Contains(", false)", output);
     }
+
+    [Fact]
+    public void LoneExtensionTrailingNullDefault_IsElided()
+    {
+        // A static extension callee (like the ToWords witness) with no competing
+        // same-named extension in the assembly: the trailing null default drops
+        // while the receiver and the real argument stay.
+        string output = PrintRaised(nameof(OptionalArgumentElisionFixtures.CallExtensionElidesTrailingNull));
+
+        Assert.Contains("WithTag", output);
+        Assert.DoesNotContain("null", output);
+    }
+
+    [Fact]
+    public void CrossClassExtensionStealsShortenedCall_KeepsExplicitArgument()
+    {
+        // IntendedExtensions.Pin(string, int, string = null) is the callee, but a
+        // shorter StealerExtensions.Pin(string, int) in a different class ties it
+        // at arity 2. The assembly-wide extension scan (not just the declaring
+        // class) must see the tie and keep the explicit trailing null.
+        string output = PrintRaised(nameof(OptionalArgumentElisionFixtures.CallExtensionKeepsCrossClassSteal));
+
+        Assert.Contains("null", output);
+    }
+
+    [Fact]
+    public void GenericSiblingOverload_KeepsExplicitArgument()
+    {
+        // Pick(int, int = 0) has a generic sibling Pick<T>(T). Eliding to Pick(5)
+        // would rebind to Pick<int>(int), so any same-named generic sibling
+        // declines elision and the explicit trailing 0 stays.
+        string output = PrintRaised(nameof(OptionalArgumentElisionFixtures.CallPickKeepsGenericSibling));
+
+        Assert.Contains(", 0)", output);
+    }
 }
