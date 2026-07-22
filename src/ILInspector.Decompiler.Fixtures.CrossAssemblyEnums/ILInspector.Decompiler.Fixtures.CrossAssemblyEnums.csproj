@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Cross-assembly enum fixtures for the wide-index / unary-negate fidelity gate
+    (#2981, PR #3012). These enums live in a SEPARATE assembly from CfgSampleClass
+    so the decompiler cannot resolve their shape: MetadataSource.EnsureTypeMaps
+    walks only the decompiled assembly's own type definitions, so a referenced
+    enum resolves to an Unknown shape and EnumUnderlyingType returns nothing.
+
+    That is exactly the finding-#10 scenario the printer's width fallback
+    (NegateWidthKeyword / IsUnresolvedEnumLike) must cover: a unary `neg` over an
+    unresolved enum array element recovers its signed-reinterpret cast width from
+    the masked `ldelem` opcode, not from the (unavailable) underlying type. A
+    ulong/long-backed enum here is the ONLY way to exercise the 8-byte
+    (`Int64`->`long`) arm of that fallback under the cross-assembly path — no
+    common core-library enum is 8-byte-backed, so DayOfWeek only covers the
+    4-byte arm.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+  </PropertyGroup>
+
+</Project>

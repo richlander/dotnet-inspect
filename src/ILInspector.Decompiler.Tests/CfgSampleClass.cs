@@ -959,6 +959,28 @@ public class CfgSampleClass
     // neg; conv.i`.
     public static int NegCrossAssemblyEnumElementIndex(int[] a, System.DayOfWeek[] v, int j) => a[-(int)v[j]];
 
+    // The 8-byte cross-assembly mirror of the DayOfWeek case: a ulong-backed enum
+    // that lives in a REFERENCED assembly, so EnsureTypeMaps (this assembly's type
+    // defs only) leaves it Unknown-shaped and EnumUnderlyingType has nothing. No
+    // core-library enum is 8-byte-backed, so this is the ONLY automated coverage of
+    // the width fallback's `long`/Int64 arm under the cross-assembly path: the
+    // reinterpret is recovered from the masked `ldelem.i8`, not the unavailable
+    // underlying type. Used as a signed index it strips clean. Opcode-exact:
+    // `ldelem.i8; neg; conv.i`.
+    public static int NegExternalULongEnumElementIndex(int[] a, ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalULong[] v, int j) => a[-(long)v[j]];
+
+    // The `long`-backed cross-assembly enum negated outside any index still needs
+    // the operand cast — no unary minus on the enum — recovered as `(long)` from
+    // the masked `ldelem.i8`. General printer path across the assembly boundary.
+    // Opcode-exact: `ldelem.i8; neg`.
+    public static long NegExternalLongEnumElementToLong(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong[] v, int j) => -(long)v[j];
+
+    // The 4-byte cross-assembly arm: a uint-backed referenced enum negate recovers
+    // `(int)` from the masked `ldelem` (sub-8-byte integers view as I4), mirroring
+    // NegEnumUIntElementToInt across the assembly boundary and pinning that the
+    // width fallback does not over-widen the narrow arm. Opcode-exact: `ldelem.*; neg`.
+    public static int NegExternalUIntEnumElementToInt(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalUInt[] v, int j) => -(int)v[j];
+
     // Genuinely-signed `long` neg/not indices recover as `long` and strip bare.
     public static int NegLongIndexBare(int[] a, long i) => a[-i];
 
