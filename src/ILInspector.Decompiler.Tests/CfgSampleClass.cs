@@ -822,6 +822,18 @@ public class CfgSampleClass
 
     public static int LongArrayIndexExpr(int[] a, long i, long j) => a[i + j];
 
+    // A long-backed enum array element in wide array-index position (#2981
+    // adversarial review): `ldelem.i8` reports Int64 storage, masking the enum,
+    // so a bare `a[values[j]]` is CS0266. The printer casts to the underlying
+    // wide primitive — `a[(long)values[j]]` — which is idiomatic and re-inserts
+    // the same implicit conv.ovf.i (opcode-exact).
+    public static int LongEnumArrayIndex(int[] a, CfgLongPriority[] values, int j) => a[(long)values[j]];
+
+    // The ref/pointee analog: a long-backed enum read through `ldind.i8`. The
+    // pointee's enum type must survive the same opcode-width masking, rendering
+    // `a[(long)(r)]` rather than a CS0266 bare index.
+    public static int LongEnumRefArrayIndex(int[] a, ref CfgLongPriority r) => a[(long)r];
+
     public static void SetFirstElement(int[] a, int v) => a[0] = v;
 
     // stelem.i1 stores into byte[], sbyte[], and bool[] alike, and stelem.i2 into

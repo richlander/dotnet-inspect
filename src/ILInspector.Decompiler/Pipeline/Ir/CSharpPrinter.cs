@@ -2267,25 +2267,20 @@ public sealed partial class CSharpPrinter
     /// is always overflow-checked, regardless of the enclosing
     /// <c>checked</c>/<c>unchecked</c> context. Spelling that conversion
     /// explicitly (<c>a[checked((nint)i)]</c>) is verbose, unidiomatic, and
-    /// round-trips to a redundant widen-then-renarrow, so a compiler-inserted
-    /// wide-index conversion is stripped to the bare index (<c>a[i]</c>), which
-    /// recompiles to the identical IL. Any other index expression is spelled
-    /// unchanged.
+    /// round-trips to a redundant widen-then-renarrow, so it is elided:
+    /// <list type="bullet">
+    /// <item>an operand that already spells as <c>long</c>/<c>ulong</c> strips to
+    /// the bare index (<c>a[i]</c>);</item>
+    /// <item>a wide (8-byte) <b>enum</b> operand — whose typed load opcode
+    /// (<c>ldelem.i8</c> / <c>ldind.i8</c>) masks it as <c>Int64</c> storage, so
+    /// a bare <c>a[values[j]]</c> is CS0266 — is cast to its underlying wide
+    /// primitive (<c>a[(long)values[j]]</c> / <c>a[(ulong)values[j]]</c>), which
+    /// re-inserts the same implicit index conversion.</item>
+    /// </list>
+    /// Both forms recompile to the identical IL. Any other index expression is
+    /// spelled unchanged.
     /// </summary>
     string ArrayIndexText(IrExpression index)
-        => WideArrayIndexOperand(index) is { } operand ? Expression(operand) : Expression(index);
-
-    /// <summary>
-    /// The source operand of a compiler-inserted wide array-index conversion, or
-    /// null when <paramref name="index"/> is not one. Matches only the exact
-    /// conversions the C# compiler emits for a <c>long</c>/<c>ulong</c>
-    /// single-dimension array index: a checked conversion to
-    /// <see cref="System.IntPtr"/> whose operand is <c>Int64</c>
-    /// (<c>conv.ovf.i</c>) or, when unsigned, <c>UInt64</c>
-    /// (<c>conv.ovf.i.un</c>). A conversion from any other source type would
-    /// recompile to different IL, so it is left spelled.
-    /// </summary>
-    static IrExpression? WideArrayIndexOperand(IrExpression index)
     {
         if (index is not Convert
             {
@@ -2293,21 +2288,60 @@ public sealed partial class CSharpPrinter
                 Target: { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "IntPtr" },
             } convert)
         {
-            return null;
+            return Expression(index);
         }
 
-        string? source = convert.Operand.ResultType is
-            { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" } type
-            ? type.Name
+        var operandType = WideIndexOperandType(convert.Operand);
+        string? primitive = operandType is
+            { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" } named
+            ? named.Name
             : null;
 
-        return (convert.IsUnsigned, source) switch
-        {
-            (false, "Int64") => convert.Operand,
-            (true, "UInt64") => convert.Operand,
-            _ => null,
-        };
+        // The operand already spells as long/ulong: the checked native-int index
+        // conversion is implicit, so drop it to the bare operand. The signed
+        // conv.ovf.i pairs with an Int64 operand, the unsigned conv.ovf.i.un with
+        // UInt64 — any other source type would recompile to different IL.
+        if ((!convert.IsUnsigned && primitive == "Int64") || (convert.IsUnsigned && primitive == "UInt64"))
+            return Expression(convert.Operand);
+
+        // The operand is a wide (8-byte) enum whose typed load opcode reports only
+        // its Int64 storage: a bare index is CS0266, so cast to the underlying
+        // wide primitive. C# re-inserts the same implicit index conversion, so the
+        // signed conv.ovf.i keeps `(long)` and the unsigned conv.ovf.i.un `(ulong)`
+        // — opcode-exact either way.
+        if (operandType is { } enumType && IsEnumLikeDefinition(enumType)
+            && convert.Operand.ResultType is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Int64" or "UInt64" })
+            return $"({(convert.IsUnsigned ? "ulong" : "long")}){Operand(convert.Operand)}";
+
+        // Any other checked (nint) conversion recompiles to different IL: spell it.
+        return Expression(index);
     }
+
+    /// <summary>
+    /// The operand's real C# type, recovering the enum element/pointee type that
+    /// a typed load opcode (<c>ldelem.i8</c> / <c>ldind.i8</c>) reports only as
+    /// its <c>Int64</c> storage width. Mirrors
+    /// <see cref="CoercionSinks.StoreElementTarget"/>'s enum-element reasoning so
+    /// the wide-index decision agrees with the array-store cast decision: the
+    /// array's own element type (or a ref/pointer pointee) wins exactly when it
+    /// is an enum-like definition — a named type with no primitive stack family
+    /// that the shape map does not class as a reference or non-enum struct.
+    /// </summary>
+    TypeRef? WideIndexOperandType(IrExpression operand) => operand switch
+    {
+        LoadElement { Array.ResultType: { Kind: TypeRefKind.SzArray or TypeRefKind.Array, ElementType: { } element } }
+            when IsEnumLikeDefinition(element) => element,
+        LoadIndirect load when WideIndexPointee(load.Address) is { } pointee && IsEnumLikeDefinition(pointee) => pointee,
+        _ => operand.ResultType,
+    };
+
+    static TypeRef? WideIndexPointee(IrExpression address)
+        => address.ResultType is { Kind: TypeRefKind.ByRef or TypeRefKind.Pointer } indirect ? indirect.ElementType : null;
+
+    bool IsEnumLikeDefinition(TypeRef type)
+        => type is { Kind: TypeRefKind.Definition }
+            && TypeFamilies.Of(type) is null
+            && _function.TypeShapes.GetValueOrDefault(type) is not (TypeShape.Reference or TypeShape.ValueType);
 
     string Expression(IrExpression node) => node switch
     {
