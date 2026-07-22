@@ -178,4 +178,58 @@ public class VerifiedLocalSourceReadTests
             SourceChecksumVerification.Unavailable,
             AuthoredSourceAcquisition.VerifyChecksum(null, SHA256.HashData(content), content));
     }
+
+    [Theory]
+    [InlineData(@"\\attacker\share\Sample.cs")]
+    [InlineData(@"\\?\C:\Sample.cs")]
+    [InlineData(@"\\.\C:\Sample.cs")]
+    [InlineData("relative/Sample.cs")]
+    public void ReturnsNull_ForNonLocalOrRelativePath_WithoutIo(string path)
+    {
+        // The document path originates in an untrusted PDB. A UNC share or Win32 device path must
+        // be rejected before any filesystem access so it cannot trigger outbound SMB/network I/O,
+        // and a relative path is never honored — independent of the (here matching) checksum.
+        byte[] content = Encoding.UTF8.GetBytes(Source);
+        Assert.Null(AuthoredSourceAcquisition.TryReadVerifiedLocalSource(
+            path, "SHA256", SHA256.HashData(content)));
+    }
+
+    [Fact]
+    public void DecodeSourceText_HonorsByteOrderMarkEncoding()
+    {
+        // Non-ASCII content makes the encoding observable. A checksum-verified local file may be
+        // UTF-8 (with or without BOM) or UTF-16; each must decode correctly, not as raw UTF-8.
+        const string text = "héllo wörld";
+        Assert.Equal(text, AuthoredSourceAcquisition.DecodeSourceText(Encoding.UTF8.GetBytes(text)));
+        Assert.Equal(text, AuthoredSourceAcquisition.DecodeSourceText(
+            [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(text)]));
+        Assert.Equal(text, AuthoredSourceAcquisition.DecodeSourceText(
+            [.. Encoding.Unicode.GetPreamble(), .. Encoding.Unicode.GetBytes(text)]));
+        Assert.Equal(text, AuthoredSourceAcquisition.DecodeSourceText(
+            [.. Encoding.BigEndianUnicode.GetPreamble(), .. Encoding.BigEndianUnicode.GetBytes(text)]));
+    }
+
+    [Fact]
+    public void Utf16LocalFile_VerifiesAgainstRawBytes_AndDecodesToText()
+    {
+        // csc records the checksum over the raw file bytes regardless of encoding, so a UTF-16
+        // source verifies against those bytes and must then decode as UTF-16 (Finding 2 regression).
+        byte[] utf16 = [.. Encoding.Unicode.GetPreamble(), .. Encoding.Unicode.GetBytes(Source)];
+        string path = WriteTemp(".cs", utf16);
+        try
+        {
+            byte[]? result = AuthoredSourceAcquisition.TryReadVerifiedLocalSource(
+                path, "SHA256", SHA256.HashData(utf16));
+
+            Assert.NotNull(result);
+            Assert.Equal(utf16, result);
+            Assert.Equal(
+                Source.ReplaceLineEndings("\n"),
+                AuthoredSourceAcquisition.DecodeSourceText(result).ReplaceLineEndings("\n"));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

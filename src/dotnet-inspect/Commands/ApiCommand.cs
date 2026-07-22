@@ -564,10 +564,8 @@ public class ApiCommand
                 methodInfo.FilePath, methodInfo.ChecksumAlgorithm, methodInfo.Checksum);
             if (localBytes != null)
             {
-                var text = System.Text.Encoding.UTF8.GetString(localBytes);
-                if (text.Length > 0 && text[0] == '\uFEFF')
-                    text = text[1..];
-                content = text.Replace("\r\n", "\n").Replace("\r", "\n");
+                content = DotnetInspector.Services.AuthoredSourceAcquisition.DecodeSourceText(localBytes)
+                    .Replace("\r\n", "\n").Replace("\r", "\n");
             }
             else if (methodInfo.SourceUrl != null)
             {

@@ -164,9 +164,7 @@ public static class AuthoredSourceAcquisition
 
         try
         {
-            string sourceText = Encoding.UTF8.GetString(content);
-            if (sourceText.Length > 0 && sourceText[0] == '\uFEFF')
-                sourceText = sourceText[1..];
+            string sourceText = DecodeSourceText(content);
             string memberText = SourceLinkResolver.ExtractMethodBody(
                 sourceText,
                 mapping.StartLine,
@@ -256,7 +254,8 @@ public static class AuthoredSourceAcquisition
         if (string.IsNullOrEmpty(localPath)
             || checksumAlgorithm is not { Length: > 0 }
             || checksum is not { Length: > 0 }
-            || !IsCompilerLanguageSourcePath(localPath))
+            || !IsCompilerLanguageSourcePath(localPath)
+            || !IsLocalFileSystemPath(localPath))
         {
             return null;
         }
@@ -264,14 +263,23 @@ public static class AuthoredSourceAcquisition
         byte[] content;
         try
         {
-            if (!File.Exists(localPath))
+            // The document path is attacker-influenced, so bound the I/O even though the checksum
+            // authenticates the content: skip missing files, reparse points (symlinks that could
+            // redirect the read), and oversized files.
+            var info = new FileInfo(localPath);
+            if (!info.Exists
+                || (info.Attributes & FileAttributes.ReparsePoint) != 0
+                || info.Length > MaxLocalSourceBytes)
+            {
                 return null;
+            }
             content = File.ReadAllBytes(localPath);
         }
         catch (Exception ex) when (ex is IOException
             or UnauthorizedAccessException
             or ArgumentException
-            or NotSupportedException)
+            or NotSupportedException
+            or System.Security.SecurityException)
         {
             return null;
         }
@@ -313,6 +321,52 @@ public static class AuthoredSourceAcquisition
         => path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
             || path.EndsWith(".vb", StringComparison.OrdinalIgnoreCase)
             || path.EndsWith(".fs", StringComparison.OrdinalIgnoreCase);
+
+    // Upper bound on a local source file we are willing to read. Authored source files are small;
+    // this only guards against an attacker-directed path pointing at a pathologically large file.
+    const long MaxLocalSourceBytes = 64L * 1024 * 1024;
+
+    /// <summary>
+    /// True only for a plain, fully-qualified local filesystem path. Rejects relative paths, UNC
+    /// shares (<c>\\server\share</c>), and Win32 device paths (<c>\\?\</c>, <c>\\.\</c>) so an
+    /// untrusted PDB document name cannot trigger outbound SMB/network I/O before the checksum is
+    /// even evaluated.
+    /// </summary>
+    internal static bool IsLocalFileSystemPath(string path)
+    {
+        if (!Path.IsPathFullyQualified(path))
+            return false;
+
+        string full;
+        try
+        {
+            full = Path.GetFullPath(path);
+        }
+        catch (Exception ex) when (ex is ArgumentException
+            or NotSupportedException
+            or PathTooLongException
+            or System.Security.SecurityException)
+        {
+            return false;
+        }
+
+        return !full.StartsWith(@"\\", StringComparison.Ordinal)
+            && !full.StartsWith("//", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Decodes source bytes to text using the byte-order mark to select the encoding
+    /// (UTF-8/UTF-16/UTF-32), defaulting to UTF-8 when no BOM is present, and strips the BOM.
+    /// This mirrors the remote path's <see cref="System.Net.Http.HttpContent.ReadAsStringAsync()"/>
+    /// decoding so a checksum-verified local file in any of those encodings renders identically.
+    /// </summary>
+    public static string DecodeSourceText(byte[] content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        using var stream = new MemoryStream(content, writable: false);
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        return reader.ReadToEnd();
+    }
 
     static AuthoredMemberSourceInspection Absent(string detail)
         => new(
