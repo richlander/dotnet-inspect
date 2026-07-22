@@ -39,7 +39,7 @@ public static class CoercionSinks
         // them re-routes statement-position spellings into the inline forms
         // (a multi-line switch expression collapsing to one line).
         => sink.Scope == SinkScope.Wrappable
-            && sink.Value is not (Coerce or LoadStackSlot or Conditional or Coalesce or SwitchExpression or UnionSwitchExpression)
+            && sink.Value is not (Coerce or LoadStackSlot or Conditional or Coalesce or SwitchExpression or UnionSwitchExpression or PatternSwitchExpression)
             && CoercionDomain.InDomain(sink.Target, shapes)
             && !CoercionDomain.IsAtTarget(sink.Value, sink.Target);
 

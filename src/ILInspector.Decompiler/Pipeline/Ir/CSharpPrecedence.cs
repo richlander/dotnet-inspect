@@ -66,7 +66,7 @@ public static class CSharpPrecedence
     public static Precedence Of(IrExpression node) => node switch
     {
         // Loosest structural forms first.
-        Conditional or SwitchExpression or UnionSwitchExpression or TupleSwitchExpression => Precedence.Conditional,
+        Conditional or SwitchExpression or UnionSwitchExpression or TupleSwitchExpression or PatternSwitchExpression => Precedence.Conditional,
         NullCoalescingFieldAssignmentExpression => Precedence.Assignment,
         Coalesce => Precedence.NullCoalescing,
         LogicalBinary { Kind: LogicalKind.Or } => Precedence.ConditionalOr,

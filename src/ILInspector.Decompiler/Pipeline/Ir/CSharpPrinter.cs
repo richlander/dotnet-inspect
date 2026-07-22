@@ -355,6 +355,13 @@ public sealed partial class CSharpPrinter
         foreach (var arm in DescendantsOutsideNestedFunctions(function).OfType<UnionSwitchExpressionArm>())
             if (arm.LocalIndex is { } localIndex)
                 _isPatternLocals.Add(localIndex);
+        foreach (var arm in DescendantsOutsideNestedFunctions(function).OfType<PatternSwitchExpressionArm>())
+        {
+            if (arm.LocalIndex is { } localIndex)
+                _isPatternLocals.Add(localIndex);
+            if (arm.Subpattern is { } subpattern)
+                _isPatternLocals.Add(subpattern.LocalIndex);
+        }
         foreach (var deconstruction in DescendantsOutsideNestedFunctions(function).OfType<DeconstructionAssignment>())
             foreach (var target in deconstruction.Targets)
                 if (target is { Kind: DeconstructionTargetKind.Local, IsDeclared: true })
@@ -1546,6 +1553,21 @@ public sealed partial class CSharpPrinter
             sb.Append(pad).AppendLine("};");
             return;
         }
+        if (node is Return { Value: PatternSwitchExpression patternSwitch })
+        {
+            // Mirrors the UnionSwitchExpression return-position form above: one
+            // arm per line, indented under the governing receiver, with an
+            // optional trailing `_ => default` arm.
+            string inner = pad + "    ";
+            sb.Append(pad).Append("return ").Append(Operand(patternSwitch.Value)).AppendLine(" switch");
+            sb.Append(pad).AppendLine("{");
+            foreach (var arm in patternSwitch.Arms)
+                sb.Append(inner).Append(PatternSwitchArmText(arm, _function.Signature.ReturnType)).AppendLine(",");
+            if (patternSwitch.DefaultValue is { } patternDefault)
+                sb.Append(inner).Append("_ => ").Append(SwitchArmValueText(patternDefault, _function.Signature.ReturnType)).AppendLine(",");
+            sb.Append(pad).AppendLine("};");
+            return;
+        }
         if (node is Return { Value: TupleSwitchExpression tupleSwitch })
         {
             // Mirrors the SwitchExpression/UnionSwitchExpression return-position
@@ -2527,6 +2549,7 @@ public sealed partial class CSharpPrinter
         SwitchExpression se => SwitchExpressionInline(se),
         UnionSwitchExpression se => UnionSwitchExpressionInline(se),
         TupleSwitchExpression se => TupleSwitchExpressionInline(se),
+        PatternSwitchExpression se => PatternSwitchExpressionInline(se),
         NullCoalescingFieldAssignmentExpression n => $"{FieldTarget(n.Field, n.Instance)} ??= {CoerceText(n.Value, n.Field.Type)}",
         Coalesce co => CoalesceText(co),
         NullConditional nc => NullConditionalText(nc),

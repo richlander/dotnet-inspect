@@ -109,6 +109,7 @@ internal static class AssertionScan
     const string AssertionCoverageFixture = "assertion.inverse-node-coverage";
     const string AssertionIlUnboxFixture = "assertion.il-unbox";
     const string AssertionUnionSwitchFixture = "assertion.union-switch";
+    const string AssertionPatternSwitchFixture = "assertion.pattern-switch";
 
     static readonly IReadOnlyList<AssertionFixtureGuarantee> AssertionFixtureGuarantees =
     [
@@ -163,6 +164,7 @@ internal static class AssertionScan
         new("NewObject", [AssertionCoverageFixture]),
         new("NullConditional", [AssertionCoverageFixture]),
         new("ObjectInitializerExpression", [AssertionCoverageFixture]),
+        new("PatternSwitchExpression", [AssertionPatternSwitchFixture]),
         new("PositionalPattern", [AssertionCoverageFixture]),
         new("RangeExpression", [AssertionCoverageFixture]),
         new("RecursivePropertyDeclarationPattern", [AssertionCoverageFixture]),
