@@ -6101,6 +6101,26 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_RenderSelectHidden_IsRejectedAsDiscoveryOnly()
+    {
+        // @Hidden is a discovery-only pole: -S @Hidden must be rejected (exit 1) so it cannot
+        // fan out to the unbounded SourceLink Integrity check as a group. Discovery (-D @Hidden)
+        // and exact-name render (-S "SourceLink Integrity") remain the supported entrypoints.
+        var (exit, _, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "@Hidden", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("discovery-only", error);
+
+        // -D @Hidden still lists the pole's members (no rejection).
+        var (discoverExit, discoverOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "@Hidden", "--table", "--tips", "q");
+
+        Assert.Equal(0, discoverExit);
+        Assert.Contains("SourceLink Integrity", discoverOutput);
+    }
+
+    [Fact]
     public async Task LibraryCommand_DiscoverSchema_GroupsOptInSections()
     {
         var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-D", "--schema");

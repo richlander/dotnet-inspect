@@ -647,7 +647,7 @@ public static class LibrarySections
         public static string Name => "P/Invoke Methods";
         public static bool IsExpensive => false;
         // Opt-in surface section: real but low signal-to-noise, so it stays out of the default
-        // document and renders only via -S (individually, or through @Surface/@Audit).
+        // document and the -v ladder; renders only via -S (individually, or through @All/@Surface/@Audit).
         public static bool ExplicitOnly => true;
         public static bool Noisy => true;
         public static string? ScannerKey => ScannerClassifiedMethods;

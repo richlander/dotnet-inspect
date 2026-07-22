@@ -32,8 +32,11 @@ different function than a curated `@Performance`-style door:
 - **`@Hidden`** — the invisible pole, and the **computed complement** of `@All`.
   A section falls into `@Hidden` exactly when no *listed* category surfaces it.
   You never author `@Hidden` membership; it falls out. `@Hidden`'s own name is
-  not listed in `-D`; its members are reached only via `--schema` or an exact
-  request (`-S @Hidden`, `-D @Hidden`).
+  not listed in `-D`; its members are reached only via `--schema`, discovery
+  (`-D @Hidden`), or an exact-name request (`-S "SourceLink Integrity"`).
+  `@Hidden` is **discovery-only**: it is not a render selector, so `-S @Hidden`
+  is rejected. This guarantees its footgun-expensive members (SourceLink
+  Integrity) can never be executed as a group — only by exact name or `-v:d`.
 
 `--schema` is the union: `@All ∪ @Hidden` = the full section graph.
 
@@ -61,33 +64,44 @@ Expensive sections are not effectiveness-probed (see the cost gate below).
 | --- | --- |
 | `-v:q` / `-v:m` | primary `Default` section(s) |
 | `-v:n` | all `Default` + `Terse` sections (the clean default document) |
-| `-S @All` | adds `Noisy` sections — still cheap, still < 1s |
+| `-S @All` | adds `Noisy` sections; excludes expensive/unbounded sections. Its `Default` members (Signals, Symbols) may warm the PDB and run a bounded SourceLink-signal audit. |
 | `-v:d` | the cost axis: `Terse` document **plus** executed `Expensive`/`Network` sections |
 
-`@All` owns the **noise** axis (adds noisy, stays cheap). `-v:d` owns the
-**cost** axis (adds expensive/network work). They are orthogonal knobs.
+`@All` owns the **noise** axis (adds noisy, excludes expensive/unbounded work).
+`-v:d` owns the **cost** axis (adds expensive/network work). They are orthogonal knobs.
 
 ### Two orthogonal gates
 
 - **Cost is an execution gate, not a membership gate.** An `Expensive` section
   may still be *rooted* in a listed category (so it is discoverable by drilling
-  `-D @Category`), but it is **never executed** by category-expand, `--count`,
-  `@All`, or `-v:n`. It runs only via explicit `-S <name>` or `-v:d`. This keeps
-  every category cheap to expand and `--count`: expensive members are listed
-  structurally, never run. SourceLink Integrity is the canonical case — rooted
-  in `@Hidden`, expensive, skill-documented, never triggered by a category probe.
+  `-D @Category`), but **discovery never runs it**: `-D @Category`, `@All`, and
+  `-v:n` list it structurally and never execute it. It runs only via explicit
+  render selection (`-S <name>`, or `-S @Category` when the section is a member)
+  or `-v:d`. Because `-S @Category` is explicit selection, it executes its
+  members like exact names — so no render-selectable category may root an
+  *unbounded* member. SourceLink Integrity is the canonical unbounded case: it
+  is rooted only in `@Hidden`, which is **discovery-only** (`-S @Hidden` is
+  rejected), so it can never be executed as a group.
 - **Category listed/unlisted is the discovery gate.** A listed category's name
   appears in `-D` as a door. `@Hidden` is unlisted, so its members are
   `--schema`-only.
 
 ### Invariants
 
+- **Discovery** of any `@category` (`-D @Category`) is always cheap: it lists
+  member names and never executes them. `--count` and `-S @Category` are *render
+  selection*, not discovery — they execute the selected members like exact names.
+- No **render-selectable** category (`@All`, `@Source`, `@Performance`,
+  `@Surface`, `@Resources`, `@Audit`) roots an *unbounded* member. The one
+  unbounded standalone section, SourceLink Integrity, is rooted only in the
+  **discovery-only** `@Hidden` pole.
 - `-D` = `@All` members + listed category names. Computed, never hand-flagged.
-- A `@category` is always cheap to expand and `--count`. No member may trigger
-  network or heavy work during a category probe.
 - Every section is category-rooted; `@Hidden` is the catch-all for niche and
-  footgun-expensive standalone sections.
-- `@All` returns in < 1s: it excludes expensive sections and feeders.
+  footgun-expensive standalone sections, and is discovery-only (not a render selector).
+- `@All` excludes expensive sections and feeders; its `Default` members (Signals,
+  Symbols) may perform bounded PDB warming and a SourceLink-signal audit, so
+  `-S @All` is bounded (no source-content download, no integrity fan-out) rather
+  than strictly network-free.
 
 ### How the dimensions map
 

@@ -71,6 +71,16 @@ public class LibraryCommand
         }
         options = normalized.Options;
 
+        // @Hidden is a discovery-only pole: it lists via -D @Hidden / --schema and its members
+        // render by exact name, but it is not a render selector. This keeps -S from fanning out to
+        // the unbounded SourceLink Integrity check (and other @Hidden members) as a group.
+        if (options.Select is { Length: > 0 }
+            && options.Select.Any(v => v.Equals(SectionPipeline<LibraryInspection>.HiddenCategory, StringComparison.OrdinalIgnoreCase)))
+        {
+            Console.Error.WriteLine("Error: @Hidden is discovery-only. List it with -D @Hidden or --schema, and render its members by exact name (for example -S \"SourceLink Integrity\").");
+            return 1;
+        }
+
         // -S/--select with values: resolve as section filter for backpressure
         var selectResult = SelectResolver.ResolveSelectAsSections(
             options.Select, pipeline.SelectableSectionNames, pipeline.InfoSectionNames, pipeline.GetCategoryMap());
