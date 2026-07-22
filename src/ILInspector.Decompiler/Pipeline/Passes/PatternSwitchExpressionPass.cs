@@ -15,22 +15,26 @@ namespace ILInspector.Decompiler.Pipeline;
 ///   dispatch <c>then</c> — csc's form when an arm carries a single-level property
 ///   subpattern (<c>U { Prop: T inner }</c>) or a bound local outlives its test;</item>
 ///   <item>the flat inline cascade (<see cref="TryMatchInlineArms"/>), a run of
-///   two or more positive <c>if (P is Tk xk) { ... }</c> arms over one
-///   re-evaluable place ending in a bare <c>return &lt;default&gt;</c> — csc's form
-///   when every arm's bound local is used only inside its own matched branch, so
-///   <c>IsPatternPass</c> folds each arm to a positive <c>is</c> test.</item>
+///   two or more <em>unguarded</em> <c>if (P is Tk xk) { return vk; }</c> arms over
+///   one re-evaluable place ending in a bare <c>return &lt;default&gt;</c> — csc's
+///   form when every arm's bound local is used only inside its own matched branch,
+///   so <c>IsPatternPass</c> folds each arm to a positive <c>is</c> test.</item>
 /// </list>
 ///
 /// The pass is deliberately narrow. Both shapes require a re-evaluable switch
 /// value (<c>LoadArgument</c>/<c>LoadLocal</c>) read only by the arm tests and not
 /// reassigned across them, every arm a pure type test of that value, every
-/// no-match and guard-fail path yielding the identical default the trailing
-/// <c>return</c> yields, and each pattern-bound local referenced only within its
-/// own arm. Faithfully reproducing the same arms, order, guards, and default
-/// round-trips to the same lowering: a failed <c>when</c> routing straight to the
-/// default (rather than the next arm) is valid precisely because the compiler
-/// proved the arm pattern types mutually exclusive, and the inline cascade
-/// preserves the compiler's top-to-bottom arm order.
+/// no-match path yielding the identical default the trailing <c>return</c> yields,
+/// and each pattern-bound local referenced only within its own arm.
+///
+/// The intro-chain shape additionally admits guarded arms: a failed <c>when</c>
+/// routing straight to the default (rather than the next arm) is valid precisely
+/// because that shape is distinctively compiler-lowered (a spilled switch value
+/// nesting its remaining arms), so csc's mutual-exclusivity proof stands behind it.
+/// The flat inline shape carries no such proof — it is exactly what an ordinary
+/// hand-written <c>if (P is T x)</c> ladder produces — so it folds only unguarded
+/// arms, whose immediate-return-on-match preserves the ladder's top-to-bottom,
+/// first-match-wins order unconditionally.
 /// </summary>
 public sealed class PatternSwitchExpressionPass : IIrPass
 {
@@ -165,12 +169,17 @@ public sealed class PatternSwitchExpressionPass : IIrPass
     //
     // Faithfulness: the arms are tried top-to-bottom exactly as the if/return
     // cascade already does, so an unguarded fold reorders nothing regardless of
-    // type overlap. A guarded arm routes its guard-fail to the shared default —
-    // the same mutual-exclusivity evidence the intro-chain shape relies on — which
-    // `TryParseMatchedBody` requires by proving every non-value path reaches the
-    // default. Two arms are required: a lone `if (P is T t) return v; return d;`
-    // is idiomatically an `if`, not a switch, and folding it would be a broad,
-    // ambiguous reshape.
+    // type overlap — each match returns immediately, so first-match-wins is
+    // preserved unconditionally. This path is deliberately restricted to unguarded,
+    // single-level arms: unlike the compiler-lowered intro-chain shape, the flat
+    // inline shape is exactly what a hand-written `if (P is T x)` ladder produces,
+    // so it carries no proof that arm types are mutually exclusive, and a guarded
+    // arm (whose guard-fail returns the shared default rather than falling through
+    // to the next arm, as a `switch` would) could change which arm wins when types
+    // overlap. Guarded and property-subpattern inline arms are therefore declined
+    // here; the intro-chain matcher still handles them. Two arms are required: a
+    // lone `if (P is T t) return v; return d;` is idiomatically an `if`, not a
+    // switch, and folding it would be a broad, ambiguous reshape.
     bool TryMatchInlineArms(IrFunction function, Block block, out int startIndex, out PatternSwitchExpression? switchExpression)
     {
         startIndex = -1;
@@ -215,6 +224,23 @@ public sealed class PatternSwitchExpressionPass : IIrPass
                 || !ReachesDefaultTail(matched, next, defaultValue))
                 return false;
 
+            // The inline path folds unguarded, single-level arms only. A guarded
+            // inline arm is NOT safe to fold: unlike the compiler-lowered
+            // intro-chain shape (a spilled switch value nesting its remaining arms),
+            // the flat inline shape is exactly what an ordinary hand-written
+            // `if (P is T x) { ... }` ladder produces, so it carries no proof that
+            // the arm types are mutually exclusive. A `switch` routes a failed
+            // `when` to the NEXT arm, but this shape's guard-fail returns the shared
+            // default and exits; when an arm type overlaps a later arm (e.g. `string`
+            // is both `IComparable` and `ICloneable`), folding would change which arm
+            // wins. Unguarded arms have no such fall-through: each match returns
+            // immediately, so the fold preserves the ladder's top-to-bottom,
+            // first-match-wins order unconditionally. Property-subpattern arms carry
+            // the same inner guard-fail routing and are likewise declined here; the
+            // intro-chain matcher still handles both.
+            if (arm.Guard is not null || arm.Subpattern is not null)
+                return false;
+
             arms.Add(arm);
         }
         if (arms.Count < 2)
@@ -228,12 +254,18 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         if (!PlaceStableAcross(switchValue, consumed))
             return false;
 
-        // Each pattern-bound local must be referenced only inside the cascade.
-        foreach (var arm in arms)
+        // Each pattern-bound local must be referenced only inside ITS OWN arm. A
+        // switch-expression pattern variable is scoped to a single arm, so checking
+        // the whole cascade would wrongly accept a local bound in one arm and read
+        // in another — valid in the if-ladder (the binding outlives its `if`), but
+        // an out-of-scope reference once folded. Bounding each local to its arm's
+        // own subtree also subsumes the "not read after the cascade" check.
+        for (int j = 0; j < arms.Count; j++)
         {
-            foreach (int local in PatternLocals(arm))
+            var armNode = children[firstArm + j];
+            foreach (int local in PatternLocals(arms[j]))
             {
-                if (!ReferenceOwnership.LocalReferencedOrBoundOnlyWithin(function, local, consumed))
+                if (!ReferenceOwnership.LocalReferencedOrBoundOnlyWithin(function, local, [armNode]))
                     return false;
             }
         }

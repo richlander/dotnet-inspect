@@ -1,5 +1,7 @@
 namespace ILInspector.Decompiler.Tests;
 
+using System;
+
 /// <summary>
 /// Fixture for issue #3028 (PR A): a <c>switch</c> expression over a plain
 /// receiver whose arms all bind a local used only inside their own arm, so csc
@@ -58,4 +60,28 @@ public static class InlinePatternSwitchSample
         ElementRef element => element,
         _ => null,
     };
+
+    // A hand-written ladder whose first arm carries a guard and whose type
+    // (IComparable) overlaps a later arm (ICloneable) — `string` satisfies both.
+    // The inline fold must DECLINE here: a `switch` routes a failed `when` to the
+    // next arm, but this ladder's guard-fail returns the shared default and exits,
+    // so for a short-circuiting value the two forms disagree on which arm wins.
+    // csc emits the same flat inline `is` shape as the foldable cases, so this is
+    // the compiled canary that the guard restriction holds.
+    public static int GuardedOverlap(object value, bool flag)
+    {
+        if (value is IComparable comparable)
+        {
+            if (flag)
+            {
+                return comparable.GetHashCode();
+            }
+            return 0;
+        }
+        if (value is ICloneable cloneable)
+        {
+            return cloneable.GetHashCode();
+        }
+        return 0;
+    }
 }

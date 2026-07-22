@@ -336,4 +336,55 @@ public class PatternSwitchExpressionPassTests
 
         Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
     }
+
+    [Fact]
+    public void Synthetic_InlineGuardedArmYieldsDefault_DoesNotRaise()
+    {
+        // Even a guarded arm whose guard-fail yields the SHARED default must not
+        // fold on the inline path. A `switch` routes a failed `when` to the next
+        // arm, but this flat ladder's guard-fail returns the default and exits; the
+        // flat shape (unlike the compiler-lowered intro chain) carries no proof the
+        // arm types are disjoint, so folding could change which arm wins when types
+        // overlap. The inline path folds unguarded arms only.
+        var guard = new Call(new MethodRef(Leaf, "Ok", Bool, [Leaf], HasThis: false), isVirtual: false, [new LoadLocal(0, Leaf)]);
+        var function = InlineCascade(
+            1,
+            InlineArm(Arg(0), Leaf, 0, new LoadLocal(0, Leaf), guard, guardFailDefault: new Constant(null, Node)),
+            InlineArm(Arg(0), Node, 1, new LoadLocal(1, Node)),
+            new Return(new Constant(null, Node)));
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    [Fact]
+    public void Synthetic_InlineCrossArmLocalReference_DoesNotRaise()
+    {
+        // Arm 1 binds and uses local 0; arm 2 ALSO reads local 0 (arm 1's pattern
+        // variable). In the if-ladder that binding outlives its `if`, but a switch
+        // arm's pattern variable is scoped to its own arm, so folding would emit an
+        // out-of-scope reference. The per-arm scope check must decline.
+        var function = InlineCascade(
+            1,
+            InlineArm(Arg(0), Leaf, 0, new LoadLocal(0, Leaf)),
+            InlineArm(Arg(0), Node, 1, new LoadLocal(0, Node)),
+            new Return(new Constant(null, Node)));
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    [Fact]
+    public void GuardedOverlap_CompiledFixture_DoesNotRaise()
+    {
+        // Compiled canary: csc emits the same flat inline `is` cascade as the
+        // foldable cases, but the first arm carries a guard and its type overlaps a
+        // later arm, so the fold must decline and leave the if-ladder intact.
+        var function = Raised(typeof(InlinePatternSwitchSample), nameof(InlinePatternSwitchSample.GuardedOverlap));
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+        Assert.NotEmpty(function.Descendants.OfType<IfStatement>());
+    }
 }
