@@ -635,6 +635,20 @@ public class CfgSampleClass
         return x => { int y = x + z; return y * y; };
     }
 
+    // Multi-statement lambda block body returned from inside a nested `if`, so
+    // the enclosing `return` statement sits one indent level deeper than the
+    // method body — exercises that the expanded block's braces track the
+    // enclosing statement's own indentation (via _statementIndent) rather than
+    // always aligning to column 0.
+    public static System.Func<int, int>? StatementBodyLambdaInsideIf(bool flag)
+    {
+        if (flag)
+        {
+            return x => { System.Console.WriteLine(x); return x + 1; };
+        }
+        return null;
+    }
+
     public static int DoWhileSum(int n)
     {
         int s = 0;

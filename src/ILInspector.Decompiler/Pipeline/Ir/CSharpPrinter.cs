@@ -40,6 +40,15 @@ public sealed partial class CSharpPrinter
     /// </summary>
     int _unsafeDepth;
 
+    /// <summary>
+    /// Indentation level of the statement currently being emitted by <see
+    /// cref="AppendStatement"/>. A multi-statement lambda block body found while
+    /// rendering that statement's expression tree (however deeply nested inside
+    /// argument lists, assignments, etc.) expands its braces to this level rather
+    /// than staying on one line, matching how every other statement block prints.
+    /// </summary>
+    int _statementIndent;
+
     readonly PrinterOptions _options;
     readonly HashSet<string> _reservedScopeNames;
     readonly List<DecompilerDecision> _decisions = [];
@@ -1465,6 +1474,7 @@ public sealed partial class CSharpPrinter
     /// <summary>Recursive statement emission with indentation — structured nodes (IfStatement) nest, flat statements render through <see cref="Statement"/>.</summary>
     void AppendStatement(StringBuilder sb, IrNode node, int indent)
     {
+        _statementIndent = indent;
         if (_statementLines is not null)
         {
             int startLine = 0;
