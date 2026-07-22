@@ -1,5 +1,7 @@
 namespace ILInspector.Decompiler.Tests;
 
+using System.Runtime.CompilerServices;
+
 // Fixtures for OptionalArgumentElisionPass. Each caller below is what the tests
 // decompile; the callees declare the C# optional parameters whose baked defaults
 // the pass tries to elide from the call site.
@@ -46,6 +48,14 @@ public class OptionalArgumentElisionFixtures
     static int Pick(int value, int seed = 0) => value + seed;
     static int Pick<T>(T value) => value?.GetHashCode() ?? 0;
 
+    // OverloadResolutionPriority steal hazard: Rank(5, 0) binds Rank(int, int=0),
+    // but the attribute deprioritizes it, so eliding to Rank(5) would rebind to
+    // the differently-typed Rank(long) that AritySafe's leading-signature check
+    // ignores. Any candidate carrying the attribute declines the whole callee.
+    [OverloadResolutionPriority(-1)]
+    static string Rank(int value, int seed = 0) => $"int:{value + seed}";
+    static string Rank(long value) => $"long:{value}";
+
     // --- Callers under test ---
 
     public int CallSpeakElidesNull() => Speak(3);
@@ -78,6 +88,10 @@ public class OptionalArgumentElisionFixtures
 
     // Generic sibling present on the declaring type: the explicit trailing 0 stays.
     public int CallPickKeepsGenericSibling() => Pick(5, 0);
+
+    // Priority-deprioritized callee: the explicit trailing 0 stays because eliding
+    // would rebind to the differently-typed Rank(long).
+    public string CallRankKeepsPriorityOverload() => Rank(5, 0);
 }
 
 // --- Extension-method fixtures (assembly-wide overload scan + receiver guard) ---

@@ -28,14 +28,16 @@ namespace ILInspector.Decompiler.Pipeline;
 /// counts the trailing defaulted run for which no such leading-signature
 /// duplicate exists among the callee's rebind candidates; any same-named generic
 /// sibling declines the whole callee (a generic candidate can unify with the
-/// retained arguments and win the fewer-declared-parameters tie-break). For a
-/// non-extension callee the candidate set is the declaring type's own methods
-/// (static calls are fully qualified; instance calls are pinned by the pass-time
-/// receiver guard). An extension callee renders in receiver syntax, so its
-/// candidates are <em>every</em> extension method of the same name in the
-/// assembly, and elision additionally requires the receiver type to live in
-/// another assembly (a same-assembly instance method would beat the extension).
-/// Extensions and instance methods in referenced assemblies are the residual the
+/// retained arguments and win the fewer-declared-parameters tie-break), as does
+/// any candidate carrying <c>[OverloadResolutionPriority]</c> (which reorders
+/// applicable candidates ahead of betterness). For a non-extension callee the
+/// candidate set is the declaring type's own methods (static calls are fully
+/// qualified; instance calls are pinned by the pass-time receiver guard). An
+/// extension callee renders in receiver syntax, so its candidates are
+/// <em>every</em> extension method of the same name in the assembly, and elision
+/// additionally requires the receiver type to live in another assembly (a
+/// same-assembly instance method would beat the extension). Extensions and
+/// instance methods in referenced assemblies are the residual the
 /// recompile/corpus fidelity gate backstops.</para>
 /// </summary>
 internal static class OptionalArgumentFacts
@@ -175,12 +177,19 @@ internal static class OptionalArgumentFacts
 
         // A same-named generic sibling can unify with the retained arguments and
         // win the "fewer declared parameters" tie-break over an optional-using
-        // callee (verified: Pick(int, int = 0) loses Pick(v) to Pick<T>(T)). The
-        // leading-signature identity check below cannot model unification, so
-        // decline the whole callee when any generic sibling shares the name.
+        // callee (verified: Pick(int, int = 0) loses Pick(v) to Pick<T>(T)). And
+        // [OverloadResolutionPriority] reorders applicable candidates ahead of
+        // betterness, so even a differently-typed sibling can steal the shortened
+        // call. The leading-signature identity check below models neither, so
+        // decline the whole callee when any candidate carries priority, or when
+        // any non-self sibling shares the name and is generic.
         foreach (var sibling in siblings)
+        {
+            if (sibling.HasPriority)
+                return 0;
             if (sibling.Handle != handle && sibling.IsGeneric)
                 return 0;
+        }
 
         int safe = 0;
         for (int k = 1; k <= trailingDefaults; k++)
@@ -194,10 +203,11 @@ internal static class OptionalArgumentFacts
 
     /// <summary>
     /// A same-named overload candidate: its handle (to exclude the callee itself),
-    /// its decoded parameter types (leading-signature comparison), and whether it
-    /// is generic (a generic candidate declines the whole callee).
+    /// its decoded parameter types (leading-signature comparison), whether it is
+    /// generic (a generic sibling declines the whole callee), and whether it
+    /// carries <c>[OverloadResolutionPriority]</c> (any priority candidate declines).
     /// </summary>
-    readonly record struct SiblingSignature(MethodDefinitionHandle Handle, ImmutableArray<TypeRef> ParameterTypes, bool IsGeneric);
+    readonly record struct SiblingSignature(MethodDefinitionHandle Handle, ImmutableArray<TypeRef> ParameterTypes, bool IsGeneric, bool HasPriority);
 
     static readonly List<SiblingSignature> NoSiblings = [];
 
@@ -218,7 +228,8 @@ internal static class OptionalArgumentFacts
             siblings.Add(new SiblingSignature(
                 handle,
                 GuardedDecode.MethodSignature(reader, method, typeScope).ParameterTypes,
-                method.GetGenericParameters().Count > 0));
+                method.GetGenericParameters().Count > 0,
+                MethodDefinitionFacts.HasOverloadResolutionPriorityAttribute(reader, method)));
         }
         return siblings;
     }
@@ -259,7 +270,8 @@ internal static class OptionalArgumentFacts
                 siblings.Add(new SiblingSignature(
                     handle,
                     GuardedDecode.MethodSignature(reader, method, typeScope).ParameterTypes,
-                    method.GetGenericParameters().Count > 0));
+                    method.GetGenericParameters().Count > 0,
+                    MethodDefinitionFacts.HasOverloadResolutionPriorityAttribute(reader, method)));
             }
         }
         return index;

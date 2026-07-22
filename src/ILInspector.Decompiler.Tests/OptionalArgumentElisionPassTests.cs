@@ -144,4 +144,16 @@ public class OptionalArgumentElisionPassTests
 
         Assert.Contains(", 0)", output);
     }
+
+    [Fact]
+    public void OverloadResolutionPrioritySibling_KeepsExplicitArgument()
+    {
+        // Rank(int, int = 0) carries [OverloadResolutionPriority(-1)]; eliding to
+        // Rank(5) would rebind to Rank(long) because priority reorders candidates
+        // ahead of betterness. Any candidate carrying the attribute declines, so
+        // the explicit trailing 0 stays.
+        string output = PrintRaised(nameof(OptionalArgumentElisionFixtures.CallRankKeepsPriorityOverload));
+
+        Assert.Contains(", 0)", output);
+    }
 }
