@@ -32,6 +32,13 @@ public class PackageCommand
         var sectionNames = pipeline.SelectableSectionNames;
         bool packageLibraryMode = options.PackageLibrary != null || options.AllLibraries;
 
+        // @Hidden is a discovery-only pole. For the embedded-library render modes (which resolve
+        // -S against the curated LibrarySections pipeline), reject it up front — before extracting
+        // or fetching the package — so an invalid render selector never pays acquisition cost and
+        // can never fan out to the unbounded SourceLink Integrity group.
+        if (packageLibraryMode && LibraryCommand.RejectHiddenRenderSelector(options.Select))
+            return 1;
+
         // Static discovery mode: -D --schema lists schema without resolving/loading the package.
         // Also keep no-target package discovery static because there is no target to make effective.
         if (!packageLibraryMode && options.Discover != null && (options.Schema || packageArgs.Length < 1))
@@ -1840,12 +1847,6 @@ public class PackageCommand
         string version,
         InspectionOptions options)
     {
-        // The embedded-library path resolves -S against the same curated LibrarySections pipeline,
-        // so it enforces the same @Hidden discovery-only guard as the direct library command
-        // (the single-library path delegates to LibraryCommand.ExecuteAsync, which already guards).
-        if (LibraryCommand.RejectHiddenRenderSelector(options.Select))
-            return 1;
-
         var selected = ResolveAllPackageLibraries(extractPath, packageName, version, options);
         if (selected == null)
             return 1;
