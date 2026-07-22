@@ -811,6 +811,78 @@ public class StackAllocSpanPassTests
     }
 
     [Fact]
+    public void SlotWithLoadAsSoleConstructorArgument_Raises()
+    {
+        // The same common real-world shape as SlotWithLoadAsSoleCallArgument_Raises,
+        // but the enclosing expression is a constructor (NewObject) rather than
+        // a plain method Call -- new Consumer(new Span<int>(ptr, n)). Constructor
+        // arguments evaluate left-to-right exactly like a Call's, so the same
+        // "nothing evaluates before it" proof applies and this must raise too.
+        var store = new StoreStackSlot(0, new StackAllocate(new Constant(4, Int32)));
+        var newObject = StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new LoadStackSlot(0, VoidPointer), count: 1);
+        var consumerType = TypeRef.Definition("synthetic", "", "Consumer");
+        var construct = new NewObject(new MethodRef(consumerType, ".ctor", Void, [newObject.ResultType!], HasThis: true), [newObject]);
+        var expressionStatement = new ExpressionStatement(construct);
+
+        var block = new Block(0);
+        block.Add(store);
+        block.Add(expressionStatement);
+        block.Add(new Return(new Constant(0, Int32)));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Int32, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<StackAllocate>());
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.Same(construct, raised.Parent);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SlotWithLoadNestedAsLaterConstructorArgument_DoesNotRaise()
+    {
+        // The constructor-argument counterpart of SlotWithLoadNestedAsLaterCallArgument_DoesNotRaise:
+        // an earlier argument to the same enclosing NewObject (Marker()) evaluates
+        // before the Span construction, so raising would move the allocation to
+        // run after Marker() instead of before it.
+        var store = new StoreStackSlot(0, new StackAllocate(new Constant(4, Int32)));
+        var newObject = StackAllocSpanConstructor(TypeRef.CoreLib("System", "Span`1"), new LoadStackSlot(0, VoidPointer), count: 1);
+        var marker = new Call(new MethodRef(Holder, "Marker", Void, [], HasThis: false), isVirtual: false, []);
+        var consumerType = TypeRef.Definition("synthetic", "", "Consumer");
+        var construct = new NewObject(new MethodRef(consumerType, ".ctor", Void, [Void, newObject.ResultType!], HasThis: true), [marker, newObject]);
+        var expressionStatement = new ExpressionStatement(construct);
+
+        var block = new Block(0);
+        block.Add(store);
+        block.Add(expressionStatement);
+        block.Add(new Return(new Constant(0, Int32)));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Int32, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var construction = Assert.Single(function.Descendants.OfType<NewObject>(), n => n == newObject);
+        Assert.Same(newObject, construction);
+        Assert.Single(function.Descendants.OfType<StackAllocate>()); // still the store's un-raised value
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void SlotWithInstanceFieldStore_DoesNotRaise()
     {
         // An instance field store evaluates its receiver (Instance) before its

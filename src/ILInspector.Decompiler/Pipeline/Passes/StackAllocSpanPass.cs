@@ -225,30 +225,39 @@ public sealed class StackAllocSpanPass : IIrPass
 
     /// <summary>
     /// Whether <paramref name="newObject"/> is <paramref name="expression"/>
-    /// itself, or sits as one of a <see cref="Call"/>'s arguments (which,
-    /// per <see cref="Call.Arguments"/>, includes the receiver first for an
-    /// instance call) with every argument evaluated *before* it in that
-    /// call's left-to-right evaluation order proven <see cref="IsSideEffectFree"/>
-    /// -- recursively, so a nested call's own preceding arguments are proven
-    /// too. This is the common, safe shape for the constructor call being
-    /// passed directly as a call argument (e.g. <c>Consume(new Span&lt;int&gt;(ptr,
-    /// n))</c>) -- moving the allocation to sit in the constructor's own
-    /// position changes nothing observable, since nothing effectful was
-    /// evaluated ahead of it either before or after the raise. Any other
-    /// shape (a ternary/coalesce/switch-expression branch, a short-circuited
-    /// operand, an argument evaluated strictly after an unproven earlier
-    /// one) is rejected: the raise could reorder an effectful operand across
-    /// the moved allocation, or move the allocation into a conditionally-
-    /// evaluated branch.
+    /// itself, or sits as one of a <see cref="Call"/>'s or <see
+    /// cref="NewObject"/>'s arguments (which, per <see cref="Call.Arguments"/>
+    /// / <see cref="NewObject.Arguments"/>, includes the receiver first for
+    /// an instance call) with every argument evaluated *before* it in that
+    /// call's or constructor's left-to-right evaluation order proven
+    /// <see cref="IsSideEffectFree"/> -- recursively, so a nested call's or
+    /// constructor's own preceding arguments are proven too. This is the
+    /// common, safe shape for the constructor call being passed directly as
+    /// a call argument (e.g. <c>Consume(new Span&lt;int&gt;(ptr, n))</c>) or
+    /// as another constructor's argument (e.g. <c>new Consumer(new
+    /// Span&lt;int&gt;(ptr, n))</c>) -- moving the allocation to sit in the
+    /// constructor's own position changes nothing observable, since nothing
+    /// effectful was evaluated ahead of it either before or after the raise.
+    /// Any other shape (a ternary/coalesce/switch-expression branch, a
+    /// short-circuited operand, an argument evaluated strictly after an
+    /// unproven earlier one) is rejected: the raise could reorder an
+    /// effectful operand across the moved allocation, or move the allocation
+    /// into a conditionally-evaluated branch.
     /// </summary>
     static bool ReachesAsOnlyPrecedingEffect(IrExpression expression, NewObject newObject)
     {
         if (ReferenceEquals(expression, newObject))
             return true;
 
-        if (expression is Call call)
+        var arguments = expression switch
         {
-            foreach (var argument in call.Arguments)
+            Call call => call.Arguments,
+            NewObject outerNewObject => outerNewObject.Arguments,
+            _ => null,
+        };
+        if (arguments is not null)
+        {
+            foreach (var argument in arguments)
             {
                 if (ReachesAsOnlyPrecedingEffect(argument, newObject))
                     return true;
@@ -259,6 +268,7 @@ public sealed class StackAllocSpanPass : IIrPass
 
         return false;
     }
+
 
     /// <summary>
     /// Deep structural equality over the same expression shapes
