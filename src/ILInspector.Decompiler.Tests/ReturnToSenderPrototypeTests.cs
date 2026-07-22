@@ -474,6 +474,86 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_FullPreservesExplicitInitAccessorWhenTargetIsGetter()
+    {
+        // Issue #3000: a non-auto (explicit-body) get/init property targeted at its getter was
+        // rendered with a public `set` accessor, silently downgrading the init-only property
+        // (dropping the required modreq(IsExternalInit)) while still reporting set_Value Complete.
+        // The getter compose path must route the sibling init setter through the init-aware stub
+        // kind so the accessor is spelled `init`, preserving the init-only shape.
+        var assemblyPath = CompileFixture("""
+            public class Holder
+            {
+                private int _value;
+                public int Value
+                {
+                    get => _value;
+                    init => _value = value;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "get_Value", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(MemberBodyProductionStatus.Complete, Assert.Single(result.FullBodies, body => body.Member == "Holder.get_Value").Status);
+            Assert.Equal(MemberBodyProductionStatus.Complete, Assert.Single(result.FullBodies, body => body.Member == "Holder.set_Value").Status);
+            Assert.Contains("init", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("set", result.Source, StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullPreservesExplicitInitAccessorWhenTargetIsSetter()
+    {
+        // Issue #3000: targeting a non-auto (explicit-body) init setter itself must render an
+        // `init` accessor, not a public `set`. Flipping init to set loses the init-only shape.
+        var assemblyPath = CompileFixture("""
+            public class Holder
+            {
+                private int _value;
+                public int Value
+                {
+                    get => _value;
+                    init => _value = value;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("Holder", "set_Value", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.Equal(MemberBodyProductionStatus.Complete, Assert.Single(result.FullBodies, body => body.Member == "Holder.set_Value").Status);
+            Assert.Contains("init", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("set", result.Source, StringComparison.Ordinal);
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_FullEventAccessorTargetSurfacesRecompileFailure()
     {
         // Issue #3000: a plain (non-explicit-interface) event accessor target is method-routed, so

@@ -320,7 +320,10 @@ public enum CompileBackStubBodyKind
     ThrowGetSet,
     TargetBody,
     TargetGetterWithSetter,
+    TargetGetterWithInitSetter,
     TargetSetterWithGetter,
+    TargetInitSetterWithGetter,
+    TargetInitBody,
     TargetEventAccessorWithSibling,
     AutoProperty,
     AutoPropertyGetSet,
@@ -1067,7 +1070,9 @@ public static class CompileBackSourceComposer
                             : CompileBackStubBodyKind.AutoPropertyGetSet
                     : accessors.Setter.IsNil
                         ? CompileBackStubBodyKind.TargetBody
-                        : CompileBackStubBodyKind.TargetGetterWithSetter,
+                        : SetterIsInitOnly(reader, accessors.Setter)
+                            ? CompileBackStubBodyKind.TargetGetterWithInitSetter
+                            : CompileBackStubBodyKind.TargetGetterWithSetter,
                 targetIsAutoProperty ? null : targetBody,
                 targetIsAutoProperty
                     ? [
@@ -1377,8 +1382,12 @@ public static class CompileBackSourceComposer
                         ? CompileBackStubBodyKind.AutoPropertyGetInit
                         : CompileBackStubBodyKind.AutoPropertyGetSet
                     : property.GetAccessors().Getter.IsNil
-                        ? CompileBackStubBodyKind.TargetBody
-                        : CompileBackStubBodyKind.TargetSetterWithGetter,
+                        ? SetterIsInitOnly(reader, targetSetter)
+                            ? CompileBackStubBodyKind.TargetInitBody
+                            : CompileBackStubBodyKind.TargetBody
+                        : SetterIsInitOnly(reader, targetSetter)
+                            ? CompileBackStubBodyKind.TargetInitSetterWithGetter
+                            : CompileBackStubBodyKind.TargetSetterWithGetter,
                 targetIsAutoProperty ? null : targetBody,
                 targetIsAutoProperty
                     ? [
@@ -1849,17 +1858,25 @@ public static class CompileBackSourceComposer
         // AutoPropertyGetInit renders a get/init auto-property. The compiler-synthesized init
         // accessor faithfully reproduces the original init setter body, so the sibling/target
         // setter stays represented (not dropped) while remaining honest about its init-only shape.
-        bool isGetInit = member.StubBody is CompileBackStubBodyKind.AutoPropertyGetInit;
-        bool hasGetter = isGetInit
+        bool isAutoGetInit = member.StubBody is CompileBackStubBodyKind.AutoPropertyGetInit;
+        // Explicit-body init accessors must be spelled `init`, not `set`; otherwise the round-trip
+        // silently downgrades an init-only property to a public setter (dropping the required
+        // modreq(IsExternalInit)) while still reporting the body Complete.
+        bool setterIsInit = member.StubBody is CompileBackStubBodyKind.TargetGetterWithInitSetter
+            or CompileBackStubBodyKind.TargetInitSetterWithGetter
+            or CompileBackStubBodyKind.TargetInitBody;
+        bool hasGetter = isAutoGetInit
             || member.Kind == CompileBackMemberKind.PropertyGet
             || member.StubBody is CompileBackStubBodyKind.AutoPropertyGetSet
                 or CompileBackStubBodyKind.ThrowGetSet
-                or CompileBackStubBodyKind.TargetSetterWithGetter;
-        bool hasSetter = !isGetInit
+                or CompileBackStubBodyKind.TargetSetterWithGetter
+                or CompileBackStubBodyKind.TargetInitSetterWithGetter;
+        bool hasSetter = !isAutoGetInit
             && (member.Kind == CompileBackMemberKind.PropertySet
                 || member.StubBody is CompileBackStubBodyKind.AutoPropertyGetSet
                     or CompileBackStubBodyKind.ThrowGetSet
-                    or CompileBackStubBodyKind.TargetGetterWithSetter);
+                    or CompileBackStubBodyKind.TargetGetterWithSetter
+                    or CompileBackStubBodyKind.TargetGetterWithInitSetter);
         var accessors = new List<ApiAccessor>();
         if (hasGetter)
         {
@@ -1870,8 +1887,8 @@ public static class CompileBackSourceComposer
             });
         }
         if (hasSetter)
-            accessors.Add(new ApiAccessor { Kind = "set" });
-        if (isGetInit)
+            accessors.Add(new ApiAccessor { Kind = setterIsInit ? "init" : "set" });
+        if (isAutoGetInit)
             accessors.Add(new ApiAccessor { Kind = "init" });
         return accessors;
     }
@@ -1922,6 +1939,11 @@ public static class CompileBackSourceComposer
                     member,
                     CSharpBodyPolicy.Full,
                     PropertyBody(requirement, CSharpAccessorBody.Block(requirement.TargetBody!))),
+            CompileBackStubBodyKind.TargetInitBody
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    PropertyBody(requirement, CSharpAccessorBody.Block(requirement.TargetBody!))),
             CompileBackStubBodyKind.TargetBody when requirement.Kind is CompileBackMemberKind.EventAdd or CompileBackMemberKind.EventRemove
                 => new(
                     member,
@@ -1960,7 +1982,21 @@ public static class CompileBackSourceComposer
                     new CSharpPropertyBody(
                         CSharpAccessorBody.Block(requirement.TargetBody!),
                         CSharpAccessorBody.Throw)),
+            CompileBackStubBodyKind.TargetGetterWithInitSetter
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    new CSharpPropertyBody(
+                        CSharpAccessorBody.Block(requirement.TargetBody!),
+                        CSharpAccessorBody.Throw)),
             CompileBackStubBodyKind.TargetSetterWithGetter
+                => new(
+                    member,
+                    CSharpBodyPolicy.Full,
+                    new CSharpPropertyBody(
+                        CSharpAccessorBody.Throw,
+                        CSharpAccessorBody.Block(requirement.TargetBody!))),
+            CompileBackStubBodyKind.TargetInitSetterWithGetter
                 => new(
                     member,
                     CSharpBodyPolicy.Full,
