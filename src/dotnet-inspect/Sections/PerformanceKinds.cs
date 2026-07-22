@@ -25,7 +25,7 @@ public static class PerformanceKinds
     /// Resolves the section that renders a given opportunity shape. Unmapped shapes route to
     /// <see cref="SectionNames.PerformanceOther"/> so the scan is never silently lossy.
     /// </summary>
-    public static string SectionForShape(string? shape) => shape switch
+    public static string SectionForShape(string? shape) => NormalizeShape(shape) switch
     {
         "box-value-type" => SectionNames.PerformanceBoxing,
 
@@ -51,6 +51,11 @@ public static class PerformanceKinds
 
         _ => SectionNames.PerformanceOther,
     };
+
+    // Shape validation and row filtering are case-insensitive, so a differently-cased shape (e.g.
+    // "BOX-VALUE-TYPE") must resolve to the same kind section its findings bucket into; otherwise
+    // the accepted shape would silently route to Performance: Other and hide the matching rows.
+    private static string? NormalizeShape(string? shape) => shape?.ToLowerInvariant();
 
     /// <summary>The snake_case JSON key for a performance section under the nested <c>performance</c> object.</summary>
     public static string StructuredKey(string section) => section switch

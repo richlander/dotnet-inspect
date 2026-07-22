@@ -29,27 +29,31 @@ public static class OutputFormatter
     /// <summary>
     /// Collapses the repeated per-section header that Markout emits when several sections sharing
     /// one row view (the @Performance kind sections) are rendered as tabular output, producing a
-    /// single header followed by continuous rows. jsonl output has no header line and is returned
-    /// unchanged.
+    /// single header followed by continuous rows. The blank lines Markout emits between sections
+    /// are dropped for every table format — for jsonl and headerless tsv they would otherwise be
+    /// invalid records / empty rows. Header de-duplication runs only when <paramref name="hasHeader"/>
+    /// is true; otherwise the first line is a data row (jsonl object or headerless tsv row) and must
+    /// never be treated as a header to strip, which would silently drop identical data rows.
     /// </summary>
-    internal static string CollapseRepeatedTabularHeaders(string rendered)
+    internal static string CollapseRepeatedTabularHeaders(string rendered, bool hasHeader)
     {
         if (string.IsNullOrEmpty(rendered))
             return rendered;
 
         var trailingNewline = rendered.EndsWith('\n');
         var lines = rendered.ReplaceLineEndings("\n").TrimEnd('\n').Split('\n');
-        var header = lines[0];
-        if (header.Length == 0 || header[0] == '{')
-            return rendered;
+        var header = hasHeader ? lines[0] : null;
 
-        var kept = new List<string> { header };
-        for (var i = 1; i < lines.Length; i++)
+        var kept = new List<string>();
+        for (var i = 0; i < lines.Length; i++)
         {
-            // Drop a blank line that only separates a repeated header block.
-            if (lines[i].Length == 0 && i + 1 < lines.Length && lines[i + 1] == header)
+            // Drop the blank lines Markout inserts between sections (invalid in jsonl/headerless
+            // tsv, and never meaningful in a tsv/markdown table).
+            if (lines[i].Length == 0)
                 continue;
-            if (lines[i] == header)
+            // Keep the first header, drop each repeated per-section header. Only runs when a header
+            // exists, so identical data rows are never mistaken for a header.
+            if (header is not null && i > 0 && lines[i] == header)
                 continue;
             kept.Add(lines[i]);
         }
@@ -328,11 +332,13 @@ public static class OutputFormatter
                 && Sections.PerformanceKinds.AllShareCommonView(writerOpts.IncludeSections))
             {
                 // The @Performance kind sections share one row view, so render them as a single
-                // tabular table by collapsing the repeated per-section header.
+                // tabular table by collapsing the repeated per-section header. jsonl and headerless
+                // tsv have no header line, so only the inter-section blank lines are stripped.
+                var hasHeader = !options.Jsonl && !options.NoHeader;
                 var sw = new StringWriter();
                 MarkoutSerializer.Serialize(auditView, sw, new TableFormatter(!options.NoHeader), InspectionContext.Default, writerOpts);
-                var collapsed = CollapseRepeatedTabularHeaders(sw.ToString());
-                collapsed = LimitRenderedTableRows(collapsed, options.Rows, hasHeader: !options.Jsonl && !options.NoHeader);
+                var collapsed = CollapseRepeatedTabularHeaders(sw.ToString(), hasHeader);
+                collapsed = LimitRenderedTableRows(collapsed, options.Rows, hasHeader);
                 Console.Out.Write(collapsed);
                 if (collapsed.Length > 0 && !collapsed.EndsWith('\n'))
                     Console.Out.WriteLine();

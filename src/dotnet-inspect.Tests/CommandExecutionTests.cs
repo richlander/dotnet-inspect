@@ -1007,6 +1007,67 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task PerformanceGroup_JsonlEmitsOnlyValidRecords_NoBlankSeparators()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "@Performance", "--jsonl", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+
+        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        Assert.NotEmpty(lines);
+        // The blank lines Markout inserts between sections are invalid jsonl records; they must be
+        // stripped so every emitted line parses.
+        foreach (var line in output.Replace("\r", "").Split('\n'))
+        {
+            if (line.Length == 0)
+                continue;
+            using var _ = JsonDocument.Parse(line);
+        }
+        Assert.DoesNotContain(output.TrimEnd('\n').Split('\n'), line => line.Length == 0);
+    }
+
+    [Fact]
+    public async Task PerformanceGroup_NoHeaderTabular_PreservesEveryRow_NoBlankSeparators()
+    {
+        // With --no-header the first line is a data row, not a header; header-collapse must not treat
+        // it as a header and drop identical data rows. Row count must match the with-header data-row
+        // count, and no blank section separators may leak into the stream.
+        var withHeader = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "@Performance", "--tsv", "--order-by", "Allocation", "--tips", "q");
+        var noHeader = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "@Performance", "--tsv", "--no-header", "--order-by", "Allocation", "--tips", "q");
+
+        Assert.Equal(0, withHeader.Exit);
+        Assert.Equal(0, noHeader.Exit);
+
+        var dataRows = withHeader.Output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Count(line => !line.StartsWith("member\t", StringComparison.Ordinal));
+        var noHeaderRows = noHeader.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+        Assert.Equal(dataRows, noHeaderRows.Length);
+        Assert.DoesNotContain(noHeader.Output.TrimEnd('\n').Split('\n'), line => line.Length == 0);
+    }
+
+    [Fact]
+    public async Task PerformanceTriageShape_SectionMappingIsCaseInsensitive()
+    {
+        // A differently-cased --triage-shape is accepted by validation; it must resolve to the same
+        // kind section its findings bucket into, not silently route to Performance: Other.
+        var lower = await RunAppAsync(
+            "library", "System.Text.Json", "--triage-shape", "box-value-type", "--count", "--tips", "q");
+        var upper = await RunAppAsync(
+            "library", "System.Text.Json", "--triage-shape", "BOX-VALUE-TYPE", "--count", "--tips", "q");
+
+        Assert.Equal(0, lower.Exit);
+        Assert.Equal(0, upper.Exit);
+        Assert.True(int.TryParse(lower.Output.Trim(), out var lowerCount) && lowerCount > 0, lower.Output);
+        Assert.Equal(lower.Output.Trim(), upper.Output.Trim());
+    }
+
+    [Fact]
     public async Task PerformanceTriageWhere_UnknownFieldReportsSuggestion()
     {
         var (exit, output, error) = await RunAppAsync(

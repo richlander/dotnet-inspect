@@ -41,6 +41,19 @@ public class PerformanceKindsTests
     }
 
     [Fact]
+    public void SectionForShape_IsCaseInsensitive()
+    {
+        // Shape validation and row filtering are case-insensitive; the section mapping must agree so
+        // a differently-cased shape does not silently route to Performance: Other.
+        foreach (var shape in PerformanceTriageOptions.KnownShapes)
+        {
+            Assert.Equal(
+                PerformanceKinds.SectionForShape(shape),
+                PerformanceKinds.SectionForShape(shape.ToUpperInvariant()));
+        }
+    }
+
+    [Fact]
     public void StructuredKeys_AreUniquePerSection()
     {
         var keys = PerformanceKinds.Sections
