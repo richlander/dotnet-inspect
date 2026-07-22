@@ -50,7 +50,9 @@ public class LibraryCommand
                     verbosity: (int)options.Verbosity,
                     sectionCostAnnotations: pipeline.GetCostAnnotations(),
                     sectionCategories: pipeline.GetCategoryMap(),
-                    catalogHiddenSections: pipeline.GetCatalogHiddenSections());
+                    // --schema reveals the full catalog including the @Hidden pole; a static -D
+                    // without --schema keeps the curated top-level view.
+                    catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections());
             }
         }
 
@@ -670,6 +672,18 @@ public class LibraryCommand
         }, null);
     }
 
+    // Catalog-hidden set for the effective (real-assembly) -D flows. IL-offset
+    // coordinate sections are excluded so they remain discoverable at the -D top
+    // level exactly when a coordinate makes them applicable (FilterEffective drops
+    // them otherwise); they stay grouped under @Hidden for --schema / -S.
+    private static IReadOnlySet<string> EffectiveCatalogHidden(SectionPipeline<LibraryInspection> pipeline)
+    {
+        var hidden = pipeline.GetCatalogHiddenSections()
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        hidden.ExceptWith(ILCoordinateSections);
+        return hidden;
+    }
+
     private static readonly string[] ILCoordinateSections =
     [
         SectionNames.ILOffset,
@@ -1281,7 +1295,7 @@ public class LibraryCommand
             verbosity: (int)userVerbosity, rootLabel: rootLabel, fullSchema: schemaMap,
             sectionCostAnnotations: pipeline.GetCostAnnotations(),
             sectionCategories: pipeline.GetCategoryMap(),
-            catalogHiddenSections: pipeline.GetCatalogHiddenSections());
+            catalogHiddenSections: EffectiveCatalogHidden(pipeline));
     }
 
     // ── Effective sections cache ──
@@ -1353,7 +1367,7 @@ public class LibraryCommand
             verbosity: (int)userVerbosity, rootLabel: rootLabel,
             sectionCostAnnotations: LibrarySections.CreatePipeline().GetCostAnnotations(),
             sectionCategories: LibrarySections.CreatePipeline().GetCategoryMap(),
-            catalogHiddenSections: LibrarySections.CreatePipeline().GetCatalogHiddenSections());
+            catalogHiddenSections: EffectiveCatalogHidden(LibrarySections.CreatePipeline()));
     }
 
     /// <summary>

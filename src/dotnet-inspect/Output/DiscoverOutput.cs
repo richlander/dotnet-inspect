@@ -314,6 +314,11 @@ public static class DiscoverOutput
         {
             var items = schema.Discover()!;
             var categoryRows = sectionCategories?
+                // The @Hidden pole is the computed complement of the listed catalog. It is a
+                // --schema/exact-name entrypoint only: excluded from the curated top-level catalog
+                // (catalogHidden applied), but shown in the full schema (catalogHidden null).
+                .Where(category => catalogHiddenSections is null
+                    || !string.Equals(category.Key, SectionCategoryNames.Hidden, StringComparison.OrdinalIgnoreCase))
                 .Select(category => new DiscoveryRow(category.Key, "category"))
                 .ToList() ?? new List<DiscoveryRow>();
 
@@ -519,6 +524,9 @@ public static class DiscoverOutput
                 .ToList();
             var categoryRows = sectionCategories?
                 .Keys
+                // See the flat catalog: @Hidden is shown only in the full schema (catalogHidden null).
+                .Where(name => catalogHiddenSections is null
+                    || !string.Equals(name, SectionCategoryNames.Hidden, StringComparison.OrdinalIgnoreCase))
                 .Select(name => new DiscoveryRow(name, "category"))
                 .ToList() ?? new List<DiscoveryRow>();
 

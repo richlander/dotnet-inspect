@@ -33,6 +33,7 @@ public static class LibrarySections
     public static SectionPipeline<LibraryInspection> CreatePipeline()
     {
         return new SectionPipeline<LibraryInspection>()
+            .UseCuratedCatalog()
             .Add<LibraryInfo>()
             .Add<InspectionFailures>(_ => true)
             .Add<ILOffset>()
@@ -92,6 +93,20 @@ public static class LibrarySections
                 "P/Invoke Methods",
                 "Switches")
             .AddCategory(SectionCategoryNames.Performance, PerformanceKinds.Sections)
+            .AddCategory(SectionCategoryNames.Surface,
+                "Async Methods",
+                "Custom Attributes",
+                "Extension Methods",
+                "Type Forwarders",
+                "Union Types",
+                "P/Invoke Methods")
+            .AddCategory(SectionCategoryNames.Resources,
+                "Resources",
+                SectionNames.ResourceTriage)
+            .AddCategory(SectionCategoryNames.Source,
+                "Source Files",
+                "SourceLink Availability",
+                "SourceLink Missing Files")
             .AddCategory("@Integrations", [.. LibraryIntegrationCatalog.CategorySections, "Integration Opportunities", "Union Types"])
             .AddCategory("@Switches", "Switches");
     }
@@ -490,6 +505,7 @@ public static class LibrarySections
         public static string Name => "Extension Methods";
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static bool Noisy => true;
         public static string? ScannerKey => ScannerExtensionMethods;
         public static bool CanRender(LibraryInspection model)
             => model.ExtensionMemberInspection.CanRenderWithPresence(model.HasExtensionTypes);
@@ -630,6 +646,10 @@ public static class LibrarySections
     {
         public static string Name => "P/Invoke Methods";
         public static bool IsExpensive => false;
+        // Opt-in surface section: real but low signal-to-noise, so it stays out of the default
+        // document and renders only via -S (individually, or through @Surface/@Audit).
+        public static bool ExplicitOnly => true;
+        public static bool Noisy => true;
         public static string? ScannerKey => ScannerClassifiedMethods;
         public static bool CanRender(LibraryInspection model)
             => model.ClassifiedMethodInspection.Failure() is null
@@ -641,6 +661,7 @@ public static class LibrarySections
         public static string Name => "Async Methods";
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static bool Noisy => true;
         public static string? ScannerKey => ScannerClassifiedMethods;
         public static bool CanRender(LibraryInspection model)
             => model.ClassifiedMethodInspection.Failure() is null
@@ -663,6 +684,7 @@ public static class LibrarySections
         public static string Name => "Custom Attributes";
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static bool Noisy => true;
         public static string? ScannerKey => ScannerCustomAttributes;
         public static bool CanRender(LibraryInspection model)
             => model.AssemblyAttributeInspection.CanRenderWithPresence(model.HasAssemblyAttributes);
@@ -673,6 +695,7 @@ public static class LibrarySections
         public static string Name => "Union Types";
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static bool Noisy => true;
         public static string? ScannerKey => ScannerUnionTypes;
         public static bool CanRender(LibraryInspection model)
             => model.UnionTypeInspection.CanRenderWithPresence(model.HasUnionTypes);
@@ -683,6 +706,7 @@ public static class LibrarySections
         public static string Name => "Type Forwarders";
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
+        public static bool Noisy => true;
         public static string? ScannerKey => ScannerTypeForwarders;
         public static bool CanRender(LibraryInspection model)
             => model.TypeForwarderInspection.CanRenderWithPresence(model.HasExportedTypeForwarders);
@@ -692,6 +716,9 @@ public static class LibrarySections
     {
         public static string Name => "Non-normalized Paths";
         public static bool IsExpensive => false;
+        // Opt-in @Hidden section: a niche path-hygiene audit with no category door, reachable only
+        // via --schema or exact name so it never clutters the default document or top-level catalog.
+        public static bool ExplicitOnly => true;
         public static string? ScannerKey => null; // data comes from PdbContext (always collected)
         public static bool CanRender(LibraryInspection model) => model.NonNormalizedPaths is { Count: > 0 };
     }

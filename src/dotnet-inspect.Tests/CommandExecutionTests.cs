@@ -6066,25 +6066,38 @@ public class CommandExecutionTests
     ];
 
     [Fact]
-    public async Task LibraryCommand_DiscoverEffective_ListsSourceLinkAuditSections()
+    public async Task LibraryCommand_DiscoverEffective_GroupsSourceLinkUnderSourceAndHidden()
     {
+        // Curated catalog: SourceLink audit sections are not @All members, so bare -D lists
+        // them under the @Source door (Availability/Missing/Files) and the @Hidden pole (Integrity),
+        // never at the top level.
         var (exit, output, error) = await RunAppAsync(
             "library", "--package", "Newtonsoft.Json", "-D", "--table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Tip:", error);
-        Assert.Contains("SourceLink Availability", output);
-        Assert.Contains("SourceLink Missing Files", output);
-        Assert.Contains("SourceLink Integrity", output);
+        Assert.DoesNotContain("SourceLink Availability", output);
+        Assert.DoesNotContain("SourceLink Missing Files", output);
+        Assert.DoesNotContain("SourceLink Integrity", output);
+        Assert.Contains("@Source", output);
+        // @Hidden is a schema-only pole: it never appears as a bare -D category row.
+        Assert.DoesNotContain("@Hidden", output);
 
-        var (allExit, allOutput, allError) = await RunAppAsync(
-            "library", "--package", "Newtonsoft.Json", "-D", "@All", "--table", "--tips", "q");
+        var (sourceExit, sourceOutput, sourceError) = await RunAppAsync(
+            "library", "--package", "Newtonsoft.Json", "-D", "@Source", "--table", "--tips", "q");
 
-        Assert.Equal(0, allExit);
-        Assert.DoesNotContain("Tip:", allError);
-        Assert.Contains("SourceLink Availability", allOutput);
-        Assert.Contains("SourceLink Missing Files", allOutput);
-        Assert.Contains("SourceLink Integrity", allOutput);
+        Assert.Equal(0, sourceExit);
+        Assert.DoesNotContain("Tip:", sourceError);
+        Assert.Contains("Source Files", sourceOutput);
+        Assert.Contains("SourceLink Availability", sourceOutput);
+        Assert.Contains("SourceLink Missing Files", sourceOutput);
+
+        var (hiddenExit, hiddenOutput, hiddenError) = await RunAppAsync(
+            "library", "--package", "Newtonsoft.Json", "-D", "@Hidden", "--table", "--tips", "q");
+
+        Assert.Equal(0, hiddenExit);
+        Assert.DoesNotContain("Tip:", hiddenError);
+        Assert.Contains("SourceLink Integrity", hiddenOutput);
     }
 
     [Fact]
@@ -6109,55 +6122,30 @@ public class CommandExecutionTests
         var optInNames = lines
             .Where(line => line.Contains("section (opt-in)", StringComparison.Ordinal))
             .Select(ExtractSectionName)
-            .ToArray();
-        Assert.Equal(
-            [
-                "AI",
-                "Allocation Context",
-                "ASP.NET Core",
-                "Aspire",
-                "Async Methods",
-                "Authentication",
-                "Callsite Context",
-                "Configuration",
-                "Cost Context",
-                "Custom Attributes",
-                "Dependency Injection",
-                "Exception Context",
-                "Extension Methods",
-                "Health Checks",
-                "Hosting",
-                "HTTP Client",
-                "Instruction Context",
-                "Integration Opportunities",
-                "Integrations",
-                "Logging",
-                "Member Context",
-                "OpenAPI",
-                "OpenTelemetry",
-                "Options",
-                "Resource Triage",
-                "Resources",
-                "Return Address Context",
-                "Safety Context",
-                "Source Files",
-                "Source Location",
-                "SourceLink Availability",
-                "SourceLink Integrity",
-                "SourceLink Missing Files",
-                "Switches",
-                "Top Leverage",
-                "Type Forwarders",
-                "Union Types",
-                "Unsafe Members"
-            ],
-            optInNames);
-        // The kind-scoped performance sections are catalog-hidden (ListedInCatalog=false): the
-        // @Performance category is their single discoverable entrypoint, so they must not appear in
-        // the top-level catalog even though they remain selectable and drillable via -D @Performance.
-        Assert.DoesNotContain(names, name => name.StartsWith("Performance: ", StringComparison.Ordinal));
+            .ToHashSet(StringComparer.Ordinal);
+
+        // The full --schema catalog is the exhaustive escape hatch: every non-default section is
+        // listed as opt-in, including the surface opt-ins, the source/hidden-pole sections, and the
+        // sections whose default rendering changed under the curated model (P/Invoke, Non-normalized).
+        foreach (var expected in new[]
+                 {
+                     "Async Methods", "Custom Attributes", "Extension Methods", "Type Forwarders",
+                     "Union Types", "P/Invoke Methods", "Non-normalized Paths", "Top Leverage",
+                     "Source Files", "SourceLink Availability", "SourceLink Missing Files",
+                     "SourceLink Integrity", "Member Context", "Integration Opportunities"
+                 })
+        {
+            Assert.Contains(expected, optInNames);
+        }
+
+        // --schema is exhaustive: unlike the -D top level, it also surfaces the kind-scoped
+        // performance sections (their runtime entrypoint remains the @Performance category door).
+        Assert.Contains(names, name => name.StartsWith("Performance: ", StringComparison.Ordinal));
         Assert.Contains(output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries),
             line => ExtractSectionName(line) == "@Performance" && line.Contains("category", StringComparison.Ordinal));
+        // The computed @Hidden pole is revealed by --schema (but not by a bare -D catalog).
+        Assert.Contains(output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries),
+            line => ExtractSectionName(line) == "@Hidden" && line.Contains("category", StringComparison.Ordinal));
         Assert.DoesNotContain(lines, line => line.StartsWith("Missing Source Files", StringComparison.Ordinal));
         Assert.DoesNotContain(lines, line => line.StartsWith("Source Integrity", StringComparison.Ordinal));
     }

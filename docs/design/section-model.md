@@ -8,6 +8,98 @@ There are three major aspects in play:
 - Filter (data to shave off / retain)
 - How to render the data
 
+## Section taxonomy
+
+Sections grew organically into a tangle of overlapping flags — `Info`,
+`ExplicitOnly`, `ListedInCatalog`, an inferred "verbose" annotation, plus
+`IsExpensive`, `ProbeEffectiveness`, and `Capabilities`. One boolean
+(`ExplicitOnly`) was made to stand for three unrelated reasons a section stays
+out of the default view (expensive, feeder, niche), and catalog visibility was
+computed inconsistently across mechanisms. This section defines the principled
+model that replaces that tangle.
+
+### One primitive: the category
+
+**Every section is rooted by at least one category.** There are no homeless
+sections. Categories are the universal organizing and discovery unit.
+
+Two categories are poles rather than ordinary groupings, because they serve a
+different function than a curated `@Performance`-style door:
+
+- **`@All`** — the visible pole. Its members are every section worth showing on
+  its own. `@All` owns the top-level discovery catalog: **`-D` lists exactly
+  `@All`'s members plus the names of every other *listed* category.**
+- **`@Hidden`** — the invisible pole, and the **computed complement** of `@All`.
+  A section falls into `@Hidden` exactly when no *listed* category surfaces it.
+  You never author `@Hidden` membership; it falls out. `@Hidden`'s own name is
+  not listed in `-D`; its members are reached only via `--schema` or an exact
+  request (`-S @Hidden`, `-D @Hidden`).
+
+`--schema` is the union: `@All ∪ @Hidden` = the full section graph.
+
+### Two per-section declarations
+
+A section declares only two things. Everything else (`-D` contents, catalog
+visibility, the old "verbose"/"opt-in" annotations) is computed.
+
+1. **Render tier** — when the section auto-renders without `-S`:
+   - `Default` — the hero document (`-v:m`).
+   - `Terse` — the fuller document (`-v:n`); effective and low-noise.
+   - `Noisy` — cheap and effective but low signal-to-noise (Async Methods,
+     Custom Attributes, Extension Methods). Never auto-renders in the `-v`
+     ladder; shown only by `-S @All` or explicit selection.
+2. **Cost bit** — `Cheap` or `Expensive` (with a `Network` refinement for the
+   inherent-network exception).
+
+`Effective` is not a declared axis — it is the existing `CanRender` render
+filter: an auto-selected section that would produce zero rows is suppressed.
+Expensive sections are not effectiveness-probed (see the cost gate below).
+
+### The render ladder
+
+| Selector | Shows |
+| --- | --- |
+| `-v:q` / `-v:m` | primary `Default` section(s) |
+| `-v:n` | all `Default` + `Terse` sections (the clean default document) |
+| `-S @All` | adds `Noisy` sections — still cheap, still < 1s |
+| `-v:d` | the cost axis: `Terse` document **plus** executed `Expensive`/`Network` sections |
+
+`@All` owns the **noise** axis (adds noisy, stays cheap). `-v:d` owns the
+**cost** axis (adds expensive/network work). They are orthogonal knobs.
+
+### Two orthogonal gates
+
+- **Cost is an execution gate, not a membership gate.** An `Expensive` section
+  may still be *rooted* in a listed category (so it is discoverable by drilling
+  `-D @Category`), but it is **never executed** by category-expand, `--count`,
+  `@All`, or `-v:n`. It runs only via explicit `-S <name>` or `-v:d`. This keeps
+  every category cheap to expand and `--count`: expensive members are listed
+  structurally, never run. SourceLink Integrity is the canonical case — rooted
+  in `@Hidden`, expensive, skill-documented, never triggered by a category probe.
+- **Category listed/unlisted is the discovery gate.** A listed category's name
+  appears in `-D` as a door. `@Hidden` is unlisted, so its members are
+  `--schema`-only.
+
+### Invariants
+
+- `-D` = `@All` members + listed category names. Computed, never hand-flagged.
+- A `@category` is always cheap to expand and `--count`. No member may trigger
+  network or heavy work during a category probe.
+- Every section is category-rooted; `@Hidden` is the catch-all for niche and
+  footgun-expensive standalone sections.
+- `@All` returns in < 1s: it excludes expensive sections and feeders.
+
+### How the dimensions map
+
+| Section kind | Render tier | Cost | Category root |
+| --- | --- | --- | --- |
+| Hero (Signals, Symbols) | Default | cheap | `@All` |
+| Structural (Dependencies, References) | Terse | cheap | `@All` |
+| Noisy (Async / Custom Attributes / Extension Methods) | Noisy | cheap | `@All` + `@Surface` |
+| Feeder (Allocation Context) | — (opt-in) | cheap | `@Performance` / `@Audit` (listed door, not `@All`) |
+| Niche (Non-normalized Paths) | — (opt-in) | cheap | `@Hidden` |
+| Expensive (SourceLink Integrity, Vulnerabilities) | — (opt-in) | expensive | `@Hidden` or a listed door (listed, never auto-run) |
+
 ## Query paths
 
 There are three query paths, each offering a different level of curation and customization:

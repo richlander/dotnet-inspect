@@ -34,6 +34,15 @@ public interface ISectionDescriptor<TModel>
     static virtual bool Info => false;
 
     /// <summary>
+    /// When true (curated-catalog pipelines only), this section is cheap-but-verbose: low
+    /// signal-to-noise, never auto-rendered by verbosity (it is also <see cref="ExplicitOnly"/>),
+    /// yet a member of the visible <c>@All</c> pole so it stays discoverable at the top of
+    /// <c>-D</c> rather than hiding behind a category door. Distinguishes a noisy surface section
+    /// (e.g. Custom Attributes) from a feeder that only makes sense under its category.
+    /// </summary>
+    static virtual bool Noisy => false;
+
+    /// <summary>
     /// When false, this section is omitted from the top-level discovery catalog (bare <c>-D</c> /
     /// <c>-D --schema</c>) so a curated <c>@category</c> is the single discoverable entrypoint for it.
     /// The section stays fully selectable and stays visible when drilling into its category
