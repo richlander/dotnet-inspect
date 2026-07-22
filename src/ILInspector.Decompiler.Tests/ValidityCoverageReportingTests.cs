@@ -50,9 +50,10 @@ public class ValidityCoverageReportingTests
         // UnionSwitchExpressionPass::SameTailNode,
         // DynamicCallSitePass::TryGuardCacheLoad, and
         // FluentChainRecompositionPass::SinkStatement.
-        // YieldBreakLoopIteratorReconstruction::TryNormalizeContinueCondition is a
-        // distinct result-temp switch-expression shape the fix does not cover and
-        // remains pinned as tracked follow-up.
+        // #2973 removed the result-temp scattered-dispatch defect in
+        // YieldBreakLoopIteratorReconstruction::TryNormalizeContinueCondition
+        // and the existing InlineArrayCollectionPass::PlaceFromAddress sibling
+        // with the same single interleaved default-goto shape.
         string[] expected =
 #if DEBUG
         [
@@ -66,8 +67,6 @@ public class ValidityCoverageReportingTests
             "ILInspector.Decompiler.Pipeline.DeconstructionAssignmentPass::TryMatchTupleSeed",
             "ILInspector.Decompiler.Pipeline.FixedArrayRaising::SameLoadPlace",
             "ILInspector.Decompiler.Pipeline.IndexFromEndPass::LengthReceiver",
-            "ILInspector.Decompiler.Pipeline.InlineArrayCollectionPass::PlaceFromAddress",
-            "ILInspector.Decompiler.Pipeline.YieldBreakLoopIteratorReconstruction::TryNormalizeContinueCondition",
         ];
 #endif
         Assert.Equal(expected, actual);
