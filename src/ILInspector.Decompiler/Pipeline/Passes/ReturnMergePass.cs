@@ -18,14 +18,21 @@ namespace ILInspector.Decompiler.Pipeline;
 /// the immediate post-dominator of its arms, so duplicating it is a pure copy of
 /// a <c>return</c> that reorders nothing.
 ///
+/// A mixed scattered dispatch is the one additional shape: one explicit
+/// default-arm goto sits between at least two conditional guards that reach the
+/// same tail. The goto is inlined while the shared tail remains for
+/// StructuringPass; the materialized default arm then proves that the
+/// conditional predecessors are scattered rather than a contiguous
+/// short-circuit chain.
+///
 /// Conservative by construction:
 ///   • only short tails (the terminator-inlining budget) are duplicated;
-///   • a merge needs two or more <em>unconditional</em> predecessors — a
-///     two-way <c>if/else</c> join (one goto + one fallthrough) is left to the
-///     structuring pass's diamond form, which already nests it without
-///     duplicating the tail;
-///   • a conditional <c>if (c) goto tail</c> predecessor is left in place for
-///     the structuring pass to raise as a guard.
+///   • outside the mixed shape, a merge needs two or more
+///     <em>unconditional</em> predecessors — a two-way <c>if/else</c> join (one
+///     goto + one fallthrough) is left to the structuring pass's diamond form,
+///     which already nests it without duplicating the tail;
+///   • conditional predecessors are never rewritten here; fewer than two cannot
+///     establish the mixed scattered-dispatch shape.
 /// Runs before structuring.
 /// </summary>
 public sealed class ReturnMergePass : IIrPass
@@ -60,21 +67,27 @@ public sealed class ReturnMergePass : IIrPass
                     continue;
 
                 var branchPreds = new List<Block>();
-                bool hasConditionalOrSwitchPred = false;
-                foreach (var block in blocks)
+                var branchPredIndices = new List<int>();
+                int conditionalPreds = 0;
+                var conditionalPredIndices = new List<int>();
+                bool hasSwitchPred = false;
+                for (int blockIndex = 0; blockIndex < blocks.Count; blockIndex++)
                 {
+                    var block = blocks[blockIndex];
                     if (ReferenceEquals(block, merge) || block.Children.Count == 0)
                         continue;
                     switch (block.Children[^1])
                     {
                         case Branch b when b.TargetOffset == merge.StartOffset:
                             branchPreds.Add(block);
+                            branchPredIndices.Add(blockIndex);
                             break;
                         case ConditionalBranch c when c.TargetOffset == merge.StartOffset:
-                            hasConditionalOrSwitchPred = true;
+                            conditionalPreds++;
+                            conditionalPredIndices.Add(blockIndex);
                             break;
                         case SwitchBranch s when s.TargetOffsets.Contains(merge.StartOffset):
-                            hasConditionalOrSwitchPred = true;
+                            hasSwitchPred = true;
                             break;
                     }
                 }
@@ -86,8 +99,21 @@ public sealed class ReturnMergePass : IIrPass
                 // cannot split a short-circuit false-exit merge.
                 bool isolatedSingleGoto = branchPreds.Count == 1
                     && fallthroughPred is null
-                    && !hasConditionalOrSwitchPred;
-                if (branchPreds.Count < 2 && !isolatedSingleGoto)
+                    && conditionalPreds == 0
+                    && !hasSwitchPred;
+                // A mixed scattered dispatch can have one explicit default-arm
+                // goto plus several conditional guards reaching the same return
+                // tail. Inline the goto arm while leaving the shared tail for the
+                // guards; this turns the default arm into the interleaved
+                // terminator StructuringPass needs to prove the dispatch.
+                bool mixedScatteredCandidate = branchPreds.Count == 1
+                    && conditionalPreds >= 2
+                    && !hasSwitchPred
+                    && fallthroughPred is null
+                    && branchPredIndices[0] > conditionalPredIndices.Min()
+                    && branchPredIndices[0] < conditionalPredIndices.Max()
+                    && IsResultTempReturnTail(merge);
+                if (branchPreds.Count < 2 && !isolatedSingleGoto && !mixedScatteredCandidate)
                     continue;
 
                 var tail = merge.Children.ToList();   // snapshot before any mutation
@@ -109,7 +135,7 @@ public sealed class ReturnMergePass : IIrPass
                 // tail; if no conditional guard or surviving leave still targets
                 // the merge, nothing reaches it (and the block before it now
                 // terminates), so drop it.
-                if (!hasConditionalOrSwitchPred && !leaveTargets.Contains(merge.StartOffset))
+                if (conditionalPreds == 0 && !hasSwitchPred && !leaveTargets.Contains(merge.StartOffset))
                     merge.Detach();
 
                 changed = true;
@@ -131,6 +157,16 @@ public sealed class ReturnMergePass : IIrPass
                 return false;
         return true;
     }
+
+    /// <summary>
+    /// The switch-expression/result-temp tail this mixed slice owns:
+    /// <c>V = value; return V;</c>. A direct shared return belongs to the existing
+    /// structuring rules and must not acquire this additional rewrite.
+    /// </summary>
+    static bool IsResultTempReturnTail(Block block)
+        => block.Children is
+        [StoreLocal store, Return { Value: LoadLocal load }]
+        && store.Index == load.Index;
 
     /// <summary>Whether control reaching the end of this block continues into its successor.</summary>
     static bool FallsThrough(Block block) =>
