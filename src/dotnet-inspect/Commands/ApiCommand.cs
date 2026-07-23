@@ -563,9 +563,21 @@ public class ApiCommand
             string? content = null;
             var localBytes = DotnetInspector.Services.AuthoredSourceAcquisition.TryReadVerifiedLocalSource(
                 methodInfo.FilePath, methodInfo.ChecksumAlgorithm, methodInfo.Checksum);
+            byte[]? repoBytes;
             if (localBytes != null)
             {
                 content = DotnetInspector.Services.AuthoredSourceAcquisition.DecodeSourceText(localBytes)
+                    .Replace("\r\n", "\n").Replace("\r", "\n");
+            }
+            // Opt-in (--repo): read the committed blob at the SourceLink commit from a local clone,
+            // authenticated by the same PDB checksum, before touching the network. Useful for a
+            // reproducible build whose sources are private or simply already cloned on this machine.
+            else if (options.SourceRepositories.Length > 0
+                && (repoBytes = DotnetInspector.Services.LocalRepoSourceAcquisition.TryReadVerifiedRepoBlob(
+                    methodInfo.SourceUrl, methodInfo.ChecksumAlgorithm, methodInfo.Checksum,
+                    options.SourceRepositories)) != null)
+            {
+                content = DotnetInspector.Services.AuthoredSourceAcquisition.DecodeSourceText(repoBytes)
                     .Replace("\r\n", "\n").Replace("\r", "\n");
             }
             else if (methodInfo.SourceUrl != null)
