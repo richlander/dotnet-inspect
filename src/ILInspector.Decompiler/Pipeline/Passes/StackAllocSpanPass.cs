@@ -237,12 +237,21 @@ public sealed class StackAllocSpanPass : IIrPass
         load.ReplaceWith(value);
     }
 
-    /// <summary>True when the node is the first thing the statement evaluates: the spine of first children.</summary>
+    /// <summary>
+    /// True when the node is the first thing the statement evaluates: the spine of
+    /// first children. A loop header is never accepted — a <see cref="WhileLoop"/>
+    /// re-evaluates its condition (its first child) every iteration, so a leaf there
+    /// does not execute exactly once in the store's place; folding an effectful (or
+    /// loop-mutated) value into it would change how many times it runs. The other
+    /// loop forms are rejected defensively for the same single-evaluation guarantee.
+    /// </summary>
     static bool IsFirstEvaluatedLeaf(IrNode node, IrNode statement)
     {
         var current = statement;
         while (current.Children.Count > 0)
         {
+            if (current is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement)
+                return false;
             current = current.Children[0];
             if (ReferenceEquals(current, node))
                 return true;

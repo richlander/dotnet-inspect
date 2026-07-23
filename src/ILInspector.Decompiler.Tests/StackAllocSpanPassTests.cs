@@ -1474,6 +1474,36 @@ public class StackAllocSpanPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void DynamicCountSpillIntoWhileLoopCondition_DoesNotFold()
+    {
+        // The spill `V_1 = Effect()` runs once before the loop, but the
+        // stackalloc-span is consumed in the WhileLoop condition, which
+        // re-evaluates every iteration. After the raise the count load is the
+        // condition's first-evaluated leaf, yet folding the effectful spill value
+        // there would run Effect() on every iteration instead of once. A loop
+        // header is never a single-evaluation first-leaf position.
+        var value = new Call(new MethodRef(Holder, "Effect", Int32, [], HasThis: false), isVirtual: false, []);
+        var spill = new StoreLocal(1, Int32, value);
+        var span = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Span`1"), [Byte]);
+        var newObject = StackAllocSpanConstructor(
+            TypeRef.CoreLib("System", "Span`1"),
+            new StackAllocate(new LoadLocal(1, Int32)),
+            new LoadLocal(1, Int32),
+            Byte);
+        var length = new Call(new MethodRef(span, "get_Length", Int32, [], HasThis: true), isVirtual: false, [newObject]);
+        var condition = new Comparison(ComparisonKind.GreaterThan, isUnsigned: false, length, new Constant(0, Int32));
+        var loop = new WhileLoop(condition, new Block(0));
+        var function = BuildBody(spill, loop, new Return(new Constant(0, Int32)));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.IsType<LoadLocal>(raised.Count); // count left spilled, not hoisted into the loop condition
+        Assert.Contains(function.Descendants.OfType<StoreLocal>(), s => s.Index == 1);
+        function.CheckInvariant();
+    }
+
     /// <summary>
     /// Builds `V_1 = value; Span<byte> V_0 = new Span<byte>(localloc V_1, V_1); return 0;`
     /// — the compiler's dynamic one-byte `stackalloc byte[n]` shape whose byte
