@@ -342,8 +342,10 @@ the same member-body slice the harvester stored
 It is report-only by default (exit 0). The run's own integrity still governs the
 exit code with a named blocker: any corpus row whose assembly was not supplied
 (`unmatchedRows > 0`) or a run that evaluated no rows fails, so an empty or
-partially-unmatched run is never a success. Pass `--fail-on-drift` to additionally
-exit nonzero when any row has drifted — the shape of a periodic (non-PR) gate.
+partially-unmatched run is never a success. Pass `--fail-on-drift` to turn it into
+a fail-closed gate — the run then exits nonzero unless *every* evaluated row is
+Verified, so any Drifted or Unavailable row (an outage, a missing PDB, or a bad
+`--repo` establishes no correspondence) fails a periodic (non-PR) gate.
 Supply the same pinned assemblies the corpus was harvested from, and point
 `--repo` at this checkout to resolve dotnet-inspect's own rows locally:
 

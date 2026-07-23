@@ -24,8 +24,9 @@ namespace ILInspector.DecompilerHarness;
 /// report-only by default — a run's own integrity (corpus present, every corpus
 /// assembly supplied, at least one row evaluated) still governs the exit code, so
 /// a partial or empty run never masquerades as success. Pass <c>--fail-on-drift</c>
-/// to additionally fail the run when any row has drifted, for a periodic
-/// (non-PR) gate.
+/// to turn it into a fail-closed gate: the run then fails unless every evaluated
+/// row is Verified, so any Drifted or Unavailable row (an outage or missing source
+/// establishes no correspondence) fails a periodic (non-PR) gate.
 /// </summary>
 static class AuthoredCorpusDrift
 {
@@ -257,12 +258,15 @@ static class AuthoredCorpusDrift
         WriteRows("Unavailable rows", results, Outcome.Unavailable);
 
         // Honest-exit contract: a run only counts if every corpus assembly was
-        // supplied (unmatchedRows == 0) and at least one row was evaluated. On top
-        // of that, --fail-on-drift fails when any row drifted. Unavailable rows are
-        // surfaced but non-fatal: running offline without --repo legitimately
-        // cannot re-acquire, and that is a "could not verify", not a drift.
+        // supplied (unmatchedRows == 0) and at least one row was evaluated.
+        // --fail-on-drift turns this into a fail-closed gate: every evaluated row
+        // must be Verified, so any Drifted (source changed) OR Unavailable (could
+        // not re-acquire) row fails — a gate that passes while verifying nothing
+        // (an outage, a missing PDB, a bad --repo) establishes no correspondence.
+        // Report-only runs (no --fail-on-drift) stay a pure diagnostic and exit 0
+        // regardless of Unavailable rows.
         bool honest = unmatchedRows == 0 && evaluated > 0;
-        return honest && !(failOnDrift && drifted > 0) ? 0 : 1;
+        return honest && !(failOnDrift && (drifted > 0 || unavailable > 0)) ? 0 : 1;
     }
 
     static void WriteRows(string title, IReadOnlyList<RowResult> results, Outcome outcome)
@@ -323,6 +327,6 @@ static class AuthoredCorpusDrift
         };
 
         Console.WriteLine(JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
-        return honest && !(failOnDrift && drifted > 0) ? 0 : 1;
+        return honest && !(failOnDrift && (drifted > 0 || unavailable > 0)) ? 0 : 1;
     }
 }

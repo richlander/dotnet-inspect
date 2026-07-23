@@ -2022,8 +2022,9 @@ static class Program
                                 Report-only unless --fail-on-drift is set. Supply
                                 the same pinned assemblies the corpus was harvested
                                 from as inputs. Does not run the decompiler.
-          --fail-on-drift        with --verify-authored-corpus: exit non-zero when
-                                any row has drifted from the vendored snapshot.
+          --fail-on-drift        with --verify-authored-corpus: fail-closed gate —
+                                exit non-zero unless every evaluated row is
+                                Verified (any Drifted or Unavailable row fails).
           --fidelity-timings      with --fidelity-check: print phase timings for collect/render,
                                 skeleton emit, parse, compilation create, emit, and opcode compare
           --fidelity-zero-signal-guard <n>
