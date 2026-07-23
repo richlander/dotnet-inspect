@@ -135,6 +135,7 @@ static class Program
         int? topLibraries = null;
         int cap = int.MaxValue;
         var packages = new List<string>();
+        var sourceRepositories = new List<string>();
         string? packageVersion = null;
         string? packageTfm = null;
         string? packageAssembly = null;
@@ -287,6 +288,7 @@ static class Program
                     case "--top-libraries": topLibraries = int.Parse(NextArg(args, ref i, flag)); break;
                     case "--cap": cap = int.Parse(NextArg(args, ref i, flag)); break;
                     case "--package": packages.Add(NextArg(args, ref i, flag)); break;
+                    case "--repo": sourceRepositories.Add(NextArg(args, ref i, flag)); break;
                     case "--package-version": packageVersion = NextArg(args, ref i, flag); break;
                     case "--package-tfm": packageTfm = NextArg(args, ref i, flag); break;
                     case "--package-assembly": packageAssembly = NextArg(args, ref i, flag); break;
@@ -451,10 +453,10 @@ static class Program
             return RunEnumerateRealMethods(assemblies, maxExamples);
 
         if (harvestAuthoredCorpus)
-            return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget);
+            return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget, repositoryPaths: sourceRepositories);
 
         if (harvestEvilCorpus)
-            return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget, evil: true);
+            return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget, evil: true, repositoryPaths: sourceRepositories);
 
         if (benchmarkAuthoredCorpus)
             return AuthoredCorpusBenchmark.Run(assemblies, benchmarkCorpusPath!, json);
@@ -1993,6 +1995,12 @@ static class Program
           --package-tfm <tfm>    select a specific TFM from --package.
           --package-assembly <dll>
                                 select a specific assembly inside --package.
+          --repo <path>          with --harvest-authored-corpus/--harvest-evil-corpus:
+                                read authored source from a local git clone
+                                (checksum-arbitrated) instead of the network;
+                                repeatable. Point at this checkout to skip
+                                remote fetches for dotnet-inspect's own
+                                libraries.
           --fidelity-timings      with --fidelity-check: print phase timings for collect/render,
                                 skeleton emit, parse, compilation create, emit, and opcode compare
           --fidelity-zero-signal-guard <n>

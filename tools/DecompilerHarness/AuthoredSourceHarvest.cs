@@ -66,10 +66,20 @@ static class AuthoredSourceHarvest
         public required Queue<RealMethodTargetEnumerator.RealMethodTarget> Candidates { get; init; }
     }
 
-    public static int Run(IReadOnlyList<string> assemblies, string outputPath, int target, bool evil = false)
-        => RunAsync(assemblies, outputPath, target, evil).GetAwaiter().GetResult();
+    public static int Run(
+        IReadOnlyList<string> assemblies,
+        string outputPath,
+        int target,
+        bool evil = false,
+        IReadOnlyList<string>? repositoryPaths = null)
+        => RunAsync(assemblies, outputPath, target, evil, repositoryPaths).GetAwaiter().GetResult();
 
-    static async Task<int> RunAsync(IReadOnlyList<string> assemblies, string outputPath, int target, bool evil)
+    static async Task<int> RunAsync(
+        IReadOnlyList<string> assemblies,
+        string outputPath,
+        int target,
+        bool evil,
+        IReadOnlyList<string>? repositoryPaths)
     {
         if (assemblies.Count == 0)
         {
@@ -128,7 +138,7 @@ static class AuthoredSourceHarvest
                     var candidate = library.Candidates.Dequeue();
                     attempts++;
 
-                    var record = await TryHarvestAsync(library, candidate, fetcher, evil);
+                    var record = await TryHarvestAsync(library, candidate, fetcher, evil, repositoryPaths);
                     if (record is null)
                     {
                         skipped++;
@@ -228,7 +238,8 @@ static class AuthoredSourceHarvest
         LibraryState library,
         RealMethodTargetEnumerator.RealMethodTarget candidate,
         SourceFetcher fetcher,
-        bool evil)
+        bool evil,
+        IReadOnlyList<string>? repositoryPaths)
     {
         var subject = new FindingSubject(
             $"{candidate.Type}::{candidate.Method}#{candidate.Overload}",
@@ -242,7 +253,8 @@ static class AuthoredSourceHarvest
                 candidate.MetadataToken,
                 candidate.Method,
                 subject,
-                fetcher);
+                fetcher,
+                repositoryPaths);
         }
         catch (Exception ex) when (ex is IOException
             or InvalidOperationException

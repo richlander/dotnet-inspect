@@ -269,6 +269,12 @@ dotnet run --project tools/DecompilerHarness -c Release -- \
   $(cat /tmp/corpus-assemblies.txt)
 ```
 
+`--repo <path>` (repeatable) makes harvest read each target's authored source
+from a local git clone instead of the network, arbitrated by the same PDB
+checksum, falling back to the network on any mismatch or miss. Pointing it at
+this checkout skips the remote SourceLink fetch for dotnet-inspect's own
+libraries, and it also unlocks private, large, or offline source repositories.
+
 `--benchmark-authored-corpus <corpus.jsonl> <assembly...>` runs the benchmark. It
 groups corpus rows by assembly, matches them to the supplied pinned assemblies by
 assembly name, feeds the vendored authored bodies into the same
