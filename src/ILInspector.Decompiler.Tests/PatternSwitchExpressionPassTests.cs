@@ -91,7 +91,12 @@ public class PatternSwitchExpressionPassTests
         string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
         Assert.Contains("return expression switch", output);
         Assert.Contains("Comparison comparison when ReadsLoopField(comparison.Left, loopFieldName)", output);
-        Assert.Contains("LogicalNot { Operand: Comparison", output);
+        // Issue #3033: both mutually-exclusive arms bind a source pattern variable
+        // named `comparison`. Each arm is its own scope, so the second arm reuses
+        // the source spelling rather than the printer's global name-dedup renaming
+        // it to a synthetic `V_1`.
+        Assert.Contains("LogicalNot { Operand: Comparison comparison } when ReadsLoopField(comparison.Left, loopFieldName)", output);
+        Assert.DoesNotContain("Comparison V_", output);
         Assert.Contains("_ => false,", output);
     }
 

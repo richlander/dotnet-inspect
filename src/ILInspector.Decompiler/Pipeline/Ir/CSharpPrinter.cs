@@ -4005,13 +4005,43 @@ public sealed partial class CSharpPrinter
 
             var taken = CurrentReservedNames();
 
+            // Pattern-variable locals bound by mutually-exclusive switch-expression
+            // / union-switch arms each open their own scope, so sibling arms of one
+            // switch may legally bind the same source name (issue #3033). Map each
+            // such slot to its owning (switch, arm) and record, per switch and name,
+            // the set of arms already using it — so a sibling arm reuses the
+            // identical spelling instead of falling back to V_n, while a name shared
+            // with any wider-scoped binder (parameter, ordinary local, an enclosing
+            // switch's arm, or a second binding in the SAME arm) still dedups.
+            var armLocalOwners = ArmScopedPatternLocals();
+            var armNameUsers = new Dictionary<(object Switch, string Name), HashSet<object>>();
+
             var names = _function.LocalNames;
             if (!names.IsDefaultOrEmpty)
             {
                 for (int i = 0; i < count && i < names.Length; i++)
                 {
-                    if (names[i] is { } name && CSharpNaming.IsUsableIdentifier(name) && taken.Add(name))
+                    if (names[i] is not { } name || !CSharpNaming.IsUsableIdentifier(name))
+                        continue;
+                    bool isArmLocal = armLocalOwners.TryGetValue(i, out var owner);
+                    if (taken.Add(name))
                     {
+                        display[i] = name;
+                        sourceNamed[i] = true;
+                        if (isArmLocal)
+                            armNameUsers[(owner.Switch, name)] = [owner.Arm];
+                    }
+                    else if (isArmLocal
+                        && armNameUsers.TryGetValue((owner.Switch, name), out var users)
+                        && users.Add(owner.Arm))
+                    {
+                        // The name is already reserved, but only by a different
+                        // sibling arm of the same switch — a disjoint scope — so this
+                        // arm reuses the same source name rather than deduping to
+                        // V_n. `users.Add` gates on the owning arm: a reservation by
+                        // an enclosing switch's arm, a parameter, or an ordinary
+                        // local leaves no entry here, and a second binding in the
+                        // same arm is already in the set, so both still dedup.
                         display[i] = name;
                         sourceNamed[i] = true;
                     }
@@ -4047,6 +4077,33 @@ public sealed partial class CSharpPrinter
             _localDisplayNames = display;
         }
         return index >= 0 && index < _localDisplayNames.Length ? _localDisplayNames[index] : $"V_{index}";
+    }
+
+    /// <summary>
+    /// Maps each local slot bound as a pattern variable by a switch-expression or
+    /// union-switch arm — the arm's outer type-pattern binding and its single-level
+    /// property subpattern — to its owning <c>(switch node, arm node)</c>. Sibling
+    /// arms of one switch are disjoint scopes, so <see cref="LocalName"/> lets them
+    /// reuse the same source spelling instead of deduping the second to a synthetic
+    /// <c>V_n</c> (issue #3033). Keying reuse by the owning switch keeps an enclosing
+    /// switch's arm from being treated as a disjoint sibling of a nested one, and
+    /// keying by arm keeps two bindings of the same arm deduping.
+    /// </summary>
+    Dictionary<int, (object Switch, object Arm)> ArmScopedPatternLocals()
+    {
+        var owners = new Dictionary<int, (object, object)>();
+        foreach (var arm in DescendantsOutsideNestedFunctions(_function).OfType<PatternSwitchExpressionArm>())
+        {
+            object owningSwitch = arm.Parent ?? arm;
+            if (arm.LocalIndex is { } localIndex)
+                owners[localIndex] = (owningSwitch, arm);
+            if (arm.Subpattern is { } subpattern)
+                owners[subpattern.LocalIndex] = (owningSwitch, arm);
+        }
+        foreach (var arm in DescendantsOutsideNestedFunctions(_function).OfType<UnionSwitchExpressionArm>())
+            if (arm.LocalIndex is { } localIndex)
+                owners[localIndex] = (arm.Parent ?? arm, arm);
+        return owners;
     }
 
     static string ReserveName(string baseName, HashSet<string> taken)
