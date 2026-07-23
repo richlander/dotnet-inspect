@@ -1596,10 +1596,15 @@ public sealed partial class CSharpPrinter
         // rendered integer drives the enum-spellability test, and EnumIntegerCast
         // wraps the shift — `(MyEnum)((int)e >> n)`. Runs before the plain
         // integer->enum branch, whose EffectiveType(value) would be the stale enum.
+        // A cross-assembly enum whose backing/shape are unresolvable (TypeShape
+        // Unknown, not Enum) still needs the wrap — its shift width was recovered
+        // from the count mask — so accept an Unknown-shaped enum target too, the
+        // same allowance CanSpellUnknownEnumConstant makes for a bare literal sink.
         if (target is { } shiftEnumTarget
             && BitwiseOperandRendersAsInteger(value)
             && BitwiseOperandRenderedType(value) is { } shiftRenderedInteger
-            && CoercionRendering.CanSpellIntegerToEnum(shiftRenderedInteger, shiftEnumTarget, _function.TypeShapes))
+            && (CoercionRendering.CanSpellIntegerToEnum(shiftRenderedInteger, shiftEnumTarget, _function.TypeShapes)
+                || CoercionRendering.CanSpellUnknownEnumConstant(shiftRenderedInteger, shiftEnumTarget, _function.TypeShapes)))
         {
             return EnumIntegerCast(value, shiftEnumTarget);
         }

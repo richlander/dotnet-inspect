@@ -430,6 +430,50 @@ public class EnumCastPrinterTests
         AssertCompiles("public static ExternalLong M(ExternalLong e, int n)", body, ExternalLongDecl);
     }
 
+    // The int->enum sink for a GENUINELY unresolvable enum (TypeShape.Unknown, not
+    // Enum — the defining assembly is unavailable, so ClassifyShape never saw it).
+    // The shift width is still recovered from the count mask, so the sink must wrap
+    // it in the (Enum) cast (CS0266) exactly as the resolved-shape case does; the
+    // enum-spellability test accepts an Unknown-shaped target the same way
+    // CanSpellUnknownEnumConstant admits a bare-literal enum sink. Synthetic because
+    // a harness-referenced enum always resolves to TypeShape.Enum — an Unknown shape
+    // is only reachable when the reference itself is missing.
+    [Fact]
+    public void UnknownShapeEnumShift_ReturnedToEnum_WrapsInOuterEnumCast()
+    {
+        var enumType = TypeRef.Definition("ext", "", "ExternalLong");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        // (long)e >> (n & 63): the masked count names the 8-byte backing width.
+        var maskedCount = new Binary(
+            BinaryKind.And,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(1, "n", intType),
+            new Constant(63, intType));
+        var shift = new Binary(
+            BinaryKind.ShiftRight,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "e", enumType),
+            maskedCount);
+        var block = new Block(0);
+        block.Add(new Return(shift));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(
+            enumType,
+            [new Parameter("e", enumType), new Parameter("n", intType)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        // No TypeShapes entry for the enum: the "unresolvable shape" condition.
+        var function = new IrFunction("M", TypeRef.Definition("ext", "", "Holder"), signature, [], container);
+
+        string body = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains("(ExternalLong)((long)e >>", body);
+        Assert.DoesNotContain("return (long)e >>", body);
+    }
+
     // An enum shift feeding a parent bitwise &/|/^ must not coerce the *sibling*
     // integer to the enum (`(int)e << n | (E)x`, CS0019). The shift renders as its
     // underlying integer, so the bitwise op is integer; a mixed-sign same-width
