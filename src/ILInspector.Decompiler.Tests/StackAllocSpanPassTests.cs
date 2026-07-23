@@ -1504,6 +1504,36 @@ public class StackAllocSpanPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void DynamicCountSpillIntoNullCoalescingFallback_DoesNotFold()
+    {
+        // The spill `V_1 = Effect()` runs unconditionally, but the stackalloc-span
+        // is consumed inside a `??=` fallback (`target ??= Use(stackalloc byte[V_1])`),
+        // which only evaluates when target is null. `NullCoalescingAssignment` stores
+        // that conditional fallback as its first child, so folding Effect() there
+        // would make an unconditional effect conditional. The fold proof must reject
+        // any path through a node whose first child is conditionally evaluated.
+        var objType = TypeRef.CoreLib("System", "Object");
+        var value = new Call(new MethodRef(Holder, "Effect", Int32, [], HasThis: false), isVirtual: false, []);
+        var spill = new StoreLocal(1, Int32, value);
+        var span = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Span`1"), [Byte]);
+        var newObject = StackAllocSpanConstructor(
+            TypeRef.CoreLib("System", "Span`1"),
+            new StackAllocate(new LoadLocal(1, Int32)),
+            new LoadLocal(1, Int32),
+            Byte);
+        var use = new Call(new MethodRef(Holder, "Use", objType, [span], HasThis: false), isVirtual: false, [newObject]);
+        var coalesce = new NullCoalescingAssignment(2, objType, use);
+        var function = BuildBody(spill, coalesce, new Return(new Constant(0, Int32)));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.IsType<LoadLocal>(raised.Count); // count left spilled, not folded into the conditional fallback
+        Assert.Contains(function.Descendants.OfType<StoreLocal>(), s => s.Index == 1);
+        function.CheckInvariant();
+    }
+
     /// <summary>
     /// Builds `V_1 = value; Span<byte> V_0 = new Span<byte>(localloc V_1, V_1); return 0;`
     /// — the compiler's dynamic one-byte `stackalloc byte[n]` shape whose byte

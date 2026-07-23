@@ -173,11 +173,13 @@ public sealed class StackAllocSpanPass : IIrPass
     /// declared type matches the stored value (no dropped widening/narrowing
     /// witness), the store is the count statement's immediate predecessor in the
     /// same block (no statement between them to observe or reorder past the moved
-    /// allocation), and the count is that statement's first-evaluated leaf
-    /// (evaluation order preserved verbatim — nothing runs before it, so moving the
-    /// stored value into the count position crosses no effect). A pure stored value
-    /// alone is deliberately not accepted for a non-first-leaf count: an earlier
-    /// leaf can mutate a local the value reads, which would fold in a stale count.
+    /// allocation), and the count is evaluated first, unconditionally, and exactly
+    /// once in that statement — proven by walking the first-child spine up to the
+    /// statement through only nodes that evaluate their first child first,
+    /// unconditionally, and once (see <see cref="IsUnconditionalFirstLeaf"/>). That
+    /// single proof rejects a stale read past an earlier sibling effect, a value a
+    /// loop header would re-run, and a value a <c>??=</c> fallback would make
+    /// conditional, and fails closed for any node it has not vetted.
     /// The count load is, by construction,
     /// the just-raised <see cref="StackAllocArray"/>'s own operand — never an
     /// increment lvalue — so this cannot mint an invalid <c>1++</c> the way an
@@ -222,13 +224,17 @@ public sealed class StackAllocSpanPass : IIrPass
         if (loadStatement == null || loadStatement.Parent != store.Parent || loadStatement.ChildIndex != store.ChildIndex + 1)
             return;
 
-        // The count must still be the statement's first-evaluated leaf, so nothing
-        // runs before it and moving the stored value into the count position crosses
-        // no effect. A pure stored value is NOT sufficient on its own: an earlier
-        // leaf (e.g. `V0++` in `Consume(V0++, stackalloc byte[V1])` with `V1 = V0`)
-        // can mutate a local the value reads, so folding it later would read a stale
-        // count. Requiring the first-leaf position rules that reordering out entirely.
-        if (!IsFirstEvaluatedLeaf(load, loadStatement))
+        // The count must be evaluated first, unconditionally, and exactly once in
+        // the statement — the same position, count, and order the spill held — so
+        // moving the stored value there changes nothing observable. Prove it by
+        // walking from the count up to the statement: every step must be the first
+        // (left-most, earliest-evaluated) child of a node that evaluates that child
+        // first, unconditionally, and once. This rejects a stale read past an
+        // earlier sibling effect (`Consume(V0++, stackalloc byte[V1])`), a value
+        // re-run by a loop header (`while (stackalloc byte[V].Length > 0)`), and a
+        // value made conditional by a `??=` fallback (`t ??= Use(stackalloc T[V])`)
+        // in one closed proof, and is conservative for any node it does not know.
+        if (!IsUnconditionalFirstLeaf(load, loadStatement))
             return;
 
         var value = (IrExpression)store.DetachChildren()[0];
@@ -238,26 +244,47 @@ public sealed class StackAllocSpanPass : IIrPass
     }
 
     /// <summary>
-    /// True when the node is the first thing the statement evaluates: the spine of
-    /// first children. A loop header is never accepted — a <see cref="WhileLoop"/>
-    /// re-evaluates its condition (its first child) every iteration, so a leaf there
-    /// does not execute exactly once in the store's place; folding an effectful (or
-    /// loop-mutated) value into it would change how many times it runs. The other
-    /// loop forms are rejected defensively for the same single-evaluation guarantee.
+    /// True when <paramref name="node"/> is evaluated first, unconditionally, and
+    /// exactly once when <paramref name="statement"/> runs. Walks parent-to-child
+    /// from the node up to the statement, requiring each step to be its parent's
+    /// first (earliest-evaluated) child and that parent to be a node whose first
+    /// child is always evaluated first, unconditionally, and once
+    /// (<see cref="EvaluatesFirstChildUnconditionallyOnce"/>). Any unlisted node —
+    /// a loop header that re-runs its condition, a <c>??=</c> whose fallback is
+    /// conditional, or simply an operator this proof has not vetted — fails closed,
+    /// so an unsound reorder is never minted; the spill just stays spelled.
     /// </summary>
-    static bool IsFirstEvaluatedLeaf(IrNode node, IrNode statement)
+    static bool IsUnconditionalFirstLeaf(IrNode node, IrNode statement)
     {
-        var current = statement;
-        while (current.Children.Count > 0)
+        var current = node;
+        while (!ReferenceEquals(current, statement))
         {
-            if (current is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement)
+            var parent = current.Parent;
+            if (parent is null || parent.Children.Count == 0 || !ReferenceEquals(parent.Children[0], current))
                 return false;
-            current = current.Children[0];
-            if (ReferenceEquals(current, node))
-                return true;
+            if (!EvaluatesFirstChildUnconditionallyOnce(parent))
+                return false;
+            current = parent;
         }
-        return false;
+        return true;
     }
+
+    /// <summary>
+    /// True for nodes whose first child is always evaluated first, unconditionally,
+    /// and exactly once — statement wrappers whose sole/leading operand is the first
+    /// child, and pure left-to-right expression nodes. Short-circuit and ternary
+    /// forms qualify: their conditional arms are LATER children, never the first.
+    /// Deliberately excludes loop headers (first child re-evaluated or is the body)
+    /// and the <c>??=</c> family (first child can be the conditional fallback); an
+    /// unlisted node is treated as unproven and rejected by the caller.
+    /// </summary>
+    static bool EvaluatesFirstChildUnconditionallyOnce(IrNode node) => node switch
+    {
+        StoreLocal or Return or ExpressionStatement => true,
+        StackAllocArray or Call or NewObject or Convert or Coerce or Unary
+            or LogicalNot or Binary or Comparison or Conditional or Coalesce => true,
+        _ => false,
+    };
 
     /// <summary>
     /// Resolves a Span constructor's pointer argument through a compiler-owned
