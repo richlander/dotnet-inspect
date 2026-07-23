@@ -2541,6 +2541,7 @@ public sealed partial class CSharpPrinter
             IsFloatComparison(c.Left, c.Right) ? !c.IsUnsigned : c.IsUnsigned,
             c.Left, c.Right),
         LogicalNot { Operand: Call { Callee.Name: "op_Equality" or "op_Inequality" } call } when InvertedEqualityOperatorCallText(call) is { } invertedEquality => invertedEquality,
+        LogicalNot { Operand: Call { Callee.Name: "op_LessThan" or "op_LessThanOrEqual" or "op_GreaterThan" or "op_GreaterThanOrEqual" } call } when InvertedRelationalOperatorCallText(call) is { } invertedRelational => invertedRelational,
         LogicalNot { Operand: LogicalBinary logical } when TryPropertyPatternText(logical, negated: true) is { } negatedPattern => negatedPattern,
         LogicalNot { Operand: { } operand } when Truthiness(operand) is { } negated => negated.Inverted,
         LogicalNot n => $"!{Operand(n.Operand)}",
@@ -2745,6 +2746,7 @@ public sealed partial class CSharpPrinter
             IsFloatComparison(c.Left, c.Right) ? !c.IsUnsigned : c.IsUnsigned,
             c.Left, c.Right),
         LogicalNot { Operand: Call { Callee.Name: "op_Equality" or "op_Inequality" } call } when InvertedEqualityOperatorCallText(call) is { } invertedEquality => invertedEquality,
+        LogicalNot { Operand: Call { Callee.Name: "op_LessThan" or "op_LessThanOrEqual" or "op_GreaterThan" or "op_GreaterThanOrEqual" } call } when InvertedRelationalOperatorCallText(call) is { } invertedRelational => invertedRelational,
         LogicalNot { Operand: LogicalBinary logical } when TryPropertyPatternText(logical, negated: true) is { } negatedPattern => negatedPattern,
         LogicalNot { Operand: Call { Callee.Name: "op_True", Arguments: [var value] } } => InvertedUserTruthiness(value),
         LogicalNot { Operand: Call { Callee.Name: "op_False", Arguments: [var value] } } => OperatorOperand(value),
@@ -3798,12 +3800,11 @@ public sealed partial class CSharpPrinter
     /// <see cref="IsOperatorCall"/> spelling guard) is deliberately excluded
     /// here: folding would substitute a call to one method with a call to a
     /// different method, which can observably change behavior for a
-    /// maliciously or buggily inconsistent pair. Unlike the relational
-    /// operator-call family (`op_LessThan` and friends, also NOT folded
-    /// here), a relational operator call CAN implement partial-order
-    /// (NaN-like) semantics the native float-comparison guard already
-    /// special-cases, so that family is deliberately left unfolded pending
-    /// its own analysis. Returns null when the call does not actually spell
+    /// maliciously or buggily inconsistent pair. The relational
+    /// operator-call family (`op_LessThan` and friends) is folded separately
+    /// by <see cref="InvertedRelationalOperatorCallText"/>, restricted to the
+    /// total-order core-library value types where the four operators are exact
+    /// duals. Returns null when the call does not actually spell
     /// as `==`/`!=` (an unrelated method that happens to be named
     /// op_Equality/op_Inequality without the metadata operator flag renders
     /// as a plain call, and `!` negating its result is already correct
@@ -3815,6 +3816,37 @@ public sealed partial class CSharpPrinter
             {
                 "op_Equality" => $"{OperatorOperand(left)} != {OperatorOperand(right)}",
                 "op_Inequality" => $"{OperatorOperand(left)} == {OperatorOperand(right)}",
+                _ => null,
+            }
+            : null;
+
+    /// <summary>
+    /// The direct idiom for a negated relational operator-spelled CALL on a
+    /// known total-order core-library value type:
+    /// <c>!(decimal.op_LessThan(a, b))</c> -> <c>a &gt;= b</c>, with the De Morgan
+    /// duals for <c>&lt;=</c>/<c>&gt;</c>/<c>&gt;=</c>. The relational counterpart of
+    /// the equality fold above and the native <c>clt</c>/<c>cgt</c> fold (#2955),
+    /// gated on <see cref="MemberIdentity.IsTotalOrderRelationalOperator"/> —
+    /// <see cref="decimal"/>, <see cref="System.DateTime"/>,
+    /// <see cref="System.DateTimeOffset"/>, <see cref="System.TimeSpan"/>,
+    /// <see cref="System.DateOnly"/>, <see cref="System.TimeOnly"/> — the total
+    /// orders whose four relational operators are exact duals for every input.
+    /// <see cref="System.Half"/> (IEEE-754 partial order: <c>NaN</c> is unordered,
+    /// so <c>!(a &lt; b)</c> can differ from <c>a &gt;= b</c>) and every
+    /// user-defined operator type are excluded there, so a relational negation is
+    /// never rewritten for a type where the operators can disagree;
+    /// <see cref="float"/>/<see cref="double"/> never reach this path (native
+    /// <c>clt</c>/<c>cgt</c>, folded with the unordered-flag guard). Returns null
+    /// off the allowlist, leaving the un-folded operator call to be parenthesized.
+    /// </summary>
+    string? InvertedRelationalOperatorCallText(Call call)
+        => call is { Arguments: [var left, var right] } && MemberIdentity.IsTotalOrderRelationalOperator(call.Callee)
+            ? call.Callee.Name switch
+            {
+                "op_LessThan" => $"{OperatorOperand(left)} >= {OperatorOperand(right)}",
+                "op_LessThanOrEqual" => $"{OperatorOperand(left)} > {OperatorOperand(right)}",
+                "op_GreaterThan" => $"{OperatorOperand(left)} <= {OperatorOperand(right)}",
+                "op_GreaterThanOrEqual" => $"{OperatorOperand(left)} < {OperatorOperand(right)}",
                 _ => null,
             }
             : null;
