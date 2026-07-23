@@ -297,7 +297,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             // shared default that trails the dispatch.
             if (!DefaultReachedFrom(stmts, index + 2, defaultValue, fallThroughIsDefault))
                 return false;
-            if (!TryParseMatchedBody(dispatch.Else!.Children, 0, patternType, patternLocal, defaultValue, out var elseArm, out int elseNext))
+            if (!TryParseMatchedBody(dispatch.Else!.Children, 0, patternType, patternLocal, defaultValue, out var elseArm, out int elseNext, out _))
                 return false;
             // MATCHED's own fall-through (a guard/subpattern failure) runs off the
             // `else` block into that same shared default.
@@ -309,11 +309,24 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         }
 
         // Then-only form: MATCHED body = the sibling statements after the dispatch.
-        if (!TryParseMatchedBody(stmts, index + 2, patternType, patternLocal, defaultValue, out var arm, out int matchedNext))
+        if (!TryParseMatchedBody(stmts, index + 2, patternType, patternLocal, defaultValue, out var arm, out int matchedNext, out bool bodyFallsThrough))
             return false;
-        // Nothing may follow the matched body at this level except an optional
-        // trailing `return <default>` (an arm's own no-match fall-through).
-        if (!ReachesDefaultTail(stmts, matchedNext, defaultValue))
+        // An arm whose body ends in an unconditional return (unguarded, or the
+        // negated `if (!G) return <default>; return V;` guarded form) cannot reach
+        // `matchedNext`, so any structural tail there is unreachable. A body that
+        // FALLS THROUGH on refinement failure — the positive `if (G) return V;`
+        // guarded form, or a property-subpattern arm — must land on the default:
+        // an explicit trailing `return <default>`, or, when it runs off the end of
+        // this block, only if this block's own fall-through is the default. A
+        // then-only REST nested in a prior arm (fallThroughIsDefault == false)
+        // falls off its end into that PRIOR arm's matched value, not the default,
+        // so a falling-through matched body that runs off the end there must be
+        // declined; folding it would divert the guard failure to `_ => <default>`
+        // instead of the earlier arm's value (GPT #3102 review, Finding 1).
+        bool tailReachesDefault = bodyFallsThrough
+            ? DefaultReachedFrom(stmts, matchedNext, defaultValue, fallThroughIsDefault)
+            : ReachesDefaultTail(stmts, matchedNext, defaultValue);
+        if (!tailReachesDefault)
             return false;
 
         arms.Add(arm);
@@ -384,8 +397,14 @@ public sealed class PatternSwitchExpressionPass : IIrPass
 
     // Parse the body run for a matched arm (value is `patternType`, bound to
     // `patternLocal`), starting at `stmts[index]`. Sets `arm` and `nextIndex`
-    // (the first statement after the arm; unconditional-return arms leave the
-    // caller to confirm the tail reaches the default).
+    // (the first statement after the arm). `bodyFallsThrough` reports whether the
+    // matched body can reach `nextIndex` on a refinement FAILURE — true only for
+    // the positive guarded form (`if (G) return V;`, whose guard failure drops to
+    // the next statement) and the property-subpattern form (whose null inner match
+    // drops past the `if`). The unguarded (`return V;`) and negated guarded
+    // (`if (!G) return <default>; return V;`) forms end in an unconditional return,
+    // so `nextIndex` is unreachable and the caller need not prove it is the
+    // default.
     bool TryParseMatchedBody(
         IReadOnlyList<IrNode> stmts,
         int index,
@@ -393,10 +412,12 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         int patternLocal,
         IrExpression defaultValue,
         out ArmData arm,
-        out int nextIndex)
+        out int nextIndex,
+        out bool bodyFallsThrough)
     {
         arm = null!;
         nextIndex = -1;
+        bodyFallsThrough = false;
         if (index >= stmts.Count)
             return false;
 
@@ -422,17 +443,22 @@ public sealed class PatternSwitchExpressionPass : IIrPass
                 : null;
             arm = new ArmData(patternType, patternLocal, outerLocal, subpattern, innerGuard, innerValue, IsInline: false);
             nextIndex = index + 2;
+            // A null inner match (`Lsub` is null) drops past the `if` to nextIndex.
+            bodyFallsThrough = true;
             return true;
         }
 
         // Bare type-pattern arm: a guarded (or unguarded) value run.
-        if (!TryParseGuardedValue(stmts, index, defaultValue, out var guard, out var value, out int consumed, out _))
+        if (!TryParseGuardedValue(stmts, index, defaultValue, out var guard, out var value, out int consumed, out bool shortCircuitsToDefault))
             return false;
         int? localIndex = ReferencesLocalIn(guard, patternLocal) || ReferenceOwnership.SubtreeReferencesLocal(value, patternLocal)
             ? patternLocal
             : null;
         arm = new ArmData(patternType, patternLocal, localIndex, Subpattern: null, guard, value, IsInline: false);
         nextIndex = index + consumed;
+        // Only the positive guarded form (`if (G) return V;`) drops to nextIndex on
+        // guard failure; the unguarded and negated forms both end in a return.
+        bodyFallsThrough = guard is not null && !shortCircuitsToDefault;
         return true;
     }
 

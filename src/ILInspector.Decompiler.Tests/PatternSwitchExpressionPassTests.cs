@@ -509,6 +509,61 @@ public class PatternSwitchExpressionPassTests
         Assert.False(switchExpression.Arms[1].HasGuard);
     }
 
+    // Builds a direct-place cascade whose FIRST arm is an UNGUARDED then-only intro
+    // arm (`a = place as Leaf; if (!a) { REST } return 1;`) whose REST nests a
+    // guarded then-only intro arm as the LAST arm — `b = place as Twig; if (!b)
+    // return -1; if (G(b)) return 2;`. A Twig that fails its guard runs off the end
+    // of the REST block and reaches the ENCLOSING Leaf arm's value (`return 1`), NOT
+    // the trailing default. Leaf and Twig are disjoint, so the disjointness gate
+    // alone would admit the fold; only the fall-through check must decline it.
+    static IrFunction DirectGuardedLastArmFallsToPriorArm()
+    {
+        IrExpression Place() => new LoadArgument(0, "node", Node);
+        IrExpression Guard() => new Call(new MethodRef(Twig, "Ok", Bool, [Twig], HasThis: false), isVirtual: false, [new LoadLocal(1, Twig)]);
+
+        // REST (inside the Leaf arm's `then`): a guarded Twig intro arm whose guard
+        // failure falls off the end of this block into the Leaf arm's value.
+        var guardThen = new Block();
+        guardThen.Add(new Return(new Constant(2, Int32)));
+        var rest = new Block();
+        rest.Add(new StoreLocal(1, Twig, new IsInstance(Twig, Place())));
+        rest.Add(new IfStatement(new LogicalNot(new LoadLocal(1, Twig)), Return(-1), null));
+        rest.Add(new IfStatement(Guard(), guardThen, null));
+
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, Leaf, new IsInstance(Leaf, Place())));
+        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, Leaf)), rest, null));
+        block.Add(new Return(new Constant(1, Int32)));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Int32, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Twig), container);
+
+        static Block Return(int value)
+        {
+            var b = new Block();
+            b.Add(new Return(new Constant(value, Int32)));
+            return b;
+        }
+    }
+
+    [Fact]
+    public void Synthetic_GuardedLastArmFallsToPriorArm_DoesNotRaise()
+    {
+        // #3102 review (GPT, Finding 1): a guarded intro arm nested as the LAST arm
+        // of a prior unguarded arm's then-only REST. Its guard FAILURE runs off the
+        // end of the REST block into the PRIOR arm's value (`return 1`), not the
+        // default. Folding to `Leaf => 1, Twig when G => 2, _ => -1` diverts that
+        // failure to `_ => -1` — divergent (original returns 1). Leaf and Twig ARE
+        // provably disjoint, so the disjointness gate would admit it; the fold must
+        // still be declined because the matched body's fall-through is not the
+        // default in a then-only REST (fallThroughIsDefault == false).
+        var proves = DirectGuardedLastArmFallsToPriorArm();
+        RunPass(proves, (a, b) => !a.Equals(b));
+        Assert.Empty(proves.Descendants.OfType<PatternSwitchExpression>());
+    }
+
     // Builds a direct-place cascade (intro head + one inline sibling) whose inline
     // arm value takes the address of the scrutinee place — the by-ref mutation
     // vector. `argAddress` selects an argument scrutinee (`&arg`) versus a local
