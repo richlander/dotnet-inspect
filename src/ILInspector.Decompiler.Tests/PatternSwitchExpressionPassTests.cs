@@ -422,6 +422,38 @@ public class PatternSwitchExpressionPassTests
         Assert.Single(cleanDefault.Descendants.OfType<PatternSwitchExpression>());
     }
 
+    [Fact]
+    public void Synthetic_ArmLocalAliasesSwitchValueTemp_DoesNotRaise()
+    {
+        // arm0 binds its `isinst` result into the very slot that holds the
+        // switch value. The store overwrites the receiver, so arm1 tests the
+        // `isinst` result rather than the original value — for a Branch argument
+        // the cascade returns the default while `node switch { Leaf => .., Branch
+        // => .., _ => false }` would match Branch. Reported by GPT at the fixed
+        // head. Every arm intro reads (and here rebinds) the sv slot, so the
+        // existing ownership/scoping checks pass; the alias must be rejected.
+        var block = new Block(0);
+        // sv slot (0) := arg, then arm0's isinst overwrites the same slot (0).
+        block.Add(new StoreLocal(0, Node, new LoadArgument(0, "node", Node)));
+        block.Add(new StoreLocal(0, Leaf, new IsInstance(Leaf, new LoadLocal(0, Node))));
+        var rest = new Block();
+        rest.Add(new StoreLocal(1, Branch, new IsInstance(Branch, new LoadLocal(0, Leaf))));
+        var arm1Dispatch = new Block();
+        arm1Dispatch.Add(new Return(False()));
+        rest.Add(new IfStatement(new LogicalNot(new LoadLocal(1, Branch)), arm1Dispatch, null));
+        rest.Add(new Return(new Constant(true, Bool)));
+        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, Leaf)), rest, null));
+        block.Add(new Return(new Constant(true, Bool)));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Bool, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", Node, signature, ImmutableArray.Create(Node, Branch, Bool, Node, Node, Node), container);
+
+        RunPass(function, typesProvablyDisjoint: (_, _) => true);
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
     // ── Disjointness oracle guards (PR #3082, Finding 2) ───────────────────
 
     static readonly string TestAssembly =

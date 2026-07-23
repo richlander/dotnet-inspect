@@ -113,6 +113,14 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             if (!ownershipHolds)
                 continue;
 
+            // No arm may bind its `isinst` result into the switch-value temp
+            // itself. That store overwrites the receiver the remaining arm tests
+            // re-read (so a later arm tests the previous arm's `isinst` result,
+            // not the original value), whereas the raised switch evaluates every
+            // arm against the one original value. Decline to preserve semantics.
+            if (arms.Any(a => PatternLocals(a).Contains(svLocal)))
+                continue;
+
             // A pattern variable is scoped to its own switch arm: no sibling
             // arm's guard/value and not the default may read it. In the lowered
             // cascade the bound local outlives its arm, but the raised C# would
