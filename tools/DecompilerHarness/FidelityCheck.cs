@@ -100,6 +100,7 @@ static class FidelityCheck
                 MetadataSource source;
                 try { source = MetadataSource.Open(path, context: metadata); }
                 catch { continue; }
+                RegisterSourceContext(source, metadata);
                 var references = RuntimeReferences(path);
                 using (source)
                 {
@@ -208,6 +209,7 @@ static class FidelityCheck
         var reader = pe.GetMetadataReader();
         using var metadata = CorpusMetadata.Create([assemblyPath]);
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
+        RegisterSourceContext(source, metadata);
         var render = Renderer(source, lowered: false);
         foreach (var typeHandle in reader.TypeDefinitions)
         {
@@ -349,6 +351,7 @@ static class FidelityCheck
         var reader = pe.GetMetadataReader();
         using var metadata = CorpusMetadata.Create([assemblyPath]);
         using var source = MetadataSource.Open(assemblyPath, context: metadata);
+        RegisterSourceContext(source, metadata);
         var render = Renderer(source, lowered);
         var references = RuntimeReferences(assemblyPath);
 
@@ -394,6 +397,7 @@ static class FidelityCheck
                 MetadataSource source;
                 try { source = MetadataSource.Open(assemblyPath, context: metadata); }
                 catch { continue; }
+                RegisterSourceContext(source, metadata);
                 using (source)
                 {
                     // Pre-warm type maps.
@@ -706,6 +710,7 @@ static class FidelityCheck
                 MetadataSource source;
                 try { source = MetadataSource.Open(assemblyPath, context: metadata); }
                 catch { continue; }
+                RegisterSourceContext(source, metadata);
                 using (source)
                 {
                     var assemblyTargets = pending.Values
@@ -988,7 +993,8 @@ static class FidelityCheck
             var origOps = original.Select(i => CanonicalOpcode(i.OpCodeName)).ToList();
             bool requiresAsync = function.RequiresAsyncBodyModifier
                 || function.IsRuntimeAsync == MetadataFactState.Yes;
-            entries.Add(new Entry(mh, name, overload, CorpusMethodIdentity.SignatureText(function.Signature), new TargetBody(body, chain, requiresAsync, primaryConstructor, requiredNamespaces), fieldInits,
+            var wholeMember = TryRenderTargetMember(pe, source, mh);
+            entries.Add(new Entry(mh, name, overload, CorpusMethodIdentity.SignatureText(function.Signature), new TargetBody(body, chain, requiresAsync, primaryConstructor, requiredNamespaces, wholeMember?.Text, wholeMember?.Namespaces), fieldInits,
                 string.Join(" ", origOps), origOps, function.Fidelity == DecompilationFidelity.Full));
             if (entries.Count >= maxEntries)
                 break;
@@ -1317,8 +1323,8 @@ static class FidelityCheck
     {
         string unit;
         try { unit = timings is null
-            ? BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility, e.Target.RequiredNamespaces)
-            : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility, e.Target.RequiredNamespaces)); }
+            ? BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references.Accessibility)
+            : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references.Accessibility)); }
         catch { return new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.ContextFail, e.OrigText, "", "skeleton-emit"); }
 
         var tree = timings is null
@@ -1691,8 +1697,8 @@ static class FidelityCheck
         {
             string unit;
             try { unit = timings is null
-                ? BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility, e.Target.RequiredNamespaces, include)
-                : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target.Body, e.Target.Chain, e.Target.RequiresAsync, e.Target.PrimaryConstructor, e.FieldInits, references.Accessibility, e.Target.RequiredNamespaces, include)); }
+                ? BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references.Accessibility, include)
+                : timings.MeasureSkeletonEmit(() => BuildUnit(reader, e.Handle, e.Target, e.FieldInits, references.Accessibility, include)); }
             catch
             {
                 captureDetail = "cluster-source-build-failed";
@@ -2269,24 +2275,27 @@ static class FidelityCheck
         string? Chain,
         bool RequiresAsync,
         PrimaryConstructorShape? PrimaryConstructor = null,
-        IReadOnlySet<string>? RequiredNamespaces = null);
+        IReadOnlySet<string>? RequiredNamespaces = null,
+        // pr5a (#2996): the product's whole-member render (signature + body) for a
+        // migrated target, replacing the harness's self-spelled signature. Null
+        // keeps the legacy EmitMethod path. WholeMemberNamespaces are the imports
+        // the render shortened against, hoisted into the compile-back unit usings.
+        string? WholeMember = null,
+        IReadOnlySet<string>? WholeMemberNamespaces = null);
 
     public sealed record PrimaryConstructorShape(
         string Parameters,
         IReadOnlyList<(string Field, string Value)> FieldInitializers);
 
     /// <summary>Single-method unit — the per-method fallback path when a grouped build fails.</summary>
-    static string BuildUnit(MetadataReader reader, MethodDefinitionHandle target, string targetBody, string? targetChain,
-        bool targetRequiresAsync,
-        PrimaryConstructorShape? targetPrimaryConstructor,
+    static string BuildUnit(MetadataReader reader, MethodDefinitionHandle target, TargetBody targetBody,
         IReadOnlyList<(string Field, string Value)> targetFieldInits,
         SignatureSpellability accessibility,
-        IReadOnlySet<string>? requiredNamespaces = null,
         IReadOnlySet<TypeDefinitionHandle>? includeRoots = null)
     {
-        var targets = new Dictionary<MethodDefinitionHandle, TargetBody> { [target] = new(targetBody, targetChain, targetRequiresAsync, targetPrimaryConstructor) };
+        var targets = new Dictionary<MethodDefinitionHandle, TargetBody> { [target] = targetBody };
         var fieldInitType = reader.GetMethodDefinition(target).GetDeclaringType();
-        return BuildUnit(reader, targets, targetFieldInits, fieldInitType, accessibility, includeRoots, requiredNamespaces);
+        return BuildUnit(reader, targets, targetFieldInits, fieldInitType, accessibility, includeRoots, targetBody.RequiredNamespaces);
     }
 
     /// <summary>
@@ -2317,6 +2326,13 @@ static class FidelityCheck
         if (isolatedTargetNamespaces is not null)
             foreach (var ns in isolatedTargetNamespaces)
                 usings.Add(ns);
+        // pr5a (#2996): a target rendered by the product (ProduceMember) shortens
+        // qualified type names against the decompiler's assumed imports; add the
+        // namespaces it harvested so those short names bind in the compile-back unit.
+        foreach (var t in targets.Values)
+            if (t.WholeMemberNamespaces is { } wholeMemberNamespaces)
+                foreach (var ns in wholeMemberNamespaces)
+                    usings.Add(ns);
         foreach (var ns in usings)
             sb.AppendLine($"using {ns};");
         foreach (var typeHandle in reader.TypeDefinitions)
@@ -2726,12 +2742,15 @@ static class FidelityCheck
             if (mh == primaryConstructorTarget.Key)
                 continue; // emitted as the type's primary constructor header
             var hasTarget = targets.TryGetValue(mh, out var target);
-            EmitMethod(reader, typeHandle, mh,
-                hasTarget ? target.Body : null,
-                hasTarget ? target.Chain : null,
-                hasTarget && target.RequiresAsync,
-                accessibility,
-                sb, pad + "    ");
+            if (hasTarget && target.WholeMember is { } wholeMember)
+                EmitPrerenderedMember(wholeMember, sb, pad + "    ");
+            else
+                EmitMethod(reader, typeHandle, mh,
+                    hasTarget ? target.Body : null,
+                    hasTarget ? target.Chain : null,
+                    hasTarget && target.RequiresAsync,
+                    accessibility,
+                    sb, pad + "    ");
         }
 
         // A reconstructed class whose base type has no parameterless constructor
@@ -3180,6 +3199,123 @@ static class FidelityCheck
         string fieldType = Clean(type);
         string unsafeModifier = RequiresUnsafeSignature(fieldType) ? "unsafe " : "";
         sb.AppendLine($"{pad}public {unsafeModifier}{(isStatic ? "static " : "")}{(isVolatile ? "volatile " : "")}{fieldType} {Identifier(name)}{suffix};");
+    }
+
+    // ---- pr5a (#2996): product-owned target member render ----
+
+    /// <summary>
+    /// Per-assembly index from a method's metadata token to its extracted API
+    /// model, so the product's whole-member render can be resolved from a raw
+    /// <see cref="MethodDefinitionHandle"/> without extracting the API surface
+    /// once per method. Keyed on the open <see cref="PEReader"/>, so it lives
+    /// exactly as long as the reader does.
+    /// </summary>
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<PEReader, Dictionary<int, (ApiType Type, ApiMember Member)>> TargetApiIndexCache = new();
+
+    /// <summary>
+    /// Per-assembly memo of the product's whole-member batch render
+    /// (<see cref="MemberBodyProducer.ProduceMembers"/>), computed once per
+    /// <see cref="ApiType"/> so a type's assembly is opened and its type maps
+    /// built once for all its members rather than once per member. Keyed on the
+    /// open <see cref="PEReader"/> so it shares the reader's lifetime.
+    /// </summary>
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<PEReader, System.Collections.Concurrent.ConcurrentDictionary<ApiType, IReadOnlyDictionary<ApiMember, MemberRenderResult>>> TargetMemberRenderCache = new();
+
+    /// <summary>
+    /// The corpus <see cref="MetadataContext"/> the harness opened a source with,
+    /// so the product's whole-member render resolves cross-assembly type facts
+    /// through the same resolver the harness's own body decode used (dependency
+    /// opens are shared and cross-assembly shapes match). Registered by each
+    /// evaluate entry point right after it opens the source.
+    /// </summary>
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<MetadataSource, MetadataContext> SourceContextCache = new();
+
+    static void RegisterSourceContext(MetadataSource source, MetadataContext context)
+        => SourceContextCache.AddOrUpdate(source, context);
+
+    static Dictionary<int, (ApiType Type, ApiMember Member)> TargetApiIndex(PEReader pe)
+        => TargetApiIndexCache.GetValue(pe, static p =>
+        {
+            var index = new Dictionary<int, (ApiType Type, ApiMember Member)>();
+            try
+            {
+                // includeAll: the harness evaluates non-public methods too, so
+                // index the whole surface — otherwise internal/private targets
+                // silently miss the migration and retain the legacy signature
+                // emitter this change replaces (#3062 review).
+                foreach (var type in ApiSurfaceExtractor.Extract(p, includeAll: true).Types)
+                    foreach (var member in type.Members)
+                        if (member.MetadataToken is { } token)
+                            index[token] = (type, member);
+            }
+            catch { /* honest degradation: targets fall back to the harness signature path */ }
+            return index;
+        });
+
+    /// <summary>
+    /// The product's whole-member render for a target method — the CSharp-owned
+    /// signature (from Metadata's model) composed with the decompiler body —
+    /// replacing the harness's self-spelled signature (#2996 pr5a). Returns null
+    /// (keeping the legacy <see cref="EmitMethod"/> path) for member kinds not yet
+    /// migrated — constructors interact with lifted field initializers, and
+    /// accessors are emitted as whole properties — or when production does not
+    /// complete. The whole type is rendered once (batched) and memoized, so
+    /// resolving each of a type's members costs one shared setup, not one per
+    /// member.
+    /// </summary>
+    static (string Text, IReadOnlySet<string> Namespaces)? TryRenderTargetMember(
+        PEReader pe, MetadataSource source, MethodDefinitionHandle mh)
+    {
+        int token = System.Reflection.Metadata.Ecma335.MetadataTokens.GetToken(mh);
+        if (!TargetApiIndex(pe).TryGetValue(token, out var entry))
+            return null;
+        // Slice 1 migrates plain methods and operators only.
+        if (entry.Member.Kind is not ("method" or "operator"))
+            return null;
+
+        var memo = TargetMemberRenderCache.GetOrCreateValue(pe);
+        var rendered = memo.GetOrAdd(entry.Type, static (type, src) => RenderTypeMembers(type, src), source);
+        if (!rendered.TryGetValue(entry.Member, out var result) || !result.IsComplete || result.Text is null)
+            return null;
+        return (result.Text, new HashSet<string>(result.Namespaces, StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// Renders every member of a type once through the product's batch entry
+    /// point, reusing the harness's corpus resolver/context (when the source was
+    /// registered) so cross-assembly resolution matches the harness's own decode.
+    /// </summary>
+    static IReadOnlyDictionary<ApiMember, MemberRenderResult> RenderTypeMembers(ApiType type, MetadataSource source)
+    {
+        try
+        {
+            return SourceContextCache.TryGetValue(source, out var context)
+                ? MemberBodyProducer.ProduceMembers(type, source.Path, pdbPath: null, context.Resolver, context)
+                : MemberBodyProducer.ProduceMembers(type, source.Path, pdbPath: null);
+        }
+        catch
+        {
+            return new Dictionary<ApiMember, MemberRenderResult>();
+        }
+    }
+
+    /// <summary>
+    /// Splices the product's whole-member text into the compile-back unit,
+    /// re-indenting from the product's one-level (4-space) base to the member's
+    /// position in the reconstructed type. C# ignores indentation, so this is
+    /// cosmetic; only the token stream matters for the opcode comparison.
+    /// </summary>
+    static void EmitPrerenderedMember(string wholeMember, StringBuilder sb, string pad)
+    {
+        int shift = pad.Length - 4;
+        string prefix = shift > 0 ? new string(' ', shift) : "";
+        foreach (var line in wholeMember.Split('\n'))
+        {
+            if (line.Length == 0)
+                sb.Append('\n');
+            else
+                sb.Append(prefix).Append(line).Append('\n');
+        }
     }
 
     static void EmitMethod(MetadataReader reader, TypeDefinitionHandle typeHandle,

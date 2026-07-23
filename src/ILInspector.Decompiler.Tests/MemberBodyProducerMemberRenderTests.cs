@@ -47,6 +47,28 @@ public sealed class MemberBodyProducerMemberRenderTests
     }
 
     [Fact]
+    public void ProduceMembers_BatchIsByteIdenticalToPerMember_ForEveryMember()
+    {
+        var type = Specimen();
+        var batch = MemberBodyProducer.ProduceMembers(type, AssemblyPath, pdbPath: null);
+
+        Assert.NotEmpty(type.Members);
+        foreach (var member in type.Members)
+        {
+            var single = MemberBodyProducer.ProduceMember(type, member, AssemblyPath, pdbPath: null);
+            Assert.True(batch.TryGetValue(member, out var batched),
+                $"batch render missing member {member.Name}");
+
+            // The batch entry is byte-identical to the per-member render — same
+            // status, text, and imports. The batch only amortizes the assembly
+            // open and type-map build; it must not change any member's output.
+            Assert.Equal(single.Status, batched.Status);
+            Assert.Equal(single.Text, batched.Text);
+            Assert.Equal(single.Namespaces, batched.Namespaces);
+        }
+    }
+
+    [Fact]
     public void ProduceMember_RendersExpressionBodiedArrow()
     {
         var type = Specimen();
@@ -105,6 +127,22 @@ public sealed class MemberBodyProducerMemberRenderTests
         Assert.Contains("{", rendered.Text);
         Assert.DoesNotContain("=>", rendered.Text);
     }
+
+    [Fact]
+    public void ProduceMember_PreservesQualifiedNameInsideStringLiteral()
+    {
+        var type = Specimen();
+        var member = Assert.Single(type.Members, m => m.Name == nameof(MemberRenderSpecimen.QuotedTypeName));
+
+        var rendered = MemberBodyProducer.ProduceMember(type, member, AssemblyPath, pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        // Name-shortening must never reach inside a string literal. An escaped
+        // quote must not flip in-literal parity and shorten System.String to
+        // String, which would corrupt the ldstr operand and induce a false
+        // compile-back OperandDiff (#3062).
+        Assert.Contains("System.String", rendered.Text);
+    }
 }
 
 #pragma warning disable CA1822 // members are instance to exercise real signatures
@@ -125,5 +163,11 @@ public sealed class MemberRenderSpecimen
     }
 
     public void ThrowStub() => throw new NotImplementedException();
+
+    // A string constant whose value contains a double-quote followed by a
+    // fully-qualified type name. The rendered literal escapes the quote (\"),
+    // so a name-shortener that splits on '"' without honoring escapes flips its
+    // in-literal parity and mutates System.String inside the constant (#3062).
+    public string QuotedTypeName() => "a \"System.String\" b";
 }
 #pragma warning restore CA1822
