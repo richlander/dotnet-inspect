@@ -16,14 +16,6 @@ public enum AssemblyResolutionScope
     Platform,
 }
 
-/// <summary>
-/// Legacy path-only adapter for callers that can only locate assemblies by
-/// simple name. New product and harness code should prefer
-/// <see cref="IAssemblyReferenceResolver"/> so full metadata identity and
-/// stream-backed assemblies flow through the resolver boundary.
-/// </summary>
-public delegate string? AssemblyLocator(string assemblyName, AssemblyResolutionScope scope);
-
 /// <summary>Where a type is actually defined after following forwarders.</summary>
 public sealed record TypeLocation(
     string? AssemblyPath,
@@ -69,8 +61,7 @@ public sealed record TypeLocation(
 /// limit, cycle detection) lives here; resolving assembly identities is the
 /// caller's policy via <see cref="IAssemblyReferenceResolver"/> — the same
 /// split as MetadataLoadContext's MetadataAssemblyResolver and ILSpy's
-/// IAssemblyResolver. <see cref="AssemblyLocator"/> overloads are retained as
-/// compatibility adapters for path-only callers.
+/// IAssemblyResolver.
 /// </summary>
 public static class TypeForwardResolver
 {
@@ -92,17 +83,6 @@ public static class TypeForwardResolver
             Provenance: "StartAssembly");
         return LocateType(start, fullTypeName, resolver, maxHops, scope);
     }
-
-    /// <summary>
-    /// Resolves the assembly that defines <paramref name="fullTypeName"/>,
-    /// starting at <paramref name="assemblyPath"/> and following type
-    /// forwarders through assemblies supplied by legacy
-    /// <paramref name="locateAssembly"/>.
-    /// </summary>
-    public static TypeLocation? LocateType(
-        string assemblyPath, string fullTypeName, AssemblyLocator locateAssembly,
-        int maxHops = 8, AssemblyResolutionScope scope = AssemblyResolutionScope.Any)
-        => LocateType(assemblyPath, fullTypeName, locateAssembly.ToAssemblyReferenceResolver(), maxHops, scope);
 
     /// <summary>
     /// Resolves the assembly that defines <paramref name="fullTypeName"/>,

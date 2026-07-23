@@ -34,15 +34,6 @@ public sealed class MetadataContext : IDisposable
     readonly ConcurrentDictionary<string, Lazy<OpenedAssembly?>> _opened = new(StringComparer.OrdinalIgnoreCase);
     readonly ConcurrentDictionary<string, Lazy<OpenedAssembly?>> _openedLocations = new(StringComparer.Ordinal);
 
-    /// <summary>
-    /// Creates a context from a legacy path-only locator. Prefer the
-    /// <see cref="IAssemblyReferenceResolver"/> constructor for new code.
-    /// </summary>
-    public MetadataContext(AssemblyLocator locator)
-        : this(locator.ToAssemblyReferenceResolver())
-    {
-    }
-
     public MetadataContext(IAssemblyReferenceResolver resolver)
     {
         Resolver = resolver;

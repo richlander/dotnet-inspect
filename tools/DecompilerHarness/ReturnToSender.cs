@@ -765,7 +765,7 @@ static class ReturnToSender
                 continue;
             }
 
-            if (TryFindEventAccessor(reader, typeDef, target) is { } eventTarget)
+            if (TryFindEventAccessor(reader, typeDef, target, bodyPolicy == RoundTripBodyPolicy.Full) is { } eventTarget)
             {
                 results.Add(CompileBackEventAccessorOrContextFail(
                     assemblyPath,
@@ -938,7 +938,8 @@ static class ReturnToSender
     static (EventDefinitionHandle Event, MethodDefinitionHandle Accessor)? TryFindEventAccessor(
         MetadataReader reader,
         TypeDefinition typeDef,
-        RequestedTarget target)
+        RequestedTarget target,
+        bool includePlainEventAccessors)
     {
         var accessorToEvent = new Dictionary<MethodDefinitionHandle, EventDefinitionHandle>();
         foreach (var eventHandle in typeDef.GetEvents())
@@ -950,14 +951,47 @@ static class ReturnToSender
                 accessorToEvent[accessors.Remover] = eventHandle;
         }
 
+        // Explicit-interface event accessors always route through ComposeEventAccessor.
+        // A plain (non-explicit-interface) event accessor is method-routed by default so the
+        // Selected A/B path keeps its single-accessor shape (and the corpus baseline is stable);
+        // it only routes through ComposeEventAccessor under Full, where a coherent
+        // `event { add remove }` type surface is required to avoid a CS0082 collision between the
+        // standalone accessor method and the re-declared event's synthesized accessor (#3007).
+        //
+        // Field-like events (`event Action Changed;`) are excluded from the Full broadening: the
+        // compiler-generated backing field shares the event's exact name, and the full member
+        // surface would emit it as a separate `Action Changed;` field alongside the reconstructed
+        // event (CS0102/CS0229). Coherent field-like reconstruction is out of #3007's scope, so
+        // these stay method-routed exactly as before (an honest compile-back floor, not a
+        // double-declaration false success).
         if (TryFindMethod(reader, typeDef, target) is { } accessorHandle
             && accessorToEvent.TryGetValue(accessorHandle, out var foundEventHandle)
-            && IsExplicitInterfaceEventAccessor(reader, typeDef, accessorHandle))
+            && (IsExplicitInterfaceEventAccessor(reader, typeDef, accessorHandle)
+                || (includePlainEventAccessors && !IsFieldLikeEvent(reader, typeDef, foundEventHandle))))
         {
             return (foundEventHandle, accessorHandle);
         }
 
         return null;
+    }
+
+    // A field-like event (`event Action Changed;`) has a compiler-generated backing field whose
+    // name is identical to the event. A custom event with explicit accessors uses a
+    // distinctly-named user field, so a same-named field uniquely identifies the field-like form
+    // (a type cannot declare both a field and an event with the same name).
+    static bool IsFieldLikeEvent(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        EventDefinitionHandle eventHandle)
+    {
+        string eventName = reader.GetString(reader.GetEventDefinition(eventHandle).Name);
+        foreach (var fieldHandle in typeDef.GetFields())
+        {
+            if (reader.GetString(reader.GetFieldDefinition(fieldHandle).Name) == eventName)
+                return true;
+        }
+
+        return false;
     }
 
     static bool IsExplicitInterfaceEventAccessor(

@@ -62,6 +62,14 @@ public sealed record DecompilerOptions
     /// </summary>
     public ExpressionBodyArrowPlacement ExpressionBodyArrowPlacement { get; init; } = ExpressionBodyArrowPlacement.SameLine;
 
+    /// <summary>
+    /// Long splittable expressions (short-circuit <c>&amp;&amp;</c>/<c>||</c>
+    /// chains) may wrap one operand per continuation line instead of a single
+    /// wide line. Off by default; a whitespace-only tiebreaker that leaves the
+    /// tokens and IL unchanged.
+    /// </summary>
+    public bool WrapSplittableExpressions { get; init; }
+
     public static DecompilerOptions Default { get; } = new();
 }
 

@@ -78,22 +78,21 @@ public sealed class MetadataSource : IDisposable
     /// without managed metadata. <paramref name="externalPdbPath"/> is a portable
     /// PDB to use for source local names when the assembly carries no embedded
     /// or sidecar PDB — e.g. one the CLI downloaded from a symbol server.
-    /// <paramref name="locator"/> is the legacy path-only adapter for resolving
-    /// referenced assemblies for cross-assembly type facts (value-type-ness of a
-    /// bare token); when null, the default policy looks only beside the opened
-    /// assembly. New callers should prefer the <see cref="IAssemblyReferenceResolver"/>
-    /// overload so identity and stream-backed assemblies flow through.
+    /// Referenced assemblies for cross-assembly type facts (value-type-ness of a
+    /// bare token) are resolved by the default policy, which looks only beside
+    /// the opened assembly. Callers that need identity- or stream-backed
+    /// resolution should use the <see cref="IAssemblyReferenceResolver"/> overload.
     /// <paramref name="context"/> is a shared <see cref="MetadataContext"/> a
     /// batch caller may pass so a dependency such as CoreLib is opened once
     /// across many sources; when null, this source creates and owns one seeded
     /// by the effective resolver. A supplied context is
     /// borrowed — the caller owns its disposal.
     /// </summary>
-    public static MetadataSource Open(string path, string? externalPdbPath = null, AssemblyLocator? locator = null, MetadataContext? context = null)
-        => OpenCore(path, externalPdbPath, readSymbols: true, locator, resolver: null, context);
+    public static MetadataSource Open(string path, string? externalPdbPath = null, MetadataContext? context = null)
+        => OpenCore(path, externalPdbPath, readSymbols: true, resolver: null, context);
 
     public static MetadataSource Open(string path, string? externalPdbPath, IAssemblyReferenceResolver resolver, MetadataContext? context = null)
-        => OpenCore(path, externalPdbPath, readSymbols: true, locator: null, resolver, context);
+        => OpenCore(path, externalPdbPath, readSymbols: true, resolver, context);
 
     public static MetadataSource Open(ResolvedAssemblyReference assembly, string? externalPdbPath, IAssemblyReferenceResolver resolver, MetadataContext? context = null)
         => OpenCore(assembly, externalPdbPath, readSymbols: true, resolver, context);
@@ -104,11 +103,11 @@ public sealed class MetadataSource : IDisposable
     /// deterministic, symbol-independent output: the same DLL renders identically
     /// whether or not a PDB happens to be embedded, sidecar, or downloaded.
     /// </summary>
-    public static MetadataSource OpenWithoutSymbols(string path, AssemblyLocator? locator = null, MetadataContext? context = null)
-        => OpenCore(path, externalPdbPath: null, readSymbols: false, locator, resolver: null, context);
+    public static MetadataSource OpenWithoutSymbols(string path, MetadataContext? context = null)
+        => OpenCore(path, externalPdbPath: null, readSymbols: false, resolver: null, context);
 
     public static MetadataSource OpenWithoutSymbols(string path, IAssemblyReferenceResolver resolver, MetadataContext? context = null)
-        => OpenCore(path, externalPdbPath: null, readSymbols: false, locator: null, resolver, context);
+        => OpenCore(path, externalPdbPath: null, readSymbols: false, resolver, context);
 
     public static MetadataSource OpenWithoutSymbols(ResolvedAssemblyReference assembly, IAssemblyReferenceResolver resolver, MetadataContext? context = null)
         => OpenCore(assembly, externalPdbPath: null, readSymbols: false, resolver, context);
@@ -121,13 +120,7 @@ public sealed class MetadataSource : IDisposable
     /// </summary>
     public static IAssemblyReferenceResolver DefaultAssemblyReferenceResolver(string path) => new SiblingAssemblyReferenceResolver(path);
 
-    /// <summary>
-    /// Legacy path-only view over <see cref="DefaultAssemblyReferenceResolver"/>.
-    /// Prefer the resolver-returning API for new code.
-    /// </summary>
-    public static AssemblyLocator DefaultAssemblyLocator(string path) => DefaultAssemblyReferenceResolver(path).ToAssemblyLocator();
-
-    static MetadataSource OpenCore(string path, string? externalPdbPath, bool readSymbols, AssemblyLocator? locator, IAssemblyReferenceResolver? resolver, MetadataContext? context)
+    static MetadataSource OpenCore(string path, string? externalPdbPath, bool readSymbols, IAssemblyReferenceResolver? resolver, MetadataContext? context)
     {
         var stream = File.OpenRead(path);
         PEReader? peReader = null;
@@ -140,7 +133,7 @@ public sealed class MetadataSource : IDisposable
             string assemblyName = reader.IsAssembly
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : System.IO.Path.GetFileNameWithoutExtension(path);
-            var effectiveResolver = resolver ?? locator?.ToAssemblyReferenceResolver() ?? DefaultAssemblyReferenceResolver(path);
+            var effectiveResolver = resolver ?? DefaultAssemblyReferenceResolver(path);
             return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath, readSymbols, effectiveResolver, context);
         }
         catch
@@ -259,6 +252,7 @@ public sealed class MetadataSource : IDisposable
     Dictionary<TypeRef, TypeRef>? _enumUnderlyingTypes;
     Dictionary<TypeRef, TypeRef?>? _baseTypes;
     HashSet<TypeRef>? _interfaces;
+    HashSet<TypeRef>? _genericDefinitions;
     Dictionary<TypeRef, ImmutableArray<TypeRef>>? _interfaceImpls;
     HashSet<TypeRef>? _unionTypes;
     HashSet<TypeRef>? _delegates;
@@ -424,6 +418,7 @@ public sealed class MetadataSource : IDisposable
         var enumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>();
         var bases = new Dictionary<TypeRef, TypeRef?>();
         var interfaces = new HashSet<TypeRef>();
+        var genericDefinitions = new HashSet<TypeRef>();
         var interfaceImpls = new Dictionary<TypeRef, ImmutableArray<TypeRef>>();
         var unionTypes = new HashSet<TypeRef>();
         var delegates = new HashSet<TypeRef>();
@@ -439,7 +434,10 @@ public sealed class MetadataSource : IDisposable
             // signatures, so a generic-instance base (List<T>) or interface
             // (IEqualityComparer<T>) decodes to an open TypeRef carrying T as a
             // generic parameter — later substituted by the concrete instance.
-            var scope = new GenericScope(GenericParameterNames(typeDef.GetGenericParameters()), []);
+            var genericParameters = typeDef.GetGenericParameters();
+            var scope = new GenericScope(GenericParameterNames(genericParameters), []);
+            if (genericParameters.Count > 0)
+                genericDefinitions.Add(key);
             bases[key] = DecodeBaseType(typeDef.BaseType, scope);
             if ((typeDef.Attributes & System.Reflection.TypeAttributes.Interface) != 0)
                 interfaces.Add(key);
@@ -462,6 +460,7 @@ public sealed class MetadataSource : IDisposable
         _enumUnderlyingTypes = enumUnderlyingTypes;
         _baseTypes = bases;
         _interfaces = interfaces;
+        _genericDefinitions = genericDefinitions;
         _interfaceImpls = interfaceImpls;
         _unionTypes = unionTypes;
         _delegates = delegates;
@@ -555,6 +554,73 @@ public sealed class MetadataSource : IDisposable
         EnsureTypeMaps();
         var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
         return definition is not null && _interfaces!.Contains(definition);
+    }
+
+    /// <summary>
+    /// True when no single value can match both <paramref name="a"/> and
+    /// <paramref name="b"/> as a type pattern — the two named class types share no
+    /// common instance. A common instance would be a value of the more-derived
+    /// type, so overlap requires one type to be an ancestor of the other (a value
+    /// of the derived type <c>is</c> both). The proof is only issued when both are
+    /// named, non-interface, non-generic definitions whose base chains fully
+    /// resolve to <c>System.Object</c>; then the two are disjoint exactly when
+    /// neither type appears in the other's (self-inclusive) base chain. Any
+    /// interface, generic (open) definition, shape type, or base chain that
+    /// cannot be walked to <c>System.Object</c> (e.g. a cross-assembly base this
+    /// same-assembly view cannot follow) yields <c>false</c> — <em>cannot prove
+    /// disjoint</em>, never a false claim of it — so a caller can treat
+    /// <c>true</c> as a hard guarantee. Generic definitions are excluded because a
+    /// derived type's generic base appears in the base chain as a closed
+    /// generic instance, which never equals the open definition, so ancestry
+    /// through a generic supertype cannot be observed here.
+    /// </summary>
+    public bool AreProvablyDisjoint(TypeRef a, TypeRef b)
+    {
+        if (a is not { Kind: TypeRefKind.Definition } || b is not { Kind: TypeRefKind.Definition })
+            return false;
+        // An interface can be implemented by an unrelated class, so a value could
+        // satisfy both an interface pattern and any class pattern; never provable.
+        if (IsInterface(a) || IsInterface(b))
+            return false;
+        // A generic definition's derived types reference it through a closed
+        // generic-instance base that never equals the open definition, so an
+        // ancestor relationship would be silently missed; decline conservatively.
+        if (IsGenericDefinition(a) || IsGenericDefinition(b))
+            return false;
+        if (!TryBaseChainToObject(a, out var chainA) || !TryBaseChainToObject(b, out var chainB))
+            return false;
+        return !chainA.Contains(b) && !chainB.Contains(a);
+    }
+
+    /// <summary>True when <paramref name="type"/> is a generic type definition (arity &gt; 0).</summary>
+    bool IsGenericDefinition(TypeRef type)
+    {
+        EnsureTypeMaps();
+        return _genericDefinitions!.Contains(type);
+    }
+
+    /// <summary>
+    /// Collects <paramref name="type"/> and every base type up to and including
+    /// <c>System.Object</c>. Returns <c>false</c> — leaving <paramref name="chain"/>
+    /// unusable as a proof — when the walk cannot reach <c>System.Object</c>
+    /// (a cross-assembly or otherwise unresolvable base ends
+    /// <see cref="ResolveBaseType"/> early) or a cycle appears, so an incomplete
+    /// ancestry is never mistaken for a complete one.
+    /// </summary>
+    bool TryBaseChainToObject(TypeRef type, out HashSet<TypeRef> chain)
+    {
+        chain = new HashSet<TypeRef>();
+        var current = type;
+        // Bounded so a malformed same-assembly base cycle cannot spin forever.
+        for (int guard = 0; guard < 4096 && current is not null; guard++)
+        {
+            if (!chain.Add(current))
+                return false;
+            if (IsObject(current))
+                return true;
+            current = ResolveBaseType(current);
+        }
+        return false;
     }
 
     /// <summary>True when <paramref name="type"/> implements <paramref name="iface"/> (matched structurally after substitution, so generic arguments must agree).</summary>
