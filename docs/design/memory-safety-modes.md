@@ -92,9 +92,24 @@ pointerless `unsafe` method's requires-unsafe-ness. Legacy compilation stamps no
 `RequiresUnsafeAttribute` and the call carries no pointer, so the fact was erased
 — there is nothing to replay or recover. This is the principled limit of the mode.
 
+The `unsafe(expr)` compiler gate is now met: roslyn #84012 / csharplang #10196
+shipped, and the syntax `unsafe(expression)` parses and compiles on the
+`11.0.100-preview.7` SDK this repo builds with. (The earlier Preview 6 probe
+rejected the speculative `unsafe stackalloc` spelling, which never shipped.)
+Emission is nonetheless deferred: the compile-back rail's pinned
+`Microsoft.CodeAnalysis.CSharp` (5.6.0, the latest public package) does not yet
+parse `unsafe(expr)` — it reads `unsafe` as the block keyword — so the rail could
+not recompile narrowed output, and every new-rules compile-back harness would
+break. We keep the `unsafe { }` block wrap until the pinned Roslyn advances to a
+version that implements unsafe expressions, at which point new-rules rendering can
+narrow a single `return <unsafe-expr>;` to the tighter `return unsafe(<expr>);`
+form (return position only — `unsafe(...)` is a primary expression, legal as a
+returned value but not as a bare statement). Tracked: #2021.
+
 Still future (not built): emit `// SAFETY-TODO` audit comments at introduced
-blocks; emit the tighter `unsafe(expr)` expression form once it lands in a usable
-compiler (tracked: roslyn #84012 / csharplang #10196).
+blocks; narrow the introduced `unsafe { }` wrap to the `unsafe(expr)` expression
+form once the pinned compiler can validate it (tracked: roslyn #84012 /
+csharplang #10196, #2021).
 
 ## Opaque-contract classification (analysis surface)
 

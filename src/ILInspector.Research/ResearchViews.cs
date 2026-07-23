@@ -93,7 +93,7 @@ public static partial class ResearchViews
                     .Where(fact => fact.Descriptor.Category == AnnotationCategory.Cost)
                     .ToList();
                 var body = WithTrace(
-                    RunProjection(() => RenderRaisedOverlay(imported, costAnnotations), emptyOutputIsFailure: false),
+                    RunProjection(() => RenderRaisedOverlay(imported, costAnnotations, request.Source), emptyOutputIsFailure: false),
                     request.Source);
                 costOverlay = new CostOverlayResult(body, costHeaderFacts);
             }
@@ -105,13 +105,13 @@ public static partial class ResearchViews
                     .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Semantics)
                     .ToList();
                 semanticsOverlay = WithTrace(
-                    RunProjection(() => RenderRaisedOverlay(imported, semanticsAnnotations), emptyOutputIsFailure: false),
+                    RunProjection(() => RenderRaisedOverlay(imported, semanticsAnnotations, request.Source), emptyOutputIsFailure: false),
                     request.Source);
             }
 
             IReadOnlyList<FactRow>? factRows = null;
             if (request.FactRows)
-                factRows = BuildFactRows(request.Type, request.Method, imported, facts, headerFacts);
+                factRows = BuildFactRows(request.Type, request.Method, imported, facts, headerFacts, request.Source);
 
             return new MemberProjectionResult(
                 annotatedSource,
@@ -175,7 +175,7 @@ public static partial class ResearchViews
         var effectiveRegistry = registry ?? ResearchFactRegistry.Default;
         var facts = effectiveRegistry.Collect(context);
         var headerFacts = effectiveRegistry.CollectHeaderFacts(context);
-        return BuildFactRows(type, method, imported, facts, headerFacts);
+        return BuildFactRows(type, method, imported, facts, headerFacts, source);
     }
 
     static DecompilerResult RenderMixedCore(
@@ -203,7 +203,7 @@ public static partial class ResearchViews
         IrFunction? ImportMethodBody(MethodRef target) => IrImporter.Import(source, target);
         var csResult = stage == AnnotationStage.Lowered
             ? CSharpPrinter.PrintLowered(imported, out var statementLines, importMethodBody: ImportMethodBody)
-            : CSharpPrinter.PrintRaised(imported, out statementLines, importMethodBody: ImportMethodBody);
+            : CSharpPrinter.PrintRaised(imported, out statementLines, importMethodBody: ImportMethodBody, typesProvablyDisjoint: source.AreProvablyDisjoint);
         if (csResult.Output is not { } csText)
             return csResult;
 
@@ -329,9 +329,9 @@ public static partial class ResearchViews
         return sb.ToString().TrimEnd();
     }
 
-    static DecompilerResult RenderRaisedOverlay(IrFunction imported, IReadOnlyList<IAnnotation> annotations)
+    static DecompilerResult RenderRaisedOverlay(IrFunction imported, IReadOnlyList<IAnnotation> annotations, MetadataSource source)
     {
-        var result = CSharpPrinter.PrintRaised(imported, out var statementLines);
+        var result = CSharpPrinter.PrintRaised(imported, out var statementLines, importMethodBody: null, typesProvablyDisjoint: source.AreProvablyDisjoint);
         if (result.Output is not { } output)
             return result;
         var projected = annotations.Count == 0
@@ -345,9 +345,10 @@ public static partial class ResearchViews
         string method,
         IrFunction imported,
         IReadOnlyList<IAnnotation> facts,
-        IReadOnlyList<ResearchHeaderFact> headerFacts)
+        IReadOnlyList<ResearchHeaderFact> headerFacts,
+        MetadataSource source)
     {
-        var linesByFact = CSharpLinesByFact(imported, facts);
+        var linesByFact = CSharpLinesByFact(imported, facts, source);
         string member = $"{type}::{method}";
         var rows = facts.Select(fact => new FactRow(
             member,
@@ -451,9 +452,9 @@ public static partial class ResearchViews
         return string.Join(Environment.NewLine, lines);
     }
 
-    static Dictionary<IAnnotation, int> CSharpLinesByFact(IrFunction imported, IReadOnlyList<IAnnotation> facts)
+    static Dictionary<IAnnotation, int> CSharpLinesByFact(IrFunction imported, IReadOnlyList<IAnnotation> facts, MetadataSource source)
     {
-        var result = CSharpPrinter.PrintRaised(imported, out var statementLines);
+        var result = CSharpPrinter.PrintRaised(imported, out var statementLines, importMethodBody: null, typesProvablyDisjoint: source.AreProvablyDisjoint);
         if (result.Output is null || facts.Count == 0)
             return [];
         var spans = AnnotationAnchor.ComputeSpans(imported);

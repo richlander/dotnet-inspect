@@ -143,6 +143,84 @@ public sealed class MemberBodyProducerMemberRenderTests
         // compile-back OperandDiff (#3062).
         Assert.Contains("System.String", rendered.Text);
     }
+
+    [Fact]
+    public void ProduceMember_PreservesQualifiedNameInsideInterpolationHoleLiteral()
+    {
+        var type = Specimen();
+        var member = Assert.Single(type.Members, m => m.Name == nameof(MemberRenderSpecimen.InterpolatedQuotedTypeName));
+
+        var rendered = MemberBodyProducer.ProduceMember(type, member, AssemblyPath, pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        // The body re-sugars to an interpolated string; guard that the shape is
+        // actually recovered so the hole scan is exercised.
+        Assert.Contains("$\"", rendered.Text);
+        // Name-shortening scans a hole's code but must copy nested literals
+        // verbatim: System.String inside the hole's "System.String" constant
+        // must survive, not be mis-segmented and shortened to String (#3064).
+        Assert.Contains("\"System.String\"", rendered.Text);
+    }
+
+    [Theory]
+    [InlineData(nameof(MemberRenderSpecimen.AliasQualifiedShadow))]
+    [InlineData(nameof(MemberRenderSpecimen.AliasQualifiedShadowInHole))]
+    public void ProduceMember_PreservesAliasQualifiedNameUnderShadowing(string memberName)
+    {
+        var type = Specimen();
+        var member = Assert.Single(type.Members, m => m.Name == memberName);
+
+        var rendered = MemberBodyProducer.ProduceMember(type, member, AssemblyPath, pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        // The printer emits global::System.Math to escape the shadowing Math
+        // parameter. Shortening must keep the full alias-qualified path, not
+        // strip it to the invalid global::Math (CS0400) — in a hole or not.
+        Assert.Contains("global::System.Math", rendered.Text);
+        Assert.DoesNotContain("global::Math", rendered.Text);
+    }
+
+    [Theory]
+    [InlineData(nameof(MemberRenderSpecimen.EscapedAliasQualifiedShadow),
+        "global::@event.Models.TypeNameShadow", "global::@TypeNameShadow")]
+    [InlineData(nameof(MemberRenderSpecimen.SystemEscapedAliasQualifiedShadow),
+        "global::System.@event.Models.SystemNameShadow", "global::System.@SystemNameShadow")]
+    public void ProduceMember_PreservesAliasQualifiedNameWithEscapedKeywordNamespace(
+        string memberName, string expectedFullPath, string corruptedForm)
+    {
+        var type = Specimen();
+        var member = Assert.Single(type.Members, m => m.Name == memberName);
+
+        var rendered = MemberBodyProducer.ProduceMember(type, member, AssemblyPath, pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        // A namespace segment that is a keyword is printed @-escaped, so an '@'
+        // sits between the '::' alias qualifier and the matched metadata
+        // namespace. For a System-rooted namespace the System.-stripped prefix
+        // even matches mid-chain (after "System.@"), so the guard must walk the
+        // whole qualified run back to its '::' root and decline — not strip to
+        // the invalid @-escaped form (a stray escape on a name that does not
+        // bind, CS0400/CS0234) (#3064 review).
+        Assert.Contains(expectedFullPath, rendered.Text);
+        Assert.DoesNotContain(corruptedForm, rendered.Text);
+    }
+
+    [Fact]
+    public void Project_EscapesKeywordSegmentsInHoistedUsings()
+    {
+        var type = Specimen();
+        var listing = MemberBodyProducer.Project(type, AssemblyPath, pdbPath: null).Output;
+        Assert.NotNull(listing);
+
+        // A non-shadowed reference to a type in a keyword-segment namespace is
+        // shortened to the simple name, harvesting the namespace into a hoisted
+        // using. Metadata namespaces carry no escape, so a keyword segment must
+        // be @-escaped in the emitted directive or it is invalid C# (#3090).
+        Assert.Contains("using System.@event.Models;", listing);
+        Assert.Contains("using @event.Models;", listing);
+        Assert.DoesNotContain("using System.event.Models;", listing);
+        Assert.DoesNotContain("using event.Models;", listing);
+    }
 }
 
 #pragma warning disable CA1822 // members are instance to exercise real signatures
@@ -169,5 +247,55 @@ public sealed class MemberRenderSpecimen
     // so a name-shortener that splits on '"' without honoring escapes flips its
     // in-literal parity and mutates System.String inside the constant (#3062).
     public string QuotedTypeName() => "a \"System.String\" b";
+
+    static string Echo(string value) => value;
+
+    // An interpolated string whose hole contains a nested string literal that
+    // is itself a fully-qualified type name. The decompiler re-sugars this to
+    // $"…{Echo("System.String")}…", so a name-shortener that treats the outer
+    // $"…" as one literal mis-segments the hole and shortens System.String
+    // inside the nested constant, corrupting the ldstr operand (#3064).
+    public string InterpolatedQuotedTypeName(int n) => $"n={n} t={Echo("System.String")}";
+
+    // A parameter named Math shadows System.Math, so the printer emits the
+    // alias-qualified global::System.Math to disambiguate. Shortening must not
+    // strip it to global::Math, which re-introduces the collision and does not
+    // bind (CS0400) — both inside an interpolation hole and in plain code (#3064).
+    public static int AliasQualifiedShadow(int Math) => System.Math.Abs(Math) + Math;
+
+    public static string AliasQualifiedShadowInHole(int Math) => $"v={System.Math.Abs(Math) + Math}";
+
+    // The referenced type lives in @event.Models, a namespace whose first
+    // segment is a keyword, so the printer escapes it. A parameter named
+    // TypeNameShadow shadows the type, forcing the alias-qualified
+    // global::@event.Models.TypeNameShadow. Shortening must keep the full path,
+    // not strip it to the invalid global::@TypeNameShadow: the '@' sits between
+    // the '::' alias qualifier and the raw metadata namespace, so the guard has
+    // to skip the escape (#3064 review).
+    public static int EscapedAliasQualifiedShadow(int TypeNameShadow)
+        => @event.Models.TypeNameShadow.M(TypeNameShadow);
+
+    // Same hazard, but the namespace is System-rooted with a keyword segment
+    // (System.@event.Models). The printer emits global::System.@event.Models.
+    // TypeNameShadow; the System.-stripped prefix "event.Models" matches
+    // mid-chain after "System.@", so a guard that only inspects the characters
+    // just before the match cannot see the '::' root. Shortening must still be
+    // declined, not corrupted to global::System.@TypeNameShadow (CS0234).
+    public static int SystemEscapedAliasQualifiedShadow(int SystemNameShadow)
+        => System.@event.Models.SystemNameShadow.M(SystemNameShadow);
+
+    // A non-shadowed reference to a type in the keyword-segment namespace
+    // System.@event.Models: the printer emits it plain (no global::) and the
+    // shortener shortens it to the simple name, harvesting the namespace into a
+    // hoisted using. The metadata namespace carries no escape, so the emitted
+    // directive must be @-escaped (using System.@event.Models;) or it is invalid
+    // C# (#3090).
+    public static int SystemEscapedPlain(int n)
+        => System.@event.Models.SystemNameShadow.M(n);
+
+    // Same, for a top-level keyword-segment namespace @event.Models — the
+    // hoisted directive must be @-escaped (using @event.Models;) (#3090).
+    public static int EscapedPlain(int n)
+        => @event.Models.TypeNameShadow.M(n);
 }
 #pragma warning restore CA1822
