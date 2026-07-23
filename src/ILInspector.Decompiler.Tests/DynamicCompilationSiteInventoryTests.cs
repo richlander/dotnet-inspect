@@ -59,7 +59,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["CrossAssemblyMethodFactsTests.cs"] = (1, "Cross-assembly seam: constructs referencing compilations to test cross-assembly facts."),
 
             // Product-output validity under varying compilation options.
-            ["ExpressionTreeLambdaTests.cs"] = (2, "Product-output validity: compiles synthesized expression-tree source and checks diagnostics/emit under varying compilation options (e.g. overflow checks)."),
+            ["ExpressionTreeLambdaTests.cs"] = (3, "Product-output validity + compile-back oracle: compiles synthesized expression-tree source under varying compilation options (overflow checks) and recompiles recovered arithmetic/comparison lambdas to assert their expression-tree node identity."),
 
             // Bespoke positive-source gates sharing one helper, each asserting
             // many per-fact expectations over a runtime-varying compilation
@@ -78,11 +78,14 @@ public sealed class DynamicCompilationSiteInventoryTests
     //     unbox value-read source (cast vs Unsafe.Unbox) per case.
     //   #2935 adds FluentChainFormattingTests.cs (1 site): recompiles the
     //     printer's broken fluent-chain output.
-    //   This branch adds RoundTripComparisonTests.cs (1 site): compiles an exact
-    //     donor fixture for typed C# and IL comparison.
-    //   Combined: 32 files, 39 sites.
+    //   RoundTripComparisonTests.cs (1 site): compiles an exact donor fixture for
+    //     typed C# and IL comparison.
+    //   This branch (#2864 comparison slice) adds a second compile-back oracle
+    //     site to ExpressionTreeLambdaTests.cs (2 -> 3 sites): recompiles recovered
+    //     comparison lambdas to assert their expression-tree node identity.
+    //   Combined: 32 files, 40 sites.
     const int ExpectedDynamicFiles = 32;
-    const int ExpectedDynamicSites = 39;
+    const int ExpectedDynamicSites = 40;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

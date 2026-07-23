@@ -119,6 +119,77 @@ public class ExpressionTreeFidelityTests
         Assert.NotNull(output);
         Assert.Contains("GetFieldFromHandle", output);
     }
+    [Fact]
+    public void ComparisonPredicate_RecoversLambda_StaysFull()
+    {
+        var function = Raised(nameof(ExpressionTreeSamples.GreaterThanComparison));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Empty(FidelityRemarks.Collect(function));
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.NotNull(output);
+        Assert.Contains("return (x, y) => x > y;", output);
+        Assert.DoesNotContain("Expression.Lambda", output);
+        Assert.DoesNotContain("Expression.GreaterThan", output);
+        Assert.DoesNotContain("Expression.Parameter", output);
+    }
+
+    [Fact]
+    public void EqualityComparisonPredicate_RecoversLambda_StaysFull()
+    {
+        var function = Raised(nameof(ExpressionTreeSamples.EqualityComparison));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Empty(FidelityRemarks.Collect(function));
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("return (x, y) => x == y;", output);
+        Assert.DoesNotContain("Expression.Equal", output);
+    }
+
+    [Fact]
+    public void ComparisonOverArithmetic_RecoversLambda_KeepsUncheckedOperand()
+    {
+        var function = Raised(nameof(ExpressionTreeSamples.ComparisonOverArithmetic));
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Empty(FidelityRemarks.Collect(function));
+
+        var output = CSharpPrinter.Print(function).Output;
+        // The comparison itself carries no overflow form, but its int-arithmetic
+        // operand recompiles to the unchecked Expression.Add, so it stays unchecked.
+        Assert.Contains("return (x, y) => unchecked(x + 1) > y;", output);
+        Assert.DoesNotContain("Expression.GreaterThan", output);
+        Assert.DoesNotContain("Expression.Add", output);
+    }
+
+    [Fact]
+    public void LogicalCompositionPredicate_StaysFactoryCalls()
+    {
+        var function = Raised(nameof(ExpressionTreeSamples.LogicalCompositionPredicate));
+
+        // A boolean AndAlso composition root is outside the single-comparison
+        // subset: no recovered lambda, honest factory calls.
+        Assert.Empty(function.Descendants.OfType<Lambda>());
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("Expression.Lambda<Func<int, bool>>", output);
+        Assert.DoesNotContain("=>", output);
+    }
+
+    [Fact]
+    public void LongComparisonPredicate_StaysFactoryCalls()
+    {
+        var function = Raised(nameof(ExpressionTreeSamples.LongComparison));
+
+        // Non-int parameters are outside the int slice: honest factory calls.
+        Assert.Empty(function.Descendants.OfType<Lambda>());
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("Expression.Lambda<Func<long, long, bool>>", output);
+        Assert.DoesNotContain("=>", output);
+    }
 }
 
 public static class ExpressionTreeSamples
@@ -142,6 +213,34 @@ public static class ExpressionTreeSamples
 
     public static Expression<Func<ExpressionTreeNode, bool>> Member()
         => n => n.Name != null && n.Count > 0;
+
+    // Comparison predicate slice: a single int comparison body recovers to the
+    // source `l OP r`. Each operator recompiles to exactly the 2-arg
+    // Expression.<Cmp> factory it matched, so the round-trip tree is identical.
+    public static Expression<Func<int, int, bool>> GreaterThanComparison() => (x, y) => x > y;
+
+    public static Expression<Func<int, int, bool>> LessThanOrEqualComparison() => (a, b) => a <= b;
+
+    public static Expression<Func<int, int, bool>> EqualityComparison() => (x, y) => x == y;
+
+    public static Expression<Func<int, int, bool>> InequalityComparison() => (x, y) => x != y;
+
+    // A comparison against a constant: recovers `x => x > 5` (the constant operand
+    // keeps identity because the other operand is parameter-dependent).
+    public static Expression<Func<int, bool>> ComparisonAgainstConstant() => x => x > 5;
+
+    // A comparison whose left operand is unchecked int arithmetic: the arithmetic
+    // operand still needs the explicit unchecked(...) spelling (it recompiles to the
+    // unchecked Expression.Add), while the comparison itself carries no overflow form.
+    public static Expression<Func<int, int, bool>> ComparisonOverArithmetic() => (x, y) => x + 1 > y;
+
+    // Near-miss: a boolean composition (AndAlso) root, not a single comparison.
+    // Outside the comparison subset, so it stays in honest factory-call form.
+    public static Expression<Func<int, bool>> LogicalCompositionPredicate() => x => x > 0 && x < 10;
+
+    // Near-miss: a non-int (long) comparison. The int-parameter guard rejects it, so
+    // it stays in honest factory-call form rather than an unproven recovery.
+    public static Expression<Func<long, long, bool>> LongComparison() => (x, y) => x > y;
 }
 
 public sealed class ExpressionTreeNode

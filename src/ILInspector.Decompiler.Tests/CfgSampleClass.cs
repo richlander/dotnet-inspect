@@ -556,6 +556,22 @@ public class CfgSampleClass
             x);
     }
 
+    // Near-miss: a constant-only comparison root (`GreaterThan(2, 3)`) with an
+    // unreferenced parameter. The C# compiler constant-folds `2 > 3` to a single
+    // Constant(false) when the recovered lambda is recompiled to an expression tree
+    // (verified: `x => 2 > 3` lowers to a Constant node, not GreaterThan), so
+    // recovering `x => 2 > 3` would rebuild a different tree. The comparison
+    // constant-fold guard declines it, keeping the honest factory calls.
+    public static System.Linq.Expressions.Expression<System.Func<int, bool>> ManualConstantOnlyComparisonFactory()
+    {
+        var x = System.Linq.Expressions.Expression.Parameter(typeof(int), "x");
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, bool>>(
+            System.Linq.Expressions.Expression.GreaterThan(
+                System.Linq.Expressions.Expression.Constant(2, typeof(int)),
+                System.Linq.Expressions.Expression.Constant(3, typeof(int))),
+            x);
+    }
+
     // Capturing: `n` is hoisted into a <>c__DisplayClass, so the delegate targets
     // an instance method on that class. LambdaRaisingPass substitutes the body's
     // `this.n` read with the captured value and recovers `x => x + n`.
