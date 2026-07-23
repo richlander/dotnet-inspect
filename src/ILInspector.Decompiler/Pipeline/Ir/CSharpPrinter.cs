@@ -2213,7 +2213,7 @@ public sealed partial class CSharpPrinter
             StorePropertyTargetType(s)),
         EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual)} {(e.IsAdd ? "+=" : "-=")} {CoerceText(e.Value, e.Accessor.ParameterTypes[0])};",
         StoreElement s when InlineReceiverTempStoreValue(s) is { } value => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {value};",
-        StoreElement s => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {InitializerText(s.Value, StoreElementTargetType(s))};",
+        StoreElement s => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {InitializerText(s.Value, StoreElementTargetType(s), StoreElementNewTarget(s))};",
         StoreIndirect s => AssignmentText(
             IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),
             s.Value,
@@ -2298,6 +2298,27 @@ public sealed partial class CSharpPrinter
     // non-primitive definition), matching `Coerce`'s enum-cast reasoning.
     TypeRef? StoreElementTargetType(StoreElement store)
         => CoercionSinks.StoreElementTarget(store, _function.TypeShapes);
+
+    /// <summary>
+    /// The type C# binds a target-typed <c>new()</c> to at an array element store —
+    /// the array expression's static element type, which is what <c>a[i] = new()</c>
+    /// constructs. Offered only when that element type is exactly the coercion target
+    /// (<see cref="StoreElementTargetType"/>): a <c>stelem.ref</c> erases its token to
+    /// <c>object</c>, and a covariant <c>stelem</c> token can be wider than the
+    /// array's static element type, so when they disagree the exact-type-equality
+    /// guard would not reflect the constructed type — decline (return null) and keep
+    /// the explicit spelling. Never widens the reviewed firing set: value-type element
+    /// arrays (token == element) still fire, reference-type arrays still decline.
+    /// </summary>
+    TypeRef? StoreElementNewTarget(StoreElement store)
+    {
+        var coercionTarget = StoreElementTargetType(store);
+        return store.Array.ResultType is { Kind: TypeRefKind.SzArray or TypeRefKind.Array, ElementType: { } element }
+            && coercionTarget is not null
+            && element.Equals(coercionTarget)
+            ? coercionTarget
+            : null;
+    }
 
     /// <summary>
     /// The C# text for a single-dimension array element index. C# implicitly
@@ -3694,7 +3715,18 @@ public sealed partial class CSharpPrinter
     /// binding. Return positions are intentionally out of scope for now.
     /// </summary>
     string InitializerText(IrExpression value, TypeRef? target)
-        => TargetTypedNewText(value, target) ?? CoerceText(value, target);
+        => InitializerText(value, target, target);
+
+    /// <summary>
+    /// Initializer spelling where the type C# binds a target-typed <c>new()</c> to
+    /// (<paramref name="newTarget"/>) can differ from the coercion target
+    /// (<paramref name="coercionTarget"/>). They differ only for an array element
+    /// store: <c>a[i] = new()</c> binds to the array's static element type, while the
+    /// coercion runs through the (possibly wider or <c>stelem.ref</c>-erased)
+    /// <c>stelem</c> token. Every other site passes the same type for both.
+    /// </summary>
+    string InitializerText(IrExpression value, TypeRef? coercionTarget, TypeRef? newTarget)
+        => TargetTypedNewText(value, newTarget) ?? CoerceText(value, coercionTarget);
 
     /// <summary>
     /// Target-typed object creation: <c>T x = new T(args)</c> shortens to
@@ -3707,12 +3739,17 @@ public sealed partial class CSharpPrinter
     /// whose type Equals the target: arrays (incl. multi-dimensional, modeled as
     /// <see cref="NewObject"/>), object/collection initializers (a separate node),
     /// tuple and nullable targets, and any base/interface/other target all decline.
+    /// A bare <c>System.Object</c> target also declines: the target type may be a
+    /// <c>dynamic</c> place (erased to <c>object</c> in the IR), and target-typed
+    /// <c>new()</c> is illegal for a <c>dynamic</c> target (CS8752); <c>new object()</c>
+    /// carries no type name to drop anyway, so the conservative decline costs nothing.
     /// </summary>
     string? TargetTypedNewText(IrExpression value, TypeRef? target)
     {
         if (target is null
             || value is not NewObject creation
             || MultiDimArrayCreationText(creation) is not null
+            || IsSystemObjectType(creation.Constructor.DeclaringType)
             || !IsTargetTypedNewEligible(target)
             || !target.Equals(creation.Constructor.DeclaringType))
         {
@@ -3721,6 +3758,15 @@ public sealed partial class CSharpPrinter
 
         return $"new({Arguments(creation.Arguments, creation.Constructor.ParameterTypes, creation.Constructor.ParameterRefKinds)})";
     }
+
+    /// <summary>
+    /// The bare <c>System.Object</c> type, by name — assembly-agnostic so a facade or
+    /// spoofed core-library scope still matches. Used to decline target-typed
+    /// <c>new()</c> for an <c>object</c>/<c>dynamic</c> target (see
+    /// <see cref="TargetTypedNewText"/>).
+    /// </summary>
+    static bool IsSystemObjectType(TypeRef type)
+        => type is { Kind: TypeRefKind.Definition, Namespace: "System", Name: "Object" };
 
     /// <summary>
     /// A target type admits target-typed <c>new</c> only when it is spelled as a plain

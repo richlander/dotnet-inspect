@@ -77,6 +77,26 @@ public class TargetTypedNewFixtures
     public int ArgumentPositionDeclines(int n)
         => Accept(new StringBuilder(n));
 
+    // Negative: a bare `object` target. `object o = new object()` is a valid
+    // target-typed-new, but the raw `object` target is indistinguishable at this seam
+    // from a `dynamic` place (which the IR erases to `object`), where `new()` is
+    // CS8752 — so all bare `System.Object` constructions decline. `new object()` has
+    // no type name to drop anyway.
+    public bool ObjectTargetDeclines()
+    {
+        object o = new object();
+        object p = new object();
+        return ReferenceEquals(o, p);
+    }
+
+    // Negative: a `dynamic` parameter reassignment. The signature spells `dynamic
+    // value`, but the IR store carries the erased `object` type; shortening to
+    // `value = new()` would be CS8752. The bare-object decline keeps `new object()`.
+    public void DynamicParamDeclines(dynamic value)
+    {
+        value = new object();
+    }
+
     static int Accept(StringBuilder builder) => builder.Length;
     static int Accept(object value) => value.GetHashCode();
 

@@ -98,4 +98,83 @@ public class TargetTypedNewPassTests
 
         Assert.Contains("new StringBuilder(", output);
     }
+
+    [Fact]
+    public void BareObjectTarget_KeepsExplicitType()
+    {
+        // A bare `object` target admits target-typed `new()` in C#, but the raw
+        // `object` type is indistinguishable at this seam from a `dynamic` place
+        // (erased to `object`), where `new()` is CS8752 — so `new object()` stays
+        // explicit. Conservative and free: `new object()` has no type name to drop.
+        string output = PrintRaised(nameof(TargetTypedNewFixtures.ObjectTargetDeclines));
+
+        Assert.Contains("new object(", output);
+        Assert.DoesNotContain("= new(", output);
+    }
+
+    [Fact]
+    public void DynamicParameterTarget_KeepsExplicitType()
+    {
+        // A `dynamic` parameter is spelled `dynamic value` in the signature but the IR
+        // store carries the erased `object` type; shortening `value = new object()` to
+        // `value = new()` would be CS8752. The bare-object decline keeps it valid.
+        string output = PrintRaised(nameof(TargetTypedNewFixtures.DynamicParamDeclines));
+
+        Assert.Contains("new object(", output);
+        Assert.DoesNotContain("value = new()", output);
+    }
+
+    // A covariant / adversarial array element store: the `stelem` token (the value
+    // stored, here `Base`) is wider than the array expression's static element type
+    // (`Derived`). C# types `items[0] = new()` from the array's element type, so
+    // `new()` would bind `Derived` and construct `newobj Derived`, diverging from the
+    // `newobj Base` the IL performs. The element-store guard requires the array's
+    // static element type to equal the `stelem` token, so this declines and keeps the
+    // explicit `new Base()`. Not producible from C# source (it is CS0029), so the IR
+    // is built directly.
+    [Fact]
+    public void CovariantElementStore_TokenWiderThanArrayElement_KeepsExplicitType()
+    {
+        var baseType = TypeRef.Definition("synthetic", "N", "Base");
+        var derivedType = TypeRef.Definition("synthetic", "N", "Derived");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var derivedArray = TypeRef.SzArray(derivedType);
+
+        var ctor = new MethodRef(baseType, ".ctor", voidType, [], HasThis: true);
+        var store = new StoreElement(
+            baseType,                                     // stelem token: Base
+            new LoadArgument(1, "items", derivedArray),   // array static element: Derived
+            new Constant(0, intType),
+            new NewObject(ctor, []));
+
+        string output = RenderElementStore(store, derivedArray);
+
+        Assert.Contains("new Base(", output);
+        Assert.DoesNotContain("= new(", output);
+    }
+
+    static string RenderElementStore(StoreElement store, TypeRef arrayParameterType)
+    {
+        var block = new Block(0);
+        block.Add(store);
+        block.Add(new Return(null));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(
+            TypeRef.CoreLib("System", "Void"),
+            [new Parameter("items", arrayParameterType)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("synthetic", "N", "Holder"), signature, [], container)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape>
+            {
+                [TypeRef.Definition("synthetic", "N", "Base")] = TypeShape.Reference,
+                [TypeRef.Definition("synthetic", "N", "Derived")] = TypeShape.Reference,
+            },
+        };
+
+        return CSharpPrinter.Print(function).Output!.Trim();
+    }
 }
