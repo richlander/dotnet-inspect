@@ -2648,7 +2648,7 @@ public sealed partial class CSharpPrinter
         // display-class field carrying [DynamicAttribute]) recovers a dynamic
         // type view.
         if (IsDynamicTypedReceiver(d.Receiver))
-            return $"{Operand(d.Receiver)}.{member}";
+            return $"{DynamicDroppedCastReceiverText(d.Receiver)}.{member}";
         return $"((dynamic){Operand(d.Receiver)}).{member}";
     }
 
@@ -2656,17 +2656,36 @@ public sealed partial class CSharpPrinter
     {
         LoadArgument { IsDynamic: true } => true,
         LoadField { Field.IsDynamic: true } => true,
+        // A by-ref `dynamic` parameter (`ref`/`in`/`out dynamic`) reads through a
+        // deref of the by-ref argument; the referenced element's static type is
+        // still `dynamic`, so the `(dynamic)` cast is equally redundant (#3035).
+        LoadIndirect { Address: LoadArgument { IsDynamic: true } } => true,
         _ => false,
     };
+
+    // Bare place text for a dynamic-typed receiver whose redundant `(dynamic)` cast
+    // is dropped. A by-ref deref reads back as the underlying argument identifier
+    // (`value`), so its `Operand` receiver-parentheses (`(value).Member`) are
+    // dropped to match the plain-parameter form (`value.Member`) (#3035).
+    string DynamicDroppedCastReceiverText(IrExpression receiver)
+        => receiver is LoadIndirect load ? DerefLoad(load) : Operand(receiver);
 
     // A parameter authored as top-level `dynamic` must be spelled `dynamic` in
     // the declaration, not `object` (its TypeRef). This keeps a local-function
     // header consistent with a body that drops the redundant `(dynamic)` cast on
     // the parameter: `object Get(object v) => v.Length;` is CS1061, whereas
-    // `object Get(dynamic v) => v.Length;` binds. Top-level method signatures are
+    // `object Get(dynamic v) => v.Length;` binds. A by-ref `dynamic` parameter
+    // keeps its by-ref modifier — only the referenced element is `dynamic` — so
+    // it is spelled `ref dynamic`, not bare `dynamic` (which would drop `ref` and
+    // yield CS1615 at the call site) (#3035). Top-level method signatures are
     // spelled by the metadata signature printer; this covers the printer-owned
     // local-function declaration path.
-    string ParameterTypeText(Parameter p) => p.IsDynamic ? "dynamic" : TypeText(p.Type);
+    string ParameterTypeText(Parameter p)
+    {
+        if (!p.IsDynamic)
+            return TypeText(p.Type);
+        return p.Type.Kind == TypeRefKind.ByRef ? "ref dynamic" : "dynamic";
+    }
 
     string CoalesceText(Coalesce co, TypeRef? target = null)
     {

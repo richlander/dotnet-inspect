@@ -105,6 +105,36 @@ public class DynamicAndExpressionTrees
         return input;
     }
 
+    // By-ref `dynamic` receivers (#3035). csc emits [DynamicAttribute({ false,
+    // true })] on these parameters — the leading `false` is the ByRef modifier
+    // and the element dynamic-ness sits at flags[1] — and the receiver renders as
+    // a deref of the by-ref parameter rather than a bare argument load. The
+    // redundant `(dynamic)` cast must still drop, since the element static type
+    // is provably `dynamic`.
+    public object DynamicGetLengthByRef(ref dynamic value)
+    {
+        return value.Length;
+    }
+
+    public object DynamicGetLengthIn(in dynamic value)
+    {
+        return value.Length;
+    }
+
+    public object DynamicGetLengthOut(out dynamic value)
+    {
+        value = "abc";
+        return value.Length;
+    }
+
+    // Negative control: a by-ref `object` receiver (not dynamic). The member
+    // access only becomes dynamic through the explicit `(dynamic)` cast, so the
+    // drop must NOT fire — the element static type really is `object`.
+    public object DynamicGetLengthByRefObject(ref object value)
+    {
+        return ((dynamic)value).Length;
+    }
+
     public Expression<Func<int, int>> SimpleExpressionTree()
     {
         return x => x + 1;

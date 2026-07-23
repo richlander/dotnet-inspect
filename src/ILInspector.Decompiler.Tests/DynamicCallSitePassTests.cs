@@ -226,6 +226,34 @@ public class DynamicCallSitePassTests
         Assert.DoesNotContain("((dynamic)value)", output);
     }
 
+    [Theory]
+    [InlineData("DynamicGetLengthByRef")] // ref dynamic
+    [InlineData("DynamicGetLengthIn")]    // in dynamic
+    [InlineData("DynamicGetLengthOut")]   // out dynamic
+    public void ByRefDynamicReceiver_DropsRedundantCast(string method)
+    {
+        // A by-ref `dynamic` parameter reads its receiver through a deref of the
+        // by-ref argument. The [DynamicAttribute] transform flags carry a leading
+        // ByRef modifier, so the element dynamic-ness sits at flags[1]; once the
+        // parameter is recognized as dynamic, the referenced element's static type
+        // is provably `dynamic`, so the redundant `(dynamic)` cast is dropped and
+        // the deref renders as the bare place `value.Length` (#3035).
+        var output = RaiseAndPrint(LoadCanonicalFunction(method));
+        Assert.Contains("value.Length", output);
+        Assert.DoesNotContain("(dynamic)", output);
+    }
+
+    [Fact]
+    public void ByRefObjectReceiver_KeepsCast()
+    {
+        // Negative control: `ref object value` has no DynamicAttribute, so the
+        // element static type really is `object`. The `(dynamic)` cast is the only
+        // thing making the member access dynamic, so it must be kept (#3035).
+        var output = RaiseAndPrint(LoadCanonicalFunction("DynamicGetLengthByRefObject"));
+        Assert.Contains("(dynamic)", output);
+        Assert.Contains(".Length", output);
+    }
+
     [Fact]
     public void KeywordMemberName_RaisesAndKeepsRawName()
     {
@@ -1479,6 +1507,21 @@ public class DynamicCallSitePassTests
         Assert.Contains("dynamic v", output);
         Assert.Contains("v.Length", output);
         Assert.DoesNotContain("object v", output);
+        Assert.DoesNotContain("((dynamic)v)", output);
+    }
+
+    [Fact]
+    public void NestedContext_LocalFunctionByRefOwnParam_SpellsRefDynamicDeclaration()
+    {
+        // The local function has its OWN `ref dynamic` parameter. The body drops
+        // the redundant cast (`v.Length`), and the printer-owned local-function
+        // declaration must keep the by-ref modifier — spelling `ref dynamic v`,
+        // not bare `dynamic v` (which drops `ref` and makes the `Get(ref value)`
+        // call site CS1615) (#3035).
+        var output = RaiseMemberContext("InLocalFunctionByRefOwnParam");
+        Assert.Contains("ref dynamic v", output);
+        Assert.Contains("v.Length", output);
+        Assert.DoesNotContain("(dynamic v)", output);
         Assert.DoesNotContain("((dynamic)v)", output);
     }
 
