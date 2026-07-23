@@ -8,11 +8,14 @@ namespace ILInspector.Decompiler.Tests;
 // can nest and boolean folding can recompose into one && return.
 //
 // The pass is gated for soundness: the definition must be a fresh rvalue (a
-// call/property load, never an address/place), the temp must have exactly one
-// reader in its live range and that read must be a member-access receiver, and
-// the read must sit in the statement immediately after the store with no
-// order-sensitive node evaluated before it. Opcode-preservation of the fold is
-// proven by the compiled-fixture round-trip described at the end of this file.
+// call/property load, never an address/place), and the slot must be fold-safe
+// method-wide — every read of it is a member-receiver address load whose
+// statement immediately follows a store to the same slot in the same block, so
+// each read's reaching definition is the adjacent store and the slot is never
+// live across a block boundary. The folded store's use must additionally be the
+// slot's only read in the adjacent statement with no order-sensitive node
+// evaluated before it. Opcode-preservation of the fold is proven by the
+// compiled-fixture round-trip described at the end of this file.
 [Trait("Area", "Pass")]
 public class StructReceiverInliningPassTests
 {
@@ -199,9 +202,9 @@ public class StructReceiverInliningPassTests
 
     // A back-edge routes execution, on a later iteration, from the loop-body
     // store back to a read at the loop head that precedes the store in document
-    // order. That read observes the store's value, so folding the store away
-    // would leave it stale. The forward single-reader window cannot see the head
-    // read (lower document position); the back-edge gate must decline.
+    // order. That head read is not immediately preceded by a store to the slot,
+    // so the whole-slot fold-safety check fails and the fold declines — no
+    // reasoning about document order or back-edge spans is required.
     [Fact]
     public void LoopCarriedReader_IsNotFolded()
     {
@@ -218,6 +221,35 @@ public class StructReceiverInliningPassTests
         RunPass(function);
 
         Assert.Equal(1, StoreCount(function, 0));
+        function.CheckInvariant();
+    }
+
+    // Forward bypass: the store's adjacent use looks single, but a later read
+    // sits after a conditionally-taken second store to the same slot. On the
+    // path that skips the second store, that later read observes the first
+    // store's value — so folding the first store away would leave it reading a
+    // removed value. The later read is not immediately preceded by a store, so
+    // the whole-slot check fails and both stores survive.
+    [Fact]
+    public void ForwardBypassReader_IsNotFolded()
+    {
+        // block0: v = a.Inner; v.Value; if (cond) goto block2 (skip the second store)
+        var block0 = MakeBlock(0,
+            new StoreLocal(0, S, Inner(new LoadArgument(0, "a", Outer))),
+            new ExpressionStatement(Value(new LoadLocalAddress(0, S))),
+            new ConditionalBranch(new LoadArgument(1, "cond", Bool), 32));
+        // block1: v = b.Inner (the conditionally-executed redefinition)
+        var block1 = MakeBlock(16,
+            new StoreLocal(0, S, Inner(new LoadArgument(2, "b", Outer))));
+        // block2: return v.Value — the join read, reached with block0's value on
+        // the bypass path.
+        var block2 = MakeBlock(32,
+            new Return(Value(new LoadLocalAddress(0, S))));
+        var function = BuildFunction([block0, block1, block2]);
+
+        RunPass(function);
+
+        Assert.Equal(2, StoreCount(function, 0));
         function.CheckInvariant();
     }
 }

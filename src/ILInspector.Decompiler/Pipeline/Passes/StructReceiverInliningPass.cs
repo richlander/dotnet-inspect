@@ -28,24 +28,32 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <see cref="LoadProperty"/> with a non-<c>ByRef</c> result), never an
 /// address/ref/place — a byref temp aliases real storage, so folding could
 /// change defensive-copy or write semantics.</item>
-/// <item>That value has exactly one reader in its live range: the sole read of
-/// the local between this store and the next store to it (in document order,
-/// which is fallthrough order for the acyclic guard shape) is the address-load
-/// use. A reused slot (csc packs independent temporaries into one slot) folds
-/// per live range.</item>
+/// <item>The slot is <em>fold-safe</em> method-wide: every read of it is a
+/// member-receiver address load whose enclosing statement immediately follows a
+/// store to that same slot in the same block. Then each read's reaching
+/// definition is the store one statement above it, so the slot is never live at
+/// a block boundary and no loop back-edge or conditional bypass can route a
+/// stale value to a read (a reused slot — csc packs independent temporaries into
+/// one slot — folds per store/use pair because each pair is independently
+/// adjacent).</item>
 /// <item>The use is a member-access receiver — the instance of a
 /// <see cref="LoadProperty"/> or <see cref="LoadField"/>, or the receiver of an
 /// instance <see cref="Call"/> (all reads through the receiver; a write place
 /// would be an illegal assignment to an rvalue member).</item>
-/// <item>The use sits in the statement immediately after the store, is not in a
-/// short-circuit/ternary sub-position, and nothing order-sensitive evaluates
-/// before it in that statement — so the value's evaluation crosses no effect.</item>
+/// <item>The use sits in the statement immediately after the store, is the only
+/// read of the slot in that statement, is not in a short-circuit/ternary
+/// sub-position, and nothing order-sensitive evaluates before it in that
+/// statement — so the value's evaluation crosses no effect.</item>
 /// </list>
 ///
 /// <para>Store/use adjacency in one block guarantees co-execution: a branch
 /// target between them would have split the block, so the pair is never entered
-/// apart. That, with the single-reader-in-window check, makes the fold sound
-/// without control-flow analysis.</para>
+/// apart. The fold reasons only about basic-block-local adjacency — never
+/// document order, which is an unsound liveness proxy across loop back-edges
+/// (a store re-reached at the loop head) and conditional bypasses (a read
+/// reached past a skipped redefinition). Requiring <em>every</em> read of the
+/// slot to be a store-adjacent receiver makes each read locally defined, so the
+/// fold is sound without whole-CFG liveness analysis.</para>
 /// </summary>
 public sealed class StructReceiverInliningPass : IIrPass
 {
@@ -64,55 +72,21 @@ public sealed class StructReceiverInliningPass : IIrPass
 
     static bool TryFoldOne(IrFunction function, PassContext context)
     {
-        // Document order (a single pre-order index) doubles as a total order for
-        // the live-range window test. A StoreLocal is visited before its value
-        // subtree, so a self-referential read inside the value lands inside the
-        // window and is (conservatively) counted.
-        var docOrder = new Dictionary<IrNode, int>(ReferenceEqualityComparer.Instance);
-        var stores = new Dictionary<int, List<int>>();
-        var reads = new Dictionary<int, List<(int Pos, IrNode Node, bool IsAddress)>>();
-        var blockPositionByOffset = new Dictionary<int, int>();
-        var branches = new List<(int TargetOffset, int Position)>();
-        int position = 0;
+        // Every read of every slot, so the fold can require a slot to be
+        // fold-safe method-wide before touching any of its stores. Reads are
+        // grouped by slot index; a value load (LoadLocal) and an address load
+        // (LoadLocalAddress) are both reads.
+        var reads = new Dictionary<int, List<IrNode>>();
         foreach (var node in function.Descendants)
         {
-            docOrder[node] = position;
             switch (node)
             {
-                case StoreLocal store:
-                    (stores.TryGetValue(store.Index, out var s) ? s : stores[store.Index] = []).Add(position);
-                    break;
                 case LoadLocal load:
-                    (reads.TryGetValue(load.Index, out var r) ? r : reads[load.Index] = []).Add((position, load, false));
+                    (reads.TryGetValue(load.Index, out var r) ? r : reads[load.Index] = []).Add(load);
                     break;
                 case LoadLocalAddress address:
-                    (reads.TryGetValue(address.Index, out var a) ? a : reads[address.Index] = []).Add((position, address, true));
+                    (reads.TryGetValue(address.Index, out var a) ? a : reads[address.Index] = []).Add(address);
                     break;
-                case Block b:
-                    blockPositionByOffset[b.StartOffset] = position;
-                    break;
-                case Branch br:
-                    branches.Add((br.TargetOffset, position));
-                    break;
-                case ConditionalBranch cbr:
-                    branches.Add((cbr.TargetOffset, position));
-                    break;
-            }
-            position++;
-        }
-
-        // Loop back-edges make the forward document-order window an unsound
-        // liveness proxy: a store inside a loop can flow, on a later iteration,
-        // to a read that precedes it in document order (the top of the loop). A
-        // back-edge is a branch whose target block precedes the branch; the loop
-        // it closes spans [targetBlockPosition, branchPosition].
-        var backEdgeSpans = new List<(int Start, int End)>();
-        foreach (var (targetOffset, branchPosition) in branches)
-        {
-            if (blockPositionByOffset.TryGetValue(targetOffset, out int targetPosition)
-                && targetPosition < branchPosition)
-            {
-                backEdgeSpans.Add((targetPosition, branchPosition));
             }
         }
 
@@ -122,61 +96,46 @@ public sealed class StructReceiverInliningPass : IIrPass
                 continue;
             if (!IsRvalueDefinition(store.Value))
                 continue;
-
-            int storePosition = docOrder[store];
-            int nextStorePosition = int.MaxValue;
-            if (stores.TryGetValue(store.Index, out var storePositions))
-            {
-                foreach (int p in storePositions)
-                {
-                    if (p > storePosition && p < nextStorePosition)
-                        nextStorePosition = p;
-                }
-            }
-
-            // Exactly one read of the local in this store's live range, and it is
-            // an address load (a value load in range would read the temp we are
-            // about to remove).
-            if (!reads.TryGetValue(store.Index, out var localReads))
+            if (!reads.TryGetValue(store.Index, out var slotReads))
                 continue;
 
-            // A back-edge that spans this store can route execution, on a later
-            // iteration, back to a read of the local that precedes the store in
-            // document order — so folding this store away would leave that
-            // loop-carried read observing a stale value. The forward window
-            // cannot see that read; decline when any exists inside a spanning
-            // loop.
-            if (HasLoopCarriedReader(store.Index, storePosition, localReads, backEdgeSpans))
-                continue;
-
-            (int Pos, IrNode Node, bool IsAddress)? only = null;
-            bool ambiguous = false;
-            foreach (var read in localReads)
-            {
-                if (read.Pos <= storePosition || read.Pos >= nextStorePosition)
-                    continue;
-                if (only is not null)
-                {
-                    ambiguous = true;
-                    break;
-                }
-                only = read;
-            }
-            if (ambiguous || only is not { IsAddress: true } use)
-                continue;
-
-            var addressUse = use.Node;
-            if (!IsMemberReceiver(addressUse))
+            // Fold-safety is a whole-slot property: every read of the slot must be
+            // a member-receiver address load whose statement immediately follows a
+            // store to the slot in the same block. Then each read's reaching
+            // definition is the store directly above it, the slot is dead at every
+            // block boundary, and neither a loop back-edge nor a conditional
+            // bypass can carry a stale value to a read. This replaces the unsound
+            // document-order live-range window: no read is ever "far" from its
+            // definition, so folding a store into its adjacent use cannot strand
+            // another read of the same value.
+            if (!IsSlotFoldSafe(store.Index, slotReads))
                 continue;
 
             // Adjacency: the use must live in the statement immediately after the
-            // store, in the same block. That makes store and use co-execute and
-            // bounds the effect-order proof to a single statement.
+            // store, in the same block, and be the slot's only read there (two
+            // reads would need the value evaluated twice). That makes store and
+            // use co-execute and bounds the effect-order proof to one statement.
             int storeIndex = store.ChildIndex;
             if (storeIndex + 1 >= block.Children.Count)
                 continue;
             var useStatement = block.Children[storeIndex + 1];
-            if (!ReferenceOwnership.IsInside(addressUse, useStatement))
+
+            IrNode? addressUse = null;
+            bool ambiguous = false;
+            foreach (var read in slotReads)
+            {
+                if (!ReferenceOwnership.IsInside(read, useStatement))
+                    continue;
+                if (addressUse is not null)
+                {
+                    ambiguous = true;
+                    break;
+                }
+                addressUse = read;
+            }
+            if (ambiguous || addressUse is not LoadLocalAddress)
+                continue;
+            if (!IsMemberReceiver(addressUse))
                 continue;
             if (!EvaluatesFirstWithoutBarrier(addressUse, useStatement))
                 continue;
@@ -193,6 +152,50 @@ public sealed class StructReceiverInliningPass : IIrPass
     }
 
     /// <summary>
+    /// True when every read of <paramref name="index"/> is a member-receiver
+    /// address load whose enclosing statement is immediately preceded, in the same
+    /// block, by a <see cref="StoreLocal"/> to the same slot. Under that property
+    /// each read's unique reaching definition is the adjacent store (a block is a
+    /// basic block, so the store one statement above always executes first), the
+    /// slot is never live across a block boundary, and every store's value is read
+    /// only by the use(s) directly below it. A reused slot stays foldable because
+    /// each store/use pair is checked independently. A single stray read — a value
+    /// load, a byref argument, a loop-header read, a post-<c>if</c> read — fails
+    /// the check and declines the whole slot, since document order cannot prove
+    /// such a read is not reached by the store being removed.
+    /// </summary>
+    static bool IsSlotFoldSafe(int index, List<IrNode> slotReads)
+    {
+        foreach (var read in slotReads)
+        {
+            if (read is not LoadLocalAddress || !IsMemberReceiver(read))
+                return false;
+            if (!FollowsStoreToSlot(read, index))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// True when the block-level statement enclosing <paramref name="read"/> is
+    /// immediately preceded in its block by a <see cref="StoreLocal"/> to
+    /// <paramref name="index"/>. The enclosing statement is the ancestor whose
+    /// parent is a <see cref="Block"/>.
+    /// </summary>
+    static bool FollowsStoreToSlot(IrNode read, int index)
+    {
+        var statement = read;
+        while (statement.Parent is { } parent and not Block)
+            statement = parent;
+        if (statement.Parent is not Block block)
+            return false;
+        int position = statement.ChildIndex;
+        return position > 0
+            && block.Children[position - 1] is StoreLocal store
+            && store.Index == index;
+    }
+
+    /// <summary>
     /// A value the fold may move into a receiver position: a fresh rvalue whose
     /// evaluation reproduces the compiler's own spill on recompile. A method call
     /// or property getter returning a value (never a managed reference) qualifies;
@@ -206,34 +209,6 @@ public sealed class StructReceiverInliningPass : IIrPass
         LoadProperty property => property.ResultType is not { Kind: TypeRefKind.ByRef },
         _ => false,
     };
-
-    /// <summary>
-    /// True when a read of the local precedes the store in document order yet sits
-    /// inside a loop that also contains the store (a back-edge span covering the
-    /// store position). Such a read is re-reached after the store on a later
-    /// iteration, so it observes this store's value; removing the store would make
-    /// it read a stale value. The forward single-reader window never sees this
-    /// read (it is at a lower document position), which is why it is checked
-    /// separately.
-    /// </summary>
-    static bool HasLoopCarriedReader(
-        int index,
-        int storePosition,
-        List<(int Pos, IrNode Node, bool IsAddress)> localReads,
-        List<(int Start, int End)> backEdgeSpans)
-    {
-        foreach (var (start, end) in backEdgeSpans)
-        {
-            if (start > storePosition || storePosition > end)
-                continue;
-            foreach (var read in localReads)
-            {
-                if (read.Pos >= start && read.Pos < storePosition)
-                    return true;
-            }
-        }
-        return false;
-    }
 
     /// <summary>
     /// True when <paramref name="address"/> is the receiver of a member read: the
