@@ -204,7 +204,8 @@ public class EnumCastPrinterTests
     {
         string body = RenderFixture(nameof(EnumCastSamples.IntEnumShiftOrUnsigned));
 
-        Assert.Contains("(uint)((int)e << 24) | x", body);
+        Assert.Contains("(uint)e << 24 | x", body);
+        Assert.DoesNotContain("(int)e << 24", body);
         Assert.DoesNotContain("(CfgPriority)x", body);
         AssertCompiles("public static uint M(CfgPriority e, uint x)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
     }
@@ -228,7 +229,8 @@ public class EnumCastPrinterTests
     {
         string body = RenderFixture(nameof(EnumCastSamples.LongEnumShiftOrUnsigned));
 
-        Assert.Contains("(ulong)((long)e << 8) | x", body);
+        Assert.Contains("(ulong)e << 8 | x", body);
+        Assert.DoesNotContain("(long)e << 8", body);
         AssertCompiles("public static ulong M(CfgLongPriority e, ulong x)", body, "public enum CfgLongPriority : long { Low, Medium = 1, High = 2, Critical = 3 }");
     }
 
@@ -237,9 +239,23 @@ public class EnumCastPrinterTests
     {
         string body = RenderFixture(nameof(EnumCastSamples.IntEnumShiftAndUnsigned));
 
-        Assert.Contains("(uint)((int)e << 4) & x", body);
+        Assert.Contains("(uint)e << 4 & x", body);
+        Assert.DoesNotContain("(int)e << 4", body);
         Assert.DoesNotContain("(CfgPriority)x", body);
         AssertCompiles("public static uint M(CfgPriority e, uint x)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // #3076 is a LEFT-shift-only collapse: a signed arithmetic right shift keeps its
+    // `(ulong)((long)e >> n)` double cast, because `(ulong)e >> n` is a logical shift
+    // and would change the value.
+    [Fact]
+    public void EnumRightShiftInBitwiseOr_KeepsDoubleCast()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.LongEnumShiftRightOrUnsigned));
+
+        Assert.Contains("(ulong)((long)e >> n)", body);
+        Assert.DoesNotContain("(ulong)e >> n", body);
+        AssertCompiles("public static ulong M(CfgLongPriority e, int n, ulong x)", body, "public enum CfgLongPriority : long { Low, Medium = 1, High = 2, Critical = 3 }");
     }
 
     // A bitwise CHAIN over an enum shift: the inner `|` inherits the shift's stale
@@ -251,7 +267,8 @@ public class EnumCastPrinterTests
     {
         string body = RenderFixture(nameof(EnumCastSamples.ChainIntEnumShiftOrUnsigned));
 
-        Assert.Contains("(uint)((int)e << 24) | x | y", body);
+        Assert.Contains("(uint)e << 24 | x | y", body);
+        Assert.DoesNotContain("(int)e << 24", body);
         Assert.DoesNotContain("(CfgPriority)y", body);
         AssertCompiles("public static uint M(CfgPriority e, uint x, uint y)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
     }
@@ -261,7 +278,8 @@ public class EnumCastPrinterTests
     {
         string body = RenderFixture(nameof(EnumCastSamples.ChainLongEnumShiftOrUnsigned));
 
-        Assert.Contains("(ulong)((long)e << 8) | x | y", body);
+        Assert.Contains("(ulong)e << 8 | x | y", body);
+        Assert.DoesNotContain("(long)e << 8", body);
         Assert.DoesNotContain("(CfgLongPriority)y", body);
         AssertCompiles("public static ulong M(CfgLongPriority e, ulong x, ulong y)", body, "public enum CfgLongPriority : long { Low, Medium = 1, High = 2, Critical = 3 }");
     }

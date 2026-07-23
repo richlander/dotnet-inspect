@@ -1094,6 +1094,18 @@ public sealed partial class CSharpPrinter
         var unsigned = TypeFamilies.UnsignedCounterpart(BitwiseOperandRenderedType(operand));
         if (unsigned is null)
             return Operand(operand);
+        // An enum LEFT shift renders its underlying cast with the shift opcode's
+        // signedness — `(int)e << n` — which this reconciliation would then wrap as
+        // `(uint)((int)e << n)`. A left shift is bit-identical regardless of the
+        // operand's signedness, so spell the enum cast directly as the unsigned
+        // target and drop the redundant outer cast — `(uint)e << n` (#3076). This
+        // is a left-shift-only collapse: a signed right shift is arithmetic, so
+        // `(uint)e >> n` (logical) would change the value and must keep the wrap.
+        if (operand is Binary { Kind: BinaryKind.ShiftLeft } leftShift
+            && ShiftEnumLeftOperand(leftShift.Left, isUnsigned: true) is { } unsignedShiftedEnum)
+        {
+            return $"{unsignedShiftedEnum} {BinaryOperator(leftShift)} {ShiftCount(leftShift)}";
+        }
         bool constantOutOfRange = wrapConstantCast && TryGetIntegerConstant(operand, out long value) && !CSharpConversionRules.ConstantFits(value, unsigned);
         return CheckedSafeCast(() => $"({TypeText(unsigned)}){Operand(operand)}", force: constantOutOfRange);
     }
