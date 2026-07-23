@@ -404,6 +404,164 @@ public class RangeFromGetSubArrayPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void StringSubstring_TwoBounds_AssignmentPosition_RaisesToRangeIndexer()
+    {
+        var function = Raised(nameof(RangeAdversarialSamples.AssignedTwoBoundString), typeof(RangeAdversarialSamples));
+
+        var slice = Assert.Single(function.Descendants.OfType<SliceExpression>());
+        Assert.True(slice.Range.HasStart);
+        Assert.True(slice.Range.HasEnd);
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("s[i..j]", output);
+        Assert.DoesNotContain("Substring", output);
+    }
+
+    [Fact]
+    public void StringSubstring_TwoBounds_ReceiverOfMember_RaisesToRangeIndexer()
+    {
+        var function = Raised(nameof(RangeAdversarialSamples.MemberOfTwoBoundString), typeof(RangeAdversarialSamples));
+
+        Assert.Single(function.Descendants.OfType<SliceExpression>());
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("s[i..j].Length", output);
+        Assert.DoesNotContain("Substring", output);
+    }
+
+    [Fact]
+    public void SpanSlice_TwoBounds_ReceiverOfMember_RaisesToRangeIndexer()
+    {
+        var function = Raised(nameof(RangeAdversarialSamples.MemberOfTwoBoundSpan), typeof(RangeAdversarialSamples));
+
+        var slice = Assert.Single(function.Descendants.OfType<SliceExpression>());
+        Assert.True(slice.Range.HasStart);
+        Assert.True(slice.Range.HasEnd);
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("s[i..j]", output);
+        Assert.DoesNotContain(".Slice", output);
+    }
+
+    [Fact]
+    public void StringSubstring_TwoBounds_ArgumentPosition_RaisesToRangeIndexer()
+    {
+        var function = Raised(nameof(RangeAdversarialSamples.ArgumentTwoBoundString), typeof(RangeAdversarialSamples));
+
+        var slice = Assert.Single(function.Descendants.OfType<SliceExpression>());
+        Assert.True(slice.Range.HasStart);
+        Assert.True(slice.Range.HasEnd);
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("s[i..j]", output);
+        Assert.DoesNotContain("Substring", output);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public void GeneralPositionTwoBoundFixtures_RecompileExactly()
+    {
+        var methods = new[]
+        {
+            nameof(RangeAdversarialSamples.AssignedTwoBoundString),
+            nameof(RangeAdversarialSamples.MemberOfTwoBoundString),
+            nameof(RangeAdversarialSamples.MemberOfTwoBoundSpan),
+            nameof(RangeAdversarialSamples.ArgumentTwoBoundString),
+        };
+
+        var results = FidelityCheck.Evaluate(typeof(RangeAdversarialSamples).Assembly.Location)
+            .Where(r => r.Type == typeof(RangeAdversarialSamples).FullName && methods.Contains(r.Method))
+            .ToList();
+
+        Assert.Equal(methods.Length, results.Count);
+        foreach (var result in results)
+            Assert.Equal(FidelityCheck.CompileBackStatus.Exact, result.Status);
+    }
+
+    [Fact]
+    public void GeneralPosition_ReusedStartTemp_IsNotRaised()
+    {
+        var function = BuildAssignedTwoBoundWithReusedStartTemp();
+
+        new RangeFromGetSubArrayPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<SliceExpression>());
+        Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee.Name == "Substring");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void GeneralPosition_EffectfulExpressionBeforeCall_IsNotRaised()
+    {
+        var function = BuildAssignedTwoBoundWithEffectfulPrefix();
+
+        new RangeFromGetSubArrayPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<SliceExpression>());
+        Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee.Name == "Substring");
+        function.CheckInvariant();
+    }
+
+    // V_0 = start; token = s.Substring(V_0, j - V_0); sink = V_0 — the extra read
+    // of the hidden start temp defeats the single-use proof, so detaching the
+    // store would drop a live definition. The pass must decline.
+    static IrFunction BuildAssignedTwoBoundWithReusedStartTemp()
+    {
+        var substring = new MethodRef(s_string, "Substring", s_string, [s_int, s_int], HasThis: true);
+        var block = new Block();
+        block.Add(new StoreLocal(0, s_int, new LoadArgument(1, "i", s_int)));
+        block.Add(new StoreLocal(1, s_string, new Call(
+            substring,
+            isVirtual: true,
+            [
+                new LoadArgument(0, "s", s_string),
+                new LoadLocal(0, s_int),
+                new Binary(BinaryKind.Subtract, isChecked: false, isUnsigned: false, new LoadArgument(2, "j", s_int), new LoadLocal(0, s_int)),
+            ])));
+        block.Add(new StoreLocal(2, s_int, new LoadLocal(0, s_int)));
+        block.Add(new Return(new LoadLocal(1, s_string)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(
+            s_string,
+            [new Parameter("s", s_string), new Parameter("i", s_int), new Parameter("j", s_int)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [s_int, s_string, s_int], body);
+    }
+
+    // V_0 = start; token = Concat(Effect(), s.Substring(V_0, j - V_0)) — an
+    // un-spilled effectful call is evaluated before the slice, so re-spilling the
+    // start at the slice site would move its evaluation past that effect. Decline.
+    static IrFunction BuildAssignedTwoBoundWithEffectfulPrefix()
+    {
+        var substring = new MethodRef(s_string, "Substring", s_string, [s_int, s_int], HasThis: true);
+        var concat = new MethodRef(s_string, "Concat", s_string, [s_string, s_string], HasThis: false);
+        var effect = new MethodRef(TypeRef.Definition("Synthetic", "", "T"), "Effect", s_string, [], HasThis: false);
+        var block = new Block();
+        block.Add(new StoreLocal(0, s_int, new LoadArgument(1, "i", s_int)));
+        block.Add(new StoreLocal(1, s_string, new Call(
+            concat,
+            isVirtual: false,
+            [
+                new Call(effect, isVirtual: false, []),
+                new Call(
+                    substring,
+                    isVirtual: true,
+                    [
+                        new LoadArgument(0, "s", s_string),
+                        new LoadLocal(0, s_int),
+                        new Binary(BinaryKind.Subtract, isChecked: false, isUnsigned: false, new LoadArgument(2, "j", s_int), new LoadLocal(0, s_int)),
+                    ]),
+            ])));
+        block.Add(new Return(new LoadLocal(1, s_string)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(
+            s_string,
+            [new Parameter("s", s_string), new Parameter("i", s_int), new Parameter("j", s_int)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [s_int, s_string], body);
+    }
+
     static IrFunction BuildGetSubArrayLookalike()
     {
         var indexImplicit = new MethodRef(s_index, "op_Implicit", s_index, [s_int], HasThis: false);
@@ -514,4 +672,23 @@ public static class RangeAdversarialSamples
     public static string StringRangeFromEnd(string s, int i) => s[^i..];
 
     public static System.ReadOnlySpan<int> SpanRangeFromEnd(System.ReadOnlySpan<int> s, int i) => s[^i..];
+
+    // General-position two-bound recovery: the slice is not the return value but
+    // is assigned to a (multi-use, so un-inlined) local, exactly the witness
+    // idiom from EscapeReservedKeywordIdentifiers.
+    public static string AssignedTwoBoundString(string s, int i, int j)
+    {
+        string token = s[i..j];
+        return token + token;
+    }
+
+    // General-position two-bound recovery where the slice is the receiver of a
+    // further member access (`.Length`), so the consumed call is nested inside
+    // the return value rather than being the return value itself.
+    public static int MemberOfTwoBoundString(string s, int i, int j) => s[i..j].Length;
+
+    public static int MemberOfTwoBoundSpan(System.ReadOnlySpan<int> s, int i, int j) => s[i..j].Length;
+
+    // General-position two-bound recovery where the slice is a call argument.
+    public static string ArgumentTwoBoundString(string s, int i, int j) => string.Concat(s[i..j], "x");
 }

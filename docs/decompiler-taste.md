@@ -35,6 +35,7 @@ Every proposed rendering falls into one of three classes, and the class decides 
 - `is null` / `is not null` for null tests that compile to a reference `ceq`/branch. (`== null` could mean an `op_Equality` call; render `==` exactly when the IL calls the operator.)
 - Is-pattern matching (`if (x is Foo f)`) for the `isinst` + branch + cast shape.
 - Switch expressions for switch-plus-returns shapes.
+- Range indexer (`s[i..j]`) for the compiler's spilled `Substring`/`Slice(start, end - start)` range lowering — but only where csc's hidden start-index spill anchors the range shape. One-sided `Substring(start)` and `Substring(0, end)` carry no spill and stay as calls, because they are indistinguishable from hand-written slicing (a class-2 fidelity concern). The spill-anchored two-bound form is recovered wherever the slice is consumed — return, local assignment, or call argument.
 - Compound assignment and increment (`_size++`), `continue`/`break` for loop-edge branches.
 
 **2. Fidelity-erasing forms — decline, always.** A preferred form is never adopted when it would erase a distinction the IL actually makes:

@@ -18,7 +18,10 @@ namespace ILInspector.Decompiler.Pipeline;
 ///
 /// <para>The string/span <c>Substring</c> / <c>Slice</c> forms share their
 /// methods with ordinary source calls, so those are raised only when csc's hidden
-/// start/receiver spills prove the range lowering.</para>
+/// start/receiver spills prove the range lowering. The two-bound from-start form
+/// (<c>V = start; …Substring(V, end - V)…</c>) is recovered in any statement
+/// position — return, local assignment, or call argument — provided the spilled
+/// start temp is single-use and nothing effectful is evaluated before the call.</para>
 /// </summary>
 public sealed class RangeFromGetSubArrayPass : IIrPass
 {
@@ -73,34 +76,128 @@ public sealed class RangeFromGetSubArrayPass : IIrPass
         return false;
     }
 
-    static bool TryRaiseFromStartRange(IrFunction function, Block block, int returnIndex, Stepper stepper)
+    static bool TryRaiseFromStartRange(IrFunction function, Block block, int index, Stepper stepper)
     {
-        if (block.Children[returnIndex - 1] is not StoreLocal startStore
+        // The compiler spills the range start into a hidden int temp, whose store
+        // sits immediately before the statement that consumes the slice. The
+        // consumer is not restricted to a `return`: the witness idiom assigns the
+        // slice to a named local (`token = text.Substring(V, i - V)`), and it can
+        // equally appear as a call argument, so any statement position qualifies
+        // as long as the spill temp is single-use (below) and the store stays the
+        // consumer's immediate predecessor in this basic block.
+        if (block.Children[index - 1] is not StoreLocal startStore
             || HasSourceLocalName(function, startStore.Index)
             || !startStore.Type.Equals(TypeRef.CoreLib("System", "Int32"))
-            || block.Children[returnIndex] is not Return { Value: Call call }
-            || !IsStringOrSpanRangeCall(call)
-            || call.Callee.ParameterTypes.Length != 2
-            || call.Arguments is not [var receiver, LoadLocal start, Binary { Kind: BinaryKind.Subtract } length]
-            || start.Index != startStore.Index
-            || length.Right is not LoadLocal lengthStart
-            || lengthStart.Index != startStore.Index)
+            || !IsSingleUseStartSpill(function, startStore.Index))
         {
             return false;
         }
 
-        receiver.Detach();
-        var rangeStart = (IrExpression)startStore.DetachChildren()[0];
-        var rangeEnd = length.Left;
-        rangeEnd.Detach();
-        var slice = new SliceExpression(receiver, new RangeExpression(rangeStart, rangeEnd), call.ResultType);
-        slice.InheritSourceOffset(call);
+        var consumer = block.Children[index];
+        foreach (var call in consumer.Descendants.OfType<Call>())
+        {
+            if (!IsStringOrSpanRangeCall(call)
+                || call.Callee.ParameterTypes.Length != 2
+                || call.Arguments is not [var receiver, LoadLocal start, Binary { Kind: BinaryKind.Subtract } length]
+                || start.Index != startStore.Index
+                || length.Right is not LoadLocal lengthStart
+                || lengthStart.Index != startStore.Index)
+            {
+                continue;
+            }
 
-        stepper.StepOver("raise compiler-spilled string/span Slice range to a[..] indexer", call);
-        call.ReplaceWith(slice);
-        startStore.Detach();
+            // Everything the consuming statement evaluates before the call must be
+            // side-effect free. The spill store currently runs first, so raising
+            // the slice (which re-spills the start at the call site on recompile)
+            // would otherwise move the start's evaluation past an observable effect.
+            if (!NothingEffectfulBefore(consumer, call))
+                return false;
+
+            receiver.Detach();
+            var rangeStart = (IrExpression)startStore.DetachChildren()[0];
+            var rangeEnd = length.Left;
+            rangeEnd.Detach();
+            var slice = new SliceExpression(receiver, new RangeExpression(rangeStart, rangeEnd), call.ResultType);
+            slice.InheritSourceOffset(call);
+
+            stepper.StepOver("raise compiler-spilled string/span Slice range to a[..] indexer", call);
+            call.ReplaceWith(slice);
+            startStore.Detach();
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Whether the hidden start-index temp is referenced only by the range
+    /// lowering: exactly one store (the spill), exactly two reads (the range
+    /// start and the <c>end - start</c> length), and no address-of. A
+    /// basic-block-adjacent store is a read's unique reaching definition, but a
+    /// reused or aliased slot would leave live references behind after the store
+    /// is detached, so those are declined.
+    /// </summary>
+    static bool IsSingleUseStartSpill(IrFunction function, int index)
+    {
+        int loads = 0;
+        int stores = 0;
+        foreach (var node in function.Descendants)
+        {
+            switch (node)
+            {
+                case LoadLocal load when load.Index == index:
+                    loads++;
+                    break;
+                case StoreLocal store when store.Index == index:
+                    stores++;
+                    break;
+                case LoadLocalAddress address when address.Index == index:
+                    return false;
+            }
+        }
+
+        return stores == 1 && loads == 2;
+    }
+
+    /// <summary>
+    /// Whether every expression the consuming statement evaluates before
+    /// <paramref name="call"/> is side-effect free, walking the parent chain from
+    /// the call up to (but excluding) the consumer statement and checking each
+    /// earlier sibling.
+    /// </summary>
+    static bool NothingEffectfulBefore(IrNode consumer, IrNode call)
+    {
+        for (IrNode node = call; node != consumer; node = node.Parent!)
+        {
+            if (node.Parent is not { } parent)
+                return false;
+            for (int i = 0; i < node.ChildIndex; i++)
+            {
+                if (parent.Children[i] is not IrExpression sibling || !IsSideEffectFree(sibling))
+                    return false;
+            }
+        }
+
         return true;
     }
+
+    /// <summary>
+    /// Allow-list of non-observable expressions, mirroring the same-named helpers
+    /// in <see cref="StackAllocSpanPass"/> and its peers: anything outside the
+    /// proven-safe set is treated as possibly effectful.
+    /// </summary>
+    static bool IsSideEffectFree(IrExpression expression) => expression switch
+    {
+        Constant or LoadLocal or LoadArgument or LoadStackSlot
+            or LoadLocalAddress or LoadArgumentAddress or SizeOf => true,
+        Unary unary => IsSideEffectFree(unary.Operand),
+        Binary { Kind: BinaryKind.Divide or BinaryKind.Remainder } => false,
+        Binary { IsChecked: true } => false,
+        Binary binary => IsSideEffectFree(binary.Left) && IsSideEffectFree(binary.Right),
+        Convert { IsChecked: true } => false,
+        Convert convert => IsSideEffectFree(convert.Operand),
+        _ => false,
+    };
 
     static bool TryRaiseFromEndOpenRange(IrFunction function, Block block, int returnIndex, Stepper stepper)
     {
