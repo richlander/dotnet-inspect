@@ -305,6 +305,34 @@ public static class ApiSurfaceExtractor
 
             // Fields (non-backing fields; non-public included with --all)
             bool isEnum = apiType.Kind == "enum";
+
+            // A C# field-like event's compiler-generated backing field is private, is itself
+            // marked [CompilerGenerated], and shares the event's exact (unmangled) name. Fold a
+            // field only when it carries all of that positive backing-field evidence AND matches
+            // an event whose adder is [CompilerGenerated] (i.e. a genuinely field-like event).
+            // The decisive signal is the candidate field's own [CompilerGenerated] marker, not the
+            // accessor's: hand-authored or non-C# metadata may attach [CompilerGenerated] to a
+            // custom accessor while a legitimate, same-named field backs nothing of the sort (the
+            // C# CS0102 restriction does not bind arbitrary IL). Requiring the field itself to be
+            // private and compiler-generated keeps a genuine field from being suppressed.
+            HashSet<string>? fieldLikeEventBackingFieldNames = null;
+            foreach (var eventHandle in typeDef.GetEvents())
+            {
+                var eventDef = reader.GetEventDefinition(eventHandle);
+                var adder = eventDef.GetAccessors().Adder;
+                if (adder.IsNil
+                    || !AttributeReader.HasAttribute(
+                        reader,
+                        reader.GetMethodDefinition(adder).GetCustomAttributes(),
+                        KnownAttributeNames.CompilerGeneratedAttribute))
+                {
+                    continue;
+                }
+
+                (fieldLikeEventBackingFieldNames ??= new HashSet<string>(StringComparer.Ordinal))
+                    .Add(reader.GetString(eventDef.Name));
+            }
+
             foreach (var fieldHandle in typeDef.GetFields())
             {
                 var field = reader.GetFieldDefinition(fieldHandle);
@@ -315,6 +343,14 @@ public static class ApiSurfaceExtractor
                 string fieldName = reader.GetString(field.Name);
                 if (fieldName.StartsWith("<"))
                     continue; // Skip backing fields
+
+                if (fieldAccess == FieldAttributes.Private
+                    && fieldLikeEventBackingFieldNames?.Contains(fieldName) == true
+                    && AttributeReader.HasAttribute(
+                        reader,
+                        field.GetCustomAttributes(),
+                        KnownAttributeNames.CompilerGeneratedAttribute))
+                    continue; // Skip a field-like event's private, compiler-generated backing field
 
                 // Skip EditorBrowsable(Never) fields unless --all; obsolete are surfaced with marker.
                 if (!includeAll && AttributeReader.HasEditorBrowsableNeverAttribute(reader, field.GetCustomAttributes()))
