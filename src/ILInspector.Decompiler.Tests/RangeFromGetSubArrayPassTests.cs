@@ -499,6 +499,18 @@ public class RangeFromGetSubArrayPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void GeneralPosition_EffectfulReceiver_IsNotRaised()
+    {
+        var function = BuildAssignedTwoBoundWithEffectfulReceiver();
+
+        new RangeFromGetSubArrayPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<SliceExpression>());
+        Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee.Name == "Substring");
+        function.CheckInvariant();
+    }
+
     // V_0 = start; token = s.Substring(V_0, j - V_0); sink = V_0 — the extra read
     // of the hidden start temp defeats the single-use proof, so detaching the
     // store would drop a live definition. The pass must decline.
@@ -550,6 +562,35 @@ public class RangeFromGetSubArrayPassTests
                         new LoadLocal(0, s_int),
                         new Binary(BinaryKind.Subtract, isChecked: false, isUnsigned: false, new LoadArgument(2, "j", s_int), new LoadLocal(0, s_int)),
                     ]),
+            ])));
+        block.Add(new Return(new LoadLocal(1, s_string)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(
+            s_string,
+            [new Parameter("s", s_string), new Parameter("i", s_int), new Parameter("j", s_int)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [s_int, s_string], body);
+    }
+
+    // V_0 = start; token = Effect().Substring(V_0, j - V_0) — the receiver is a
+    // directly effectful call rather than a pre-spilled load. csc always spills an
+    // effectful receiver before the start, so this shape is not a range lowering;
+    // raising it would reorder the receiver's effect after the start. Decline.
+    static IrFunction BuildAssignedTwoBoundWithEffectfulReceiver()
+    {
+        var substring = new MethodRef(s_string, "Substring", s_string, [s_int, s_int], HasThis: true);
+        var effect = new MethodRef(TypeRef.Definition("Synthetic", "", "T"), "Effect", s_string, [], HasThis: false);
+        var block = new Block();
+        block.Add(new StoreLocal(0, s_int, new LoadArgument(1, "i", s_int)));
+        block.Add(new StoreLocal(1, s_string, new Call(
+            substring,
+            isVirtual: true,
+            [
+                new Call(effect, isVirtual: false, []),
+                new LoadLocal(0, s_int),
+                new Binary(BinaryKind.Subtract, isChecked: false, isUnsigned: false, new LoadArgument(2, "j", s_int), new LoadLocal(0, s_int)),
             ])));
         block.Add(new Return(new LoadLocal(1, s_string)));
         var body = new BlockContainer();

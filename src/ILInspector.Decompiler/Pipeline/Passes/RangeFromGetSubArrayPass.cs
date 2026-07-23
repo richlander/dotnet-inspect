@@ -21,7 +21,8 @@ namespace ILInspector.Decompiler.Pipeline;
 /// start/receiver spills prove the range lowering. The two-bound from-start form
 /// (<c>V = start; …Substring(V, end - V)…</c>) is recovered in any statement
 /// position — return, local assignment, or call argument — provided the spilled
-/// start temp is single-use and nothing effectful is evaluated before the call.</para>
+/// start temp is single-use, the receiver is side-effect free, and nothing
+/// effectful is evaluated before the call.</para>
 /// </summary>
 public sealed class RangeFromGetSubArrayPass : IIrPass
 {
@@ -101,15 +102,25 @@ public sealed class RangeFromGetSubArrayPass : IIrPass
                 || call.Arguments is not [var receiver, LoadLocal start, Binary { Kind: BinaryKind.Subtract } length]
                 || start.Index != startStore.Index
                 || length.Right is not LoadLocal lengthStart
-                || lengthStart.Index != startStore.Index)
+                || lengthStart.Index != startStore.Index
+                || !IsSideEffectFree(receiver))
             {
                 continue;
             }
 
-            // Everything the consuming statement evaluates before the call must be
-            // side-effect free. The spill store currently runs first, so raising
-            // the slice (which re-spills the start at the call site on recompile)
-            // would otherwise move the start's evaluation past an observable effect.
+            // The receiver must be side-effect free. csc's range lowering always
+            // evaluates the receiver before spilling the start, so in a genuine
+            // `receiver[start..end]` lowering the receiver here is a pre-spilled
+            // load; a directly effectful receiver (e.g. `Effect().Substring(V, end
+            // - V)`) is therefore not a range lowering, and raising it would reorder
+            // the receiver's effect after the start (which the range indexer
+            // evaluates first). Declining keeps such a call as `Substring`/`Slice`.
+            //
+            // Everything else the consuming statement evaluates before the call must
+            // also be side-effect free. The spill store currently runs first, so
+            // raising the slice (which re-spills the start at the call site on
+            // recompile) would otherwise move the start's evaluation past an
+            // observable effect.
             if (!NothingEffectfulBefore(consumer, call))
                 return false;
 

@@ -137,9 +137,13 @@ and declines otherwise:
 - **Any consuming statement position.** The slice need not be the return value:
   return, local assignment (the `EscapeReservedKeywordIdentifiers` witness
   `token = text[start..i]`), and call-argument positions all qualify, provided
-  everything the statement evaluates before the call is side-effect free (the
-  start re-spills at the slice site on recompile, so it must not move past an
-  observable effect).
+  the receiver and everything the statement evaluates before the call are
+  side-effect free (the start re-spills at the slice site on recompile, so it
+  must not move past an observable effect). The receiver guard also excludes a
+  directly effectful receiver such as `Effect().Substring(V, end - V)`: the
+  compiler always spills an effectful receiver ahead of the start, so that shape
+  is a hand-written call, not a range lowering, and raising it would reorder the
+  receiver past the start.
 - **Declines one-sided forms.** `Substring(start)` (`s[start..]`) and
   `Substring(0, end)` (`s[..end]`) carry no start spill, so they are
   indistinguishable from hand-written slicing and stay as calls — a class-2
