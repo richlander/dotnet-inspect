@@ -330,6 +330,92 @@ public class EnumCastPrinterTests
         AssertCompiles("public static void M(CfgPriority[] arr, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
     }
 
+    // #3087 defect 1: a bitwise op whose sibling is itself an ENUM value. The shift
+    // renders as its underlying integer, so the enum sibling must be coerced DOWN to
+    // that integer — `(int)e << n | (int)other`, never `(int)e << n | other` (int |
+    // E, CS0019). The outer `(CfgPriority)` cast the chain flows into is kept too.
+    [Fact]
+    public void EnumShiftInBitwiseOr_EnumSibling_CoercesSiblingToInteger()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumShiftOrEnumSibling));
+
+        Assert.Contains("(CfgPriority)(((int)e << n) | (int)other)", body);
+        Assert.DoesNotContain("<< n) | other", body);
+        AssertCompiles("public static CfgPriority M(CfgPriority e, int n, CfgPriority other)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // #3087 defect 2: an enum shift COMPARED to an enum-constant sibling. The shift
+    // renders as int, so the sibling is coerced DOWN — `(int)e << n == (int)E.High`,
+    // never `int == E` (CS0019). The shift's stale enum ResultType must not coerce
+    // the sibling up to the enum.
+    [Fact]
+    public void EnumShiftComparedToEnumConstant_CoercesSiblingToInteger()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumShiftCompareEnumConst));
+
+        Assert.Contains("((int)e << n) == (int)CfgPriority.High", body);
+        Assert.DoesNotContain("== CfgPriority.High", body);
+        AssertCompiles("public static bool M(CfgPriority e, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // #3087 defect 3: an enum shift as a ternary arm flowing into an ENUM target (a
+    // method argument, which stays a genuine conditional). The arm's stale enum
+    // ResultType matches the target, so the `(CfgPriority)` cast is dropped and the
+    // arm renders `(int)e << n` (int) against the enum arm — CS1503. The cast is
+    // kept: `b ? (CfgPriority)((int)e << n) : CfgPriority.High`.
+    [Fact]
+    public void EnumShiftAsConditionalArmToEnum_KeepsEnumCast()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumShiftTernaryToEnum));
+
+        Assert.Contains("b ? (CfgPriority)((int)e << n) : CfgPriority.High", body);
+        Assert.DoesNotContain("b ? ((int)e << n) :", body);
+        AssertCompiles(
+            "public static void M(bool b, CfgPriority e, int n)",
+            "static void TakeCfgPriority(CfgPriority value) { }\n" + body,
+            "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // #3087 mixed-sign edge: an UNSIGNED enum shift (`shr.un`) renders as uint, so
+    // its enum sibling is coerced to that width and sign — `(uint)other`, never
+    // `(int)other` (a mixed-sign bitwise op, CS0019).
+    [Fact]
+    public void EnumUnsignedShiftInBitwiseOr_EnumSibling_CoercesSiblingToUnsigned()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumShiftUnsignedOrEnumSibling));
+
+        Assert.Contains("((uint)e >> n) | (uint)other", body);
+        Assert.DoesNotContain(">> n) | other", body);
+        Assert.DoesNotContain("(int)other", body);
+        AssertCompiles("public static uint M(CfgPriority e, int n, CfgPriority other)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // #3087 defect 2 edge: the enum sibling of a comparison is a RUNTIME value (not a
+    // constant) — still coerced down to the shift's rendered integer.
+    [Fact]
+    public void EnumShiftComparedToEnumValue_CoercesSiblingToInteger()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumShiftCompareEnumValue));
+
+        Assert.Contains("((int)e << n) == (int)other", body);
+        Assert.DoesNotContain("== other", body);
+        AssertCompiles("public static bool M(CfgPriority e, int n, CfgPriority other)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // #3087 defect 1 edge: an enum FAR sibling in a bitwise CHAIN over a shift — the
+    // down-coercion recurses through the chain so the trailing enum renders as its
+    // underlying integer (`(int)e << 4 | y | (int)other`).
+    [Fact]
+    public void EnumShiftChainWithEnumFarSibling_CoercesSiblingToInteger()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumShiftChainEnumSibling));
+
+        Assert.Contains("(int)e << 4 | y", body);
+        Assert.Contains("| (int)other", body);
+        Assert.DoesNotContain("y | other", body);
+        AssertCompiles("public static int M(CfgPriority e, int y, CfgPriority other)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
     // A sub-int (byte) backing promotes to int in a C# shift; the reinterpret
     // targets the 4-byte width the shift runs on. Synthetic to keep the enum load
     // a bare operand (a compiled `(byte)` narrowing could add a conv node).

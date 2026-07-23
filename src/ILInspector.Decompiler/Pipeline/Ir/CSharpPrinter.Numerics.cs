@@ -487,13 +487,18 @@ public sealed partial class CSharpPrinter
     /// shift renders as. IL bitwise ops require operands of the same stack width, so
     /// both rendered operand types share a width; the result is unsigned when either
     /// side is unsigned (a same-width mixed-sign pair reinterprets the signed side).
-    /// Null when either side is not a wide integer render (no enum-shift descendant),
-    /// leaving the caller on its <see cref="EffectiveType"/> path.
+    /// A bare enum operand is down-coerced to its underlying integer by
+    /// <see cref="BinaryBody"/> (<c>(int)e &lt;&lt; n | (int)other</c>), so it
+    /// contributes that underlying integer here — keeping the OUTER enum cast the
+    /// chain flows into (<c>(E)((int)e &lt;&lt; n | (int)other)</c>) in agreement
+    /// with the rendered operands. Null when either side is not a wide integer
+    /// render (no enum-shift descendant), leaving the caller on its
+    /// <see cref="EffectiveType"/> path.
     /// </summary>
     TypeRef? BitwiseChainRenderedType(IrExpression left, IrExpression right)
     {
-        var leftType = BitwiseOperandRenderedType(left);
-        var rightType = BitwiseOperandRenderedType(right);
+        var leftType = ChainOperandRenderedInteger(left);
+        var rightType = ChainOperandRenderedInteger(right);
         if (!IsWideInteger(leftType) || !IsWideInteger(rightType))
         {
             return null;
@@ -504,6 +509,20 @@ public sealed partial class CSharpPrinter
         return TypeRef.CoreLib("System", unsigned
             ? (wide ? "UInt64" : "UInt32")
             : (wide ? "Int64" : "Int32"));
+    }
+
+    /// <summary>
+    /// A bitwise-chain operand's rendered integer type, mapping a bare enum to its
+    /// underlying integer: inside a shift-containing chain the enum sibling is
+    /// down-coerced to that integer (<see cref="BinaryBody"/>), so the chain's
+    /// reconciled type must see it as the integer, not the stale enum.
+    /// </summary>
+    TypeRef? ChainOperandRenderedInteger(IrExpression operand)
+    {
+        var rendered = BitwiseOperandRenderedType(operand);
+        return rendered is { } type && EnumUnderlyingType(type) is { } underlying
+            ? underlying
+            : rendered;
     }
 
     /// <summary>
@@ -577,11 +596,45 @@ public sealed partial class CSharpPrinter
             return null;
         if (TypeFamilies.IsBoolean(EffectiveType(value)))
             return CheckedSafeEnumCast(value, enumSide, () => $"({TypeText(enumSide)})({RenderedCondition(value).At(Precedence.NullCoalescing)} ? 1 : 0)");
+        // An enum shift — or a bitwise chain over one — renders as its underlying
+        // integer (ShiftEnumLeftOperand: `(int)e << n`), not the enum its stale
+        // Binary ResultType still reports. Flowing into an enum-typed position (a
+        // conditional/switch arm, a coalesce right side, a method argument) it is an
+        // int->enum conversion needing an explicit `(E)` cast (CS1503/CS0266);
+        // without it the stale ResultType reads as identity and the cast is dropped.
+        // Mirrors CoerceText's store/return enum-shift branch, keeping this shared
+        // arm-coercion door in agreement with the sink. Runs before the plain
+        // integer branch, whose value.ResultType would be the stale enum.
+        if (BitwiseOperandRendersAsInteger(value)
+            && BitwiseOperandRenderedType(value) is { } renderedInteger
+            && CoercionRendering.CanSpellIntegerToEnum(renderedInteger, enumSide, _function.TypeShapes))
+        {
+            return EnumIntegerCast(value, enumSide);
+        }
         if (value.ResultType is not { } valueType || !TypeFamilies.IsIntegerLike(valueType))
             return null;
         return value is Constant { Value: int or long } konst
             ? EnumConstantText(konst, enumSide)
             : EnumIntegerCast(value, enumSide);
+    }
+
+    /// <summary>
+    /// Coerces a bare enum operand DOWN to <paramref name="integerType"/> — the
+    /// underlying-integer render of an enum shift it is combined or compared with,
+    /// so both sides are integers (<c>(int)e &lt;&lt; n | (int)other</c>). Null when
+    /// the operand already renders as an integer (an enum shift/chain needs no
+    /// down-coercion) or is not a bare enum (a plain integer sibling stays as-is,
+    /// falling through to its own spelling). The cast runs through
+    /// <see cref="CoerceText"/> — the one enum->integer door — so it matches the
+    /// shift's own <see cref="ShiftEnumLeftOperand"/> spelling.
+    /// </summary>
+    string? TryCoerceEnumToInteger(IrExpression value, TypeRef integerType)
+    {
+        if (BitwiseOperandRendersAsInteger(value))
+            return null;
+        if (value.ResultType is not { } valueType || !IsEnumLikeInteger(valueType))
+            return null;
+        return CoerceText(value, integerType);
     }
 
     // True when a constant enum cast is CS0221 as a plain (checked) cast, so it must
@@ -677,6 +730,24 @@ public sealed partial class CSharpPrinter
         // mixed-sign path and normal reconciliation bind it.
         if (binary.Kind is BinaryKind.And or BinaryKind.Or or BinaryKind.Xor)
         {
+            // One operand is an enum shift (or a bitwise chain over one) rendering
+            // as its underlying integer while the sibling is a bare enum value
+            // (`(int)e << n | other`, int | E, CS0019). Coerce the enum sibling DOWN
+            // to that rendered integer — `(int)e << n | (int)other` — not the shift
+            // up to the enum. Runs before the integer-sibling up-coercion below,
+            // whose stale-enum-typed test would otherwise leave the sibling bare.
+            if (BitwiseOperandRendersAsInteger(binary.Left)
+                && BitwiseOperandRenderedType(binary.Left) is { } leftRenderedInteger
+                && TryCoerceEnumToInteger(binary.Right, leftRenderedInteger) is { } downRight)
+            {
+                return $"{Operand(binary.Left)} {BinaryOperator(binary)} {downRight}";
+            }
+            if (BitwiseOperandRendersAsInteger(binary.Right)
+                && BitwiseOperandRenderedType(binary.Right) is { } rightRenderedInteger
+                && TryCoerceEnumToInteger(binary.Left, rightRenderedInteger) is { } downLeft)
+            {
+                return $"{downLeft} {BinaryOperator(binary)} {Operand(binary.Right)}";
+            }
             if (!BitwiseOperandRendersAsInteger(binary.Left)
                 && TryCoerceEnumOperand(binary.Right, binary.Left.ResultType) is { } coercedRight)
             {
@@ -1295,14 +1366,33 @@ public sealed partial class CSharpPrinter
                 }
             }
         }
+        // An enum shift (or a bitwise chain over one) compared to a bare enum
+        // sibling renders as its underlying integer while the sibling renders as the
+        // enum (`(int)e << n == other`, int == E, CS0019). Coerce the enum sibling
+        // DOWN to that rendered integer — `(int)e << n == (int)other` — not the shift
+        // up to the enum. Runs before the enum up-coercion below, whose stale
+        // enum-typed test would otherwise coerce the sibling the wrong way.
+        if (BitwiseOperandRendersAsInteger(left)
+            && BitwiseOperandRenderedType(left) is { } leftRenderedInteger
+            && TryCoerceEnumToInteger(right, leftRenderedInteger) is { } downRight)
+            return $"{Operand(left)} {ComparisonOperator(kind)} {downRight}";
+        if (BitwiseOperandRendersAsInteger(right)
+            && BitwiseOperandRenderedType(right) is { } rightRenderedInteger
+            && TryCoerceEnumToInteger(left, rightRenderedInteger) is { } downLeft)
+            return $"{downLeft} {ComparisonOperator(kind)} {Operand(right)}";
         // An enum compared to an integer (`access == bestAccess`,
         // `methodAccess == 6`) is CS0019 though the IL compares their shared
         // underlying integer; coerce the integer operand to the enum type. A
         // cross-assembly enum is unresolved (TypeShape.Unknown), so the
-        // structural test inside the coercion is what fixes it.
-        if (TryCoerceEnumOperand(right, left.ResultType) is { } coercedRight)
+        // structural test inside the coercion is what fixes it. An enum-shift
+        // operand is excluded (it renders as its underlying integer, not the enum),
+        // so its stale enum ResultType never coerces the sibling up — the
+        // down-coercion above owns that shape.
+        if (!BitwiseOperandRendersAsInteger(left)
+            && TryCoerceEnumOperand(right, left.ResultType) is { } coercedRight)
             return $"{Operand(left)} {ComparisonOperator(kind)} {coercedRight}";
-        if (TryCoerceEnumOperand(left, right.ResultType) is { } coercedLeft)
+        if (!BitwiseOperandRendersAsInteger(right)
+            && TryCoerceEnumOperand(left, right.ResultType) is { } coercedLeft)
             return $"{coercedLeft} {ComparisonOperator(kind)} {Operand(right)}";
         // An equality test between a same-width signed/unsigned integer pair
         // (`ulong != (long)i`, `nuint == nint`) has no C# common type (CS0034),

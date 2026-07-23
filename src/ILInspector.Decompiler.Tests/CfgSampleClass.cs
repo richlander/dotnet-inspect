@@ -5213,6 +5213,41 @@ public static class EnumCastSamples
 
     public static void EnumShiftStoreArray(CfgPriority[] arr, int n) => arr[0] = (CfgPriority)((int)arr[0] >> n);
 
+    // #3087 defect 1: a bitwise op whose sibling is itself an ENUM value. The shift
+    // renders as its underlying integer, so the enum sibling must be coerced to that
+    // integer — `(int)e << n | (int)other`, not `(int)e << n | other` (int | E,
+    // CS0019). The stale enum ResultType makes the sibling render bare.
+    public static CfgPriority EnumShiftOrEnumSibling(CfgPriority e, int n, CfgPriority other) => (CfgPriority)(((int)e << n) | (int)other);
+
+    // #3087 defect 2: an enum shift COMPARED to an enum-constant sibling. The shift
+    // renders as int, so the comparison must be integer-vs-integer — the stale enum
+    // ResultType instead coerces the sibling to the enum (`(int)e << n == E.High`,
+    // int == E, CS0019).
+    public static bool EnumShiftCompareEnumConst(CfgPriority e, int n) => ((int)e << n) == (int)CfgPriority.High;
+
+    // #3087 defect 3: an enum shift as a ternary arm flowing into an ENUM target.
+    // The shift's ResultType matches the target enum, so the `(CfgPriority)` cast is
+    // dropped and the arm renders `(int)e << n` (int) while the other arm is the
+    // enum — no common type (CS1503/CS0173). The cast must be kept. A method-argument
+    // ternary stays a genuine conditional (it cannot be raised to if/return).
+    public static void TakeCfgPriority(CfgPriority value) { }
+
+    public static void EnumShiftTernaryToEnum(bool b, CfgPriority e, int n) => TakeCfgPriority(b ? (CfgPriority)((int)e << n) : CfgPriority.High);
+
+    // #3087 negatives/edges. Mixed-sign: an UNSIGNED enum shift (`shr.un`) rendering
+    // as uint whose enum sibling must be coerced to that width/sign — `(uint)other`,
+    // not `(int)other` (which would be a mixed-sign bitwise op, CS0019).
+    public static uint EnumShiftUnsignedOrEnumSibling(CfgPriority e, int n, CfgPriority other) => ((uint)e >> n) | (uint)other;
+
+    // A comparison whose enum sibling is a RUNTIME value (not a constant): coerced
+    // down to the shift's rendered integer — `(int)e << n == (int)other`.
+    public static bool EnumShiftCompareEnumValue(CfgPriority e, int n, CfgPriority other) => ((int)e << n) == (int)other;
+
+    // A bitwise CHAIN over an enum shift with an enum FAR sibling: the down-coercion
+    // recurses so the enum sibling at the end of `shift | y | other` renders as its
+    // underlying integer — `(int)e << 4 | y | (int)other`.
+    public static int EnumShiftChainEnumSibling(CfgPriority e, int y, CfgPriority other) => ((int)e << 4) | y | (int)other;
+
     // #1766: ternary with enum-constant arms stored to a cross-assembly enum
     // local (StringComparison.Ordinal = 4, OrdinalIgnoreCase = 5).
     public static bool EnumConditional(string name, bool ci)
