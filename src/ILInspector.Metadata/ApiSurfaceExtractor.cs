@@ -305,6 +305,19 @@ public static class ApiSurfaceExtractor
 
             // Fields (non-backing fields; non-public included with --all)
             bool isEnum = apiType.Kind == "enum";
+
+            // A field-like event's compiler-generated backing field shares the event's exact
+            // (unmangled) name. C# forbids a same-named field and event on one type (CS0102),
+            // so a field whose name matches an event on this type is uniquely that event's
+            // backing field and must not be surfaced as a separate field (it would produce a
+            // duplicate declaration alongside the event member).
+            HashSet<string>? fieldLikeEventBackingFieldNames = null;
+            foreach (var eventHandle in typeDef.GetEvents())
+            {
+                (fieldLikeEventBackingFieldNames ??= new HashSet<string>(StringComparer.Ordinal))
+                    .Add(reader.GetString(reader.GetEventDefinition(eventHandle).Name));
+            }
+
             foreach (var fieldHandle in typeDef.GetFields())
             {
                 var field = reader.GetFieldDefinition(fieldHandle);
@@ -315,6 +328,9 @@ public static class ApiSurfaceExtractor
                 string fieldName = reader.GetString(field.Name);
                 if (fieldName.StartsWith("<"))
                     continue; // Skip backing fields
+
+                if (fieldLikeEventBackingFieldNames?.Contains(fieldName) == true)
+                    continue; // Skip a field-like event's backing field (shares the event name)
 
                 // Skip EditorBrowsable(Never) fields unless --all; obsolete are surfaced with marker.
                 if (!includeAll && AttributeReader.HasEditorBrowsableNeverAttribute(reader, field.GetCustomAttributes()))

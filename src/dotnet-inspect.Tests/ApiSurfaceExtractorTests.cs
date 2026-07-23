@@ -882,6 +882,70 @@ public class ApiSurfaceExtractorTests
         Assert.False(hidden.IsObsolete);
     }
 
+    [Fact]
+    public void Extract_FoldsFieldLikeEventBackingFieldIntoEvent()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        // includeAll so the private field-like backing field would be surfaced if not folded.
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var host = surface.Types.FirstOrDefault(t => t.Name == nameof(SampleFieldLikeEventHost));
+        Assert.NotNull(host);
+
+        var changedMembers = host.Members.Where(m => m.Name == "Changed").ToList();
+
+        // A field-like event's backing field shares the event's name; it must not appear as a
+        // separate field. Exactly one `Changed` member, and it is the event (never a field).
+        Assert.Single(changedMembers);
+        Assert.Equal("event", changedMembers[0].Kind);
+        Assert.DoesNotContain(host.Members, m => m.Name == "Changed" && m.Kind == "field");
+    }
+
+    [Fact]
+    public void Extract_KeepsCustomEventDistinctlyNamedBackingField()
+    {
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        var host = surface.Types.FirstOrDefault(t => t.Name == nameof(SampleCustomEventHost));
+        Assert.NotNull(host);
+
+        // A custom event with explicit accessors and a distinctly-named user field: the event
+        // is surfaced, and its differently-named backing field is unaffected by the fold.
+        Assert.Contains(host.Members, m => m.Name == "Custom" && m.Kind == "event");
+        Assert.Contains(host.Members, m => m.Name == "_customBacking" && m.Kind == "field");
+    }
+
+}
+
+/// <summary>
+/// Fixture: a field-like event whose compiler-generated backing field shares the event name.
+/// </summary>
+public class SampleFieldLikeEventHost
+{
+#pragma warning disable CS0067 // event is never used
+    public event System.Action? Changed;
+#pragma warning restore CS0067
+}
+
+/// <summary>
+/// Fixture: a custom event with explicit accessors over a distinctly-named backing field.
+/// </summary>
+public class SampleCustomEventHost
+{
+    private System.Action? _customBacking;
+
+    public event System.Action? Custom
+    {
+        add => _customBacking += value;
+        remove => _customBacking -= value;
+    }
 }
 
 /// <summary>
