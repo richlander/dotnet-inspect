@@ -180,23 +180,29 @@ public sealed class MemberBodyProducerMemberRenderTests
         Assert.DoesNotContain("global::Math", rendered.Text);
     }
 
-    [Fact]
-    public void ProduceMember_PreservesAliasQualifiedNameWithEscapedKeywordNamespace()
+    [Theory]
+    [InlineData(nameof(MemberRenderSpecimen.EscapedAliasQualifiedShadow),
+        "global::@event.Models.TypeNameShadow", "global::@TypeNameShadow")]
+    [InlineData(nameof(MemberRenderSpecimen.SystemEscapedAliasQualifiedShadow),
+        "global::System.@event.Models.SystemNameShadow", "global::System.@SystemNameShadow")]
+    public void ProduceMember_PreservesAliasQualifiedNameWithEscapedKeywordNamespace(
+        string memberName, string expectedFullPath, string corruptedForm)
     {
         var type = Specimen();
-        var member = Assert.Single(type.Members, m => m.Name == nameof(MemberRenderSpecimen.EscapedAliasQualifiedShadow));
+        var member = Assert.Single(type.Members, m => m.Name == memberName);
 
         var rendered = MemberBodyProducer.ProduceMember(type, member, AssemblyPath, pdbPath: null);
 
         Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
-        // The namespace's first segment is a keyword, so the printer escapes it:
-        // global::@event.Models.TypeNameShadow. The '@' sits between the '::'
-        // alias qualifier and the matched metadata namespace (event.Models), so
-        // the guard must skip the escape and still decline — not strip to the
-        // invalid global::@TypeNameShadow (a stray escape on a name that does
-        // not bind, CS0400) (#3064 review).
-        Assert.Contains("global::@event.Models.TypeNameShadow", rendered.Text);
-        Assert.DoesNotContain("global::@TypeNameShadow", rendered.Text);
+        // A namespace segment that is a keyword is printed @-escaped, so an '@'
+        // sits between the '::' alias qualifier and the matched metadata
+        // namespace. For a System-rooted namespace the System.-stripped prefix
+        // even matches mid-chain (after "System.@"), so the guard must walk the
+        // whole qualified run back to its '::' root and decline — not strip to
+        // the invalid @-escaped form (a stray escape on a name that does not
+        // bind, CS0400/CS0234) (#3064 review).
+        Assert.Contains(expectedFullPath, rendered.Text);
+        Assert.DoesNotContain(corruptedForm, rendered.Text);
     }
 }
 
@@ -251,5 +257,14 @@ public sealed class MemberRenderSpecimen
     // to skip the escape (#3064 review).
     public static int EscapedAliasQualifiedShadow(int TypeNameShadow)
         => @event.Models.TypeNameShadow.M(TypeNameShadow);
+
+    // Same hazard, but the namespace is System-rooted with a keyword segment
+    // (System.@event.Models). The printer emits global::System.@event.Models.
+    // TypeNameShadow; the System.-stripped prefix "event.Models" matches
+    // mid-chain after "System.@", so a guard that only inspects the characters
+    // just before the match cannot see the '::' root. Shortening must still be
+    // declined, not corrupted to global::System.@TypeNameShadow (CS0234).
+    public static int SystemEscapedAliasQualifiedShadow(int SystemNameShadow)
+        => System.@event.Models.SystemNameShadow.M(SystemNameShadow);
 }
 #pragma warning restore CA1822

@@ -1857,18 +1857,21 @@ public static class MemberBodyProducer
                 // Word boundary before the prefix.
                 if (at > 0 && (char.IsLetterOrDigit(segment[at - 1]) || segment[at - 1] is '_' or '.'))
                     continue;
-                // An alias-qualified name (global::System.Math) must keep its
-                // full path; shortening to global::Math re-introduces the
-                // shadowing collision it was emitted to avoid and does not bind
-                // (CS0400). The alias qualifier is the two-char '::'; when the
-                // namespace's leading segment is a keyword the printer escapes
-                // it (global::@event.Models.X), so an optional '@' sits between
-                // the '::' and the matched metadata namespace and must be
-                // skipped before testing for the qualifier.
-                int aliasEnd = at;
-                if (aliasEnd > 0 && segment[aliasEnd - 1] == '@')
-                    aliasEnd--;
-                if (aliasEnd >= 2 && segment[aliasEnd - 1] == ':' && segment[aliasEnd - 2] == ':')
+                // An alias-qualified name must keep its full path; shortening
+                // any part of it re-introduces the shadowing collision the
+                // global:: was emitted to avoid and does not bind (CS0400 /
+                // CS0234). Only the System.-stripped prefix spelling can match
+                // mid-chain (e.g. "event.Models" inside
+                // global::System.@event.Models.X, after "System.@"), so a check
+                // of the characters immediately before the match is not enough:
+                // walk back over the whole qualified run (identifier chars, '.',
+                // and the '@' keyword escape) to the token that roots it. If that
+                // token is the two-char '::' alias qualifier, the match belongs
+                // to an alias-rooted chain — decline.
+                int root = at;
+                while (root > 0 && (char.IsLetterOrDigit(segment[root - 1]) || segment[root - 1] is '_' or '.' or '@'))
+                    root--;
+                if (root >= 2 && segment[root - 1] == ':' && segment[root - 2] == ':')
                     continue;
 
                 // The identifier after the prefix must be a type from this
