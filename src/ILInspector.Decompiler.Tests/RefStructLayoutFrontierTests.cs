@@ -29,7 +29,7 @@ public class RefStructLayoutFrontierTests
 
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
         Assert.Empty(function.Diagnostics);
-        Assert.Contains("SpanBackedView view = new SpanBackedView(span);", output);
+        Assert.Contains("SpanBackedView view = new(span);", output);
         Assert.Contains("return view.At(index) + view.Length;", output);
         Assert.DoesNotContain("IsByRefLike", output);
         Assert.DoesNotContain("/*", output);

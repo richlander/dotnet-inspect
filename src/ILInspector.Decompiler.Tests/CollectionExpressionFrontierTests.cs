@@ -93,7 +93,8 @@ public class CollectionExpressionFrontierTests
         Assert.Contains(function.Descendants.OfType<Call>(), call => call.Callee.Name == "AddRange");
 
         var output = Print(nameof(CfgSampleClass.CollectionWithCapacity));
-        Assert.Contains("new List<string>(values.Count * 2)", output);
+        Assert.Contains("List<string>", output);
+        Assert.Contains("= new(values.Count * 2)", output);
         Assert.Contains(".AddRange(", output);
         Assert.DoesNotContain("[with", output);
     }

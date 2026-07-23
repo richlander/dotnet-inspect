@@ -2120,13 +2120,14 @@ public class RaisingPassTests
     public void StructConstructor_InPlaceCtor_PrintsNewObject()
     {
         // The in-place struct .ctor (ldloca; call S::.ctor) must print as an
-        // assignment of a fresh value, never the illegal handler..ctor(...).
+        // assignment of a fresh value, never the illegal handler..ctor(...). The
+        // type is apparent on the declaration, so the creation renders target-typed.
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         var result = CSharpPrinter.Print(RunThroughStructConstructor(nameof(CfgSampleClass.InterpolatedStruct), source));
         Assert.True(result.Succeeded);
         string output = result.Output!.ReplaceLineEndings("\n").TrimEnd();
 
-        Assert.Contains("new DefaultInterpolatedStringHandler(", output);
+        Assert.Contains("DefaultInterpolatedStringHandler V_0 = new(", output);
         Assert.DoesNotContain("..ctor", output);
     }
 
@@ -2170,7 +2171,7 @@ public class RaisingPassTests
         Assert.Equal(0, store.Index);
         var value = Assert.IsType<NewObject>(store.Value);
         Assert.Equal(ctor, value.Constructor);
-        Assert.Equal("Carrier V_0 = new Carrier(42);", CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").Trim());
+        Assert.Equal("Carrier V_0 = new(42);", CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").Trim());
     }
 
     [Fact]
