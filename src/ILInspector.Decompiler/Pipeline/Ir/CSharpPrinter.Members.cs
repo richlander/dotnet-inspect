@@ -48,7 +48,7 @@ public sealed partial class CSharpPrinter
             // bare name binds to it, not the field (e.g. int Foo(int _x) =>
             // this._x + _x). Qualify with this. to reach the field; an
             // unshadowed instance field stays bare per the taste convention.
-            LoadArgument { Index: 0, Name: "this" } => QualifyThisMember(field.Name, field.Type) ? $"this.{fieldName}" : fieldName,
+            LoadArgument { Index: 0, Name: "this" } => _options.QualifyFieldAccess || QualifyThisMember(field.Name, field.Type) ? $"this.{fieldName}" : fieldName,
             _ => $"{ReceiverText(instance)}.{fieldName}",
         };
     }
@@ -99,7 +99,7 @@ public sealed partial class CSharpPrinter
             // Deconstruct(out int X, ...) whose body reads this.X). Qualify with
             // this. to reach the property; an unshadowed instance property stays
             // bare per the taste convention, matching FieldTarget.
-            LoadArgument { Index: 0, Name: "this" } => QualifyThisMember(name, AccessorValueType(accessor)) ? "this" : "",
+            LoadArgument { Index: 0, Name: "this" } => _options.QualifyPropertyAccess || QualifyThisMember(name, AccessorValueType(accessor)) ? "this" : "",
             _ => ReceiverText(instance),
         };
         // An instance property accessor with index arguments IS an indexer,

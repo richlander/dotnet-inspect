@@ -249,6 +249,8 @@ public sealed partial class CSharpPrinter
             PreferFrameworkTypeImports = true,
             ExpressionBodyArrowPlacement = _options.ExpressionBodyArrowPlacement,
             WrapSplittableExpressions = _options.WrapSplittableExpressions,
+            QualifyFieldAccess = _options.QualifyFieldAccess,
+            QualifyPropertyAccess = _options.QualifyPropertyAccess,
         };
 
     void AddDecision(string ruleId, string category, string subject, string detail, string? oldValue = null, string? newValue = null)
