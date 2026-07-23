@@ -34,6 +34,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["EnumCastPrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced enum-cast source."),
             ["FinallyDisposePrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced finally/dispose source."),
             ["FluentChainFormattingTests.cs"] = (1, "Product-output validity: compiles printer-produced broken fluent-chain source."),
+            ["SplittableExpressionWrapTests.cs"] = (1, "Product-output validity: compiles printer-produced wrapped &&/|| chain source."),
             ["MemberNameCollisionRenderingTests.cs"] = (1, "Product-output validity: compiles rendered colliding-member source."),
             ["MixedSignComparisonTests.cs"] = (1, "Product-output validity: compiles synthesized mixed-sign comparison source."),
             ["MultiDimensionalArrayPrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced multidim-array source."),
@@ -83,9 +84,11 @@ public sealed class DynamicCompilationSiteInventoryTests
     //   This branch (#2864 comparison slice) adds a second compile-back oracle
     //     site to ExpressionTreeLambdaTests.cs (2 -> 3 sites): recompiles recovered
     //     comparison lambdas to assert their expression-tree node identity.
-    //   Combined: 32 files, 40 sites.
-    const int ExpectedDynamicFiles = 32;
-    const int ExpectedDynamicSites = 40;
+    //   #3067 adds SplittableExpressionWrapTests.cs (1 site): recompiles the
+    //     printer's wrapped &&/|| chain output.
+    //   Combined: 33 files, 41 sites.
+    const int ExpectedDynamicFiles = 33;
+    const int ExpectedDynamicSites = 41;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];
