@@ -24,7 +24,8 @@ public class PatternSwitchExpressionPassTests
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Node = TypeRef.CoreLib("Synthetic", "Node");
     static readonly TypeRef Leaf = TypeRef.CoreLib("Synthetic", "Leaf");
-    static readonly TypeRef Branch = TypeRef.CoreLib("Synthetic", "Branch");
+    static readonly TypeRef Outer = TypeRef.CoreLib("Synthetic", "Outer");
+    static readonly TypeRef Inner = TypeRef.CoreLib("Synthetic", "Inner");
 
     static Constant False() => new(false, Bool);
 
@@ -33,25 +34,12 @@ public class PatternSwitchExpressionPassTests
         using var source = MetadataSource.Open(fixtureType.Assembly.Location);
         var function = IrImporter.Import(source, fixtureType.FullName!, methodName);
         Assert.NotNull(function);
-        // Match the product path: wire the cross-method import seam and the
-        // type-disjointness oracle (from the assembly's open metadata) so the
-        // disjointness-gated switch-expression raise fires exactly as it does when
-        // the shipped `member` command renders this method.
-        var context = new PassContext(
-            new Stepper(enabled: false),
-            importMethodBody: method => IrImporter.Import(source, method),
-            typesProvablyDisjoint: source.AreProvablyDisjoint);
-        IrPasses.Run(function!, IrPasses.Default, context);
+        IrPasses.Run(function!);
         function!.CheckInvariant();
         return function;
     }
 
     static void RunPass(IrFunction function) => new PatternSwitchExpressionPass().Run(function, PassContext.None);
-
-    static void RunPass(IrFunction function, Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint)
-        => new PatternSwitchExpressionPass().Run(
-            function,
-            new PassContext(new Stepper(enabled: false), typesProvablyDisjoint: typesProvablyDisjoint));
 
     // ── Compiler-backed positives ──────────────────────────────────────────
 
@@ -112,6 +100,39 @@ public class PatternSwitchExpressionPassTests
         Assert.Contains("LogicalNot { Operand: Comparison comparison } when ReadsLoopField(comparison.Left, loopFieldName)", output);
         Assert.DoesNotContain("Comparison V_", output);
         Assert.Contains("_ => false,", output);
+    }
+
+    // ── Compiler-backed positives: heterogeneous / inline arm intros (#3028) ─
+
+    [Fact]
+    public void HeterogeneousArmIntros_RaiseToPatternSwitchExpression()
+    {
+        // csc lowers this to a leading intro-chain arm (`Dot d = shape as Dot; if
+        // (d is null) …`) plus inline-positive sibling arms (`if (shape is Bar b)
+        // …`), over `shape` read directly (no switch-value temp). The pass folds
+        // the whole heterogeneous cascade back into one switch expression.
+        var function = Raised(typeof(HeterogeneousArmSample), nameof(HeterogeneousArmSample.Area));
+
+        var switchExpression = Assert.Single(function.Descendants.OfType<PatternSwitchExpression>());
+        Assert.Empty(function.Descendants.OfType<IfStatement>());
+        Assert.True(switchExpression.HasDefault);
+        Assert.Equal(3, switchExpression.Arms.Count);
+        Assert.All(switchExpression.Arms, arm =>
+        {
+            Assert.Null(arm.Subpattern);
+            Assert.False(arm.HasGuard);
+            Assert.NotNull(arm.LocalIndex);
+        });
+        Assert.Contains("Dot", switchExpression.Arms[0].PatternType.ToDisplayString());
+        Assert.Contains("Bar", switchExpression.Arms[1].PatternType.ToDisplayString());
+        Assert.Contains("Box", switchExpression.Arms[2].PatternType.ToDisplayString());
+
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
+        Assert.Contains("return shape switch", output);
+        Assert.Contains("Dot d => d.Radius,", output);
+        Assert.Contains("Bar b => b.Length,", output);
+        Assert.Contains("Box x => x.Side,", output);
+        Assert.Contains("_ => -1,", output);
     }
 
     // ── Synthetic shape + negative guards ──────────────────────────────────
@@ -207,352 +228,412 @@ public class PatternSwitchExpressionPassTests
         Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
     }
 
-    // ── Adversarial-review regression guards (PR #3034) ────────────────────
+    static readonly TypeRef Twig = TypeRef.CoreLib("Synthetic", "Twig");
 
-    // A two-arm cascade: `sv = node; k0 = sv as arm0Type; if (!k0) { k1 = sv as
-    // arm1Type; if (!k1) { return default; } return arm1Value; } [if (!g) {
-    // return default; }] return arm0Value;`. arm0 is a guarded, non-last arm; a
-    // guard-fail on arm0 routes to the default in this cascade but to arm1 in a
-    // switch expression — so raising is sound only when arm0Type and arm1Type
-    // cannot both match.
-    static IrFunction TwoArm(
-        IrExpression? arm0Guard,
-        IrExpression arm0Value,
-        IrExpression arm1Value,
-        IrExpression defaultValue,
-        TypeRef arm0Type,
-        TypeRef arm1Type)
+    // Builds a temp-less, direct-place cascade whose head is an intro-chain arm
+    // (`L0 = place as Leaf; if (!L0) { REST } return 1;`) with `inlineArmCount`
+    // inline-positive sibling arms nested in REST, bottoming out in the default.
+    static IrFunction DirectIntroCascade(IrExpression place, int inlineArmCount)
     {
-        var block = new Block(0);
-        block.Add(new StoreLocal(5, Node, new LoadArgument(0, "node", Node)));
-        block.Add(new StoreLocal(0, arm0Type, new IsInstance(arm0Type, new LoadLocal(5, Node))));
-
         var rest = new Block();
-        rest.Add(new StoreLocal(1, arm1Type, new IsInstance(arm1Type, new LoadLocal(5, Node))));
-        var arm1Dispatch = new Block();
-        arm1Dispatch.Add(new Return((IrExpression)defaultValue.Clone()));
-        rest.Add(new IfStatement(new LogicalNot(new LoadLocal(1, arm1Type)), arm1Dispatch, null));
-        rest.Add(new Return(arm1Value));
-        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, arm0Type)), rest, null));
-
-        if (arm0Guard is not null)
+        for (int k = 0; k < inlineArmCount; k++)
         {
-            var guardThen = new Block();
-            guardThen.Add(new Return((IrExpression)defaultValue.Clone()));
-            block.Add(new IfStatement(new LogicalNot(arm0Guard), guardThen, null));
+            var thenK = new Block();
+            thenK.Add(new Return(new Constant(2 + k, Int32)));
+            rest.Add(new IfStatement(new IsPattern((IrExpression)place.Clone(), Twig, 1 + k), thenK, null));
         }
-        block.Add(new Return(arm0Value));
+        rest.Add(new Return(new Constant(-1, Int32)));
+
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, Leaf, new IsInstance(Leaf, (IrExpression)place.Clone())));
+        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, Leaf)), rest, null));
+        block.Add(new Return(new Constant(1, Int32)));
 
         var container = new BlockContainer();
         container.Add(block);
-        var signature = new MethodSignature(Bool, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
-        return new IrFunction("M", Node, signature, ImmutableArray.Create(arm0Type, arm1Type, Bool, Node, Node, Node), container);
+        var signature = new MethodSignature(Int32, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Twig, Twig, Node), container);
+    }
+
+    // Builds a temp-less, all-inline direct-place cascade (no intro-chain head):
+    //   `if (place is Leaf a) { return 1; } if (place is Twig b) { return 2; }
+    //   return <default>;`
+    static IrFunction AllInlineCascade(IrExpression place)
+    {
+        var thenA = new Block();
+        thenA.Add(new Return(new Constant(1, Int32)));
+        var thenB = new Block();
+        thenB.Add(new Return(new Constant(2, Int32)));
+
+        var block = new Block(0);
+        block.Add(new IfStatement(new IsPattern((IrExpression)place.Clone(), Leaf, 0), thenA, null));
+        block.Add(new IfStatement(new IsPattern((IrExpression)place.Clone(), Twig, 1), thenB, null));
+        block.Add(new Return(new Constant(-1, Int32)));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Int32, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Twig, Node), container);
     }
 
     [Fact]
-    public void Synthetic_GuardedNonLastArm_RaisesOnlyWhenTypesProvablyDisjoint()
+    public void Synthetic_DirectIntroPlusInlineSibling_Raises()
     {
-        // arm0 (`Leaf leaf when Ok(leaf)`) precedes arm1 (`Branch`). If Leaf and
-        // Branch overlapped, a value matching both that failed arm0's guard would
-        // reach the default here but arm1 in a switch expression. The pass must
-        // consult the disjointness oracle and only raise when disjointness is
-        // proven.
-        static IrFunction Build() => TwoArm(
-            arm0Guard: new Call(new MethodRef(Leaf, "Ok", Bool, [Leaf], HasThis: false), isVirtual: false, [new LoadLocal(0, Leaf)]),
-            arm0Value: new Constant(true, Bool),
-            arm1Value: new Constant(true, Bool),
-            defaultValue: False(),
-            arm0Type: Leaf,
-            arm1Type: Branch);
+        // Intro-chain head arm plus one inline-positive sibling arm over the same
+        // re-evaluable place, no temp — the temp-less heterogeneous shape. Folds
+        // to a two-arm switch.
+        var function = DirectIntroCascade(new LoadArgument(0, "node", Node), inlineArmCount: 1);
 
-        // No oracle available: cannot prove disjointness → decline.
-        var withoutOracle = Build();
-        RunPass(withoutOracle, typesProvablyDisjoint: null);
-        Assert.Empty(withoutOracle.Descendants.OfType<PatternSwitchExpression>());
+        RunPass(function);
 
-        // Oracle reports the types could overlap → decline.
-        var overlapping = Build();
-        RunPass(overlapping, typesProvablyDisjoint: (_, _) => false);
-        Assert.Empty(overlapping.Descendants.OfType<PatternSwitchExpression>());
-
-        // Oracle proves disjointness → raise both arms.
-        var disjoint = Build();
-        RunPass(disjoint, typesProvablyDisjoint: (_, _) => true);
-        var switchExpression = Assert.Single(disjoint.Descendants.OfType<PatternSwitchExpression>());
+        var switchExpression = Assert.Single(function.Descendants.OfType<PatternSwitchExpression>());
         Assert.Equal(2, switchExpression.Arms.Count);
         Assert.True(switchExpression.HasDefault);
+        Assert.Empty(function.Descendants.OfType<IfStatement>());
     }
 
     [Fact]
-    public void Synthetic_PatternLocalLeaksIntoSiblingArm_DoesNotRaise()
+    public void Synthetic_DirectIntroSingleArm_DoesNotRaise()
     {
-        // arm1's value reads arm0's pattern local (`leaf`). In the lowered
-        // cascade that local is still in scope, but each switch arm scopes its
-        // own pattern variable, so the raised C# would reference an out-of-scope
-        // name (CS0103). Decline even with disjointness proven.
-        var leaked = TwoArm(
-            arm0Guard: null,
-            arm0Value: new Call(new MethodRef(Leaf, "V", Bool, [Leaf], HasThis: false), isVirtual: false, [new LoadLocal(0, Leaf)]),
-            arm1Value: new Call(new MethodRef(Leaf, "V", Bool, [Leaf], HasThis: false), isVirtual: false, [new LoadLocal(0, Leaf)]),
-            defaultValue: False(),
-            arm0Type: Leaf,
-            arm1Type: Branch);
-        RunPass(leaked, typesProvablyDisjoint: (_, _) => true);
-        Assert.Empty(leaked.Descendants.OfType<PatternSwitchExpression>());
+        // A single intro-chain arm over a re-evaluable place is indistinguishable
+        // from an ordinary `if (place is T t)` guard, which IsPatternPass renders
+        // idiomatically. The direct (temp-less) form requires at least two arms,
+        // so a lone guard is left as-is.
+        var function = DirectIntroCascade(new LoadArgument(0, "node", Node), inlineArmCount: 0);
 
-        // Control: arm1 reads its own local (`k1`) instead — raises.
-        var scoped = TwoArm(
-            arm0Guard: null,
-            arm0Value: new Call(new MethodRef(Leaf, "V", Bool, [Leaf], HasThis: false), isVirtual: false, [new LoadLocal(0, Leaf)]),
-            arm1Value: new Call(new MethodRef(Branch, "V", Bool, [Branch], HasThis: false), isVirtual: false, [new LoadLocal(1, Branch)]),
-            defaultValue: False(),
-            arm0Type: Leaf,
-            arm1Type: Branch);
-        RunPass(scoped, typesProvablyDisjoint: (_, _) => true);
-        Assert.Single(scoped.Descendants.OfType<PatternSwitchExpression>());
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
     }
 
-    // A single positive-form guarded arm: `sv = node; k0 = sv as Leaf; if (!k0)
-    // { return default; } if (g) { return value; } [return default;]`. When g
-    // fails, control falls through the `if (g)`; only an explicit trailing
-    // `return default` routes that fall-through to the default.
-    static IrFunction SinglePositiveGuardArm(bool withDefaultTail)
+    [Fact]
+    public void Synthetic_AllInlineWithoutIntroHead_DoesNotRaise()
     {
+        // Every arm is an inline-positive test with no leading intro-chain arm —
+        // the shape a hand-written `if` chain lowers to, not a `switch`. PR A
+        // anchors only on cascades whose head csc lowered to an intro-chain arm,
+        // so this is left unfolded.
+        var function = AllInlineCascade(new LoadArgument(0, "node", Node));
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    // Builds a direct-place cascade whose head is an intro-chain arm and whose one
+    // inline sibling arm carries a `when` guard, in either the short-circuiting
+    // negated form (`if (!G) return <default>; return V;`) or the fall-through
+    // positive form (`if (G) return V;`):
+    //   `L0 = place as Leaf; if (!L0) { if (place is Twig L1) { <guarded> }
+    //    return <default>; } return 1;`
+    static IrFunction DirectIntroGuardedInline(IrExpression place, bool shortCircuitToDefault)
+    {
+        IrExpression Guard() => new Call(new MethodRef(Twig, "Ok", Bool, [Twig], HasThis: false), isVirtual: false, [new LoadLocal(1, Twig)]);
+
+        var armBody = new Block();
+        if (shortCircuitToDefault)
+        {
+            // Negated form: guard failure returns the default immediately, skipping
+            // any later arm that would still match the same value in a switch.
+            var guardFail = new Block();
+            guardFail.Add(new Return(new Constant(-1, Int32)));
+            armBody.Add(new IfStatement(new LogicalNot(Guard()), guardFail, null));
+            armBody.Add(new Return(new Constant(2, Int32)));
+        }
+        else
+        {
+            // Positive form: guard failure falls out of the `then` block to the
+            // following sibling — the switch `when` fall-through semantics.
+            var guardPass = new Block();
+            guardPass.Add(new Return(new Constant(2, Int32)));
+            armBody.Add(new IfStatement(Guard(), guardPass, null));
+        }
+
+        var rest = new Block();
+        rest.Add(new IfStatement(new IsPattern((IrExpression)place.Clone(), Twig, 1), armBody, null));
+        rest.Add(new Return(new Constant(-1, Int32)));
+
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, Leaf, new IsInstance(Leaf, (IrExpression)place.Clone())));
+        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, Leaf)), rest, null));
+        block.Add(new Return(new Constant(1, Int32)));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Int32, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Twig, Node), container);
+    }
+
+    [Fact]
+    public void Synthetic_InlineGuardShortCircuitsToDefault_DoesNotRaise()
+    {
+        // #3028 review (Gemini, Finding 1): an inline sibling arm whose guard
+        // failure returns the default immediately (`if (!G) return <default>;`)
+        // must not fold. Folding it to `Twig x when G => 2` makes a guard failure
+        // fall through to later arms, but the IL short-circuited straight to the
+        // default — divergent whenever a later arm matches the same value. Only
+        // csc's fall-through guard shape is foldable, so this hand-shaped IL is
+        // left alone.
+        var function = DirectIntroGuardedInline(new LoadArgument(0, "node", Node), shortCircuitToDefault: true);
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    [Fact]
+    public void Synthetic_InlineGuardFallsThrough_DoesNotRaise()
+    {
+        // #3028 PR A scopes the newly recognized heterogeneous surface (a direct
+        // scrutinee or any inline-positive arm) to UNGUARDED arms only. A guarded
+        // arm whose failure short-circuits to the default folds faithfully only
+        // when no later arm can match the same value, which needs a
+        // type-disjointness oracle this SRM-only pass does not have. Even the safe
+        // fall-through inline guard is therefore deferred to a follow-up; only the
+        // unguarded new-surface shape folds under PR A.
+        var function = DirectIntroGuardedInline(new LoadArgument(0, "node", Node), shortCircuitToDefault: false);
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    // Builds a direct-place cascade (intro head + one inline sibling) whose inline
+    // arm value takes the address of the scrutinee place — the by-ref mutation
+    // vector. `argAddress` selects an argument scrutinee (`&arg`) versus a local
+    // scrutinee (`&local`) so both branches of the stability check are exercised.
+    static IrFunction DirectIntroAddressOfScrutinee(bool argAddress)
+    {
+        IrExpression place = argAddress ? new LoadArgument(0, "node", Node) : new LoadLocal(7, Node);
+        IrExpression address = argAddress ? new LoadArgumentAddress(0, "node", Node) : new LoadLocalAddress(7, Node);
+        var mutate = new MethodRef(Node, "Mutate", Int32, [TypeRef.ByRef(Node)], HasThis: false);
+
+        var armBody = new Block();
+        armBody.Add(new Return(new Call(mutate, isVirtual: false, [address])));
+
+        var rest = new Block();
+        rest.Add(new IfStatement(new IsPattern((IrExpression)place.Clone(), Twig, 1), armBody, null));
+        rest.Add(new Return(new Constant(-1, Int32)));
+
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, Leaf, new IsInstance(Leaf, (IrExpression)place.Clone())));
+        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, Leaf)), rest, null));
+        block.Add(new Return(new Constant(1, Int32)));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Int32, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Twig, Node, Node, Node, Node, Node, Node), container);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Synthetic_DirectScrutineeAddressTaken_DoesNotRaise(bool argAddress)
+    {
+        // #3028 review (Gemini, Finding 2): a direct (temp-less) scrutinee is
+        // re-read by every arm, but a switch expression reads it once. When the
+        // cascade takes the address of the scrutinee's place (`&arg` / `&local`),
+        // a by-ref call in a guard or value can mutate the value between arms, so
+        // folding to a single read would diverge. The stability check rejects any
+        // store or address-of the direct scrutinee inside the cascade.
+        var function = DirectIntroAddressOfScrutinee(argAddress);
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    // Builds a direct-place cascade whose head is an intro-chain arm carrying a
+    // short-circuiting `when` guard (`if (!G) return <default>;`), followed by one
+    // inline sibling arm of `laterType`:
+    //   `L0 = place as Leaf; if (!L0) { if (place is laterType L1) return 2;
+    //    return -1; } if (!Guard(L0)) return -1; return 1;`
+    static IrFunction DirectIntroShortCircuitPlusInline(IrExpression place, TypeRef laterType)
+    {
+        IrExpression Guard() => new Call(new MethodRef(Leaf, "Ok", Bool, [Leaf], HasThis: false), isVirtual: false, [new LoadLocal(0, Leaf)]);
+
+        var innerThen = new Block();
+        innerThen.Add(new Return(new Constant(2, Int32)));
+        var rest = new Block();
+        rest.Add(new IfStatement(new IsPattern((IrExpression)place.Clone(), laterType, 1), innerThen, null));
+        rest.Add(new Return(new Constant(-1, Int32)));
+
+        var guardFail = new Block();
+        guardFail.Add(new Return(new Constant(-1, Int32)));
+
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, Leaf, new IsInstance(Leaf, (IrExpression)place.Clone())));
+        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, Leaf)), rest, null));
+        block.Add(new IfStatement(new LogicalNot(Guard()), guardFail, null));
+        block.Add(new Return(new Constant(1, Int32)));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Int32, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Leaf, Node), container);
+    }
+
+    [Fact]
+    public void Synthetic_IntroGuardShortCircuitOverlapsLaterArm_DoesNotRaise()
+    {
+        // #3028 review round 2 (GPT Finding A / Gemini Finding 1): a guarded
+        // intro arm in the direct (temp-less) form whose guard failure
+        // short-circuits to the default, followed by a later arm that can match
+        // the same value (`Leaf` again, or any base type of `Leaf`). Folding it
+        // makes the guard failure fall through to that later arm, whereas the IL
+        // routed it to the default — divergent. PR A rejects the whole class by
+        // declining any guarded arm on the new heterogeneous surface, so no
+        // type-disjointness oracle is needed.
+        var function = DirectIntroShortCircuitPlusInline(new LoadArgument(0, "node", Node), Leaf);
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    [Fact]
+    public void Synthetic_IntroGuardDistinctLaterArmInDirectForm_DoesNotRaise()
+    {
+        // The same guarded intro arm with a distinct later type (`Twig`) is
+        // semantically foldable, but PR A still declines it: the direct
+        // (temp-less) form is the new heterogeneous surface, restricted to
+        // unguarded arms. Guarded heterogeneous folding is deferred to a follow-up
+        // that carries a real type-disjointness oracle. The pre-existing temp-form
+        // intro cascade (#3022) keeps its guarded arms.
+        var function = DirectIntroShortCircuitPlusInline(new LoadArgument(0, "node", Node), Twig);
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    // A direct argument-scrutinee cascade preceded by an aliasing store
+    // (`ref9 = &arg;`) — the address escapes the cascade even though every arm
+    // test re-reads `arg` directly.
+    static IrFunction DirectCascadeWithArgAlias()
+    {
+        IrExpression Arg() => new LoadArgument(0, "node", Node);
+
+        var innerThen = new Block();
+        innerThen.Add(new Return(new Constant(2, Int32)));
+        var rest = new Block();
+        rest.Add(new IfStatement(new IsPattern(Arg(), Twig, 1), innerThen, null));
+        rest.Add(new Return(new Constant(-1, Int32)));
+
+        var block = new Block(0);
+        block.Add(new StoreLocal(9, TypeRef.ByRef(Node), new LoadArgumentAddress(0, "node", Node)));
+        block.Add(new StoreLocal(0, Leaf, new IsInstance(Leaf, Arg())));
+        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, Leaf)), rest, null));
+        block.Add(new Return(new Constant(1, Int32)));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Int32, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Twig, Node, Node, Node, Node, Node, Node, Node, TypeRef.ByRef(Node)), container);
+    }
+
+    [Fact]
+    public void Synthetic_DirectScrutineeAliasedBeforeCascade_DoesNotRaise()
+    {
+        // #3028 review round 2 (GPT, Finding B): the scrutinee argument's address
+        // is taken into an alias BEFORE the cascade. A consumed-region-only scan
+        // misses it, but a by-ref call through that alias inside a guard could
+        // mutate `arg` between arm tests. The stability check scans the whole
+        // method for an address-of the direct scrutinee and declines.
+        var function = DirectCascadeWithArgAlias();
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    // A temp-form cascade (`SV = arg;` then arms testing `SV`) whose inline arm
+    // takes the address of the temp — `Mutate(ref SV)` — inside its value.
+    static IrFunction TempCascadeWithTempAddress()
+    {
+        IrExpression Sv() => new LoadLocal(5, Node);
+        var mutate = new MethodRef(Node, "Mutate", Int32, [TypeRef.ByRef(Node)], HasThis: false);
+
+        var innerThen = new Block();
+        innerThen.Add(new Return(new Call(mutate, isVirtual: false, [new LoadLocalAddress(5, Node)])));
+        var rest = new Block();
+        rest.Add(new IfStatement(new IsPattern(Sv(), Twig, 1), innerThen, null));
+        rest.Add(new Return(new Constant(-1, Int32)));
+
         var block = new Block(0);
         block.Add(new StoreLocal(5, Node, new LoadArgument(0, "node", Node)));
-        block.Add(new StoreLocal(0, Leaf, new IsInstance(Leaf, new LoadLocal(5, Node))));
-
-        var dispatchThen = new Block();
-        dispatchThen.Add(new Return(False()));
-        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, Leaf)), dispatchThen, null));
-
-        var guard = new Call(new MethodRef(Leaf, "Ok", Bool, [Leaf], HasThis: false), isVirtual: false, [new LoadLocal(0, Leaf)]);
-        var guardThen = new Block();
-        guardThen.Add(new Return(new Constant(true, Bool)));
-        block.Add(new IfStatement(guard, guardThen, null));
-
-        if (withDefaultTail)
-            block.Add(new Return(False()));
-
-        var container = new BlockContainer();
-        container.Add(block);
-        var signature = new MethodSignature(Bool, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
-        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Leaf, Bool, Node, Node, Node), container);
-    }
-
-    [Fact]
-    public void Synthetic_PositiveGuardMissingDefaultTail_DoesNotRaise()
-    {
-        // Without the explicit trailing `return false`, the guard-fail fall
-        // through would drop out of the block rather than reach the default;
-        // accepting the empty tail would silently reroute that path.
-        var missing = SinglePositiveGuardArm(withDefaultTail: false);
-        RunPass(missing);
-        Assert.Empty(missing.Descendants.OfType<PatternSwitchExpression>());
-
-        // Control: with the trailing default present the arm raises.
-        var present = SinglePositiveGuardArm(withDefaultTail: true);
-        RunPass(present);
-        Assert.Single(present.Descendants.OfType<PatternSwitchExpression>());
-    }
-
-    // ── Adversarial-review regression guards (PR #3082) ────────────────────
-
-    [Fact]
-    public void Synthetic_UnreadPatternLocalLeaksIntoSiblingArm_DoesNotRaise()
-    {
-        // arm0 does NOT reference its own bound local (`arm0Value` is a
-        // constant), so the arm renders no pattern variable (`LocalIndex` is
-        // null). arm1's value, however, reads arm0's bound local. Scope
-        // validation must track the arm's `isinst` local even when it is not
-        // rendered; otherwise the sibling read escapes and the raised C# emits an
-        // out-of-scope reference (CS0103). Reported independently by Gemini
-        // (sibling read) — the unrendered-local variant of the #3034 leak guard.
-        var leaked = TwoArm(
-            arm0Guard: null,
-            arm0Value: new Constant(true, Bool),
-            arm1Value: new Call(new MethodRef(Leaf, "V", Bool, [Leaf], HasThis: false), isVirtual: false, [new LoadLocal(0, Leaf)]),
-            defaultValue: False(),
-            arm0Type: Leaf,
-            arm1Type: Branch);
-        RunPass(leaked, typesProvablyDisjoint: (_, _) => true);
-        Assert.Empty(leaked.Descendants.OfType<PatternSwitchExpression>());
-
-        // Control: arm1 reads its own local instead of arm0's — raises.
-        var scoped = TwoArm(
-            arm0Guard: null,
-            arm0Value: new Constant(true, Bool),
-            arm1Value: new Call(new MethodRef(Branch, "V", Bool, [Branch], HasThis: false), isVirtual: false, [new LoadLocal(1, Branch)]),
-            defaultValue: False(),
-            arm0Type: Leaf,
-            arm1Type: Branch);
-        RunPass(scoped, typesProvablyDisjoint: (_, _) => true);
-        Assert.Single(scoped.Descendants.OfType<PatternSwitchExpression>());
-    }
-
-    [Fact]
-    public void Synthetic_UnreadPatternLocalLeaksIntoDefault_DoesNotRaise()
-    {
-        // Neither arm references its own bound local, so no arm renders a
-        // pattern variable. The default expression, however, reads arm0's bound
-        // local. In the lowered cascade that local holds the matched value; in
-        // the raised switch the default arm cannot see it, so the raise would
-        // read `default(T)` — a behavior change. Scope validation must reject a
-        // default that reads any arm's `isinst` local even when unrendered.
-        // Reported independently by GPT (default read).
-        var leakedDefault = TwoArm(
-            arm0Guard: null,
-            arm0Value: new Constant(true, Bool),
-            arm1Value: new Constant(true, Bool),
-            defaultValue: new LoadLocal(0, Leaf),
-            arm0Type: Leaf,
-            arm1Type: Branch);
-        RunPass(leakedDefault, typesProvablyDisjoint: (_, _) => true);
-        Assert.Empty(leakedDefault.Descendants.OfType<PatternSwitchExpression>());
-
-        // Control: the default reads no pattern local — raises.
-        var cleanDefault = TwoArm(
-            arm0Guard: null,
-            arm0Value: new Constant(true, Bool),
-            arm1Value: new Constant(true, Bool),
-            defaultValue: False(),
-            arm0Type: Leaf,
-            arm1Type: Branch);
-        RunPass(cleanDefault, typesProvablyDisjoint: (_, _) => true);
-        Assert.Single(cleanDefault.Descendants.OfType<PatternSwitchExpression>());
-    }
-
-    [Fact]
-    public void Synthetic_ArmLocalAliasesSwitchValueTemp_DoesNotRaise()
-    {
-        // arm0 binds its `isinst` result into the very slot that holds the
-        // switch value. The store overwrites the receiver, so arm1 tests the
-        // `isinst` result rather than the original value — for a Branch argument
-        // the cascade returns the default while `node switch { Leaf => .., Branch
-        // => .., _ => false }` would match Branch. Reported by GPT at the fixed
-        // head. Every arm intro reads (and here rebinds) the sv slot, so the
-        // existing ownership/scoping checks pass; the alias must be rejected.
-        var block = new Block(0);
-        // sv slot (0) := arg, then arm0's isinst overwrites the same slot (0).
-        block.Add(new StoreLocal(0, Node, new LoadArgument(0, "node", Node)));
-        block.Add(new StoreLocal(0, Leaf, new IsInstance(Leaf, new LoadLocal(0, Node))));
-        var rest = new Block();
-        rest.Add(new StoreLocal(1, Branch, new IsInstance(Branch, new LoadLocal(0, Leaf))));
-        var arm1Dispatch = new Block();
-        arm1Dispatch.Add(new Return(False()));
-        rest.Add(new IfStatement(new LogicalNot(new LoadLocal(1, Branch)), arm1Dispatch, null));
-        rest.Add(new Return(new Constant(true, Bool)));
+        block.Add(new StoreLocal(0, Leaf, new IsInstance(Leaf, Sv())));
         block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, Leaf)), rest, null));
-        block.Add(new Return(new Constant(true, Bool)));
+        block.Add(new Return(new Constant(1, Int32)));
 
         var container = new BlockContainer();
         container.Add(block);
-        var signature = new MethodSignature(Bool, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
-        var function = new IrFunction("M", Node, signature, ImmutableArray.Create(Node, Branch, Bool, Node, Node, Node), container);
-
-        RunPass(function, typesProvablyDisjoint: (_, _) => true);
-        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+        var signature = new MethodSignature(Int32, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Twig, Node, Node, Node, Node), container);
     }
 
     [Fact]
-    public void Synthetic_SwitchValueTempReadInArmValue_DoesNotRaise()
+    public void Synthetic_TempScrutineeAddressTaken_DoesNotRaise()
     {
-        // Identical to Synthetic_MatchingShape_Raises except the arm value reads
-        // the switch-value temp (V5) rather than a constant. The rewrite removes
-        // the temp's binding (`V5 = node`) and re-spells the governing
-        // expression, so the raised arm body `Use(V5)` would read `default(Node)`
-        // instead of the original receiver. The temp may be read only by the arm
-        // type tests; a read in an arm value must decline. Reported by GPT at the
-        // alias-fix head.
-        var function = SingleArm(
-            switchValue: new LoadArgument(0, "node", Node),
-            guard: null,
-            armValue: new Call(new MethodRef(Node, "Use", Bool, [Node], HasThis: false), isVirtual: false, [new LoadLocal(5, Node)]),
-            noMatchDefault: False());
+        // #3028 review round 2 (GPT, Finding C): the temp-form ownership check
+        // proves `SV` is referenced only inside the cascade, but an address-of
+        // `SV` in an arm (`Mutate(ref SV)`) is such a reference — and the fold
+        // deletes `SV`'s defining store, dangling it, while a by-ref mutation
+        // would change the value later arms read. The read-only check declines.
+        var function = TempCascadeWithTempAddress();
 
         RunPass(function);
+
         Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
     }
 
-    [Fact]
-    public void Synthetic_GoverningValueAliasesRenderedPatternLocal_DoesNotRaise()
+    // Builds a direct-place cascade whose head is an intro-chain arm carrying a
+    // single-level property subpattern (`Outer { Inner: Leaf }`), followed by one
+    // inline sibling arm of the SAME outer type (`Outer`):
+    //   `L0 = place as Outer; if (!L0) { if (place is Outer) return 2; return -1; }
+    //    L1 = L0.Inner as Leaf; if (L1) return 1; return -1;`
+    // A failed subpattern (`Inner` not `Leaf`) routes straight to the default,
+    // exactly as a failed `when` guard does.
+    static IrFunction DirectSubpatternPlusInline(IrExpression place)
     {
-        // The governing switch value is `LoadLocal 0` — the same slot the single
-        // arm binds and renders as its pattern variable (`Leaf V_0`). The rewrite
-        // re-spells the governing expression as `V_0` and consumes the arm's
-        // `isinst` store, so the emitted `V_0 switch { Leaf V_0 => ... }` names
-        // the pattern variable in the governing position, where it is out of
-        // scope (CS0103) or collides with the binding (CS0136). Decline when the
-        // governing `LoadLocal` aliases a rendered pattern local. Reported by GPT
-        // at the sv-leak-fix head.
-        var function = SingleArm(
-            switchValue: new LoadLocal(0, Leaf),
-            guard: null,
-            armValue: new Call(new MethodRef(Leaf, "Use", Bool, [Leaf], HasThis: false), isVirtual: false, [new LoadLocal(0, Leaf)]),
-            noMatchDefault: False());
+        var accessor = new MethodRef(Outer, "get_Inner", Inner, [], HasThis: true);
+
+        var innerThen = new Block();
+        innerThen.Add(new Return(new Constant(2, Int32)));
+        var rest = new Block();
+        rest.Add(new IfStatement(new IsPattern((IrExpression)place.Clone(), Outer, 5), innerThen, null));
+        rest.Add(new Return(new Constant(-1, Int32)));
+
+        var subThen = new Block();
+        subThen.Add(new Return(new Constant(1, Int32)));
+
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, Outer, new IsInstance(Outer, (IrExpression)place.Clone())));
+        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, Outer)), rest, null));
+        block.Add(new StoreLocal(1, Leaf, new IsInstance(Leaf, new LoadProperty(accessor, new LoadLocal(0, Outer), []))));
+        block.Add(new IfStatement(new LoadLocal(1, Leaf), subThen, null));
+        block.Add(new Return(new Constant(-1, Int32)));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Int32, [new Parameter("node", Outer)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Outer, signature, ImmutableArray.Create(Outer, Leaf), container);
+    }
+
+    [Fact]
+    public void Synthetic_DirectSubpatternOverlapsLaterArm_DoesNotRaise()
+    {
+        // #3028 review round 2 (GPT): the unguarded-surface gate must also reject
+        // property-subpattern arms on the new surface. An `Outer { Inner: Leaf }`
+        // arm whose inner match fails routes to the default just like a failed
+        // guard; folding it (with a later overlapping `Outer` arm) would make that
+        // failure fall through to the `Outer` arm instead — divergent. The gate
+        // declines any guarded OR subpattern arm on the direct/inline surface.
+        var function = DirectSubpatternPlusInline(new LoadArgument(0, "node", Outer));
 
         RunPass(function);
+
         Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
-    }
-
-    // ── Disjointness oracle guards (PR #3082, Finding 2) ───────────────────
-
-    static readonly string TestAssembly =
-        typeof(PatternSwitchExpressionPassTests).Assembly.GetName().Name!;
-
-    static readonly string FixtureNamespace = typeof(DisjointSiblingA).Namespace!;
-
-    static TypeRef FixtureType(string name)
-        => TypeRef.Definition(TestAssembly, FixtureNamespace, name);
-
-    [Fact]
-    public void AreProvablyDisjoint_NonGenericSiblings_ProvenDisjoint()
-    {
-        // Two unrelated non-generic classes whose base chains both resolve to
-        // object share no instance: the positive control that the oracle does
-        // issue proofs when it soundly can.
-        using var source = MetadataSource.Open(typeof(PatternSwitchExpressionPassTests).Assembly.Location);
-        Assert.True(source.AreProvablyDisjoint(FixtureType("DisjointSiblingA"), FixtureType("DisjointSiblingB")));
-    }
-
-    [Fact]
-    public void AreProvablyDisjoint_AncestorPair_NotDisjoint()
-    {
-        // A value of the derived type is also the base type, so the two overlap;
-        // the oracle must not claim disjointness. `DerivedC`'s base chain
-        // contains `BaseC`, so containment is observed.
-        using var source = MetadataSource.Open(typeof(PatternSwitchExpressionPassTests).Assembly.Location);
-        Assert.False(source.AreProvablyDisjoint(FixtureType("DisjointDerivedC"), FixtureType("DisjointBaseC")));
-        Assert.False(source.AreProvablyDisjoint(FixtureType("DisjointBaseC"), FixtureType("DisjointDerivedC")));
-    }
-
-    [Fact]
-    public void AreProvablyDisjoint_OpenGenericDefinition_NeverProvenDisjoint()
-    {
-        // `GenericDerived<T> : GenericBase<T>`. The derived type's base appears
-        // in its base chain as a closed generic instance (`GenericBase<T>`),
-        // which never equals the open definition `GenericBase`1`, so ancestry
-        // through a generic supertype cannot be observed. The oracle must
-        // conservatively decline for open generic definitions rather than
-        // falsely prove an overlapping pair disjoint.
-        using var source = MetadataSource.Open(typeof(PatternSwitchExpressionPassTests).Assembly.Location);
-        var genericBase = FixtureType("DisjointGenericBase`1");
-        var genericDerived = FixtureType("DisjointGenericDerived`1");
-        Assert.False(source.AreProvablyDisjoint(genericDerived, genericBase));
-        Assert.False(source.AreProvablyDisjoint(genericBase, genericDerived));
-        // Even against a genuinely unrelated non-generic type, an open generic
-        // definition is declined (documented hard guarantee).
-        Assert.False(source.AreProvablyDisjoint(genericBase, FixtureType("DisjointSiblingA")));
-        Assert.False(source.AreProvablyDisjoint(FixtureType("DisjointSiblingA"), genericBase));
     }
 }
-
-// Self-contained type shapes exercised by the AreProvablyDisjoint guard tests.
-// Compiled into the test assembly so the oracle resolves their real base chains
-// (same-assembly) without depending on BCL internals.
-internal class DisjointSiblingA { }
-internal class DisjointSiblingB { }
-internal class DisjointBaseC { }
-internal class DisjointDerivedC : DisjointBaseC { }
-internal class DisjointGenericBase<T> { }
-internal class DisjointGenericDerived<T> : DisjointGenericBase<T> { }

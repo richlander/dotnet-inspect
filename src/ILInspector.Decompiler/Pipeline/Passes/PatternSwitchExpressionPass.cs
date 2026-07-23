@@ -19,29 +19,40 @@ namespace ILInspector.Decompiler.Pipeline;
 ///   <item>each pattern-bound local referenced only within its own arm.</item>
 /// </list>
 /// Faithfully reproducing the same arms, order, guards, and default round-trips
-/// to the same lowering only when the arms cannot diverge from the cascade. A
-/// guard or subpattern arm routes a type-match-but-refuted value to the default
-/// in the cascade but to a later arm in a switch expression, so the pass raises
-/// such an arm only when its pattern type is provably disjoint from every later
-/// arm's type (via <see cref="PassContext.TypesProvablyDisjoint"/>); absent that
-/// proof it declines and leaves the cascade untouched.
+/// to the same lowering: guard-fail routing straight to the default (rather than
+/// the next arm) is valid precisely because the compiler proved the arm pattern
+/// types mutually exclusive.
 /// </summary>
 public sealed class PatternSwitchExpressionPass : IIrPass
 {
     public string Name => "pattern-switch-expression";
 
-    // PatternLocal is the outer local every arm binds its `isinst` result to,
-    // always present regardless of rendering. LocalIndex is the subset actually
-    // spelled as a C# pattern variable (null when the outer type binds no name,
-    // e.g. a pure `U { Prop: T inner }` arm). Scope validation uses PatternLocal;
-    // rendering uses LocalIndex.
-    sealed record ArmData(TypeRef PatternType, int PatternLocal, int? LocalIndex, PropertySubpattern? Subpattern, IrExpression? Guard, IrExpression Value);
+    sealed record ArmData(TypeRef PatternType, int? LocalIndex, PropertySubpattern? Subpattern, IrExpression? Guard, IrExpression Value, bool IsInline);
+
+    /// <summary>
+    /// The value every arm of the cascade tests. csc reads it either through a
+    /// once-bound temp (<c>StoreLocal SV = place</c>; arms test <c>LoadLocal
+    /// SV</c>) or directly from a re-evaluable place (arms test the
+    /// <c>LoadArgument</c>/<c>LoadLocal</c> itself). <see cref="Matches"/> is the
+    /// single identity check both arm intros use, so temp and direct cascades
+    /// share one recognizer.
+    /// </summary>
+    readonly struct Scrutinee(int? tempLocal, IrExpression place)
+    {
+        public int? TempLocal { get; } = tempLocal;
+        public IrExpression Place { get; } = place;
+
+        public bool Matches(IrExpression? operand)
+            => TempLocal is { } t
+                ? operand is LoadLocal load && load.Index == t
+                : PlaceIdentity.SameOperand(operand, Place);
+    }
 
     public void Run(IrFunction function, PassContext context)
     {
         foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
         {
-            if (container.Blocks is [var block] && TryMatch(function, block, context, out int startIndex, out var switchExpression))
+            if (container.Blocks is [var block] && TryMatch(function, block, out int startIndex, out var switchExpression))
             {
                 block.SetChild(startIndex, new Return(switchExpression!));
                 for (int i = block.Children.Count - 1; i > startIndex; i--)
@@ -51,144 +62,154 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         }
     }
 
-    bool TryMatch(IrFunction function, Block block, PassContext context, out int startIndex, out PatternSwitchExpression? switchExpression)
+    bool TryMatch(IrFunction function, Block block, out int startIndex, out PatternSwitchExpression? switchExpression)
     {
         startIndex = -1;
         switchExpression = null;
 
         var children = block.Children;
-        if (children.Count < 3)
+        // Smallest cascade: one arm plus the default tail (inline form is
+        // `if (place is T x) { ... } return <default>`).
+        if (children.Count < 2)
             return false;
 
-        // Locate the switch-value binding: `StoreLocal SV = <re-evaluable place>`
-        // immediately followed by the first arm's `StoreLocal Lk = isinst Tk(LoadLocal SV)`.
-        for (int i = 0; i < children.Count - 2; i++)
+        for (int i = 0; i < children.Count - 1; i++)
         {
-            if (children[i] is not StoreLocal { Value: { } svValue } svStore)
-                continue;
-            if (!IsReEvaluablePlace(svValue))
-                continue;
-            if (!IsArmIntro(children[i + 1], svStore.Index, out _, out _, out _))
-                continue;
-
-            int svLocal = svStore.Index;
-            // The cascade region runs from the first arm intro to the end of the
-            // block. Each arm's matched body trails its dispatch test as sibling
-            // statements, and the no-match remainder (further arms, ultimately the
-            // default) nests inside that test's `then` branch.
-            var region = children.Skip(i + 1).ToList();
-            // The default is the value the innermost no-match path returns; it is
-            // discovered from the bottom of the dispatch chain, then every other
-            // no-match and guard-fail path is validated to yield the same value.
-            if (!TryDiscoverDefault(region, svLocal, out var defaultValue) || defaultValue is null)
-                continue;
-
-            var arms = new List<ArmData>();
-            if (!TryParseChain(region, 0, svLocal, defaultValue, arms) || arms.Count == 0)
-                continue;
-
-            // Consumed nodes: the switch-value store plus the entire cascade region.
-            var consumed = new List<IrNode> { svStore };
-            consumed.AddRange(children.Skip(i + 1));
-
-            // The switch-value temp must be read only inside the consumed cascade.
-            if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, svLocal, consumed))
-                continue;
-
-            // Each pattern-bound local must be referenced only inside the cascade.
-            bool ownershipHolds = true;
-            foreach (var arm in arms)
+            // Temp form: `StoreLocal SV = <re-evaluable place>` bound once, then
+            // arms testing `LoadLocal SV`. The cascade region runs from the first
+            // arm (children[i + 1]) to the end of the block; the switch-value
+            // store is consumed alongside it.
+            if (children[i] is StoreLocal { Value: { } svValue } svStore
+                && IsReEvaluablePlace(svValue)
+                && TestsScrutinee(children[i + 1], new Scrutinee(svStore.Index, svValue)))
             {
-                foreach (int local in PatternLocals(arm))
+                var scrutinee = new Scrutinee(svStore.Index, svValue);
+                if (TryFold(function, children, i + 1, scrutinee, svValue, new IrNode[] { svStore }, minArms: 1, out switchExpression))
                 {
-                    if (!ReferenceOwnership.LocalReferencedOrBoundOnlyWithin(function, local, consumed))
-                    {
-                        ownershipHolds = false;
-                        break;
-                    }
+                    startIndex = i;
+                    return true;
                 }
-                if (!ownershipHolds)
-                    break;
             }
-            if (!ownershipHolds)
-                continue;
 
-            // No arm may bind its `isinst` result into the switch-value temp
-            // itself. That store overwrites the receiver the remaining arm tests
-            // re-read (so a later arm tests the previous arm's `isinst` result,
-            // not the original value), whereas the raised switch evaluates every
-            // arm against the one original value. Decline to preserve semantics.
-            if (arms.Any(a => PatternLocals(a).Contains(svLocal)))
-                continue;
-
-            // The switch value is re-spelled as the raised switch's governing
-            // expression, and the rewrite removes the temp's lowered binding
-            // (`svStore`). The temp may therefore be read only by the arm type
-            // tests (which become the patterns). Any other read — in a guard, an
-            // arm value, or the default — would see the original receiver in the
-            // cascade but `default(T)` in the raised switch (the binding is
-            // gone), so decline when the temp leaks into an arm body or default.
-            if (arms.Any(a => ReferencesLocalIn(a.Guard, svLocal)
-                    || ReferenceOwnership.SubtreeReferencesLocal(a.Value, svLocal))
-                || ReferenceOwnership.SubtreeReferencesLocal(defaultValue, svLocal))
-                continue;
-
-            // The switch value is re-spelled verbatim as the raised switch's
-            // governing expression. If that place is a `LoadLocal` of a slot an
-            // arm also renders as its pattern variable, the emitted
-            // `V switch { T V => ... }` names the pattern variable in the
-            // governing position, where it is either out of scope (CS0103, the
-            // slot's only binding was the consumed `isinst` store) or collides
-            // with the arm binding (CS0136). Decline when the governing local
-            // aliases any rendered pattern local.
-            if (svValue is LoadLocal governing
-                && arms.Any(a => a.LocalIndex == governing.Index
-                    || a.Subpattern?.LocalIndex == governing.Index))
-                continue;
-
-            // A pattern variable is scoped to its own switch arm: no sibling
-            // arm's guard/value and not the default may read it. In the lowered
-            // cascade the bound local outlives its arm, but the raised C# would
-            // reference an out-of-scope variable (CS0103). Decline if any pattern
-            // local leaks across arms.
-            if (!PatternLocalsAreArmScoped(arms, defaultValue))
-                continue;
-
-            // A refutable arm (a when-guard or a property subpattern) routes a
-            // value that matches its type but fails the refinement to the default
-            // in the cascade, whereas a switch expression routes it to the next
-            // matching arm. The two agree only when no later arm's type can also
-            // match, so require the refutable arm's type to be provably disjoint
-            // from every later arm's type. Absent a disjointness oracle or a
-            // proof, decline rather than risk a semantics change.
-            if (!RefutableArmsDisjointFromLaterArms(arms, context))
-                continue;
-
-            var builtArms = arms.Select(a => new PatternSwitchExpressionArm(
-                a.PatternType,
-                a.LocalIndex,
-                a.Subpattern,
-                (IrExpression)a.Value.Clone(),
-                a.Guard is { } g ? (IrExpression)g.Clone() : null)).ToList();
-
-            switchExpression = new PatternSwitchExpression(
-                (IrExpression)svValue.Clone(),
-                builtArms,
-                (IrExpression)defaultValue.Clone());
-            startIndex = i;
-            return true;
+            // Direct form: no temp; the leading arm is an intro-chain arm reading
+            // a re-evaluable place directly (`Lk = place as T; if (!Lk) { REST }
+            // MATCHED`), and later arms may be inline-positive siblings. Temp form
+            // is tried first at each index, so a genuine temp cascade is consumed
+            // there (with its `StoreLocal SV`). A single-arm direct cascade is left
+            // alone: it is indistinguishable from an ordinary `if (place is T t)`
+            // guard, which IsPatternPass already renders idiomatically.
+            if (TryScrutineeFromDirectArm(children[i], out var directScrutinee)
+                && !IsScrutineeStoredBefore(children, i, directScrutinee)
+                && TryFold(function, children, i, directScrutinee, directScrutinee.Place, System.Array.Empty<IrNode>(), minArms: 2, out switchExpression))
+            {
+                startIndex = i;
+                return true;
+            }
         }
 
         return false;
     }
 
+    // Attempts to fold the cascade region `children[regionStart..]` into a switch
+    // expression over `switchValue`. `headConsumed` are nodes before the region
+    // that the fold also consumes (the switch-value temp store, for the temp
+    // form). Discovers the default, parses the arm chain, and enforces that the
+    // scrutinee temp and every pattern-bound local are referenced only inside the
+    // consumed cascade before building the expression.
+    bool TryFold(
+        IrFunction function,
+        IReadOnlyList<IrNode> children,
+        int regionStart,
+        Scrutinee scrutinee,
+        IrExpression switchValue,
+        IReadOnlyList<IrNode> headConsumed,
+        int minArms,
+        out PatternSwitchExpression? switchExpression)
+    {
+        switchExpression = null;
+
+        var region = children.Skip(regionStart).ToList();
+        // The default is the value the innermost no-match path returns; it is
+        // discovered from the bottom of the cascade, then every other no-match and
+        // guard-fail path is validated to yield the same value.
+        if (!TryDiscoverDefault(region, 0, scrutinee, out var defaultValue) || defaultValue is null)
+            return false;
+
+        var arms = new List<ArmData>();
+        if (!TryParseChain(region, 0, scrutinee, defaultValue, arms) || arms.Count < minArms)
+            return false;
+
+        // PR A (#3028) scopes the newly recognized heterogeneous surface — a
+        // direct (temp-less) scrutinee, or any inline-positive sibling arm — to
+        // plain, unguarded type-pattern arms. A guarded arm, or a property-
+        // subpattern arm (`Outer { Inner: T }`), routes its guard/subpattern
+        // FAILURE straight to the trailing default; in the folded switch that
+        // failure instead falls through to the later arms. Reproducing the
+        // original routing is faithful only when no later arm can match the same
+        // value, which needs a type-disjointness oracle this SRM-only,
+        // no-inspected-assembly-loading pass does not have. The pre-existing
+        // temp-form intro cascade (#3022) keeps its guarded and subpattern arms
+        // under the compiler's proven mutual exclusivity; guarded/subpattern
+        // heterogeneous arms are deferred to a follow-up carrying a real oracle.
+        bool isNewSurface = scrutinee.TempLocal is null || arms.Any(a => a.IsInline);
+        if (isNewSurface && arms.Any(a => a.Guard is not null || a.Subpattern is not null))
+            return false;
+
+        var consumed = new List<IrNode>(headConsumed);
+        consumed.AddRange(region);
+
+        // A temp scrutinee must be read only inside the consumed cascade, and only
+        // read there: a store or address-of the temp inside the cascade would let a
+        // guard mutate the value later arms observe (and the fold deletes the temp's
+        // defining store, dangling any surviving reference).
+        if (scrutinee.TempLocal is { } tempLocal
+            && (!ReferenceOwnership.LocalReferencesOnlyWithin(function, tempLocal, consumed)
+                || !TempScrutineeReadOnly(tempLocal, region, consumed)))
+            return false;
+
+        // A direct (temp-less) scrutinee is re-read by every arm from its
+        // underlying place. A switch expression evaluates the value once, so the
+        // fold is faithful only if that place cannot change across the cascade —
+        // neither by a direct store between arm tests nor by an aliased by-ref
+        // mutation through an address taken anywhere in the method.
+        if (scrutinee.TempLocal is null && !DirectScrutineeStable(function, scrutinee.Place, consumed))
+            return false;
+
+        // Each pattern-bound local must be referenced only inside the cascade.
+        foreach (var arm in arms)
+        {
+            foreach (int local in PatternLocals(arm))
+            {
+                if (!ReferenceOwnership.LocalReferencedOrBoundOnlyWithin(function, local, consumed))
+                    return false;
+            }
+        }
+
+        var builtArms = arms.Select(a => new PatternSwitchExpressionArm(
+            a.PatternType,
+            a.LocalIndex,
+            a.Subpattern,
+            (IrExpression)a.Value.Clone(),
+            a.Guard is { } g ? (IrExpression)g.Clone() : null)).ToList();
+
+        switchExpression = new PatternSwitchExpression(
+            (IrExpression)switchValue.Clone(),
+            builtArms,
+            (IrExpression)defaultValue.Clone());
+        return true;
+    }
+
     // A chain of arms whose collective no-match fall-through reaches the default.
-    // Post-lowering, each arm is `intro Lk = isinst Tk(SV); if (!Lk) { REST }
-    // MATCHED` where MATCHED (this arm's guard + value) trails the dispatch test
-    // as sibling statements, and REST (the remaining arms, ultimately a bare
-    // `return <default>`) nests inside the test's `then` branch. The dispatch
-    // test carries no `else`: its `then` always returns, so csc drops it.
-    bool TryParseChain(IReadOnlyList<IrNode> stmts, int index, int svLocal, IrExpression defaultValue, List<ArmData> arms)
+    // Two arm shapes are recognized and may be mixed:
+    //   * Intro-chain arm: `intro Lk = isinst Tk(SV); if (!Lk) { REST } MATCHED`
+    //     where MATCHED (this arm's guard + value) trails the dispatch test as
+    //     sibling statements and REST (the remaining arms, ultimately a bare
+    //     `return <default>`) nests inside the test's `then` branch. The dispatch
+    //     test carries no `else`: its `then` always returns, so csc drops it.
+    //   * Inline-positive arm: `if (SV is Tk x) { MATCHED }` whose no-match falls
+    //     straight through to the following sibling statement (the next arm, or the
+    //     bare `return <default>`).
+    bool TryParseChain(IReadOnlyList<IrNode> stmts, int index, Scrutinee scrutinee, IrExpression defaultValue, List<ArmData> arms)
     {
         if (index >= stmts.Count)
             return false;
@@ -197,7 +218,33 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         if (index == stmts.Count - 1 && stmts[index] is Return { Value: { } tailValue } && DefaultEquals(tailValue, defaultValue))
             return true;
 
-        if (!IsArmIntro(stmts[index], svLocal, out int patternLocal, out var patternType, out _))
+        // Inline-positive arm: the matched body lives in the `then` block and the
+        // remaining arms follow as siblings after the `if`.
+        if (IsInlineArm(stmts[index], scrutinee, out int inlineLocal, out var inlineType, out var inlineBody))
+        {
+            if (!TryParseGuardedValue(inlineBody.Children, 0, defaultValue, out var inlineGuard, out var inlineValue, out int inlineConsumed, out bool inlineShortCircuits)
+                || !ReachesDefaultTail(inlineBody.Children, inlineConsumed, defaultValue))
+                return false;
+            // An inline arm's guard failure must fall through to the following
+            // sibling arm, exactly as a switch `when` guard does. The negated form
+            // (`if (!G) return <default>;`) short-circuits to the default on guard
+            // failure, and a positive guard with any trailing statement does the
+            // same — both skip later arms a switch expression would still test.
+            // Only fall-through shapes are safe here: an unguarded body, or a
+            // positive `if (G) { return V; }` that is the entire matched body.
+            if (inlineGuard is not null && (inlineShortCircuits || inlineConsumed != inlineBody.Children.Count))
+                return false;
+            int? inlineIndex = ReferencesLocalIn(inlineGuard, inlineLocal) || ReferenceOwnership.SubtreeReferencesLocal(inlineValue, inlineLocal)
+                ? inlineLocal
+                : null;
+            // Inline arms are the newly recognized heterogeneous surface; PR A
+            // (#3028) folds them only unguarded (the guard gate in TryFold rejects
+            // a guarded new-surface fold). Tag the arm inline so that gate applies.
+            arms.Add(new ArmData(inlineType, inlineIndex, Subpattern: null, inlineGuard, inlineValue, IsInline: true));
+            return TryParseChain(stmts, index + 1, scrutinee, defaultValue, arms);
+        }
+
+        if (!IsArmIntro(stmts[index], scrutinee, out int patternLocal, out var patternType, out _))
             return false;
         if (index + 1 >= stmts.Count || stmts[index + 1] is not IfStatement { HasElse: false } dispatch)
             return false;
@@ -205,45 +252,58 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             return false;
 
         // MATCHED body = the sibling statements after the dispatch test.
-        if (!TryParseMatchedBody(stmts, index + 2, patternType, patternLocal, defaultValue, out var arm, out int matchedNext, out bool fallsThrough))
+        if (!TryParseMatchedBody(stmts, index + 2, patternType, patternLocal, defaultValue, out var arm, out int matchedNext))
             return false;
         // Nothing may follow the matched body at this level except an optional
-        // trailing `return <default>`. When the matched body can fall through
-        // (a positive-form guard or a property subpattern), that trailing
-        // default MUST be present; otherwise the fall-through path would be
-        // silently rerouted to whatever the recursion parses next.
-        if (!ReachesDefaultTail(stmts, matchedNext, defaultValue, fallsThrough))
+        // trailing `return <default>` (an arm's own no-match fall-through).
+        if (!ReachesDefaultTail(stmts, matchedNext, defaultValue))
             return false;
 
         arms.Add(arm);
         // REST: the remaining arms (or the bare default) nest in the `then` branch.
-        return TryParseChain(dispatch.Then.Children, 0, svLocal, defaultValue, arms);
+        return TryParseChain(dispatch.Then.Children, 0, scrutinee, defaultValue, arms);
     }
 
-    // Walks the dispatch chain to its bottom to recover the default value: the
-    // value the innermost `if (!Llast) { return <default>; }` no-match path
-    // yields. Each level is `intro Lk = isinst Tk(SV); if (!Lk) { REST }`; when
-    // REST is a bare `return D`, D is the default; otherwise descend into REST.
-    bool TryDiscoverDefault(IReadOnlyList<IrNode> region, int svLocal, out IrExpression? defaultValue)
+    // Walks the cascade to its bottom to recover the default value: the value the
+    // innermost no-match path yields. An intro-chain arm's no-match nests in its
+    // dispatch `then` (descend into it); an inline-positive arm's no-match falls
+    // through to the following sibling (advance past it); the bottom is a bare
+    // trailing `return <default>`.
+    bool TryDiscoverDefault(IReadOnlyList<IrNode> stmts, int index, Scrutinee scrutinee, out IrExpression? defaultValue)
     {
         defaultValue = null;
-        var current = region;
-        // Bounded to the block's own statement budget so a malformed nest cannot loop.
-        for (int guard = 0; guard < 1024; guard++)
+        // Bounded to a generous statement budget so a malformed nest cannot loop.
+        for (int guard = 0; guard < 4096; guard++)
         {
-            if (current.Count < 2)
+            if (index >= stmts.Count)
                 return false;
-            if (!IsArmIntro(current[0], svLocal, out int local, out _, out _))
-                return false;
-            if (current[1] is not IfStatement { HasElse: false } dispatch || !IsNegatedLocalTest(dispatch.Condition, local))
-                return false;
-            var then = dispatch.Then.Children;
-            if (then is [Return { Value: { } value }])
+
+            // Bottom: a bare `return <default>` as the final statement.
+            if (index == stmts.Count - 1 && stmts[index] is Return { Value: { } tail })
             {
-                defaultValue = value;
+                defaultValue = tail;
                 return true;
             }
-            current = then;
+
+            // Inline-positive arm: no-match falls through to the next sibling.
+            if (IsInlineArm(stmts[index], scrutinee, out _, out _, out _))
+            {
+                index++;
+                continue;
+            }
+
+            // Intro-chain arm: no-match nests in the dispatch test's `then` branch.
+            if (IsArmIntro(stmts[index], scrutinee, out int local, out _, out _)
+                && index + 1 < stmts.Count
+                && stmts[index + 1] is IfStatement { HasElse: false } dispatch
+                && IsNegatedLocalTest(dispatch.Condition, local))
+            {
+                stmts = dispatch.Then.Children;
+                index = 0;
+                continue;
+            }
+
+            return false;
         }
         return false;
     }
@@ -259,12 +319,10 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         int patternLocal,
         IrExpression defaultValue,
         out ArmData arm,
-        out int nextIndex,
-        out bool fallsThrough)
+        out int nextIndex)
     {
         arm = null!;
         nextIndex = -1;
-        fallsThrough = false;
         if (index >= stmts.Count)
             return false;
 
@@ -279,8 +337,8 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             && stmts[index + 1] is IfStatement { HasElse: false } subIf
             && IsLocalTest(subIf.Condition, subStore.Index))
         {
-            if (!TryParseGuardedValue(subIf.Then.Children, 0, defaultValue, out var innerGuard, out var innerValue, out int innerConsumed, out bool innerFallsThrough)
-                || !ReachesDefaultTail(subIf.Then.Children, innerConsumed, defaultValue, innerFallsThrough))
+            if (!TryParseGuardedValue(subIf.Then.Children, 0, defaultValue, out var innerGuard, out var innerValue, out int innerConsumed, out _)
+                || !ReachesDefaultTail(subIf.Then.Children, innerConsumed, defaultValue))
                 return false;
             var subpattern = new PropertySubpattern(subProperty.Accessor, subType, subStore.Index);
             // The outer pattern binds a local only if it is used by the guard or
@@ -288,34 +346,30 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             int? outerLocal = ReferencesLocalIn(innerGuard, patternLocal) || ReferenceOwnership.SubtreeReferencesLocal(innerValue, patternLocal)
                 ? patternLocal
                 : null;
-            arm = new ArmData(patternType, patternLocal, outerLocal, subpattern, innerGuard, innerValue);
+            arm = new ArmData(patternType, outerLocal, subpattern, innerGuard, innerValue, IsInline: false);
             nextIndex = index + 2;
-            // On submatch failure (`if (Lsub)` false) control drops past the
-            // subpattern test to the enclosing statements, so this arm always
-            // falls through; the caller must find an explicit default tail.
-            fallsThrough = true;
             return true;
         }
 
         // Bare type-pattern arm: a guarded (or unguarded) value run.
-        if (!TryParseGuardedValue(stmts, index, defaultValue, out var guard, out var value, out int consumed, out fallsThrough))
+        if (!TryParseGuardedValue(stmts, index, defaultValue, out var guard, out var value, out int consumed, out _))
             return false;
         int? localIndex = ReferencesLocalIn(guard, patternLocal) || ReferenceOwnership.SubtreeReferencesLocal(value, patternLocal)
             ? patternLocal
             : null;
-        arm = new ArmData(patternType, patternLocal, localIndex, Subpattern: null, guard, value);
+        arm = new ArmData(patternType, localIndex, Subpattern: null, guard, value, IsInline: false);
         nextIndex = index + consumed;
         return true;
     }
 
     // A value run in one of three shapes, all yielding (guard?, value):
-    //   `return V;`                              -> unguarded, does not fall through
-    //   `if (!G) return <default>; return V;`    -> guarded, negated form, does not fall through
-    //   `if (G) { return V; }`                   -> guarded, positive form, falls through on guard-fail
-    // `fallsThrough` reports whether a guard-fail path drops out of this run to
-    // the following statement (rather than returning). The caller must then
-    // require an explicit trailing `return <default>`; otherwise a fall-through
-    // path could be silently rerouted (see ReachesDefaultTail).
+    //   `return V;`                              -> unguarded
+    //   `if (!G) return <default>; return V;`    -> guarded, negated form
+    //   `if (G) { return V; }`                   -> guarded, positive form
+    // `shortCircuitsToDefault` is true only for the negated form, whose guard
+    // failure returns the default immediately rather than falling through to the
+    // following statement — the caller uses it to reject short-circuiting shapes
+    // where fall-through order matters (inline sibling arms).
     bool TryParseGuardedValue(
         IReadOnlyList<IrNode> stmts,
         int index,
@@ -323,12 +377,12 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         out IrExpression? guard,
         out IrExpression value,
         out int consumed,
-        out bool fallsThrough)
+        out bool shortCircuitsToDefault)
     {
         guard = null;
         value = null!;
         consumed = 0;
-        fallsThrough = false;
+        shortCircuitsToDefault = false;
 
         if (index >= stmts.Count)
             return false;
@@ -353,28 +407,28 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             guard = negatedGuard;
             value = guardedValue;
             consumed = 2;
+            shortCircuitsToDefault = true;
             return true;
         }
 
-        // Positive form: `if (G) { return V; }` — guard-fail falls through.
+        // Positive form: `if (G) { return V; }`
         if (guardIf.Then.Children is [Return { Value: { } positiveValue }] && !DefaultEquals(positiveValue, defaultValue))
         {
             guard = guardIf.Condition;
             value = positiveValue;
             consumed = 1;
-            fallsThrough = true;
             return true;
         }
 
         return false;
     }
 
-    static bool IsArmIntro(IrNode node, int svLocal, out int patternLocal, out TypeRef patternType, out IsInstance isInstance)
+    static bool IsArmIntro(IrNode node, Scrutinee scrutinee, out int patternLocal, out TypeRef patternType, out IsInstance isInstance)
     {
         patternLocal = -1;
         patternType = null!;
         isInstance = null!;
-        if (node is StoreLocal { Value: IsInstance { Operand: LoadLocal receiver } test } store && receiver.Index == svLocal)
+        if (node is StoreLocal { Value: IsInstance { Operand: { } operand } test } store && scrutinee.Matches(operand))
         {
             patternLocal = store.Index;
             patternType = test.Type;
@@ -384,29 +438,108 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         return false;
     }
 
+    // An inline-positive arm: `if (scrutinee is Tk x) { MATCHED }` with no `else`.
+    // The matched body is the `then` block; the no-match path falls through to the
+    // following sibling statement.
+    static bool IsInlineArm(IrNode node, Scrutinee scrutinee, out int patternLocal, out TypeRef patternType, out Block matchedBody)
+    {
+        patternLocal = -1;
+        patternType = null!;
+        matchedBody = null!;
+        if (node is IfStatement { HasElse: false, Condition: IsPattern { Type: { } type, LocalIndex: var local, Value: { } operand }, Then: { } then }
+            && scrutinee.Matches(operand))
+        {
+            patternLocal = local;
+            patternType = type;
+            matchedBody = then;
+            return true;
+        }
+        return false;
+    }
+
+    // True when `node` is the first arm of a cascade over `scrutinee` — either an
+    // intro-chain arm or an inline-positive arm. Used to confirm a temp store is
+    // actually followed by a matching cascade before attempting the fold.
+    static bool TestsScrutinee(IrNode node, Scrutinee scrutinee)
+        => IsArmIntro(node, scrutinee, out _, out _, out _)
+            || IsInlineArm(node, scrutinee, out _, out _, out _);
+
+    // Recovers a direct (temp-less) scrutinee from a leading intro-chain arm that
+    // reads a re-evaluable place directly (`Lk = place as T; if (!Lk) …`). The
+    // all-inline form (a leading `if (place is T x)`) is deliberately not anchored
+    // here: a bare inline `is` guard is idiomatically an `if`, not a switch, so
+    // only cascades whose head csc lowered to an intro-chain arm are raised.
+    static bool TryScrutineeFromDirectArm(IrNode node, out Scrutinee scrutinee)
+    {
+        scrutinee = default;
+        if (node is StoreLocal { Value: IsInstance { Operand: { } introOperand } } && IsReEvaluablePlace(introOperand))
+        {
+            scrutinee = new Scrutinee(null, introOperand);
+            return true;
+        }
+        return false;
+    }
+
+    // True when the direct scrutinee's place is a local written by an earlier
+    // sibling statement — i.e. a switch-value temp. Such cascades belong to the
+    // temp form (which consumes the store); the direct form must not steal them.
+    static bool IsScrutineeStoredBefore(IReadOnlyList<IrNode> children, int index, Scrutinee scrutinee)
+    {
+        if (scrutinee.Place is not LoadLocal local)
+            return false;
+        for (int j = 0; j < index; j++)
+        {
+            if (children[j] is StoreLocal store && store.Index == local.Index)
+                return true;
+        }
+        return false;
+    }
+
     static bool IsNegatedLocalTest(IrExpression condition, int local)
         => condition is LogicalNot { Operand: LoadLocal load } && load.Index == local;
 
-    // Confirms the statements after a matched body reach only the default. When
-    // the body cannot fall through (unguarded or negated-form guard: every path
-    // returns) an empty tail is sufficient. When it can fall through (positive
-    // guard or property subpattern) a fall-through path exists that must land on
-    // an explicit trailing `return <default>`; accepting an empty tail there
-    // would let that path be rerouted, changing semantics.
-    static bool ReachesDefaultTail(IReadOnlyList<IrNode> stmts, int index, IrExpression defaultValue, bool fallsThrough)
-    {
-        bool explicitDefault = index == stmts.Count - 1
-            && stmts[index] is Return { Value: { } value } && DefaultEquals(value, defaultValue);
-        if (fallsThrough)
-            return explicitDefault;
-        return index == stmts.Count || explicitDefault;
-    }
+    static bool ReachesDefaultTail(IReadOnlyList<IrNode> stmts, int index, IrExpression defaultValue)
+        => index == stmts.Count
+            || (index == stmts.Count - 1 && stmts[index] is Return { Value: { } value } && DefaultEquals(value, defaultValue));
 
     static bool IsLocalTest(IrExpression condition, int local)
         => condition is LoadLocal load && load.Index == local;
 
     static bool IsReEvaluablePlace(IrExpression expression)
         => expression is LoadArgument or LoadLocal;
+
+    // A direct (temp-less) scrutinee's place must yield an identical value at each
+    // arm's re-read. Reject (a) a store to the underlying local/argument anywhere
+    // inside the cascade — a value change between arm tests — and (b) an address-of
+    // the place ANYWHERE in the method: a live alias admits an indirect by-ref
+    // mutation during the cascade that a consumed-only scan would miss. An
+    // unrecognized place kind is refused outright.
+    static bool DirectScrutineeStable(IrFunction function, IrExpression place, IReadOnlyCollection<IrNode> consumed)
+    {
+        switch (place)
+        {
+            case LoadLocal local:
+                return !ConsumedContains(consumed, node => node is StoreLocal store && store.Index == local.Index)
+                    && !function.Descendants.Any(node => node is LoadLocalAddress address && address.Index == local.Index);
+            case LoadArgument argument:
+                return !ConsumedContains(consumed, node => node is StoreArgument store && store.Index == argument.Index)
+                    && !function.Descendants.Any(node => node is LoadArgumentAddress address && address.Index == argument.Index);
+            default:
+                return false;
+        }
+    }
+
+    // A temp scrutinee (`StoreLocal SV = place`, its defining store consumed as
+    // head) must be read-only across the cascade: no re-store of SV inside the arm
+    // region, and no address-of SV anywhere in the consumed cascade. Either would
+    // let a guard mutate the switch value between arm tests while the fold keeps a
+    // single evaluation (and deletes SV's defining store).
+    static bool TempScrutineeReadOnly(int tempLocal, IReadOnlyCollection<IrNode> region, IReadOnlyCollection<IrNode> consumed)
+        => !ConsumedContains(region, node => node is StoreLocal store && store.Index == tempLocal)
+            && !ConsumedContains(consumed, node => node is LoadLocalAddress address && address.Index == tempLocal);
+
+    static bool ConsumedContains(IReadOnlyCollection<IrNode> roots, System.Func<IrNode, bool> predicate)
+        => roots.Any(root => root.Descendants.Prepend(root).Any(predicate));
 
     static bool ReferencesLocalIn(IrExpression? expression, int local)
         => expression is not null && ReferenceOwnership.SubtreeReferencesLocal(expression, local);
@@ -416,66 +549,9 @@ public sealed class PatternSwitchExpressionPass : IIrPass
 
     static IEnumerable<int> PatternLocals(ArmData arm)
     {
-        // Every arm binds its `isinst` result to an outer local, whether or not
-        // that local is rendered as a C# pattern variable. Scope validation must
-        // see all introduced locals — not only the rendered ones — so a sibling
-        // arm or the default reading an unrendered outer local is still caught.
-        yield return arm.PatternLocal;
+        if (arm.LocalIndex is { } outer)
+            yield return outer;
         if (arm.Subpattern is { } sub)
             yield return sub.LocalIndex;
-    }
-
-    // A pattern variable belongs to exactly one arm. Reject if any arm's
-    // guard/value reads a pattern local owned by a different arm, or if the
-    // default reads any pattern local (all illegal once spelled as C# switch
-    // arms with per-arm variable scope).
-    static bool PatternLocalsAreArmScoped(List<ArmData> arms, IrExpression defaultValue)
-    {
-        var owner = new Dictionary<int, int>();
-        for (int i = 0; i < arms.Count; i++)
-        {
-            foreach (int local in PatternLocals(arms[i]))
-            {
-                // A slot shared by two arms cannot be scoped per-arm; decline.
-                if (owner.ContainsKey(local))
-                    return false;
-                owner[local] = i;
-            }
-        }
-
-        foreach (var (local, armIndex) in owner)
-        {
-            for (int i = 0; i < arms.Count; i++)
-            {
-                if (i == armIndex)
-                    continue;
-                if (ReferencesLocalIn(arms[i].Guard, local) || ReferenceOwnership.SubtreeReferencesLocal(arms[i].Value, local))
-                    return false;
-            }
-            if (ReferenceOwnership.SubtreeReferencesLocal(defaultValue, local))
-                return false;
-        }
-        return true;
-    }
-
-    // A refutable arm (guard or subpattern) is sound to raise only when its
-    // pattern type is provably disjoint from every later arm's type, because
-    // type-match-but-refuted routes to the default in the cascade but to a later
-    // arm in the switch. Unguarded bare arms always return their value on type
-    // match, so they never diverge and need no proof.
-    static bool RefutableArmsDisjointFromLaterArms(List<ArmData> arms, PassContext context)
-    {
-        for (int i = 0; i < arms.Count - 1; i++)
-        {
-            if (arms[i].Guard is null && arms[i].Subpattern is null)
-                continue;
-            for (int j = i + 1; j < arms.Count; j++)
-            {
-                if (context.TypesProvablyDisjoint is not { } disjoint
-                    || !disjoint(arms[i].PatternType, arms[j].PatternType))
-                    return false;
-            }
-        }
-        return true;
     }
 }

@@ -36,4 +36,22 @@ public class FlagsEnumAccumulatorTests
         Assert.Contains("FlagCaps64.MultiStatements", output);
         Assert.Contains("FlagCaps64.MultiResults", output);
     }
+
+    // #3009 sub-part 1: the spilled accumulator slot that holds a bare integer flag
+    // constant is only ever consumed as the enum in the OR chain, so it must testify —
+    // and materialize/fold — as the enum, not the `long` IL storage width. The
+    // pre-fix shape was `long S_0 = (long)512; ... (FlagCaps64)S_0 | ...`.
+    [Fact]
+    public void FlagsEnumAccumulator_FullyRaisesConstantSlot_NoLongSlotOrCast()
+    {
+        var output = Render(nameof(FlagsEnumAccumulatorSamples.Accumulate));
+
+        // No long-typed accumulator slot declaration survives.
+        Assert.DoesNotContain("long S_", output);
+        // No per-use cast of the accumulator slot back to the enum.
+        Assert.DoesNotContain("(FlagCaps64)S_", output);
+        // The 512 constant folded to its enum member and inlined into the chain.
+        Assert.DoesNotContain("(long)512", output);
+        Assert.Contains("FlagCaps64.Protocol", output);
+    }
 }
