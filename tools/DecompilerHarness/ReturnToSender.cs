@@ -674,6 +674,18 @@ static class ReturnToSender
             RoundTripScope.Cluster,
             RoundTripBodyPolicy.Selected);
 
+    internal static IReadOnlyList<Result> CompileBackTargets(
+        string assemblyPath,
+        IReadOnlyList<RequestedTarget> targets,
+        ReturnToSenderSourceIndex? sourceIndex)
+        => CompileBackTargets(
+            assemblyPath,
+            targets,
+            sourceIndex,
+            applyCompileBackFloor: true,
+            RoundTripScope.Cluster,
+            RoundTripBodyPolicy.Selected);
+
     public static IReadOnlyList<Result> CompileBackTargets(
         string assemblyPath,
         IReadOnlyList<RequestedTarget> targets,
