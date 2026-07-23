@@ -35,7 +35,7 @@ Every proposed rendering falls into one of three classes, and the class decides 
 - `is null` / `is not null` for null tests that compile to a reference `ceq`/branch. (`== null` could mean an `op_Equality` call; render `==` exactly when the IL calls the operator.)
 - Is-pattern matching (`if (x is Foo f)`) for the `isinst` + branch + cast shape.
 - Switch expressions for switch-plus-returns shapes.
-- Range indexer (`s[i..j]`) for the compiler's spilled `Substring`/`Slice(start, end - start)` range lowering — but only where csc's hidden start-index spill anchors the range shape. One-sided `Substring(start)` and `Substring(0, end)` carry no spill and stay as calls, because they are indistinguishable from hand-written slicing (a class-2 fidelity concern). The spill-anchored two-bound form is recovered wherever the slice is consumed — return, local assignment, or call argument.
+- Range indexer (`s[i..j]`) for the compiler's spilled `Substring`/`Slice(start, end - start)` range lowering — see [Range indexer](#range-indexer) for the spill-anchor discipline.
 - Compound assignment and increment (`_size++`), `continue`/`break` for loop-edge branches.
 
 **2. Fidelity-erasing forms — decline, always.** A preferred form is never adopted when it would erase a distinction the IL actually makes:
@@ -109,6 +109,42 @@ The discipline generalizes: a no-IL-anchor spelling is still declined when
 adopting it could change binding, and each decline is proven by recompile/corpus
 fidelity. Any future apparent-type spelling that shares this hazard is scoped the
 same way.
+
+### Range indexer
+
+`s[start..end]` and `s.Substring(start, end - start)` (and the `Span<T>` /
+`ReadOnlySpan<T>` `Slice` equivalents) do **not** compile to the same IL: the
+range indexer lowers with the compiler spilling the start index into a hidden
+`int` temp (`V = start; …(V, end - V)…`), while a hand-written two-argument
+`Substring`/`Slice` call has no such spill. That spill is the anchor — it is
+precisely the IL the range form compiles from, so recovering it to `s[start..end]`
+is a class-1 IL-exact preferred form (recompiling the slice re-creates the same
+spill), not a class-3 taste choice.
+
+```csharp
+// same lowering, so same recovered spelling:
+token = text.Substring(start, i - start);  // hand-lowered shape...
+token = text[start..i];                     // ...raised to the range indexer
+```
+
+Because the two calls share a method, the raise fires only on the spilled shape,
+and declines otherwise:
+
+- **Two-bound from-start only, spill-anchored.** The hidden start temp must be a
+  compiler-generated `int` (no source name), stored once and read exactly twice
+  (the range start and the `end - start` length), with no address-of — so
+  detaching the spill drops no live reference.
+- **Any consuming statement position.** The slice need not be the return value:
+  return, local assignment (the `EscapeReservedKeywordIdentifiers` witness
+  `token = text[start..i]`), and call-argument positions all qualify, provided
+  everything the statement evaluates before the call is side-effect free (the
+  start re-spills at the slice site on recompile, so it must not move past an
+  observable effect).
+- **Declines one-sided forms.** `Substring(start)` (`s[start..]`) and
+  `Substring(0, end)` (`s[..end]`) carry no start spill, so they are
+  indistinguishable from hand-written slicing and stay as calls — a class-2
+  fidelity concern. The from-end open form (`s[^n..]`), which the compiler spills
+  distinctly, is recovered.
 
 ## Names
 
