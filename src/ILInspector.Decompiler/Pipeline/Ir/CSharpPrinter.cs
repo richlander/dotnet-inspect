@@ -2179,7 +2179,7 @@ public sealed partial class CSharpPrinter
             ? $"{TypeText(s.Type)} {LocalName(s.Index)} = ref {Deref(s.Value)};"
             : $"{LocalName(s.Index)} = ref {Deref(s.Value)};",
         StoreLocal s => _declaringStores.Contains(s)
-            ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {CoerceText(s.Value, s.Type)};"
+            ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {InitializerText(s.Value, s.Type)};"
             : AssignmentText($"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
         DeconstructionAssignment d => $"({string.Join(", ", d.Targets.Select(DeconstructionTargetText))}) = {Expression(d.Source)};",
         ChainedAssignment c => $"{string.Join(" = ", c.Targets.Select(ChainedAssignmentTargetText))} = {CoerceText(c.Value, c.InnermostTargetType)};",
@@ -2193,7 +2193,7 @@ public sealed partial class CSharpPrinter
             ? $"{TypeText(refType)} {StackSlotName(s)} = ref {Deref(s.Value)};"
             : $"{StackSlotName(s)} = ref {Deref(s.Value)};",
         StoreStackSlot s => _declaringStores.Contains(s)
-            ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {CoerceText(s.Value, StackSlotTargetType(s))};"
+            ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {InitializerText(s.Value, StackSlotTargetType(s))};"
             : AssignmentText(StackSlotName(s), s.Value, left => left is LoadStackSlot load && StackSlotName(load) == StackSlotName(s), StackSlotTargetType(s)),
         StoreField s => AssignmentText(
             FieldTarget(s.Field, s.Instance), s.Value,
@@ -2213,7 +2213,7 @@ public sealed partial class CSharpPrinter
             StorePropertyTargetType(s)),
         EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual)} {(e.IsAdd ? "+=" : "-=")} {CoerceText(e.Value, e.Accessor.ParameterTypes[0])};",
         StoreElement s when InlineReceiverTempStoreValue(s) is { } value => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {value};",
-        StoreElement s => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {CoerceText(s.Value, StoreElementTargetType(s))};",
+        StoreElement s => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {InitializerText(s.Value, StoreElementTargetType(s))};",
         StoreIndirect s => AssignmentText(
             IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),
             s.Value,
@@ -3684,6 +3684,67 @@ public sealed partial class CSharpPrinter
             : $"return {CoerceText(value, _function.Signature.ReturnType)};";
 
     /// <summary>
+    /// Renders the initializer for a place whose static type is <paramref name="target"/>:
+    /// a target-typed object creation (<c>new(args)</c>) when the value is a plain
+    /// <c>new T(args)</c> whose constructed type is exactly the target, otherwise the
+    /// ordinary coerced spelling. Reached only from single-target assignment/declaration
+    /// positions (local/field/property/stack-slot/indirect store, array-element store)
+    /// where the C# target type is unambiguous — never from a call argument, where a
+    /// target-typed <c>new</c> would participate in overload resolution and could change
+    /// binding. Return positions are intentionally out of scope for now.
+    /// </summary>
+    string InitializerText(IrExpression value, TypeRef? target)
+        => TargetTypedNewText(value, target) ?? CoerceText(value, target);
+
+    /// <summary>
+    /// Target-typed object creation: <c>T x = new T(args)</c> shortens to
+    /// <c>T x = new(args)</c> when the contextual target type is exactly the
+    /// constructed type. IL-identical — the target type fixes the constructed type
+    /// and therefore the constructor overload set, so both spellings emit the same
+    /// <c>newobj T::.ctor(args)</c> — and matches dotnet/runtime's editorconfig
+    /// (<c>csharp_style_implicit_object_creation_when_type_is_apparent</c>). Returns
+    /// null (keep the explicit spelling) unless the value is a plain object creation
+    /// whose type Equals the target: arrays (incl. multi-dimensional, modeled as
+    /// <see cref="NewObject"/>), object/collection initializers (a separate node),
+    /// tuple and nullable targets, and any base/interface/other target all decline.
+    /// </summary>
+    string? TargetTypedNewText(IrExpression value, TypeRef? target)
+    {
+        if (target is null
+            || value is not NewObject creation
+            || MultiDimArrayCreationText(creation) is not null
+            || !IsTargetTypedNewEligible(target)
+            || !target.Equals(creation.Constructor.DeclaringType))
+        {
+            return null;
+        }
+
+        return $"new({Arguments(creation.Arguments, creation.Constructor.ParameterTypes, creation.Constructor.ParameterRefKinds)})";
+    }
+
+    /// <summary>
+    /// A target type admits target-typed <c>new</c> only when it is spelled as a plain
+    /// constructible type name: a class or struct definition, or a generic instance
+    /// that is not <see cref="Nullable{T}"/> (spelled <c>T?</c>) or a
+    /// <c>ValueTuple</c> (spelled as a tuple). Pointers, by-refs, arrays, function
+    /// pointers, and open generic parameters are all excluded by the kind filter.
+    /// </summary>
+    static bool IsTargetTypedNewEligible(TypeRef target) => target.Kind switch
+    {
+        TypeRefKind.Definition => !IsNullableDefinition(target),
+        TypeRefKind.GenericInstance => !TypeFamilies.IsNullableType(target) && !IsValueTupleType(target),
+        _ => false,
+    };
+
+    static bool IsValueTupleType(TypeRef type)
+        => type is
+        {
+            Kind: TypeRefKind.GenericInstance,
+            ElementType: { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" } element,
+        }
+        && element.Name.StartsWith("ValueTuple`", StringComparison.Ordinal);
+
+    /// <summary>
     /// Assignment spelling with compound/increment sugar: when the value is
     /// an unchecked binary whose left operand reads the assignment target,
     /// the runtime style is x++/x-- for ±1 and x op= rest otherwise.
@@ -3702,7 +3763,7 @@ public sealed partial class CSharpPrinter
             // overflow-honoring operators ever carry IsChecked here.
             return binary.IsChecked ? $"checked {{ {statement} }}" : statement;
         }
-        return $"{target} = {CoerceText(value, targetType)};";
+        return $"{target} = {InitializerText(value, targetType)};";
     }
 
     /// <summary>
