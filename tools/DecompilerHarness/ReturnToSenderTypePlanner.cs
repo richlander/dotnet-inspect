@@ -502,7 +502,8 @@ public static class CompileBackSourceComposer
                 closure.Roots,
                 closure.Facts,
                 closure.MemberRequirements,
-                eventAccessor.SiblingAccessorBody?.Source),
+                eventAccessor.SiblingAccessorBody?.Source,
+                request.BodyPolicy),
             MethodArtifactRequest => ComposeMethod(
                 request.AssemblyPath,
                 request.Reader,
@@ -599,22 +600,46 @@ public static class CompileBackSourceComposer
                     bool concreteRemover = member.RemoverToken is { } removerHandle && HasConcreteBody(removerHandle);
                     if (!concreteAdder && !concreteRemover)
                         continue;
-                    var adder = member.AdderToken is { } adderToken && concreteAdder
+                    // Symmetric with the property branch below: when one accessor is the request
+                    // target, its body is applied by the base ComposeEventAccessor path (baked into
+                    // this member's TargetEventAccessorWithSibling policy). Producing it here would
+                    // clobber the real body with `throw null`, so skip Produce for the target and
+                    // preserve the base body; only the sibling is produced (which also credits it
+                    // into `attempted` so its declaration is represented, issue #3007).
+                    bool adderIsTarget = member.AdderToken is { } adderTargetHandle && IsTargetToken(adderTargetHandle);
+                    bool removerIsTarget = member.RemoverToken is { } removerTargetHandle && IsTargetToken(removerTargetHandle);
+                    var adder = member.AdderToken is { } adderToken && concreteAdder && !adderIsTarget
                         ? Produce(adderToken, $"{request.Type.FullName}.add_{member.Name}")
                         : default;
-                    var remover = member.RemoverToken is { } removerToken && concreteRemover
+                    var remover = member.RemoverToken is { } removerToken && concreteRemover && !removerIsTarget
                         ? Produce(removerToken, $"{request.Type.FullName}.remove_{member.Name}")
                         : default;
-                    bool adderReady = !concreteAdder || adder.Body is not null;
-                    bool removerReady = !concreteRemover || remover.Body is not null;
+                    bool adderReady = !concreteAdder || adderIsTarget || adder.Body is not null;
+                    bool removerReady = !concreteRemover || removerIsTarget || remover.Body is not null;
                     if (adderReady && removerReady)
                     {
+                        bool targetInvolved = adderIsTarget || removerIsTarget;
+                        var baseEventBody = policies.TryGetValue(member, out var existingEventPolicy)
+                            ? existingEventPolicy.Body as CSharpEventBody
+                            : null;
+                        // The target accessor's real body lives only in the base policy; if it is
+                        // missing there is nothing to preserve, so leave the base policy untouched.
+                        if (baseEventBody is null && targetInvolved)
+                            continue;
+                        CSharpAccessorBody adderBody = adderIsTarget
+                            ? baseEventBody!.Adder
+                            : adder.Body is { } producedAdder
+                                ? CSharpAccessorBody.Block(producedAdder.Source)
+                                : baseEventBody?.Adder ?? CSharpAccessorBody.Throw;
+                        CSharpAccessorBody removerBody = removerIsTarget
+                            ? baseEventBody!.Remover
+                            : remover.Body is { } producedRemover
+                                ? CSharpAccessorBody.Block(producedRemover.Source)
+                                : baseEventBody?.Remover ?? CSharpAccessorBody.Throw;
                         policies[member] = new CSharpMemberPolicy(
                             member,
                             CSharpBodyPolicy.Full,
-                            new CSharpEventBody(
-                                adder.Body is { } adderBody ? CSharpAccessorBody.Block(adderBody.Source) : CSharpAccessorBody.Throw,
-                                remover.Body is { } removerBody ? CSharpAccessorBody.Block(removerBody.Source) : CSharpAccessorBody.Throw));
+                            new CSharpEventBody(adderBody, removerBody));
                     }
                     continue;
                 }
@@ -1463,7 +1488,8 @@ public static class CompileBackSourceComposer
         IReadOnlySet<TypeDefinitionHandle> closureRoots,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackFact>> closureFacts,
         IReadOnlyDictionary<TypeDefinitionHandle, List<CompileBackMemberRequirement>> closureMemberRequirements,
-        string? siblingAccessorBody = null)
+        string? siblingAccessorBody = null,
+        RoundTripBodyPolicy bodyPolicy = RoundTripBodyPolicy.Selected)
     {
         var targetTypeDef = reader.GetTypeDefinition(targetType);
         var eventDefinition = reader.GetEventDefinition(targetEvent);
@@ -1528,6 +1554,30 @@ public static class CompileBackSourceComposer
                 targetMembers,
                 PrimaryConstructor: null,
                 targetFacts)
+            {
+                // Mirror the property-getter target path (issue #3000/#3008): when the accessor's
+                // closure pulls in same-type members (backing field, sibling accessor, the
+                // constructor), emit the full member surface so the event re-declares as a single
+                // `event { add remove }` with both real bodies and every sibling declaration is
+                // represented — instead of a lone accessor method plus an unrepresented sibling and
+                // `.ctor` (issue #3007). The surface enumeration folds the sibling accessor's token
+                // into this target event requirement and skips the standalone accessor methods, so
+                // there is no CS0082 collision.
+                //
+                // Gated to Full so the Selected A/B path (which never runs the full-body evidence
+                // pass) keeps its pre-existing minimal single-accessor shape for explicit-interface
+                // event targets, leaving the corpus baseline unchanged.
+                //
+                // Explicit-interface event targets are excluded: the surface folds events by the
+                // sanitized full metadata name (`IBaseEvents.Changed`) while this target requirement
+                // carries the stripped identity (`Changed`), so the fold misses and a second
+                // explicit-interface event is appended (CS8646/CS0102). They retain the pre-#3007
+                // single-accessor shape (an honest floor, not a double-declaration false success);
+                // coherent explicit-interface reconstruction is out of #3007's plain-event scope.
+                IncludeMemberSurface = bodyPolicy == RoundTripBodyPolicy.Full
+                    && explicitEvent is null
+                    && targetFacts.Any(fact => fact.Id == "closure-member")
+            }
         };
         AddClosureTypeRequirements(requirements, reader, targetRoot, closureFacts, closureMemberRequirements);
         foreach (var dependency in closureRoots.OrderBy(handle => MetadataTokens.GetToken(handle)))
