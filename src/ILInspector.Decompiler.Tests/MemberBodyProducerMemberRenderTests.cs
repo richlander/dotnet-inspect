@@ -179,6 +179,25 @@ public sealed class MemberBodyProducerMemberRenderTests
         Assert.Contains("global::System.Math", rendered.Text);
         Assert.DoesNotContain("global::Math", rendered.Text);
     }
+
+    [Fact]
+    public void ProduceMember_PreservesAliasQualifiedNameWithEscapedKeywordNamespace()
+    {
+        var type = Specimen();
+        var member = Assert.Single(type.Members, m => m.Name == nameof(MemberRenderSpecimen.EscapedAliasQualifiedShadow));
+
+        var rendered = MemberBodyProducer.ProduceMember(type, member, AssemblyPath, pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        // The namespace's first segment is a keyword, so the printer escapes it:
+        // global::@event.Models.TypeNameShadow. The '@' sits between the '::'
+        // alias qualifier and the matched metadata namespace (event.Models), so
+        // the guard must skip the escape and still decline — not strip to the
+        // invalid global::@TypeNameShadow (a stray escape on a name that does
+        // not bind, CS0400) (#3064 review).
+        Assert.Contains("global::@event.Models.TypeNameShadow", rendered.Text);
+        Assert.DoesNotContain("global::@TypeNameShadow", rendered.Text);
+    }
 }
 
 #pragma warning disable CA1822 // members are instance to exercise real signatures
@@ -222,5 +241,15 @@ public sealed class MemberRenderSpecimen
     public static int AliasQualifiedShadow(int Math) => System.Math.Abs(Math) + Math;
 
     public static string AliasQualifiedShadowInHole(int Math) => $"v={System.Math.Abs(Math) + Math}";
+
+    // The referenced type lives in @event.Models, a namespace whose first
+    // segment is a keyword, so the printer escapes it. A parameter named
+    // TypeNameShadow shadows the type, forcing the alias-qualified
+    // global::@event.Models.TypeNameShadow. Shortening must keep the full path,
+    // not strip it to the invalid global::@TypeNameShadow: the '@' sits between
+    // the '::' alias qualifier and the raw metadata namespace, so the guard has
+    // to skip the escape (#3064 review).
+    public static int EscapedAliasQualifiedShadow(int TypeNameShadow)
+        => @event.Models.TypeNameShadow.M(TypeNameShadow);
 }
 #pragma warning restore CA1822

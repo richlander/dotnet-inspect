@@ -1860,8 +1860,15 @@ public static class MemberBodyProducer
                 // An alias-qualified name (global::System.Math) must keep its
                 // full path; shortening to global::Math re-introduces the
                 // shadowing collision it was emitted to avoid and does not bind
-                // (CS0400). The alias qualifier is always the two-char '::'.
-                if (at >= 2 && segment[at - 1] == ':' && segment[at - 2] == ':')
+                // (CS0400). The alias qualifier is the two-char '::'; when the
+                // namespace's leading segment is a keyword the printer escapes
+                // it (global::@event.Models.X), so an optional '@' sits between
+                // the '::' and the matched metadata namespace and must be
+                // skipped before testing for the qualifier.
+                int aliasEnd = at;
+                if (aliasEnd > 0 && segment[aliasEnd - 1] == '@')
+                    aliasEnd--;
+                if (aliasEnd >= 2 && segment[aliasEnd - 1] == ':' && segment[aliasEnd - 2] == ':')
                     continue;
 
                 // The identifier after the prefix must be a type from this
