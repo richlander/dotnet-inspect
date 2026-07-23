@@ -222,7 +222,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
 
     string DisplayName()
     {
-        if (Assembly == CoreLibrary && Namespace == "System" && s_keywords.TryGetValue(Name, out var keyword))
+        if (Assembly == CoreLibrary && Namespace == "System" && PrimitiveTypeNames.TryToKeywordForSystemType(Name, out var keyword))
             return keyword;
         // Preserve the full nested declaring-type path. Metadata joins a containing
         // type and its nested type with '+' (see TypeRefDecoder), so a name like
@@ -237,7 +237,7 @@ public sealed class TypeRef : IEquatable<TypeRef>
     string QualifiedDisplayName()
     {
         string display = DisplayName();
-        if (Assembly == CoreLibrary && Namespace == "System" && s_keywords.ContainsKey(Name))
+        if (Assembly == CoreLibrary && Namespace == "System" && PrimitiveTypeNames.TryToKeywordForSystemType(Name, out _))
             return display;
         return Namespace.Length == 0 || display.StartsWith('<') ? display : $"{Namespace}.{display}";
     }
@@ -271,15 +271,4 @@ public sealed class TypeRef : IEquatable<TypeRef>
         => assemblyName is "System.Private.CoreLib" or "System.Runtime" or "mscorlib" or "netstandard" or "System.Runtime.Extensions"
             ? CoreLibrary
             : assemblyName;
-
-    static readonly Dictionary<string, string> s_keywords = new()
-    {
-        ["Boolean"] = "bool", ["Byte"] = "byte", ["SByte"] = "sbyte",
-        ["Char"] = "char", ["Int16"] = "short", ["UInt16"] = "ushort",
-        ["Int32"] = "int", ["UInt32"] = "uint", ["Int64"] = "long",
-        ["UInt64"] = "ulong", ["Single"] = "float", ["Double"] = "double",
-        ["Decimal"] = "decimal",
-        ["IntPtr"] = "nint", ["UIntPtr"] = "nuint", ["String"] = "string",
-        ["Object"] = "object", ["Void"] = "void",
-    };
 }

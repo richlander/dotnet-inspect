@@ -101,6 +101,8 @@ internal static class NativePasses
     public static ArrayLiteralFromStoresPass ArrayLiteralFromStores => new();
     [Native(NativeCategory.EmitArtifact, "a spilled fluent call chain re-composed by folding each single-use scratch receiver/argument temp back into the chained call it feeds")]
     public static FluentChainRecompositionPass FluentChainRecomposition => new();
+    [Native(NativeCategory.EmitArtifact, "trailing arguments the compiler baked in for omitted C# optional parameters (a constant equal to the parameter's default) elided back to the shorter call the source wrote")]
+    public static OptionalArgumentElisionPass OptionalArgumentElision => new();
 
     // ───────── IlErasure — reconstruct information the IL type system dropped ─────────
     [Native(NativeCategory.IlErasure, "int constants re-typed to bool/char/enum at typed positions")]

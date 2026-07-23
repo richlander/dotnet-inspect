@@ -38,13 +38,18 @@ public sealed class StackAllocSpanPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        var storesBySlot = GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function)
+        var bodyNodes = GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function).ToList();
+        var storesBySlot = bodyNodes
             .OfType<StoreStackSlot>()
             .GroupBy(s => s.Slot)
             .ToDictionary(g => g.Key, g => g.ToList());
-        var loadsBySlot = GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function)
+        var loadsBySlot = bodyNodes
             .OfType<LoadStackSlot>()
             .GroupBy(s => s.Slot)
+            .ToDictionary(g => g.Key, g => g.ToList());
+        var storesByLocal = bodyNodes
+            .OfType<StoreLocal>()
+            .GroupBy(s => s.Index)
             .ToDictionary(g => g.Key, g => g.ToList());
 
         foreach (var newObject in function.Descendants.OfType<NewObject>().ToList())
@@ -140,13 +145,137 @@ public sealed class StackAllocSpanPass : IIrPass
                 elements = null;
             }
 
-            count.Detach();
-            var raised = new StackAllocArray(element, count, newObject.ResultType, elements);
+            StoreLocal? ownedCountStore = null;
+            if (source is StackAllocate)
+                TryResolveOwnedCountSpill(function, newObject, count, storesByLocal, bodyNodes, out ownedCountStore);
+
+            context.Stepper.StepOver(
+                ownedCountStore is null
+                    ? "raise Span-over-stackalloc to stackalloc T[n]"
+                    : "raise Span-over-stackalloc and inline its compiler count spill",
+                newObject);
+
+            IrExpression raisedCount;
+            if (ownedCountStore is null)
+            {
+                count.Detach();
+                raisedCount = count;
+            }
+            else
+            {
+                raisedCount = (IrExpression)ownedCountStore.DetachChildren()[0];
+                ownedCountStore.Detach();
+            }
+
+            var raised = new StackAllocArray(element, raisedCount, newObject.ResultType, elements);
             raised.InheritSourceOffset(newObject);
-            context.Stepper.StepOver("raise Span-over-stackalloc to stackalloc T[n]", newObject);
             newObject.ReplaceWith(raised);
             ownedStore?.Detach();
         }
+    }
+
+    /// <summary>
+    /// Consumes csc's duplicated dynamic-count local after the stackalloc raise
+    /// makes it redundant. The compiler evaluates the source count once into a
+    /// local, then reads that local for both localloc's byte-size calculation
+    /// and the Span constructor's length. This proof requires exactly that one
+    /// store/two-load ownership shape, with the store immediately before the
+    /// constructor statement and no earlier effectful operand in that statement.
+    /// Replacing the two reads with the stored expression therefore restores its
+    /// source position: count evaluation immediately before allocation.
+    ///
+    /// <para>An explicit source local remains intact. csc still copies that local
+    /// into a second count local for the duplicated lowering, so this method
+    /// consumes only the adjacent copy and leaves the source local one layer
+    /// earlier. No PDB discriminator is required.</para>
+    /// </summary>
+    static bool TryResolveOwnedCountSpill(
+        IrFunction function,
+        NewObject newObject,
+        IrExpression count,
+        Dictionary<int, List<StoreLocal>> storesByLocal,
+        IReadOnlyList<IrNode> bodyNodes,
+        out StoreLocal? ownedStore)
+    {
+        ownedStore = null;
+        if (count is not LoadLocal load
+            || !MemberIdentity.IsCoreLibraryType(load.ResultType, "System", "Int32")
+            || !storesByLocal.TryGetValue(load.Index, out var indexedStores))
+        {
+            return false;
+        }
+
+        var stores = indexedStores
+            .Where(candidate => ReferenceOwnership.IsInside(candidate, function))
+            .ToList();
+        if (stores.Count == 0)
+            return false;
+
+        // Process reused compiler slots one live range at a time. The current
+        // definition must be the first still-live store; after it is consumed,
+        // the next stackalloc using the same slot becomes eligible.
+        var store = stores[0];
+        if (!MemberIdentity.IsCoreLibraryType(store.Type, "System", "Int32")
+            || !store.Type.Equals(store.Value.ResultType)
+            || store.Parent is not Block block)
+        {
+            return false;
+        }
+
+        var references = bodyNodes
+            .Where(node => ReferenceOwnership.IsInside(node, function)
+                && ReferenceOwnership.ReferencesOrBindsLocal(node, load.Index))
+            .ToList();
+        var ownedReferences = references
+            .Where(node => ReferenceOwnership.IsInsideAny(node, [store, newObject]))
+            .ToList();
+        if (ownedReferences.Count != 3
+            || ownedReferences.Count(node => node is LoadLocal) != 2
+            || ownedReferences.Count(node => node is StoreLocal) != 1)
+        {
+            return false;
+        }
+
+        var statement = GetStatement(newObject);
+        if (statement?.Parent != block || statement.ChildIndex != store.ChildIndex + 1)
+            return false;
+
+        var held = GetHeldExpression(statement);
+        if (held == null || !ReachesAsOnlyPrecedingEffect(held, newObject))
+            return false;
+
+        var outsideReferences = references
+            .Where(node => !ReferenceOwnership.IsInsideAny(node, [store, newObject]))
+            .ToList();
+        if (outsideReferences.Count != 0)
+        {
+            if (stores.Count < 2
+                || stores[1].Parent != block
+                || stores[1].ChildIndex <= statement.ChildIndex
+                || ReferenceOwnership.SubtreeReferencesOrBindsLocal(stores[1].Value, load.Index))
+            {
+                return false;
+            }
+
+            var nextStoreIndex = stores[1].ChildIndex;
+            if (outsideReferences.Any(reference =>
+                    GetDirectBlockChild(block, reference) is not { } child
+                    || child.ChildIndex < nextStoreIndex))
+            {
+                return false;
+            }
+        }
+
+        ownedStore = store;
+        return true;
+    }
+
+    static IrNode? GetDirectBlockChild(Block block, IrNode node)
+    {
+        var current = node;
+        while (current.Parent is { } parent && parent != block)
+            current = parent;
+        return current.Parent == block ? current : null;
     }
 
     /// <summary>
