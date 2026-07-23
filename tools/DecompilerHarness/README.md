@@ -320,6 +320,40 @@ the harvested third-party source snapshots never enter main's history (as
 `civil/corpus.jsonl`). Restore it with `bash eng/restore-authored-source-corpus.sh`,
 which adds a git worktree at `external/authored-source-corpus`.
 
+#### Corpus drift verification (`--verify-authored-corpus`)
+
+`--verify-authored-corpus <corpus.jsonl> <assembly...>` audits whether the
+vendored snapshot still corresponds to the authoritative source at each row's
+pinned SourceLink commit. Unlike the benchmark, it does **not** run the
+decompiler: for every row it re-acquires the authored source *today* — from a
+local git clone (`--repo`, checksum-arbitrated) and/or SourceLink — reduces it to
+the same member-body slice the harvester stored
+(`AuthoredRebuildFidelity.TryExtractTargetBody`), and compares byte-for-byte
+(newline-normalized) against the stored body. Each row is:
+
+- **Verified** — the re-acquired body matches the vendored snapshot.
+- **Drifted** — the re-acquired body differs (the upstream source, harvest slice,
+  or the stored row itself has changed). The report names the row and a short
+  line-count/first-diff summary.
+- **Unavailable** — the source could not be re-acquired or sliced (offline with no
+  `--repo`, commit gone, checksum mismatch, or an extraction regression); the row
+  is surfaced, never silently dropped.
+
+It is report-only by default (exit 0). The run's own integrity still governs the
+exit code with a named blocker: any corpus row whose assembly was not supplied
+(`unmatchedRows > 0`) or a run that evaluated no rows fails, so an empty or
+partially-unmatched run is never a success. Pass `--fail-on-drift` to additionally
+exit nonzero when any row has drifted — the shape of a periodic (non-PR) gate.
+Supply the same pinned assemblies the corpus was harvested from, and point
+`--repo` at this checkout to resolve dotnet-inspect's own rows locally:
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release -- \
+  --verify-authored-corpus external/authored-source-corpus/civil/corpus.jsonl \
+  --repo "$(git rev-parse --show-toplevel)" --fail-on-drift \
+  <pinned-assembly...>
+```
+
 #### EVIL difficulty ranking (`--enumerate-real-methods`)
 
 The CIVIL corpus tracks the 14 pinned assemblies for affinity. The companion
