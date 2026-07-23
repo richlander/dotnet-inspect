@@ -345,21 +345,31 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
-    /// Reinterprets an enum-typed shift left operand to its underlying integer so
-    /// a C# shift type-checks (an enum has no predefined <c>&lt;&lt;</c>/<c>&gt;&gt;</c>,
+    /// Reinterprets an enum-typed shift left operand to an integer so a C# shift
+    /// type-checks (an enum has no predefined <c>&lt;&lt;</c>/<c>&gt;&gt;</c>,
     /// CS0019), or null when the operand is not a resolvable enum and the caller
     /// keeps its own spelling. The IL loaded the enum's underlying integer onto the
-    /// stack and shifted that, so the reinterpret is a no-op; casting to the exact
-    /// underlying type keeps a signed <c>shr</c> or an unsigned <c>shr.un</c>
-    /// opcode-exact on recompile. The coercion runs through <see cref="CoerceText"/>
-    /// — the one enum→integer door, shared with the enum div/rem operands — so a
-    /// cross-assembly enum whose backing width is unknown (no underlying type) is
-    /// left alone rather than reinterpreted through an unverifiable width.
+    /// stack and shifted that, so the reinterpret is a no-op. The opcode's own
+    /// signedness (<paramref name="isUnsigned"/> — <c>shr.un</c> vs <c>shr</c>) is
+    /// authoritative, not the enum backing's: the source may have reinterpreted the
+    /// enum to the opposite-signedness same-width integer (<c>(uint)intEnum &gt;&gt; n</c>),
+    /// an IL no-op that leaves no trace, so the shift opcode is the only faithful
+    /// record of its signedness. Width comes from the backing — a width change would
+    /// leave a <c>conv</c> in the IL and the operand would not be a bare enum. The
+    /// cast runs through <see cref="CoerceText"/> (the one enum→integer door, shared
+    /// with the enum div/rem operands) so a signed→unsigned reinterpret inside a
+    /// <c>checked</c> region keeps its <c>unchecked</c> guard. A cross-assembly enum
+    /// whose backing width is unknown has no underlying type and is left alone.
     /// </summary>
-    string? ShiftEnumLeftOperand(IrExpression operand)
-        => EnumUnderlyingType(operand.ResultType) is { } underlying
-            ? CoerceText(operand, underlying)
-            : null;
+    string? ShiftEnumLeftOperand(IrExpression operand, bool isUnsigned)
+    {
+        if (EnumUnderlyingType(operand.ResultType) is not { } underlying)
+            return null;
+        var target = Is8ByteInteger(underlying)
+            ? (isUnsigned ? TypeRef.CoreLib("System", "UInt64") : TypeRef.CoreLib("System", "Int64"))
+            : (isUnsigned ? TypeRef.CoreLib("System", "UInt32") : TypeRef.CoreLib("System", "Int32"));
+        return CoerceText(operand, target);
+    }
 
     /// <summary>
     /// Casts an integer operand to the enum type it is compared or combined with
@@ -563,10 +573,10 @@ public sealed partial class CSharpPrinter
         var demand = CSharpPrecedence.Of(binary);
         // C# has no shift operator for an enum operand (CS0019), though the IL
         // shifts the enum's underlying integer directly. Reinterpret the enum
-        // left operand to that underlying integer — `(long)flags >> 32` — so the
-        // shift type-checks; the underlying type's signedness keeps a shr/shr.un
-        // opcode-exact on recompile. (The count is always int.)
-        string left = isShift && ShiftEnumLeftOperand(binary.Left) is { } shiftedEnum ? shiftedEnum
+        // left operand to that integer — `(long)flags >> 32` — so the shift
+        // type-checks; the cast's signedness follows the shift opcode (shr/shr.un),
+        // not the enum backing, so it round-trips opcode-exact. (Count is int.)
+        string left = isShift && ShiftEnumLeftOperand(binary.Left, binary.IsUnsigned) is { } shiftedEnum ? shiftedEnum
             : mixedSign ? BitwiseUnsignedOperand(binary.Left, wrapConstantCast: !covered)
             : castLeft ? UnsignedOperand(binary.Left)
             : preserveUnsignedConstants ? UnsignedConstantArithmeticOperand(binary.Left, EffectiveType(binary))

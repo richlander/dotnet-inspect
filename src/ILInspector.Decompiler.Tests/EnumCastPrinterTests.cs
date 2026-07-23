@@ -72,11 +72,63 @@ public class EnumCastPrinterTests
         AssertCompiles("public static int M(CfgPriority flags, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
     }
 
-    // A sub-int (byte) backing promotes to int in a C# shift; the underlying-type
-    // cast still type-checks and stays opcode-exact. Synthetic to keep the enum
-    // load a bare operand (a compiled `(byte)` narrowing could add a conv node).
+    // The shift opcode's signedness, not the enum backing's, drives the cast: a
+    // same-width signedness reinterpret in the source leaves no IL trace, so the
+    // enum backing is a misleading signedness signal. shr.un on an int-backed enum
+    // must render `(uint)`, and shr on a uint-backed enum must render `(int)`,
+    // else the recompiled shift flips opcode and silently changes the result.
     [Fact]
-    public void EnumLeftShift_ByteBackedEnum_CastsToUnderlying()
+    public void EnumRightShift_IntBackedButUnsignedOpcode_CastsToUnsigned()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.IntEnumUnsignedRightShift));
+
+        Assert.Contains("(uint)flags >>", body);
+        Assert.DoesNotContain("(int)flags >>", body);
+        AssertCompiles("public static uint M(CfgPriority flags, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    [Fact]
+    public void EnumRightShift_UIntBackedButSignedOpcode_CastsToSigned()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.UIntEnumSignedRightShift));
+
+        Assert.Contains("(int)flags >>", body);
+        Assert.DoesNotContain("(uint)flags >>", body);
+        AssertCompiles("public static int M(CfgFlags flags, int n)", body, "public enum CfgFlags : uint { None = 0, Top = 0x80000000u }");
+    }
+
+    // A compound shift on an enum lvalue (`flags <<= n`) is CS0019 just like the
+    // expression form: C# has no compound shift operator on an enum. The printer
+    // decomposes it to a plain assignment that reinterprets the enum and casts the
+    // shift result back — `flags = (CfgPriority)((int)flags << (n & 31))`.
+    [Fact]
+    public void EnumCompoundLeftShift_IntBackedEnum_DecomposesToCastBackAssignment()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.IntEnumCompoundLeftShift));
+
+        Assert.Contains("flags = (CfgPriority)((int)flags <<", body);
+        Assert.DoesNotContain("flags <<=", body);
+        AssertCompiles("public static CfgPriority M(CfgPriority flags, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // The decomposed compound's left-operand cast follows the shift opcode: an
+    // int-backed enum shifted as shr.un must reinterpret to `(uint)`, not `(int)`.
+    [Fact]
+    public void EnumCompoundRightShift_IntBackedButUnsignedOpcode_CastsToUnsigned()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.IntEnumCompoundUnsignedRightShift));
+
+        Assert.Contains("flags = (CfgPriority)((uint)flags >>", body);
+        Assert.DoesNotContain("flags >>=", body);
+        Assert.DoesNotContain("(int)flags >>", body);
+        AssertCompiles("public static CfgPriority M(CfgPriority flags, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // A sub-int (byte) backing promotes to int in a C# shift; the reinterpret
+    // targets the 4-byte width the shift runs on. Synthetic to keep the enum load
+    // a bare operand (a compiled `(byte)` narrowing could add a conv node).
+    [Fact]
+    public void EnumLeftShift_ByteBackedEnum_CastsToShiftWidth()
     {
         var enumType = TypeRef.Definition("test", "", "CfgTiny");
         var byteType = TypeRef.CoreLib("System", "Byte");
@@ -104,7 +156,7 @@ public class EnumCastPrinterTests
 
         string body = CSharpPrinter.Print(function).Output!.Trim();
 
-        Assert.Contains("(byte)flags << n", body);
+        Assert.Contains("(int)flags << n", body);
         AssertCompiles("public static int M(CfgTiny flags, int n)", body, "public enum CfgTiny : byte { A = 1, B = 2 }");
     }
 

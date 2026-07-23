@@ -5123,6 +5123,32 @@ public static class EnumCastSamples
 
     public static int IntEnumRightShift(CfgPriority flags, int n) => (int)flags >> n;
 
+    // #3011 (review): the source may reinterpret the enum to the opposite-signedness
+    // same-width integer before shifting — an IL no-op — so the shift opcode
+    // (shr vs shr.un), not the enum backing, records the real signedness. An
+    // int-backed enum shifted as `(uint)e >> n` emits shr.un; a uint-backed enum
+    // shifted as `(int)e >> n` emits shr. The printed cast must follow the opcode.
+    public static uint IntEnumUnsignedRightShift(CfgPriority flags, int n) => (uint)flags >> n;
+
+    public static int UIntEnumSignedRightShift(CfgFlags flags, int n) => (int)flags >> n;
+
+    // #3011 (review): a compound shift on an enum lvalue (`flags <<= n`) is also
+    // CS0019. An int-backed enum shifted and stored back to itself folds to a
+    // compound with a bare enum left operand; the printer must decompose it to a
+    // plain cast-back assignment. The unsigned variant confirms the decomposed
+    // left-operand cast follows the shr.un opcode, not the enum backing.
+    public static CfgPriority IntEnumCompoundLeftShift(CfgPriority flags, int n)
+    {
+        flags = (CfgPriority)((int)flags << n);
+        return flags;
+    }
+
+    public static CfgPriority IntEnumCompoundUnsignedRightShift(CfgPriority flags, int n)
+    {
+        flags = (CfgPriority)((uint)flags >> n);
+        return flags;
+    }
+
     // #1766: ternary with enum-constant arms stored to a cross-assembly enum
     // local (StringComparison.Ordinal = 4, OrdinalIgnoreCase = 5).
     public static bool EnumConditional(string name, bool ci)

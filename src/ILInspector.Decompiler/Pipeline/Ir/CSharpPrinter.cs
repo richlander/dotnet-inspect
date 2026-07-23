@@ -3732,6 +3732,19 @@ public sealed partial class CSharpPrinter
         // `IntPtr` even for a `ref nuint`, so the bare `binary.Left` type loses the
         // lvalue's real signedness.
         var lvalueType = targetType ?? binary.Left.ResultType;
+        // C# has no compound shift operator on an enum lvalue (CS0019, the compound
+        // sibling of the enum-shift expression fix): an int-backed `flags <<= n`
+        // folds to `store flags = shl(load flags, n)` with a bare enum left operand,
+        // yet C# rejects `flags <<= n`. Decompose to a plain assignment that
+        // reinterprets the enum to its shift integer (BinaryBody spells the left
+        // operand and count-mask) and casts the shift result back to the enum:
+        // `flags = (E)((int)flags >> (n & 31))`. The int→enum cast is a reinterpret
+        // that never overflows, so it stays a bare cast even inside `checked`.
+        if (binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight
+            && EnumUnderlyingType(lvalueType) is not null)
+        {
+            return $"{target} = ({TypeText(lvalueType!)}){RenderedExpression(binary).At(Precedence.Unary)};";
+        }
         string rightText = binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight
             ? ShiftCount(binary)
             // A bitwise &=/|=/^= against an enum lvalue whose right operand is still
