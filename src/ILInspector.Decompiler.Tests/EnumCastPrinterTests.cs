@@ -12,6 +12,131 @@ namespace ILInspector.Decompiler.Tests;
 // cast the integer to the enum structurally.
 public class EnumCastPrinterTests
 {
+    // #3011: an enum-typed value shifted has no predefined C# shift operator
+    // (CS0019); the printer reinterprets the enum left operand to its underlying
+    // integer so the shift type-checks and the shr/shr.un opcode round-trips.
+    [Fact]
+    public void EnumRightShift_LongBackedEnum_CastsLeftOperandToUnderlying()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.LongEnumRightShift));
+
+        Assert.Contains("(long)flags >>", body);
+        Assert.DoesNotContain(" flags >>", body);
+        AssertCompiles("public static long M(CfgLongPriority flags, int n)", body, "public enum CfgLongPriority : long { Low = 0, High = 2 }");
+    }
+
+    [Fact]
+    public void EnumLeftShift_LongBackedEnum_CastsLeftOperandToUnderlying()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.LongEnumLeftShift));
+
+        Assert.Contains("(long)flags <<", body);
+        AssertCompiles("public static long M(CfgLongPriority flags, int n)", body, "public enum CfgLongPriority : long { Low = 0, High = 2 }");
+    }
+
+    [Fact]
+    public void EnumRightShiftToInt_LongBackedEnum_MirrorsWitness()
+    {
+        // The reported MySqlConnector shape: `(int)((long)clientCapabilities >> 32)`.
+        string body = RenderFixture(nameof(EnumCastSamples.LongEnumRightShiftToInt));
+
+        Assert.Contains("(long)flags >> 32", body);
+        AssertCompiles("public static int M(CfgLongPriority flags)", body, "public enum CfgLongPriority : long { Low = 0, High = 2 }");
+    }
+
+    [Fact]
+    public void EnumRightShift_ULongBackedEnum_KeepsUnsignedShiftFaithful()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ULongEnumRightShift));
+
+        Assert.Contains("(ulong)flags >>", body);
+        AssertCompiles("public static ulong M(CfgULong flags, int n)", body, "public enum CfgULong : ulong { None = 0, All = 18446744073709551615UL }");
+    }
+
+    [Fact]
+    public void EnumRightShift_UIntBackedEnum_KeepsUnsignedShiftFaithful()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.UIntEnumRightShift));
+
+        Assert.Contains("(uint)flags >>", body);
+        AssertCompiles("public static uint M(CfgFlags flags, int n)", body, "public enum CfgFlags : uint { None = 0, Top = 0x80000000u }");
+    }
+
+    [Fact]
+    public void EnumRightShift_IntBackedEnum_CastsToUnderlying()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.IntEnumRightShift));
+
+        Assert.Contains("(int)flags >>", body);
+        Assert.DoesNotContain(" flags >>", body);
+        AssertCompiles("public static int M(CfgPriority flags, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // A sub-int (byte) backing promotes to int in a C# shift; the underlying-type
+    // cast still type-checks and stays opcode-exact. Synthetic to keep the enum
+    // load a bare operand (a compiled `(byte)` narrowing could add a conv node).
+    [Fact]
+    public void EnumLeftShift_ByteBackedEnum_CastsToUnderlying()
+    {
+        var enumType = TypeRef.Definition("test", "", "CfgTiny");
+        var byteType = TypeRef.CoreLib("System", "Byte");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var shift = new Binary(
+            BinaryKind.ShiftLeft,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "flags", enumType),
+            new LoadArgument(1, "n", intType));
+        var block = new Block(0);
+        block.Add(new Return(shift));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(
+            intType,
+            [new Parameter("flags", enumType), new Parameter("n", intType)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("test", "", "Holder"), signature, [], container)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum },
+            EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = byteType },
+        };
+
+        string body = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains("(byte)flags << n", body);
+        AssertCompiles("public static int M(CfgTiny flags, int n)", body, "public enum CfgTiny : byte { A = 1, B = 2 }");
+    }
+
+    // Close negative: a plain (non-enum) integer shift keeps its bare operands —
+    // the enum branch must not perturb ordinary shifts.
+    [Fact]
+    public void IntegerShift_NonEnum_KeepsBareOperands()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var shift = new Binary(
+            BinaryKind.ShiftRight,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "x", intType),
+            new LoadArgument(1, "n", intType));
+        var block = new Block(0);
+        block.Add(new Return(shift));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(
+            intType,
+            [new Parameter("x", intType), new Parameter("n", intType)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("test", "", "Holder"), signature, [], container);
+
+        string body = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains("x >> n", body);
+        Assert.DoesNotContain("(int)x", body);
+    }
+
     [Fact]
     public void EnumConstantConditionalArms_IntoCrossAssemblyEnum_CastsEachArm()
     {

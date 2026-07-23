@@ -5104,6 +5104,25 @@ public static class UserGridCalls
 // must cast structurally.
 public static class EnumCastSamples
 {
+    // #3011: an enum-typed value shifted (`>>`/`<<`) has no predefined C# shift
+    // operator (CS0019), though the IL shifts the enum's underlying integer. The
+    // identity `(long)`/`(uint)`/`(ulong)` cast the source carried leaves no IL
+    // trace, so the importer sees a bare enum-typed shift left operand; the printer
+    // must re-insert the underlying-integer cast. Witness: MySqlConnector's
+    // HandshakeResponse41Payload.CreateCapabilitiesPayload — `(int)(clientCapabilities >> 32)`
+    // on a long-backed [Flags] enum. Same-assembly enums with a known backing width.
+    public static long LongEnumRightShift(CfgLongPriority flags, int n) => (long)flags >> n;
+
+    public static long LongEnumLeftShift(CfgLongPriority flags, int n) => (long)flags << n;
+
+    public static int LongEnumRightShiftToInt(CfgLongPriority flags) => (int)((long)flags >> 32);
+
+    public static ulong ULongEnumRightShift(CfgULong flags, int n) => (ulong)flags >> n;
+
+    public static uint UIntEnumRightShift(CfgFlags flags, int n) => (uint)flags >> n;
+
+    public static int IntEnumRightShift(CfgPriority flags, int n) => (int)flags >> n;
+
     // #1766: ternary with enum-constant arms stored to a cross-assembly enum
     // local (StringComparison.Ordinal = 4, OrdinalIgnoreCase = 5).
     public static bool EnumConditional(string name, bool ci)
