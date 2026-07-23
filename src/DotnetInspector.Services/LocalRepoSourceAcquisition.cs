@@ -191,7 +191,7 @@ public static partial class LocalRepoSourceAcquisition
 
         using (process)
         {
-            Task<byte[]?> stdoutTask = Task.Run(() => ReadCappedStdout(process.StandardOutput.BaseStream));
+            Task<byte[]?> stdoutTask = Task.Run(() => ReadCappedStdout(process, process.StandardOutput.BaseStream));
             Task<string> stderrTask = process.StandardError.ReadToEndAsync();
 
             if (!process.WaitForExit(GitTimeoutMs))
@@ -214,7 +214,7 @@ public static partial class LocalRepoSourceAcquisition
         }
     }
 
-    private static byte[]? ReadCappedStdout(Stream stream)
+    private static byte[]? ReadCappedStdout(Process process, Stream stream)
     {
         using var buffer = new MemoryStream();
         byte[] chunk = new byte[81920];
@@ -224,7 +224,13 @@ public static partial class LocalRepoSourceAcquisition
         {
             total += read;
             if (total > MaxBlobBytes)
+            {
+                // Stop reading immediately and tear down git rather than leaving it blocked on a
+                // full stdout pipe until the 15s timeout: an oversized blob is already rejected.
+                try { process.Kill(entireProcessTree: true); }
+                catch { /* best effort */ }
                 return null;
+            }
             buffer.Write(chunk, 0, read);
         }
 
