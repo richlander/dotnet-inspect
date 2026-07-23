@@ -22,6 +22,9 @@ public class EnumCastPrinterTests
 
         Assert.Contains("(long)flags >>", body);
         Assert.DoesNotContain(" flags >>", body);
+        // #3011 (review): the shift-count width mask is keyed off the enum backing
+        // (63 for the 8-byte underlying), so it strips instead of double-masking.
+        Assert.DoesNotContain("& 63", body);
         AssertCompiles("public static long M(CfgLongPriority flags, int n)", body, "public enum CfgLongPriority : long { Low = 0, High = 2 }");
     }
 
@@ -69,6 +72,9 @@ public class EnumCastPrinterTests
 
         Assert.Contains("(int)flags >>", body);
         Assert.DoesNotContain(" flags >>", body);
+        // The 4-byte backing masks the count by 31; keyed off the underlying it
+        // strips rather than re-spelling `n & 31` (which double-masks on recompile).
+        Assert.DoesNotContain("& 31", body);
         AssertCompiles("public static int M(CfgPriority flags, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
     }
 
@@ -100,7 +106,7 @@ public class EnumCastPrinterTests
     // A compound shift on an enum lvalue (`flags <<= n`) is CS0019 just like the
     // expression form: C# has no compound shift operator on an enum. The printer
     // decomposes it to a plain assignment that reinterprets the enum and casts the
-    // shift result back — `flags = (CfgPriority)((int)flags << (n & 31))`.
+    // shift result back — `flags = (CfgPriority)((int)flags << n)`.
     [Fact]
     public void EnumCompoundLeftShift_IntBackedEnum_DecomposesToCastBackAssignment()
     {
@@ -108,6 +114,7 @@ public class EnumCastPrinterTests
 
         Assert.Contains("flags = (CfgPriority)((int)flags <<", body);
         Assert.DoesNotContain("flags <<=", body);
+        Assert.DoesNotContain("& 31", body);
         AssertCompiles("public static CfgPriority M(CfgPriority flags, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
     }
 

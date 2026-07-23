@@ -987,10 +987,19 @@ public sealed partial class CSharpPrinter
     string ShiftCount(Binary shift)
     {
         if (shift.Right is Binary { Kind: BinaryKind.And, Right: Constant { Value: int mask } } masked
-            && ShiftWidthMask(EffectiveType(shift.Left)) is { } width && mask == width)
+            && ShiftWidthMask(ShiftWidthType(shift.Left)) is { } width && mask == width)
             return IntShiftCount(masked.Left);
         return IntShiftCount(shift.Right);
     }
+
+    // The integer width a shift runs on. An enum left operand shifts its underlying
+    // integer (the enum has no primitive stack family of its own), so the count's
+    // implicit width mask — 31 for a 4-byte backing, 63 for an 8-byte one — is the
+    // backing's, not the enum's. Resolve to that backing so ShiftCount strips the
+    // compiler-baked mask instead of re-spelling it (which would double-mask on
+    // recompile). A non-enum operand keeps its own effective type.
+    TypeRef? ShiftWidthType(IrExpression operand)
+        => EnumUnderlyingType(operand.ResultType) ?? EffectiveType(operand);
 
     // C#'s shift operators take an `int` count; a `uint` or enum count is CS0019.
     // IL's shl/shr take an int32 count, so reinterpreting a uint or a 32-bit enum as
