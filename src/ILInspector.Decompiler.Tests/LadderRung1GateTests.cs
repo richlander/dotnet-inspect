@@ -107,7 +107,7 @@ public class LadderRung1GateTests
 
         // Object construction, property/method calls, Console.WriteLine, branch.
         var main = Body("Main");
-        Assert.Contains("new Program()", main);
+        Assert.Contains("Program program = new();", main);
         Assert.Contains("program.Greet(\"world\")", main);
         Assert.Contains("program.IsPositive(program.Count)", main);
         Assert.Contains("Console.WriteLine(", main);
