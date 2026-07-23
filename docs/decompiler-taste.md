@@ -109,6 +109,61 @@ adopting it could change binding, and each decline is proven by recompile/corpus
 fidelity. Any future apparent-type spelling that shares this hazard is scoped the
 same way.
 
+### Line wrapping
+
+Breaking a long line across continuation lines is pure whitespace: it emits the
+same tokens in the same order, so the IL is untouched and it selects the *same*
+member of the equivalence class — the representative is unchanged, only its
+layout differs. Wrapping therefore sits below the three-class rule, alongside
+brace style, with a single input from the oracle: `dotnet/runtime`'s 120-column
+maximum line width decides *when* a single-line rendering is too wide to keep.
+
+Two chain shapes wrap one element per continuation line when the flat form would
+exceed that width and the chain has at least two elements:
+
+- **Fluent method chains — always on.** The runtime routinely breaks a long
+  fluent chain one `.Member(args)` call per line, and the transform is
+  token-identical (each line is spliced out of the single-line rendering by
+  length arithmetic), so it is applied unconditionally.
+
+  ```csharp
+  return source.Where(predicate).Select(projection).OrderBy(key).ToList();
+  // wraps to:
+  return source
+      .Where(predicate)
+      .Select(projection)
+      .OrderBy(key)
+      .ToList();
+  ```
+
+- **Short-circuit `&&` / `||` chains — opt-in.** The boolean analog breaks each
+  operand onto its own line with the operator trailing each broken line. It
+  carries the same whitespace-only guarantee — it re-renders each flattened
+  operand through the exact function the flat chain uses and declines unless the
+  per-operand join reproduces the flat text byte-for-byte, so any cast, compound
+  form, or pattern rewrite keeps the statement inline rather than risk dropping a
+  token — but it is **off by default**
+  (`PrinterOptions.WrapSplittableExpressions`) and surfaces as a taste decision
+  when enabled.
+
+  ```csharp
+  return firstFlag && secondFlag && thirdFlag && fourthFlag && fifthFlag && sixthFlag;
+  // with WrapSplittableExpressions, wraps to:
+  return firstFlag &&
+      secondFlag &&
+      thirdFlag &&
+      fourthFlag &&
+      fifthFlag &&
+      sixthFlag;
+  ```
+
+The asymmetry is deliberate and matches how this doc treats every cosmetic lens
+that isn't yet a default: like readable name synthesis under [Names](#names), the
+boolean-chain wrapper changes only layout, so it is introduced opt-in to keep
+default output byte-for-byte stable until the choice proves out, rather than
+churning every wide boolean `return` in the corpus. The always-on fluent wrapper
+predates it and stays on.
+
 ## Names
 
 Without a PDB, locals are slot names (`V_0`, `S_0`) shared with the Annotated IL view — the two views stay name-aligned by construction. With a PDB, source names are used. Synthesizing readable names (`size`, `array`, `item`) where no PDB exists is an open design question: it is the largest remaining cosmetic gap against source, but it would break view alignment unless opt-in.
