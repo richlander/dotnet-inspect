@@ -91,6 +91,31 @@ public static class InlinePatternSwitchSample
         return 0;
     }
 
+    public interface ICovariant<out T>
+    {
+    }
+
+    // A hand-written ladder whose earlier arm (ICovariant<object>) subsumes a
+    // later arm (ICovariant<string>) through generic covariance: `out T` makes
+    // `ICovariant<string>` assignable to `ICovariant<object>`, so the second
+    // test is unreachable in a `switch` (CS8510) even though no nominal base or
+    // interface edge connects the two constructed interfaces. As an `if` ladder
+    // it is valid C#. The subsumption oracle cannot see the variance conversion
+    // in the nominal closure, so it must report Unknown for a constructed
+    // generic `earlier` and the fold must DECLINE. Guards against a false `No`.
+    public static int Variance(object value)
+    {
+        if (value is ICovariant<object> objects)
+        {
+            return objects.GetHashCode();
+        }
+        if (value is ICovariant<string> strings)
+        {
+            return strings.GetHashCode();
+        }
+        return 0;
+    }
+
     // A hand-written ladder whose first arm carries a guard and whose type
     // (IComparable) overlaps a later arm (ICloneable) — `string` satisfies both.
     // The inline fold must DECLINE here: a `switch` routes a failed `when` to the

@@ -461,4 +461,18 @@ public class PatternSwitchExpressionPassTests
         Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
         Assert.NotEmpty(function.Descendants.OfType<IfStatement>());
     }
+
+    [Fact]
+    public void Variance_CompiledFixture_DoesNotRaise()
+    {
+        // Compiled reproduction of a variance CS8510: an earlier
+        // `ICovariant<object>` arm subsumes a later `ICovariant<string>` arm
+        // through `out T` covariance, a conversion with no nominal base/interface
+        // edge. The oracle reports Unknown for a constructed generic `earlier`,
+        // so the fold declines rather than emitting an unreachable arm.
+        var function = Raised(typeof(InlinePatternSwitchSample), nameof(InlinePatternSwitchSample.Variance));
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+        Assert.NotEmpty(function.Descendants.OfType<IfStatement>());
+    }
 }

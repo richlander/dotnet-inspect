@@ -678,6 +678,17 @@ public sealed class MetadataSource : IDisposable
         // any later reference pattern.
         if (IsObject(earlier))
             return MetadataFactState.Yes;
+        // Variance is invisible to the nominal base/interface closure below.
+        // A later arm can be assignable to an earlier arm through a co-/
+        // contravariant generic conversion (`ICov<string>` is-a `ICov<object>`,
+        // `Action<object>` is-a `Action<string>`) or array covariance
+        // (`string[]` is-a `object[]`), none of which leaves a nominal edge for
+        // AncestorReaches to follow. Every such conversion targets a constructed
+        // generic instance or an array, so when `earlier` is one the walk cannot
+        // prove disjointness — treat the pair as possibly subsuming (Unknown)
+        // and let the caller decline rather than emit an unreachable arm.
+        if (earlier.Kind is TypeRefKind.GenericInstance or TypeRefKind.SzArray or TypeRefKind.Array)
+            return MetadataFactState.Unknown;
         return AncestorReaches(later, earlier);
     }
 
