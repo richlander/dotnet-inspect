@@ -3,6 +3,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.RegularExpressions;
 
+using ILInspector.Metadata;
+
 namespace DotnetInspector.Services;
 
 /// <summary>
@@ -66,6 +68,36 @@ public static partial class LocalRepoSourceAcquisition
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Convenience overload that reads a checksum-verified blob from one of
+    /// <paramref name="repositoryPaths"/> using a resolved <see cref="SourceDocumentObservation"/>
+    /// (its SourceLink URL, checksum algorithm, and hex checksum).
+    /// </summary>
+    public static byte[]? TryReadVerifiedRepoBlob(
+        SourceDocumentObservation document,
+        IReadOnlyList<string> repositoryPaths)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        if (document.Checksum is not { Length: > 0 })
+            return null;
+
+        byte[] checksum;
+        try
+        {
+            checksum = Convert.FromHexString(document.Checksum);
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+
+        return TryReadVerifiedRepoBlob(
+            document.ResolvedUrl,
+            document.ChecksumAlgorithm,
+            checksum,
+            repositoryPaths);
     }
 
     /// <summary>

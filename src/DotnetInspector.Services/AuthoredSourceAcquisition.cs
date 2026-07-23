@@ -40,6 +40,7 @@ public static class AuthoredSourceAcquisition
         string methodName,
         FindingSubject subject,
         SourceFetcher fetcher,
+        IReadOnlyList<string>? repositoryPaths = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(source);
@@ -103,6 +104,17 @@ public static class AuthoredSourceAcquisition
         // builds, whose normalized document paths are not local reads in the first place.
         if (TryReadVerifiedLocalSource(document) is { } localBytes)
             return FromContent(mapping, document, localBytes, methodName, subject);
+
+        // Opt-in (--repo): read the committed blob at the SourceLink commit from a user-named local
+        // clone, authenticated by the same portable-PDB checksum, before touching the network. This
+        // is the path that matters for reproducible (published) builds, whose normalized document
+        // paths are not local reads, yet whose exact source lives in a clone the user already has.
+        if (repositoryPaths is { Count: > 0 }
+            && LocalRepoSourceAcquisition.TryReadVerifiedRepoBlob(document, repositoryPaths)
+                is { } repoBytes)
+        {
+            return FromContent(mapping, document, repoBytes, methodName, subject);
+        }
 
         if (document.ResolvedUrl is not { Length: > 0 } url)
         {
