@@ -69,6 +69,46 @@ while indexer-like pointer dereference appears as `(*array)[i]`. Those examples
 also match the semantic boundary: `p->Member` is the direct pointer-member
 syntax, while `p[i]` is pointer arithmetic, not an indexer call on the pointee.
 
+### Target-typed `new()`
+
+`T x = new T(args)` and `T x = new(args)` compile to the identical
+`newobj T::.ctor(args)` — the constructed type is fixed by the IL token, so the
+spelling has no IL consequence. This is a class-3 no-anchor choice, and the
+oracle decides it: `dotnet/runtime`'s `.editorconfig` sets
+`csharp_style_implicit_object_creation_when_type_is_apparent = true`, so when the
+type is apparent from the left-hand side we drop the redundant type name.
+
+```csharp
+// the author writes `var sb = new StringBuilder(n)` — type apparent on the right;
+// IL drops `var`, so the decompiler spells the explicit local type on the left.
+StringBuilder sb = new StringBuilder(n);   // type named twice
+StringBuilder sb = new(n);                 // target-typed: type apparent on the left
+```
+
+Unlike `var` or brace style, this spelling carries a **binding hazard**, so it is
+adopted as a sound conservative over-approximation rather than everywhere the
+oracle would fire — it declines whenever the shortened form could bind
+differently or fail to compile:
+
+- **Only when the contextual target type exactly `Equals` the constructed type.**
+  `new()` binds to the target type, so a base-typed, interface-typed, `Nullable<T>`,
+  or `ValueTuple` target would construct a different type than the original
+  `newobj`.
+- **Left-hand-side assignment/declaration positions only.** A target-typed `new()`
+  in a call-argument position participates in overload resolution and could change
+  binding; return positions are out of scope for now and kept explicit.
+- **Declines a bare `object`/`dynamic` target.** `dynamic` erases to `object` in
+  the IL, and target-typed `new()` is illegal for a `dynamic` target (CS8752);
+  `new object()` carries no type name to drop anyway.
+- **Declines covariant array element stores** where the `stelem` token is wider
+  than the array's static element type, since `a[i] = new()` binds to the element
+  type rather than the token.
+
+The discipline generalizes: a no-IL-anchor spelling is still declined when
+adopting it could change binding, and each decline is proven by recompile/corpus
+fidelity. Any future apparent-type spelling that shares this hazard is scoped the
+same way.
+
 ## Names
 
 Without a PDB, locals are slot names (`V_0`, `S_0`) shared with the Annotated IL view — the two views stay name-aligned by construction. With a PDB, source names are used. Synthesizing readable names (`size`, `array`, `item`) where no PDB exists is an open design question: it is the largest remaining cosmetic gap against source, but it would break view alignment unless opt-in.
