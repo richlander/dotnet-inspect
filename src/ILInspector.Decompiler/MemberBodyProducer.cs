@@ -1575,16 +1575,69 @@ public static class MemberBodyProducer
         foreach (var rawLine in listing.Split('\n'))
         {
             string line = rawLine.TrimEnd('\r');
-            // Never rewrite string literal contents: transform only the
-            // segments outside double quotes.
-            var segments = line.Split('"');
-            for (int i = 0; i < segments.Length; i += 2)
-                segments[i] = ShortenSegment(segments[i], prefixes, nsToNames, shortNameOwners, usings);
+            // Never rewrite literal contents: shorten only the code spans
+            // outside string/char literals, honoring backslash escapes.
+            ShortenLine(line, output, prefixes, nsToNames, shortNameOwners, usings);
             // Generated source uses one deterministic newline on every host.
-            output.Append(string.Join('"', segments)).Append('\n');
+            output.Append('\n');
         }
 
         return output.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// Shortens qualified names in the code spans of one line, copying string
+    /// (<c>"…"</c>) and character (<c>'…'</c>) literals verbatim. The scan honors
+    /// backslash escapes, so an escaped quote (<c>\"</c>) inside a literal — or a
+    /// quote character constant (<c>'"'</c>) — does not end the literal early and
+    /// expose its contents to shortening, which would corrupt the constant (a
+    /// naive split on <c>"</c> flips its in-literal parity). The decompiler never
+    /// emits verbatim (<c>@"…"</c>) or raw (<c>"""…"""</c>) literals — every
+    /// control character and quote is backslash-escaped and no literal spans
+    /// lines — so a backslash-aware single-line scan is sufficient.
+    /// </summary>
+    static void ShortenLine(
+        string line,
+        StringBuilder output,
+        List<(string Text, string Namespace)> prefixes,
+        Dictionary<string, HashSet<string>> nsToNames,
+        Dictionary<string, int> shortNameOwners,
+        SortedSet<string> usings)
+    {
+        int i = 0;
+        int codeStart = 0;
+        while (i < line.Length)
+        {
+            if (line[i] is not ('"' or '\''))
+            {
+                i++;
+                continue;
+            }
+            // Flush the shortened code span preceding this literal.
+            output.Append(ShortenSegment(line[codeStart..i], prefixes, nsToNames, shortNameOwners, usings));
+            // Copy the literal verbatim, honoring backslash escapes so an
+            // escaped delimiter does not terminate it early.
+            char delimiter = line[i];
+            output.Append(line[i]);
+            i++;
+            while (i < line.Length)
+            {
+                char c = line[i];
+                if (c == '\\' && i + 1 < line.Length)
+                {
+                    output.Append(c).Append(line[i + 1]);
+                    i += 2;
+                    continue;
+                }
+                output.Append(c);
+                i++;
+                if (c == delimiter)
+                    break;
+            }
+            codeStart = i;
+        }
+        if (codeStart < line.Length)
+            output.Append(ShortenSegment(line[codeStart..], prefixes, nsToNames, shortNameOwners, usings));
     }
 
     static string ShortenSegment(

@@ -3239,7 +3239,11 @@ static class FidelityCheck
             var index = new Dictionary<int, (ApiType Type, ApiMember Member)>();
             try
             {
-                foreach (var type in ApiSurfaceExtractor.Extract(p).Types)
+                // includeAll: the harness evaluates non-public methods too, so
+                // index the whole surface — otherwise internal/private targets
+                // silently miss the migration and retain the legacy signature
+                // emitter this change replaces (#3062 review).
+                foreach (var type in ApiSurfaceExtractor.Extract(p, includeAll: true).Types)
                     foreach (var member in type.Members)
                         if (member.MetadataToken is { } token)
                             index[token] = (type, member);
