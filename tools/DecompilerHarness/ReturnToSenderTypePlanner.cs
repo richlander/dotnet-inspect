@@ -1567,7 +1567,15 @@ public static class CompileBackSourceComposer
                 // Gated to Full so the Selected A/B path (which never runs the full-body evidence
                 // pass) keeps its pre-existing minimal single-accessor shape for explicit-interface
                 // event targets, leaving the corpus baseline unchanged.
+                //
+                // Explicit-interface event targets are excluded: the surface folds events by the
+                // sanitized full metadata name (`IBaseEvents.Changed`) while this target requirement
+                // carries the stripped identity (`Changed`), so the fold misses and a second
+                // explicit-interface event is appended (CS8646/CS0102). They retain the pre-#3007
+                // single-accessor shape (an honest floor, not a double-declaration false success);
+                // coherent explicit-interface reconstruction is out of #3007's plain-event scope.
                 IncludeMemberSurface = bodyPolicy == RoundTripBodyPolicy.Full
+                    && explicitEvent is null
                     && targetFacts.Any(fact => fact.Id == "closure-member")
             }
         };

@@ -6087,6 +6087,101 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    [Fact]
+    public void CompileBackTargets_FullExplicitInterfaceEventTargetDoesNotDoubleDeclare()
+    {
+        // Issue #3007 follow-up (PR #3075 review): the Full member surface folds events by the
+        // sanitized full metadata name ("IBaseEvents.Changed") while an explicit-interface event
+        // target requirement carries the stripped identity ("Changed"). Enabling the surface for
+        // such a target missed the fold and appended a SECOND `event Action IBaseEvents.Changed`
+        // with a `throw null` accessor (CS8646/CS0102) while still reporting BodyComplete=true — a
+        // double-declaration false success. Declining the surface for explicit-interface targets
+        // restores the pre-#3007 single-accessor shape and the honest incomplete floor.
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public interface IBaseEvents
+            {
+                event Action Changed;
+            }
+
+            public sealed class ExplicitEventFixture : IBaseEvents
+            {
+                private Action? _changed;
+
+                event Action IBaseEvents.Changed
+                {
+                    add { _changed += value; }
+                    remove { _changed -= value; }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("ExplicitEventFixture", "IBaseEvents.add_Changed", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            // Exactly one explicit-interface event declaration; no appended duplicate.
+            var declarations = result.Source.Split("event Action IBaseEvents.Changed").Length - 1;
+            Assert.True(
+                declarations == 1,
+                $"Expected a single explicit-interface event declaration, found {declarations}.{Environment.NewLine}{result.Source}");
+            Assert.DoesNotContain("throw null", result.Source, StringComparison.Ordinal);
+
+            // The sibling remover and the constructor are not represented under the declined
+            // surface, so BodyComplete is honestly false rather than an inflated double-declaration
+            // success (coherent explicit-interface reconstruction is out of #3007's scope).
+            Assert.False(
+                result.BodyComplete,
+                string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_FullFieldLikeEventTargetStaysMethodRouted()
+    {
+        // Issue #3007 follow-up (PR #3075 review): a field-like event (`event Action Changed;`)
+        // has a compiler-generated backing field whose name equals the event. Routing its accessor
+        // through the Full member surface would emit that backing field as a separate
+        // `Action Changed;` next to the reconstructed event (CS0102/CS0229). Coherent field-like
+        // reconstruction is out of #3007's scope, so field-like accessors are excluded from the
+        // Full broadening and stay method-routed exactly as before this PR — the surface's coherent
+        // single-event shape must NOT be produced for them.
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public sealed class OrdinaryEventFixture
+            {
+                public event Action Changed;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("OrdinaryEventFixture", "add_Changed", 0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            // Method-routed: the standalone accessor method is present (the pre-#3007 baseline
+            // shape). The coherent event surface would instead fold both accessors into a single
+            // `event { add remove }` with no standalone method, which is what this exclusion
+            // deliberately avoids for field-like events.
+            Assert.Contains("void add_Changed", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
     static string CompileFixture(
         string source,
         string? directory = null,
