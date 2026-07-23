@@ -83,4 +83,22 @@ public class ComparisonChainSwitchExpressionRaisingTests
 
         Assert.Empty(function.Descendants.OfType<SwitchExpression>());
     }
+
+    [Fact]
+    public void UnsignedGoverningValue_DeclinesToAvoidInvalidLabel()
+    {
+        // SwitchExpressionArm labels are signed int32. A uint governing value
+        // whose label is uint.MaxValue (IL ldc.i4.m1) would misprint as -1
+        // (CS0031). The raiser must decline on a non-Int32 governing type.
+        var function = Raised(
+            typeof(ScatteredReturnDispatchSample).FullName!,
+            nameof(ScatteredReturnDispatchSample.ClassifyUnsigned));
+
+        Assert.Empty(function.Descendants.OfType<SwitchExpression>());
+
+        var output = Print(
+            typeof(ScatteredReturnDispatchSample).FullName!,
+            nameof(ScatteredReturnDispatchSample.ClassifyUnsigned));
+        Assert.DoesNotContain("-1 =>", output);
+    }
 }

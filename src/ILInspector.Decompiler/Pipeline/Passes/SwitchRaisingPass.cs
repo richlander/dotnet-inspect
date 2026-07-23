@@ -581,6 +581,14 @@ public sealed class SwitchRaisingPass : IIrPass
         if (value is not (LoadLocal or LoadArgument) || !sawEquality || caseLabels.Count < 2)
             return false;
 
+        // SwitchExpressionArm.Labels are signed int32. Only an Int32 governing
+        // value renders those labels faithfully; other integral/enum/char types
+        // would misprint (e.g. a uint MaxValue label, IL ldc.i4.m1, as -1).
+        // Decline anything but Int32 and leave it to the other raisers.
+        TypeRef governingType = value is LoadLocal ll ? ll.Type : ((LoadArgument)value).Type;
+        if (!governingType.Equals(TypeRef.CoreLib("System", "Int32")))
+            return false;
+
         // No explicit default branch: the last test falls through to the default arm.
         if (defaultOffset is null)
         {

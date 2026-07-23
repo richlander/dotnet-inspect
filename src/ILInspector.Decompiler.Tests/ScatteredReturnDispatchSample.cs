@@ -66,6 +66,18 @@ public static class ScatteredReturnDispatchSample
         return Fail(out x);
     }
 
+    // Close negative for the unsigned-label bug: the same store-to-temp
+    // switch-expression shape but on a uint governing value. SwitchExpressionArm
+    // labels are signed int32, so raising this would misprint uint.MaxValue (IL
+    // ldc.i4.m1) as -1 (CS0031: -1 cannot convert to uint). The raiser must
+    // decline on any non-Int32 governing type and leave it to the other raisers.
+    public static int ClassifyUnsigned(uint u) => u switch
+    {
+        0u => 10,
+        uint.MaxValue => 20,
+        _ => 30
+    };
+
     // #640 canary: two contiguous guards on a shared return — must stay `a && b`.
     public static int PlainAnd(int a, int b)
     {
