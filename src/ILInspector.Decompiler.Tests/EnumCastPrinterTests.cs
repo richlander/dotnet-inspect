@@ -258,6 +258,20 @@ public class EnumCastPrinterTests
         AssertCompiles("public static ulong M(CfgLongPriority e, int n, ulong x)", body, "public enum CfgLongPriority : long { Low, Medium = 1, High = 2, Critical = 3 }");
     }
 
+    // #3076 precedence guard: an enum array-element left shift reconciled inside a
+    // mixed-sign ARITHMETIC parent (`+`, which binds tighter than `<<`) must keep
+    // parentheses — `((uint)values[i] << n) + x`, never `(uint)values[i] << n + x`
+    // (which parses as `(uint)values[i] << (n + x)` and fails to bind).
+    [Fact]
+    public void EnumArrayShiftInArithmeticAdd_KeepsShiftParentheses()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumArrayShiftAddUnsigned));
+
+        Assert.Contains("((uint)values[i] << n) + x", body);
+        Assert.DoesNotContain("<< n + x", body);
+        AssertCompiles("public static uint M(CfgPriority[] values, int i, int n, uint x)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
     // A bitwise CHAIN over an enum shift: the inner `|` inherits the shift's stale
     // enum ResultType while rendering as an integer, so the far sibling `y` must not
     // be coerced to the enum (`... | (E)y`, CS0019). The rewritten-integer detection
