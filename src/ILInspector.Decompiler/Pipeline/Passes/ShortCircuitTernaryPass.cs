@@ -29,7 +29,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// operand (field/element load, comparison, call, negation, nested logical
 /// operator) keeps the branch and is opcode-exact
 /// (<see cref="Conditions.Negate"/> re-forms <c>!c</c> as the comparison dual csc
-/// already branches on, e.g. <c>start &lt;= 0</c> ↔ <c>start &gt; 0</c>).</para>
+/// already branches on, e.g. <c>start &lt;= 0</c> ↔ <c>start &gt; 0</c>). The one
+/// exception is a float comparison condition in the B-form: negating it flips the
+/// ordered/unordered sense, which the printer cannot spell, so that shape is
+/// declined (<see cref="IsFloatComparison"/>).</para>
 ///
 /// It fires only when the when-true arm is a bool constant and the when-false arm
 /// is a non-constant bool expression; a both-constant <c>c ? true : false</c> is
@@ -57,6 +60,17 @@ public sealed class ShortCircuitTernaryPass : IIrPass
         foreach (var conditional in function.Descendants.OfType<Conditional>().ToList())
         {
             if (!TryClassify(conditional, out var kind, out bool negate))
+                continue;
+
+            // The B-form (`c ? false : y` → `!c && y`) negates the condition.
+            // Negating a float comparison keeps the value NaN-correct only by
+            // toggling its ordered/unordered sense (Conditions.Negate flips the
+            // unordered flag), but the C# printer spells both senses with the same
+            // relational operator, so recompiling the negated float comparison
+            // trades csc's ordered branch (blt.s) for the unordered one
+            // (blt.un.s). Decline so the rewrite stays opcode-exact; the A-form
+            // (no negate) and integer/reference comparisons are unaffected.
+            if (negate && IsFloatComparison(conditional.Condition))
                 continue;
 
             // The surviving operand is always the when-false arm. Decline when csc
@@ -123,6 +137,18 @@ public sealed class ShortCircuitTernaryPass : IIrPass
     /// </summary>
     static bool IsBareLocalOrArgumentLoad(IrExpression operand)
         => operand is LoadLocal or LoadArgument;
+
+    /// <summary>
+    /// A comparison over IEEE-754 <c>float</c>/<c>double</c> operands. Its C#
+    /// printed form (a single relational operator) cannot distinguish the ordered
+    /// and unordered senses, so a negated float comparison does not round-trip to
+    /// the same branch opcode (<c>blt.s</c> vs <c>blt.un.s</c>). The B-form decline
+    /// in <see cref="RewriteOne"/> uses this to keep the rewrite opcode-exact.
+    /// </summary>
+    static bool IsFloatComparison(IrExpression condition)
+        => condition is Comparison comparison
+           && (TypeFamilies.Of(comparison.Left.ResultType) == StackFamily.F
+               || TypeFamilies.Of(comparison.Right.ResultType) == StackFamily.F);
 
     static bool IsBool(TypeRef? type)
         => type is { Namespace: "System", Name: "Boolean" };

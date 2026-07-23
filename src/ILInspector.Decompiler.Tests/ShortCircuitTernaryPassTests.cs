@@ -8,6 +8,7 @@ public class ShortCircuitTernaryPassTests
 {
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_bool = TypeRef.CoreLib("System", "Boolean");
+    static readonly TypeRef s_double = TypeRef.CoreLib("System", "Double");
 
     static Constant Bool(bool value) => new(value, s_bool);
 
@@ -25,6 +26,12 @@ public class ShortCircuitTernaryPassTests
     // A comparison condition (negation takes the IL dual, <= becomes >).
     static Comparison StartLessEqualZero()
         => new(ComparisonKind.LessThanOrEqual, false, new LoadArgument(0, "start", s_int), new Constant(0, s_int));
+
+    // A float comparison condition. Negating it flips the ordered/unordered sense,
+    // which the printer cannot spell, so the B-form declines it.
+    static Comparison FloatCompare()
+        => new(ComparisonKind.LessThan, false,
+               new LoadArgument(0, "a", s_double), new LoadArgument(1, "b", s_double));
 
     [Fact]
     public void TrueThenValue_BecomesShortCircuitOr()
@@ -78,6 +85,29 @@ public class ShortCircuitTernaryPassTests
         var comparison = Assert.IsType<Comparison>(logical.Left);
         Assert.Equal(ComparisonKind.GreaterThan, comparison.Kind);
         Assert.IsType<Comparison>(logical.Right);
+    }
+
+    [Fact]
+    public void FloatComparisonCondition_BForm_IsNotRewritten()
+    {
+        // `(a < b) ? false : y` would become `!(a < b) && y`. Negating a float
+        // comparison flips its ordered/unordered sense (blt.s → blt.un.s), which
+        // the printer cannot spell — decline so the rewrite stays opcode-exact.
+        var result = RunOn(new Conditional(FloatCompare(), Bool(false), Y()));
+
+        Assert.IsType<Conditional>(result);
+    }
+
+    [Fact]
+    public void FloatComparisonCondition_AForm_StillRewrites()
+    {
+        // `(a < b) ? true : y` → `(a < b) || y`. The A-form does not negate the
+        // condition, so there is no ordered/unordered flip; float conditions are safe.
+        var result = RunOn(new Conditional(FloatCompare(), Bool(true), Y()));
+
+        var logical = Assert.IsType<LogicalBinary>(result);
+        Assert.Equal(LogicalKind.Or, logical.Kind);
+        Assert.IsType<Comparison>(logical.Left);   // condition unchanged
     }
 
     [Fact]
