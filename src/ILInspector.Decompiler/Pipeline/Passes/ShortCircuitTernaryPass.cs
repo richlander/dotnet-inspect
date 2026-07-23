@@ -22,17 +22,24 @@ namespace ILInspector.Decompiler.Pipeline;
 /// IL; the corpus compile-back gates guard the exact forms continuously).
 ///
 /// <para>Even for the two exact forms the rewrite is declined when the surviving
-/// operand is a bare local or parameter load: csc collapses <c>a &amp;&amp; b</c> /
-/// <c>a || b</c> to a branchless <c>&amp;</c>/<c>|</c> for that one operand shape, so
-/// raising the ternary would trade branch IL for branchless (see
-/// <see cref="IsBareLocalOrArgumentLoad"/>). Every computed or memory-loaded
+/// operand is a bare local, parameter, or stack-slot load: csc collapses
+/// <c>a &amp;&amp; b</c> / <c>a || b</c> to a branchless <c>&amp;</c>/<c>|</c> for those
+/// operand shapes, so raising the ternary would trade branch IL for branchless
+/// (see <see cref="IsBareLocalOrArgumentLoad"/>). Every computed or memory-loaded
 /// operand (field/element load, comparison, call, negation, nested logical
-/// operator) keeps the branch and is opcode-exact
-/// (<see cref="Conditions.Negate"/> re-forms <c>!c</c> as the comparison dual csc
-/// already branches on, e.g. <c>start &lt;= 0</c> ↔ <c>start &gt; 0</c>). The one
-/// exception is a float comparison condition in the B-form: negating it flips the
-/// ordered/unordered sense, which the printer cannot spell, so that shape is
-/// declined (<see cref="IsFloatComparison"/>).</para>
+/// operator) keeps the branch.</para>
+///
+/// <para>The B-form additionally negates the condition, and negation is only
+/// proven opcode-exact for a primitive-integer comparison, whose dual is the same
+/// integer branch (e.g. <c>start &lt;= 0</c> ↔ <c>start &gt; 0</c>, both
+/// <c>ble.s</c>). Every other condition's negation the printer can fold to a
+/// different operator token or branch polarity — a float dual flips the
+/// ordered/unordered sense, an <c>==</c>/<c>!=</c> dual or negated operator call
+/// flips to the inverse operator, and an <c>is</c>/<c>is null</c>/<c>!= 0</c>
+/// truthiness test inverts to its opposite — so the B-form fires only for a
+/// confirmed-integer comparison condition and declines the rest
+/// (<see cref="NegateIsIntegerComparisonDual"/>). The A-form (no negate) renders
+/// the condition verbatim and accepts any condition shape.</para>
 ///
 /// It fires only when the when-true arm is a bool constant and the when-false arm
 /// is a non-constant bool expression; a both-constant <c>c ? true : false</c> is
@@ -62,15 +69,14 @@ public sealed class ShortCircuitTernaryPass : IIrPass
             if (!TryClassify(conditional, out var kind, out bool negate))
                 continue;
 
-            // The B-form (`c ? false : y` → `!c && y`) negates the condition.
-            // Negating a float comparison keeps the value NaN-correct only by
-            // toggling its ordered/unordered sense (Conditions.Negate flips the
-            // unordered flag), but the C# printer spells both senses with the same
-            // relational operator, so recompiling the negated float comparison
-            // trades csc's ordered branch (blt.s) for the unordered one
-            // (blt.un.s). Decline so the rewrite stays opcode-exact; the A-form
-            // (no negate) and integer/reference comparisons are unaffected.
-            if (negate && IsFloatComparison(conditional.Condition))
+            // The B-form (`c ? false : y` → `!c && y`) negates the condition. The
+            // ONLY negation the pipeline is proven to spell back to the same branch
+            // opcodes is a primitive-integer comparison's dual (e.g. `start <= 0` →
+            // `start > 0`, both `ble.s`). Every other negation the printer can fold
+            // to a different operator token or branch polarity, so the B-form fires
+            // only for a confirmed-integer comparison; the A-form (no negate)
+            // renders the condition verbatim and is unaffected.
+            if (negate && !NegateIsIntegerComparisonDual(conditional.Condition))
                 continue;
 
             // The surviving operand is always the when-false arm. Decline when csc
@@ -126,29 +132,51 @@ public sealed class ShortCircuitTernaryPass : IIrPass
     /// <summary>
     /// csc emits a branchless <c>&amp;</c>/<c>|</c> (not a short-circuit branch) for
     /// <c>a &amp;&amp; b</c>/<c>a || b</c> only when the non-short-circuiting operand is
-    /// a bare local or parameter load — the one shape whose evaluation it can prove
-    /// is side-effect-free and cannot throw. Every other operand (field/element
-    /// load, comparison, call, negation, nested logical operator) keeps the branch,
-    /// so raising its ternary is opcode-exact. This mirrors Roslyn's branchless
-    /// eligibility (local/parameter/constant operands; a constant operand cannot
-    /// occur here because the pass requires the non-short-circuiting arm to be
-    /// non-constant). Confirmed against real csc-emitted IL: a bare-load operand
-    /// compiles branchless, every computed/memory-loaded operand keeps the branch.
+    /// a bare local, parameter, or stack-slot load — the operand shapes whose
+    /// evaluation it can prove is side-effect-free and cannot throw. (A residual
+    /// stack slot renders as a bare synthetic local, so csc collapses it the same
+    /// way.) Every other operand (field/element load, comparison, call, negation,
+    /// nested logical operator) keeps the branch, so raising its ternary is
+    /// opcode-exact. This mirrors Roslyn's branchless eligibility
+    /// (local/parameter/constant operands; a constant operand cannot occur here
+    /// because the pass requires the non-short-circuiting arm to be non-constant).
+    /// Confirmed against real csc-emitted IL: a bare-load operand compiles
+    /// branchless, every computed/memory-loaded operand keeps the branch.
     /// </summary>
     static bool IsBareLocalOrArgumentLoad(IrExpression operand)
-        => operand is LoadLocal or LoadArgument;
+        => operand is LoadLocal or LoadArgument or LoadStackSlot;
 
     /// <summary>
-    /// A comparison over IEEE-754 <c>float</c>/<c>double</c> operands. Its C#
-    /// printed form (a single relational operator) cannot distinguish the ordered
-    /// and unordered senses, so a negated float comparison does not round-trip to
-    /// the same branch opcode (<c>blt.s</c> vs <c>blt.un.s</c>). The B-form decline
-    /// in <see cref="RewriteOne"/> uses this to keep the rewrite opcode-exact.
+    /// Whether negating <paramref name="condition"/> re-forms to something that
+    /// recompiles to the same branch opcodes. The pipeline's <see cref="Conditions.Negate"/>
+    /// plus the printer's negation folds are only proven opcode-exact for a
+    /// confirmed primitive-integer comparison, whose dual is the same integer
+    /// branch (e.g. <c>start &lt;= 0</c> → <c>start &gt; 0</c>, both <c>ble.s</c>).
+    /// Every other negation the printer can fold to a different operator token or
+    /// branch polarity, so the B-form declines it:
+    /// <list type="bullet">
+    /// <item>a <see cref="Comparison"/> over float operands takes a dual that
+    /// flips the ordered/unordered sense (<c>blt.s</c> vs <c>blt.un.s</c>);</item>
+    /// <item>an <c>Equal</c>/<c>NotEqual</c> <see cref="Comparison"/> over a
+    /// non-integer operand (string/object/enum/struct), and a negated
+    /// comparison/equality operator <em>call</em> (<c>op_Equality</c>,
+    /// <c>op_LessThan</c>, …), flip to the inverse operator and — for a
+    /// user-defined operator — a different call token;</item>
+    /// <item>a truthiness test (<c>is</c>/<c>is null</c>/<c>!= 0</c>) inverts to
+    /// its own opposite spelling.</item>
+    /// </list>
+    /// Declining hands those back to the base pipeline's faithful rendering. The
+    /// integer family is read the same way <c>InvertComparison</c> reads it.
     /// </summary>
-    static bool IsFloatComparison(IrExpression condition)
-        => condition is Comparison comparison
-           && (TypeFamilies.Of(comparison.Left.ResultType) == StackFamily.F
-               || TypeFamilies.Of(comparison.Right.ResultType) == StackFamily.F);
+    static bool NegateIsIntegerComparisonDual(IrExpression condition)
+    {
+        if (condition is not Comparison comparison)
+            return false;
+
+        StackFamily? family = TypeFamilies.Of(comparison.Left.ResultType)
+                              ?? TypeFamilies.Of(comparison.Right.ResultType);
+        return family is StackFamily.I4 or StackFamily.I8 or StackFamily.I;
+    }
 
     static bool IsBool(TypeRef? type)
         => type is { Namespace: "System", Name: "Boolean" };

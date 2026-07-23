@@ -9,6 +9,7 @@ public class ShortCircuitTernaryPassTests
     static readonly TypeRef s_int = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef s_bool = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef s_double = TypeRef.CoreLib("System", "Double");
+    static readonly TypeRef s_string = TypeRef.CoreLib("System", "String");
 
     static Constant Bool(bool value) => new(value, s_bool);
 
@@ -33,6 +34,13 @@ public class ShortCircuitTernaryPassTests
         => new(ComparisonKind.LessThan, false,
                new LoadArgument(0, "a", s_double), new LoadArgument(1, "b", s_double));
 
+    // A reference (string) equality condition. Negating it takes the Equal→NotEqual
+    // dual, which the printer spells with the inverse operator (op_Equality →
+    // op_Inequality) — a different call token — so the B-form declines it.
+    static Comparison StringEquals()
+        => new(ComparisonKind.Equal, false,
+               new LoadArgument(0, "a", s_string), new LoadArgument(1, "b", s_string));
+
     [Fact]
     public void TrueThenValue_BecomesShortCircuitOr()
     {
@@ -45,14 +53,15 @@ public class ShortCircuitTernaryPassTests
     }
 
     [Fact]
-    public void FalseThenValue_BecomesNegatedShortCircuitAnd()
+    public void BoolCondition_BForm_IsNotRewritten()
     {
+        // B-form `flag ? false : y` would become `!flag && y`. Negating a
+        // non-comparison condition is not the proven integer dual, and the printer
+        // can fold a negated condition to a different operator/branch polarity, so
+        // the B-form fires only for a confirmed-integer comparison — decline here.
         var result = RunOn(new Conditional(Flag(), Bool(false), Y()));
 
-        var logical = Assert.IsType<LogicalBinary>(result);
-        Assert.Equal(LogicalKind.And, logical.Kind);
-        Assert.IsType<LogicalNot>(logical.Left);      // condition negated
-        Assert.IsType<Comparison>(logical.Right);
+        Assert.IsType<Conditional>(result);
     }
 
     [Fact]
@@ -111,11 +120,48 @@ public class ShortCircuitTernaryPassTests
     }
 
     [Fact]
+    public void ReferenceEqualityCondition_BForm_IsNotRewritten()
+    {
+        // `(a == b) ? false : y` would become `!(a == b) && y`. Negating a reference
+        // equality takes the Equal→NotEqual dual, which the printer spells with the
+        // inverse operator (op_Equality → op_Inequality) — a different call token —
+        // so decline to keep the rewrite opcode-exact.
+        var result = RunOn(new Conditional(StringEquals(), Bool(false), Y()));
+
+        Assert.IsType<Conditional>(result);
+    }
+
+    [Fact]
+    public void ReferenceEqualityCondition_AForm_StillRewrites()
+    {
+        // `(a == b) ? true : y` → `(a == b) || y`. The A-form leaves the condition
+        // untouched (no dual), so the operator token is preserved — safe to rewrite.
+        var result = RunOn(new Conditional(StringEquals(), Bool(true), Y()));
+
+        var logical = Assert.IsType<LogicalBinary>(result);
+        Assert.Equal(LogicalKind.Or, logical.Kind);
+        Assert.IsType<Comparison>(logical.Left);   // condition unchanged
+    }
+
+    [Fact]
+    public void BareStackSlotOperand_IsNotRewritten()
+    {
+        // Integer-comparison condition (passes the B-form negate gate) so this
+        // isolates the operand guard: a residual stack slot renders as a bare
+        // synthetic local, so csc collapses `c && S_0` to a branchless `&` just
+        // like a named local — decline.
+        var result = RunOn(new Conditional(StartLessEqualZero(), Bool(false), new LoadStackSlot(0, s_bool)));
+
+        Assert.IsType<Conditional>(result);
+    }
+
+    [Fact]
     public void BareLocalOperand_IsNotRewritten()
     {
-        // csc collapses `!c && local` to a branchless `&`; leave the ternary so the
-        // raise never trades branch IL for branchless.
-        var result = RunOn(new Conditional(Flag(), Bool(false), new LoadLocal(1, s_bool)));
+        // csc collapses `c && local` to a branchless `&`; leave the ternary so the
+        // raise never trades branch IL for branchless. (Integer condition so the
+        // decline is attributable to the operand guard, not the negate gate.)
+        var result = RunOn(new Conditional(StartLessEqualZero(), Bool(false), new LoadLocal(1, s_bool)));
 
         Assert.IsType<Conditional>(result);
     }
@@ -124,8 +170,8 @@ public class ShortCircuitTernaryPassTests
     public void BareArgumentOperand_IsNotRewritten()
     {
         // Same branchless hazard for a bare parameter load in the exact B-form
-        // (`c ? false : other` would become `!c & other`).
-        var result = RunOn(new Conditional(Flag(), Bool(false), new LoadArgument(1, "other", s_bool)));
+        // (`c ? false : other` would become `c & other`).
+        var result = RunOn(new Conditional(StartLessEqualZero(), Bool(false), new LoadArgument(1, "other", s_bool)));
 
         Assert.IsType<Conditional>(result);
     }
