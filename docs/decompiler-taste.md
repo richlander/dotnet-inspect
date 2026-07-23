@@ -112,9 +112,9 @@ same way.
 ### Line wrapping
 
 Breaking a long line across continuation lines is pure whitespace: it emits the
-same tokens in the same order, so the IL is untouched and it selects the *same*
-member of the equivalence class — the representative is unchanged, only its
-layout differs. Wrapping therefore sits below the three-class rule, alongside
+same tokens in the same order, so the wrapped and inline forms recompile to
+identical IL and it selects the *same* member of the equivalence class — the
+representative is unchanged, only its layout differs. Wrapping therefore sits below the three-class rule, alongside
 brace style, with a single input from the oracle: `dotnet/runtime`'s 120-column
 maximum line width decides *when* a single-line rendering is too wide to keep.
 
