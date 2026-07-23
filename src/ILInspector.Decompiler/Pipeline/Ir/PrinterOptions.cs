@@ -44,6 +44,18 @@ public sealed record PrinterOptions
     /// </summary>
     public ExpressionBodyArrowPlacement ExpressionBodyArrowPlacement { get; init; } = ExpressionBodyArrowPlacement.SameLine;
 
+    /// <summary>
+    /// When set, a long, splittable expression — today a short-circuit
+    /// <c>&amp;&amp;</c>/<c>||</c> boolean chain — whose single-line form would
+    /// exceed the fluent-chain wrap width breaks each operand onto its own
+    /// continuation line (operator trailing each broken line) instead of one very
+    /// wide line. Off by default; this is a whitespace-only formatting
+    /// tiebreaker, so the broken form is token-identical to the inline form and
+    /// the IL is unchanged (the boolean analog of the always-on fluent-chain
+    /// wrapper).
+    /// </summary>
+    public bool WrapSplittableExpressions { get; init; }
+
     /// <summary>The shipped defaults — every knob off.</summary>
     public static PrinterOptions Default { get; } = new();
 }
