@@ -75,6 +75,9 @@ static class Program
         string? harvestOutputPath = null;
         bool benchmarkAuthoredCorpus = false;
         string? benchmarkCorpusPath = null;
+        bool verifyAuthoredCorpus = false;
+        string? verifyCorpusPath = null;
+        bool failOnDrift = false;
         int harvestTarget = 12000;
         bool censusTsv = false;
         bool censusJsonl = false;
@@ -205,6 +208,13 @@ static class Program
                     case "--benchmark-authored-corpus":
                         benchmarkAuthoredCorpus = true;
                         benchmarkCorpusPath = NextArg(args, ref i, flag);
+                        break;
+                    case "--verify-authored-corpus":
+                        verifyAuthoredCorpus = true;
+                        verifyCorpusPath = NextArg(args, ref i, flag);
+                        break;
+                    case "--fail-on-drift":
+                        failOnDrift = true;
                         break;
                     case "--emit-not-my-type-snapshot":
                         emitNotMyTypeSnapshot = NextArg(args, ref i, flag); notMyType = true; break;
@@ -460,6 +470,9 @@ static class Program
 
         if (benchmarkAuthoredCorpus)
             return AuthoredCorpusBenchmark.Run(assemblies, benchmarkCorpusPath!, json);
+
+        if (verifyAuthoredCorpus)
+            return AuthoredCorpusDrift.Run(assemblies, verifyCorpusPath!, json, failOnDrift, sourceRepositories);
 
         if (returnToSenderAb)
             return ReturnToSender.RunComparison(assemblies, cap, maxExamples);
@@ -1995,12 +2008,23 @@ static class Program
           --package-tfm <tfm>    select a specific TFM from --package.
           --package-assembly <dll>
                                 select a specific assembly inside --package.
-          --repo <path>          with --harvest-authored-corpus/--harvest-evil-corpus:
-                                read authored source from a local git clone
-                                (checksum-arbitrated) instead of the network;
-                                repeatable. Point at this checkout to skip
-                                remote fetches for dotnet-inspect's own
-                                libraries.
+          --repo <path>          with --harvest-authored-corpus/--harvest-evil-corpus
+                                or --verify-authored-corpus: read authored source
+                                from a local git clone (checksum-arbitrated)
+                                instead of the network; repeatable. Point at this
+                                checkout to skip remote fetches for dotnet-inspect's
+                                own libraries.
+          --verify-authored-corpus <corpus.jsonl>
+                                re-acquire each vendored corpus row's source
+                                (via --repo and/or SourceLink), re-slice the
+                                member body, and compare it against the stored
+                                snapshot. Reports Verified/Drifted/Unavailable.
+                                Report-only unless --fail-on-drift is set. Supply
+                                the same pinned assemblies the corpus was harvested
+                                from as inputs. Does not run the decompiler.
+          --fail-on-drift        with --verify-authored-corpus: fail-closed gate —
+                                exit non-zero unless every evaluated row is
+                                Verified (any Drifted or Unavailable row fails).
           --fidelity-timings      with --fidelity-check: print phase timings for collect/render,
                                 skeleton emit, parse, compilation create, emit, and opcode compare
           --fidelity-zero-signal-guard <n>
