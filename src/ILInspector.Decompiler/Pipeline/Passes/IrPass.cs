@@ -170,6 +170,11 @@ public static class IrPasses
         // conditional store — the multi-arm sibling of the slot-store diamond
         // over a local — so its merge structures instead of staying flat.
         new ConditionalStoreChainPass(),
+        // Fold a spilled single-use struct rvalue back into its member receiver
+        // (V = a.Prop; V.Member -> a.Prop.Member) so the guard block it sat in
+        // becomes a pure single condition that structuring can nest and boolean
+        // folding can recompose into one && return (issue #3051).
+        new StructReceiverInliningPass(),
         new StructuringPass(),
         // Recover a destructor: a Finalize override's try/finally + base.Finalize()
         // scaffold, structured just above, collapses to the ~T() body.

@@ -33,6 +33,8 @@ internal static class NativePasses
     public static StackSlotCopyPropagationPass StackSlotCopyPropagation => new();
     [Native(NativeCategory.EmitArtifact, "reused evaluation-stack slot live ranges split into distinct typed synthetic carriers")]
     public static StackSlotLiveRangePass StackSlotLiveRange => new();
+    [Native(NativeCategory.EmitArtifact, "a spilled single-use struct rvalue temp (V = a.Prop; ldloca V; call get_Member) folded back into its member receiver a.Prop.Member so the guard block it sat in becomes a pure condition structuring can nest")]
+    public static StructReceiverInliningPass StructReceiverInlining => new();
     [Native(NativeCategory.EmitArtifact, "in-place struct .ctor (ldloca; call S::.ctor) back to s = new S(...)")]
     public static StructConstructorPass StructConstructor => new();
     [Native(NativeCategory.EmitArtifact, "spilled-this base()/this() call back to a chain initializer")]
