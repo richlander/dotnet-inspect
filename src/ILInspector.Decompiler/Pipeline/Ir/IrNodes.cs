@@ -13,6 +13,19 @@ public enum MetadataFactState { Unknown, No, Yes }
 /// <summary>Whether by-ref parameter keyword metadata was needed and recovered.</summary>
 public enum ParameterRefKindFacts { Unknown, NotRequired, Known }
 
+/// <summary>
+/// A callee parameter's declared C# default (<c>[Optional]</c> + a <c>Constant</c>
+/// row), recovered from metadata and aligned 1:1 with
+/// <see cref="MethodRef.ParameterTypes"/>. <see cref="HasDefault"/> is false for a
+/// required parameter (and <see cref="Value"/> is then meaningless). When true,
+/// <see cref="Value"/> is the typed constant the compiler bakes into every call
+/// site (an integral/bool/char/enum arrives boxed as its underlying primitive,
+/// a reference/nullable <c>= null</c> default arrives as <see langword="null"/>).
+/// The optional-argument elision pass compares a trailing constant argument to
+/// this value; equality means the source omitted the argument.
+/// </summary>
+public readonly record struct ParameterDefault(bool HasDefault, object? Value);
+
 /// <summary>Positive metadata evidence that a method is a property/event accessor.</summary>
 public enum AccessorKind { Unknown, None, PropertyGet, PropertySet, EventAdd, EventRemove }
 
@@ -42,6 +55,27 @@ public sealed record MethodRef(
     /// parameters needed spelling facts" from "a MemberRef did not expose rows."
     /// </summary>
     public ParameterRefKindFacts ParameterRefKindsFacts { get; init; } = ParameterRefKindFacts.Unknown;
+
+    /// <summary>
+    /// Per-parameter C# defaults (<c>[Optional]</c> + <c>Constant</c>), aligned
+    /// 1:1 with <see cref="ParameterTypes"/>. Empty means the defaults were not
+    /// resolved (the pipeline populates this only for same-assembly
+    /// <c>MethodDefinition</c> callees; cross-assembly and generic callees stay
+    /// empty and never elide). Consumed by the optional-argument elision pass.
+    /// </summary>
+    public ImmutableArray<ParameterDefault> ParameterDefaults { get; init; } = [];
+
+    /// <summary>
+    /// How many trailing arguments the optional-argument elision pass may drop:
+    /// the length of the trailing run of defaulted parameters that is also
+    /// <em>overload-safe</em> — no other same-named overload on the declaring
+    /// type could rebind the shortened call. Zero (the default) disables elision.
+    /// A sound conservative under-approximation: the count only rises when every
+    /// competing overload is confidently rejected, so an unresolved or ambiguous
+    /// case declines. The recompile/corpus fidelity gate is the empirical
+    /// backstop for any residual overload-resolution miss.
+    /// </summary>
+    public int SafeTrailingElidableCount { get; init; }
 
     /// <summary>
     /// The callee is <em>requires-unsafe</em>: under the updated memory-safety

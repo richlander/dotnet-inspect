@@ -1137,7 +1137,8 @@ public static class IrImporter
 
                 case ILOpCode.Call or ILOpCode.Callvirt:
                 {
-                    var callee = ResolveMethod(source.Reader, MetadataTokens.EntityHandle(reader.ReadILToken()), callerScope);
+                    var methodHandle = MetadataTokens.EntityHandle(reader.ReadILToken());
+                    var callee = ResolveMethod(source.Reader, methodHandle, callerScope);
                     if (callee.DeclaringType.Kind == TypeRefKind.Unsupported)
                     {
                         // Unknown arity would mis-pop the stack and corrupt
@@ -1148,6 +1149,11 @@ public static class IrImporter
                     // MemberRefs carry no MethodDef rows; resolve only the
                     // missing cross-assembly facts this callee can consume.
                     callee = source.CrossAssembly.Upgrade(callee, function.UsesUpdatedMemorySafetyRules);
+                    // A same-assembly MethodDef exposes its parameters' C# defaults
+                    // and sibling overloads; recover the overload-safe trailing
+                    // elision facts for the optional-argument elision pass.
+                    if (methodHandle.Kind == HandleKind.MethodDefinition)
+                        callee = OptionalArgumentFacts.Stamp(source, (MethodDefinitionHandle)methodHandle, callee);
                     int argumentCount = callee.ParameterTypes.Length + (callee.HasThis ? 1 : 0);
                     var arguments = new IrExpression[argumentCount];
                     for (int i = argumentCount - 1; i >= 0; i--)
