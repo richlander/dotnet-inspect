@@ -188,14 +188,15 @@ public static class MemberBodyProducer
     }
 
     /// <summary>
-    /// Legacy path-only entry point. Prefer the <see cref="IAssemblyReferenceResolver"/>
-    /// overload for new product and harness code. <paramref name="printerOptions"/>
-    /// defaults to the shipped output.
+    /// Convenience entry point that resolves referenced assemblies with the
+    /// default sibling policy (<see cref="Pipeline.MetadataSource.DefaultAssemblyReferenceResolver"/>).
+    /// Prefer the <see cref="IAssemblyReferenceResolver"/> overload when a
+    /// caller needs identity- or stream-backed resolution.
+    /// <paramref name="printerOptions"/> defaults to the shipped output.
     /// </summary>
-    public static DecompilerResult Project(ApiType type, string dllPath, string? pdbPath, AssemblyLocator? locateAssembly = null, Pipeline.MetadataContext? context = null, Pipeline.PrinterOptions? printerOptions = null)
+    public static DecompilerResult Project(ApiType type, string dllPath, string? pdbPath, Pipeline.MetadataContext? context = null, Pipeline.PrinterOptions? printerOptions = null)
     {
-        var resolver = locateAssembly?.ToAssemblyReferenceResolver()
-            ?? Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(dllPath);
+        var resolver = Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(dllPath);
         return Project(type, dllPath, pdbPath, resolver, context, printerOptions);
     }
 
@@ -225,14 +226,15 @@ public static class MemberBodyProducer
     }
 
     /// <summary>
-    /// Legacy path-only entry point. Prefer the <see cref="IAssemblyReferenceResolver"/>
-    /// overload for new product and harness code. <paramref name="printerOptions"/>
-    /// defaults to the shipped output.
+    /// Convenience entry point that resolves referenced assemblies with the
+    /// default sibling policy (<see cref="Pipeline.MetadataSource.DefaultAssemblyReferenceResolver"/>).
+    /// Prefer the <see cref="IAssemblyReferenceResolver"/> overload when a
+    /// caller needs identity- or stream-backed resolution.
+    /// <paramref name="printerOptions"/> defaults to the shipped output.
     /// </summary>
-    public static MemberRenderResult ProduceMember(ApiType type, ApiMember member, string dllPath, string? pdbPath, AssemblyLocator? locateAssembly = null, Pipeline.MetadataContext? context = null, Pipeline.PrinterOptions? printerOptions = null)
+    public static MemberRenderResult ProduceMember(ApiType type, ApiMember member, string dllPath, string? pdbPath, Pipeline.MetadataContext? context = null, Pipeline.PrinterOptions? printerOptions = null)
     {
-        var resolver = locateAssembly?.ToAssemblyReferenceResolver()
-            ?? Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(dllPath);
+        var resolver = Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(dllPath);
         return ProduceMember(type, member, dllPath, pdbPath, resolver, context, printerOptions);
     }
 
@@ -267,13 +269,14 @@ public static class MemberBodyProducer
     }
 
     /// <summary>
-    /// Legacy path-only entry point. Prefer the <see cref="IAssemblyReferenceResolver"/>
-    /// overload for new product and harness code.
+    /// Convenience entry point that resolves referenced assemblies with the
+    /// default sibling policy (<see cref="Pipeline.MetadataSource.DefaultAssemblyReferenceResolver"/>).
+    /// Prefer the <see cref="IAssemblyReferenceResolver"/> overload when a
+    /// caller needs identity- or stream-backed resolution.
     /// </summary>
-    public static IReadOnlyDictionary<ApiMember, MemberRenderResult> ProduceMembers(ApiType type, string dllPath, string? pdbPath, AssemblyLocator? locateAssembly = null, Pipeline.MetadataContext? context = null)
+    public static IReadOnlyDictionary<ApiMember, MemberRenderResult> ProduceMembers(ApiType type, string dllPath, string? pdbPath, Pipeline.MetadataContext? context = null)
     {
-        var resolver = locateAssembly?.ToAssemblyReferenceResolver()
-            ?? Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(dllPath);
+        var resolver = Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(dllPath);
         return ProduceMembers(type, dllPath, pdbPath, resolver, context);
     }
 
