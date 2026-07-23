@@ -5164,6 +5164,21 @@ public static class EnumCastSamples
 
     public static int RefIntEnumLeftShift(ref CfgPriority e, int n) => (int)e << n;
 
+    // #3011 (review): an enum shift feeding a parent bitwise &/|/^ kept the shift
+    // node's enum ResultType, so the printer coerced the *sibling* integer to the
+    // enum (`(int)e << n | (E)x`, CS0019). The shift renders as its underlying
+    // integer, so the bitwise op is an integer op; a same-width mixed-sign sibling
+    // reconciles to one width rather than promoting to the wider signed common type
+    // (which changes the value) or failing to bind. Witness: Roslyn
+    // MetadataWriter.GetRawToken — `((uint)encoding << 24) | pseudoToken`.
+    public static uint IntEnumShiftOrUnsigned(CfgPriority e, uint x) => ((uint)e << 24) | x;
+
+    public static int IntEnumShiftOrSigned(CfgPriority e, int x) => ((int)e << 8) | x;
+
+    public static ulong LongEnumShiftOrUnsigned(CfgLongPriority e, ulong x) => ((ulong)e << 8) | x;
+
+    public static uint IntEnumShiftAndUnsigned(CfgPriority e, uint x) => ((uint)e << 4) & x;
+
     // #1766: ternary with enum-constant arms stored to a cross-assembly enum
     // local (StringComparison.Ordinal = 4, OrdinalIgnoreCase = 5).
     public static bool EnumConditional(string name, bool ci)
