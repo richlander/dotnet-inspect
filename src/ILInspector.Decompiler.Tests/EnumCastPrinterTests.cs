@@ -131,6 +131,69 @@ public class EnumCastPrinterTests
         AssertCompiles("public static CfgPriority M(CfgPriority flags, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
     }
 
+    // #3011 (review): a typed `ldelem.i4`/`ldind.i4` over an enum array or by-ref
+    // masks the operand's stack type as the primitive storage width, but the
+    // rendered `values[i]`/`e` is enum-typed and still rejects a bare shift. The
+    // printer recovers the enum from the array element / pointee type and forces
+    // the reinterpret cast (which `CoerceText` would drop as an int→int identity).
+    [Fact]
+    public void EnumArrayRightShift_IntBackedEnum_CastsElementToUnderlying()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.IntEnumArrayRightShift));
+
+        Assert.Contains("(int)values[i] >>", body);
+        Assert.DoesNotContain(" values[i] >>", body);
+        Assert.DoesNotContain("& 31", body);
+        AssertCompiles("public static int M(CfgPriority[] values, int i, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    [Fact]
+    public void EnumArrayLeftShift_IntBackedEnum_CastsElementToUnderlying()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.IntEnumArrayLeftShift));
+
+        Assert.Contains("(int)values[i] <<", body);
+        Assert.DoesNotContain(" values[i] <<", body);
+        AssertCompiles("public static int M(CfgPriority[] values, int i, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // Width recovery for the array element: a long-backed enum array casts to long
+    // and strips the 6-bit (& 63) count mask, not the 5-bit int mask.
+    [Fact]
+    public void EnumArrayRightShift_LongBackedEnum_CastsElementToUnderlying()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.LongEnumArrayRightShift));
+
+        Assert.Contains("(long)values[i] >>", body);
+        Assert.DoesNotContain("& 63", body);
+        AssertCompiles("public static long M(CfgLongPriority[] values, int i, int n)", body, "public enum CfgLongPriority : long { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // Signedness still follows the opcode for the recovered element cast: shr.un on
+    // an int-backed enum array reinterprets to `(uint)`, not the backing's `(int)`.
+    [Fact]
+    public void EnumArrayRightShift_IntBackedButUnsignedOpcode_CastsElementToUnsigned()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.IntEnumArrayUnsignedRightShift));
+
+        Assert.Contains("(uint)values[i] >>", body);
+        Assert.DoesNotContain("(int)values[i] >>", body);
+        AssertCompiles("public static uint M(CfgPriority[] values, int i, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // The by-ref sibling: a `ref` enum loaded through `ldind.i4` is masked as the
+    // primitive too, so the pointee-recovered cast reinterprets `e`.
+    [Fact]
+    public void RefEnumLeftShift_IntBackedEnum_CastsPointeeToUnderlying()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.RefIntEnumLeftShift));
+
+        Assert.Contains("(int)", body);
+        Assert.Contains("<<", body);
+        Assert.DoesNotContain(" e <<", body);
+        AssertCompiles("public static int M(ref CfgPriority e, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
     // A sub-int (byte) backing promotes to int in a C# shift; the reinterpret
     // targets the 4-byte width the shift runs on. Synthetic to keep the enum load
     // a bare operand (a compiled `(byte)` narrowing could add a conv node).

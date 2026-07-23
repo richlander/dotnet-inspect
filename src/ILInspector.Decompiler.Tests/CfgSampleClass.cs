@@ -5149,6 +5149,21 @@ public static class EnumCastSamples
         return flags;
     }
 
+    // #3011 (review): a typed `ldelem.i4`/`ldind.i4` over an enum array or by-ref
+    // loads the enum's primitive storage width, so the shift operand's stack type
+    // is the primitive even though the rendered expression (`values[i]`, `e`) is
+    // enum-typed and rejects a bare shift (CS0019). The printer must recover the
+    // enum from the array element / pointee type and force the reinterpret cast.
+    public static int IntEnumArrayRightShift(CfgPriority[] values, int i, int n) => (int)values[i] >> n;
+
+    public static int IntEnumArrayLeftShift(CfgPriority[] values, int i, int n) => (int)values[i] << n;
+
+    public static long LongEnumArrayRightShift(CfgLongPriority[] values, int i, int n) => (long)values[i] >> n;
+
+    public static uint IntEnumArrayUnsignedRightShift(CfgPriority[] values, int i, int n) => (uint)values[i] >> n;
+
+    public static int RefIntEnumLeftShift(ref CfgPriority e, int n) => (int)e << n;
+
     // #1766: ternary with enum-constant arms stored to a cross-assembly enum
     // local (StringComparison.Ordinal = 4, OrdinalIgnoreCase = 5).
     public static bool EnumConditional(string name, bool ci)

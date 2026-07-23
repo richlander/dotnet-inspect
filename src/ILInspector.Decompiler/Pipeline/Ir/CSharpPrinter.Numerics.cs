@@ -355,20 +355,57 @@ public sealed partial class CSharpPrinter
     /// enum to the opposite-signedness same-width integer (<c>(uint)intEnum &gt;&gt; n</c>),
     /// an IL no-op that leaves no trace, so the shift opcode is the only faithful
     /// record of its signedness. Width comes from the backing — a width change would
-    /// leave a <c>conv</c> in the IL and the operand would not be a bare enum. The
-    /// cast runs through <see cref="CoerceText"/> (the one enum→integer door, shared
-    /// with the enum div/rem operands) so a signed→unsigned reinterpret inside a
-    /// <c>checked</c> region keeps its <c>unchecked</c> guard. A cross-assembly enum
-    /// whose backing width is unknown has no underlying type and is left alone.
+    /// leave a <c>conv</c> in the IL and the operand would not be a bare enum.
+    /// <para>
+    /// The enum type comes from the rendered spelling, not the stack
+    /// <c>ResultType</c>: a typed <c>ldelem.i4</c>/<c>ldind.i4</c> over an enum array
+    /// or by-ref masks the operand as its primitive storage width, yet the rendered
+    /// expression (<c>values[i]</c>, <c>e</c>) is still enum-typed and rejects a bare
+    /// shift. When the operand's own <c>ResultType</c> is the enum, the cast runs
+    /// through <see cref="CoerceText"/> (the one enum→integer door, shared with the
+    /// enum div/rem operands). When it is the masked primitive, CoerceText would see
+    /// an int→int identity and drop the cast, so the reinterpret is spelled directly
+    /// — with the same <c>checked</c>-region <c>unchecked</c> guard for a
+    /// sign-flipping cast. A cross-assembly enum whose backing width is unknown has
+    /// no underlying type and is left alone.
+    /// </para>
     /// </summary>
     string? ShiftEnumLeftOperand(IrExpression operand, bool isUnsigned)
     {
-        if (EnumUnderlyingType(operand.ResultType) is not { } underlying)
+        if (ShiftLeftEnumType(operand) is not { } enumType
+            || EnumUnderlyingType(enumType) is not { } underlying)
+        {
             return null;
+        }
         var target = Is8ByteInteger(underlying)
             ? (isUnsigned ? TypeRef.CoreLib("System", "UInt64") : TypeRef.CoreLib("System", "Int64"))
             : (isUnsigned ? TypeRef.CoreLib("System", "UInt32") : TypeRef.CoreLib("System", "Int32"));
-        return CoerceText(operand, target);
+        if (EnumUnderlyingType(operand.ResultType) is not null)
+            return CoerceText(operand, target);
+        return CSharpConversionRules.CheckedConversionCanThrow(underlying, target)
+            ? CheckedSafeCast(() => $"({TypeText(target)}){Operand(operand)}")
+            : $"({TypeText(target)}){Operand(operand)}";
+    }
+
+    /// <summary>
+    /// The enum type a shift's left operand renders as, or null when it is not a
+    /// resolvable enum. A bare load carries the enum in its <c>ResultType</c>; a
+    /// typed <c>ldelem</c>/<c>ldind</c> masks it as the primitive storage width, so
+    /// recover the enum from the array element or by-ref/pointer pointee type — the
+    /// type the operand is actually spelled with (mirrors <see cref="WideIndexOperandType"/>).
+    /// </summary>
+    TypeRef? ShiftLeftEnumType(IrExpression operand)
+    {
+        if (EnumUnderlyingType(operand.ResultType) is not null)
+            return operand.ResultType;
+        return operand switch
+        {
+            LoadElement { Array.ResultType: { Kind: TypeRefKind.SzArray or TypeRefKind.Array, ElementType: { } element } }
+                when EnumUnderlyingType(element) is not null => element,
+            LoadIndirect load when WideIndexPointee(load.Address) is { } pointee
+                && EnumUnderlyingType(pointee) is not null => pointee,
+            _ => null,
+        };
     }
 
     /// <summary>
