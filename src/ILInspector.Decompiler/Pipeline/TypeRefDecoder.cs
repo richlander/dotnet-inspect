@@ -140,8 +140,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             string ns = reader.GetString(root.Namespace);
             string name = TypeReferenceName(reader, chain);
             string assembly = terminal.Kind == HandleKind.AssemblyReference
-                ? Canonical(reader.GetString(
-                    reader.GetAssemblyReference((AssemblyReferenceHandle)terminal).Name))
+                ? CanonicalReferenced(reader, (AssemblyReferenceHandle)terminal)
                 : "";
             return TypeRef.Definition(assembly, ns, name, HintFrom(rawTypeKind));
         }
@@ -344,11 +343,38 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             ? MetadataFactState.Yes
             : MetadataFactState.No;
 
-    /// <summary>Canonicalizes corelib spellings so facade choice never affects identity.</summary>
-    internal static string Canonical(string assemblyName) => assemblyName is
-        "System.Private.CoreLib" or "System.Runtime" or "mscorlib" or "netstandard" or "System.Runtime.Extensions"
-        ? TypeRef.CoreLibrary
-        : assemblyName;
+    /// <summary>
+    /// Canonicalizes corelib spellings so facade choice never affects identity.
+    /// Used only for same-assembly identity comparisons against the reader's own
+    /// <see cref="AssemblyDefinition"/> name (a name the caller already trusts,
+    /// since it is the file explicitly opened for inspection) — never for an
+    /// <see cref="AssemblyReference"/>, whose name is forgeable; see
+    /// <see cref="CanonicalReferenced"/> for that case.
+    /// </summary>
+    internal static string Canonical(string assemblyName)
+        => IsCoreLibFacadeName(assemblyName) ? TypeRef.CoreLibrary : assemblyName;
+
+    /// <summary>
+    /// Canonicalizes a referenced assembly's simple name to
+    /// <see cref="TypeRef.CoreLibrary"/> only when its public-key token is a
+    /// trusted platform key (<see cref="PlatformKeys.IsPlatform"/>). An
+    /// <see cref="AssemblyReference"/>'s <c>Name</c> is forgeable — a planted
+    /// assembly can declare an <c>AssemblyRef</c> row named
+    /// <c>"System.Runtime"</c> with no valid public-key token — so name alone
+    /// must never grant corelib identity for a reference.
+    /// </summary>
+    static string CanonicalReferenced(MetadataReader reader, AssemblyReferenceHandle handle)
+    {
+        var reference = reader.GetAssemblyReference(handle);
+        string name = reader.GetString(reference.Name);
+        if (!IsCoreLibFacadeName(name))
+            return name;
+        string? token = AssemblyReferenceIdentity.From(reader, handle).PublicKeyToken;
+        return PlatformKeys.IsPlatform(token) ? TypeRef.CoreLibrary : name;
+    }
+
+    static bool IsCoreLibFacadeName(string assemblyName) => assemblyName is
+        "System.Private.CoreLib" or "System.Runtime" or "mscorlib" or "netstandard" or "System.Runtime.Extensions";
 
     static string RelationshipFailure(
         string relationship,
