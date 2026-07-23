@@ -475,19 +475,32 @@ public sealed partial class CSharpPrinter
     /// same-width mixed-sign pair (<c>(long)e &lt;&lt; n | ulongValue</c>) is
     /// reinterpreted to a single width instead of binding to the wider signed
     /// common type (which changes the value) or failing to bind at all (CS0019).
+    /// The width follows the enum backing for a resolvable enum, and — mirroring
+    /// <see cref="ShiftEnumLeftOperand"/> — the compiler-baked shift-count mask
+    /// (<c>&amp; 31</c> =&gt; 4-byte, <c>&amp; 63</c> =&gt; 8-byte) for a cross-assembly
+    /// enum whose backing is unresolvable; otherwise the parent bitwise/sink
+    /// reconciliation would decline and re-emit the shift's stale enum type, leaving
+    /// a mixed-sign sibling (CS0019) or int→enum sink (CS0266) invalid.
     /// </summary>
     TypeRef? ShiftRenderedIntegerType(IrExpression operand)
     {
-        if (operand is not Binary { Kind: BinaryKind.ShiftLeft or BinaryKind.ShiftRight } shift
-            || ShiftLeftEnumType(shift.Left) is not { } enumType
-            || EnumUnderlyingType(enumType) is not { } underlying)
+        if (operand is not Binary { Kind: BinaryKind.ShiftLeft or BinaryKind.ShiftRight } shift)
         {
             return null;
         }
-        bool wide = Is8ByteInteger(underlying);
+        bool? wide = ShiftLeftEnumType(shift.Left) is { } enumType
+                && EnumUnderlyingType(enumType) is { } underlying
+            ? Is8ByteInteger(underlying)
+            : IsEnumLikeShiftOperand(shift.Left) && ShiftCountMaskWidthBytes(shift) is { } widthBytes
+                ? widthBytes == 8
+                : null;
+        if (wide is not { } isWide)
+        {
+            return null;
+        }
         return shift.IsUnsigned
-            ? TypeRef.CoreLib("System", wide ? "UInt64" : "UInt32")
-            : TypeRef.CoreLib("System", wide ? "Int64" : "Int32");
+            ? TypeRef.CoreLib("System", isWide ? "UInt64" : "UInt32")
+            : TypeRef.CoreLib("System", isWide ? "Int64" : "Int32");
     }
 
     /// <summary>

@@ -390,6 +390,46 @@ public class EnumCastPrinterTests
         Assert.DoesNotContain("(ulong)e", body);
     }
 
+    // #3066 x #3011 merge interaction: a cross-assembly (unresolved-backing) enum
+    // shift feeding a MIXED-SIGN bitwise parent. The bitwise reconciliation
+    // (ShiftRenderedIntegerType) must recover the shift's rendered width from the
+    // count mask just like the bare-operand cast does; otherwise it declines, re-
+    // emits the shift's stale enum type, and the `|` fails to bind (CS0019).
+    [Fact]
+    public void CrossAssemblyEnumShift_InMixedSignBitwiseOr_ReconcilesToRecoveredWidth()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalLongSignedShiftOrUnsigned));
+
+        Assert.Contains("(ulong)((long)e >>", body);
+        Assert.DoesNotContain("(ExternalLong)x", body);
+        AssertCompiles("public static ulong M(ExternalLong e, int n, ulong x)", body, ExternalLongDecl);
+    }
+
+    // The 4-byte mirror: a signed shr on a uint-backed referenced enum reconciled
+    // against a uint sibling reinterprets to `(uint)`, width recovered from `& 31`.
+    [Fact]
+    public void CrossAssemblyEnumShift_InMixedSignBitwiseOr_UIntBacked_ReconcilesToRecoveredWidth()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalUIntSignedShiftOrUnsigned));
+
+        Assert.Contains("(uint)((int)e >>", body);
+        Assert.DoesNotContain("(ExternalUInt)x", body);
+        AssertCompiles("public static uint M(ExternalUInt e, int n, uint x)", body, ExternalUIntDecl);
+    }
+
+    // The int->enum sink mirror: a cross-assembly enum shift RETURNED to the enum
+    // renders as its underlying integer, so the sink needs an outer `(ExternalLong)`
+    // cast (CS0266). The rendered integer type — recovered from the count mask —
+    // drives the enum-spellability test that wraps the shift.
+    [Fact]
+    public void CrossAssemblyEnumShift_ReturnedToEnum_WrapsInOuterEnumCast()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalLongShiftReturn));
+
+        Assert.Contains("(ExternalLong)((long)e >>", body);
+        AssertCompiles("public static ExternalLong M(ExternalLong e, int n)", body, ExternalLongDecl);
+    }
+
     // An enum shift feeding a parent bitwise &/|/^ must not coerce the *sibling*
     // integer to the enum (`(int)e << n | (E)x`, CS0019). The shift renders as its
     // underlying integer, so the bitwise op is integer; a mixed-sign same-width

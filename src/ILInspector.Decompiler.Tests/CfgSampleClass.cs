@@ -5216,6 +5216,26 @@ public static class EnumCastSamples
         return a[i];
     }
 
+    // #3066 x #3011 merge interaction: a cross-assembly enum shift feeding a
+    // mixed-sign bitwise parent. The signed `shr` on the referenced 8-byte enum
+    // renders as `(long)e >> (n & 63)`; the `ulong` sibling makes the `|` mixed-sign,
+    // so the shift must reinterpret to the sibling's width — `(ulong)((long)e >> …)` —
+    // for the op to bind (CS0019 otherwise). The rendered-integer WIDTH is recovered
+    // from the count mask (ShiftRenderedIntegerType), the same unresolved-backing
+    // path as the bare operand; without it the parent reconciliation declines.
+    public static ulong ExternalLongSignedShiftOrUnsigned(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong e, int n, ulong x) => (ulong)((long)e >> n) | x;
+
+    // The int/uint-backed mirror across the assembly boundary: a signed `shr` on a
+    // referenced 4-byte enum reconciled against a `uint` sibling reinterprets to
+    // `(uint)`, width recovered from the `& 31` count mask.
+    public static uint ExternalUIntSignedShiftOrUnsigned(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalUInt e, int n, uint x) => (uint)((int)e >> n) | x;
+
+    // The int->enum sink mirror: a cross-assembly enum shift RETURNED to the
+    // referenced enum renders as its underlying integer, so the sink needs an outer
+    // `(ExternalLong)` cast (CS0266). The rendered integer type — recovered from the
+    // count mask — drives the enum-spellability test that wraps the shift.
+    public static ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong ExternalLongShiftReturn(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong e, int n) => (ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong)((long)e >> n);
+
     // #3011 (review): an enum shift feeding a parent bitwise &/|/^ kept the shift
     // node's enum ResultType, so the printer coerced the *sibling* integer to the
     // enum (`(int)e << n | (E)x`, CS0019). The shift renders as its underlying
