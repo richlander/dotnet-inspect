@@ -1312,6 +1312,179 @@ public class StackAllocSpanPassTests
         function.CheckInvariant();
     }
 
+    // ---- Dynamic count-spill recovery (#3029) ----------------------------------
+    //
+    // A dynamic `stackalloc T[n]` spills the element count into a local read
+    // twice (the localloc byte size and the Span<T> ctor length). After the raise
+    // drops the byte-size read, the surviving single-use spill must fold into the
+    // count so it prints `stackalloc T[n]`, not `int V = n; ... stackalloc T[V]`.
+
+    [Fact]
+    public void DynamicByteCountSpill_FoldsIntoStackalloc()
+    {
+        // int V_1 = n; Span<byte> _ = new Span<byte>(localloc V_1, V_1);
+        var function = BuildCountSpillBody(new LoadArgument(0, "n", Int32), out _);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.IsType<LoadArgument>(raised.Count); // the count spill collapsed to `n`
+        Assert.DoesNotContain(function.Descendants.OfType<StoreLocal>(), s => s.Index == 1);
+        Assert.DoesNotContain(function.Descendants.OfType<LoadLocal>(), l => l.Index == 1);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DynamicCountSpillWithEffectfulValueFirstEvaluated_Folds()
+    {
+        // A checked add is not IsSideEffectFree, but it stays the count
+        // statement's first-evaluated leaf, so its evaluation order and
+        // any OverflowException ordering are preserved verbatim.
+        var value = new Binary(BinaryKind.Add, isChecked: true, isUnsigned: false, new LoadArgument(0, "n", Int32), new Constant(1, Int32));
+        var function = BuildCountSpillBody(value, out _);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.IsType<Binary>(raised.Count);
+        Assert.DoesNotContain(function.Descendants.OfType<StoreLocal>(), s => s.Index == 1);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DynamicCountSpillWithSecondUse_DoesNotFold()
+    {
+        // A second load of the spill means it is not exclusively owned by this
+        // count, so folding would drop a value the other use still reads.
+        var function = BuildCountSpillBody(new LoadArgument(0, "n", Int32), out _,
+            trailing: new StoreLocal(2, Int32, new LoadLocal(1, Int32)));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        var load = Assert.IsType<LoadLocal>(raised.Count);
+        Assert.Equal(1, load.Index); // spill left in place
+        Assert.Contains(function.Descendants.OfType<StoreLocal>(), s => s.Index == 1);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DynamicCountSpillWithAddressTaken_DoesNotFold()
+    {
+        // An escaped address could observe or mutate the local independently.
+        var function = BuildCountSpillBody(new LoadArgument(0, "n", Int32), out _,
+            trailing: new StoreLocal(2, TypeRef.Pointer(Int32), new LoadLocalAddress(1, Int32)));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.IsType<LoadLocal>(raised.Count);
+        Assert.Contains(function.Descendants.OfType<StoreLocal>(), s => s.Index == 1);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DynamicCountSpillWithInterveningStatement_DoesNotFold()
+    {
+        // A statement between the spill and the count could be observed or
+        // reordered across the moved allocation.
+        var function = BuildCountSpillBody(new LoadArgument(0, "n", Int32), out _,
+            between: new StoreLocal(2, Int32, new Constant(7, Int32)));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.IsType<LoadLocal>(raised.Count);
+        Assert.Contains(function.Descendants.OfType<StoreLocal>(), s => s.Index == 1);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DynamicCountSpillWithTypeMismatch_DoesNotFold()
+    {
+        // The spill declaration `int V = (byte)value` carries a widening the bare
+        // count position would drop, so leave it spelled.
+        var function = BuildCountSpillBody(new LoadArgument(0, "n", Byte), out _);
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.IsType<LoadLocal>(raised.Count);
+        Assert.Contains(function.Descendants.OfType<StoreLocal>(), s => s.Index == 1);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DynamicCountSpillNotFirstEvaluatedWithEffect_DoesNotFold()
+    {
+        // The stackalloc-span sits as the second argument of a call whose first
+        // argument is effectful, so the count is not the statement's
+        // first-evaluated leaf; an effectful spill value must not reorder past it.
+        var value = new Binary(BinaryKind.Add, isChecked: true, isUnsigned: false, new LoadArgument(0, "n", Int32), new Constant(1, Int32));
+        var spill = new StoreLocal(1, Int32, value);
+        var span = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Span`1"), [Byte]);
+        var newObject = StackAllocSpanConstructor(
+            TypeRef.CoreLib("System", "Span`1"),
+            new StackAllocate(new LoadLocal(1, Int32)),
+            new LoadLocal(1, Int32),
+            Byte);
+        var effectfulFirstArg = new Call(new MethodRef(Holder, "Effect", Int32, [], HasThis: false), isVirtual: false, []);
+        var consume = new Call(
+            new MethodRef(Holder, "Consume", Void, [Int32, span], HasThis: false),
+            isVirtual: false,
+            [effectfulFirstArg, newObject]);
+        var function = BuildBody(spill, new ExpressionStatement(consume), new Return(new Constant(0, Int32)));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.IsType<LoadLocal>(raised.Count);
+        Assert.Contains(function.Descendants.OfType<StoreLocal>(), s => s.Index == 1);
+        function.CheckInvariant();
+    }
+
+    /// <summary>
+    /// Builds `V_1 = value; Span<byte> V_0 = new Span<byte>(localloc V_1, V_1); return 0;`
+    /// — the compiler's dynamic one-byte `stackalloc byte[n]` shape whose byte
+    /// size is the count read directly — optionally with a statement inserted
+    /// between the spill and the allocation, or after it.
+    /// </summary>
+    static IrFunction BuildCountSpillBody(IrExpression value, out NewObject newObject, IrNode? between = null, IrNode? trailing = null)
+    {
+        var spill = new StoreLocal(1, Int32, value);
+        newObject = StackAllocSpanConstructor(
+            TypeRef.CoreLib("System", "Span`1"),
+            new StackAllocate(new LoadLocal(1, Int32)),
+            new LoadLocal(1, Int32),
+            Byte);
+        var span = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Span`1"), [Byte]);
+        var declare = new StoreLocal(0, span, newObject);
+
+        var statements = new List<IrNode> { spill };
+        if (between is not null)
+            statements.Add(between);
+        statements.Add(declare);
+        if (trailing is not null)
+            statements.Add(trailing);
+        statements.Add(new Return(new Constant(0, Int32)));
+        return BuildBody([.. statements]);
+    }
+
+    static IrFunction BuildBody(params IrNode[] statements)
+    {
+        var block = new Block(0);
+        foreach (var statement in statements)
+            block.Add(statement);
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Int32, [new Parameter("n", Int32)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
     static NewObject StackAllocSpanConstructor(TypeRef spanDefinition, IrExpression pointer, int count, TypeRef? elementType = null)
         => StackAllocSpanConstructorWithPointer(spanDefinition, pointer, count, elementType);
 

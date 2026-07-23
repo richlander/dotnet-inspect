@@ -753,6 +753,10 @@ public class UnsafeEmitterTests
         Assert.DoesNotContain("unsafe", output);
         Assert.Contains($"stackalloc {element}[", output);
         Assert.DoesNotContain("new Span", output);
+        // #3029: the element-count spill is recovered, so the count is the raw
+        // parameter, not a `V_n` spill local.
+        Assert.Contains($"stackalloc {element}[n]", output);
+        Assert.DoesNotContain("V_1", output);
     }
 
     [Fact]

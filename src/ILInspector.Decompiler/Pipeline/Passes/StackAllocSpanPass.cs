@@ -146,7 +146,101 @@ public sealed class StackAllocSpanPass : IIrPass
             context.Stepper.StepOver("raise Span-over-stackalloc to stackalloc T[n]", newObject);
             newObject.ReplaceWith(raised);
             ownedStore?.Detach();
+
+            // The dynamic count reached the raise through a compiler spill local
+            // loaded twice (the localloc byte size and this ctor length). Dropping
+            // the byte-size load above just left that spill single-use, so recover
+            // it now that the tree reflects the single remaining load.
+            TryInlineCountSpill(function, raised, context);
         }
+    }
+
+    /// <summary>
+    /// Folds the compiler's element-count spill left standing by the raise back
+    /// into the <c>stackalloc T[n]</c> count. A dynamic <c>stackalloc T[n]</c>
+    /// lowers the count into a local read twice — once in the <c>localloc</c>
+    /// byte size, once as the <c>Span&lt;T&gt;</c> constructor length — so the
+    /// early full inliner sees a multi-use local and the late inliner is
+    /// stack-slot-only; after this pass discards the byte-size read the surviving
+    /// single-use spill would otherwise print as <c>int V = n; ... stackalloc
+    /// T[V]</c> instead of <c>stackalloc T[n]</c>.
+    ///
+    /// <para>Recovers only under the same ownership and evaluation-order proof the
+    /// general inliner requires, so the folded expression evaluates at exactly the
+    /// point — and under exactly the exception ordering — the spill did: the local
+    /// is referenced nowhere but one block-level store and this one count load
+    /// (no extra use/store, address-of, or designation binding), the store's
+    /// declared type matches the stored value (no dropped widening/narrowing
+    /// witness), the store is the count statement's immediate predecessor in the
+    /// same block (no statement between them to observe or reorder past the moved
+    /// allocation), and the count is either that statement's first-evaluated leaf
+    /// (evaluation order preserved verbatim) or a provably pure value (its
+    /// evaluation point is unobservable). The count load is, by construction,
+    /// the just-raised <see cref="StackAllocArray"/>'s own operand — never an
+    /// increment lvalue — so this cannot mint an invalid <c>1++</c> the way an
+    /// unrestricted late inline of a user local could.</para>
+    /// </summary>
+    static void TryInlineCountSpill(IrFunction function, StackAllocArray raised, PassContext context)
+    {
+        if (raised.Count is not LoadLocal load)
+            return;
+
+        // The reference scan counts by local index within the single method
+        // body's index space; a nested (already-raised) function body has its
+        // own numbering, so never fold a count sitting inside one.
+        if (ReferenceOwnership.IsInsideNestedFunctionBody(load))
+            return;
+
+        int index = load.Index;
+        StoreLocal? store = null;
+        bool sawLoad = false;
+        foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(function))
+        {
+            if (!ReferenceOwnership.ReferencesOrBindsLocal(node, index))
+                continue;
+            if (ReferenceEquals(node, load))
+                sawLoad = true;
+            else if (node is StoreLocal { Parent: Block } blockStore && store is null)
+                store = blockStore;
+            else
+                return; // a second use/store, an address-of, or a designation binding: not the sole owner
+        }
+        if (!sawLoad || store is null)
+            return;
+
+        // The spill declaration `T V = value` carries value's type; a mismatch
+        // means the store performs a conversion the bare count position would drop.
+        if (!store.Type.Equals(store.Value.ResultType))
+            return;
+
+        // Immediately-preceding, same-block store: no statement sits between the
+        // spill and the count to be observed or reordered across the allocation.
+        var loadStatement = GetStatement(load);
+        if (loadStatement == null || loadStatement.Parent != store.Parent || loadStatement.ChildIndex != store.ChildIndex + 1)
+            return;
+
+        // Either the count still evaluates first (order preserved verbatim) or the
+        // stored value is pure (its evaluation point cannot be observed at all).
+        if (!IsFirstEvaluatedLeaf(load, loadStatement) && !IsSideEffectFree(store.Value))
+            return;
+
+        var value = (IrExpression)store.DetachChildren()[0];
+        context.Stepper.StepOver("inline dynamic stackalloc count spill", load);
+        store.Detach();
+        load.ReplaceWith(value);
+    }
+
+    /// <summary>True when the node is the first thing the statement evaluates: the spine of first children.</summary>
+    static bool IsFirstEvaluatedLeaf(IrNode node, IrNode statement)
+    {
+        var current = statement;
+        while (current.Children.Count > 0)
+        {
+            current = current.Children[0];
+            if (ReferenceEquals(current, node))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>
