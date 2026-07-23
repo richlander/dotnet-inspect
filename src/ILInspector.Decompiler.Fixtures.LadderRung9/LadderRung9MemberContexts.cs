@@ -60,6 +60,17 @@ public class DynamicMemberContexts
         return Get(input);
     }
 
+    // Nested local function whose OWN parameter is a by-ref `dynamic`
+    // (`ref dynamic v`). The raised body drops the redundant cast to `v.Length`,
+    // and the printer-owned local-function declaration must keep the by-ref
+    // modifier — spelling `ref dynamic v`, not bare `dynamic v` — otherwise the
+    // `Get(ref value)` call site is CS1615 (#3035).
+    public object InLocalFunctionByRefOwnParam(dynamic value)
+    {
+        static object Get(ref dynamic v) => v.Length;
+        return Get(ref value);
+    }
+
     // Iterator state-machine body: csc lowers this to a MoveNext method whose
     // declaring type is the generated iterator state machine, while the
     // GetMember context remains the authored enclosing type (same bridge as

@@ -1511,6 +1511,21 @@ public class DynamicCallSitePassTests
     }
 
     [Fact]
+    public void NestedContext_LocalFunctionByRefOwnParam_SpellsRefDynamicDeclaration()
+    {
+        // The local function has its OWN `ref dynamic` parameter. The body drops
+        // the redundant cast (`v.Length`), and the printer-owned local-function
+        // declaration must keep the by-ref modifier — spelling `ref dynamic v`,
+        // not bare `dynamic v` (which drops `ref` and makes the `Get(ref value)`
+        // call site CS1615) (#3035).
+        var output = RaiseMemberContext("InLocalFunctionByRefOwnParam");
+        Assert.Contains("ref dynamic v", output);
+        Assert.Contains("v.Length", output);
+        Assert.DoesNotContain("(dynamic v)", output);
+        Assert.DoesNotContain("((dynamic)v)", output);
+    }
+
+    [Fact]
     public void NestedContext_LambdaDisplayClass_Raises()
     {
         // csc lowers the lambda body into a display-class method whose

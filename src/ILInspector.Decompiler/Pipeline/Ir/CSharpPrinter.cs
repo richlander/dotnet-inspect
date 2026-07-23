@@ -2673,10 +2673,18 @@ public sealed partial class CSharpPrinter
     // the declaration, not `object` (its TypeRef). This keeps a local-function
     // header consistent with a body that drops the redundant `(dynamic)` cast on
     // the parameter: `object Get(object v) => v.Length;` is CS1061, whereas
-    // `object Get(dynamic v) => v.Length;` binds. Top-level method signatures are
+    // `object Get(dynamic v) => v.Length;` binds. A by-ref `dynamic` parameter
+    // keeps its by-ref modifier — only the referenced element is `dynamic` — so
+    // it is spelled `ref dynamic`, not bare `dynamic` (which would drop `ref` and
+    // yield CS1615 at the call site) (#3035). Top-level method signatures are
     // spelled by the metadata signature printer; this covers the printer-owned
     // local-function declaration path.
-    string ParameterTypeText(Parameter p) => p.IsDynamic ? "dynamic" : TypeText(p.Type);
+    string ParameterTypeText(Parameter p)
+    {
+        if (!p.IsDynamic)
+            return TypeText(p.Type);
+        return p.Type.Kind == TypeRefKind.ByRef ? "ref dynamic" : "dynamic";
+    }
 
     string CoalesceText(Coalesce co, TypeRef? target = null)
     {
