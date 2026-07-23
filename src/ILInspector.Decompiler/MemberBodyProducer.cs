@@ -1857,6 +1857,12 @@ public static class MemberBodyProducer
                 // Word boundary before the prefix.
                 if (at > 0 && (char.IsLetterOrDigit(segment[at - 1]) || segment[at - 1] is '_' or '.'))
                     continue;
+                // An alias-qualified name (global::System.Math) must keep its
+                // full path; shortening to global::Math re-introduces the
+                // shadowing collision it was emitted to avoid and does not bind
+                // (CS0400). The alias qualifier is always the two-char '::'.
+                if (at >= 2 && segment[at - 1] == ':' && segment[at - 2] == ':')
+                    continue;
 
                 // The identifier after the prefix must be a type from this
                 // namespace, fully present (next char ends the identifier).

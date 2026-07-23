@@ -161,6 +161,24 @@ public sealed class MemberBodyProducerMemberRenderTests
         // must survive, not be mis-segmented and shortened to String (#3064).
         Assert.Contains("\"System.String\"", rendered.Text);
     }
+
+    [Theory]
+    [InlineData(nameof(MemberRenderSpecimen.AliasQualifiedShadow))]
+    [InlineData(nameof(MemberRenderSpecimen.AliasQualifiedShadowInHole))]
+    public void ProduceMember_PreservesAliasQualifiedNameUnderShadowing(string memberName)
+    {
+        var type = Specimen();
+        var member = Assert.Single(type.Members, m => m.Name == memberName);
+
+        var rendered = MemberBodyProducer.ProduceMember(type, member, AssemblyPath, pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        // The printer emits global::System.Math to escape the shadowing Math
+        // parameter. Shortening must keep the full alias-qualified path, not
+        // strip it to the invalid global::Math (CS0400) — in a hole or not.
+        Assert.Contains("global::System.Math", rendered.Text);
+        Assert.DoesNotContain("global::Math", rendered.Text);
+    }
 }
 
 #pragma warning disable CA1822 // members are instance to exercise real signatures
@@ -196,5 +214,13 @@ public sealed class MemberRenderSpecimen
     // $"…" as one literal mis-segments the hole and shortens System.String
     // inside the nested constant, corrupting the ldstr operand (#3064).
     public string InterpolatedQuotedTypeName(int n) => $"n={n} t={Echo("System.String")}";
+
+    // A parameter named Math shadows System.Math, so the printer emits the
+    // alias-qualified global::System.Math to disambiguate. Shortening must not
+    // strip it to global::Math, which re-introduces the collision and does not
+    // bind (CS0400) — both inside an interpolation hole and in plain code (#3064).
+    public static int AliasQualifiedShadow(int Math) => System.Math.Abs(Math) + Math;
+
+    public static string AliasQualifiedShadowInHole(int Math) => $"v={System.Math.Abs(Math) + Math}";
 }
 #pragma warning restore CA1822
