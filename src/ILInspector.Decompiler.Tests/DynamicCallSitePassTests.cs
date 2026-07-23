@@ -226,6 +226,34 @@ public class DynamicCallSitePassTests
         Assert.DoesNotContain("((dynamic)value)", output);
     }
 
+    [Theory]
+    [InlineData("DynamicGetLengthByRef")] // ref dynamic
+    [InlineData("DynamicGetLengthIn")]    // in dynamic
+    [InlineData("DynamicGetLengthOut")]   // out dynamic
+    public void ByRefDynamicReceiver_DropsRedundantCast(string method)
+    {
+        // A by-ref `dynamic` parameter reads its receiver through a deref of the
+        // by-ref argument. The [DynamicAttribute] transform flags carry a leading
+        // ByRef modifier, so the element dynamic-ness sits at flags[1]; once the
+        // parameter is recognized as dynamic, the referenced element's static type
+        // is provably `dynamic`, so the redundant `(dynamic)` cast is dropped and
+        // the deref renders as the bare place `value.Length` (#3035).
+        var output = RaiseAndPrint(LoadCanonicalFunction(method));
+        Assert.Contains("value.Length", output);
+        Assert.DoesNotContain("(dynamic)", output);
+    }
+
+    [Fact]
+    public void ByRefObjectReceiver_KeepsCast()
+    {
+        // Negative control: `ref object value` has no DynamicAttribute, so the
+        // element static type really is `object`. The `(dynamic)` cast is the only
+        // thing making the member access dynamic, so it must be kept (#3035).
+        var output = RaiseAndPrint(LoadCanonicalFunction("DynamicGetLengthByRefObject"));
+        Assert.Contains("(dynamic)", output);
+        Assert.Contains(".Length", output);
+    }
+
     [Fact]
     public void KeywordMemberName_RaisesAndKeepsRawName()
     {

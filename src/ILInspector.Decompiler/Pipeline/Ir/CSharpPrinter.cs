@@ -2647,7 +2647,7 @@ public sealed partial class CSharpPrinter
         // display-class field carrying [DynamicAttribute]) recovers a dynamic
         // type view.
         if (IsDynamicTypedReceiver(d.Receiver))
-            return $"{Operand(d.Receiver)}.{member}";
+            return $"{DynamicDroppedCastReceiverText(d.Receiver)}.{member}";
         return $"((dynamic){Operand(d.Receiver)}).{member}";
     }
 
@@ -2655,8 +2655,19 @@ public sealed partial class CSharpPrinter
     {
         LoadArgument { IsDynamic: true } => true,
         LoadField { Field.IsDynamic: true } => true,
+        // A by-ref `dynamic` parameter (`ref`/`in`/`out dynamic`) reads through a
+        // deref of the by-ref argument; the referenced element's static type is
+        // still `dynamic`, so the `(dynamic)` cast is equally redundant (#3035).
+        LoadIndirect { Address: LoadArgument { IsDynamic: true } } => true,
         _ => false,
     };
+
+    // Bare place text for a dynamic-typed receiver whose redundant `(dynamic)` cast
+    // is dropped. A by-ref deref reads back as the underlying argument identifier
+    // (`value`), so its `Operand` receiver-parentheses (`(value).Member`) are
+    // dropped to match the plain-parameter form (`value.Member`) (#3035).
+    string DynamicDroppedCastReceiverText(IrExpression receiver)
+        => receiver is LoadIndirect load ? DerefLoad(load) : Operand(receiver);
 
     // A parameter authored as top-level `dynamic` must be spelled `dynamic` in
     // the declaration, not `object` (its TypeRef). This keeps a local-function
