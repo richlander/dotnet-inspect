@@ -137,32 +137,21 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             return false;
 
         var arms = new List<ArmData>();
-        if (!TryParseChain(region, 0, scrutinee, defaultValue, arms) || arms.Count < minArms)
+        if (!TryParseChain(region, 0, scrutinee, defaultValue, arms, fallThroughIsDefault: false) || arms.Count < minArms)
             return false;
 
-        // PR A (#3028) scopes the newly recognized heterogeneous surface — a
-        // direct (temp-less) scrutinee, or any inline-positive sibling arm — to
-        // plain, unguarded type-pattern arms. A guarded arm, or a property-
-        // subpattern arm (`Outer { Inner: T }`), routes its guard/subpattern
-        // FAILURE straight to the trailing default; in the folded switch that
-        // failure instead falls through to the later arms. Reproducing the
-        // original routing is faithful only when no later arm can match the same
-        // value, which needs a type-disjointness oracle this SRM-only,
-        // no-inspected-assembly-loading pass does not have. The pre-existing
-        // temp-form intro cascade (#3022) keeps its guarded and subpattern arms
-        // under the compiler's proven mutual exclusivity; guarded/subpattern
-        // heterogeneous arms are deferred to a follow-up carrying a real oracle.
-        bool isNewSurface = scrutinee.TempLocal is null || arms.Any(a => a.IsInline);
-        if (isNewSurface && arms.Any(a => a.Guard is not null || a.Subpattern is not null))
-            return false;
-
-        // [#3082 finding 1] The guarded / property-subpattern arms that survive
-        // here are the temp-form intro cascade (#3022) the compiler proved
-        // mutually exclusive. A refutable non-last arm routes its refinement
-        // FAILURE to the trailing default in the lowered cascade, but to the NEXT
-        // arm in a switch expression. Reproducing that routing is faithful only
-        // when no later arm's type can also match the same value — require a
-        // provable-disjointness proof from the oracle and decline without one.
+        // A refutable (guarded or property-subpattern) non-last arm routes its
+        // refinement FAILURE to the trailing default in the lowered cascade, but
+        // to the NEXT arm in a switch expression. Reproducing that routing is
+        // faithful only when no later arm's type can also match the same value —
+        // require a provable-disjointness proof from the oracle and decline
+        // without one. This holds on every surface: the temp-form intro cascade
+        // (#3022), whose arms the compiler already proved mutually exclusive, and
+        // the direct/inline heterogeneous surface (#3028), where a guarded intro
+        // arm (`Dot d when g`) or subpattern arm is folded ONLY when the oracle
+        // proves it disjoint from every later arm. (An unguarded arm always
+        // matches its type and never falls through, so it carries no obligation
+        // here; #3065's compiler-lowered head guarantees the CS8510 ordering.)
         if (!RefutableArmsDisjointFromLaterArms(arms, disjoint))
             return false;
 
@@ -236,19 +225,31 @@ public sealed class PatternSwitchExpressionPass : IIrPass
     }
 
     // A chain of arms whose collective no-match fall-through reaches the default.
-    // Two arm shapes are recognized and may be mixed:
-    //   * Intro-chain arm: `intro Lk = isinst Tk(SV); if (!Lk) { REST } MATCHED`
-    //     where MATCHED (this arm's guard + value) trails the dispatch test as
+    // Three arm shapes are recognized and may be mixed:
+    //   * Intro-chain arm (then-only): `intro Lk = isinst Tk(SV); if (!Lk) { REST }
+    //     MATCHED` where MATCHED (this arm's guard + value) trails the dispatch as
     //     sibling statements and REST (the remaining arms, ultimately a bare
-    //     `return <default>`) nests inside the test's `then` branch. The dispatch
-    //     test carries no `else`: its `then` always returns, so csc drops it.
+    //     `return <default>`) nests in the test's `then`. csc emits this when the
+    //     arm always returns, so the dispatch needs no `else`.
+    //   * Intro-chain arm (if/else): `intro Lk = isinst Tk(SV); if (!Lk) { REST }
+    //     else { MATCHED }` with the `<default>` a shared statement after the
+    //     dispatch. csc emits this when MATCHED can fall through — a `when` guard
+    //     or property subpattern whose failure must reach the default — so both
+    //     REST (then) and MATCHED (else) fall off their block into that shared
+    //     default.
     //   * Inline-positive arm: `if (SV is Tk x) { MATCHED }` whose no-match falls
     //     straight through to the following sibling statement (the next arm, or the
     //     bare `return <default>`).
-    bool TryParseChain(IReadOnlyList<IrNode> stmts, int index, Scrutinee scrutinee, IrExpression defaultValue, List<ArmData> arms)
+    // <paramref name="fallThroughIsDefault"/> is set when running off the end of
+    // <paramref name="stmts"/> lands on the default (a `then`/`else` block whose
+    // enclosing dispatch is trailed by the default); at the top level, and inside a
+    // then-only `then` (whose fall-through reaches the sibling MATCHED, not the
+    // default), it is false and the list must end in an explicit `return <default>`.
+    bool TryParseChain(IReadOnlyList<IrNode> stmts, int index, Scrutinee scrutinee, IrExpression defaultValue, List<ArmData> arms, bool fallThroughIsDefault)
     {
+        // Ran off the end: faithful only when fall-through lands on the default.
         if (index >= stmts.Count)
-            return false;
+            return fallThroughIsDefault;
 
         // Bottom of the chain: a bare `return <default>`.
         if (index == stmts.Count - 1 && stmts[index] is Return { Value: { } tailValue } && DefaultEquals(tailValue, defaultValue))
@@ -273,21 +274,41 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             int? inlineIndex = ReferencesLocalIn(inlineGuard, inlineLocal) || ReferenceOwnership.SubtreeReferencesLocal(inlineValue, inlineLocal)
                 ? inlineLocal
                 : null;
-            // Inline arms are the newly recognized heterogeneous surface; PR A
-            // (#3028) folds them only unguarded (the guard gate in TryFold rejects
-            // a guarded new-surface fold). Tag the arm inline so that gate applies.
+            // Inline arms are the direct/inline heterogeneous surface (#3028). A
+            // guarded inline arm routes its guard failure to the following sibling
+            // (the fall-through shape enforced above), exactly as a switch `when`
+            // does; RefutableArmsDisjointFromLaterArms in TryFold still requires
+            // its type disjoint from every later arm before folding.
             arms.Add(new ArmData(inlineType, inlineLocal, inlineIndex, Subpattern: null, inlineGuard, inlineValue, IsInline: true));
-            return TryParseChain(stmts, index + 1, scrutinee, defaultValue, arms);
+            return TryParseChain(stmts, index + 1, scrutinee, defaultValue, arms, fallThroughIsDefault);
         }
 
         if (!IsArmIntro(stmts[index], scrutinee, out int patternLocal, out var patternType, out _))
             return false;
-        if (index + 1 >= stmts.Count || stmts[index + 1] is not IfStatement { HasElse: false } dispatch)
+        if (index + 1 >= stmts.Count || stmts[index + 1] is not IfStatement dispatch)
             return false;
         if (!IsNegatedLocalTest(dispatch.Condition, patternLocal))
             return false;
 
-        // MATCHED body = the sibling statements after the dispatch test.
+        if (dispatch.HasElse)
+        {
+            // If/else form (csc's lowering of a refutable intro arm): MATCHED is
+            // the `else`, REST the `then`, and both fall off their block into the
+            // shared default that trails the dispatch.
+            if (!DefaultReachedFrom(stmts, index + 2, defaultValue, fallThroughIsDefault))
+                return false;
+            if (!TryParseMatchedBody(dispatch.Else!.Children, 0, patternType, patternLocal, defaultValue, out var elseArm, out int elseNext))
+                return false;
+            // MATCHED's own fall-through (a guard/subpattern failure) runs off the
+            // `else` block into that same shared default.
+            if (!DefaultReachedFrom(dispatch.Else!.Children, elseNext, defaultValue, fallThroughIsDefault: true))
+                return false;
+            arms.Add(elseArm);
+            // REST nests in `then`; its fall-through reaches the shared default.
+            return TryParseChain(dispatch.Then.Children, 0, scrutinee, defaultValue, arms, fallThroughIsDefault: true);
+        }
+
+        // Then-only form: MATCHED body = the sibling statements after the dispatch.
         if (!TryParseMatchedBody(stmts, index + 2, patternType, patternLocal, defaultValue, out var arm, out int matchedNext))
             return false;
         // Nothing may follow the matched body at this level except an optional
@@ -296,9 +317,17 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             return false;
 
         arms.Add(arm);
-        // REST: the remaining arms (or the bare default) nest in the `then` branch.
-        return TryParseChain(dispatch.Then.Children, 0, scrutinee, defaultValue, arms);
+        // REST nests in `then`; its fall-through reaches the sibling MATCHED (not
+        // the default), so it must reach the default explicitly.
+        return TryParseChain(dispatch.Then.Children, 0, scrutinee, defaultValue, arms, fallThroughIsDefault: false);
     }
+
+    // Whether control arriving at <paramref name="index"/> reaches the default:
+    // either the list ends here on an explicit `return <default>`, or it runs off
+    // the end into an enclosing default (only when <paramref name="fallThroughIsDefault"/>).
+    static bool DefaultReachedFrom(IReadOnlyList<IrNode> stmts, int index, IrExpression defaultValue, bool fallThroughIsDefault)
+        => (index >= stmts.Count && fallThroughIsDefault)
+            || (index == stmts.Count - 1 && stmts[index] is Return { Value: { } value } && DefaultEquals(value, defaultValue));
 
     // Walks the cascade to its bottom to recover the default value: the value the
     // innermost no-match path yields. An intro-chain arm's no-match nests in its
@@ -328,12 +357,21 @@ public sealed class PatternSwitchExpressionPass : IIrPass
                 continue;
             }
 
-            // Intro-chain arm: no-match nests in the dispatch test's `then` branch.
+            // Intro-chain arm: no-match nests in the dispatch test's `then` branch
+            // (both the then-only and if/else forms). For the if/else form the
+            // shared default trails the dispatch, so take it directly when present.
             if (IsArmIntro(stmts[index], scrutinee, out int local, out _, out _)
                 && index + 1 < stmts.Count
-                && stmts[index + 1] is IfStatement { HasElse: false } dispatch
+                && stmts[index + 1] is IfStatement dispatch
                 && IsNegatedLocalTest(dispatch.Condition, local))
             {
+                if (dispatch.HasElse
+                    && index + 2 == stmts.Count - 1
+                    && stmts[index + 2] is Return { Value: { } shared })
+                {
+                    defaultValue = shared;
+                    return true;
+                }
                 stmts = dispatch.Then.Children;
                 index = 0;
                 continue;
