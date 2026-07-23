@@ -474,6 +474,27 @@ public class PatternSwitchExpressionPassTests
         Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
     }
 
+    [Fact]
+    public void Synthetic_GoverningValueAliasesRenderedPatternLocal_DoesNotRaise()
+    {
+        // The governing switch value is `LoadLocal 0` — the same slot the single
+        // arm binds and renders as its pattern variable (`Leaf V_0`). The rewrite
+        // re-spells the governing expression as `V_0` and consumes the arm's
+        // `isinst` store, so the emitted `V_0 switch { Leaf V_0 => ... }` names
+        // the pattern variable in the governing position, where it is out of
+        // scope (CS0103) or collides with the binding (CS0136). Decline when the
+        // governing `LoadLocal` aliases a rendered pattern local. Reported by GPT
+        // at the sv-leak-fix head.
+        var function = SingleArm(
+            switchValue: new LoadLocal(0, Leaf),
+            guard: null,
+            armValue: new Call(new MethodRef(Leaf, "Use", Bool, [Leaf], HasThis: false), isVirtual: false, [new LoadLocal(0, Leaf)]),
+            noMatchDefault: False());
+
+        RunPass(function);
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
     // ── Disjointness oracle guards (PR #3082, Finding 2) ───────────────────
 
     static readonly string TestAssembly =

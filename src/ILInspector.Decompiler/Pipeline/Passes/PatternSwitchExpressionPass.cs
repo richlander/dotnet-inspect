@@ -133,6 +133,19 @@ public sealed class PatternSwitchExpressionPass : IIrPass
                 || ReferenceOwnership.SubtreeReferencesLocal(defaultValue, svLocal))
                 continue;
 
+            // The switch value is re-spelled verbatim as the raised switch's
+            // governing expression. If that place is a `LoadLocal` of a slot an
+            // arm also renders as its pattern variable, the emitted
+            // `V switch { T V => ... }` names the pattern variable in the
+            // governing position, where it is either out of scope (CS0103, the
+            // slot's only binding was the consumed `isinst` store) or collides
+            // with the arm binding (CS0136). Decline when the governing local
+            // aliases any rendered pattern local.
+            if (svValue is LoadLocal governing
+                && arms.Any(a => a.LocalIndex == governing.Index
+                    || a.Subpattern?.LocalIndex == governing.Index))
+                continue;
+
             // A pattern variable is scoped to its own switch arm: no sibling
             // arm's guard/value and not the default may read it. In the lowered
             // cascade the bound local outlives its arm, but the raised C# would
