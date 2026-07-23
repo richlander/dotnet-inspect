@@ -2526,7 +2526,7 @@ static class FidelityCheck
 
     static string CanonicalAssemblyName(MetadataReader reader)
         => reader.IsAssembly
-            ? TypeRefDecoder.Canonical(reader.GetString(reader.GetAssemblyDefinition().Name))
+            ? TypeRefDecoder.CanonicalSelf(reader)
             : "";
 
     static string FullyQualifiedTypeName(TypeRef type) => type.Kind switch

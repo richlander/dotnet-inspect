@@ -773,7 +773,7 @@ public static class CompileBackSourceComposer
         // facades collapse to one identity). Without this, a target assembly whose
         // own name is a canonicalized facade (System.Runtime, mscorlib, ...) would
         // fail to resolve its own definitions and drop their closure roots/facts.
-        string assemblyName = TypeRefDecoder.Canonical(reader.GetString(reader.GetAssemblyDefinition().Name));
+        string assemblyName = reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(reader) : "";
         var definitions = TypeDefinitionsByTypeRefIdentity(reader);
         var consumedMemberEvidence = new List<ConsumedMemberEvidence>();
         AddTargetInterfaceRoots(targetType);
