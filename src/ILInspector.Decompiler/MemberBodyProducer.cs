@@ -1594,10 +1594,16 @@ public static class MemberBodyProducer
     /// backslash escapes, so an escaped quote (<c>\"</c>) inside a literal — or a
     /// quote character constant (<c>'"'</c>) — does not end the literal early and
     /// expose its contents to shortening, which would corrupt the constant (a
-    /// naive split on <c>"</c> flips its in-literal parity). The decompiler never
-    /// emits verbatim (<c>@"…"</c>) or raw (<c>"""…"""</c>) literals — every
-    /// control character and quote is backslash-escaped and no literal spans
-    /// lines — so a backslash-aware single-line scan is sufficient.
+    /// naive split on <c>"</c> flips its in-literal parity). Interpolated strings
+    /// (<c>$"…"</c>) are modeled structurally by <see cref="CopyInterpolatedString"/>:
+    /// their literal text (with <c>{{</c>/<c>}}</c> brace escapes) and each hole's
+    /// format clause are copied verbatim, while a hole's expression is scanned as
+    /// code — so a qualified name is shortened inside a hole but a nested string
+    /// literal inside a hole (<c>$"{Echo("System.String")}"</c>) is preserved
+    /// rather than mis-segmented and corrupted. The decompiler never emits
+    /// verbatim (<c>@"…"</c>) or raw (<c>"""…"""</c>) literals — every control
+    /// character and quote is backslash-escaped and no literal spans lines — so a
+    /// backslash-aware single-line scan is sufficient.
     /// </summary>
     static void ShortenLine(
         string line,
@@ -1611,34 +1617,225 @@ public static class MemberBodyProducer
         int codeStart = 0;
         while (i < line.Length)
         {
-            if (line[i] is not ('"' or '\''))
+            char c = line[i];
+            // An interpolated string ($"…") interleaves literal text with code
+            // holes; scan it structurally so holes shorten but their literal
+            // text and any nested literals are preserved.
+            if (c == '$' && i + 1 < line.Length && line[i + 1] == '"')
             {
-                i++;
+                output.Append(ShortenSegment(line[codeStart..i], prefixes, nsToNames, shortNameOwners, usings));
+                CopyInterpolatedString(line, ref i, output, prefixes, nsToNames, shortNameOwners, usings);
+                codeStart = i;
                 continue;
             }
-            // Flush the shortened code span preceding this literal.
-            output.Append(ShortenSegment(line[codeStart..i], prefixes, nsToNames, shortNameOwners, usings));
-            // Copy the literal verbatim, honoring backslash escapes so an
-            // escaped delimiter does not terminate it early.
-            char delimiter = line[i];
-            output.Append(line[i]);
-            i++;
-            while (i < line.Length)
+            if (c is '"' or '\'')
             {
-                char c = line[i];
-                if (c == '\\' && i + 1 < line.Length)
+                // Flush the shortened code span preceding this literal, then copy
+                // the literal verbatim (honoring backslash escapes).
+                output.Append(ShortenSegment(line[codeStart..i], prefixes, nsToNames, shortNameOwners, usings));
+                CopyLiteral(line, ref i, output);
+                codeStart = i;
+                continue;
+            }
+            i++;
+        }
+        if (codeStart < line.Length)
+            output.Append(ShortenSegment(line[codeStart..], prefixes, nsToNames, shortNameOwners, usings));
+    }
+
+    /// <summary>
+    /// Copies a string (<c>"…"</c>) or character (<c>'…'</c>) literal starting at
+    /// <paramref name="i"/> verbatim, honoring backslash escapes so an escaped
+    /// delimiter (<c>\"</c>) does not terminate it early. Advances
+    /// <paramref name="i"/> past the closing delimiter (or to the end of the line
+    /// if the literal is unterminated).
+    /// </summary>
+    static void CopyLiteral(string line, ref int i, StringBuilder output)
+    {
+        char delimiter = line[i];
+        output.Append(delimiter);
+        i++;
+        while (i < line.Length)
+        {
+            char c = line[i];
+            if (c == '\\' && i + 1 < line.Length)
+            {
+                output.Append(c).Append(line[i + 1]);
+                i += 2;
+                continue;
+            }
+            output.Append(c);
+            i++;
+            if (c == delimiter)
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Copies an interpolated string (<c>$"…"</c>) starting at <paramref name="i"/>
+    /// (the <c>$</c>), advancing past the closing quote. Literal text — including
+    /// <c>{{</c>/<c>}}</c> brace escapes — is copied verbatim, and each hole is
+    /// handed to <see cref="ShortenHole"/> so its code is shortened while its
+    /// nested literals and format clause are preserved. Only non-verbatim
+    /// interpolated strings are emitted, so a backslash escapes the next character
+    /// within the literal-text runs.
+    /// </summary>
+    static void CopyInterpolatedString(
+        string line,
+        ref int i,
+        StringBuilder output,
+        List<(string Text, string Namespace)> prefixes,
+        Dictionary<string, HashSet<string>> nsToNames,
+        Dictionary<string, int> shortNameOwners,
+        SortedSet<string> usings)
+    {
+        output.Append('$').Append('"');
+        i += 2;
+        while (i < line.Length)
+        {
+            char c = line[i];
+            if (c == '\\' && i + 1 < line.Length)
+            {
+                output.Append(c).Append(line[i + 1]);
+                i += 2;
+                continue;
+            }
+            if (c == '{')
+            {
+                // '{{' is a literal open-brace escape, not a hole.
+                if (i + 1 < line.Length && line[i + 1] == '{')
                 {
-                    output.Append(c).Append(line[i + 1]);
+                    output.Append("{{");
+                    i += 2;
+                    continue;
+                }
+                ShortenHole(line, ref i, output, prefixes, nsToNames, shortNameOwners, usings);
+                continue;
+            }
+            if (c == '}')
+            {
+                // '}}' is a literal close-brace escape.
+                if (i + 1 < line.Length && line[i + 1] == '}')
+                {
+                    output.Append("}}");
                     i += 2;
                     continue;
                 }
                 output.Append(c);
                 i++;
-                if (c == delimiter)
-                    break;
+                continue;
             }
-            codeStart = i;
+            output.Append(c);
+            i++;
+            if (c == '"')
+                return;
         }
+    }
+
+    /// <summary>
+    /// Scans one interpolation hole (<c>{expression[,alignment][:format]}</c>)
+    /// starting at the opening <c>{</c> in <paramref name="i"/>, advancing past
+    /// the matching <c>}</c>. The expression is shortened as code — skipping
+    /// nested string/char literals and nested interpolated strings — while the
+    /// format clause after an unnested <c>:</c> is literal text copied verbatim.
+    /// Brace/paren/bracket nesting is tracked so an object-initializer brace or a
+    /// parenthesized conditional's <c>:</c> inside the hole neither closes the
+    /// hole nor masquerades as the format separator; the alias qualifier
+    /// <c>::</c> is likewise not a format separator. Braces never appear in a
+    /// format spec (<c>MemberIdentity</c> keeps such handlers lowered), so the
+    /// first <c>}</c> after the format <c>:</c> closes the hole.
+    /// </summary>
+    static void ShortenHole(
+        string line,
+        ref int i,
+        StringBuilder output,
+        List<(string Text, string Namespace)> prefixes,
+        Dictionary<string, HashSet<string>> nsToNames,
+        Dictionary<string, int> shortNameOwners,
+        SortedSet<string> usings)
+    {
+        output.Append('{');
+        i++;
+        int codeStart = i;
+        int depth = 0;
+        while (i < line.Length)
+        {
+            char c = line[i];
+            // A nested interpolated string owns its own literal/hole scanning.
+            if (c == '$' && i + 1 < line.Length && line[i + 1] == '"')
+            {
+                output.Append(ShortenSegment(line[codeStart..i], prefixes, nsToNames, shortNameOwners, usings));
+                CopyInterpolatedString(line, ref i, output, prefixes, nsToNames, shortNameOwners, usings);
+                codeStart = i;
+                continue;
+            }
+            if (c is '"' or '\'')
+            {
+                output.Append(ShortenSegment(line[codeStart..i], prefixes, nsToNames, shortNameOwners, usings));
+                CopyLiteral(line, ref i, output);
+                codeStart = i;
+                continue;
+            }
+            if (c is '(' or '[' or '{')
+            {
+                depth++;
+                i++;
+                continue;
+            }
+            if (c is ')' or ']')
+            {
+                if (depth > 0)
+                    depth--;
+                i++;
+                continue;
+            }
+            if (c == '}')
+            {
+                if (depth == 0)
+                {
+                    // The hole closes: flush its remaining code, then copy '}'.
+                    output.Append(ShortenSegment(line[codeStart..i], prefixes, nsToNames, shortNameOwners, usings));
+                    output.Append('}');
+                    i++;
+                    return;
+                }
+                depth--;
+                i++;
+                continue;
+            }
+            if (c == ':' && depth == 0)
+            {
+                // '::' is the alias qualifier (global::), not a format separator.
+                if (i + 1 < line.Length && line[i + 1] == ':')
+                {
+                    i += 2;
+                    continue;
+                }
+                // The format clause is literal text up to the hole's '}'.
+                output.Append(ShortenSegment(line[codeStart..i], prefixes, nsToNames, shortNameOwners, usings));
+                output.Append(':');
+                i++;
+                while (i < line.Length && line[i] != '}')
+                {
+                    if (line[i] == '\\' && i + 1 < line.Length)
+                    {
+                        output.Append(line[i]).Append(line[i + 1]);
+                        i += 2;
+                        continue;
+                    }
+                    output.Append(line[i]);
+                    i++;
+                }
+                if (i < line.Length)
+                {
+                    output.Append('}');
+                    i++;
+                }
+                return;
+            }
+            i++;
+        }
+        // Unterminated hole (malformed output): flush whatever remains as code.
         if (codeStart < line.Length)
             output.Append(ShortenSegment(line[codeStart..], prefixes, nsToNames, shortNameOwners, usings));
     }
@@ -1662,6 +1859,22 @@ public static class MemberBodyProducer
 
                 // Word boundary before the prefix.
                 if (at > 0 && (char.IsLetterOrDigit(segment[at - 1]) || segment[at - 1] is '_' or '.'))
+                    continue;
+                // An alias-qualified name must keep its full path; shortening
+                // any part of it re-introduces the shadowing collision the
+                // global:: was emitted to avoid and does not bind (CS0400 /
+                // CS0234). Only the System.-stripped prefix spelling can match
+                // mid-chain (e.g. "event.Models" inside
+                // global::System.@event.Models.X, after "System.@"), so a check
+                // of the characters immediately before the match is not enough:
+                // walk back over the whole qualified run (identifier chars, '.',
+                // and the '@' keyword escape) to the token that roots it. If that
+                // token is the two-char '::' alias qualifier, the match belongs
+                // to an alias-rooted chain — decline.
+                int root = at;
+                while (root > 0 && (char.IsLetterOrDigit(segment[root - 1]) || segment[root - 1] is '_' or '.' or '@'))
+                    root--;
+                if (root >= 2 && segment[root - 1] == ':' && segment[root - 2] == ':')
                     continue;
 
                 // The identifier after the prefix must be a type from this
