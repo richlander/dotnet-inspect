@@ -71,22 +71,29 @@ public sealed partial class CSharpPrinter
     }
 
     // The output-path pass context: stepping off, plus the optional cross-method
-    // import seam so a pass can reach a sibling body (lambda raising).
-    static PassContext RaiseContext(Func<MethodRef, IrFunction?>? importMethodBody)
-        => importMethodBody is null
+    // import seam so a pass can reach a sibling body (lambda raising) and the
+    // optional type-disjointness oracle a disjointness-gated raise needs.
+    static PassContext RaiseContext(
+        Func<MethodRef, IrFunction?>? importMethodBody,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
+        => importMethodBody is null && typesProvablyDisjoint is null
             ? PassContext.None
-            : new PassContext(new Stepper(enabled: false), importMethodBody: importMethodBody);
+            : new PassContext(new Stepper(enabled: false), importMethodBody: importMethodBody, typesProvablyDisjoint: typesProvablyDisjoint);
 
     /// <summary>The product path: runs the default raising passes, then prints. <see cref="Print"/> alone renders whatever tree it is given — right for stage dumps, wrong for output paths.</summary>
     public static DecompilerResult PrintRaised(IrFunction function)
         => PrintRaised(function, importMethodBody: null);
 
-    /// <summary>As <see cref="PrintRaised(IrFunction)"/>, with <paramref name="importMethodBody"/> wiring the cross-method import seam (e.g. for lambda raising); null leaves cross-method passes as no-ops. <paramref name="options"/> defaults to the shipped output.</summary>
-    public static DecompilerResult PrintRaised(IrFunction function, Func<MethodRef, IrFunction?>? importMethodBody, PrinterOptions? options = null)
+    /// <summary>As <see cref="PrintRaised(IrFunction)"/>, with <paramref name="importMethodBody"/> wiring the cross-method import seam (e.g. for lambda raising); null leaves cross-method passes as no-ops. <paramref name="typesProvablyDisjoint"/> wires the type-disjointness oracle (from the assembly's open metadata) a disjointness-gated raise needs; null makes those raises conservatively decline. <paramref name="options"/> defaults to the shipped output.</summary>
+    public static DecompilerResult PrintRaised(
+        IrFunction function,
+        Func<MethodRef, IrFunction?>? importMethodBody,
+        PrinterOptions? options = null,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
     {
         try
         {
-            IrPasses.Run(function, IrPasses.Default, RaiseContext(importMethodBody));
+            IrPasses.Run(function, IrPasses.Default, RaiseContext(importMethodBody, typesProvablyDisjoint));
         }
         catch (Exception ex)
         {
@@ -107,12 +114,13 @@ public sealed partial class CSharpPrinter
 
     /// <inheritdoc cref="PrintRaised(IrFunction, out IReadOnlyDictionary{IrNode, int})"/>
     public static DecompilerResult PrintRaised(
-        IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines, Func<MethodRef, IrFunction?>? importMethodBody)
+        IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines, Func<MethodRef, IrFunction?>? importMethodBody,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
     {
         statementLines = new Dictionary<IrNode, int>();
         try
         {
-            IrPasses.Run(function, IrPasses.Default, RaiseContext(importMethodBody));
+            IrPasses.Run(function, IrPasses.Default, RaiseContext(importMethodBody, typesProvablyDisjoint));
         }
         catch (Exception ex)
         {
@@ -240,6 +248,7 @@ public sealed partial class CSharpPrinter
             ReadableLocalNames = _options.ReadableLocalNames,
             PreferFrameworkTypeImports = true,
             ExpressionBodyArrowPlacement = _options.ExpressionBodyArrowPlacement,
+            WrapSplittableExpressions = _options.WrapSplittableExpressions,
         };
 
     void AddDecision(string ruleId, string category, string subject, string detail, string? oldValue = null, string? newValue = null)
@@ -1814,7 +1823,8 @@ public sealed partial class CSharpPrinter
         }
         if (Statement(node) is { } line)
         {
-            if (!TryAppendFluentChain(sb, node, line, indent))
+            if (!TryAppendFluentChain(sb, node, line, indent)
+                && !TryAppendSplittableExpression(sb, node, line, indent))
                 sb.Append(pad).AppendLine(line);
         }
     }
@@ -2139,6 +2149,72 @@ public sealed partial class CSharpPrinter
                 return true;
             case StoreStackSlot store when store.Value is Call call && StackSlotTargetType(store) is { Kind: not TypeRefKind.ByRef }:
                 root = call;
+                prefix = _declaringStores.Contains(store)
+                    ? $"{DeclarationTypeText(StackSlotTargetType(store)!, store.Value)} {StackSlotName(store)} = "
+                    : $"{StackSlotName(store)} = ";
+                return true;
+            default:
+                root = null!;
+                prefix = "";
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Emits <paramref name="node"/> as a wrapped short-circuit
+    /// <c>&amp;&amp;</c>/<c>||</c> chain (one operand per line) when
+    /// <see cref="PrinterOptions.WrapSplittableExpressions"/> is set and the chain
+    /// is long enough, returning true after appending; false to fall through to
+    /// the flat single-line emit. Chosen only when the flat statement
+    /// <paramref name="line"/> is exactly <c>prefix + chain + ";"</c>, so any
+    /// coercion cast, compound assignment, or property-pattern rewrite the
+    /// renderer applied around the chain keeps the statement inline — wrapping
+    /// never drops or reshapes a token.
+    /// </summary>
+    bool TryAppendSplittableExpression(StringBuilder sb, IrNode node, string line, int indent)
+    {
+        if (!_options.WrapSplittableExpressions)
+            return false;
+        if (!TryLogicalChainStatement(node, out var root, out var prefix))
+            return false;
+        if (line != prefix + LogicalText(root) + ";")
+            return false;
+        if (LogicalChainLines(root, prefix, ";", indent) is not { } broken)
+            return false;
+        AddDecision(
+            "expression.wrap-splittable-chain",
+            "taste",
+            _function.Name,
+            $"Wrapped a long short-circuit {(root.Kind == LogicalKind.And ? "&&" : "||")} chain across continuation lines.");
+        sb.AppendLine(broken);
+        return true;
+    }
+
+    /// <summary>
+    /// Recognizes the statement positions whose value is a top-level short-circuit
+    /// <c>&amp;&amp;</c>/<c>||</c> chain — a <c>return</c> or a (non-ref) local or
+    /// stack-slot store — and yields the chain root plus the exact statement prefix
+    /// the flat renderer prints before it. (A bare chain as an expression statement
+    /// is CS0201, so there is no expression-statement case.) The caller re-derives
+    /// the flat text and only wraps when it matches, so the prefix here need only
+    /// cover the common (cast-free) spelling.
+    /// </summary>
+    bool TryLogicalChainStatement(IrNode node, out LogicalBinary root, out string prefix)
+    {
+        switch (node)
+        {
+            case Return { Value: LogicalBinary logical }:
+                root = logical;
+                prefix = "return ";
+                return true;
+            case StoreLocal { Type.Kind: not TypeRefKind.ByRef, Value: LogicalBinary logical } store:
+                root = logical;
+                prefix = _declaringStores.Contains(store)
+                    ? $"{DeclarationTypeText(store.Type, store.Value)} {LocalName(store.Index)} = "
+                    : $"{LocalName(store.Index)} = ";
+                return true;
+            case StoreStackSlot store when store.Value is LogicalBinary logical && StackSlotTargetType(store) is { Kind: not TypeRefKind.ByRef }:
+                root = logical;
                 prefix = _declaringStores.Contains(store)
                     ? $"{DeclarationTypeText(StackSlotTargetType(store)!, store.Value)} {StackSlotName(store)} = "
                     : $"{StackSlotName(store)} = ";
@@ -3475,24 +3551,99 @@ public sealed partial class CSharpPrinter
         if (TryPropertyPatternText(logical) is { } propertyPattern)
             return propertyPattern;
 
-        // Sides are condition positions: Condition() owns truthiness (a
-        // string operand spells 'is not null', never '!value') and the
-        // negation folds. Same-kind chains associate bare; mixed-kind
-        // LogicalBinary parenthesizes. Any other side renders at the
-        // operator's demand — a ternary or `??` (or one hidden behind a stale
-        // Coerce/Convert, the #2345/#2376 blind spot) is looser than `&&`/`||`
-        // and must parenthesize, while comparisons and unary forms out-bind it
-        // and stay bare (#2376 round-2: the enum/bool truthiness compositions
-        // share the one precedence rule, not just BoolToInteger).
-        var demand = logical.Kind == LogicalKind.And ? Precedence.ConditionalAnd : Precedence.ConditionalOr;
-        string Side(IrExpression side) => side switch
+        string op = logical.Kind == LogicalKind.And ? "&&" : "||";
+        return $"{LogicalOperandText(logical.Left, logical.Kind)} {op} {LogicalOperandText(logical.Right, logical.Kind)}";
+    }
+
+    // A single operand of a short-circuit chain of the given kind. Sides are
+    // condition positions: Condition() owns truthiness (a string operand spells
+    // 'is not null', never '!value') and the negation folds. Same-kind chains
+    // associate bare; a mixed-kind LogicalBinary parenthesizes. Any other side
+    // renders at the operator's demand — a ternary or `??` (or one hidden behind
+    // a stale Coerce/Convert, the #2345/#2376 blind spot) is looser than
+    // `&&`/`||` and must parenthesize, while comparisons and unary forms out-bind
+    // it and stay bare (#2376 round-2: the enum/bool truthiness compositions
+    // share the one precedence rule, not just BoolToInteger).
+    string LogicalOperandText(IrExpression side, LogicalKind kind)
+    {
+        var demand = kind == LogicalKind.And ? Precedence.ConditionalAnd : Precedence.ConditionalOr;
+        return side switch
         {
-            LogicalBinary nested when nested.Kind == logical.Kind => LogicalText(nested),
+            LogicalBinary nested when nested.Kind == kind => LogicalText(nested),
             LogicalBinary nested => $"({LogicalText(nested)})",
             _ => RenderedCondition(side).At(demand),
         };
-        string op = logical.Kind == LogicalKind.And ? "&&" : "||";
-        return $"{Side(logical.Left)} {op} {Side(logical.Right)}";
+    }
+
+    /// <summary>
+    /// Renders a short-circuit <c>&amp;&amp;</c>/<c>||</c> chain rooted at
+    /// <paramref name="root"/> as one operand per line — the first operand after
+    /// <paramref name="prefix"/> on the head line, each later operand under a
+    /// continuation indent, the operator trailing every broken line — when the
+    /// chain has at least <see cref="FluentChainMinSegments"/> operands and its
+    /// single-line form would exceed <see cref="FluentChainWrapWidth"/>. Returns
+    /// null (render inline) otherwise. Each operand's text is exactly the
+    /// <see cref="LogicalOperandText"/> the flat <see cref="LogicalText"/> emits,
+    /// and the routine declines unless the per-operand join reproduces that flat
+    /// text (so a property-pattern rewrite or any other reshaping keeps the
+    /// statement inline); the broken form is therefore token-identical to the
+    /// inline form — only whitespace differs and the IL is unchanged. Gated on
+    /// <see cref="PrinterOptions.WrapSplittableExpressions"/> by the caller.
+    /// </summary>
+    string? LogicalChainLines(LogicalBinary root, string prefix, string suffix, int indent)
+    {
+        var operands = new List<IrExpression>();
+        CollectLogicalChainOperands(root, root.Kind, operands);
+        if (operands.Count < FluentChainMinSegments)
+            return null;
+
+        string op = root.Kind == LogicalKind.And ? "&&" : "||";
+        var texts = new List<string>(operands.Count);
+        foreach (var operand in operands)
+            texts.Add(LogicalOperandText(operand, root.Kind));
+
+        // The broken form must be a pure whitespace variant of the flat chain:
+        // decline unless re-rendering the flattened operands reproduces the flat
+        // LogicalText exactly (guards the property-pattern rewrite and any other
+        // reshaping the flat renderer would apply).
+        string flat = LogicalText(root);
+        if (string.Join($" {op} ", texts) != flat)
+            return null;
+
+        if (indent * 4 + prefix.Length + flat.Length + suffix.Length <= FluentChainWrapWidth)
+            return null;
+
+        string pad = new(' ', indent * 4);
+        string continuation = pad + "    ";
+        var sb = new System.Text.StringBuilder();
+        sb.Append(pad).Append(prefix);
+        for (int i = 0; i < texts.Count; i++)
+        {
+            if (i > 0)
+                sb.Append('\n').Append(continuation);
+            sb.Append(texts[i]);
+            if (i < texts.Count - 1)
+                sb.Append(' ').Append(op);
+        }
+        sb.Append(suffix);
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Flattens a same-kind short-circuit chain into its operands in
+    /// left-to-right source order; a nested chain of the <em>other</em> kind (or
+    /// any non-<see cref="LogicalBinary"/>) is one operand and is not descended
+    /// into — matching how <see cref="LogicalOperandText"/> parenthesizes it.
+    /// </summary>
+    static void CollectLogicalChainOperands(IrExpression expression, LogicalKind kind, List<IrExpression> operands)
+    {
+        if (expression is LogicalBinary logical && logical.Kind == kind)
+        {
+            CollectLogicalChainOperands(logical.Left, kind, operands);
+            CollectLogicalChainOperands(logical.Right, kind, operands);
+            return;
+        }
+        operands.Add(expression);
     }
 
     string? TryPropertyPatternText(LogicalBinary logical)

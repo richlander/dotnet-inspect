@@ -372,10 +372,10 @@ public sealed partial class CSharpPrinter
     /// residual stays a bare, visibly invalid shift rather than guessing a width.
     /// </para>
     /// </summary>
-    string? ShiftEnumLeftOperand(Binary shift)
+    string? ShiftEnumLeftOperand(Binary shift, bool? isUnsignedOverride = null)
     {
         var operand = shift.Left;
-        bool isUnsigned = shift.IsUnsigned;
+        bool isUnsigned = isUnsignedOverride ?? shift.IsUnsigned;
         // A resolvable enum (same-assembly, or an array/by-ref element): the width
         // comes from the backing.
         if (ShiftLeftEnumType(operand) is { } enumType
@@ -452,6 +452,104 @@ public sealed partial class CSharpPrinter
                     => IsEnumLikeInteger(pointee),
                 _ => false,
             };
+
+    /// <summary>
+    /// Whether an operand is an enum shift the printer rewrites to its underlying
+    /// integer (<see cref="ShiftEnumLeftOperand"/>) — so its rendered type is that
+    /// integer, not the enum its IR <c>ResultType</c> still reports. A parent
+    /// bitwise <c>&amp;</c>/<c>|</c>/<c>^</c> must not coerce the sibling toward the
+    /// stale enum type: the shift is an integer expression (<c>(int)flags &lt;&lt; n</c>),
+    /// and <c>int | (E)x</c> would be CS0019.
+    /// </summary>
+    bool RendersEnumShiftAsInteger(IrExpression operand)
+        => operand is Binary { Kind: BinaryKind.ShiftLeft or BinaryKind.ShiftRight } shift
+            && ShiftEnumLeftOperand(shift) is not null;
+
+    /// <summary>
+    /// The integer type an enum shift renders as (matching the cast
+    /// <see cref="ShiftEnumLeftOperand"/> emits on its left operand), or null when
+    /// the operand is not an enum shift. Signedness follows the shift opcode
+    /// (<c>shr.un</c> renders unsigned; <c>shl</c>/<c>shr</c> render signed); width
+    /// follows the enum backing. A parent bitwise op reconciles against this
+    /// rendered type rather than the shift node's stale enum <c>ResultType</c>, so a
+    /// same-width mixed-sign pair (<c>(long)e &lt;&lt; n | ulongValue</c>) is
+    /// reinterpreted to a single width instead of binding to the wider signed
+    /// common type (which changes the value) or failing to bind at all (CS0019).
+    /// </summary>
+    TypeRef? ShiftRenderedIntegerType(IrExpression operand)
+    {
+        if (operand is not Binary { Kind: BinaryKind.ShiftLeft or BinaryKind.ShiftRight } shift
+            || ShiftLeftEnumType(shift.Left) is not { } enumType
+            || EnumUnderlyingType(enumType) is not { } underlying)
+        {
+            return null;
+        }
+        bool wide = Is8ByteInteger(underlying);
+        return shift.IsUnsigned
+            ? TypeRef.CoreLib("System", wide ? "UInt64" : "UInt32")
+            : TypeRef.CoreLib("System", wide ? "Int64" : "Int32");
+    }
+
+    /// <summary>
+    /// The type a bitwise operand <em>renders</em> as: an enum shift's
+    /// underlying-integer render (<see cref="ShiftRenderedIntegerType"/>), a nested
+    /// bitwise chain that transitively contains one (<see cref="BitwiseChainRenderedType"/>),
+    /// otherwise its <see cref="EffectiveType"/>. Used to decide the mixed-sign
+    /// reconciliation so an enum-shift operand participates as its rendered integer,
+    /// not its stale enum <c>ResultType</c>.
+    /// </summary>
+    TypeRef? BitwiseOperandRenderedType(IrExpression operand)
+    {
+        if (ShiftRenderedIntegerType(operand) is { } shiftType)
+        {
+            return shiftType;
+        }
+        if (operand is Binary { Kind: BinaryKind.And or BinaryKind.Or or BinaryKind.Xor } bitwise
+            && BitwiseOperandRendersAsInteger(bitwise))
+        {
+            return BitwiseChainRenderedType(bitwise.Left, bitwise.Right);
+        }
+        return EffectiveType(operand);
+    }
+
+    /// <summary>
+    /// Whether a bitwise operand renders as an integer despite carrying an enum
+    /// <c>ResultType</c>: either a direct enum shift (<see cref="RendersEnumShiftAsInteger"/>)
+    /// or a nested bitwise <c>&amp;</c>/<c>|</c>/<c>^</c> chain that transitively
+    /// contains one. The inner bitwise node inherits the shift's stale enum
+    /// <c>ResultType</c>, so an enclosing op must consult this — not
+    /// <c>ResultType</c> — before coercing the sibling; otherwise a chain like
+    /// <c>(enumFlags &lt;&lt; n) | x | y</c> re-casts the far sibling <c>y</c> to
+    /// the enum (<c>uint | (E)y</c>, CS0019).
+    /// </summary>
+    bool BitwiseOperandRendersAsInteger(IrExpression operand)
+        => RendersEnumShiftAsInteger(operand)
+            || (operand is Binary { Kind: BinaryKind.And or BinaryKind.Or or BinaryKind.Xor } bitwise
+                && (BitwiseOperandRendersAsInteger(bitwise.Left) || BitwiseOperandRendersAsInteger(bitwise.Right)));
+
+    /// <summary>
+    /// The integer type a bitwise <c>&amp;</c>/<c>|</c>/<c>^</c> chain over an enum
+    /// shift renders as. IL bitwise ops require operands of the same stack width, so
+    /// both rendered operand types share a width; the result is unsigned when either
+    /// side is unsigned (a same-width mixed-sign pair reinterprets the signed side).
+    /// Null when either side is not a wide integer render (no enum-shift descendant),
+    /// leaving the caller on its <see cref="EffectiveType"/> path.
+    /// </summary>
+    TypeRef? BitwiseChainRenderedType(IrExpression left, IrExpression right)
+    {
+        var leftType = BitwiseOperandRenderedType(left);
+        var rightType = BitwiseOperandRenderedType(right);
+        if (!IsWideInteger(leftType) || !IsWideInteger(rightType))
+        {
+            return null;
+        }
+        bool wide = Is8ByteInteger(leftType) || Is8ByteInteger(rightType);
+        bool unsigned = TypeFamilies.IsUnsignedIntegerPrimitive(leftType)
+            || TypeFamilies.IsUnsignedIntegerPrimitive(rightType);
+        return TypeRef.CoreLib("System", unsigned
+            ? (wide ? "UInt64" : "UInt32")
+            : (wide ? "Int64" : "Int32"));
+    }
 
     /// <summary>
     /// Casts an integer operand to the enum type it is compared or combined with
@@ -614,13 +712,26 @@ public sealed partial class CSharpPrinter
         // integer operand to the enum type. A cross-assembly enum is unresolved
         // (TypeShape.Unknown), so the structural test inside the coercion is what
         // catches it. A bitwise op is never checked, so it never needs the `wrap`
-        // form.
+        // form. An enum-shift operand (`(enumFlags << n) | x`) is excluded: it
+        // renders as its underlying integer (ShiftEnumLeftOperand), not the enum,
+        // so coercing the sibling toward its enum ResultType would reintroduce
+        // CS0019 (`int | (E)x`). The exclusion recurses through a bitwise chain
+        // (`(enumFlags << n) | x | y`): the inner op inherits the shift's stale
+        // enum ResultType while rendering as an integer, so the outer op must not
+        // coerce the far sibling either. Left as an integer bitwise op, the
+        // mixed-sign path and normal reconciliation bind it.
         if (binary.Kind is BinaryKind.And or BinaryKind.Or or BinaryKind.Xor)
         {
-            if (TryCoerceEnumOperand(binary.Right, binary.Left.ResultType) is { } coercedRight)
+            if (!BitwiseOperandRendersAsInteger(binary.Left)
+                && TryCoerceEnumOperand(binary.Right, binary.Left.ResultType) is { } coercedRight)
+            {
                 return $"{Operand(binary.Left)} {BinaryOperator(binary)} {coercedRight}";
-            if (TryCoerceEnumOperand(binary.Left, binary.Right.ResultType) is { } coercedLeft)
+            }
+            if (!BitwiseOperandRendersAsInteger(binary.Right)
+                && TryCoerceEnumOperand(binary.Left, binary.Right.ResultType) is { } coercedLeft)
+            {
                 return $"{coercedLeft} {BinaryOperator(binary)} {Operand(binary.Right)}";
+            }
         }
         // div.un/rem.un compute on unsigned operands; shr.un shifts an
         // unsigned left operand. Operands that are already unsigned (or
@@ -633,7 +744,8 @@ public sealed partial class CSharpPrinter
         // that width. Reinterpret the signed operand as unsigned — `S_0 | (ulong)S_1`,
         // `count * (nuint)stride` — a no-op same-width cast, so the opcode and its
         // stack width are unchanged.
-        bool mixedSign = MixedSignBitwise(binary) || MixedSignArithmetic(binary);
+        bool mixedSign = MixedSignBitwise(binary) || MixedSignArithmetic(binary)
+            || EnumShiftBitwiseMixedSign(binary);
         // A constant +/-/* whose subtree reinterprets an out-of-range signed
         // constant as unsigned (e.g. `(uint)-1 + 1`) is a C# *constant expression*:
         // the compiler evaluates it in a checked context (even unchecked add/sub/mul
@@ -659,12 +771,12 @@ public sealed partial class CSharpPrinter
         // type-checks; the cast's signedness follows the shift opcode (shr/shr.un),
         // not the enum backing, so it round-trips opcode-exact. (Count is int.)
         string left = isShift && ShiftEnumLeftOperand(binary) is { } shiftedEnum ? shiftedEnum
-            : mixedSign ? BitwiseUnsignedOperand(binary.Left, wrapConstantCast: !covered)
+            : mixedSign ? BitwiseUnsignedOperand(binary.Left, wrapConstantCast: !covered, context: demand)
             : castLeft ? UnsignedOperand(binary.Left)
             : preserveUnsignedConstants ? UnsignedConstantArithmeticOperand(binary.Left, EffectiveType(binary))
             : BinaryOperand(binary.Left, demand, rightSide: false);
         string right = isShift ? ShiftCount(binary)
-            : mixedSign ? BitwiseUnsignedOperand(binary.Right, wrapConstantCast: !covered)
+            : mixedSign ? BitwiseUnsignedOperand(binary.Right, wrapConstantCast: !covered, context: demand)
             : castBoth ? UnsignedOperand(binary.Right)
             : preserveUnsignedConstants ? UnsignedConstantArithmeticOperand(binary.Right, EffectiveType(binary))
             : BinaryOperand(binary.Right, demand, rightSide: true);
@@ -888,6 +1000,23 @@ public sealed partial class CSharpPrinter
             && MixedSignSameWidthIntegers(binary);
 
     /// <summary>
+    /// A bitwise <c>&amp;</c>/<c>|</c>/<c>^</c> with an enum-shift operand (possibly
+    /// nested in a bitwise chain) whose <em>rendered</em> integer type
+    /// (<see cref="BitwiseOperandRenderedType"/>) forms a same-width mixed-sign pair
+    /// with the sibling. <see cref="MixedSignBitwise"/> misses these because the
+    /// shift (or the chain that inherits its <c>ResultType</c>) is still enum-typed,
+    /// so its <see cref="EffectiveType"/> is not an integer. Reinterpreting the
+    /// signed side keeps the op at one width (<c>(ulong)((long)e &lt;&lt; n) | x</c>)
+    /// instead of promoting to the wider signed common type or failing to bind.
+    /// </summary>
+    bool EnumShiftBitwiseMixedSign(Binary binary)
+        => binary.Kind is BinaryKind.And or BinaryKind.Or or BinaryKind.Xor
+            && (BitwiseOperandRendersAsInteger(binary.Left) || BitwiseOperandRendersAsInteger(binary.Right))
+            && MixedSignSameWidthIntegers(
+                BitwiseOperandRenderedType(binary.Left),
+                BitwiseOperandRenderedType(binary.Right));
+
+    /// <summary>
     /// True when an <em>unchecked</em> <c>+</c>/<c>-</c>/<c>*</c> has one signed
     /// and one unsigned integer operand of the same stack width (e.g.
     /// <c>int * uint</c>, <c>nuint * nint</c>, <c>ulong - long</c>). Same
@@ -1005,11 +1134,28 @@ public sealed partial class CSharpPrinter
     /// legal (CS0221); any other signed operand takes the same-width reinterpret
     /// cast, which emits no opcode.
     /// </summary>
-    string BitwiseUnsignedOperand(IrExpression operand, bool wrapConstantCast = true)
+    string BitwiseUnsignedOperand(IrExpression operand, bool wrapConstantCast = true, Precedence context = Precedence.Shift)
     {
-        var unsigned = TypeFamilies.UnsignedCounterpart(EffectiveType(operand));
+        var unsigned = TypeFamilies.UnsignedCounterpart(BitwiseOperandRenderedType(operand));
         if (unsigned is null)
             return Operand(operand);
+        // An enum LEFT shift renders its underlying cast with the shift opcode's
+        // signedness — `(int)e << n` — which this reconciliation would then wrap as
+        // `(uint)((int)e << n)`. A left shift is bit-identical regardless of the
+        // operand's signedness, so spell the enum cast directly as the unsigned
+        // target and drop the redundant outer cast — `(uint)e << n` (#3076). This
+        // is a left-shift-only collapse: a signed right shift is arithmetic, so
+        // `(uint)e >> n` (logical) would change the value and must keep the wrap.
+        // The collapsed text is a shift expression, so parenthesize it when the
+        // reconciling parent binds tighter than `<<` (a mixed-sign `+`/`-`/`*`,
+        // which an enum array/by-ref element shift reaches) — `((uint)e << n) + x`,
+        // not `(uint)e << n + x` (which parses as `(uint)e << (n + x)`).
+        if (operand is Binary { Kind: BinaryKind.ShiftLeft } leftShift
+            && ShiftEnumLeftOperand(leftShift, isUnsignedOverride: true) is { } unsignedShiftedEnum)
+        {
+            string collapsed = $"{unsignedShiftedEnum} {BinaryOperator(leftShift)} {ShiftCount(leftShift)}";
+            return new Rendered(collapsed, Precedence.Shift).At(context);
+        }
         bool constantOutOfRange = wrapConstantCast && TryGetIntegerConstant(operand, out long value) && !CSharpConversionRules.ConstantFits(value, unsigned);
         return CheckedSafeCast(() => $"({TypeText(unsigned)}){Operand(operand)}", force: constantOutOfRange);
     }
@@ -1427,6 +1573,22 @@ public sealed partial class CSharpPrinter
             && !target.Equals(pointerSource))
         {
             return $"({TypeText(target)}){Operand(value)}";
+        }
+        // An enum shift — or a bitwise chain over one — renders as its underlying
+        // integer (ShiftEnumLeftOperand: `(int)e >> n`), not the enum its stale
+        // Binary ResultType still reports. Flowing into an enum target (a return,
+        // a local/field/array store) it is an int->enum conversion needing an
+        // explicit `(Enum)` cast (CS0266); without it CoerceText reads the stale
+        // enum ResultType as an identity to the target and drops the cast. The
+        // rendered integer drives the enum-spellability test, and EnumIntegerCast
+        // wraps the shift — `(MyEnum)((int)e >> n)`. Runs before the plain
+        // integer->enum branch, whose EffectiveType(value) would be the stale enum.
+        if (target is { } shiftEnumTarget
+            && BitwiseOperandRendersAsInteger(value)
+            && BitwiseOperandRenderedType(value) is { } shiftRenderedInteger
+            && CoercionRendering.CanSpellIntegerToEnum(shiftRenderedInteger, shiftEnumTarget, _function.TypeShapes))
+        {
+            return EnumIntegerCast(value, shiftEnumTarget);
         }
         // An integer flowing into an enum-typed position — a comparison kind, a
         // flags value computed at run time — needs an explicit (Enum)x cast: C#

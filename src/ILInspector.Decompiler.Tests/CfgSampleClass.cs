@@ -5216,6 +5216,55 @@ public static class EnumCastSamples
         return a[i];
     }
 
+    // #3011 (review): an enum shift feeding a parent bitwise &/|/^ kept the shift
+    // node's enum ResultType, so the printer coerced the *sibling* integer to the
+    // enum (`(int)e << n | (E)x`, CS0019). The shift renders as its underlying
+    // integer, so the bitwise op is an integer op; a same-width mixed-sign sibling
+    // reconciles to one width rather than promoting to the wider signed common type
+    // (which changes the value) or failing to bind. Witness: Roslyn
+    // MetadataWriter.GetRawToken — `((uint)encoding << 24) | pseudoToken`.
+    public static uint IntEnumShiftOrUnsigned(CfgPriority e, uint x) => ((uint)e << 24) | x;
+
+    public static int IntEnumShiftOrSigned(CfgPriority e, int x) => ((int)e << 8) | x;
+
+    public static ulong LongEnumShiftOrUnsigned(CfgLongPriority e, ulong x) => ((ulong)e << 8) | x;
+
+    public static uint IntEnumShiftAndUnsigned(CfgPriority e, uint x) => ((uint)e << 4) & x;
+
+    // Negative case for the #3076 left-shift cast collapse: a signed arithmetic
+    // right shift reconciled against an unsigned sibling must KEEP its double cast
+    // `(ulong)((long)e >> n)`. Collapsing to `(ulong)e >> n` would switch the
+    // arithmetic shift to a logical one and change the value, so the collapse is
+    // left-shift only.
+    public static ulong LongEnumShiftRightOrUnsigned(CfgLongPriority e, int n, ulong x) => ((ulong)((long)e >> n)) | x;
+
+    // Precedence guard for the #3076 collapse: an enum left shift reconciled inside
+    // a mixed-sign ARITHMETIC parent (`+`/`-`/`*`, which bind tighter than `<<`)
+    // must keep parentheses around the collapsed shift — `((uint)values[i] << n) + x`,
+    // not `(uint)values[i] << n + x` (which parses as `(uint)values[i] << (n + x)`).
+    // An enum ARRAY element masks the enum as its primitive width, so the shift's
+    // EffectiveType is an integer and MixedSignArithmetic reconciles it (a plain
+    // enum field stays enum-typed and never routes here).
+    public static uint EnumArrayShiftAddUnsigned(CfgPriority[] values, int i, int n, uint x) => ((uint)values[i] << n) + x;
+
+    // A bitwise CHAIN over an enum shift: the inner `|` inherits the shift's stale
+    // enum ResultType while rendering as an integer, so the outer `|` must not
+    // coerce the far sibling to the enum (`... | (E)y`, CS0019). The rewritten-
+    // integer detection and rendered-type reconciliation recurse through the chain.
+    public static uint ChainIntEnumShiftOrUnsigned(CfgPriority e, uint x, uint y) => ((uint)e << 24) | x | y;
+
+    public static ulong ChainLongEnumShiftOrUnsigned(CfgLongPriority e, ulong x, ulong y) => ((ulong)e << 8) | x | y;
+
+    // An enum shift RETURNED or STORED to an enum target: the shift renders as its
+    // underlying integer, so the sink is an int->enum conversion needing an outer
+    // `(E)` cast (CS0266). The shift's stale enum ResultType would otherwise read
+    // as an identity to the target and the cast would be dropped.
+    public static CfgPriority EnumShiftReturn(CfgPriority e, int n) => (CfgPriority)((int)e >> n);
+
+    public static CfgLongPriority EnumShiftReturnLong(CfgLongPriority e, int n) => (CfgLongPriority)((long)e >> n);
+
+    public static void EnumShiftStoreArray(CfgPriority[] arr, int n) => arr[0] = (CfgPriority)((int)arr[0] >> n);
+
     // #1766: ternary with enum-constant arms stored to a cross-assembly enum
     // local (StringComparison.Ordinal = 4, OrdinalIgnoreCase = 5).
     public static bool EnumConditional(string name, bool ci)

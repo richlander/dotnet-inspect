@@ -26,6 +26,8 @@ Two reasons:
 1. **It is an established, versioned, externally documented choice.** Picking canonical representatives stops being a per-change taste debate, and the target moves with the runtime repo's own style evolution rather than ossifying into ours.
 2. **It makes testing coherent.** The fidelity fixture corpus is runtime-shaped code written under that style — so fixer-style output and recompile fidelity are the same goal, not competing ones.
 
+Two clarifications on scope. First, the oracle is a **default**, not a reconstruction of the input's own style: real assemblies — runtime included — are stylistically mixed, and an `.editorconfig` is *directional* (it names where a codebase is converging over time, not what its current text says), so "match the source style" is not a well-defined target. Picking a published, versioned community default is the honest substitute. Second, the oracle settles only **class-3 no-anchor cosmetics** (below); it never overrides a class-1 or class-2 IL distinction. Where a no-anchor choice is not yet a stable default it is exposed opt-in rather than imposed — see [Line wrapping](#line-wrapping) and [Names](#names).
+
 ## The three-class rule
 
 Every proposed rendering falls into one of three classes, and the class decides the answer:
@@ -33,9 +35,10 @@ Every proposed rendering falls into one of three classes, and the class decides 
 **1. IL-exact preferred forms — adopt freely.** The modern spelling is precisely what the IL in hand compiles from, so it is the better representative — sometimes the *more faithful* one:
 
 - `is null` / `is not null` for null tests that compile to a reference `ceq`/branch. (`== null` could mean an `op_Equality` call; render `==` exactly when the IL calls the operator.)
-- Is-pattern matching (`if (x is Foo f)`) for the `isinst` + branch + cast shape.
+- Is-pattern matching for the `isinst` + branch + captured-cast shape (`if (x is Foo f)`), where the stored-and-used cast binding is the anchor. Bare `x is Foo` with no binding is IL-identical to `(x as Foo) != null`, so *that* choice is a class-3 tiebreaker, not an IL-exact form.
 - Switch expressions for switch-plus-returns shapes.
-- Compound assignment and increment (`_size++`), `continue`/`break` for loop-edge branches.
+- `continue`/`break` for loop-edge branches.
+- Compound assignment/increment, **but IL-anchored only where the target's storage location is computed once** — array and pointer elements compile to a distinct `ldelema` + `dup` address form (`a[i]++` differs from the re-indexing `a[i] = a[i] + 1`), and a member over a side-effecting receiver has *no* single-evaluation `x = x + 1` spelling at all, so the compound form is the only source for that IL. For a local, static field, `this`- or local-rooted instance field, or ordinary property, `x++`, `x += 1`, and `x = x + 1` are byte-identical IL, so *that* spelling is a class-3 no-anchor pick (below) the oracle settles (`x++`/`x--` for ±1, `x op= v` otherwise).
 
 **2. Fidelity-erasing forms — decline, always.** A preferred form is never adopted when it would erase a distinction the IL actually makes:
 
@@ -48,6 +51,7 @@ Conflicts between class 1 and class 2 are rare by construction — most fixer su
 **3. No IL anchor — follow the oracle as a tiebreaker.** Conventions with no IL consequence at all (`var` policy, explicit types on declarations, brace style) follow the runtime `.editorconfig`, purely for corpus coherence.
 
 - LINQ query syntax (`from x in xs select f`) compiles to the *same* `Enumerable.Where/Select/...` calls as the fluent chain — query expressions are translated during binding, before any lowering, so the two forms are IL-identical. With no anchor to choose between them, the oracle decides: the runtime writes fluent method chains, so that is what we render. We do not re-sugar back to `from..select`. (This is why the `Query` row in the lowering ledger is `Declined` — a no-anchor mechanism distinct from `Unhandled`/owed, not a gap to fill.)
+- **Erased before lowering — render the constant.** Some constructs the compiler resolves to a bare constant before any lowering, leaving no IL to recover from. `nameof(x)` compiles to the string literal `ldstr "x"` — indistinguishable from writing `"x"` — so it comes back as the string; there is nothing to re-sugar. The same holds for constant folding (`60 * 60` → `3600`), primitive and reference `default` (`default(int)` → `0`, `default(string)` → `null`), and string spelling (verbatim, raw, and escaped forms collapse to one `ldstr`). A *struct* `default` is not in this set: `default(BigStruct)` emits `initobj`, an anchored shape recovered as `default`.
 
 ### Pointer member syntax
 
@@ -106,8 +110,83 @@ differently or fail to compile:
 
 The discipline generalizes: a no-IL-anchor spelling is still declined when
 adopting it could change binding, and each decline is proven by recompile/corpus
-fidelity. Any future apparent-type spelling that shares this hazard is scoped the
-same way.
+fidelity. Optional-argument elision (below) is the other spelling that ships
+under this binding-hazard discipline; any future one that shares the hazard —
+apparent-type or argument-omission — is scoped the same way.
+
+### Optional-argument elision
+
+C# optional parameters are erased by the type system: the compiler bakes the
+declared default in at every call site, so `ToWords(gender, null)` and
+`ToWords(gender)` compile to the *same* call carrying the same trailing constant.
+Dropping the argument is opcode-neutral — recompiling re-inserts the identical
+default — so this is a taste transform (valid-but-different), not a fidelity
+change, and it renders the shorter call the runtime source would write.
+
+Like target-typed `new()`, it carries a **binding hazard**: a shorter argument
+list can rebind to a different same-named overload. It is therefore a sound
+conservative over-approximation, never a Roslyn overload-resolution clone. The
+pass (`OptionalArgumentElisionPass`) does not decide safety itself — it is bounded
+by the overload-safe count the importer stamps from metadata
+(`MethodRef.SafeTrailingElidableCount`, computed in `OptionalArgumentFacts`), and
+only drops a trailing argument that is still a bare constant equal to the
+recovered default while the call still carries the callee's full parameter list.
+Anything the count cannot prove safe stays explicit.
+
+### Line wrapping
+
+Breaking a long line across continuation lines is pure whitespace: it emits the
+same tokens in the same order, so the wrapped and inline forms recompile to
+identical IL and it selects the *same* member of the equivalence class — the
+representative is unchanged, only its layout differs. Wrapping therefore sits below the three-class rule, alongside
+brace style, with a single input from the oracle: `dotnet/runtime`'s 120-column
+maximum line width decides *when* a single-line rendering is too wide to keep.
+
+Two chain shapes wrap one element per continuation line when the flat form would
+exceed that width and the chain has at least two elements:
+
+- **Fluent method chains — always on.** The runtime routinely breaks a long
+  fluent chain one `.Member(args)` call per line, and the transform is
+  token-identical (each line is spliced out of the single-line rendering by
+  length arithmetic), so it is applied unconditionally.
+
+  ```csharp
+  return source.Where(predicate).Select(projection).OrderBy(key).ToList();
+  // wraps to:
+  return source
+      .Where(predicate)
+      .Select(projection)
+      .OrderBy(key)
+      .ToList();
+  ```
+
+- **Short-circuit `&&` / `||` chains — opt-in.** The boolean analog breaks each
+  operand onto its own line with the operator trailing each broken line. It
+  carries the same whitespace-only guarantee — it re-renders each flattened
+  operand through the exact function the flat chain uses and declines unless the
+  per-operand join reproduces the flat text byte-for-byte, so any cast, compound
+  form, or pattern rewrite keeps the statement inline rather than risk dropping a
+  token — but it is **off by default**
+  (`PrinterOptions.WrapSplittableExpressions`) and surfaces as a taste decision
+  when enabled.
+
+  ```csharp
+  return firstFlag && secondFlag && thirdFlag && fourthFlag && fifthFlag && sixthFlag;
+  // with WrapSplittableExpressions, wraps to:
+  return firstFlag &&
+      secondFlag &&
+      thirdFlag &&
+      fourthFlag &&
+      fifthFlag &&
+      sixthFlag;
+  ```
+
+The asymmetry is deliberate and matches how this doc treats every cosmetic lens
+that isn't yet a default: like readable name synthesis under [Names](#names), the
+boolean-chain wrapper changes only layout, so it is introduced opt-in to keep
+default output byte-for-byte stable until the choice proves out, rather than
+churning every wide boolean `return` in the corpus. The always-on fluent wrapper
+predates it and stays on.
 
 ## Names
 
