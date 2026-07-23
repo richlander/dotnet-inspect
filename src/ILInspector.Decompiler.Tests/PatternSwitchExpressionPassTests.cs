@@ -24,6 +24,7 @@ public class PatternSwitchExpressionPassTests
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Node = TypeRef.CoreLib("Synthetic", "Node");
     static readonly TypeRef Leaf = TypeRef.CoreLib("Synthetic", "Leaf");
+    static readonly TypeRef Branch = TypeRef.CoreLib("Synthetic", "Branch");
 
     static Constant False() => new(false, Bool);
 
@@ -32,12 +33,25 @@ public class PatternSwitchExpressionPassTests
         using var source = MetadataSource.Open(fixtureType.Assembly.Location);
         var function = IrImporter.Import(source, fixtureType.FullName!, methodName);
         Assert.NotNull(function);
-        IrPasses.Run(function!);
+        // Match the product path: wire the cross-method import seam and the
+        // type-disjointness oracle (from the assembly's open metadata) so the
+        // disjointness-gated switch-expression raise fires exactly as it does when
+        // the shipped `member` command renders this method.
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method => IrImporter.Import(source, method),
+            typesProvablyDisjoint: source.AreProvablyDisjoint);
+        IrPasses.Run(function!, IrPasses.Default, context);
         function!.CheckInvariant();
         return function;
     }
 
     static void RunPass(IrFunction function) => new PatternSwitchExpressionPass().Run(function, PassContext.None);
+
+    static void RunPass(IrFunction function, Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint)
+        => new PatternSwitchExpressionPass().Run(
+            function,
+            new PassContext(new Stepper(enabled: false), typesProvablyDisjoint: typesProvablyDisjoint));
 
     // ── Compiler-backed positives ──────────────────────────────────────────
 
@@ -191,5 +205,154 @@ public class PatternSwitchExpressionPassTests
         RunPass(function);
 
         Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    // ── Adversarial-review regression guards (PR #3034) ────────────────────
+
+    // A two-arm cascade: `sv = node; k0 = sv as arm0Type; if (!k0) { k1 = sv as
+    // arm1Type; if (!k1) { return default; } return arm1Value; } [if (!g) {
+    // return default; }] return arm0Value;`. arm0 is a guarded, non-last arm; a
+    // guard-fail on arm0 routes to the default in this cascade but to arm1 in a
+    // switch expression — so raising is sound only when arm0Type and arm1Type
+    // cannot both match.
+    static IrFunction TwoArm(
+        IrExpression? arm0Guard,
+        IrExpression arm0Value,
+        IrExpression arm1Value,
+        IrExpression defaultValue,
+        TypeRef arm0Type,
+        TypeRef arm1Type)
+    {
+        var block = new Block(0);
+        block.Add(new StoreLocal(5, Node, new LoadArgument(0, "node", Node)));
+        block.Add(new StoreLocal(0, arm0Type, new IsInstance(arm0Type, new LoadLocal(5, Node))));
+
+        var rest = new Block();
+        rest.Add(new StoreLocal(1, arm1Type, new IsInstance(arm1Type, new LoadLocal(5, Node))));
+        var arm1Dispatch = new Block();
+        arm1Dispatch.Add(new Return((IrExpression)defaultValue.Clone()));
+        rest.Add(new IfStatement(new LogicalNot(new LoadLocal(1, arm1Type)), arm1Dispatch, null));
+        rest.Add(new Return(arm1Value));
+        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, arm0Type)), rest, null));
+
+        if (arm0Guard is not null)
+        {
+            var guardThen = new Block();
+            guardThen.Add(new Return((IrExpression)defaultValue.Clone()));
+            block.Add(new IfStatement(new LogicalNot(arm0Guard), guardThen, null));
+        }
+        block.Add(new Return(arm0Value));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Bool, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(arm0Type, arm1Type, Bool, Node, Node, Node), container);
+    }
+
+    [Fact]
+    public void Synthetic_GuardedNonLastArm_RaisesOnlyWhenTypesProvablyDisjoint()
+    {
+        // arm0 (`Leaf leaf when Ok(leaf)`) precedes arm1 (`Branch`). If Leaf and
+        // Branch overlapped, a value matching both that failed arm0's guard would
+        // reach the default here but arm1 in a switch expression. The pass must
+        // consult the disjointness oracle and only raise when disjointness is
+        // proven.
+        static IrFunction Build() => TwoArm(
+            arm0Guard: new Call(new MethodRef(Leaf, "Ok", Bool, [Leaf], HasThis: false), isVirtual: false, [new LoadLocal(0, Leaf)]),
+            arm0Value: new Constant(true, Bool),
+            arm1Value: new Constant(true, Bool),
+            defaultValue: False(),
+            arm0Type: Leaf,
+            arm1Type: Branch);
+
+        // No oracle available: cannot prove disjointness → decline.
+        var withoutOracle = Build();
+        RunPass(withoutOracle, typesProvablyDisjoint: null);
+        Assert.Empty(withoutOracle.Descendants.OfType<PatternSwitchExpression>());
+
+        // Oracle reports the types could overlap → decline.
+        var overlapping = Build();
+        RunPass(overlapping, typesProvablyDisjoint: (_, _) => false);
+        Assert.Empty(overlapping.Descendants.OfType<PatternSwitchExpression>());
+
+        // Oracle proves disjointness → raise both arms.
+        var disjoint = Build();
+        RunPass(disjoint, typesProvablyDisjoint: (_, _) => true);
+        var switchExpression = Assert.Single(disjoint.Descendants.OfType<PatternSwitchExpression>());
+        Assert.Equal(2, switchExpression.Arms.Count);
+        Assert.True(switchExpression.HasDefault);
+    }
+
+    [Fact]
+    public void Synthetic_PatternLocalLeaksIntoSiblingArm_DoesNotRaise()
+    {
+        // arm1's value reads arm0's pattern local (`leaf`). In the lowered
+        // cascade that local is still in scope, but each switch arm scopes its
+        // own pattern variable, so the raised C# would reference an out-of-scope
+        // name (CS0103). Decline even with disjointness proven.
+        var leaked = TwoArm(
+            arm0Guard: null,
+            arm0Value: new Call(new MethodRef(Leaf, "V", Bool, [Leaf], HasThis: false), isVirtual: false, [new LoadLocal(0, Leaf)]),
+            arm1Value: new Call(new MethodRef(Leaf, "V", Bool, [Leaf], HasThis: false), isVirtual: false, [new LoadLocal(0, Leaf)]),
+            defaultValue: False(),
+            arm0Type: Leaf,
+            arm1Type: Branch);
+        RunPass(leaked, typesProvablyDisjoint: (_, _) => true);
+        Assert.Empty(leaked.Descendants.OfType<PatternSwitchExpression>());
+
+        // Control: arm1 reads its own local (`k1`) instead — raises.
+        var scoped = TwoArm(
+            arm0Guard: null,
+            arm0Value: new Call(new MethodRef(Leaf, "V", Bool, [Leaf], HasThis: false), isVirtual: false, [new LoadLocal(0, Leaf)]),
+            arm1Value: new Call(new MethodRef(Branch, "V", Bool, [Branch], HasThis: false), isVirtual: false, [new LoadLocal(1, Branch)]),
+            defaultValue: False(),
+            arm0Type: Leaf,
+            arm1Type: Branch);
+        RunPass(scoped, typesProvablyDisjoint: (_, _) => true);
+        Assert.Single(scoped.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    // A single positive-form guarded arm: `sv = node; k0 = sv as Leaf; if (!k0)
+    // { return default; } if (g) { return value; } [return default;]`. When g
+    // fails, control falls through the `if (g)`; only an explicit trailing
+    // `return default` routes that fall-through to the default.
+    static IrFunction SinglePositiveGuardArm(bool withDefaultTail)
+    {
+        var block = new Block(0);
+        block.Add(new StoreLocal(5, Node, new LoadArgument(0, "node", Node)));
+        block.Add(new StoreLocal(0, Leaf, new IsInstance(Leaf, new LoadLocal(5, Node))));
+
+        var dispatchThen = new Block();
+        dispatchThen.Add(new Return(False()));
+        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, Leaf)), dispatchThen, null));
+
+        var guard = new Call(new MethodRef(Leaf, "Ok", Bool, [Leaf], HasThis: false), isVirtual: false, [new LoadLocal(0, Leaf)]);
+        var guardThen = new Block();
+        guardThen.Add(new Return(new Constant(true, Bool)));
+        block.Add(new IfStatement(guard, guardThen, null));
+
+        if (withDefaultTail)
+            block.Add(new Return(False()));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Bool, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Leaf, Bool, Node, Node, Node), container);
+    }
+
+    [Fact]
+    public void Synthetic_PositiveGuardMissingDefaultTail_DoesNotRaise()
+    {
+        // Without the explicit trailing `return false`, the guard-fail fall
+        // through would drop out of the block rather than reach the default;
+        // accepting the empty tail would silently reroute that path.
+        var missing = SinglePositiveGuardArm(withDefaultTail: false);
+        RunPass(missing);
+        Assert.Empty(missing.Descendants.OfType<PatternSwitchExpression>());
+
+        // Control: with the trailing default present the arm raises.
+        var present = SinglePositiveGuardArm(withDefaultTail: true);
+        RunPass(present);
+        Assert.Single(present.Descendants.OfType<PatternSwitchExpression>());
     }
 }

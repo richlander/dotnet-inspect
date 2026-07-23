@@ -150,7 +150,8 @@ public static class MemberBodyProducer
 
             var projection = Pipeline.CSharpPrinter.PrintRaised(
                 function,
-                importMethodBody: methodRef => Pipeline.IrImporter.Import(source, methodRef));
+                importMethodBody: methodRef => Pipeline.IrImporter.Import(source, methodRef),
+                typesProvablyDisjoint: source.AreProvablyDisjoint);
             if (projection.Output is null)
             {
                 return new MemberBodyProductionResult(
@@ -1281,7 +1282,8 @@ public static class MemberBodyProducer
                 continue;
 
             var result = Pipeline.CSharpPrinter.PrintRaised(
-                function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method));
+                function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method),
+                typesProvablyDisjoint: pipelineSource.AreProvablyDisjoint);
             foreach (var (field, value) in result.FieldInitializers)
                 initializers.TryAdd(field, value);
         }
@@ -1430,7 +1432,8 @@ public static class MemberBodyProducer
             return null;
         CollectNamespaces(function, bodyNamespaces);
         var result = Pipeline.CSharpPrinter.PrintRaised(
-            function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method), printerOptions);
+            function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method), printerOptions,
+            typesProvablyDisjoint: pipelineSource.AreProvablyDisjoint);
         constructorChain = result.ConstructorChain;
         requiresUnsafeContext = result.RequiresUnsafeBodyModifier;
         return result.Output?.TrimEnd() ?? DiagnosticComment(result);

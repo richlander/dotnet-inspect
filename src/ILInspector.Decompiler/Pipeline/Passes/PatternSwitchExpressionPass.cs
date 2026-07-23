@@ -19,9 +19,12 @@ namespace ILInspector.Decompiler.Pipeline;
 ///   <item>each pattern-bound local referenced only within its own arm.</item>
 /// </list>
 /// Faithfully reproducing the same arms, order, guards, and default round-trips
-/// to the same lowering: guard-fail routing straight to the default (rather than
-/// the next arm) is valid precisely because the compiler proved the arm pattern
-/// types mutually exclusive.
+/// to the same lowering only when the arms cannot diverge from the cascade. A
+/// guard or subpattern arm routes a type-match-but-refuted value to the default
+/// in the cascade but to a later arm in a switch expression, so the pass raises
+/// such an arm only when its pattern type is provably disjoint from every later
+/// arm's type (via <see cref="PassContext.TypesProvablyDisjoint"/>); absent that
+/// proof it declines and leaves the cascade untouched.
 /// </summary>
 public sealed class PatternSwitchExpressionPass : IIrPass
 {
@@ -33,7 +36,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
     {
         foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
         {
-            if (container.Blocks is [var block] && TryMatch(function, block, out int startIndex, out var switchExpression))
+            if (container.Blocks is [var block] && TryMatch(function, block, context, out int startIndex, out var switchExpression))
             {
                 block.SetChild(startIndex, new Return(switchExpression!));
                 for (int i = block.Children.Count - 1; i > startIndex; i--)
@@ -43,7 +46,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         }
     }
 
-    bool TryMatch(IrFunction function, Block block, out int startIndex, out PatternSwitchExpression? switchExpression)
+    bool TryMatch(IrFunction function, Block block, PassContext context, out int startIndex, out PatternSwitchExpression? switchExpression)
     {
         startIndex = -1;
         switchExpression = null;
@@ -105,6 +108,24 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             if (!ownershipHolds)
                 continue;
 
+            // A pattern variable is scoped to its own switch arm: no sibling
+            // arm's guard/value and not the default may read it. In the lowered
+            // cascade the bound local outlives its arm, but the raised C# would
+            // reference an out-of-scope variable (CS0103). Decline if any pattern
+            // local leaks across arms.
+            if (!PatternLocalsAreArmScoped(arms, defaultValue))
+                continue;
+
+            // A refutable arm (a when-guard or a property subpattern) routes a
+            // value that matches its type but fails the refinement to the default
+            // in the cascade, whereas a switch expression routes it to the next
+            // matching arm. The two agree only when no later arm's type can also
+            // match, so require the refutable arm's type to be provably disjoint
+            // from every later arm's type. Absent a disjointness oracle or a
+            // proof, decline rather than risk a semantics change.
+            if (!RefutableArmsDisjointFromLaterArms(arms, context))
+                continue;
+
             var builtArms = arms.Select(a => new PatternSwitchExpressionArm(
                 a.PatternType,
                 a.LocalIndex,
@@ -146,11 +167,14 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             return false;
 
         // MATCHED body = the sibling statements after the dispatch test.
-        if (!TryParseMatchedBody(stmts, index + 2, patternType, patternLocal, defaultValue, out var arm, out int matchedNext))
+        if (!TryParseMatchedBody(stmts, index + 2, patternType, patternLocal, defaultValue, out var arm, out int matchedNext, out bool fallsThrough))
             return false;
         // Nothing may follow the matched body at this level except an optional
-        // trailing `return <default>` (an arm's own no-match fall-through).
-        if (!ReachesDefaultTail(stmts, matchedNext, defaultValue))
+        // trailing `return <default>`. When the matched body can fall through
+        // (a positive-form guard or a property subpattern), that trailing
+        // default MUST be present; otherwise the fall-through path would be
+        // silently rerouted to whatever the recursion parses next.
+        if (!ReachesDefaultTail(stmts, matchedNext, defaultValue, fallsThrough))
             return false;
 
         arms.Add(arm);
@@ -197,10 +221,12 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         int patternLocal,
         IrExpression defaultValue,
         out ArmData arm,
-        out int nextIndex)
+        out int nextIndex,
+        out bool fallsThrough)
     {
         arm = null!;
         nextIndex = -1;
+        fallsThrough = false;
         if (index >= stmts.Count)
             return false;
 
@@ -215,8 +241,8 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             && stmts[index + 1] is IfStatement { HasElse: false } subIf
             && IsLocalTest(subIf.Condition, subStore.Index))
         {
-            if (!TryParseGuardedValue(subIf.Then.Children, 0, defaultValue, out var innerGuard, out var innerValue, out int innerConsumed)
-                || !ReachesDefaultTail(subIf.Then.Children, innerConsumed, defaultValue))
+            if (!TryParseGuardedValue(subIf.Then.Children, 0, defaultValue, out var innerGuard, out var innerValue, out int innerConsumed, out bool innerFallsThrough)
+                || !ReachesDefaultTail(subIf.Then.Children, innerConsumed, defaultValue, innerFallsThrough))
                 return false;
             var subpattern = new PropertySubpattern(subProperty.Accessor, subType, subStore.Index);
             // The outer pattern binds a local only if it is used by the guard or
@@ -226,11 +252,15 @@ public sealed class PatternSwitchExpressionPass : IIrPass
                 : null;
             arm = new ArmData(patternType, outerLocal, subpattern, innerGuard, innerValue);
             nextIndex = index + 2;
+            // On submatch failure (`if (Lsub)` false) control drops past the
+            // subpattern test to the enclosing statements, so this arm always
+            // falls through; the caller must find an explicit default tail.
+            fallsThrough = true;
             return true;
         }
 
         // Bare type-pattern arm: a guarded (or unguarded) value run.
-        if (!TryParseGuardedValue(stmts, index, defaultValue, out var guard, out var value, out int consumed))
+        if (!TryParseGuardedValue(stmts, index, defaultValue, out var guard, out var value, out int consumed, out fallsThrough))
             return false;
         int? localIndex = ReferencesLocalIn(guard, patternLocal) || ReferenceOwnership.SubtreeReferencesLocal(value, patternLocal)
             ? patternLocal
@@ -241,20 +271,26 @@ public sealed class PatternSwitchExpressionPass : IIrPass
     }
 
     // A value run in one of three shapes, all yielding (guard?, value):
-    //   `return V;`                              -> unguarded
-    //   `if (!G) return <default>; return V;`    -> guarded, negated form
-    //   `if (G) { return V; }`                   -> guarded, positive form
+    //   `return V;`                              -> unguarded, does not fall through
+    //   `if (!G) return <default>; return V;`    -> guarded, negated form, does not fall through
+    //   `if (G) { return V; }`                   -> guarded, positive form, falls through on guard-fail
+    // `fallsThrough` reports whether a guard-fail path drops out of this run to
+    // the following statement (rather than returning). The caller must then
+    // require an explicit trailing `return <default>`; otherwise a fall-through
+    // path could be silently rerouted (see ReachesDefaultTail).
     bool TryParseGuardedValue(
         IReadOnlyList<IrNode> stmts,
         int index,
         IrExpression defaultValue,
         out IrExpression? guard,
         out IrExpression value,
-        out int consumed)
+        out int consumed,
+        out bool fallsThrough)
     {
         guard = null;
         value = null!;
         consumed = 0;
+        fallsThrough = false;
 
         if (index >= stmts.Count)
             return false;
@@ -282,12 +318,13 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             return true;
         }
 
-        // Positive form: `if (G) { return V; }`
+        // Positive form: `if (G) { return V; }` — guard-fail falls through.
         if (guardIf.Then.Children is [Return { Value: { } positiveValue }] && !DefaultEquals(positiveValue, defaultValue))
         {
             guard = guardIf.Condition;
             value = positiveValue;
             consumed = 1;
+            fallsThrough = true;
             return true;
         }
 
@@ -312,9 +349,20 @@ public sealed class PatternSwitchExpressionPass : IIrPass
     static bool IsNegatedLocalTest(IrExpression condition, int local)
         => condition is LogicalNot { Operand: LoadLocal load } && load.Index == local;
 
-    static bool ReachesDefaultTail(IReadOnlyList<IrNode> stmts, int index, IrExpression defaultValue)
-        => index == stmts.Count
-            || (index == stmts.Count - 1 && stmts[index] is Return { Value: { } value } && DefaultEquals(value, defaultValue));
+    // Confirms the statements after a matched body reach only the default. When
+    // the body cannot fall through (unguarded or negated-form guard: every path
+    // returns) an empty tail is sufficient. When it can fall through (positive
+    // guard or property subpattern) a fall-through path exists that must land on
+    // an explicit trailing `return <default>`; accepting an empty tail there
+    // would let that path be rerouted, changing semantics.
+    static bool ReachesDefaultTail(IReadOnlyList<IrNode> stmts, int index, IrExpression defaultValue, bool fallsThrough)
+    {
+        bool explicitDefault = index == stmts.Count - 1
+            && stmts[index] is Return { Value: { } value } && DefaultEquals(value, defaultValue);
+        if (fallsThrough)
+            return explicitDefault;
+        return index == stmts.Count || explicitDefault;
+    }
 
     static bool IsLocalTest(IrExpression condition, int local)
         => condition is LoadLocal load && load.Index == local;
@@ -334,5 +382,59 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             yield return outer;
         if (arm.Subpattern is { } sub)
             yield return sub.LocalIndex;
+    }
+
+    // A pattern variable belongs to exactly one arm. Reject if any arm's
+    // guard/value reads a pattern local owned by a different arm, or if the
+    // default reads any pattern local (all illegal once spelled as C# switch
+    // arms with per-arm variable scope).
+    static bool PatternLocalsAreArmScoped(List<ArmData> arms, IrExpression defaultValue)
+    {
+        var owner = new Dictionary<int, int>();
+        for (int i = 0; i < arms.Count; i++)
+        {
+            foreach (int local in PatternLocals(arms[i]))
+            {
+                // A slot shared by two arms cannot be scoped per-arm; decline.
+                if (owner.ContainsKey(local))
+                    return false;
+                owner[local] = i;
+            }
+        }
+
+        foreach (var (local, armIndex) in owner)
+        {
+            for (int i = 0; i < arms.Count; i++)
+            {
+                if (i == armIndex)
+                    continue;
+                if (ReferencesLocalIn(arms[i].Guard, local) || ReferenceOwnership.SubtreeReferencesLocal(arms[i].Value, local))
+                    return false;
+            }
+            if (ReferenceOwnership.SubtreeReferencesLocal(defaultValue, local))
+                return false;
+        }
+        return true;
+    }
+
+    // A refutable arm (guard or subpattern) is sound to raise only when its
+    // pattern type is provably disjoint from every later arm's type, because
+    // type-match-but-refuted routes to the default in the cascade but to a later
+    // arm in the switch. Unguarded bare arms always return their value on type
+    // match, so they never diverge and need no proof.
+    static bool RefutableArmsDisjointFromLaterArms(List<ArmData> arms, PassContext context)
+    {
+        for (int i = 0; i < arms.Count - 1; i++)
+        {
+            if (arms[i].Guard is null && arms[i].Subpattern is null)
+                continue;
+            for (int j = i + 1; j < arms.Count; j++)
+            {
+                if (context.TypesProvablyDisjoint is not { } disjoint
+                    || !disjoint(arms[i].PatternType, arms[j].PatternType))
+                    return false;
+            }
+        }
+        return true;
     }
 }
