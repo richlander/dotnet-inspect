@@ -306,13 +306,15 @@ public static class ApiSurfaceExtractor
             // Fields (non-backing fields; non-public included with --all)
             bool isEnum = apiType.Kind == "enum";
 
-            // A field-like event's compiler-generated backing field shares the event's exact
-            // (unmangled) name and is private. Fold only such backing fields, and only for
-            // events whose accessors are compiler-generated (i.e. genuinely field-like) — never
-            // based on a custom/explicit event. This keeps the extractor sound for hand-authored
-            // or non-C# metadata, where a legitimate field and a same-named event can coexist
-            // (the C# CS0102 restriction does not bind arbitrary IL): only a private field whose
-            // name matches a field-like event on this type is suppressed.
+            // A C# field-like event's compiler-generated backing field is private, is itself
+            // marked [CompilerGenerated], and shares the event's exact (unmangled) name. Fold a
+            // field only when it carries all of that positive backing-field evidence AND matches
+            // an event whose adder is [CompilerGenerated] (i.e. a genuinely field-like event).
+            // The decisive signal is the candidate field's own [CompilerGenerated] marker, not the
+            // accessor's: hand-authored or non-C# metadata may attach [CompilerGenerated] to a
+            // custom accessor while a legitimate, same-named field backs nothing of the sort (the
+            // C# CS0102 restriction does not bind arbitrary IL). Requiring the field itself to be
+            // private and compiler-generated keeps a genuine field from being suppressed.
             HashSet<string>? fieldLikeEventBackingFieldNames = null;
             foreach (var eventHandle in typeDef.GetEvents())
             {
@@ -343,8 +345,12 @@ public static class ApiSurfaceExtractor
                     continue; // Skip backing fields
 
                 if (fieldAccess == FieldAttributes.Private
-                    && fieldLikeEventBackingFieldNames?.Contains(fieldName) == true)
-                    continue; // Skip a field-like event's private backing field (shares the event name)
+                    && fieldLikeEventBackingFieldNames?.Contains(fieldName) == true
+                    && AttributeReader.HasAttribute(
+                        reader,
+                        field.GetCustomAttributes(),
+                        KnownAttributeNames.CompilerGeneratedAttribute))
+                    continue; // Skip a field-like event's private, compiler-generated backing field
 
                 // Skip EditorBrowsable(Never) fields unless --all; obsolete are surfaced with marker.
                 if (!includeAll && AttributeReader.HasEditorBrowsableNeverAttribute(reader, field.GetCustomAttributes()))

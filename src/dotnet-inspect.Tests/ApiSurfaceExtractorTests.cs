@@ -930,19 +930,16 @@ public class ApiSurfaceExtractorTests
         // `Clash` whose accessors are NOT compiler-generated (a custom/explicit event backed by
         // a distinctly-named field). The field-like fold must NOT suppress the legitimate public
         // field: the event is not field-like, so the same-named field is not its backing field.
-        string dllPath = EmitSameNameFieldAndCustomEvent();
+        string dllPath = EmitSameNameFieldAndCustomEvent(
+            publicField: true, compilerGeneratedAccessors: false);
         try
         {
-            using var stream = File.OpenRead(dllPath);
-            using var peReader = new PEReader(stream);
-            var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
-
-            var type = surface.Types.Single(t => t.Name == "PublicFieldPrivateEvent");
+            var members = ExtractClashTypeMembers(dllPath);
 
             // The legitimate public field survives; the non-field-like event is faithfully
             // surfaced too (both members genuinely exist in this hand-authored type).
-            Assert.Contains(type.Members, m => m.Name == "Clash" && m.Kind == "field");
-            Assert.Contains(type.Members, m => m.Name == "Clash" && m.Kind == "event");
+            Assert.Contains(members, m => m.Name == "Clash" && m.Kind == "field");
+            Assert.Contains(members, m => m.Name == "Clash" && m.Kind == "event");
         }
         finally
         {
@@ -950,10 +947,45 @@ public class ApiSurfaceExtractorTests
         }
     }
 
-    // Emits (via Reflection.Emit, whose accessors are not [CompilerGenerated]) a type carrying a
-    // public field and a private custom event that share the name `Clash` — a shape valid in raw
-    // metadata but not producible by C#/VB/F#. Returns the path to the persisted assembly.
-    static string EmitSameNameFieldAndCustomEvent()
+    [Fact]
+    public void Extract_KeepsFieldWhenCompilerGeneratedAdderBacksAnotherField()
+    {
+        // Sharper case: a [CompilerGenerated] accessor is not proof that a same-named field is
+        // the event's backing storage. Emit a *private* field `Clash` (NOT [CompilerGenerated])
+        // alongside a private event `Clash` whose add/remove ARE [CompilerGenerated] but back a
+        // distinctly-named field (_eventBacking). This defeats both the accessibility guard and
+        // the adder-attribute signal; only the candidate field's own [CompilerGenerated] marker
+        // distinguishes a genuine backing field. The legitimate field must survive under --all.
+        string dllPath = EmitSameNameFieldAndCustomEvent(
+            publicField: false, compilerGeneratedAccessors: true);
+        try
+        {
+            var members = ExtractClashTypeMembers(dllPath);
+
+            Assert.Contains(members, m => m.Name == "Clash" && m.Kind == "field");
+            Assert.Contains(members, m => m.Name == "Clash" && m.Kind == "event");
+        }
+        finally
+        {
+            try { File.Delete(dllPath); } catch { /* best-effort */ }
+        }
+    }
+
+    static IReadOnlyList<ApiMember> ExtractClashTypeMembers(string dllPath)
+    {
+        using var stream = File.OpenRead(dllPath);
+        using var peReader = new PEReader(stream);
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+        return surface.Types.Single(t => t.Name == "PublicFieldPrivateEvent").Members;
+    }
+
+    // Emits (via Reflection.Emit) a type carrying a field and a custom event that share the name
+    // `Clash` — a shape valid in raw metadata but not producible by C#/VB/F#. The candidate field
+    // is a plain int32 that is never [CompilerGenerated]; the event is always backed by a
+    // distinctly-named `_eventBacking` field, so `Clash` is never a genuine backing field.
+    // `compilerGeneratedAccessors` stamps the add/remove methods with [CompilerGenerated] to model
+    // metadata that fakes the field-like accessor signal. Returns the persisted assembly path.
+    static string EmitSameNameFieldAndCustomEvent(bool publicField, bool compilerGeneratedAccessors)
     {
         var ab = new System.Reflection.Emit.PersistedAssemblyBuilder(
             new System.Reflection.AssemblyName("ClashEmit"), typeof(object).Assembly);
@@ -961,7 +993,10 @@ public class ApiSurfaceExtractorTests
         var tb = module.DefineType("PublicFieldPrivateEvent",
             System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
 
-        tb.DefineField("Clash", typeof(int), System.Reflection.FieldAttributes.Public);
+        var fieldVisibility = publicField
+            ? System.Reflection.FieldAttributes.Public
+            : System.Reflection.FieldAttributes.Private;
+        tb.DefineField("Clash", typeof(int), fieldVisibility);
         tb.DefineField("_eventBacking", typeof(Action), System.Reflection.FieldAttributes.Private);
 
         const System.Reflection.MethodAttributes accessorAttrs =
@@ -972,6 +1007,15 @@ public class ApiSurfaceExtractorTests
         add.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
         var remove = tb.DefineMethod("remove_Clash", accessorAttrs, typeof(void), new[] { typeof(Action) });
         remove.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+
+        if (compilerGeneratedAccessors)
+        {
+            var ctor = typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute)
+                .GetConstructor(Type.EmptyTypes)!;
+            var attr = new System.Reflection.Emit.CustomAttributeBuilder(ctor, Array.Empty<object>());
+            add.SetCustomAttribute(attr);
+            remove.SetCustomAttribute(attr);
+        }
 
         var eventBuilder = tb.DefineEvent("Clash", System.Reflection.EventAttributes.None, typeof(Action));
         eventBuilder.SetAddOnMethod(add);
