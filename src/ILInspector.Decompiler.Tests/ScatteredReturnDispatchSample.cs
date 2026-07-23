@@ -37,6 +37,35 @@ public static class ScatteredReturnDispatchSample
 
     static bool Fail(out int x) { x = 0; return false; }
 
+    // Slice-1 isolate: the inner comparison-chain value switch expression on its
+    // own. csc lowers this to an equality chain (brfalse/beq) whose arms each
+    // store one dedicated result temp read once at the return join — the faithful
+    // signal SwitchRaisingPass recognizes.
+    public static bool ClassifyLength(string s, out int x) => s.Length switch
+    {
+        0 => Fail(out x),
+        1 => Win(1, out x),
+        _ => Fail(out x)
+    };
+
+    // Close negative: a hand-written equality chain returning directly. It reads
+    // s.Length once per test and has no result temp or convergence read, so it
+    // must stay if/else and never raise to a switch expression.
+    public static bool ClassifyLengthManual(string s, out int x)
+    {
+        if (s.Length == 0)
+        {
+            return Fail(out x);
+        }
+
+        if (s.Length == 1)
+        {
+            return Win(1, out x);
+        }
+
+        return Fail(out x);
+    }
+
     // #640 canary: two contiguous guards on a shared return — must stay `a && b`.
     public static int PlainAnd(int a, int b)
     {

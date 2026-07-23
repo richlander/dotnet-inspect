@@ -70,7 +70,8 @@ public sealed class SwitchRaisingPass : IIrPass
                         || RaiseCaseTargetJoin(container, s, sw, leaveTargets, stepper)))
                     return true;
                 if (blocks[s].Children is [.., ConditionalBranch]
-                    && (RaiseStringLengthBucketSwitch(container, s, leaveTargets, stepper)
+                    && (RaiseComparisonChainSwitchExpression(container, s, leaveTargets, stepper)
+                        || RaiseStringLengthBucketSwitch(container, s, leaveTargets, stepper)
                         || RaiseStringHashSwitch(container, s, leaveTargets, stepper)
                         || RaiseStringEqualityChain(container, s, leaveTargets, stepper)
                         || RaiseSparseIntSwitch(container, s, leaveTargets, stepper)))
@@ -510,6 +511,247 @@ public sealed class SwitchRaisingPass : IIrPass
             rebuilt.Add(all[idx]);
         stepper.StepOver("raise value-producing jump table to switch expression", container);
         container.ReplaceWith(rebuilt);
+    }
+
+    /// <summary>
+    /// Raises csc's <em>comparison-chain</em> value switch-expression lowering
+    /// into <c>local = value switch { … };</c>. When the case labels are too few
+    /// or too sparse for a jump table, csc dispatches a <c>switch</c> expression
+    /// with a linear equality chain (<c>if (v == k) goto arm;</c>, the <c>v == 0</c>
+    /// arm emitted as the <c>brfalse</c>/<c>!v</c> form) ending in a branch to the
+    /// default arm. Every arm — including the default — assigns one dedicated
+    /// result temp and converges to a single block that reads that temp exactly
+    /// once (a <c>return v</c> tail, or a <c>w = v</c> copy when the switch feeds
+    /// an enclosing expression). That single-read result temp is the faithful
+    /// switch-expression signal: a hand-written <c>if/else</c> cascade returns or
+    /// assigns each arm directly and has no such convergence temp, so it is
+    /// declined. Relational pivots are declined (they leave the collected span
+    /// untiled). Runs before structuring, mirroring the jump-table raiser above.
+    /// </summary>
+    static bool RaiseComparisonChainSwitchExpression(BlockContainer container, int s, HashSet<int> leaveTargets, Stepper stepper)
+    {
+        var blocks = container.Blocks;
+        var offsetToIndex = new Dictionary<int, int>();
+        for (int i = 0; i < blocks.Count; i++)
+            offsetToIndex[blocks[i].StartOffset] = i;
+
+        // Collect the linear equality dispatch. The first block may carry leading
+        // setup (the value computation); the rest are single-statement tests.
+        IrExpression? value = null;
+        var caseLabels = new List<int>();
+        var caseTargetOffsets = new List<int>();
+        int? defaultOffset = null;
+        bool sawEquality = false;
+        int idx = s;
+        int dispatchEnd = s - 1;
+        while (idx < blocks.Count)
+        {
+            var children = blocks[idx].Children;
+            IrNode? term = idx == s
+                ? (children.Count > 0 ? children[^1] : null)
+                : (children is [var only] ? only : null);
+
+            if (term is ConditionalBranch cb && TryEqualityLabel(cb.Condition, out var testValue, out int label))
+            {
+                if (value is null)
+                    value = testValue;
+                else if (!PlaceIdentity.SameVariable(value, testValue))
+                    break;
+                if (cb.Condition is Comparison)
+                    sawEquality = true;   // a real `v == k` (not just the `!v` == 0 form)
+                if (caseLabels.Contains(label))
+                    return false;         // duplicate case label (CS0152)
+                caseLabels.Add(label);
+                caseTargetOffsets.Add(cb.TargetOffset);
+                dispatchEnd = idx;
+                idx++;
+                continue;
+            }
+
+            if (term is Branch br)
+            {
+                defaultOffset = br.TargetOffset;
+                dispatchEnd = idx;
+                break;
+            }
+
+            break;   // the first arm/body block
+        }
+
+        if (value is not (LoadLocal or LoadArgument) || !sawEquality || caseLabels.Count < 2)
+            return false;
+
+        // No explicit default branch: the last test falls through to the default arm.
+        if (defaultOffset is null)
+        {
+            if (dispatchEnd + 1 >= blocks.Count)
+                return false;
+            defaultOffset = blocks[dispatchEnd + 1].StartOffset;
+        }
+
+        var caseTargets = new int[caseTargetOffsets.Count];
+        for (int k = 0; k < caseTargets.Length; k++)
+            if (!offsetToIndex.TryGetValue(caseTargetOffsets[k], out caseTargets[k]) || caseTargets[k] <= dispatchEnd)
+                return false;
+        if (!offsetToIndex.TryGetValue(defaultOffset.Value, out int defaultIndex) || defaultIndex <= dispatchEnd)
+            return false;
+
+        // Every arm and the default is a value block assigning one shared local and
+        // converging to one join.
+        int? theLocal = null;
+        int? joinIndex = null;
+        bool Probe(int i)
+        {
+            if (!TryValueBlock(blocks, i, offsetToIndex, out int l, out int j))
+                return false;
+            if (theLocal is { } el && el != l)
+                return false;
+            if (joinIndex is { } ej && ej != j)
+                return false;
+            theLocal = l;
+            joinIndex = j;
+            return true;
+        }
+
+        var owned = new HashSet<int>();
+        foreach (int target in caseTargets.Distinct())
+        {
+            if (!Probe(target))
+                return false;
+            owned.Add(target);
+        }
+        if (!Probe(defaultIndex))
+            return false;
+        owned.Add(defaultIndex);
+        var defaultArm = (IrExpression)ValueBlockExpr(blocks[defaultIndex]).Clone();
+
+        int join = joinIndex!.Value;
+        int local = theLocal!.Value;
+
+        // The result temp is private to this switch: assigned only in the owned
+        // value blocks and read exactly once, in the join. This single-read
+        // convergence temp is what a hand-written if/else cascade lacks.
+        LoadLocal? joinRead = null;
+        foreach (var node in container.Descendants)
+        {
+            if (node is StoreLocal store && store.Index == local && !owned.Contains(BlockIndexOf(blocks, store)))
+                return false;
+            if (node is LoadLocal load && load.Index == local)
+            {
+                if (joinRead is not null)
+                    return false;   // more than one read — not a convergence temp
+                joinRead = load;
+            }
+        }
+        if (joinRead is null || BlockIndexOf(blocks, joinRead) != join)
+            return false;
+
+        // The owned value blocks must tile [dispatchEnd+1, join) exactly, with the
+        // join just past them and nothing outside the chain entering the bodies.
+        if (join <= dispatchEnd || owned.Contains(join))
+            return false;
+        if (owned.Count != join - (dispatchEnd + 1))
+            return false;
+        foreach (int o in owned)
+            if (o <= dispatchEnd || o >= join)
+                return false;
+        if (!OnlyReachedByChain(blocks, owned, s, dispatchEnd, leaveTargets))
+            return false;
+        if (!JoinOnlyReachedByValueBlocks(blocks, owned, join, leaveTargets))
+            return false;
+
+        // Build `value switch { k => armk, …, _ => default }`, grouping labels by
+        // their shared value block in first-appearance order.
+        var labelsByTarget = new Dictionary<int, List<int>>();
+        var targetOrder = new List<int>();
+        for (int i = 0; i < caseTargets.Length; i++)
+        {
+            if (!labelsByTarget.TryGetValue(caseTargets[i], out var list))
+            {
+                labelsByTarget[caseTargets[i]] = list = [];
+                targetOrder.Add(caseTargets[i]);
+            }
+            list.Add(caseLabels[i]);
+        }
+
+        var arms = new List<SwitchExpressionArm>();
+        foreach (int target in targetOrder)
+            arms.Add(new SwitchExpressionArm(
+                [.. labelsByTarget[target]], isDefault: false, (IrExpression)ValueBlockExpr(blocks[target]).Clone()));
+        arms.Add(new SwitchExpressionArm([], isDefault: true, defaultArm));
+
+        var switchExpression = new SwitchExpression((IrExpression)value.Clone(), arms);
+
+        // The result temp's declared type is taken from its own arm stores.
+        var localType = ((StoreLocal)blocks[defaultIndex].Children[0]).Type;
+
+        // Rewrite the dispatch head: keep its leading setup, drop the trailing
+        // dispatch branch, and assign the result temp the switch expression. Drop
+        // the dispatch + arm blocks; keep the join (its single read of the temp
+        // stays, and later inlining folds the temp into it).
+        var all = container.Blocks.ToList();
+        var head = all[s];
+        head.Children[^1].Detach();   // the trailing dispatch ConditionalBranch/Branch
+        head.Add(new StoreLocal(local, localType, switchExpression));
+
+        foreach (var block in all)
+            block.Detach();
+
+        var rebuilt = new BlockContainer();
+        for (int i = 0; i <= s; i++)
+            rebuilt.Add(all[i]);
+        for (int i = join; i < all.Count; i++)
+            rebuilt.Add(all[i]);
+        stepper.StepOver("raise value-producing comparison chain to switch expression", container);
+        container.ReplaceWith(rebuilt);
+        return true;
+    }
+
+    /// <summary>The block index owning a node, or -1 if it is not inside a block of <paramref name="blocks"/>.</summary>
+    static int BlockIndexOf(IReadOnlyList<Block> blocks, IrNode node)
+    {
+        for (var current = node; current is not null; current = current.Parent)
+            if (current is Block block)
+            {
+                for (int i = 0; i < blocks.Count; i++)
+                    if (ReferenceEquals(blocks[i], block))
+                        return i;
+                return -1;
+            }
+        return -1;
+    }
+
+    /// <summary>
+    /// An int equality dispatch test yielding the governing value and its case
+    /// label: <c>v == k</c> / <c>k == v</c>, or the <c>brfalse</c> form <c>!v</c>
+    /// for the <c>0</c> arm.
+    /// </summary>
+    static bool TryEqualityLabel(IrExpression condition, out IrExpression value, out int label)
+    {
+        value = null!;
+        label = 0;
+        if (condition is LogicalNot { Operand: { } operand })
+        {
+            value = operand;
+            label = 0;
+            return true;
+        }
+        if (condition is Comparison { Kind: ComparisonKind.Equal } cmp)
+        {
+            if (cmp.Right is Constant { Value: int right })
+            {
+                value = cmp.Left;
+                label = right;
+                return true;
+            }
+            if (cmp.Left is Constant { Value: int left })
+            {
+                value = cmp.Right;
+                label = left;
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>The default region escapes only through a conditional / unconditional branch to the join, a fall-through, or a terminator — every conditional must target the join (it becomes <c>if (c) break;</c>).</summary>
