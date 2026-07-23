@@ -5179,6 +5179,22 @@ public static class EnumCastSamples
 
     public static uint IntEnumShiftAndUnsigned(CfgPriority e, uint x) => ((uint)e << 4) & x;
 
+    // Negative case for the #3076 left-shift cast collapse: a signed arithmetic
+    // right shift reconciled against an unsigned sibling must KEEP its double cast
+    // `(ulong)((long)e >> n)`. Collapsing to `(ulong)e >> n` would switch the
+    // arithmetic shift to a logical one and change the value, so the collapse is
+    // left-shift only.
+    public static ulong LongEnumShiftRightOrUnsigned(CfgLongPriority e, int n, ulong x) => ((ulong)((long)e >> n)) | x;
+
+    // Precedence guard for the #3076 collapse: an enum left shift reconciled inside
+    // a mixed-sign ARITHMETIC parent (`+`/`-`/`*`, which bind tighter than `<<`)
+    // must keep parentheses around the collapsed shift — `((uint)values[i] << n) + x`,
+    // not `(uint)values[i] << n + x` (which parses as `(uint)values[i] << (n + x)`).
+    // An enum ARRAY element masks the enum as its primitive width, so the shift's
+    // EffectiveType is an integer and MixedSignArithmetic reconciles it (a plain
+    // enum field stays enum-typed and never routes here).
+    public static uint EnumArrayShiftAddUnsigned(CfgPriority[] values, int i, int n, uint x) => ((uint)values[i] << n) + x;
+
     // A bitwise CHAIN over an enum shift: the inner `|` inherits the shift's stale
     // enum ResultType while rendering as an integer, so the outer `|` must not
     // coerce the far sibling to the enum (`... | (E)y`, CS0019). The rewritten-
