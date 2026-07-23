@@ -87,9 +87,9 @@ public class ComparisonChainSwitchExpressionRaisingTests
     [Fact]
     public void UnsignedGoverningValue_DeclinesToAvoidInvalidLabel()
     {
-        // SwitchExpressionArm labels are signed int32. A uint governing value
-        // whose label is uint.MaxValue (IL ldc.i4.m1) would misprint as -1
-        // (CS0031). The raiser must decline on a non-Int32 governing type.
+        // A uint governing value whose label is uint.MaxValue (IL ldc.i4.m1) is
+        // recorded as a negative int32 and would misprint as -1 (CS0031). The
+        // raiser must decline a uint governing value with a negative label.
         var function = Raised(
             typeof(ScatteredReturnDispatchSample).FullName!,
             nameof(ScatteredReturnDispatchSample.ClassifyUnsigned));
@@ -100,5 +100,42 @@ public class ComparisonChainSwitchExpressionRaisingTests
             typeof(ScatteredReturnDispatchSample).FullName!,
             nameof(ScatteredReturnDispatchSample.ClassifyUnsigned));
         Assert.DoesNotContain("-1 =>", output);
+    }
+
+    [Fact]
+    public void EnumGoverningValue_RaisesWithMemberNames()
+    {
+        // Enum labels are int-backed; the printer renders them as member names
+        // via the governing type. The uint guard must not decline enum switches.
+        var function = Raised(
+            typeof(ScatteredReturnDispatchSample).FullName!,
+            nameof(ScatteredReturnDispatchSample.ClassifyEnum));
+
+        Assert.Single(function.Descendants.OfType<SwitchExpression>());
+
+        var output = Print(
+            typeof(ScatteredReturnDispatchSample).FullName!,
+            nameof(ScatteredReturnDispatchSample.ClassifyEnum));
+        Assert.Contains("DispatchKind.Zero => Fail(out x),", output);
+        Assert.Contains("DispatchKind.One => Win(1, out x),", output);
+        Assert.DoesNotContain("if (", output);
+    }
+
+    [Fact]
+    public void ByteGoverningValue_RaisesToSwitchExpression()
+    {
+        // Byte labels are small non-negative int32 constants that print
+        // faithfully; the uint guard must not decline them.
+        var function = Raised(
+            typeof(ScatteredReturnDispatchSample).FullName!,
+            nameof(ScatteredReturnDispatchSample.ClassifyByte));
+
+        Assert.Single(function.Descendants.OfType<SwitchExpression>());
+
+        var output = Print(
+            typeof(ScatteredReturnDispatchSample).FullName!,
+            nameof(ScatteredReturnDispatchSample.ClassifyByte));
+        Assert.DoesNotContain("-1 =>", output);
+        Assert.DoesNotContain("if (", output);
     }
 }

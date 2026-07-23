@@ -3,6 +3,17 @@ using System;
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
+/// Enum governing type for <see cref="ScatteredReturnDispatchSample.ClassifyEnum"/>:
+/// its comparison-chain labels are int-backed but must render as member names.
+/// </summary>
+public enum DispatchKind
+{
+    Zero = 0,
+    One = 1,
+    Two = 2,
+}
+
+/// <summary>
 /// Fixtures for issue #2978: a nested type-pattern <c>switch</c> expression whose
 /// shared <c>_ =&gt; Fail</c> default is reached by two conditional guards at
 /// different nesting levels (the outer <c>is not int</c> and the inner
@@ -67,15 +78,35 @@ public static class ScatteredReturnDispatchSample
     }
 
     // Close negative for the unsigned-label bug: the same store-to-temp
-    // switch-expression shape but on a uint governing value. SwitchExpressionArm
-    // labels are signed int32, so raising this would misprint uint.MaxValue (IL
-    // ldc.i4.m1) as -1 (CS0031: -1 cannot convert to uint). The raiser must
-    // decline on any non-Int32 governing type and leave it to the other raisers.
+    // switch-expression shape but on a uint governing value whose label is
+    // uint.MaxValue (IL ldc.i4.m1). That label is recorded as a negative int32,
+    // so raising would misprint it as -1 (CS0031: -1 cannot convert to uint).
+    // The raiser declines a uint governing value with a negative label and
+    // leaves it to the other raisers.
     public static int ClassifyUnsigned(uint u) => u switch
     {
         0u => 10,
         uint.MaxValue => 20,
         _ => 30
+    };
+
+    // Positive: an enum governing value. Labels are int-backed, but the printer
+    // renders them as enum member names via the governing type, so the raise is
+    // faithful and must be preserved (an Int32-only guard wrongly declined these).
+    public static bool ClassifyEnum(DispatchKind k, out int x) => k switch
+    {
+        DispatchKind.Zero => Fail(out x),
+        DispatchKind.One => Win(1, out x),
+        _ => Fail(out x)
+    };
+
+    // Positive: a byte governing value. Its labels are small non-negative int32
+    // constants that print faithfully, so it must keep raising.
+    public static bool ClassifyByte(byte b, out int x) => b switch
+    {
+        0 => Fail(out x),
+        1 => Win(1, out x),
+        _ => Fail(out x)
     };
 
     // #640 canary: two contiguous guards on a shared return — must stay `a && b`.
