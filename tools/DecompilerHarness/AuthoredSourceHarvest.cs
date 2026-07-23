@@ -96,7 +96,7 @@ static class AuthoredSourceHarvest
         {
             foreach (string assemblyPath in assemblies)
             {
-                var library = TryOpenLibrary(assemblyPath, httpClient, evil).GetAwaiter().GetResult();
+                var library = await TryOpenLibrary(assemblyPath, httpClient, evil);
                 if (library is not null)
                     libraries.Add(library);
             }
