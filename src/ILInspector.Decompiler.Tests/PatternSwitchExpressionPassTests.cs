@@ -148,6 +148,36 @@ public class PatternSwitchExpressionPassTests
         Assert.Contains("_ => -1,", output);
     }
 
+    [Fact]
+    public void GuardedHeterogeneousArm_RaisesOnlyWhenProvablyDisjoint()
+    {
+        // The direct/inline surface (#3028) extended to a refutable arm: the FIRST
+        // arm is `when`-guarded (`Dot d when d.Radius > min`) over a type disjoint
+        // from every later arm. csc lowers the guarded arm to an `if (d is null)
+        // { REST } else { MATCHED }` dispatch whose default is a shared trailing
+        // return; a Dot that fails the guard is routed to that default. Folding is
+        // faithful ONLY because Dot is provably disjoint from Bar and Box, so it
+        // depends on the type-disjointness oracle (#3082's AreProvablyDisjoint):
+        // Raised wires the assembly's real oracle and the guarded arm folds.
+        var function = Raised(typeof(HeterogeneousArmSample), nameof(HeterogeneousArmSample.GuardedArea));
+
+        var switchExpression = Assert.Single(function.Descendants.OfType<PatternSwitchExpression>());
+        Assert.Empty(function.Descendants.OfType<IfStatement>());
+        Assert.True(switchExpression.HasDefault);
+        Assert.Equal(3, switchExpression.Arms.Count);
+        Assert.True(switchExpression.Arms[0].HasGuard);
+        Assert.Contains("Dot", switchExpression.Arms[0].PatternType.ToDisplayString());
+        Assert.False(switchExpression.Arms[1].HasGuard);
+        Assert.False(switchExpression.Arms[2].HasGuard);
+
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
+        Assert.Contains("return shape switch", output);
+        Assert.Contains("Dot d when d.Radius > min => d.Radius,", output);
+        Assert.Contains("Bar b => b.Length,", output);
+        Assert.Contains("Box x => x.Side,", output);
+        Assert.Contains("_ => -1,", output);
+    }
+
     // ── Synthetic shape + negative guards ──────────────────────────────────
 
     // Minimal recognized shape (post-#3003 structuring): `sv = <place>; k = sv
@@ -395,20 +425,143 @@ public class PatternSwitchExpressionPassTests
     }
 
     [Fact]
-    public void Synthetic_InlineGuardFallsThrough_DoesNotRaise()
+    public void Synthetic_InlineGuardFallsThroughFinalArm_Raises()
     {
-        // #3028 PR A scopes the newly recognized heterogeneous surface (a direct
-        // scrutinee or any inline-positive arm) to UNGUARDED arms only. A guarded
-        // arm whose failure short-circuits to the default folds faithfully only
-        // when no later arm can match the same value, which needs a
-        // type-disjointness oracle this SRM-only pass does not have. Even the safe
-        // fall-through inline guard is therefore deferred to a follow-up; only the
-        // unguarded new-surface shape folds under PR A.
+        // A guarded inline arm in the safe fall-through form (`if (G) { return V; }`)
+        // that is the LAST arm folds without any disjointness proof: its guard
+        // failure routes to the default in the lowered cascade AND in a switch
+        // expression (there is no later arm to catch it), so the fold is faithful.
+        // RefutableArmsDisjointFromLaterArms only constrains a refutable NON-last
+        // arm, so this raises even with no oracle wired — exercising that the
+        // "non-last" qualifier is load-bearing.
         var function = DirectIntroGuardedInline(new LoadArgument(0, "node", Node), shortCircuitToDefault: false);
 
         RunPass(function);
 
-        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+        var switchExpression = Assert.Single(function.Descendants.OfType<PatternSwitchExpression>());
+        Assert.Equal(2, switchExpression.Arms.Count);
+        Assert.True(switchExpression.HasDefault);
+        Assert.False(switchExpression.Arms[0].HasGuard);
+        Assert.True(switchExpression.Arms[1].HasGuard);
+    }
+
+    // Builds a direct-place (temp-less) cascade whose FIRST arm is a `when`-guarded
+    // intro arm in csc's if/else lowering — `k0 = place as Leaf; if (!k0) { REST }
+    // else { if (Ok(k0)) return 1; } return <default>;` — followed by a later
+    // inline Twig arm in REST. The guarded Leaf arm PRECEDES the Twig arm, so a
+    // Leaf that fails its guard routes to the default in the lowering but would
+    // fall to the Twig arm in a switch: faithful only if Leaf and Twig are disjoint.
+    static IrFunction DirectGuardedIfElseCascade()
+    {
+        IrExpression Place() => new LoadArgument(0, "node", Node);
+        IrExpression Guard() => new Call(new MethodRef(Leaf, "Ok", Bool, [Leaf], HasThis: false), isVirtual: false, [new LoadLocal(0, Leaf)]);
+
+        // MATCHED (else): positive guard, fall-through to the shared default.
+        var guardThen = new Block();
+        guardThen.Add(new Return(new Constant(1, Int32)));
+        var matched = new Block();
+        matched.Add(new IfStatement(Guard(), guardThen, null));
+
+        // REST (then): inline Twig arm + trailing default.
+        var twigThen = new Block();
+        twigThen.Add(new Return(new Constant(2, Int32)));
+        var rest = new Block();
+        rest.Add(new IfStatement(new IsPattern(Place(), Twig, 1), twigThen, null));
+        rest.Add(new Return(new Constant(-1, Int32)));
+
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, Leaf, new IsInstance(Leaf, Place())));
+        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, Leaf)), rest, matched));
+        block.Add(new Return(new Constant(-1, Int32)));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Int32, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Twig), container);
+    }
+
+    [Fact]
+    public void Synthetic_DirectGuardedNonLastArm_RaisesOnlyWhenProvablyDisjoint()
+    {
+        // The #3028 load-bearing case on the direct/inline surface: a `when`-guarded
+        // intro arm (csc's if/else lowering) that PRECEDES a later arm. A Leaf that
+        // fails its guard routes to the default in the cascade but would fall to the
+        // Twig arm in a switch — faithful only if Leaf and Twig cannot both match.
+        // The oracle must PROVE disjointness; absent or negative never folds.
+
+        // No oracle wired → decline.
+        var noOracle = DirectGuardedIfElseCascade();
+        RunPass(noOracle);
+        Assert.Empty(noOracle.Descendants.OfType<PatternSwitchExpression>());
+
+        // Oracle that cannot prove disjointness → decline.
+        var refuses = DirectGuardedIfElseCascade();
+        RunPass(refuses, (_, _) => false);
+        Assert.Empty(refuses.Descendants.OfType<PatternSwitchExpression>());
+
+        // Oracle proving the two distinct arm types disjoint → raise.
+        var proves = DirectGuardedIfElseCascade();
+        RunPass(proves, (a, b) => !a.Equals(b));
+        var switchExpression = Assert.Single(proves.Descendants.OfType<PatternSwitchExpression>());
+        Assert.Equal(2, switchExpression.Arms.Count);
+        Assert.True(switchExpression.HasDefault);
+        Assert.True(switchExpression.Arms[0].HasGuard);
+        Assert.False(switchExpression.Arms[1].HasGuard);
+    }
+
+    // Builds a direct-place cascade whose FIRST arm is an UNGUARDED then-only intro
+    // arm (`a = place as Leaf; if (!a) { REST } return 1;`) whose REST nests a
+    // guarded then-only intro arm as the LAST arm — `b = place as Twig; if (!b)
+    // return -1; if (G(b)) return 2;`. A Twig that fails its guard runs off the end
+    // of the REST block and reaches the ENCLOSING Leaf arm's value (`return 1`), NOT
+    // the trailing default. Leaf and Twig are disjoint, so the disjointness gate
+    // alone would admit the fold; only the fall-through check must decline it.
+    static IrFunction DirectGuardedLastArmFallsToPriorArm()
+    {
+        IrExpression Place() => new LoadArgument(0, "node", Node);
+        IrExpression Guard() => new Call(new MethodRef(Twig, "Ok", Bool, [Twig], HasThis: false), isVirtual: false, [new LoadLocal(1, Twig)]);
+
+        // REST (inside the Leaf arm's `then`): a guarded Twig intro arm whose guard
+        // failure falls off the end of this block into the Leaf arm's value.
+        var guardThen = new Block();
+        guardThen.Add(new Return(new Constant(2, Int32)));
+        var rest = new Block();
+        rest.Add(new StoreLocal(1, Twig, new IsInstance(Twig, Place())));
+        rest.Add(new IfStatement(new LogicalNot(new LoadLocal(1, Twig)), Return(-1), null));
+        rest.Add(new IfStatement(Guard(), guardThen, null));
+
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, Leaf, new IsInstance(Leaf, Place())));
+        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, Leaf)), rest, null));
+        block.Add(new Return(new Constant(1, Int32)));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Int32, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Twig), container);
+
+        static Block Return(int value)
+        {
+            var b = new Block();
+            b.Add(new Return(new Constant(value, Int32)));
+            return b;
+        }
+    }
+
+    [Fact]
+    public void Synthetic_GuardedLastArmFallsToPriorArm_DoesNotRaise()
+    {
+        // #3102 review (GPT, Finding 1): a guarded intro arm nested as the LAST arm
+        // of a prior unguarded arm's then-only REST. Its guard FAILURE runs off the
+        // end of the REST block into the PRIOR arm's value (`return 1`), not the
+        // default. Folding to `Leaf => 1, Twig when G => 2, _ => -1` diverts that
+        // failure to `_ => -1` — divergent (original returns 1). Leaf and Twig ARE
+        // provably disjoint, so the disjointness gate would admit it; the fold must
+        // still be declined because the matched body's fall-through is not the
+        // default in a then-only REST (fallThroughIsDefault == false).
+        var proves = DirectGuardedLastArmFallsToPriorArm();
+        RunPass(proves, (a, b) => !a.Equals(b));
+        Assert.Empty(proves.Descendants.OfType<PatternSwitchExpression>());
     }
 
     // Builds a direct-place cascade (intro head + one inline sibling) whose inline
@@ -637,17 +790,20 @@ public class PatternSwitchExpressionPassTests
     [Fact]
     public void Synthetic_DirectSubpatternOverlapsLaterArm_DoesNotRaise()
     {
-        // #3028 review round 2 (GPT): the unguarded-surface gate must also reject
-        // property-subpattern arms on the new surface. An `Outer { Inner: Leaf }`
-        // arm whose inner match fails routes to the default just like a failed
-        // guard; folding it (with a later overlapping `Outer` arm) would make that
-        // failure fall through to the `Outer` arm instead — divergent. The gate
-        // declines any guarded OR subpattern arm on the direct/inline surface.
-        var function = DirectSubpatternPlusInline(new LoadArgument(0, "node", Outer));
+        // A property-subpattern arm (`Outer { Inner: Leaf }`) whose inner match
+        // fails routes to the default just like a failed guard; folding it with a
+        // later arm of the SAME outer type (`Outer`) would make that failure fall
+        // through to the `Outer` arm instead — divergent. The two arms share the
+        // outer type `Outer`, so they are NOT disjoint: even an oracle that proves
+        // every DISTINCT pair disjoint declines here, because `Outer` is not
+        // disjoint from `Outer`.
+        var noOracle = DirectSubpatternPlusInline(new LoadArgument(0, "node", Outer));
+        RunPass(noOracle);
+        Assert.Empty(noOracle.Descendants.OfType<PatternSwitchExpression>());
 
-        RunPass(function);
-
-        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+        var distinctPairsDisjoint = DirectSubpatternPlusInline(new LoadArgument(0, "node", Outer));
+        RunPass(distinctPairsDisjoint, (a, b) => !a.Equals(b));
+        Assert.Empty(distinctPairsDisjoint.Descendants.OfType<PatternSwitchExpression>());
     }
 
     // ── #3082 soundness gates on the temp-form intro cascade ───────────────
