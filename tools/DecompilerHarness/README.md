@@ -266,8 +266,21 @@ harvested from the same 14 pinned assemblies as the fixed real-world corpus
 bash eng/prepare-decompiler-corpus.sh /tmp/corpus-assemblies.txt
 dotnet run --project tools/DecompilerHarness -c Release -- \
   --harvest-authored-corpus /tmp/authored-corpus.jsonl --harvest-target 12000 \
+  --repo "$(git rev-parse --show-toplevel)" \
   $(cat /tmp/corpus-assemblies.txt)
 ```
+
+`--repo <path>` (repeatable) makes harvest read each target's authored source
+from a local git clone instead of the network, arbitrated by the same PDB
+checksum, falling back to the network on any mismatch or miss. Pointing it at
+this checkout resolves the dotnet-inspect self-corpus rows entirely from local
+git: those assemblies come from the pinned `dotnet-inspect.any` package
+(`prepare-decompiler-corpus.sh`), whose SourceLink targets this repository, so
+their authored bodies are read from the local object store with no GitHub
+round-trip. Third-party rows are checksum-arbitrated and fall back to the
+network. This only requires the checkout to contain the commit the pinned
+self-package was built from, which normal `origin/main` history already carries;
+`--repo` also unlocks private, large, or offline source repositories.
 
 `--benchmark-authored-corpus <corpus.jsonl> <assembly...>` runs the benchmark. It
 groups corpus rows by assembly, matches them to the supplied pinned assemblies by
