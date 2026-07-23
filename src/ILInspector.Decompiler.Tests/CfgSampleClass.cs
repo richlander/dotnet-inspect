@@ -5195,6 +5195,12 @@ public static class EnumCastSamples
         return e;
     }
 
+    // #3066 soundness: an inner USER mask does not fool width recovery. Roslyn
+    // always emits the implicit width mask (& 63 here) as the OUTERMOST mask
+    // feeding shr, with any user mask nested inside; so the outer & 63 names the
+    // 8-byte backing (stripped), and the user's `& 31` is preserved untouched.
+    public static long ExternalLongRightShiftInnerUserMask(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong e, int n) => (long)e >> (n & 31);
+
     // #1766: ternary with enum-constant arms stored to a cross-assembly enum
     // local (StringComparison.Ordinal = 4, OrdinalIgnoreCase = 5).
     public static bool EnumConditional(string name, bool ci)

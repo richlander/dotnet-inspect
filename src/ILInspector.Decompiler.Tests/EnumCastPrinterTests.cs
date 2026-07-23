@@ -284,6 +284,22 @@ public class EnumCastPrinterTests
         AssertCompiles("public static ExternalLong M(ExternalLong e, int n)", body, ExternalLongDecl);
     }
 
+    // Soundness against an inner USER mask: Roslyn always emits the implicit width
+    // mask (& 63) as the OUTERMOST mask feeding shr, with a user mask nested inside.
+    // So width recovery reads the outer & 63 => 8-byte `(long)` (correct), strips it,
+    // and the user's `& 31` survives untouched. A narrower user mask must NOT shrink
+    // the recovered width to `(int)` (which would truncate the 8-byte enum).
+    [Fact]
+    public void CrossAssemblyEnumRightShift_InnerUserMask_RecoversBackingWidthNotUserMaskWidth()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalLongRightShiftInnerUserMask));
+
+        Assert.Contains("(long)e >> (n & 31)", body);
+        Assert.DoesNotContain("(int)e", body);
+        Assert.DoesNotContain("& 63", body);
+        AssertCompiles("public static long M(ExternalLong e, int n)", body, ExternalLongDecl);
+    }
+
     // The residual, and the soundness boundary: a CONSTANT shift count carries no
     // width mask, so a cross-assembly enum's width is genuinely unknowable. The
     // printer must NOT fabricate a width — it leaves the bare (visibly invalid)
