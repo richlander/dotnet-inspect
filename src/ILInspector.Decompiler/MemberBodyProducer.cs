@@ -266,6 +266,44 @@ public static class MemberBodyProducer
             printerOptions);
     }
 
+    /// <summary>
+    /// Legacy path-only entry point. Prefer the <see cref="IAssemblyReferenceResolver"/>
+    /// overload for new product and harness code.
+    /// </summary>
+    public static IReadOnlyDictionary<ApiMember, MemberRenderResult> ProduceMembers(ApiType type, string dllPath, string? pdbPath, AssemblyLocator? locateAssembly = null, Pipeline.MetadataContext? context = null)
+    {
+        var resolver = locateAssembly?.ToAssemblyReferenceResolver()
+            ?? Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(dllPath);
+        return ProduceMembers(type, dllPath, pdbPath, resolver, context);
+    }
+
+    /// <summary>
+    /// Renders every member of <paramref name="type"/> as a whole member in one
+    /// pass — the batch form of
+    /// <see cref="ProduceMember(ApiType, ApiMember, string, string?, IAssemblyReferenceResolver, Pipeline.MetadataContext?)"/>.
+    /// Each entry is byte-identical to what <c>ProduceMember</c> returns for that
+    /// member, but the assembly is opened and its type maps built once for the
+    /// whole type rather than once per member — the cost model a caller rendering
+    /// many members of the same type (such as the compile-back harness) needs.
+    /// The returned map is keyed by the same <see cref="ApiMember"/> instances in
+    /// <see cref="ApiType.Members"/> (reference identity). Members that produce no
+    /// listing output are mapped to <see cref="MemberBodyProductionStatus.Absent"/>.
+    /// </summary>
+    public static IReadOnlyDictionary<ApiMember, MemberRenderResult> ProduceMembers(ApiType type, string dllPath, string? pdbPath, IAssemblyReferenceResolver resolver, Pipeline.MetadataContext? context = null)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        var start = new ResolvedAssemblyReference(
+            new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(dllPath), Version: null, Culture: null, PublicKeyToken: null),
+            dllPath,
+            () => File.OpenRead(dllPath),
+            Provenance: "StartAssembly");
+        return ComposeMembersBatch(
+            type,
+            () => TypeForwardResolver.LocateType(start, type.FullName, resolver),
+            (location, ctx) => Pipeline.MetadataSource.Open(location.ToResolvedAssemblyReference(), pdbPath, resolver, ctx),
+            context);
+    }
+
     static string? ComposeCore(
         ApiType type,
         string dllPath,
@@ -443,6 +481,87 @@ public static class MemberBodyProducer
                 MemberBodyProductionStatus.Failed,
                 $"// {DiagnosticIds.InternalError}: member source unavailable: {ex.GetType().Name}: {ex.Message}",
                 []);
+        }
+    }
+
+    /// <summary>
+    /// Batch form of <see cref="ComposeMemberCore"/>: opens the assembly and
+    /// builds its type maps once for the whole type, then renders each member
+    /// through the same single-member composition (<see cref="ComposeMembers"/>
+    /// with <c>only</c> plus <see cref="ShortenQualifiedNames"/>) so every entry
+    /// is byte-identical to the per-member <see cref="ProduceMember"/> path. Bodies
+    /// decode against the shared open <see cref="Pipeline.MetadataSource"/>, so the
+    /// per-member setup cost is paid once rather than once per member.
+    /// </summary>
+    static IReadOnlyDictionary<ApiMember, MemberRenderResult> ComposeMembersBatch(
+        ApiType type,
+        Func<TypeLocation?> locateType,
+        Func<TypeLocation, Pipeline.MetadataContext?, Pipeline.MetadataSource> openPipelineSource,
+        Pipeline.MetadataContext? context)
+    {
+        var results = new Dictionary<ApiMember, MemberRenderResult>(ReferenceEqualityComparer.Instance);
+        if (type.Kind is "delegate")
+            return results;
+
+        try
+        {
+            if (locateType() is not { } location)
+                return results;
+
+            Stream? stream = null;
+            PEReader? peReader = null;
+            try
+            {
+                stream = location.OpenRead();
+                peReader = new PEReader(stream);
+                MetadataReader reader = peReader.GetMetadataReader();
+
+                TypeDefinitionHandle typeHandle = default;
+                foreach (var h in reader.TypeDefinitions)
+                {
+                    if (reader.GetFullTypeName(reader.GetTypeDefinition(h)) == type.FullName)
+                    {
+                        typeHandle = h;
+                        break;
+                    }
+                }
+                if (typeHandle.IsNil)
+                    return results;
+
+                using var pipelineSource = openPipelineSource(location, context);
+                var union = TryUnionDeclaration(reader, typeHandle, type);
+
+                foreach (var member in type.Members)
+                {
+                    var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
+                    var sb = new StringBuilder();
+                    bool any = false;
+                    ComposeMembers(sb, type, pipelineSource, reader, typeHandle, union, bodyNamespaces, ref any, only: member);
+
+                    if (!any)
+                    {
+                        results[member] = new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, bodyNamespaces.ToArray());
+                        continue;
+                    }
+
+                    var imports = new SortedSet<string>(bodyNamespaces, StringComparer.Ordinal);
+                    string text = ShortenQualifiedNames(sb.ToString(), reader, imports);
+                    results[member] = new MemberRenderResult(MemberBodyProductionStatus.Complete, text, imports.ToArray());
+                }
+
+                return results;
+            }
+            finally
+            {
+                peReader?.Dispose();
+                stream?.Dispose();
+            }
+        }
+        catch
+        {
+            // Degrade honestly: return whatever composed so far; the caller falls
+            // back to its own rendering for any member missing from the map.
+            return results;
         }
     }
 

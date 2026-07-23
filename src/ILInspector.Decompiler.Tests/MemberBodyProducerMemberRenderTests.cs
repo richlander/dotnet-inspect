@@ -47,6 +47,28 @@ public sealed class MemberBodyProducerMemberRenderTests
     }
 
     [Fact]
+    public void ProduceMembers_BatchIsByteIdenticalToPerMember_ForEveryMember()
+    {
+        var type = Specimen();
+        var batch = MemberBodyProducer.ProduceMembers(type, AssemblyPath, pdbPath: null);
+
+        Assert.NotEmpty(type.Members);
+        foreach (var member in type.Members)
+        {
+            var single = MemberBodyProducer.ProduceMember(type, member, AssemblyPath, pdbPath: null);
+            Assert.True(batch.TryGetValue(member, out var batched),
+                $"batch render missing member {member.Name}");
+
+            // The batch entry is byte-identical to the per-member render — same
+            // status, text, and imports. The batch only amortizes the assembly
+            // open and type-map build; it must not change any member's output.
+            Assert.Equal(single.Status, batched.Status);
+            Assert.Equal(single.Text, batched.Text);
+            Assert.Equal(single.Namespaces, batched.Namespaces);
+        }
+    }
+
+    [Fact]
     public void ProduceMember_RendersExpressionBodiedArrow()
     {
         var type = Specimen();
