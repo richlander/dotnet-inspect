@@ -30,7 +30,12 @@ public sealed class PatternSwitchExpressionPass : IIrPass
 {
     public string Name => "pattern-switch-expression";
 
-    sealed record ArmData(TypeRef PatternType, int? LocalIndex, PropertySubpattern? Subpattern, IrExpression? Guard, IrExpression Value);
+    // PatternLocal is the outer local every arm binds its `isinst` result to,
+    // always present regardless of rendering. LocalIndex is the subset actually
+    // spelled as a C# pattern variable (null when the outer type binds no name,
+    // e.g. a pure `U { Prop: T inner }` arm). Scope validation uses PatternLocal;
+    // rendering uses LocalIndex.
+    sealed record ArmData(TypeRef PatternType, int PatternLocal, int? LocalIndex, PropertySubpattern? Subpattern, IrExpression? Guard, IrExpression Value);
 
     public void Run(IrFunction function, PassContext context)
     {
@@ -250,7 +255,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             int? outerLocal = ReferencesLocalIn(innerGuard, patternLocal) || ReferenceOwnership.SubtreeReferencesLocal(innerValue, patternLocal)
                 ? patternLocal
                 : null;
-            arm = new ArmData(patternType, outerLocal, subpattern, innerGuard, innerValue);
+            arm = new ArmData(patternType, patternLocal, outerLocal, subpattern, innerGuard, innerValue);
             nextIndex = index + 2;
             // On submatch failure (`if (Lsub)` false) control drops past the
             // subpattern test to the enclosing statements, so this arm always
@@ -265,7 +270,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         int? localIndex = ReferencesLocalIn(guard, patternLocal) || ReferenceOwnership.SubtreeReferencesLocal(value, patternLocal)
             ? patternLocal
             : null;
-        arm = new ArmData(patternType, localIndex, Subpattern: null, guard, value);
+        arm = new ArmData(patternType, patternLocal, localIndex, Subpattern: null, guard, value);
         nextIndex = index + consumed;
         return true;
     }
@@ -378,8 +383,11 @@ public sealed class PatternSwitchExpressionPass : IIrPass
 
     static IEnumerable<int> PatternLocals(ArmData arm)
     {
-        if (arm.LocalIndex is { } outer)
-            yield return outer;
+        // Every arm binds its `isinst` result to an outer local, whether or not
+        // that local is rendered as a C# pattern variable. Scope validation must
+        // see all introduced locals — not only the rendered ones — so a sibling
+        // arm or the default reading an unrendered outer local is still caught.
+        yield return arm.PatternLocal;
         if (arm.Subpattern is { } sub)
             yield return sub.LocalIndex;
     }

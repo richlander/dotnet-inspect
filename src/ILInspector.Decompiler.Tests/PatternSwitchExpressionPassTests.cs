@@ -355,4 +355,131 @@ public class PatternSwitchExpressionPassTests
         RunPass(present);
         Assert.Single(present.Descendants.OfType<PatternSwitchExpression>());
     }
+
+    // ── Adversarial-review regression guards (PR #3082) ────────────────────
+
+    [Fact]
+    public void Synthetic_UnreadPatternLocalLeaksIntoSiblingArm_DoesNotRaise()
+    {
+        // arm0 does NOT reference its own bound local (`arm0Value` is a
+        // constant), so the arm renders no pattern variable (`LocalIndex` is
+        // null). arm1's value, however, reads arm0's bound local. Scope
+        // validation must track the arm's `isinst` local even when it is not
+        // rendered; otherwise the sibling read escapes and the raised C# emits an
+        // out-of-scope reference (CS0103). Reported independently by Gemini
+        // (sibling read) — the unrendered-local variant of the #3034 leak guard.
+        var leaked = TwoArm(
+            arm0Guard: null,
+            arm0Value: new Constant(true, Bool),
+            arm1Value: new Call(new MethodRef(Leaf, "V", Bool, [Leaf], HasThis: false), isVirtual: false, [new LoadLocal(0, Leaf)]),
+            defaultValue: False(),
+            arm0Type: Leaf,
+            arm1Type: Branch);
+        RunPass(leaked, typesProvablyDisjoint: (_, _) => true);
+        Assert.Empty(leaked.Descendants.OfType<PatternSwitchExpression>());
+
+        // Control: arm1 reads its own local instead of arm0's — raises.
+        var scoped = TwoArm(
+            arm0Guard: null,
+            arm0Value: new Constant(true, Bool),
+            arm1Value: new Call(new MethodRef(Branch, "V", Bool, [Branch], HasThis: false), isVirtual: false, [new LoadLocal(1, Branch)]),
+            defaultValue: False(),
+            arm0Type: Leaf,
+            arm1Type: Branch);
+        RunPass(scoped, typesProvablyDisjoint: (_, _) => true);
+        Assert.Single(scoped.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    [Fact]
+    public void Synthetic_UnreadPatternLocalLeaksIntoDefault_DoesNotRaise()
+    {
+        // Neither arm references its own bound local, so no arm renders a
+        // pattern variable. The default expression, however, reads arm0's bound
+        // local. In the lowered cascade that local holds the matched value; in
+        // the raised switch the default arm cannot see it, so the raise would
+        // read `default(T)` — a behavior change. Scope validation must reject a
+        // default that reads any arm's `isinst` local even when unrendered.
+        // Reported independently by GPT (default read).
+        var leakedDefault = TwoArm(
+            arm0Guard: null,
+            arm0Value: new Constant(true, Bool),
+            arm1Value: new Constant(true, Bool),
+            defaultValue: new LoadLocal(0, Leaf),
+            arm0Type: Leaf,
+            arm1Type: Branch);
+        RunPass(leakedDefault, typesProvablyDisjoint: (_, _) => true);
+        Assert.Empty(leakedDefault.Descendants.OfType<PatternSwitchExpression>());
+
+        // Control: the default reads no pattern local — raises.
+        var cleanDefault = TwoArm(
+            arm0Guard: null,
+            arm0Value: new Constant(true, Bool),
+            arm1Value: new Constant(true, Bool),
+            defaultValue: False(),
+            arm0Type: Leaf,
+            arm1Type: Branch);
+        RunPass(cleanDefault, typesProvablyDisjoint: (_, _) => true);
+        Assert.Single(cleanDefault.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    // ── Disjointness oracle guards (PR #3082, Finding 2) ───────────────────
+
+    static readonly string TestAssembly =
+        typeof(PatternSwitchExpressionPassTests).Assembly.GetName().Name!;
+
+    static readonly string FixtureNamespace = typeof(DisjointSiblingA).Namespace!;
+
+    static TypeRef FixtureType(string name)
+        => TypeRef.Definition(TestAssembly, FixtureNamespace, name);
+
+    [Fact]
+    public void AreProvablyDisjoint_NonGenericSiblings_ProvenDisjoint()
+    {
+        // Two unrelated non-generic classes whose base chains both resolve to
+        // object share no instance: the positive control that the oracle does
+        // issue proofs when it soundly can.
+        using var source = MetadataSource.Open(typeof(PatternSwitchExpressionPassTests).Assembly.Location);
+        Assert.True(source.AreProvablyDisjoint(FixtureType("DisjointSiblingA"), FixtureType("DisjointSiblingB")));
+    }
+
+    [Fact]
+    public void AreProvablyDisjoint_AncestorPair_NotDisjoint()
+    {
+        // A value of the derived type is also the base type, so the two overlap;
+        // the oracle must not claim disjointness. `DerivedC`'s base chain
+        // contains `BaseC`, so containment is observed.
+        using var source = MetadataSource.Open(typeof(PatternSwitchExpressionPassTests).Assembly.Location);
+        Assert.False(source.AreProvablyDisjoint(FixtureType("DisjointDerivedC"), FixtureType("DisjointBaseC")));
+        Assert.False(source.AreProvablyDisjoint(FixtureType("DisjointBaseC"), FixtureType("DisjointDerivedC")));
+    }
+
+    [Fact]
+    public void AreProvablyDisjoint_OpenGenericDefinition_NeverProvenDisjoint()
+    {
+        // `GenericDerived<T> : GenericBase<T>`. The derived type's base appears
+        // in its base chain as a closed generic instance (`GenericBase<T>`),
+        // which never equals the open definition `GenericBase`1`, so ancestry
+        // through a generic supertype cannot be observed. The oracle must
+        // conservatively decline for open generic definitions rather than
+        // falsely prove an overlapping pair disjoint.
+        using var source = MetadataSource.Open(typeof(PatternSwitchExpressionPassTests).Assembly.Location);
+        var genericBase = FixtureType("DisjointGenericBase`1");
+        var genericDerived = FixtureType("DisjointGenericDerived`1");
+        Assert.False(source.AreProvablyDisjoint(genericDerived, genericBase));
+        Assert.False(source.AreProvablyDisjoint(genericBase, genericDerived));
+        // Even against a genuinely unrelated non-generic type, an open generic
+        // definition is declined (documented hard guarantee).
+        Assert.False(source.AreProvablyDisjoint(genericBase, FixtureType("DisjointSiblingA")));
+        Assert.False(source.AreProvablyDisjoint(FixtureType("DisjointSiblingA"), genericBase));
+    }
 }
+
+// Self-contained type shapes exercised by the AreProvablyDisjoint guard tests.
+// Compiled into the test assembly so the oracle resolves their real base chains
+// (same-assembly) without depending on BCL internals.
+internal class DisjointSiblingA { }
+internal class DisjointSiblingB { }
+internal class DisjointBaseC { }
+internal class DisjointDerivedC : DisjointBaseC { }
+internal class DisjointGenericBase<T> { }
+internal class DisjointGenericDerived<T> : DisjointGenericBase<T> { }

@@ -259,6 +259,7 @@ public sealed class MetadataSource : IDisposable
     Dictionary<TypeRef, TypeRef>? _enumUnderlyingTypes;
     Dictionary<TypeRef, TypeRef?>? _baseTypes;
     HashSet<TypeRef>? _interfaces;
+    HashSet<TypeRef>? _genericDefinitions;
     Dictionary<TypeRef, ImmutableArray<TypeRef>>? _interfaceImpls;
     HashSet<TypeRef>? _unionTypes;
     HashSet<TypeRef>? _delegates;
@@ -424,6 +425,7 @@ public sealed class MetadataSource : IDisposable
         var enumUnderlyingTypes = new Dictionary<TypeRef, TypeRef>();
         var bases = new Dictionary<TypeRef, TypeRef?>();
         var interfaces = new HashSet<TypeRef>();
+        var genericDefinitions = new HashSet<TypeRef>();
         var interfaceImpls = new Dictionary<TypeRef, ImmutableArray<TypeRef>>();
         var unionTypes = new HashSet<TypeRef>();
         var delegates = new HashSet<TypeRef>();
@@ -439,7 +441,10 @@ public sealed class MetadataSource : IDisposable
             // signatures, so a generic-instance base (List<T>) or interface
             // (IEqualityComparer<T>) decodes to an open TypeRef carrying T as a
             // generic parameter — later substituted by the concrete instance.
-            var scope = new GenericScope(GenericParameterNames(typeDef.GetGenericParameters()), []);
+            var genericParameters = typeDef.GetGenericParameters();
+            var scope = new GenericScope(GenericParameterNames(genericParameters), []);
+            if (genericParameters.Count > 0)
+                genericDefinitions.Add(key);
             bases[key] = DecodeBaseType(typeDef.BaseType, scope);
             if ((typeDef.Attributes & System.Reflection.TypeAttributes.Interface) != 0)
                 interfaces.Add(key);
@@ -462,6 +467,7 @@ public sealed class MetadataSource : IDisposable
         _enumUnderlyingTypes = enumUnderlyingTypes;
         _baseTypes = bases;
         _interfaces = interfaces;
+        _genericDefinitions = genericDefinitions;
         _interfaceImpls = interfaceImpls;
         _unionTypes = unionTypes;
         _delegates = delegates;
@@ -563,13 +569,17 @@ public sealed class MetadataSource : IDisposable
     /// common instance. A common instance would be a value of the more-derived
     /// type, so overlap requires one type to be an ancestor of the other (a value
     /// of the derived type <c>is</c> both). The proof is only issued when both are
-    /// named, non-interface definitions whose base chains fully resolve to
-    /// <c>System.Object</c>; then the two are disjoint exactly when neither type
-    /// appears in the other's (self-inclusive) base chain. Any interface, open or
-    /// shape type, or base chain that cannot be walked to <c>System.Object</c>
-    /// (e.g. a cross-assembly base this same-assembly view cannot follow) yields
-    /// <c>false</c> — <em>cannot prove disjoint</em>, never a false claim of it —
-    /// so a caller can treat <c>true</c> as a hard guarantee.
+    /// named, non-interface, non-generic definitions whose base chains fully
+    /// resolve to <c>System.Object</c>; then the two are disjoint exactly when
+    /// neither type appears in the other's (self-inclusive) base chain. Any
+    /// interface, generic (open) definition, shape type, or base chain that
+    /// cannot be walked to <c>System.Object</c> (e.g. a cross-assembly base this
+    /// same-assembly view cannot follow) yields <c>false</c> — <em>cannot prove
+    /// disjoint</em>, never a false claim of it — so a caller can treat
+    /// <c>true</c> as a hard guarantee. Generic definitions are excluded because a
+    /// derived type's generic base appears in the base chain as a closed
+    /// generic instance, which never equals the open definition, so ancestry
+    /// through a generic supertype cannot be observed here.
     /// </summary>
     public bool AreProvablyDisjoint(TypeRef a, TypeRef b)
     {
@@ -579,9 +589,21 @@ public sealed class MetadataSource : IDisposable
         // satisfy both an interface pattern and any class pattern; never provable.
         if (IsInterface(a) || IsInterface(b))
             return false;
+        // A generic definition's derived types reference it through a closed
+        // generic-instance base that never equals the open definition, so an
+        // ancestor relationship would be silently missed; decline conservatively.
+        if (IsGenericDefinition(a) || IsGenericDefinition(b))
+            return false;
         if (!TryBaseChainToObject(a, out var chainA) || !TryBaseChainToObject(b, out var chainB))
             return false;
         return !chainA.Contains(b) && !chainB.Contains(a);
+    }
+
+    /// <summary>True when <paramref name="type"/> is a generic type definition (arity &gt; 0).</summary>
+    bool IsGenericDefinition(TypeRef type)
+    {
+        EnsureTypeMaps();
+        return _genericDefinitions!.Contains(type);
     }
 
     /// <summary>
