@@ -38,7 +38,13 @@ public sealed record AssemblyReferenceIdentity(
             : Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
-    static string ComputePublicKeyToken(byte[] publicKey)
+    /// <summary>
+    /// Derives the lowercase-hex public-key token from a full public-key blob
+    /// (ECMA-335 II.23.3: SHA-1 hash, last 8 bytes, byte-reversed). Shared with
+    /// <see cref="AssemblyDefinition"/> canonicalization, whose <c>PublicKey</c>
+    /// column is always the full key, never a pre-computed token.
+    /// </summary>
+    public static string ComputePublicKeyToken(byte[] publicKey)
     {
         var hash = SHA1.HashData(publicKey);
         Span<byte> token = stackalloc byte[8];

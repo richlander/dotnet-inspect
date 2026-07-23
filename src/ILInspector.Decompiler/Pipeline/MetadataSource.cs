@@ -328,7 +328,7 @@ public sealed class MetadataSource : IDisposable
         if (NamedDefinition(type) is not { } definition || string.IsNullOrEmpty(definition.Assembly))
             return TypeShapeKind.Unknown;
 
-        if (definition.Assembly == TypeRefDecoder.Canonical(AssemblyName))
+        if (definition.Assembly == (Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : ""))
         {
             EnsureTypeMaps();
             if (_delegates!.Contains(definition))
@@ -582,7 +582,7 @@ public sealed class MetadataSource : IDisposable
         if (type.Equals(s_enumerable) || definition.Equals(s_enumerable))
             return MetadataFactState.Yes;
 
-        if (definition.Assembly == TypeRefDecoder.Canonical(AssemblyName))
+        if (definition.Assembly == (Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : ""))
             return Implements(type, s_enumerable) ? MetadataFactState.Yes : MetadataFactState.No;
 
         return CrossAssembly.Implements(type, s_enumerable);
