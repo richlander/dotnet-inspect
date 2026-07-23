@@ -5179,6 +5179,14 @@ public static class EnumCastSamples
 
     public static uint IntEnumShiftAndUnsigned(CfgPriority e, uint x) => ((uint)e << 4) & x;
 
+    // A bitwise CHAIN over an enum shift: the inner `|` inherits the shift's stale
+    // enum ResultType while rendering as an integer, so the outer `|` must not
+    // coerce the far sibling to the enum (`... | (E)y`, CS0019). The rewritten-
+    // integer detection and rendered-type reconciliation recurse through the chain.
+    public static uint ChainIntEnumShiftOrUnsigned(CfgPriority e, uint x, uint y) => ((uint)e << 24) | x | y;
+
+    public static ulong ChainLongEnumShiftOrUnsigned(CfgLongPriority e, ulong x, ulong y) => ((ulong)e << 8) | x | y;
+
     // #1766: ternary with enum-constant arms stored to a cross-assembly enum
     // local (StringComparison.Ordinal = 4, OrdinalIgnoreCase = 5).
     public static bool EnumConditional(string name, bool ci)

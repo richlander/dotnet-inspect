@@ -242,6 +242,30 @@ public class EnumCastPrinterTests
         AssertCompiles("public static uint M(CfgPriority e, uint x)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
     }
 
+    // A bitwise CHAIN over an enum shift: the inner `|` inherits the shift's stale
+    // enum ResultType while rendering as an integer, so the far sibling `y` must not
+    // be coerced to the enum (`... | (E)y`, CS0019). The rewritten-integer detection
+    // recurses through the chain.
+    [Fact]
+    public void EnumShiftInBitwiseChain_UnsignedSiblings_DoNotCoerceFarSibling()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ChainIntEnumShiftOrUnsigned));
+
+        Assert.Contains("(uint)((int)e << 24) | x | y", body);
+        Assert.DoesNotContain("(CfgPriority)y", body);
+        AssertCompiles("public static uint M(CfgPriority e, uint x, uint y)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    [Fact]
+    public void EnumShiftInBitwiseChain_LongEnumUnsignedSiblings_DoNotCoerceFarSibling()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ChainLongEnumShiftOrUnsigned));
+
+        Assert.Contains("(ulong)((long)e << 8) | x | y", body);
+        Assert.DoesNotContain("(CfgLongPriority)y", body);
+        AssertCompiles("public static ulong M(CfgLongPriority e, ulong x, ulong y)", body, "public enum CfgLongPriority : long { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
     // A sub-int (byte) backing promotes to int in a C# shift; the reinterpret
     // targets the 4-byte width the shift runs on. Synthetic to keep the enum load
     // a bare operand (a compiled `(byte)` narrowing could add a conv node).
