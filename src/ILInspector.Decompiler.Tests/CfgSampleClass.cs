@@ -5249,11 +5249,18 @@ public static class EnumCastSamples
     public static int EnumShiftChainEnumSibling(CfgPriority e, int y, CfgPriority other) => ((int)e << 4) | y | (int)other;
 
     // #3087 follow-up (adversarial review): an UNSIGNED ordering (`clt.un`) of an
-    // enum shift against an enum sibling. Down-coercing both to the shift's SIGNED
-    // rendered integer would silently turn the unsigned compare into a signed `<`;
-    // instead the shift up-coerces to the uint-backed enum so C#'s enum `<` compares
-    // the underlying uint — `(CfgFlags)((int)e << n) < other`, matching `clt.un`.
+    // enum shift against an enum sibling. The compare cannot round-trip through the
+    // enum backing — a signed backing would compare signed and a narrow backing
+    // would truncate the widened shift value — so BOTH sides reconcile to the
+    // unsigned counterpart of the shift's stack width:
+    // `(uint)((int)e << n) < (uint)other`, matching `clt.un` for any backing.
     public static bool EnumShiftUnsignedCompare(CfgFlags e, int n, CfgFlags other) => (uint)((uint)e << n) < (uint)other;
+
+    // #3087 follow-up: the same unsigned ordering with a BYTE-backed enum. Round-
+    // tripping through the byte enum (`(CfgTiny)((int)e << n)`) would re-narrow the
+    // 32-bit shift to 8 bits and then compare signed — the unsigned-width spelling
+    // `(uint)((int)e << n) < (uint)other` avoids both.
+    public static bool EnumShiftUnsignedCompareByte(CfgTiny e, int n, CfgTiny other) => (uint)((byte)e << n) < (uint)other;
 
     // #3087 follow-up: a bitwise sibling MASKED as its primitive by a typed ldelem —
     // `values[i]` renders enum-typed though its ResultType is the storage width, so

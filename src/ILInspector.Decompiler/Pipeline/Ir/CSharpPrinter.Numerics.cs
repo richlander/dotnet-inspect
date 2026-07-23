@@ -661,6 +661,48 @@ public sealed partial class CSharpPrinter
             : $"({TypeText(integerType)}){Operand(value)}";
     }
 
+    /// <summary>
+    /// Renders an enum shift (or a bitwise chain over one) compared to an enum
+    /// sibling, coercing the sibling so both sides bind, or null when
+    /// <paramref name="shiftSide"/> is not an integer-rendering shift or
+    /// <paramref name="enumSide"/> is not an enum. Equality (<c>ceq</c>/<c>bne.un</c>)
+    /// and signed ordering (<c>clt</c>/<c>cgt</c>) coerce the sibling DOWN to the
+    /// shift's rendered integer — <c>(int)e &lt;&lt; n == (int)other</c> — a faithful
+    /// same-width spelling.
+    /// <para>
+    /// An UNSIGNED ordering (<c>clt.un</c>/<c>cgt.un</c>) cannot use the enum's own
+    /// backing: a signed backing would compare signed and a narrow backing would
+    /// truncate the widened shift value on the round-trip through the enum
+    /// (<c>(U8)((int)e &lt;&lt; n)</c> re-narrows to a byte). Reconcile BOTH sides to
+    /// the unsigned counterpart of the shift's stack width — <c>(uint)((int)e &lt;&lt; n)
+    /// &lt; (uint)other</c> — so the comparison is the unsigned one the IL performs,
+    /// independent of the enum backing.
+    /// </para>
+    /// </summary>
+    string? DownCoercedShiftComparison(ComparisonKind kind, bool isUnsigned, IrExpression shiftSide, IrExpression enumSide, bool shiftIsLeft)
+    {
+        if (!BitwiseOperandRendersAsInteger(shiftSide)
+            || BitwiseOperandRenderedType(shiftSide) is not { } renderedInteger)
+            return null;
+        bool ordering = kind is ComparisonKind.LessThan or ComparisonKind.LessThanOrEqual
+            or ComparisonKind.GreaterThan or ComparisonKind.GreaterThanOrEqual;
+        if (isUnsigned && ordering)
+        {
+            var unsignedTarget = TypeRef.CoreLib("System", Is8ByteInteger(renderedInteger) ? "UInt64" : "UInt32");
+            if (TryCoerceEnumToInteger(enumSide, unsignedTarget) is not { } unsignedSibling)
+                return null;
+            string unsignedShift = $"({TypeText(unsignedTarget)}){Operand(shiftSide)}";
+            return shiftIsLeft
+                ? $"{unsignedShift} {ComparisonOperator(kind)} {unsignedSibling}"
+                : $"{unsignedSibling} {ComparisonOperator(kind)} {unsignedShift}";
+        }
+        if (TryCoerceEnumToInteger(enumSide, renderedInteger) is not { } sibling)
+            return null;
+        return shiftIsLeft
+            ? $"{Operand(shiftSide)} {ComparisonOperator(kind)} {sibling}"
+            : $"{sibling} {ComparisonOperator(kind)} {Operand(shiftSide)}";
+    }
+
     // True when a constant enum cast is CS0221 as a plain (checked) cast, so it must
     // be wrapped in `unchecked`: a value outside the backing type's range — negative
     // into an unsigned backing (`(U)(-1)`) or a magnitude a narrow backing cannot
@@ -1393,25 +1435,16 @@ public sealed partial class CSharpPrinter
         // An enum shift (or a bitwise chain over one) compared to a bare enum
         // sibling renders as its underlying integer while the sibling renders as the
         // enum (`(int)e << n == other`, int == E, CS0019). Coerce the enum sibling
-        // DOWN to that rendered integer — `(int)e << n == (int)other` — not the shift
-        // up to the enum. Runs before the enum up-coercion below, whose stale
-        // enum-typed test would otherwise coerce the sibling the wrong way.
-        // Restricted to sign-safe kinds: equality (`ceq`/`bne.un`) compares the raw
-        // bits, so a same-width signed spelling is faithful, but an UNSIGNED ordering
-        // (`clt.un`/`cgt.un`) would silently become a signed `<`/`>` once both sides
-        // render signed — an unsigned enum-shift ordering keeps its loud CS0019 here
-        // (the sibling is not coerced) rather than a wrong-signedness comparison.
-        bool comparisonSignSafe = kind is ComparisonKind.Equal or ComparisonKind.NotEqual || !isUnsigned;
-        if (comparisonSignSafe
-            && BitwiseOperandRendersAsInteger(left)
-            && BitwiseOperandRenderedType(left) is { } leftRenderedInteger
-            && TryCoerceEnumToInteger(right, leftRenderedInteger) is { } downRight)
-            return $"{Operand(left)} {ComparisonOperator(kind)} {downRight}";
-        if (comparisonSignSafe
-            && BitwiseOperandRendersAsInteger(right)
-            && BitwiseOperandRenderedType(right) is { } rightRenderedInteger
-            && TryCoerceEnumToInteger(left, rightRenderedInteger) is { } downLeft)
-            return $"{downLeft} {ComparisonOperator(kind)} {Operand(right)}";
+        // DOWN to the shift's rendered integer — `(int)e << n == (int)other` — not
+        // the shift up to the enum. Runs before the enum up-coercion below, whose
+        // stale enum-typed test would otherwise coerce the sibling the wrong way.
+        // An UNSIGNED ordering (`clt.un`/`cgt.un`) reconciles both sides to the
+        // unsigned stack-width integer instead (see DownCoercedShiftComparison), so
+        // the enum backing's own signedness/width cannot change the comparison.
+        if (DownCoercedShiftComparison(kind, isUnsigned, left, right, shiftIsLeft: true) is { } downLeftCmp)
+            return downLeftCmp;
+        if (DownCoercedShiftComparison(kind, isUnsigned, right, left, shiftIsLeft: false) is { } downRightCmp)
+            return downRightCmp;
         // An enum compared to an integer (`access == bestAccess`,
         // `methodAccess == 6`) is CS0019 though the IL compares their shared
         // underlying integer; coerce the integer operand to the enum type. A

@@ -416,20 +416,37 @@ public class EnumCastPrinterTests
         AssertCompiles("public static int M(CfgPriority e, int y, CfgPriority other)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
     }
 
-    // #3087 follow-up (adversarial review, GPT): an UNSIGNED ordering (`clt.un`) of
-    // an enum shift against an enum sibling. Down-coercing both to the shift's SIGNED
-    // rendered integer would silently render a signed `<` — flipping high-bit values.
-    // The sign-safe guard skips the down-coercion for unsigned ordering, so the shift
-    // up-coerces to the uint-backed enum and C#'s enum `<` compares the underlying
-    // uint, matching `clt.un`. The rendered `<` must NOT be a bare signed int compare.
+    // #3087 follow-up (adversarial review, GPT + Gemini): an UNSIGNED ordering
+    // (`clt.un`) of an enum shift against an enum sibling. The compare cannot round-
+    // trip through the enum backing: down-coercing to the shift's SIGNED rendered
+    // integer renders a signed `<`, and up-coercing to a narrow enum backing
+    // truncates the widened shift value. Both sides reconcile to the unsigned stack-
+    // width integer — `(uint)((int)e << n) < (uint)other` — matching `clt.un`.
     [Fact]
     public void EnumShiftUnsignedOrdering_ComparesAsUnsignedEnum()
     {
         string body = RenderFixture(nameof(EnumCastSamples.EnumShiftUnsignedCompare));
 
-        Assert.Contains("(CfgFlags)((int)e << n) < other", body);
-        Assert.DoesNotContain("(int)other", body);
+        Assert.Contains("(uint)((int)e << n)", body);
+        Assert.Contains("< (uint)other", body);
+        Assert.DoesNotContain("(CfgFlags)", body);
         AssertCompiles("public static bool M(CfgFlags e, int n, CfgFlags other)", body, "public enum CfgFlags : uint { None = 0, Top = 0x80000000u }");
+    }
+
+    // #3087 follow-up (adversarial review, GPT + Gemini): the same unsigned ordering
+    // with a BYTE-backed enum. Up-coercing to the byte enum (`(CfgTiny)((int)e << n)`)
+    // would re-narrow the 32-bit shift to 8 bits and then compare signed — a
+    // soundness bug (`0x100 < y` becomes `0 < y`). The unsigned-width spelling
+    // `(uint)((int)e << n) < (uint)other` must be emitted instead.
+    [Fact]
+    public void EnumShiftUnsignedOrdering_ByteBacked_ComparesAsUnsignedWidth()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumShiftUnsignedCompareByte));
+
+        Assert.Contains("(uint)((int)e << n)", body);
+        Assert.Contains("< (uint)other", body);
+        Assert.DoesNotContain("(CfgTiny)", body);
+        AssertCompiles("public static bool M(CfgTiny e, int n, CfgTiny other)", body, "public enum CfgTiny : byte { A = 1, B = 2 }");
     }
 
     // #3087 follow-up (adversarial review, GPT): a bitwise sibling MASKED as its
