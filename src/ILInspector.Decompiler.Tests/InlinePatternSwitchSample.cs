@@ -61,6 +61,36 @@ public static class InlinePatternSwitchSample
         _ => null,
     };
 
+    public class Shape
+    {
+        public int Area;
+    }
+
+    public sealed class Circle : Shape
+    {
+        public int Radius;
+    }
+
+    // A hand-written ladder whose earlier arm type (Shape) subsumes a later one
+    // (Circle : Shape). As an `if` ladder this is valid C# — the second test is
+    // reachable at compile time — but the equivalent `switch` expression is
+    // rejected (CS8510: the `Circle` arm is unreachable, already handled by
+    // `Shape`). csc emits the same flat inline `is` shape as the foldable cases,
+    // so the fold must DECLINE here on the metadata subsumption proof. Both types
+    // are same-assembly, so the oracle resolves the relationship precisely.
+    public static int Subsumed(object value)
+    {
+        if (value is Shape shape)
+        {
+            return shape.Area;
+        }
+        if (value is Circle circle)
+        {
+            return circle.Radius;
+        }
+        return 0;
+    }
+
     // A hand-written ladder whose first arm carries a guard and whose type
     // (IComparable) overlaps a later arm (ICloneable) — `string` satisfies both.
     // The inline fold must DECLINE here: a `switch` routes a failed `when` to the

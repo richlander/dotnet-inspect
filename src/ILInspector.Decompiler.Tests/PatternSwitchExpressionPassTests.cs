@@ -207,7 +207,14 @@ public class PatternSwitchExpressionPassTests
             .Select(i => new Parameter($"p{i}", Node))
             .ToImmutableArray();
         var signature = new MethodSignature(Node, parameters, HasThis: false, GenericParameterCount: 0);
-        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Leaf, Node, Node, Node, Node), container);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Leaf, Node, Node, Node, Node), container)
+        {
+            // Synthetic IR carries no MetadataSource, so stamp a disjointness
+            // oracle the inline fold can consult: distinct synthetic types never
+            // subsume, identical types do (an arm cannot precede itself in a
+            // switch). Tests that need a subsuming pair override this.
+            TypeSubsumption = (earlier, later) => earlier.Equals(later) ? MetadataFactState.Yes : MetadataFactState.No,
+        };
     }
 
     static IfStatement InlineArm(IrExpression switchValue, TypeRef type, int localIndex, IrExpression armValue, IrExpression? guard = null, IrExpression? guardFailDefault = null)
@@ -383,6 +390,73 @@ public class PatternSwitchExpressionPassTests
         // foldable cases, but the first arm carries a guard and its type overlaps a
         // later arm, so the fold must decline and leave the if-ladder intact.
         var function = Raised(typeof(InlinePatternSwitchSample), nameof(InlinePatternSwitchSample.GuardedOverlap));
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+        Assert.NotEmpty(function.Descendants.OfType<IfStatement>());
+    }
+
+    [Fact]
+    public void Synthetic_InlineSubsumingArm_DoesNotRaise()
+    {
+        // The oracle reports the earlier arm's type subsumes the later's, so the
+        // equivalent switch would emit an unreachable arm (CS8510). The fold must
+        // decline and leave the first-match-wins if-ladder intact.
+        var function = InlineCascade(
+            1,
+            InlineArm(Arg(0), Leaf, 0, new LoadLocal(0, Leaf)),
+            InlineArm(Arg(0), Node, 1, new LoadLocal(1, Node)),
+            new Return(new Constant(null, Node)));
+        function.TypeSubsumption = (earlier, later) =>
+            earlier.Equals(Leaf) && later.Equals(Node) ? MetadataFactState.Yes : MetadataFactState.No;
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    [Fact]
+    public void Synthetic_InlineUnresolvedSubsumption_DoesNotRaise()
+    {
+        // The oracle cannot resolve the arm types' relationship. A `No` is required
+        // to fold; an `Unknown` is treated as possibly subsuming, so the fold
+        // declines rather than reorder the ladder on an unproven disjointness.
+        var function = InlineCascade(
+            1,
+            InlineArm(Arg(0), Leaf, 0, new LoadLocal(0, Leaf)),
+            InlineArm(Arg(0), Node, 1, new LoadLocal(1, Node)),
+            new Return(new Constant(null, Node)));
+        function.TypeSubsumption = (_, _) => MetadataFactState.Unknown;
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    [Fact]
+    public void Synthetic_InlineNoOracle_DoesNotRaise()
+    {
+        // With no MetadataSource-stamped oracle (synthetic/stage-dump paths), the
+        // fold cannot prove disjointness and must decline.
+        var function = InlineCascade(
+            1,
+            InlineArm(Arg(0), Leaf, 0, new LoadLocal(0, Leaf)),
+            InlineArm(Arg(0), Node, 1, new LoadLocal(1, Node)),
+            new Return(new Constant(null, Node)));
+        function.TypeSubsumption = null;
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    [Fact]
+    public void Subsumed_CompiledFixture_DoesNotRaise()
+    {
+        // Compiled reproduction of CS8510: an earlier `Shape` arm subsumes a later
+        // `Circle : Shape` arm. Valid as an if-ladder, invalid as a switch. The
+        // metadata subsumption oracle resolves the same-assembly base relationship
+        // and the fold declines.
+        var function = Raised(typeof(InlinePatternSwitchSample), nameof(InlinePatternSwitchSample.Subsumed));
 
         Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
         Assert.NotEmpty(function.Descendants.OfType<IfStatement>());

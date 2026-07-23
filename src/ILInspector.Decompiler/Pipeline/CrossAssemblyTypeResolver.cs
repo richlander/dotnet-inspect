@@ -41,6 +41,7 @@ internal sealed class CrossAssemblyTypeResolver
     readonly ConcurrentDictionary<TypeRef, MetadataFactState> _inlineArrayCache = new();
     readonly ConcurrentDictionary<MethodRef, ResolvedMethodFacts?> _methodFactCache = new();
     readonly ConcurrentDictionary<(TypeRef Type, TypeRef Interface), MetadataFactState> _interfaceCache = new();
+    readonly ConcurrentDictionary<(TypeRef Sub, TypeRef Ancestor), MetadataFactState> _ancestorCache = new();
 
     public CrossAssemblyTypeResolver(string selfSimpleName, MetadataReader selfReader, MetadataContext context)
     {
@@ -261,6 +262,78 @@ internal sealed class CrossAssemblyTypeResolver
         }
 
         return !unresolved;
+    }
+
+    /// <summary>
+    /// Whether a value of <paramref name="sub"/> is always a value of
+    /// <paramref name="ancestor"/> — i.e. <paramref name="ancestor"/> is
+    /// <paramref name="sub"/> itself, one of its base classes, or an interface it
+    /// implements (transitively). <see cref="MetadataFactState.Yes"/> only when a
+    /// located definition proves the link, <see cref="MetadataFactState.No"/> only
+    /// when the whole base/interface closure of <paramref name="sub"/> resolves
+    /// without reaching <paramref name="ancestor"/>, and
+    /// <see cref="MetadataFactState.Unknown"/> when any link cannot be located, so
+    /// a caller must not read <c>No</c> as "proven disjoint" unless it is exact.
+    /// Matching is corelib-tolerant (a base decoded as
+    /// <c>System.Private.CoreLib</c> still matches an <c>ancestor</c> referenced
+    /// through <c>System.Runtime</c>), so a real subtype link is never missed to a
+    /// confusable-but-equal framework identity.
+    /// </summary>
+    public MetadataFactState IsAncestorOrEqual(TypeRef sub, TypeRef ancestor)
+    {
+        var key = (sub, ancestor);
+        if (_ancestorCache.TryGetValue(key, out var cached))
+            return cached;
+
+        var result = ComputeIsAncestorOrEqual(sub, ancestor);
+        _ancestorCache[key] = result;
+        return result;
+    }
+
+    MetadataFactState ComputeIsAncestorOrEqual(TypeRef sub, TypeRef ancestor)
+    {
+        bool unresolved = false;
+        var seen = new HashSet<TypeRef>();
+        var pending = new Stack<TypeRef>();
+        pending.Push(sub);
+
+        try
+        {
+            while (pending.Count > 0 && seen.Count < 256)
+            {
+                var current = pending.Pop();
+                if (!seen.Add(current))
+                    continue;
+                if (current.Equals(ancestor) || SameSignatureType(current, ancestor, allowCoreLibraryAliases: true))
+                    return MetadataFactState.Yes;
+
+                if (NamedDefinition(current) is not { } definition)
+                    continue;
+                if (Locate(definition) is not { } location
+                    || _context.Open(location) is not { } assembly
+                    || !assembly.TryGetType(location.FullTypeName, out var handle))
+                {
+                    unresolved = true;
+                    continue;
+                }
+
+                var reader = assembly.Reader;
+                var typeDef = reader.GetTypeDefinition(handle);
+                var typeArguments = current.Kind == TypeRefKind.GenericInstance ? current.TypeArguments : [];
+                foreach (var implemented in DecodeInterfaces(reader, typeDef, typeArguments))
+                    pending.Push(implemented);
+                if (DecodeBaseType(reader, typeDef, typeArguments) is { } baseType)
+                    pending.Push(baseType);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        {
+            unresolved = true;
+        }
+
+        if (pending.Count > 0)
+            unresolved = true;   // the closure was capped before it was exhausted
+        return unresolved ? MetadataFactState.Unknown : MetadataFactState.No;
     }
 
     static IEnumerable<TypeRef> DecodeInterfaces(MetadataReader reader, TypeDefinition typeDef, ImmutableArray<TypeRef> typeArguments)

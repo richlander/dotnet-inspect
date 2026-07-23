@@ -247,6 +247,17 @@ public sealed class IrFunction : IrNode
     public MetadataFactState IsRuntimeAsync { get; set; } = MetadataFactState.Unknown;
 
     /// <summary>
+    /// Reference-type subsumption oracle stamped at import: given an earlier and a
+    /// later reference-type pattern, reports whether the earlier makes the later
+    /// unreachable in a <c>switch</c> expression (CS8510). Passes that reorder a
+    /// type-pattern ladder into a <c>switch</c> consult it to avoid emitting an
+    /// arm the compiler rejects; <c>null</c> on paths wired without a
+    /// <see cref="MetadataSource"/> (synthetic IR, stage dumps), where such a pass
+    /// must decline rather than guess disjointness.
+    /// </summary>
+    public Func<TypeRef, TypeRef, MetadataFactState>? TypeSubsumption { get; set; }
+
+    /// <summary>
     /// Appends a local slot (and its source name) and returns its index. Used by
     /// raising passes that introduce a variable absent from the original IL — e.g.
     /// <see cref="ILInspector.Decompiler.Pipeline.IteratorReconstructionPass"/>

@@ -534,6 +534,7 @@ public static class IrImporter
             CompilerGenerated = method.CompilerGenerated,
             DeclaringTypeCompilerGenerated = method.DeclaringTypeCompilerGenerated,
             IsRuntimeAsync = method.IsRuntimeAsync,
+            TypeSubsumption = source.Subsumes,
         };
         var span = method.Body.IL.AsSpan();
         var leaders = FindLeaders(span, method.Body.Handlers);

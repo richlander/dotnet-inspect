@@ -34,7 +34,13 @@ namespace ILInspector.Decompiler.Pipeline;
 /// The flat inline shape carries no such proof — it is exactly what an ordinary
 /// hand-written <c>if (P is T x)</c> ladder produces — so it folds only unguarded
 /// arms, whose immediate-return-on-match preserves the ladder's top-to-bottom,
-/// first-match-wins order unconditionally.
+/// first-match-wins order unconditionally. For the same reason it additionally
+/// requires pairwise non-subsumption: a ladder is valid however its arm types
+/// overlap, but a <c>switch</c> expression rejects an arm an earlier one hides
+/// (CS8510, e.g. <c>Base</c> before <c>Derived</c>). The inline fold proves
+/// disjointness from metadata through the import-stamped
+/// <see cref="IrFunction.TypeSubsumption"/> oracle and declines when any pair
+/// subsumes or cannot be resolved.
 /// </summary>
 public sealed class PatternSwitchExpressionPass : IIrPass
 {
@@ -255,17 +261,43 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             return false;
 
         // Each pattern-bound local must be referenced only inside ITS OWN arm. A
-        // switch-expression pattern variable is scoped to a single arm, so checking
-        // the whole cascade would wrongly accept a local bound in one arm and read
-        // in another — valid in the if-ladder (the binding outlives its `if`), but
-        // an out-of-scope reference once folded. Bounding each local to its arm's
-        // own subtree also subsumes the "not read after the cascade" check.
+        // switch-expression pattern variable is scoped to a single arm, so a later
+        // arm reading an earlier arm's binding — legal while the ladder's `if`
+        // keeps it alive — would reference an out-of-scope variable once folded.
+        // Check the pattern's ACTUAL bound slot (from the `IsPattern`), not just a
+        // local the arm body happens to use: an arm that binds but never reads its
+        // local still introduces that name, so driving the check off the binding
+        // closes the gap where an unused binding would skip scoping entirely.
+        // Bounding each local to its arm's own subtree also subsumes the "not read
+        // after the cascade" check.
         for (int j = 0; j < arms.Count; j++)
         {
             var armNode = children[firstArm + j];
-            foreach (int local in PatternLocals(arms[j]))
+            int boundLocal = ((IsPattern)((IfStatement)armNode).Condition).LocalIndex;
+            if (boundLocal >= 0
+                && !ReferenceOwnership.LocalReferencedOrBoundOnlyWithin(function, boundLocal, [armNode]))
+                return false;
+        }
+
+        // No earlier arm's type may subsume a later arm's. A first-match-wins
+        // ladder is valid however its type tests overlap, but a `switch`
+        // expression rejects an arm the compiler proves unreachable (CS8510):
+        // `case Base` before `case Derived` is legal as an `if` ladder yet does
+        // not compile as a `switch`. The intro-chain shape is trusted here because
+        // it is distinctively compiler-lowered (csc never emits a subsumed
+        // switch); the flat inline shape is also what a hand-written ladder
+        // produces, so the fold must prove pairwise non-subsumption from metadata.
+        // The oracle answers Yes/No only from resolved types; an unresolved link
+        // (or no oracle, on synthetic/stage-dump paths) is treated as possibly
+        // subsuming, so the ladder is left intact rather than reordered blindly.
+        var subsumes = function.TypeSubsumption;
+        if (subsumes is null)
+            return false;
+        for (int earlier = 0; earlier < arms.Count; earlier++)
+        {
+            for (int later = earlier + 1; later < arms.Count; later++)
             {
-                if (!ReferenceOwnership.LocalReferencedOrBoundOnlyWithin(function, local, [armNode]))
+                if (subsumes(arms[earlier].PatternType, arms[later].PatternType) != MetadataFactState.No)
                     return false;
             }
         }

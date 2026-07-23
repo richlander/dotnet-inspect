@@ -649,6 +649,107 @@ public sealed class MetadataSource : IDisposable
         return null;
     }
 
+    /// <summary>
+    /// Whether an earlier reference-type pattern over <paramref name="earlier"/>
+    /// makes a later pattern over <paramref name="later"/> unreachable in a C#
+    /// <c>switch</c> expression (CS8510) — i.e. every value matching
+    /// <paramref name="later"/> also matches <paramref name="earlier"/>. This is
+    /// the disjointness oracle the inline type-pattern fold consults before it
+    /// reorders a hand-written <c>if (p is T x)</c> ladder into a <c>switch</c>,
+    /// whose arms the compiler rejects when an earlier arm subsumes a later one.
+    ///
+    /// <see cref="MetadataFactState.Yes"/> (subsumes) and
+    /// <see cref="MetadataFactState.No"/> (provably disjoint) are returned only
+    /// from resolved metadata; <see cref="MetadataFactState.Unknown"/> means a
+    /// link could not be resolved, so a caller must treat the pair as possibly
+    /// subsuming and decline the fold. Same-assembly links read the prebuilt type
+    /// maps; a cross-assembly subtree defers to
+    /// <see cref="CrossAssemblyTypeResolver.IsAncestorOrEqual"/>.
+    /// </summary>
+    internal MetadataFactState Subsumes(TypeRef earlier, TypeRef later)
+    {
+        if (NamedDefinition(earlier) is not { } e || string.IsNullOrEmpty(e.Assembly))
+            return MetadataFactState.Unknown;
+        if (NamedDefinition(later) is not { } l || string.IsNullOrEmpty(l.Assembly))
+            return MetadataFactState.Unknown;
+        if (earlier.Equals(later))
+            return MetadataFactState.Yes;
+        // object matches every reference value, so an earlier `object` arm hides
+        // any later reference pattern.
+        if (IsObject(earlier))
+            return MetadataFactState.Yes;
+        return AncestorReaches(later, earlier);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="ancestor"/> is a base class or implemented
+    /// interface of <paramref name="sub"/> (so a <paramref name="sub"/> value is
+    /// always an <paramref name="ancestor"/>). Walks the same-assembly base and
+    /// interface closure through the prebuilt maps and hands any cross-assembly
+    /// type off to the resolver, tracking whether the closure was fully resolved:
+    /// an unresolved link yields <see cref="MetadataFactState.Unknown"/> rather
+    /// than a false <c>No</c>.
+    /// </summary>
+    MetadataFactState AncestorReaches(TypeRef sub, TypeRef ancestor)
+    {
+        EnsureTypeMaps();
+        var self = TypeRefDecoder.Canonical(AssemblyName);
+        var seen = new HashSet<TypeRef>();
+        var pending = new Stack<TypeRef>();
+        pending.Push(sub);
+        bool incomplete = false;
+
+        while (pending.Count > 0 && seen.Count < 256)
+        {
+            var current = pending.Pop();
+            if (!seen.Add(current))
+                continue;
+            if (current.Equals(ancestor))
+                return MetadataFactState.Yes;
+            if (IsObject(current))
+                continue;   // top of the class chain; it matches nothing but itself
+
+            if (NamedDefinition(current) is not { } definition || string.IsNullOrEmpty(definition.Assembly))
+            {
+                incomplete = true;
+                continue;
+            }
+
+            if (definition.Assembly != self)
+            {
+                // A cross-assembly type: the resolver walks the rest of this
+                // subtree (base classes + interfaces) with corelib-tolerant
+                // matching, so a link through a framework base is not missed.
+                var reached = CrossAssembly.IsAncestorOrEqual(current, ancestor);
+                if (reached == MetadataFactState.Yes)
+                    return MetadataFactState.Yes;
+                if (reached == MetadataFactState.Unknown)
+                    incomplete = true;
+                continue;
+            }
+
+            if (_interfaceImpls!.TryGetValue(definition, out var impls))
+            {
+                var arguments = current.Kind == TypeRefKind.GenericInstance ? current.TypeArguments : [];
+                foreach (var open in impls)
+                    pending.Push(open.Instantiate(arguments, []));
+            }
+            else
+            {
+                incomplete = true;   // a same-assembly type absent from the map
+            }
+
+            if (ResolveBaseType(current) is { } baseType)
+                pending.Push(baseType);
+            else if (!_interfaces!.Contains(definition))
+                incomplete = true;   // a class whose base did not resolve (interfaces have none)
+        }
+
+        if (pending.Count > 0)
+            incomplete = true;   // the closure was capped before it was exhausted
+        return incomplete ? MetadataFactState.Unknown : MetadataFactState.No;
+    }
+
     Dictionary<long, string> BuildEnumMembers(TypeDefinition enumType)
     {
         var members = new Dictionary<long, string>();
