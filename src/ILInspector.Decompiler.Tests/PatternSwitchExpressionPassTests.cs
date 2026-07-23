@@ -100,6 +100,39 @@ public class PatternSwitchExpressionPassTests
         Assert.Contains("_ => false,", output);
     }
 
+    // ── Compiler-backed positives: heterogeneous / inline arm intros (#3028) ─
+
+    [Fact]
+    public void HeterogeneousArmIntros_RaiseToPatternSwitchExpression()
+    {
+        // csc lowers this to a leading intro-chain arm (`Dot d = shape as Dot; if
+        // (d is null) …`) plus inline-positive sibling arms (`if (shape is Bar b)
+        // …`), over `shape` read directly (no switch-value temp). The pass folds
+        // the whole heterogeneous cascade back into one switch expression.
+        var function = Raised(typeof(HeterogeneousArmSample), nameof(HeterogeneousArmSample.Area));
+
+        var switchExpression = Assert.Single(function.Descendants.OfType<PatternSwitchExpression>());
+        Assert.Empty(function.Descendants.OfType<IfStatement>());
+        Assert.True(switchExpression.HasDefault);
+        Assert.Equal(3, switchExpression.Arms.Count);
+        Assert.All(switchExpression.Arms, arm =>
+        {
+            Assert.Null(arm.Subpattern);
+            Assert.False(arm.HasGuard);
+            Assert.NotNull(arm.LocalIndex);
+        });
+        Assert.Contains("Dot", switchExpression.Arms[0].PatternType.ToDisplayString());
+        Assert.Contains("Bar", switchExpression.Arms[1].PatternType.ToDisplayString());
+        Assert.Contains("Box", switchExpression.Arms[2].PatternType.ToDisplayString());
+
+        string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
+        Assert.Contains("return shape switch", output);
+        Assert.Contains("Dot d => d.Radius,", output);
+        Assert.Contains("Bar b => b.Length,", output);
+        Assert.Contains("Box x => x.Side,", output);
+        Assert.Contains("_ => -1,", output);
+    }
+
     // ── Synthetic shape + negative guards ──────────────────────────────────
 
     // Minimal recognized shape (post-#3003 structuring): `sv = <place>; k = sv
@@ -187,6 +220,98 @@ public class PatternSwitchExpressionPassTests
             guard: null,
             armValue: new Constant(true, Bool),
             noMatchDefault: False());
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    static readonly TypeRef Twig = TypeRef.CoreLib("Synthetic", "Twig");
+
+    // Builds a temp-less, direct-place cascade whose head is an intro-chain arm
+    // (`L0 = place as Leaf; if (!L0) { REST } return 1;`) with `inlineArmCount`
+    // inline-positive sibling arms nested in REST, bottoming out in the default.
+    static IrFunction DirectIntroCascade(IrExpression place, int inlineArmCount)
+    {
+        var rest = new Block();
+        for (int k = 0; k < inlineArmCount; k++)
+        {
+            var thenK = new Block();
+            thenK.Add(new Return(new Constant(2 + k, Int32)));
+            rest.Add(new IfStatement(new IsPattern((IrExpression)place.Clone(), Twig, 1 + k), thenK, null));
+        }
+        rest.Add(new Return(new Constant(-1, Int32)));
+
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, Leaf, new IsInstance(Leaf, (IrExpression)place.Clone())));
+        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, Leaf)), rest, null));
+        block.Add(new Return(new Constant(1, Int32)));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Int32, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Twig, Twig, Node), container);
+    }
+
+    // Builds a temp-less, all-inline direct-place cascade (no intro-chain head):
+    //   `if (place is Leaf a) { return 1; } if (place is Twig b) { return 2; }
+    //   return <default>;`
+    static IrFunction AllInlineCascade(IrExpression place)
+    {
+        var thenA = new Block();
+        thenA.Add(new Return(new Constant(1, Int32)));
+        var thenB = new Block();
+        thenB.Add(new Return(new Constant(2, Int32)));
+
+        var block = new Block(0);
+        block.Add(new IfStatement(new IsPattern((IrExpression)place.Clone(), Leaf, 0), thenA, null));
+        block.Add(new IfStatement(new IsPattern((IrExpression)place.Clone(), Twig, 1), thenB, null));
+        block.Add(new Return(new Constant(-1, Int32)));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Int32, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Twig, Node), container);
+    }
+
+    [Fact]
+    public void Synthetic_DirectIntroPlusInlineSibling_Raises()
+    {
+        // Intro-chain head arm plus one inline-positive sibling arm over the same
+        // re-evaluable place, no temp — the temp-less heterogeneous shape. Folds
+        // to a two-arm switch.
+        var function = DirectIntroCascade(new LoadArgument(0, "node", Node), inlineArmCount: 1);
+
+        RunPass(function);
+
+        var switchExpression = Assert.Single(function.Descendants.OfType<PatternSwitchExpression>());
+        Assert.Equal(2, switchExpression.Arms.Count);
+        Assert.True(switchExpression.HasDefault);
+        Assert.Empty(function.Descendants.OfType<IfStatement>());
+    }
+
+    [Fact]
+    public void Synthetic_DirectIntroSingleArm_DoesNotRaise()
+    {
+        // A single intro-chain arm over a re-evaluable place is indistinguishable
+        // from an ordinary `if (place is T t)` guard, which IsPatternPass renders
+        // idiomatically. The direct (temp-less) form requires at least two arms,
+        // so a lone guard is left as-is.
+        var function = DirectIntroCascade(new LoadArgument(0, "node", Node), inlineArmCount: 0);
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    [Fact]
+    public void Synthetic_AllInlineWithoutIntroHead_DoesNotRaise()
+    {
+        // Every arm is an inline-positive test with no leading intro-chain arm —
+        // the shape a hand-written `if` chain lowers to, not a `switch`. PR A
+        // anchors only on cascades whose head csc lowered to an intro-chain arm,
+        // so this is left unfolded.
+        var function = AllInlineCascade(new LoadArgument(0, "node", Node));
 
         RunPass(function);
 

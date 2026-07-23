@@ -29,6 +29,25 @@ public sealed class PatternSwitchExpressionPass : IIrPass
 
     sealed record ArmData(TypeRef PatternType, int? LocalIndex, PropertySubpattern? Subpattern, IrExpression? Guard, IrExpression Value);
 
+    /// <summary>
+    /// The value every arm of the cascade tests. csc reads it either through a
+    /// once-bound temp (<c>StoreLocal SV = place</c>; arms test <c>LoadLocal
+    /// SV</c>) or directly from a re-evaluable place (arms test the
+    /// <c>LoadArgument</c>/<c>LoadLocal</c> itself). <see cref="Matches"/> is the
+    /// single identity check both arm intros use, so temp and direct cascades
+    /// share one recognizer.
+    /// </summary>
+    readonly struct Scrutinee(int? tempLocal, IrExpression place)
+    {
+        public int? TempLocal { get; } = tempLocal;
+        public IrExpression Place { get; } = place;
+
+        public bool Matches(IrExpression? operand)
+            => TempLocal is { } t
+                ? operand is LoadLocal load && load.Index == t
+                : PlaceIdentity.SameOperand(operand, Place);
+    }
+
     public void Run(IrFunction function, PassContext context)
     {
         foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
@@ -49,87 +68,120 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         switchExpression = null;
 
         var children = block.Children;
-        if (children.Count < 3)
+        // Smallest cascade: one arm plus the default tail (inline form is
+        // `if (place is T x) { ... } return <default>`).
+        if (children.Count < 2)
             return false;
 
-        // Locate the switch-value binding: `StoreLocal SV = <re-evaluable place>`
-        // immediately followed by the first arm's `StoreLocal Lk = isinst Tk(LoadLocal SV)`.
-        for (int i = 0; i < children.Count - 2; i++)
+        for (int i = 0; i < children.Count - 1; i++)
         {
-            if (children[i] is not StoreLocal { Value: { } svValue } svStore)
-                continue;
-            if (!IsReEvaluablePlace(svValue))
-                continue;
-            if (!IsArmIntro(children[i + 1], svStore.Index, out _, out _, out _))
-                continue;
-
-            int svLocal = svStore.Index;
-            // The cascade region runs from the first arm intro to the end of the
-            // block. Each arm's matched body trails its dispatch test as sibling
-            // statements, and the no-match remainder (further arms, ultimately the
-            // default) nests inside that test's `then` branch.
-            var region = children.Skip(i + 1).ToList();
-            // The default is the value the innermost no-match path returns; it is
-            // discovered from the bottom of the dispatch chain, then every other
-            // no-match and guard-fail path is validated to yield the same value.
-            if (!TryDiscoverDefault(region, svLocal, out var defaultValue) || defaultValue is null)
-                continue;
-
-            var arms = new List<ArmData>();
-            if (!TryParseChain(region, 0, svLocal, defaultValue, arms) || arms.Count == 0)
-                continue;
-
-            // Consumed nodes: the switch-value store plus the entire cascade region.
-            var consumed = new List<IrNode> { svStore };
-            consumed.AddRange(children.Skip(i + 1));
-
-            // The switch-value temp must be read only inside the consumed cascade.
-            if (!ReferenceOwnership.LocalReferencesOnlyWithin(function, svLocal, consumed))
-                continue;
-
-            // Each pattern-bound local must be referenced only inside the cascade.
-            bool ownershipHolds = true;
-            foreach (var arm in arms)
+            // Temp form: `StoreLocal SV = <re-evaluable place>` bound once, then
+            // arms testing `LoadLocal SV`. The cascade region runs from the first
+            // arm (children[i + 1]) to the end of the block; the switch-value
+            // store is consumed alongside it.
+            if (children[i] is StoreLocal { Value: { } svValue } svStore
+                && IsReEvaluablePlace(svValue)
+                && TestsScrutinee(children[i + 1], new Scrutinee(svStore.Index, svValue)))
             {
-                foreach (int local in PatternLocals(arm))
+                var scrutinee = new Scrutinee(svStore.Index, svValue);
+                if (TryFold(function, children, i + 1, scrutinee, svValue, new IrNode[] { svStore }, minArms: 1, out switchExpression))
                 {
-                    if (!ReferenceOwnership.LocalReferencedOrBoundOnlyWithin(function, local, consumed))
-                    {
-                        ownershipHolds = false;
-                        break;
-                    }
+                    startIndex = i;
+                    return true;
                 }
-                if (!ownershipHolds)
-                    break;
             }
-            if (!ownershipHolds)
-                continue;
 
-            var builtArms = arms.Select(a => new PatternSwitchExpressionArm(
-                a.PatternType,
-                a.LocalIndex,
-                a.Subpattern,
-                (IrExpression)a.Value.Clone(),
-                a.Guard is { } g ? (IrExpression)g.Clone() : null)).ToList();
-
-            switchExpression = new PatternSwitchExpression(
-                (IrExpression)svValue.Clone(),
-                builtArms,
-                (IrExpression)defaultValue.Clone());
-            startIndex = i;
-            return true;
+            // Direct form: no temp; the leading arm is an intro-chain arm reading
+            // a re-evaluable place directly (`Lk = place as T; if (!Lk) { REST }
+            // MATCHED`), and later arms may be inline-positive siblings. Temp form
+            // is tried first at each index, so a genuine temp cascade is consumed
+            // there (with its `StoreLocal SV`). A single-arm direct cascade is left
+            // alone: it is indistinguishable from an ordinary `if (place is T t)`
+            // guard, which IsPatternPass already renders idiomatically.
+            if (TryScrutineeFromDirectArm(children[i], out var directScrutinee)
+                && !IsScrutineeStoredBefore(children, i, directScrutinee)
+                && TryFold(function, children, i, directScrutinee, directScrutinee.Place, System.Array.Empty<IrNode>(), minArms: 2, out switchExpression))
+            {
+                startIndex = i;
+                return true;
+            }
         }
 
         return false;
     }
 
+    // Attempts to fold the cascade region `children[regionStart..]` into a switch
+    // expression over `switchValue`. `headConsumed` are nodes before the region
+    // that the fold also consumes (the switch-value temp store, for the temp
+    // form). Discovers the default, parses the arm chain, and enforces that the
+    // scrutinee temp and every pattern-bound local are referenced only inside the
+    // consumed cascade before building the expression.
+    bool TryFold(
+        IrFunction function,
+        IReadOnlyList<IrNode> children,
+        int regionStart,
+        Scrutinee scrutinee,
+        IrExpression switchValue,
+        IReadOnlyList<IrNode> headConsumed,
+        int minArms,
+        out PatternSwitchExpression? switchExpression)
+    {
+        switchExpression = null;
+
+        var region = children.Skip(regionStart).ToList();
+        // The default is the value the innermost no-match path returns; it is
+        // discovered from the bottom of the cascade, then every other no-match and
+        // guard-fail path is validated to yield the same value.
+        if (!TryDiscoverDefault(region, 0, scrutinee, out var defaultValue) || defaultValue is null)
+            return false;
+
+        var arms = new List<ArmData>();
+        if (!TryParseChain(region, 0, scrutinee, defaultValue, arms) || arms.Count < minArms)
+            return false;
+
+        var consumed = new List<IrNode>(headConsumed);
+        consumed.AddRange(region);
+
+        // A temp scrutinee must be read only inside the consumed cascade.
+        if (scrutinee.TempLocal is { } tempLocal
+            && !ReferenceOwnership.LocalReferencesOnlyWithin(function, tempLocal, consumed))
+            return false;
+
+        // Each pattern-bound local must be referenced only inside the cascade.
+        foreach (var arm in arms)
+        {
+            foreach (int local in PatternLocals(arm))
+            {
+                if (!ReferenceOwnership.LocalReferencedOrBoundOnlyWithin(function, local, consumed))
+                    return false;
+            }
+        }
+
+        var builtArms = arms.Select(a => new PatternSwitchExpressionArm(
+            a.PatternType,
+            a.LocalIndex,
+            a.Subpattern,
+            (IrExpression)a.Value.Clone(),
+            a.Guard is { } g ? (IrExpression)g.Clone() : null)).ToList();
+
+        switchExpression = new PatternSwitchExpression(
+            (IrExpression)switchValue.Clone(),
+            builtArms,
+            (IrExpression)defaultValue.Clone());
+        return true;
+    }
+
     // A chain of arms whose collective no-match fall-through reaches the default.
-    // Post-lowering, each arm is `intro Lk = isinst Tk(SV); if (!Lk) { REST }
-    // MATCHED` where MATCHED (this arm's guard + value) trails the dispatch test
-    // as sibling statements, and REST (the remaining arms, ultimately a bare
-    // `return <default>`) nests inside the test's `then` branch. The dispatch
-    // test carries no `else`: its `then` always returns, so csc drops it.
-    bool TryParseChain(IReadOnlyList<IrNode> stmts, int index, int svLocal, IrExpression defaultValue, List<ArmData> arms)
+    // Two arm shapes are recognized and may be mixed:
+    //   * Intro-chain arm: `intro Lk = isinst Tk(SV); if (!Lk) { REST } MATCHED`
+    //     where MATCHED (this arm's guard + value) trails the dispatch test as
+    //     sibling statements and REST (the remaining arms, ultimately a bare
+    //     `return <default>`) nests inside the test's `then` branch. The dispatch
+    //     test carries no `else`: its `then` always returns, so csc drops it.
+    //   * Inline-positive arm: `if (SV is Tk x) { MATCHED }` whose no-match falls
+    //     straight through to the following sibling statement (the next arm, or the
+    //     bare `return <default>`).
+    bool TryParseChain(IReadOnlyList<IrNode> stmts, int index, Scrutinee scrutinee, IrExpression defaultValue, List<ArmData> arms)
     {
         if (index >= stmts.Count)
             return false;
@@ -138,7 +190,21 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         if (index == stmts.Count - 1 && stmts[index] is Return { Value: { } tailValue } && DefaultEquals(tailValue, defaultValue))
             return true;
 
-        if (!IsArmIntro(stmts[index], svLocal, out int patternLocal, out var patternType, out _))
+        // Inline-positive arm: the matched body lives in the `then` block and the
+        // remaining arms follow as siblings after the `if`.
+        if (IsInlineArm(stmts[index], scrutinee, out int inlineLocal, out var inlineType, out var inlineBody))
+        {
+            if (!TryParseGuardedValue(inlineBody.Children, 0, defaultValue, out var inlineGuard, out var inlineValue, out int inlineConsumed)
+                || !ReachesDefaultTail(inlineBody.Children, inlineConsumed, defaultValue))
+                return false;
+            int? inlineIndex = ReferencesLocalIn(inlineGuard, inlineLocal) || ReferenceOwnership.SubtreeReferencesLocal(inlineValue, inlineLocal)
+                ? inlineLocal
+                : null;
+            arms.Add(new ArmData(inlineType, inlineIndex, Subpattern: null, inlineGuard, inlineValue));
+            return TryParseChain(stmts, index + 1, scrutinee, defaultValue, arms);
+        }
+
+        if (!IsArmIntro(stmts[index], scrutinee, out int patternLocal, out var patternType, out _))
             return false;
         if (index + 1 >= stmts.Count || stmts[index + 1] is not IfStatement { HasElse: false } dispatch)
             return false;
@@ -155,33 +221,49 @@ public sealed class PatternSwitchExpressionPass : IIrPass
 
         arms.Add(arm);
         // REST: the remaining arms (or the bare default) nest in the `then` branch.
-        return TryParseChain(dispatch.Then.Children, 0, svLocal, defaultValue, arms);
+        return TryParseChain(dispatch.Then.Children, 0, scrutinee, defaultValue, arms);
     }
 
-    // Walks the dispatch chain to its bottom to recover the default value: the
-    // value the innermost `if (!Llast) { return <default>; }` no-match path
-    // yields. Each level is `intro Lk = isinst Tk(SV); if (!Lk) { REST }`; when
-    // REST is a bare `return D`, D is the default; otherwise descend into REST.
-    bool TryDiscoverDefault(IReadOnlyList<IrNode> region, int svLocal, out IrExpression? defaultValue)
+    // Walks the cascade to its bottom to recover the default value: the value the
+    // innermost no-match path yields. An intro-chain arm's no-match nests in its
+    // dispatch `then` (descend into it); an inline-positive arm's no-match falls
+    // through to the following sibling (advance past it); the bottom is a bare
+    // trailing `return <default>`.
+    bool TryDiscoverDefault(IReadOnlyList<IrNode> stmts, int index, Scrutinee scrutinee, out IrExpression? defaultValue)
     {
         defaultValue = null;
-        var current = region;
-        // Bounded to the block's own statement budget so a malformed nest cannot loop.
-        for (int guard = 0; guard < 1024; guard++)
+        // Bounded to a generous statement budget so a malformed nest cannot loop.
+        for (int guard = 0; guard < 4096; guard++)
         {
-            if (current.Count < 2)
+            if (index >= stmts.Count)
                 return false;
-            if (!IsArmIntro(current[0], svLocal, out int local, out _, out _))
-                return false;
-            if (current[1] is not IfStatement { HasElse: false } dispatch || !IsNegatedLocalTest(dispatch.Condition, local))
-                return false;
-            var then = dispatch.Then.Children;
-            if (then is [Return { Value: { } value }])
+
+            // Bottom: a bare `return <default>` as the final statement.
+            if (index == stmts.Count - 1 && stmts[index] is Return { Value: { } tail })
             {
-                defaultValue = value;
+                defaultValue = tail;
                 return true;
             }
-            current = then;
+
+            // Inline-positive arm: no-match falls through to the next sibling.
+            if (IsInlineArm(stmts[index], scrutinee, out _, out _, out _))
+            {
+                index++;
+                continue;
+            }
+
+            // Intro-chain arm: no-match nests in the dispatch test's `then` branch.
+            if (IsArmIntro(stmts[index], scrutinee, out int local, out _, out _)
+                && index + 1 < stmts.Count
+                && stmts[index + 1] is IfStatement { HasElse: false } dispatch
+                && IsNegatedLocalTest(dispatch.Condition, local))
+            {
+                stmts = dispatch.Then.Children;
+                index = 0;
+                continue;
+            }
+
+            return false;
         }
         return false;
     }
@@ -294,17 +376,74 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         return false;
     }
 
-    static bool IsArmIntro(IrNode node, int svLocal, out int patternLocal, out TypeRef patternType, out IsInstance isInstance)
+    static bool IsArmIntro(IrNode node, Scrutinee scrutinee, out int patternLocal, out TypeRef patternType, out IsInstance isInstance)
     {
         patternLocal = -1;
         patternType = null!;
         isInstance = null!;
-        if (node is StoreLocal { Value: IsInstance { Operand: LoadLocal receiver } test } store && receiver.Index == svLocal)
+        if (node is StoreLocal { Value: IsInstance { Operand: { } operand } test } store && scrutinee.Matches(operand))
         {
             patternLocal = store.Index;
             patternType = test.Type;
             isInstance = test;
             return true;
+        }
+        return false;
+    }
+
+    // An inline-positive arm: `if (scrutinee is Tk x) { MATCHED }` with no `else`.
+    // The matched body is the `then` block; the no-match path falls through to the
+    // following sibling statement.
+    static bool IsInlineArm(IrNode node, Scrutinee scrutinee, out int patternLocal, out TypeRef patternType, out Block matchedBody)
+    {
+        patternLocal = -1;
+        patternType = null!;
+        matchedBody = null!;
+        if (node is IfStatement { HasElse: false, Condition: IsPattern { Type: { } type, LocalIndex: var local, Value: { } operand }, Then: { } then }
+            && scrutinee.Matches(operand))
+        {
+            patternLocal = local;
+            patternType = type;
+            matchedBody = then;
+            return true;
+        }
+        return false;
+    }
+
+    // True when `node` is the first arm of a cascade over `scrutinee` — either an
+    // intro-chain arm or an inline-positive arm. Used to confirm a temp store is
+    // actually followed by a matching cascade before attempting the fold.
+    static bool TestsScrutinee(IrNode node, Scrutinee scrutinee)
+        => IsArmIntro(node, scrutinee, out _, out _, out _)
+            || IsInlineArm(node, scrutinee, out _, out _, out _);
+
+    // Recovers a direct (temp-less) scrutinee from a leading intro-chain arm that
+    // reads a re-evaluable place directly (`Lk = place as T; if (!Lk) …`). The
+    // all-inline form (a leading `if (place is T x)`) is deliberately not anchored
+    // here: a bare inline `is` guard is idiomatically an `if`, not a switch, so
+    // only cascades whose head csc lowered to an intro-chain arm are raised.
+    static bool TryScrutineeFromDirectArm(IrNode node, out Scrutinee scrutinee)
+    {
+        scrutinee = default;
+        if (node is StoreLocal { Value: IsInstance { Operand: { } introOperand } } && IsReEvaluablePlace(introOperand))
+        {
+            scrutinee = new Scrutinee(null, introOperand);
+            return true;
+        }
+        return false;
+    }
+
+    // True when the direct scrutinee's place is a local written by an earlier
+    // sibling statement — i.e. a switch-value temp. Such cascades belong to the
+    // temp form (which consumes the store); the direct form must not steal them.
+    static bool IsScrutineeStoredBefore(IReadOnlyList<IrNode> children, int index, Scrutinee scrutinee)
+    {
+        if (scrutinee.Place is not LoadLocal local)
+            return false;
+        for (int j = 0; j < index; j++)
+        {
+            if (children[j] is StoreLocal store && store.Index == local.Index)
+                return true;
         }
         return false;
     }
