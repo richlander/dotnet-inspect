@@ -765,7 +765,7 @@ static class ReturnToSender
                 continue;
             }
 
-            if (TryFindEventAccessor(reader, typeDef, target) is { } eventTarget)
+            if (TryFindEventAccessor(reader, typeDef, target, bodyPolicy == RoundTripBodyPolicy.Full) is { } eventTarget)
             {
                 results.Add(CompileBackEventAccessorOrContextFail(
                     assemblyPath,
@@ -938,7 +938,8 @@ static class ReturnToSender
     static (EventDefinitionHandle Event, MethodDefinitionHandle Accessor)? TryFindEventAccessor(
         MetadataReader reader,
         TypeDefinition typeDef,
-        RequestedTarget target)
+        RequestedTarget target,
+        bool includePlainEventAccessors)
     {
         var accessorToEvent = new Dictionary<MethodDefinitionHandle, EventDefinitionHandle>();
         foreach (var eventHandle in typeDef.GetEvents())
@@ -950,9 +951,15 @@ static class ReturnToSender
                 accessorToEvent[accessors.Remover] = eventHandle;
         }
 
+        // Explicit-interface event accessors always route through ComposeEventAccessor.
+        // A plain (non-explicit-interface) event accessor is method-routed by default so the
+        // Selected A/B path keeps its single-accessor shape (and the corpus baseline is stable);
+        // it only routes through ComposeEventAccessor under Full, where a coherent
+        // `event { add remove }` type surface is required to avoid a CS0082 collision between the
+        // standalone accessor method and the re-declared event's synthesized accessor (#3007).
         if (TryFindMethod(reader, typeDef, target) is { } accessorHandle
             && accessorToEvent.TryGetValue(accessorHandle, out var foundEventHandle)
-            && IsExplicitInterfaceEventAccessor(reader, typeDef, accessorHandle))
+            && (includePlainEventAccessors || IsExplicitInterfaceEventAccessor(reader, typeDef, accessorHandle)))
         {
             return (foundEventHandle, accessorHandle);
         }

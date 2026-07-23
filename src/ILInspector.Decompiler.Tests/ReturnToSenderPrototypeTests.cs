@@ -782,14 +782,15 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_FullEventAccessorTargetSurfacesRecompileFailure()
+    public void CompileBackTargets_FullReconstructsPlainEventAccessorTarget()
     {
-        // Issue #3000: a plain (non-explicit-interface) event accessor target is method-routed, so
-        // under Full policy the reconstructed type surface re-declares the event, whose synthesized
-        // accessor collides (CS0082) with the standalone target method. The Full closure fails to
-        // recompile and falls back to the compile-back floor. This must be reported honestly:
-        // BodyComplete is false (the Full reconstruction did not compile), not masked as Complete.
-        // Coherent Full reconstruction of plain event-accessor targets is a separate follow-up.
+        // Issue #3007 (follow-up to #3000/#3008): a plain (non-explicit-interface) event accessor
+        // target under Full policy reconstructs a coherent single `event { add remove }` carrying
+        // both real accessor bodies, rather than a standalone accessor method that collides
+        // (CS0082) with the re-declared event's compiler-synthesized accessor. Routing the plain
+        // accessor through ComposeEventAccessor with the full member surface folds the sibling
+        // accessor into the event and represents the constructor, so every concrete declaration is
+        // accounted for and BodyComplete is honestly true.
         var assemblyPath = CompileFixture("""
             using System;
 
@@ -811,10 +812,42 @@ public class ReturnToSenderPrototypeTests
                 RoundTripScope.All,
                 RoundTripBodyPolicy.Full));
 
-            Assert.True(result.UsedCompileBackFloor, result.Detail);
-            Assert.False(
+            Assert.True(
                 result.BodyComplete,
                 string.Join(Environment.NewLine, result.FullBodies.Select(body => $"{body.Member}: {body.Status}: {body.Failure}")));
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+
+            var adder = Assert.Single(result.FullBodies, body => body.Member == "Holder.add_Changed");
+            var remover = Assert.Single(result.FullBodies, body => body.Member == "Holder.remove_Changed");
+            Assert.Equal(MemberBodyProductionStatus.Complete, adder.Status);
+            Assert.Equal(MemberBodyProductionStatus.Complete, remover.Status);
+            // The parameterless constructor is a concrete declaration on the target type; the full
+            // member surface represents it so it is not flagged unrepresented (which would drop
+            // BodyComplete back to the honest-floor state that preceded issue #3007).
+            Assert.Contains(
+                result.FullBodies,
+                body => body.Member == "Holder..ctor" && body.Status == MemberBodyProductionStatus.Complete);
+
+            // A single coherent event declaration with both real bodies and no standalone accessor
+            // method (the standalone method + re-declared event is exactly the CS0082 shape #3007
+            // eliminates).
+            Assert.Contains("public event Action Changed", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("void add_Changed", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("void remove_Changed", result.Source, StringComparison.Ordinal);
+            Assert.Contains("Delegate.Combine", result.Source, StringComparison.Ordinal);
+            Assert.Contains("Delegate.Remove", result.Source, StringComparison.Ordinal);
+
+            Assert.NotNull(result.DonorPe);
+            Assert.NotNull(result.Comparison);
+            Assert.Equal(RoundTripComparisonStatus.Completed, result.Comparison.Status);
+            Assert.Contains(result.Comparison.Members, member =>
+                member.Target.Method == adder.Method
+                && member.CSharpStatus != RoundTripEvidenceStatus.Unavailable
+                && member.IlStatus != IlBodyDiffOutcome.Unavailable);
+            Assert.Contains(result.Comparison.Members, member =>
+                member.Target.Method == remover.Method
+                && member.CSharpStatus != RoundTripEvidenceStatus.Unavailable
+                && member.IlStatus != IlBodyDiffOutcome.Unavailable);
         }
         finally
         {
