@@ -12,6 +12,253 @@ namespace ILInspector.Decompiler.Tests;
 // cast the integer to the enum structurally.
 public class EnumCastPrinterTests
 {
+    // #3011: an enum-typed value shifted has no predefined C# shift operator
+    // (CS0019); the printer reinterprets the enum left operand to its underlying
+    // integer so the shift type-checks and the shr/shr.un opcode round-trips.
+    [Fact]
+    public void EnumRightShift_LongBackedEnum_CastsLeftOperandToUnderlying()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.LongEnumRightShift));
+
+        Assert.Contains("(long)flags >>", body);
+        Assert.DoesNotContain(" flags >>", body);
+        // #3011 (review): the shift-count width mask is keyed off the enum backing
+        // (63 for the 8-byte underlying), so it strips instead of double-masking.
+        Assert.DoesNotContain("& 63", body);
+        AssertCompiles("public static long M(CfgLongPriority flags, int n)", body, "public enum CfgLongPriority : long { Low = 0, High = 2 }");
+    }
+
+    [Fact]
+    public void EnumLeftShift_LongBackedEnum_CastsLeftOperandToUnderlying()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.LongEnumLeftShift));
+
+        Assert.Contains("(long)flags <<", body);
+        AssertCompiles("public static long M(CfgLongPriority flags, int n)", body, "public enum CfgLongPriority : long { Low = 0, High = 2 }");
+    }
+
+    [Fact]
+    public void EnumRightShiftToInt_LongBackedEnum_MirrorsWitness()
+    {
+        // The reported MySqlConnector shape: `(int)((long)clientCapabilities >> 32)`.
+        string body = RenderFixture(nameof(EnumCastSamples.LongEnumRightShiftToInt));
+
+        Assert.Contains("(long)flags >> 32", body);
+        AssertCompiles("public static int M(CfgLongPriority flags)", body, "public enum CfgLongPriority : long { Low = 0, High = 2 }");
+    }
+
+    [Fact]
+    public void EnumRightShift_ULongBackedEnum_KeepsUnsignedShiftFaithful()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ULongEnumRightShift));
+
+        Assert.Contains("(ulong)flags >>", body);
+        AssertCompiles("public static ulong M(CfgULong flags, int n)", body, "public enum CfgULong : ulong { None = 0, All = 18446744073709551615UL }");
+    }
+
+    [Fact]
+    public void EnumRightShift_UIntBackedEnum_KeepsUnsignedShiftFaithful()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.UIntEnumRightShift));
+
+        Assert.Contains("(uint)flags >>", body);
+        AssertCompiles("public static uint M(CfgFlags flags, int n)", body, "public enum CfgFlags : uint { None = 0, Top = 0x80000000u }");
+    }
+
+    [Fact]
+    public void EnumRightShift_IntBackedEnum_CastsToUnderlying()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.IntEnumRightShift));
+
+        Assert.Contains("(int)flags >>", body);
+        Assert.DoesNotContain(" flags >>", body);
+        // The 4-byte backing masks the count by 31; keyed off the underlying it
+        // strips rather than re-spelling `n & 31` (which double-masks on recompile).
+        Assert.DoesNotContain("& 31", body);
+        AssertCompiles("public static int M(CfgPriority flags, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // The shift opcode's signedness, not the enum backing's, drives the cast: a
+    // same-width signedness reinterpret in the source leaves no IL trace, so the
+    // enum backing is a misleading signedness signal. shr.un on an int-backed enum
+    // must render `(uint)`, and shr on a uint-backed enum must render `(int)`,
+    // else the recompiled shift flips opcode and silently changes the result.
+    [Fact]
+    public void EnumRightShift_IntBackedButUnsignedOpcode_CastsToUnsigned()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.IntEnumUnsignedRightShift));
+
+        Assert.Contains("(uint)flags >>", body);
+        Assert.DoesNotContain("(int)flags >>", body);
+        AssertCompiles("public static uint M(CfgPriority flags, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    [Fact]
+    public void EnumRightShift_UIntBackedButSignedOpcode_CastsToSigned()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.UIntEnumSignedRightShift));
+
+        Assert.Contains("(int)flags >>", body);
+        Assert.DoesNotContain("(uint)flags >>", body);
+        AssertCompiles("public static int M(CfgFlags flags, int n)", body, "public enum CfgFlags : uint { None = 0, Top = 0x80000000u }");
+    }
+
+    // A compound shift on an enum lvalue (`flags <<= n`) is CS0019 just like the
+    // expression form: C# has no compound shift operator on an enum. The printer
+    // decomposes it to a plain assignment that reinterprets the enum and casts the
+    // shift result back — `flags = (CfgPriority)((int)flags << n)`.
+    [Fact]
+    public void EnumCompoundLeftShift_IntBackedEnum_DecomposesToCastBackAssignment()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.IntEnumCompoundLeftShift));
+
+        Assert.Contains("flags = (CfgPriority)((int)flags <<", body);
+        Assert.DoesNotContain("flags <<=", body);
+        Assert.DoesNotContain("& 31", body);
+        AssertCompiles("public static CfgPriority M(CfgPriority flags, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // The decomposed compound's left-operand cast follows the shift opcode: an
+    // int-backed enum shifted as shr.un must reinterpret to `(uint)`, not `(int)`.
+    [Fact]
+    public void EnumCompoundRightShift_IntBackedButUnsignedOpcode_CastsToUnsigned()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.IntEnumCompoundUnsignedRightShift));
+
+        Assert.Contains("flags = (CfgPriority)((uint)flags >>", body);
+        Assert.DoesNotContain("flags >>=", body);
+        Assert.DoesNotContain("(int)flags >>", body);
+        AssertCompiles("public static CfgPriority M(CfgPriority flags, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // #3011 (review): a typed `ldelem.i4`/`ldind.i4` over an enum array or by-ref
+    // masks the operand's stack type as the primitive storage width, but the
+    // rendered `values[i]`/`e` is enum-typed and still rejects a bare shift. The
+    // printer recovers the enum from the array element / pointee type and forces
+    // the reinterpret cast (which `CoerceText` would drop as an int→int identity).
+    [Fact]
+    public void EnumArrayRightShift_IntBackedEnum_CastsElementToUnderlying()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.IntEnumArrayRightShift));
+
+        Assert.Contains("(int)values[i] >>", body);
+        Assert.DoesNotContain(" values[i] >>", body);
+        Assert.DoesNotContain("& 31", body);
+        AssertCompiles("public static int M(CfgPriority[] values, int i, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    [Fact]
+    public void EnumArrayLeftShift_IntBackedEnum_CastsElementToUnderlying()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.IntEnumArrayLeftShift));
+
+        Assert.Contains("(int)values[i] <<", body);
+        Assert.DoesNotContain(" values[i] <<", body);
+        AssertCompiles("public static int M(CfgPriority[] values, int i, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // Width recovery for the array element: a long-backed enum array casts to long
+    // and strips the 6-bit (& 63) count mask, not the 5-bit int mask.
+    [Fact]
+    public void EnumArrayRightShift_LongBackedEnum_CastsElementToUnderlying()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.LongEnumArrayRightShift));
+
+        Assert.Contains("(long)values[i] >>", body);
+        Assert.DoesNotContain("& 63", body);
+        AssertCompiles("public static long M(CfgLongPriority[] values, int i, int n)", body, "public enum CfgLongPriority : long { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // Signedness still follows the opcode for the recovered element cast: shr.un on
+    // an int-backed enum array reinterprets to `(uint)`, not the backing's `(int)`.
+    [Fact]
+    public void EnumArrayRightShift_IntBackedButUnsignedOpcode_CastsElementToUnsigned()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.IntEnumArrayUnsignedRightShift));
+
+        Assert.Contains("(uint)values[i] >>", body);
+        Assert.DoesNotContain("(int)values[i] >>", body);
+        AssertCompiles("public static uint M(CfgPriority[] values, int i, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // The by-ref sibling: a `ref` enum loaded through `ldind.i4` is masked as the
+    // primitive too, so the pointee-recovered cast reinterprets `e`.
+    [Fact]
+    public void RefEnumLeftShift_IntBackedEnum_CastsPointeeToUnderlying()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.RefIntEnumLeftShift));
+
+        Assert.Contains("(int)", body);
+        Assert.Contains("<<", body);
+        Assert.DoesNotContain(" e <<", body);
+        AssertCompiles("public static int M(ref CfgPriority e, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // A sub-int (byte) backing promotes to int in a C# shift; the reinterpret
+    // targets the 4-byte width the shift runs on. Synthetic to keep the enum load
+    // a bare operand (a compiled `(byte)` narrowing could add a conv node).
+    [Fact]
+    public void EnumLeftShift_ByteBackedEnum_CastsToShiftWidth()
+    {
+        var enumType = TypeRef.Definition("test", "", "CfgTiny");
+        var byteType = TypeRef.CoreLib("System", "Byte");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var shift = new Binary(
+            BinaryKind.ShiftLeft,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "flags", enumType),
+            new LoadArgument(1, "n", intType));
+        var block = new Block(0);
+        block.Add(new Return(shift));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(
+            intType,
+            [new Parameter("flags", enumType), new Parameter("n", intType)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("test", "", "Holder"), signature, [], container)
+        {
+            TypeShapes = new Dictionary<TypeRef, TypeShape> { [enumType] = TypeShape.Enum },
+            EnumUnderlyingTypes = new Dictionary<TypeRef, TypeRef> { [enumType] = byteType },
+        };
+
+        string body = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains("(int)flags << n", body);
+        AssertCompiles("public static int M(CfgTiny flags, int n)", body, "public enum CfgTiny : byte { A = 1, B = 2 }");
+    }
+
+    // Close negative: a plain (non-enum) integer shift keeps its bare operands —
+    // the enum branch must not perturb ordinary shifts.
+    [Fact]
+    public void IntegerShift_NonEnum_KeepsBareOperands()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var shift = new Binary(
+            BinaryKind.ShiftRight,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "x", intType),
+            new LoadArgument(1, "n", intType));
+        var block = new Block(0);
+        block.Add(new Return(shift));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(
+            intType,
+            [new Parameter("x", intType), new Parameter("n", intType)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("test", "", "Holder"), signature, [], container);
+
+        string body = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains("x >> n", body);
+        Assert.DoesNotContain("(int)x", body);
+    }
+
     [Fact]
     public void EnumConstantConditionalArms_IntoCrossAssemblyEnum_CastsEachArm()
     {

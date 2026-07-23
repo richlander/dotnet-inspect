@@ -345,6 +345,70 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
+    /// Reinterprets an enum-typed shift left operand to an integer so a C# shift
+    /// type-checks (an enum has no predefined <c>&lt;&lt;</c>/<c>&gt;&gt;</c>,
+    /// CS0019), or null when the operand is not a resolvable enum and the caller
+    /// keeps its own spelling. The IL loaded the enum's underlying integer onto the
+    /// stack and shifted that, so the reinterpret is a no-op. The opcode's own
+    /// signedness (<paramref name="isUnsigned"/> — <c>shr.un</c> vs <c>shr</c>) is
+    /// authoritative, not the enum backing's: the source may have reinterpreted the
+    /// enum to the opposite-signedness same-width integer (<c>(uint)intEnum &gt;&gt; n</c>),
+    /// an IL no-op that leaves no trace, so the shift opcode is the only faithful
+    /// record of its signedness. Width comes from the backing — a width change would
+    /// leave a <c>conv</c> in the IL and the operand would not be a bare enum.
+    /// <para>
+    /// The enum type comes from the rendered spelling, not the stack
+    /// <c>ResultType</c>: a typed <c>ldelem.i4</c>/<c>ldind.i4</c> over an enum array
+    /// or by-ref masks the operand as its primitive storage width, yet the rendered
+    /// expression (<c>values[i]</c>, <c>e</c>) is still enum-typed and rejects a bare
+    /// shift. When the operand's own <c>ResultType</c> is the enum, the cast runs
+    /// through <see cref="CoerceText"/> (the one enum→integer door, shared with the
+    /// enum div/rem operands). When it is the masked primitive, CoerceText would see
+    /// an int→int identity and drop the cast, so the reinterpret is spelled directly
+    /// — with the same <c>checked</c>-region <c>unchecked</c> guard for a
+    /// sign-flipping cast. A cross-assembly enum whose backing width is unknown has
+    /// no underlying type and is left alone.
+    /// </para>
+    /// </summary>
+    string? ShiftEnumLeftOperand(IrExpression operand, bool isUnsigned)
+    {
+        if (ShiftLeftEnumType(operand) is not { } enumType
+            || EnumUnderlyingType(enumType) is not { } underlying)
+        {
+            return null;
+        }
+        var target = Is8ByteInteger(underlying)
+            ? (isUnsigned ? TypeRef.CoreLib("System", "UInt64") : TypeRef.CoreLib("System", "Int64"))
+            : (isUnsigned ? TypeRef.CoreLib("System", "UInt32") : TypeRef.CoreLib("System", "Int32"));
+        if (EnumUnderlyingType(operand.ResultType) is not null)
+            return CoerceText(operand, target);
+        return CSharpConversionRules.CheckedConversionCanThrow(underlying, target)
+            ? CheckedSafeCast(() => $"({TypeText(target)}){Operand(operand)}")
+            : $"({TypeText(target)}){Operand(operand)}";
+    }
+
+    /// <summary>
+    /// The enum type a shift's left operand renders as, or null when it is not a
+    /// resolvable enum. A bare load carries the enum in its <c>ResultType</c>; a
+    /// typed <c>ldelem</c>/<c>ldind</c> masks it as the primitive storage width, so
+    /// recover the enum from the array element or by-ref/pointer pointee type — the
+    /// type the operand is actually spelled with (mirrors <see cref="WideIndexOperandType"/>).
+    /// </summary>
+    TypeRef? ShiftLeftEnumType(IrExpression operand)
+    {
+        if (EnumUnderlyingType(operand.ResultType) is not null)
+            return operand.ResultType;
+        return operand switch
+        {
+            LoadElement { Array.ResultType: { Kind: TypeRefKind.SzArray or TypeRefKind.Array, ElementType: { } element } }
+                when EnumUnderlyingType(element) is not null => element,
+            LoadIndirect load when WideIndexPointee(load.Address) is { } pointee
+                && EnumUnderlyingType(pointee) is not null => pointee,
+            _ => null,
+        };
+    }
+
+    /// <summary>
     /// Casts an integer operand to the enum type it is compared or combined with
     /// — <c>(MethodAttributes)access</c> — so an enum-vs-integer comparison or
     /// bitwise op type-checks (CS0019). The cast reinterprets the integer bits
@@ -542,12 +606,18 @@ public sealed partial class CSharpPrinter
             && IsIntegerConstantExpression(binary)
             && IsUnsignedFixedWidthInteger(EffectiveType(binary))
             && !mixedSign;
+        bool isShift = binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight;
         var demand = CSharpPrecedence.Of(binary);
-        string left = mixedSign ? BitwiseUnsignedOperand(binary.Left, wrapConstantCast: !covered)
+        // C# has no shift operator for an enum operand (CS0019), though the IL
+        // shifts the enum's underlying integer directly. Reinterpret the enum
+        // left operand to that integer — `(long)flags >> 32` — so the shift
+        // type-checks; the cast's signedness follows the shift opcode (shr/shr.un),
+        // not the enum backing, so it round-trips opcode-exact. (Count is int.)
+        string left = isShift && ShiftEnumLeftOperand(binary.Left, binary.IsUnsigned) is { } shiftedEnum ? shiftedEnum
+            : mixedSign ? BitwiseUnsignedOperand(binary.Left, wrapConstantCast: !covered)
             : castLeft ? UnsignedOperand(binary.Left)
             : preserveUnsignedConstants ? UnsignedConstantArithmeticOperand(binary.Left, EffectiveType(binary))
             : BinaryOperand(binary.Left, demand, rightSide: false);
-        bool isShift = binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight;
         string right = isShift ? ShiftCount(binary)
             : mixedSign ? BitwiseUnsignedOperand(binary.Right, wrapConstantCast: !covered)
             : castBoth ? UnsignedOperand(binary.Right)
@@ -954,10 +1024,19 @@ public sealed partial class CSharpPrinter
     string ShiftCount(Binary shift)
     {
         if (shift.Right is Binary { Kind: BinaryKind.And, Right: Constant { Value: int mask } } masked
-            && ShiftWidthMask(EffectiveType(shift.Left)) is { } width && mask == width)
+            && ShiftWidthMask(ShiftWidthType(shift.Left)) is { } width && mask == width)
             return IntShiftCount(masked.Left);
         return IntShiftCount(shift.Right);
     }
+
+    // The integer width a shift runs on. An enum left operand shifts its underlying
+    // integer (the enum has no primitive stack family of its own), so the count's
+    // implicit width mask — 31 for a 4-byte backing, 63 for an 8-byte one — is the
+    // backing's, not the enum's. Resolve to that backing so ShiftCount strips the
+    // compiler-baked mask instead of re-spelling it (which would double-mask on
+    // recompile). A non-enum operand keeps its own effective type.
+    TypeRef? ShiftWidthType(IrExpression operand)
+        => EnumUnderlyingType(operand.ResultType) ?? EffectiveType(operand);
 
     // C#'s shift operators take an `int` count; a `uint` or enum count is CS0019.
     // IL's shl/shr take an int32 count, so reinterpreting a uint or a 32-bit enum as
