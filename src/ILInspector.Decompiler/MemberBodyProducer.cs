@@ -1511,8 +1511,12 @@ public static class MemberBodyProducer
         if (usings.Count == 0)
             return result;
 
-        // dotnet/runtime style: using directives precede the namespace.
-        string directives = string.Join('\n', usings.Select(ns => $"using {ns};"));
+        // dotnet/runtime style: using directives precede the namespace. The
+        // harvested namespaces are raw metadata strings with no keyword escapes,
+        // so a segment that is a C# keyword (e.g. "event" in System.event.Models)
+        // must be @-escaped or the directive is invalid C# — the same escape the
+        // sibling CSharpTypePrinter applies to its own usings.
+        string directives = string.Join('\n', usings.Select(ns => $"using {CSharpFormatter.EscapeNamespace(ns)};"));
         return $"{directives}\n\n{result}";
     }
 

@@ -204,6 +204,23 @@ public sealed class MemberBodyProducerMemberRenderTests
         Assert.Contains(expectedFullPath, rendered.Text);
         Assert.DoesNotContain(corruptedForm, rendered.Text);
     }
+
+    [Fact]
+    public void Project_EscapesKeywordSegmentsInHoistedUsings()
+    {
+        var type = Specimen();
+        var listing = MemberBodyProducer.Project(type, AssemblyPath, pdbPath: null).Output;
+        Assert.NotNull(listing);
+
+        // A non-shadowed reference to a type in a keyword-segment namespace is
+        // shortened to the simple name, harvesting the namespace into a hoisted
+        // using. Metadata namespaces carry no escape, so a keyword segment must
+        // be @-escaped in the emitted directive or it is invalid C# (#3090).
+        Assert.Contains("using System.@event.Models;", listing);
+        Assert.Contains("using @event.Models;", listing);
+        Assert.DoesNotContain("using System.event.Models;", listing);
+        Assert.DoesNotContain("using event.Models;", listing);
+    }
 }
 
 #pragma warning disable CA1822 // members are instance to exercise real signatures
@@ -266,5 +283,19 @@ public sealed class MemberRenderSpecimen
     // declined, not corrupted to global::System.@TypeNameShadow (CS0234).
     public static int SystemEscapedAliasQualifiedShadow(int SystemNameShadow)
         => System.@event.Models.SystemNameShadow.M(SystemNameShadow);
+
+    // A non-shadowed reference to a type in the keyword-segment namespace
+    // System.@event.Models: the printer emits it plain (no global::) and the
+    // shortener shortens it to the simple name, harvesting the namespace into a
+    // hoisted using. The metadata namespace carries no escape, so the emitted
+    // directive must be @-escaped (using System.@event.Models;) or it is invalid
+    // C# (#3090).
+    public static int SystemEscapedPlain(int n)
+        => System.@event.Models.SystemNameShadow.M(n);
+
+    // Same, for a top-level keyword-segment namespace @event.Models — the
+    // hoisted directive must be @-escaped (using @event.Models;) (#3090).
+    public static int EscapedPlain(int n)
+        => @event.Models.TypeNameShadow.M(n);
 }
 #pragma warning restore CA1822
