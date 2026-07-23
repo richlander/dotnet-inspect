@@ -5164,6 +5164,78 @@ public static class EnumCastSamples
 
     public static int RefIntEnumLeftShift(ref CfgPriority e, int n) => (int)e << n;
 
+    // #3066 (follow-up to #3011/#3060): a shift on an enum defined in a REFERENCED
+    // assembly is CS0019 too, but EnsureTypeMaps (this assembly's type defs only)
+    // leaves it Unknown-shaped, so EnumUnderlyingType has no backing width. A bare
+    // enum load carries no storage-width hint, so the width is recovered from the
+    // compiler-baked shift-count mask (& 31 => 4-byte, & 63 => 8-byte) and the
+    // signedness from the opcode. ExternalLong/ExternalULong are 8-byte (mask 63),
+    // ExternalUInt is 4-byte (mask 31); the variable count `n` carries the mask.
+    public static long ExternalLongRightShift(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong e, int n) => (long)e >> n;
+
+    public static long ExternalLongLeftShift(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong e, int n) => (long)e << n;
+
+    public static ulong ExternalULongRightShift(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalULong e, int n) => (ulong)e >> n;
+
+    public static uint ExternalUIntRightShift(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalUInt e, int n) => (uint)e >> n;
+
+    // Opcode-wins mirror across the assembly boundary: a signed shr on a uint-backed
+    // referenced enum must reinterpret to `(int)`, not the backing's `(uint)`.
+    public static int ExternalUIntSignedRightShift(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalUInt e, int n) => (int)e >> n;
+
+    // The unsigned-opcode mirror on an 8-byte signed backing: shr.un must reinterpret
+    // to `(ulong)`, recovered as 8-byte from the mask, not the backing's `(long)`.
+    public static ulong ExternalLongUnsignedRightShift(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong e, int n) => (ulong)e >> n;
+
+    // The compound sibling: a compound shift on a referenced-enum lvalue decomposes
+    // to a plain cast-back assignment `e = (ExternalLong)((long)e << (n & 63))`.
+    public static ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong ExternalLongCompoundLeftShift(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong e, int n)
+    {
+        e = (ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong)((long)e << n);
+        return e;
+    }
+
+    // #3066 soundness: an inner USER mask does not fool width recovery. Roslyn
+    // always emits the implicit width mask (& 63 here) as the OUTERMOST mask
+    // feeding shr, with any user mask nested inside; so the outer & 63 names the
+    // 8-byte backing (stripped), and the user's `& 31` is preserved untouched.
+    public static long ExternalLongRightShiftInnerUserMask(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong e, int n) => (long)e >> (n & 31);
+
+    // #3066: the ref/array siblings of the direct cross-assembly enum shift. A
+    // typed ldelem/ldind masks the referenced enum as its primitive backing width in
+    // the operand ResultType, so recognition must consult the array element / by-ref
+    // pointee type (IsEnumLikeShiftOperand) — otherwise these render as a bare, uncast
+    // `e << n` / `a[i] << n` (CS0019) with the count mask stripped. Both the plain
+    // expression and the compound `<<=` decomposition are covered.
+    public static long ExternalLongRefLeftShift(ref ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong e, int n) => (long)e << n;
+    public static long ExternalLongArrayLeftShift(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong[] a, int i, int n) => (long)a[i] << n;
+    public static int ExternalUIntArrayRightShift(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalUInt[] a, int i, int n) => (int)a[i] >> n;
+    public static ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong ExternalLongArrayCompoundLeftShift(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong[] a, int i, int n)
+    {
+        a[i] = (ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong)((long)a[i] << n);
+        return a[i];
+    }
+
+    // #3066 x #3011 merge interaction: a cross-assembly enum shift feeding a
+    // mixed-sign bitwise parent. The signed `shr` on the referenced 8-byte enum
+    // renders as `(long)e >> (n & 63)`; the `ulong` sibling makes the `|` mixed-sign,
+    // so the shift must reinterpret to the sibling's width — `(ulong)((long)e >> …)` —
+    // for the op to bind (CS0019 otherwise). The rendered-integer WIDTH is recovered
+    // from the count mask (ShiftRenderedIntegerType), the same unresolved-backing
+    // path as the bare operand; without it the parent reconciliation declines.
+    public static ulong ExternalLongSignedShiftOrUnsigned(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong e, int n, ulong x) => (ulong)((long)e >> n) | x;
+
+    // The int/uint-backed mirror across the assembly boundary: a signed `shr` on a
+    // referenced 4-byte enum reconciled against a `uint` sibling reinterprets to
+    // `(uint)`, width recovered from the `& 31` count mask.
+    public static uint ExternalUIntSignedShiftOrUnsigned(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalUInt e, int n, uint x) => (uint)((int)e >> n) | x;
+
+    // The int->enum sink mirror: a cross-assembly enum shift RETURNED to the
+    // referenced enum renders as its underlying integer, so the sink needs an outer
+    // `(ExternalLong)` cast (CS0266). The rendered integer type — recovered from the
+    // count mask — drives the enum-spellability test that wraps the shift.
+    public static ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong ExternalLongShiftReturn(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong e, int n) => (ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong)((long)e >> n);
+
     // #3011 (review): an enum shift feeding a parent bitwise &/|/^ kept the shift
     // node's enum ResultType, so the printer coerced the *sibling* integer to the
     // enum (`(int)e << n | (E)x`, CS0019). The shift renders as its underlying
