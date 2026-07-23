@@ -449,6 +449,51 @@ public class EnumCastPrinterTests
         AssertCompiles("public static bool M(CfgTiny e, int n, CfgTiny other)", body, "public enum CfgTiny : byte { A = 1, B = 2 }");
     }
 
+    // #3087 follow-up (adversarial review R3, GPT): the unsigned ordering with a
+    // PLAIN INTEGER sibling. The shift still needs the unsigned reinterpret so the
+    // compare is `clt.un` — `(uint)((int)e << n) < (uint)other` — not the sign-
+    // widened `((int)e << n) < (uint)other` (`int < uint` promotes to a signed
+    // `long`) the stale-enum-ResultType fallthrough produced.
+    [Fact]
+    public void EnumShiftUnsignedOrdering_PlainIntSibling_ReinterpretsBothUnsigned()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumShiftUnsignedCompareIntSibling));
+
+        Assert.Contains("(uint)((int)e << n)", body);
+        Assert.Contains("< (uint)other", body);
+        AssertCompiles("public static bool M(CfgPriority e, int n, int other)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // #3087 follow-up (adversarial review R3, GPT): the 8-byte unsigned ordering
+    // with a plain `long` sibling. The fallthrough rendered `((long)e << n) <
+    // (ulong)other` (`long < ulong`, CS0034 — did not compile); both sides must
+    // reconcile to `ulong`.
+    [Fact]
+    public void EnumShiftUnsignedOrdering_PlainLongSibling_ReinterpretsBothUnsigned()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumShiftUnsignedCompareLongSibling));
+
+        Assert.Contains("(ulong)((long)e << n)", body);
+        Assert.Contains("< (ulong)other", body);
+        AssertCompiles("public static bool M(CfgLongPriority e, int n, long other)", body, "public enum CfgLongPriority : long { Low = 0, High = 2 }");
+    }
+
+    // #3087 follow-up (adversarial review R3, Gemini): a bitwise chain mixing an
+    // enum shift with a NARROW (ushort) integer, compared unsigned. IL promotes the
+    // short to Int32, so the chain is wide; the printer must reconcile both sides to
+    // `uint` — `(uint)((int)e << n | mask) < (uint)other` — not drop the casts
+    // (`((int)e << n | mask) < other`, CS0019 / silent signed compare).
+    [Fact]
+    public void EnumShiftUnsignedOrdering_NarrowBitwiseChain_ReinterpretsBothUnsigned()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumShiftNarrowChainUnsignedCompare));
+
+        Assert.Contains("(uint)((int)e << n | mask)", body);
+        Assert.Contains("< (uint)other", body);
+        Assert.DoesNotContain("(CfgTiny)", body);
+        AssertCompiles("public static bool M(CfgTiny e, int n, ushort mask, CfgTiny other)", body, "public enum CfgTiny : byte { A = 1, B = 2 }");
+    }
+
     // #3087 follow-up (adversarial review, GPT): a bitwise sibling MASKED as its
     // primitive by a typed ldelem — `values[i]` renders enum-typed though its
     // ResultType is the storage width, so it must still be coerced DOWN —

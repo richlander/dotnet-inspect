@@ -520,9 +520,19 @@ public sealed partial class CSharpPrinter
     TypeRef? ChainOperandRenderedInteger(IrExpression operand)
     {
         var rendered = BitwiseOperandRenderedType(operand);
-        return rendered is { } type && EnumUnderlyingType(type) is { } underlying
-            ? underlying
-            : rendered;
+        if (rendered is not { } type)
+            return null;
+        if (EnumUnderlyingType(type) is { } underlying)
+            type = underlying;
+        // A sub-int operand of an IL bitwise/shift op is promoted to Int32 on the
+        // evaluation stack (and C# promotes it identically), so a chain mixing an
+        // enum shift with a narrow integer — `(int)e << n | mask` (short) — still
+        // reconciles to a wide integer. Reporting the narrow width would make
+        // BitwiseChainRenderedType reject the chain and fall back to the stale enum
+        // ResultType, dropping the unsigned reinterpret an enclosing `clt.un` needs.
+        return TypeFamilies.IsInteger(type) && !IsWideInteger(type)
+            ? TypeRef.CoreLib("System", "Int32")
+            : type;
     }
 
     /// <summary>
@@ -689,8 +699,16 @@ public sealed partial class CSharpPrinter
         if (isUnsigned && ordering)
         {
             var unsignedTarget = TypeRef.CoreLib("System", Is8ByteInteger(renderedInteger) ? "UInt64" : "UInt32");
-            if (TryCoerceEnumToInteger(enumSide, unsignedTarget) is not { } unsignedSibling)
-                return null;
+            // The sibling reconciles to the same unsigned stack width. An enum
+            // sibling goes through TryCoerceEnumToInteger (bare/masked/overflow);
+            // any other integer sibling (a plain `int`/`uint`, or another integer-
+            // rendering shift) still needs the unsigned reinterpret so the compare
+            // is `clt.un`, not a sign-widened `int < uint` — the fallthrough
+            // UnsignedOperand omits it because it trusts the shift's stale enum
+            // ResultType. CoerceText is identity when the sibling is already the
+            // target width and sign.
+            string unsignedSibling = TryCoerceEnumToInteger(enumSide, unsignedTarget)
+                ?? CoerceText(enumSide, unsignedTarget);
             string unsignedShift = $"({TypeText(unsignedTarget)}){Operand(shiftSide)}";
             return shiftIsLeft
                 ? $"{unsignedShift} {ComparisonOperator(kind)} {unsignedSibling}"

@@ -5256,11 +5256,32 @@ public static class EnumCastSamples
     // `(uint)((int)e << n) < (uint)other`, matching `clt.un` for any backing.
     public static bool EnumShiftUnsignedCompare(CfgFlags e, int n, CfgFlags other) => (uint)((uint)e << n) < (uint)other;
 
-    // #3087 follow-up: the same unsigned ordering with a BYTE-backed enum. Round-
+    // #3087 follow-up: the same unsigned ordering with a byte-backed enum. Round-
     // tripping through the byte enum (`(CfgTiny)((int)e << n)`) would re-narrow the
     // 32-bit shift to 8 bits and then compare signed — the unsigned-width spelling
     // `(uint)((int)e << n) < (uint)other` avoids both.
     public static bool EnumShiftUnsignedCompareByte(CfgTiny e, int n, CfgTiny other) => (uint)((byte)e << n) < (uint)other;
+
+    // #3087 follow-up (adversarial review R3, GPT): the unsigned ordering with a
+    // PLAIN INTEGER sibling (not an enum). The shift still needs the unsigned
+    // reinterpret so the compare is `clt.un` — `(uint)((int)e << n) < (uint)other` —
+    // not the sign-widened `((int)e << n) < (uint)other` (`int < uint` promotes to a
+    // signed `long` compare) the stale-ResultType fallthrough produced.
+    public static bool EnumShiftUnsignedCompareIntSibling(CfgPriority e, int n, int other) => (uint)((int)e << n) < (uint)other;
+
+    // #3087 follow-up (adversarial review R3, GPT): the 8-byte case with a plain
+    // `long` sibling. The fallthrough rendered `((long)e << n) < (ulong)other`
+    // (`long < ulong`, CS0034 — did not compile); both sides must reconcile to
+    // `ulong` — `(ulong)((long)e << n) < (ulong)other`.
+    public static bool EnumShiftUnsignedCompareLongSibling(CfgLongPriority e, int n, long other) => (ulong)((long)e << n) < (ulong)other;
+
+    // #3087 follow-up (adversarial review R3, Gemini): a bitwise chain mixing an
+    // enum shift with a NARROW (ushort) integer, compared unsigned. IL promotes the
+    // short to Int32, so the chain's stack type is wide; treating it as narrow made
+    // BitwiseChainRenderedType fall back to the stale enum ResultType and drop the
+    // unsigned reinterpret — `((int)e << n | mask) < other` (CS0019 / signed). The
+    // chain must reconcile to `(uint)((int)e << n | mask) < (uint)other`.
+    public static bool EnumShiftNarrowChainUnsignedCompare(CfgTiny e, int n, ushort mask, CfgTiny other) => (uint)(((int)e << n) | mask) < (uint)other;
 
     // #3087 follow-up: a bitwise sibling MASKED as its primitive by a typed ldelem —
     // `values[i]` renders enum-typed though its ResultType is the storage width, so
