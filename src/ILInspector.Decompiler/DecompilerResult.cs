@@ -70,6 +70,22 @@ public sealed record DecompilerOptions
     /// </summary>
     public bool WrapSplittableExpressions { get; init; }
 
+    /// <summary>
+    /// Instance fields accessed through <c>this</c> may render the explicit
+    /// <c>this.</c> qualifier even where the bare name is unambiguous. Off by
+    /// default; an IL-identical spelling choice. Mirrors
+    /// <c>dotnet_style_qualification_for_field</c>.
+    /// </summary>
+    public bool QualifyFieldAccess { get; init; }
+
+    /// <summary>
+    /// Instance properties accessed through <c>this</c> may render the explicit
+    /// <c>this.</c> qualifier even where the bare name is unambiguous. Off by
+    /// default; an IL-identical spelling choice. Mirrors
+    /// <c>dotnet_style_qualification_for_property</c>.
+    /// </summary>
+    public bool QualifyPropertyAccess { get; init; }
+
     public static DecompilerOptions Default { get; } = new();
 }
 

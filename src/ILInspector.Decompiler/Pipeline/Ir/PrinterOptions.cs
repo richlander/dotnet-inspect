@@ -56,6 +56,25 @@ public sealed record PrinterOptions
     /// </summary>
     public bool WrapSplittableExpressions { get; init; }
 
+    /// <summary>
+    /// When set, an instance field accessed through <c>this</c> renders the explicit
+    /// <c>this.</c> qualifier even where the bare name is unambiguous (the shipped
+    /// default qualifies only to escape a local/parameter shadow or a member/type
+    /// name collision). IL-identical — <c>this.field</c> and <c>field</c> both emit
+    /// <c>ldarg.0; ldfld</c>, so the qualified form is a spelling choice with no
+    /// anchor. Off by default. Mirrors <c>dotnet_style_qualification_for_field</c>.
+    /// </summary>
+    public bool QualifyFieldAccess { get; init; }
+
+    /// <summary>
+    /// When set, an instance property accessed through <c>this</c> renders the
+    /// explicit <c>this.</c> qualifier even where the bare name is unambiguous.
+    /// IL-identical — <c>this.Prop</c> and <c>Prop</c> both emit
+    /// <c>ldarg.0; call get_Prop</c>. Off by default. Mirrors
+    /// <c>dotnet_style_qualification_for_property</c>.
+    /// </summary>
+    public bool QualifyPropertyAccess { get; init; }
+
     /// <summary>The shipped defaults — every knob off.</summary>
     public static PrinterOptions Default { get; } = new();
 }

@@ -194,6 +194,286 @@ public class EnumCastPrinterTests
         AssertCompiles("public static int M(ref CfgPriority e, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
     }
 
+    // #3066 (follow-up to #3011/#3060): a shift on an enum whose type lives in a
+    // REFERENCED assembly is CS0019 too, but the backing width is unresolvable
+    // (EnsureTypeMaps sees only this module's type defs). A bare enum load carries
+    // no storage-width hint, so the width is recovered from the compiler-baked
+    // shift-count mask (& 31 => 4-byte, & 63 => 8-byte) and the signedness from the
+    // opcode. The mask strips (keyed off the same recovered width), so the shr/shr.un
+    // round-trips instead of double-masking. Real cross-assembly fixtures: the enum
+    // lives in ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.
+    const string ExternalLongDecl = "public enum ExternalLong : long { Low = 0, High = 2 }";
+    const string ExternalULongDecl = "public enum ExternalULong : ulong { None = 0, All = 18446744073709551615UL }";
+    const string ExternalUIntDecl = "public enum ExternalUInt : uint { None = 0, Top = 0x80000000u }";
+
+    [Fact]
+    public void CrossAssemblyEnumRightShift_LongBacked_RecoversWidthFromCountMask()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalLongRightShift));
+
+        Assert.Contains("(long)e >>", body);
+        Assert.DoesNotContain("(e >>", body);
+        Assert.DoesNotContain("& 63", body);
+        AssertCompiles("public static long M(ExternalLong e, int n)", body, ExternalLongDecl);
+    }
+
+    [Fact]
+    public void CrossAssemblyEnumLeftShift_LongBacked_RecoversWidth()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalLongLeftShift));
+
+        Assert.Contains("(long)e <<", body);
+        Assert.DoesNotContain("(e <<", body);
+        Assert.DoesNotContain("& 63", body);
+        AssertCompiles("public static long M(ExternalLong e, int n)", body, ExternalLongDecl);
+    }
+
+    [Fact]
+    public void CrossAssemblyEnumRightShift_ULongBacked_KeepsUnsignedShiftFaithful()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalULongRightShift));
+
+        Assert.Contains("(ulong)e >>", body);
+        Assert.DoesNotContain("& 63", body);
+        AssertCompiles("public static ulong M(ExternalULong e, int n)", body, ExternalULongDecl);
+    }
+
+    [Fact]
+    public void CrossAssemblyEnumRightShift_UIntBacked_KeepsUnsignedShiftFaithful()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalUIntRightShift));
+
+        Assert.Contains("(uint)e >>", body);
+        Assert.DoesNotContain("& 31", body);
+        AssertCompiles("public static uint M(ExternalUInt e, int n)", body, ExternalUIntDecl);
+    }
+
+    // The opcode, not the backing, drives signedness across the assembly boundary:
+    // a signed shr on a uint-backed referenced enum must reinterpret to `(int)`.
+    [Fact]
+    public void CrossAssemblyEnumRightShift_UIntBackedButSignedOpcode_CastsToSigned()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalUIntSignedRightShift));
+
+        Assert.Contains("(int)e >>", body);
+        Assert.DoesNotContain("(uint)e", body);
+        AssertCompiles("public static int M(ExternalUInt e, int n)", body, ExternalUIntDecl);
+    }
+
+    // The 8-byte mirror: a shr.un on a long-backed referenced enum reinterprets to
+    // `(ulong)`, the width still recovered from the `& 63` mask.
+    [Fact]
+    public void CrossAssemblyEnumRightShift_LongBackedButUnsignedOpcode_CastsToUnsigned()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalLongUnsignedRightShift));
+
+        Assert.Contains("(ulong)e >>", body);
+        Assert.DoesNotContain("(long)e", body);
+        AssertCompiles("public static ulong M(ExternalLong e, int n)", body, ExternalLongDecl);
+    }
+
+    // The compound sibling across the assembly boundary decomposes to a cast-back
+    // assignment `e = (ExternalLong)((long)e << (n & 63))`, the width still from the mask.
+    [Fact]
+    public void CrossAssemblyEnumCompoundLeftShift_DecomposesToCastBackAssignment()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalLongCompoundLeftShift));
+
+        Assert.Contains("e = (ExternalLong)((long)e <<", body);
+        Assert.DoesNotContain("e <<=", body);
+        AssertCompiles("public static ExternalLong M(ExternalLong e, int n)", body, ExternalLongDecl);
+    }
+
+    // Soundness against an inner USER mask: Roslyn always emits the implicit width
+    // mask (& 63) as the OUTERMOST mask feeding shr, with a user mask nested inside.
+    // So width recovery reads the outer & 63 => 8-byte `(long)` (correct), strips it,
+    // and the user's `& 31` survives untouched. A narrower user mask must NOT shrink
+    // the recovered width to `(int)` (which would truncate the 8-byte enum).
+    [Fact]
+    public void CrossAssemblyEnumRightShift_InnerUserMask_RecoversBackingWidthNotUserMaskWidth()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalLongRightShiftInnerUserMask));
+
+        Assert.Contains("(long)e >> (n & 31)", body);
+        Assert.DoesNotContain("(int)e", body);
+        Assert.DoesNotContain("& 63", body);
+        AssertCompiles("public static long M(ExternalLong e, int n)", body, ExternalLongDecl);
+    }
+
+    // #3066 ref/array siblings: a typed ldind/ldelem masks the referenced enum as its
+    // primitive backing width in the operand ResultType, so recognition must consult
+    // the by-ref pointee / array element type. Without it, these render as an uncast
+    // `e << n` / `a[i] << n` (CS0019) with the count mask stripped — a cast/strip
+    // disagreement. With it, the pointee/element-recovered reinterpret is emitted.
+    [Fact]
+    public void CrossAssemblyEnumLeftShift_ByRefEnum_CastsPointeeToRecoveredWidth()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalLongRefLeftShift));
+
+        Assert.Contains("(long)", body);
+        Assert.Contains("<<", body);
+        Assert.DoesNotContain(" e <<", body);
+        Assert.DoesNotContain("& 63", body);
+        AssertCompiles("public static long M(ref ExternalLong e, int n)", body, ExternalLongDecl);
+    }
+
+    [Fact]
+    public void CrossAssemblyEnumLeftShift_ArrayElement_CastsElementToRecoveredWidth()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalLongArrayLeftShift));
+
+        Assert.Contains("(long)a[i] <<", body);
+        Assert.DoesNotContain(" a[i] <<", body);
+        Assert.DoesNotContain("& 63", body);
+        AssertCompiles("public static long M(ExternalLong[] a, int i, int n)", body, ExternalLongDecl);
+    }
+
+    // Opcode-wins mirror through an array element: a signed shr on a uint-backed
+    // referenced enum element reinterprets to `(int)`, width recovered from `& 31`.
+    [Fact]
+    public void CrossAssemblyEnumRightShift_UIntArrayElementSignedOpcode_CastsElementToSigned()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalUIntArrayRightShift));
+
+        Assert.Contains("(int)a[i] >>", body);
+        Assert.DoesNotContain(" a[i] >>", body);
+        Assert.DoesNotContain("& 31", body);
+        AssertCompiles("public static int M(ExternalUInt[] a, int i, int n)", body, ExternalUIntDecl);
+    }
+
+    // The compound sibling through an array element decomposes to a cast-back
+    // assignment whose inner shift still reinterprets the element to the recovered width.
+    [Fact]
+    public void CrossAssemblyEnumCompoundLeftShift_ArrayElement_CastsElementInsideDecomposition()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalLongArrayCompoundLeftShift));
+
+        Assert.Contains("a[i] = (ExternalLong)((long)a[i] <<", body);
+        Assert.DoesNotContain("a[i] <<=", body);
+        AssertCompiles("public static ExternalLong M(ExternalLong[] a, int i, int n)", body, ExternalLongDecl);
+    }
+
+    // The residual, and the soundness boundary: a CONSTANT shift count carries no
+    // width mask, so a cross-assembly enum's width is genuinely unknowable. The
+    // printer must NOT fabricate a width — it leaves the bare (visibly invalid)
+    // shift rather than a silently-wrong cast. Synthetic to hold the count constant
+    // with a bare enum operand whose backing is unresolved (not in either map).
+    [Fact]
+    public void CrossAssemblyEnumShift_ConstantCount_DeclinesWidthGuess()
+    {
+        var enumType = TypeRef.Definition("ext", "", "ExternalLong");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var shift = new Binary(
+            BinaryKind.ShiftRight,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "e", enumType),
+            new Constant(32, intType));
+        var block = new Block(0);
+        block.Add(new Return(shift));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(
+            enumType,
+            [new Parameter("e", enumType), new Parameter("n", intType)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        // Neither TypeShapes nor EnumUnderlyingTypes carries the type: the
+        // cross-assembly "unresolved backing" condition.
+        var function = new IrFunction("M", TypeRef.Definition("ext", "", "Holder"), signature, [], container);
+
+        string body = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains("e >> 32", body);
+        Assert.DoesNotContain("(long)e", body);
+        Assert.DoesNotContain("(int)e", body);
+        Assert.DoesNotContain("(ulong)e", body);
+    }
+
+    // #3066 x #3011 merge interaction: a cross-assembly (unresolved-backing) enum
+    // shift feeding a MIXED-SIGN bitwise parent. The bitwise reconciliation
+    // (ShiftRenderedIntegerType) must recover the shift's rendered width from the
+    // count mask just like the bare-operand cast does; otherwise it declines, re-
+    // emits the shift's stale enum type, and the `|` fails to bind (CS0019).
+    [Fact]
+    public void CrossAssemblyEnumShift_InMixedSignBitwiseOr_ReconcilesToRecoveredWidth()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalLongSignedShiftOrUnsigned));
+
+        Assert.Contains("(ulong)((long)e >>", body);
+        Assert.DoesNotContain("(ExternalLong)x", body);
+        AssertCompiles("public static ulong M(ExternalLong e, int n, ulong x)", body, ExternalLongDecl);
+    }
+
+    // The 4-byte mirror: a signed shr on a uint-backed referenced enum reconciled
+    // against a uint sibling reinterprets to `(uint)`, width recovered from `& 31`.
+    [Fact]
+    public void CrossAssemblyEnumShift_InMixedSignBitwiseOr_UIntBacked_ReconcilesToRecoveredWidth()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalUIntSignedShiftOrUnsigned));
+
+        Assert.Contains("(uint)((int)e >>", body);
+        Assert.DoesNotContain("(ExternalUInt)x", body);
+        AssertCompiles("public static uint M(ExternalUInt e, int n, uint x)", body, ExternalUIntDecl);
+    }
+
+    // The int->enum sink mirror: a cross-assembly enum shift RETURNED to the enum
+    // renders as its underlying integer, so the sink needs an outer `(ExternalLong)`
+    // cast (CS0266). The rendered integer type — recovered from the count mask —
+    // drives the enum-spellability test that wraps the shift.
+    [Fact]
+    public void CrossAssemblyEnumShift_ReturnedToEnum_WrapsInOuterEnumCast()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalLongShiftReturn));
+
+        Assert.Contains("(ExternalLong)((long)e >>", body);
+        AssertCompiles("public static ExternalLong M(ExternalLong e, int n)", body, ExternalLongDecl);
+    }
+
+    // The int->enum sink for a GENUINELY unresolvable enum (TypeShape.Unknown, not
+    // Enum — the defining assembly is unavailable, so ClassifyShape never saw it).
+    // The shift width is still recovered from the count mask, so the sink must wrap
+    // it in the (Enum) cast (CS0266) exactly as the resolved-shape case does; the
+    // enum-spellability test accepts an Unknown-shaped target the same way
+    // CanSpellUnknownEnumConstant admits a bare-literal enum sink. Synthetic because
+    // a harness-referenced enum always resolves to TypeShape.Enum — an Unknown shape
+    // is only reachable when the reference itself is missing.
+    [Fact]
+    public void UnknownShapeEnumShift_ReturnedToEnum_WrapsInOuterEnumCast()
+    {
+        var enumType = TypeRef.Definition("ext", "", "ExternalLong");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        // (long)e >> (n & 63): the masked count names the 8-byte backing width.
+        var maskedCount = new Binary(
+            BinaryKind.And,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(1, "n", intType),
+            new Constant(63, intType));
+        var shift = new Binary(
+            BinaryKind.ShiftRight,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadArgument(0, "e", enumType),
+            maskedCount);
+        var block = new Block(0);
+        block.Add(new Return(shift));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(
+            enumType,
+            [new Parameter("e", enumType), new Parameter("n", intType)],
+            HasThis: false,
+            GenericParameterCount: 0);
+        // No TypeShapes entry for the enum: the "unresolvable shape" condition.
+        var function = new IrFunction("M", TypeRef.Definition("ext", "", "Holder"), signature, [], container);
+
+        string body = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains("(ExternalLong)((long)e >>", body);
+        Assert.DoesNotContain("return (long)e >>", body);
+    }
+
     // An enum shift feeding a parent bitwise &/|/^ must not coerce the *sibling*
     // integer to the enum (`(int)e << n | (E)x`, CS0019). The shift renders as its
     // underlying integer, so the bitwise op is integer; a mixed-sign same-width

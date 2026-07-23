@@ -771,6 +771,45 @@ public class ResearchDiffTests
     }
 
     [Fact]
+    public void CompareAssemblies_BodySignals_PreservesMemberCurrencyAndTypedEvidence()
+    {
+        // #2299 row-currency contract for the body-substrate class: a body-signal
+        // change carries no MemberAnchor on its own row, so Research must supply
+        // stable member currency (Subject.Id = Name~digest StableSelector) by
+        // wrapping, and keep the fact's typed evidence (Signal, IL offset) so a
+        // machine consumer never parses the producer-owned Message/Detail.
+        var diff = ResearchDiff.CompareAssemblies(
+            FixtureCatalog.DiffPair.OldAssemblyPath(),
+            FixtureCatalog.DiffPair.NewAssemblyPath(),
+            new ResearchDiffOptions(ResearchChangeMechanism.BodySignals));
+
+        var member = Assert.Single(
+            diff.MembersWhere(m => m.HasChange("unsafe.stackalloc.added")));
+        var change = Assert.Single(
+            diff.Changes,
+            c => c.Mechanism == ResearchChangeMechanism.BodySignals
+                && c.Descriptor.Id == "unsafe.stackalloc.added");
+
+        // Stable member currency: caller-supplied selector, in Name~digest form,
+        // agreeing with the grouped subject on both sides of the join.
+        Assert.Equal(ResearchSubjectKind.Member, change.Subject.Kind);
+        Assert.Equal(member.Subject.Id, change.Subject.Id);
+        Assert.Contains('~', change.Subject.Id);
+        Assert.False(string.IsNullOrEmpty(change.Subject.MemberName));
+
+        // Typed fact evidence, not display text.
+        Assert.Equal(ResearchChangeCategory.BodySignal, change.Category);
+        Assert.Equal(ResearchChangeKind.Added, change.Kind);
+        Assert.Equal("stackalloc", change.Signal);
+        Assert.NotNull(change.NewIlOffset);
+        Assert.Null(change.OldIlOffset);
+
+        // ChangeId derives from the typed Signal, so machine queries never parse
+        // the producer Message/Detail.
+        Assert.Equal($"unsafe.{change.Signal}.added", change.Descriptor.Id);
+    }
+
+    [Fact]
     public void CompareAssemblies_BodySignals_MemberTargetsKeepUnsafeRows()
     {
         var unfiltered = ResearchDiff.CompareAssemblies(

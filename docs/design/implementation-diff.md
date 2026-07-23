@@ -70,6 +70,81 @@ If the Finding producers later carry equivalent aligned hunk and typed display
 payloads, the semantic projections should be deleted rather than matched a
 third time.
 
+## Row currency contract
+
+Every diff row across MetadataDiff, ILDiff, Analysis/body-signal diff, C#Diff,
+and ResearchDiff must be reachable back to its owning API/member through stable
+member currency, then locatable inside its own mechanism through native row
+coordinates. The two obligations are separate: currency answers "which member,"
+native coordinates answer "which row within that member." This section states
+which layer supplies each obligation. It does not impose a universal
+`Before`/`After` handle: IL rows already carry side as row polarity
+(`Add`/`Remove`/`Context`), and forcing an explicit old/new pair onto that shape
+would duplicate the native model. See [Finding Coordinates](finding-coordinates.md)
+for the underlying subject / correspondence / provenance axes; this contract is
+the diff-row application of those axes.
+
+### Two carrier classes
+
+Rows fall into exactly one of two classes by the altitude at which they are
+produced:
+
+- **Anchor-carrying rows** are produced after member alignment, so the row owns
+  the stable member currency directly. `ApiChange` (MetadataDiff) carries
+  `MemberAnchor` through `ApiChangeSubject`; `CSharpDiffRow` (C#Diff) carries
+  `MemberAnchor` plus its `StableMemberKey` on the row. Both expose
+  `CanonicalSignature`, `StableSelector` (`Name~digest`), and the member digest
+  as typed fields. `MemberAnchor` lives in `ILInspector.MetadataPrimitives`, a
+  lightweight primitive assembly, so carrying it does not pull in the heavy
+  Metadata layer.
+- **Body-substrate rows** are produced below member selection: they compare one
+  already-resolved body's operation or signal stream and hold no member
+  identity. `IlDiffRow`/`CanonicalIlOperation` in `ILInspector.Instructions`
+  carries only `HunkId`, `IlDiffKind` polarity, the operation, and a
+  producer-owned `Message`; analysis/body-signal facts sit at the same altitude.
+  The caller that already resolved the enclosing member supplies the stable
+  currency by wrapping — `IlAssemblyDiff.CompareMembers` returns an
+  `IlMemberDiffSubject`, and Research attaches a `ResearchSubjectKey` from
+  `ResearchMemberIdentity.SubjectFromMethod`. This is altitude, not a
+  Metadata-dependency ban: `ILInspector.Instructions` already references
+  `MetadataPrimitives`, so it *could* embed a `MemberAnchor`; it deliberately
+  does not, because a body substrate that diffs a single pre-resolved body pair
+  has no member to name and the enclosing member subject already owns that fact.
+
+A row is never both. Adding member identity to a body-substrate row, or
+reconstructing it there from display text, would duplicate identity the wrapper
+already owns and violate the layer-ownership rule.
+
+### Native coordinates each mechanism preserves
+
+The wrapper preserves, not flattens, the native coordinates so a consumer can
+replay or locate the row after the member is known:
+
+| Mechanism | Currency carrier | Native row coordinates |
+| --- | --- | --- |
+| MetadataDiff | row (`ApiChange` → `MemberAnchor` on `ApiChangeSubject`) | `ApiChangeSubjectKind`, old/new member handles, category |
+| C#Diff | row (`CSharpDiffRow` → `MemberAnchor` + `StableMemberKey`) | `ChangeId` / `CSharpDiffKind`, source line / `SourceCoordinate`, related IL offsets as evidence, fidelity |
+| ILDiff | wrapper (`ResearchSubjectKey` via `SubjectFromMethod`) | `HunkId`, `IlDiffKind` polarity, `CanonicalIlOperation`, IL offset (hint) |
+| Analysis/body-signal | wrapper (`ResearchSubjectKey` via `SubjectFromMethod`) | signal / shape, added/removed/changed kind, IL offset(s) as evidence |
+
+IL offsets, operation-array ordinals, and source spans are local evidence and
+display hints, never the durable selector. The durable selector is always the
+`MemberAnchor`-derived `StableSelector` / canonical signature / digest carried by
+the anchor-carrying row or supplied by the wrapper.
+
+### ResearchDiff projection
+
+`ResearchChange` binds one native producer payload — `ApiChange` or
+`CSharpRow` (anchor-carrying) or `IlRow` and the analysis signal fields
+(body-substrate) — to one `ResearchSubjectKey` whose `Id` is the anchor
+`StableSelector`, and to a cross-mechanism product `ChangeId` via
+`FindingDescriptor`. It never erases the lower-layer typed payload and never
+requires consumers to parse `Message`. Machine consumers query by `ChangeId`
+through `HasChange`, `HasChangePrefix`, and `HasChangeCategory`; product
+`ChangeId`s use fact concepts (`unsafe.stackalloc.added`, `il.hunk.changed`,
+`csharp.return-expression.changed`), not incidental detail fields. `Message`
+stays producer-owned presentation on either side of the join.
+
 ## Consumer contract
 
 Use `ImplementationDiff.CompareAssemblies` or `ImplementationDiff.Compare` when
