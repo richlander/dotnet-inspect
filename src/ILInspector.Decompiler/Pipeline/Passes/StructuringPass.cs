@@ -106,6 +106,10 @@ public sealed class StructuringPass : IIrPass
         var conditionalTargetCounts = new Dictionary<int, int>();
         var conditionalPredecessorIndices = new Dictionary<int, List<int>>();
         var branchPredecessorIndices = new Dictionary<int, List<int>>();
+        // Every jump-edge predecessor (unconditional, conditional, or switch) of
+        // each target offset, by source block index. Used to detect a sibling
+        // region interleaved between a shared return's scattered guards (#2978).
+        var jumpPredecessorIndices = new Dictionary<int, List<int>>();
         var switchTargets = new HashSet<int>();
         var branchTargets = new HashSet<int>();
         for (int blockIndex = 0; blockIndex < blocks.Count; blockIndex++)
@@ -120,6 +124,7 @@ public sealed class StructuringPass : IIrPass
                         branchPredecessorIndices[branch.TargetOffset] = branchPreds = new List<int>();
                     branchPreds.Add(blockIndex);
                     branchTargets.Add(branch.TargetOffset);
+                    AddPredecessor(jumpPredecessorIndices, branch.TargetOffset, blockIndex);
                 }
                 else if (child is Leave leave)
                 {
@@ -133,6 +138,7 @@ public sealed class StructuringPass : IIrPass
                         conditionalPredecessorIndices[conditional.TargetOffset] = preds = new List<int>();
                     preds.Add(blockIndex);
                     branchTargets.Add(conditional.TargetOffset);
+                    AddPredecessor(jumpPredecessorIndices, conditional.TargetOffset, blockIndex);
                 }
                 else if (child is SwitchBranch switchBranch)
                 {
@@ -141,6 +147,7 @@ public sealed class StructuringPass : IIrPass
                         unconditionalTargets.Add(target);
                         switchTargets.Add(target);
                         branchTargets.Add(target);
+                        AddPredecessor(jumpPredecessorIndices, target, blockIndex);
                     }
                 }
             }
@@ -199,7 +206,7 @@ public sealed class StructuringPass : IIrPass
             {
                 continue;
             }
-            if (IsScatteredDispatch(blocks, conditionalPredecessorIndices[offset], branchTargets))
+            if (IsScatteredDispatch(blocks, conditionalPredecessorIndices[offset], branchTargets, jumpPredecessorIndices))
                 scatteredReturnDispatchTargets.Add(offset);
         }
 
@@ -1155,26 +1162,46 @@ public sealed class StructuringPass : IIrPass
         };
     }
 
+    static void AddPredecessor(Dictionary<int, List<int>> map, int targetOffset, int predecessorIndex)
+    {
+        if (!map.TryGetValue(targetOffset, out var preds))
+            map[targetOffset] = preds = new List<int>();
+        preds.Add(predecessorIndex);
+    }
+
     /// <summary>
     /// Whether the conditional predecessors of a shared return are scattered
     /// across nesting levels (a <c>return</c>/<c>throw</c> dispatch arm sits
     /// between two of them in block order) rather than forming a single
-    /// contiguous <c>&amp;&amp;</c>/<c>||</c> guard chain. For each interleaved
-    /// terminator, the guard that produced it (found by walking back over the
-    /// arm's plain fall-through statement blocks) must branch forward PAST the
-    /// predecessor span — to the shared return or another downstream terminal —
-    /// which marks a genuine dispatch arm closing a region strict nesting cannot
-    /// keep open, so the return must be duplicated into each guard. A
-    /// <c>throw</c>/<c>return</c> sub-expression nested inside a short-circuit
+    /// contiguous <c>&amp;&amp;</c>/<c>||</c> guard chain. Two structural signals
+    /// mark a scattered dispatch:
+    /// <list type="bullet">
+    ///   <item>An interleaved terminator whose guard (found by walking back over
+    ///   the arm's plain fall-through statement blocks) branches forward PAST the
+    ///   predecessor span — to the shared return or another downstream terminal —
+    ///   marking a genuine dispatch arm closing a region strict nesting cannot
+    ///   keep open.</item>
+    ///   <item>A block strictly inside the guard span that is entered by a jump
+    ///   from BEFORE the span (issue #2978): fall-through into an interior block
+    ///   always comes from index ≥ <c>lo</c>, so an interior jump target whose
+    ///   source precedes the first guard is a sibling region (e.g. another
+    ///   switch arm) interleaved in block order between the guards. Strict
+    ///   nesting cannot linearize that region between them, so the shared return
+    ///   must be duplicated into each guard.</item>
+    /// </list>
+    /// A <c>throw</c>/<c>return</c> sub-expression nested inside a short-circuit
     /// condition is instead the fall-through arm of a test that branches forward
-    /// WITHIN the span to continue evaluating the same condition; that arm stays
-    /// combined under one guard (the #640-style fidelity canary), so it is
-    /// excluded.
+    /// WITHIN the span to continue evaluating the same condition, and a single
+    /// short-circuit condition threads entirely within its own span (no interior
+    /// block is entered from before the first guard); such chains stay combined
+    /// under one guard (the #640-style fidelity canary), so both signals exclude
+    /// them.
     /// </summary>
     static bool IsScatteredDispatch(
         IReadOnlyList<Block> blocks,
         List<int> predecessorIndices,
-        HashSet<int> branchTargets)
+        HashSet<int> branchTargets,
+        Dictionary<int, List<int>> jumpPredecessorIndices)
     {
         int lo = int.MaxValue;
         int hi = int.MinValue;
@@ -1182,6 +1209,21 @@ public sealed class StructuringPass : IIrPass
         {
             if (index < lo) lo = index;
             if (index > hi) hi = index;
+        }
+        // A sibling region interleaved in block order between the guards: an
+        // interior block reached by a jump from before the first guard (issue
+        // #2978's nested-switch arm). Fall-through never enters an interior block
+        // from before the span, so this signals a foreign dispatch subtree that
+        // strict nesting cannot place between the scattered guards.
+        for (int i = lo + 1; i < hi; i++)
+        {
+            if (!jumpPredecessorIndices.TryGetValue(blocks[i].StartOffset, out var interiorPreds))
+                continue;
+            foreach (int predIndex in interiorPreds)
+            {
+                if (predIndex < lo)
+                    return true;
+            }
         }
         int spanEndOffset = blocks[hi].StartOffset;
         for (int i = lo + 1; i < hi; i++)
