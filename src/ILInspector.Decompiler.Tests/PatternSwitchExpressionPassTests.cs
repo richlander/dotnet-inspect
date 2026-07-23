@@ -317,4 +317,130 @@ public class PatternSwitchExpressionPassTests
 
         Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
     }
+
+    // Builds a direct-place cascade whose head is an intro-chain arm and whose one
+    // inline sibling arm carries a `when` guard, in either the short-circuiting
+    // negated form (`if (!G) return <default>; return V;`) or the fall-through
+    // positive form (`if (G) return V;`):
+    //   `L0 = place as Leaf; if (!L0) { if (place is Twig L1) { <guarded> }
+    //    return <default>; } return 1;`
+    static IrFunction DirectIntroGuardedInline(IrExpression place, bool shortCircuitToDefault)
+    {
+        IrExpression Guard() => new Call(new MethodRef(Twig, "Ok", Bool, [Twig], HasThis: false), isVirtual: false, [new LoadLocal(1, Twig)]);
+
+        var armBody = new Block();
+        if (shortCircuitToDefault)
+        {
+            // Negated form: guard failure returns the default immediately, skipping
+            // any later arm that would still match the same value in a switch.
+            var guardFail = new Block();
+            guardFail.Add(new Return(new Constant(-1, Int32)));
+            armBody.Add(new IfStatement(new LogicalNot(Guard()), guardFail, null));
+            armBody.Add(new Return(new Constant(2, Int32)));
+        }
+        else
+        {
+            // Positive form: guard failure falls out of the `then` block to the
+            // following sibling — the switch `when` fall-through semantics.
+            var guardPass = new Block();
+            guardPass.Add(new Return(new Constant(2, Int32)));
+            armBody.Add(new IfStatement(Guard(), guardPass, null));
+        }
+
+        var rest = new Block();
+        rest.Add(new IfStatement(new IsPattern((IrExpression)place.Clone(), Twig, 1), armBody, null));
+        rest.Add(new Return(new Constant(-1, Int32)));
+
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, Leaf, new IsInstance(Leaf, (IrExpression)place.Clone())));
+        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, Leaf)), rest, null));
+        block.Add(new Return(new Constant(1, Int32)));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Int32, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Twig, Node), container);
+    }
+
+    [Fact]
+    public void Synthetic_InlineGuardShortCircuitsToDefault_DoesNotRaise()
+    {
+        // #3028 review (Gemini, Finding 1): an inline sibling arm whose guard
+        // failure returns the default immediately (`if (!G) return <default>;`)
+        // must not fold. Folding it to `Twig x when G => 2` makes a guard failure
+        // fall through to later arms, but the IL short-circuited straight to the
+        // default — divergent whenever a later arm matches the same value. Only
+        // csc's fall-through guard shape is foldable, so this hand-shaped IL is
+        // left alone.
+        var function = DirectIntroGuardedInline(new LoadArgument(0, "node", Node), shortCircuitToDefault: true);
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    [Fact]
+    public void Synthetic_InlineGuardFallsThrough_Raises()
+    {
+        // The safe counterpart: a positive-form inline guard (`if (G) return V;`)
+        // whose failure falls out of the `then` block to the next sibling — the
+        // exact fall-through a switch `when` guard performs. This still folds, so
+        // Finding 1's fix rejects only the short-circuiting shape, not every
+        // guarded inline arm.
+        var function = DirectIntroGuardedInline(new LoadArgument(0, "node", Node), shortCircuitToDefault: false);
+
+        RunPass(function);
+
+        var switchExpression = Assert.Single(function.Descendants.OfType<PatternSwitchExpression>());
+        Assert.Equal(2, switchExpression.Arms.Count);
+        Assert.True(switchExpression.Arms[1].HasGuard);
+        Assert.True(switchExpression.HasDefault);
+        Assert.Empty(function.Descendants.OfType<IfStatement>());
+    }
+
+    // Builds a direct-place cascade (intro head + one inline sibling) whose inline
+    // arm value takes the address of the scrutinee place — the by-ref mutation
+    // vector. `argAddress` selects an argument scrutinee (`&arg`) versus a local
+    // scrutinee (`&local`) so both branches of the stability check are exercised.
+    static IrFunction DirectIntroAddressOfScrutinee(bool argAddress)
+    {
+        IrExpression place = argAddress ? new LoadArgument(0, "node", Node) : new LoadLocal(7, Node);
+        IrExpression address = argAddress ? new LoadArgumentAddress(0, "node", Node) : new LoadLocalAddress(7, Node);
+        var mutate = new MethodRef(Node, "Mutate", Int32, [TypeRef.ByRef(Node)], HasThis: false);
+
+        var armBody = new Block();
+        armBody.Add(new Return(new Call(mutate, isVirtual: false, [address])));
+
+        var rest = new Block();
+        rest.Add(new IfStatement(new IsPattern((IrExpression)place.Clone(), Twig, 1), armBody, null));
+        rest.Add(new Return(new Constant(-1, Int32)));
+
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, Leaf, new IsInstance(Leaf, (IrExpression)place.Clone())));
+        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, Leaf)), rest, null));
+        block.Add(new Return(new Constant(1, Int32)));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Int32, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Twig, Node, Node, Node, Node, Node, Node), container);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Synthetic_DirectScrutineeAddressTaken_DoesNotRaise(bool argAddress)
+    {
+        // #3028 review (Gemini, Finding 2): a direct (temp-less) scrutinee is
+        // re-read by every arm, but a switch expression reads it once. When the
+        // cascade takes the address of the scrutinee's place (`&arg` / `&local`),
+        // a by-ref call in a guard or value can mutate the value between arms, so
+        // folding to a single read would diverge. The stability check rejects any
+        // store or address-of the direct scrutinee inside the cascade.
+        var function = DirectIntroAddressOfScrutinee(argAddress);
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
 }

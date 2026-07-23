@@ -147,6 +147,14 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             && !ReferenceOwnership.LocalReferencesOnlyWithin(function, tempLocal, consumed))
             return false;
 
+        // A direct (temp-less) scrutinee is re-read by every arm from its
+        // underlying place. A switch expression evaluates the value once, so the
+        // fold is faithful only if that place is provably unmutated across the
+        // consumed cascade — otherwise a mutation in an earlier arm's guard would
+        // change the value later arms observe.
+        if (scrutinee.TempLocal is null && !DirectScrutineeUnmutated(scrutinee.Place, consumed))
+            return false;
+
         // Each pattern-bound local must be referenced only inside the cascade.
         foreach (var arm in arms)
         {
@@ -194,8 +202,17 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         // remaining arms follow as siblings after the `if`.
         if (IsInlineArm(stmts[index], scrutinee, out int inlineLocal, out var inlineType, out var inlineBody))
         {
-            if (!TryParseGuardedValue(inlineBody.Children, 0, defaultValue, out var inlineGuard, out var inlineValue, out int inlineConsumed)
+            if (!TryParseGuardedValue(inlineBody.Children, 0, defaultValue, out var inlineGuard, out var inlineValue, out int inlineConsumed, out bool inlineShortCircuits)
                 || !ReachesDefaultTail(inlineBody.Children, inlineConsumed, defaultValue))
+                return false;
+            // An inline arm's guard failure must fall through to the following
+            // sibling arm, exactly as a switch `when` guard does. The negated form
+            // (`if (!G) return <default>;`) short-circuits to the default on guard
+            // failure, and a positive guard with any trailing statement does the
+            // same — both skip later arms a switch expression would still test.
+            // Only fall-through shapes are safe here: an unguarded body, or a
+            // positive `if (G) { return V; }` that is the entire matched body.
+            if (inlineGuard is not null && (inlineShortCircuits || inlineConsumed != inlineBody.Children.Count))
                 return false;
             int? inlineIndex = ReferencesLocalIn(inlineGuard, inlineLocal) || ReferenceOwnership.SubtreeReferencesLocal(inlineValue, inlineLocal)
                 ? inlineLocal
@@ -297,7 +314,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             && stmts[index + 1] is IfStatement { HasElse: false } subIf
             && IsLocalTest(subIf.Condition, subStore.Index))
         {
-            if (!TryParseGuardedValue(subIf.Then.Children, 0, defaultValue, out var innerGuard, out var innerValue, out int innerConsumed)
+            if (!TryParseGuardedValue(subIf.Then.Children, 0, defaultValue, out var innerGuard, out var innerValue, out int innerConsumed, out _)
                 || !ReachesDefaultTail(subIf.Then.Children, innerConsumed, defaultValue))
                 return false;
             var subpattern = new PropertySubpattern(subProperty.Accessor, subType, subStore.Index);
@@ -312,7 +329,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         }
 
         // Bare type-pattern arm: a guarded (or unguarded) value run.
-        if (!TryParseGuardedValue(stmts, index, defaultValue, out var guard, out var value, out int consumed))
+        if (!TryParseGuardedValue(stmts, index, defaultValue, out var guard, out var value, out int consumed, out _))
             return false;
         int? localIndex = ReferencesLocalIn(guard, patternLocal) || ReferenceOwnership.SubtreeReferencesLocal(value, patternLocal)
             ? patternLocal
@@ -326,17 +343,23 @@ public sealed class PatternSwitchExpressionPass : IIrPass
     //   `return V;`                              -> unguarded
     //   `if (!G) return <default>; return V;`    -> guarded, negated form
     //   `if (G) { return V; }`                   -> guarded, positive form
+    // `shortCircuitsToDefault` is true only for the negated form, whose guard
+    // failure returns the default immediately rather than falling through to the
+    // following statement — the caller uses it to reject short-circuiting shapes
+    // where fall-through order matters (inline sibling arms).
     bool TryParseGuardedValue(
         IReadOnlyList<IrNode> stmts,
         int index,
         IrExpression defaultValue,
         out IrExpression? guard,
         out IrExpression value,
-        out int consumed)
+        out int consumed,
+        out bool shortCircuitsToDefault)
     {
         guard = null;
         value = null!;
         consumed = 0;
+        shortCircuitsToDefault = false;
 
         if (index >= stmts.Count)
             return false;
@@ -361,6 +384,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             guard = negatedGuard;
             value = guardedValue;
             consumed = 2;
+            shortCircuitsToDefault = true;
             return true;
         }
 
@@ -460,6 +484,26 @@ public sealed class PatternSwitchExpressionPass : IIrPass
 
     static bool IsReEvaluablePlace(IrExpression expression)
         => expression is LoadArgument or LoadLocal;
+
+    // A direct (temp-less) scrutinee's place must be re-readable with an identical
+    // value at each arm. Reject any write or address-of the underlying local or
+    // argument inside the consumed cascade: a store changes the value directly,
+    // and an address-of admits indirect mutation through a by-ref call in a guard
+    // or value. An unrecognized place kind is refused outright.
+    static bool DirectScrutineeUnmutated(IrExpression place, IReadOnlyCollection<IrNode> consumed)
+    {
+        System.Func<IrNode, bool> mutates = place switch
+        {
+            LoadLocal local => node =>
+                (node is StoreLocal store && store.Index == local.Index)
+                || (node is LoadLocalAddress address && address.Index == local.Index),
+            LoadArgument argument => node =>
+                (node is StoreArgument store && store.Index == argument.Index)
+                || (node is LoadArgumentAddress address && address.Index == argument.Index),
+            _ => _ => true,
+        };
+        return !consumed.Any(root => root.Descendants.Prepend(root).Any(mutates));
+    }
 
     static bool ReferencesLocalIn(IrExpression? expression, int local)
         => expression is not null && ReferenceOwnership.SubtreeReferencesLocal(expression, local);
