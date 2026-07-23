@@ -70,6 +70,75 @@ If the Finding producers later carry equivalent aligned hunk and typed display
 payloads, the semantic projections should be deleted rather than matched a
 third time.
 
+## Row currency contract
+
+Every diff row across MetadataDiff, ILDiff, Analysis/body-signal diff, C#Diff,
+and ResearchDiff must be reachable back to its owning API/member through stable
+member currency, then locatable inside its own mechanism through native row
+coordinates. The two obligations are separate: currency answers "which member,"
+native coordinates answer "which row within that member." This section states
+which layer supplies each obligation. It does not impose a universal
+`Before`/`After` handle: IL rows already carry side as row polarity
+(`Add`/`Remove`/`Context`), and forcing an explicit old/new pair onto that shape
+would duplicate the native model. See [Finding Coordinates](finding-coordinates.md)
+for the underlying subject / correspondence / provenance axes; this contract is
+the diff-row application of those axes.
+
+### Two carrier classes
+
+Rows fall into exactly one of two classes by whether the producing layer knows
+member identity:
+
+- **Anchor-carrying rows** live at member altitude and carry the stable member
+  currency directly. `ApiChange` (MetadataDiff) owns `MemberAnchor` through
+  `ApiChangeSubject`, exposing `CanonicalSignature`, `StableSelector`
+  (`Name~digest`), and the member digest as typed fields. Metadata is the layer
+  that owns member identity, so its rows are self-describing.
+- **Member-agnostic substrate rows** are produced by layers that intentionally
+  do not depend on Metadata, so they cannot and must not embed a `MemberAnchor`.
+  `IlDiffRow`/`CanonicalIlOperation` in `ILInspector.Instructions` and
+  `CSharpDiffRow` in `ILInspector.Decompiler` carry only their native
+  coordinates and a producer-owned `Message`. The caller that already resolved
+  the member — Research, via `ResearchSubjectKey` from
+  `ResearchMemberIdentity.SubjectFromAnchor` — supplies the stable currency by
+  wrapping. This caller-owned wrapping is deliberate; it keeps
+  `ILInspector.Instructions` and the C# printer free of a Metadata dependency
+  and NativeAOT/SRM-clean, and it is why no low-level substrate row grows a
+  `MemberAnchor` field.
+
+A row is never both. Adding member identity to a substrate row, or reconstructing
+it there from display text, would duplicate identity the wrapper already owns and
+violate the layer-ownership rule.
+
+### Native coordinates each mechanism preserves
+
+The wrapper preserves, not flattens, the native coordinates so a consumer can
+replay or locate the row after the member is known:
+
+| Mechanism | Anchor source | Native row coordinates |
+| --- | --- | --- |
+| MetadataDiff | `ApiChange` (`MemberAnchor` on `ApiChangeSubject`) | `ApiChangeSubjectKind`, old/new member handles, category |
+| ILDiff | wrapper (`ResearchSubjectKey`) | `HunkId`, `IlDiffKind` polarity, `CanonicalIlOperation`, IL offset (hint) |
+| Analysis/body-signal | wrapper (`ResearchSubjectKey`) | signal / shape, added/removed/changed kind, IL offset(s) as evidence |
+| C#Diff | wrapper (`ResearchSubjectKey`) | `ChangeId` / `CSharpDiffKind`, source-shape span, related IL offsets as evidence |
+
+IL offsets, operation-array ordinals, and source spans are local evidence and
+display hints, never the durable selector. The durable selector is always the
+`MemberAnchor`-derived `StableSelector` / canonical signature / digest carried by
+the anchor-carrying row or its wrapper.
+
+### ResearchDiff projection
+
+`ResearchChange` binds one member-agnostic native payload (`IlRow`, `CSharpRow`,
+`ApiChange`, and the analysis signal fields) to one `ResearchSubjectKey` whose
+`Id` is the anchor `StableSelector`, and to a cross-mechanism product `ChangeId`
+via `FindingDescriptor`. It never erases the lower-layer typed payload and never
+requires consumers to parse `Message`. Machine consumers query by `ChangeId`
+through `HasChange`, `HasChangePrefix`, and `HasChangeCategory`; product
+`ChangeId`s use fact concepts (`unsafe.stackalloc.added`, `il.hunk.changed`,
+`csharp.return-expression.changed`), not incidental detail fields. `Message`
+stays producer-owned presentation on either side of the join.
+
 ## Consumer contract
 
 Use `ImplementationDiff.CompareAssemblies` or `ImplementationDiff.Compare` when
