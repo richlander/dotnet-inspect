@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Decompiler;
@@ -85,6 +86,37 @@ public sealed class ThisQualificationTests
         var text = Render(nameof(ThisQualificationSpecimen.ReadField),
             new PrinterOptions { QualifyPropertyAccess = true });
         Assert.DoesNotContain("this._value", text);
+    }
+
+    // A knob that changes rendered output must also be recorded in the product
+    // evidence (DecompilerResult.EffectiveOptions), matching ReadableLocalNames /
+    // WrapSplittableExpressions — otherwise a host cannot tell an on render from an
+    // off one without reverse-engineering the text.
+    static DecompilerResult PrintSynthetic(PrinterOptions options)
+    {
+        var holder = TypeRef.Definition("synthetic", "", "Holder");
+        var int32 = TypeRef.CoreLib("System", "Int32");
+        var block = new Block(0);
+        block.Add(new Return(new LoadArgument(0, "value", int32)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(int32, ImmutableArray<Parameter>.Empty, HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", holder, signature, [], container);
+        return CSharpPrinter.Print(function, options);
+    }
+
+    [Fact]
+    public void EffectiveOptions_RecordsFieldKnob()
+    {
+        Assert.True(PrintSynthetic(new PrinterOptions { QualifyFieldAccess = true }).EffectiveOptions.QualifyFieldAccess);
+        Assert.False(PrintSynthetic(PrinterOptions.Default).EffectiveOptions.QualifyFieldAccess);
+    }
+
+    [Fact]
+    public void EffectiveOptions_RecordsPropertyKnob()
+    {
+        Assert.True(PrintSynthetic(new PrinterOptions { QualifyPropertyAccess = true }).EffectiveOptions.QualifyPropertyAccess);
+        Assert.False(PrintSynthetic(PrinterOptions.Default).EffectiveOptions.QualifyPropertyAccess);
     }
 }
 
