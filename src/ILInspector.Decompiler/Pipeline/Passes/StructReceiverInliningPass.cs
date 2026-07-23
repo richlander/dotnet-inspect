@@ -71,6 +71,8 @@ public sealed class StructReceiverInliningPass : IIrPass
         var docOrder = new Dictionary<IrNode, int>(ReferenceEqualityComparer.Instance);
         var stores = new Dictionary<int, List<int>>();
         var reads = new Dictionary<int, List<(int Pos, IrNode Node, bool IsAddress)>>();
+        var blockPositionByOffset = new Dictionary<int, int>();
+        var branches = new List<(int TargetOffset, int Position)>();
         int position = 0;
         foreach (var node in function.Descendants)
         {
@@ -86,8 +88,32 @@ public sealed class StructReceiverInliningPass : IIrPass
                 case LoadLocalAddress address:
                     (reads.TryGetValue(address.Index, out var a) ? a : reads[address.Index] = []).Add((position, address, true));
                     break;
+                case Block b:
+                    blockPositionByOffset[b.StartOffset] = position;
+                    break;
+                case Branch br:
+                    branches.Add((br.TargetOffset, position));
+                    break;
+                case ConditionalBranch cbr:
+                    branches.Add((cbr.TargetOffset, position));
+                    break;
             }
             position++;
+        }
+
+        // Loop back-edges make the forward document-order window an unsound
+        // liveness proxy: a store inside a loop can flow, on a later iteration,
+        // to a read that precedes it in document order (the top of the loop). A
+        // back-edge is a branch whose target block precedes the branch; the loop
+        // it closes spans [targetBlockPosition, branchPosition].
+        var backEdgeSpans = new List<(int Start, int End)>();
+        foreach (var (targetOffset, branchPosition) in branches)
+        {
+            if (blockPositionByOffset.TryGetValue(targetOffset, out int targetPosition)
+                && targetPosition < branchPosition)
+            {
+                backEdgeSpans.Add((targetPosition, branchPosition));
+            }
         }
 
         foreach (var node in function.Descendants)
@@ -113,6 +139,16 @@ public sealed class StructReceiverInliningPass : IIrPass
             // about to remove).
             if (!reads.TryGetValue(store.Index, out var localReads))
                 continue;
+
+            // A back-edge that spans this store can route execution, on a later
+            // iteration, back to a read of the local that precedes the store in
+            // document order — so folding this store away would leave that
+            // loop-carried read observing a stale value. The forward window
+            // cannot see that read; decline when any exists inside a spanning
+            // loop.
+            if (HasLoopCarriedReader(store.Index, storePosition, localReads, backEdgeSpans))
+                continue;
+
             (int Pos, IrNode Node, bool IsAddress)? only = null;
             bool ambiguous = false;
             foreach (var read in localReads)
@@ -170,6 +206,34 @@ public sealed class StructReceiverInliningPass : IIrPass
         LoadProperty property => property.ResultType is not { Kind: TypeRefKind.ByRef },
         _ => false,
     };
+
+    /// <summary>
+    /// True when a read of the local precedes the store in document order yet sits
+    /// inside a loop that also contains the store (a back-edge span covering the
+    /// store position). Such a read is re-reached after the store on a later
+    /// iteration, so it observes this store's value; removing the store would make
+    /// it read a stale value. The forward single-reader window never sees this
+    /// read (it is at a lower document position), which is why it is checked
+    /// separately.
+    /// </summary>
+    static bool HasLoopCarriedReader(
+        int index,
+        int storePosition,
+        List<(int Pos, IrNode Node, bool IsAddress)> localReads,
+        List<(int Start, int End)> backEdgeSpans)
+    {
+        foreach (var (start, end) in backEdgeSpans)
+        {
+            if (start > storePosition || storePosition > end)
+                continue;
+            foreach (var read in localReads)
+            {
+                if (read.Pos >= start && read.Pos < storePosition)
+                    return true;
+            }
+        }
+        return false;
+    }
 
     /// <summary>
     /// True when <paramref name="address"/> is the receiver of a member read: the

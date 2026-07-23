@@ -196,4 +196,28 @@ public class StructReceiverInliningPassTests
         Assert.Equal(1, StoreCount(function, 0));
         function.CheckInvariant();
     }
+
+    // A back-edge routes execution, on a later iteration, from the loop-body
+    // store back to a read at the loop head that precedes the store in document
+    // order. That read observes the store's value, so folding the store away
+    // would leave it stale. The forward single-reader window cannot see the head
+    // read (lower document position); the back-edge gate must decline.
+    [Fact]
+    public void LoopCarriedReader_IsNotFolded()
+    {
+        // Head (offset 0): r = v.Value  — the loop-carried read of slot 0.
+        var head = MakeBlock(0,
+            new StoreLocal(1, Bool, Value(new LoadLocalAddress(0, S))));
+        // Body (offset 16): v = outer.Inner; if (v.Value) goto head — store,
+        // adjacent member-receiver use, and the back-edge to the head.
+        var body = MakeBlock(16,
+            new StoreLocal(0, S, Inner(new LoadArgument(0, "outer", Outer))),
+            new ConditionalBranch(Value(new LoadLocalAddress(0, S)), 0));
+        var function = BuildFunction([head, body]);
+
+        RunPass(function);
+
+        Assert.Equal(1, StoreCount(function, 0));
+        function.CheckInvariant();
+    }
 }
