@@ -27,7 +27,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
 {
     public string Name => "pattern-switch-expression";
 
-    sealed record ArmData(TypeRef PatternType, int? LocalIndex, PropertySubpattern? Subpattern, IrExpression? Guard, IrExpression Value);
+    sealed record ArmData(TypeRef PatternType, int? LocalIndex, PropertySubpattern? Subpattern, IrExpression? Guard, IrExpression Value, bool IsInline);
 
     /// <summary>
     /// The value every arm of the cascade tests. csc reads it either through a
@@ -139,20 +139,38 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         if (!TryParseChain(region, 0, scrutinee, defaultValue, arms) || arms.Count < minArms)
             return false;
 
+        // PR A (#3028) scopes the newly recognized heterogeneous surface — a
+        // direct (temp-less) scrutinee, or any inline-positive sibling arm — to
+        // unguarded arms. A guarded arm whose guard failure short-circuits to the
+        // trailing default folds faithfully only when no later arm can match the
+        // same value; in the folded switch a failed `when` guard falls through to
+        // the later arms instead. Proving no overlap needs a type-disjointness
+        // oracle this SRM-only, no-inspected-assembly-loading pass does not have.
+        // The pre-existing temp-form intro cascade (#3022) keeps its guarded arms
+        // under the compiler's proven mutual exclusivity; guarded heterogeneous
+        // arms are deferred to a follow-up that carries a real disjointness oracle.
+        bool isNewSurface = scrutinee.TempLocal is null || arms.Any(a => a.IsInline);
+        if (isNewSurface && arms.Any(a => a.Guard is not null))
+            return false;
+
         var consumed = new List<IrNode>(headConsumed);
         consumed.AddRange(region);
 
-        // A temp scrutinee must be read only inside the consumed cascade.
+        // A temp scrutinee must be read only inside the consumed cascade, and only
+        // read there: a store or address-of the temp inside the cascade would let a
+        // guard mutate the value later arms observe (and the fold deletes the temp's
+        // defining store, dangling any surviving reference).
         if (scrutinee.TempLocal is { } tempLocal
-            && !ReferenceOwnership.LocalReferencesOnlyWithin(function, tempLocal, consumed))
+            && (!ReferenceOwnership.LocalReferencesOnlyWithin(function, tempLocal, consumed)
+                || !TempScrutineeReadOnly(tempLocal, region, consumed)))
             return false;
 
         // A direct (temp-less) scrutinee is re-read by every arm from its
         // underlying place. A switch expression evaluates the value once, so the
-        // fold is faithful only if that place is provably unmutated across the
-        // consumed cascade — otherwise a mutation in an earlier arm's guard would
-        // change the value later arms observe.
-        if (scrutinee.TempLocal is null && !DirectScrutineeUnmutated(scrutinee.Place, consumed))
+        // fold is faithful only if that place cannot change across the cascade —
+        // neither by a direct store between arm tests nor by an aliased by-ref
+        // mutation through an address taken anywhere in the method.
+        if (scrutinee.TempLocal is null && !DirectScrutineeStable(function, scrutinee.Place, consumed))
             return false;
 
         // Each pattern-bound local must be referenced only inside the cascade.
@@ -217,7 +235,10 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             int? inlineIndex = ReferencesLocalIn(inlineGuard, inlineLocal) || ReferenceOwnership.SubtreeReferencesLocal(inlineValue, inlineLocal)
                 ? inlineLocal
                 : null;
-            arms.Add(new ArmData(inlineType, inlineIndex, Subpattern: null, inlineGuard, inlineValue));
+            // Inline arms are the newly recognized heterogeneous surface; PR A
+            // (#3028) folds them only unguarded (the guard gate in TryFold rejects
+            // a guarded new-surface fold). Tag the arm inline so that gate applies.
+            arms.Add(new ArmData(inlineType, inlineIndex, Subpattern: null, inlineGuard, inlineValue, IsInline: true));
             return TryParseChain(stmts, index + 1, scrutinee, defaultValue, arms);
         }
 
@@ -323,7 +344,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             int? outerLocal = ReferencesLocalIn(innerGuard, patternLocal) || ReferenceOwnership.SubtreeReferencesLocal(innerValue, patternLocal)
                 ? patternLocal
                 : null;
-            arm = new ArmData(patternType, outerLocal, subpattern, innerGuard, innerValue);
+            arm = new ArmData(patternType, outerLocal, subpattern, innerGuard, innerValue, IsInline: false);
             nextIndex = index + 2;
             return true;
         }
@@ -334,7 +355,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         int? localIndex = ReferencesLocalIn(guard, patternLocal) || ReferenceOwnership.SubtreeReferencesLocal(value, patternLocal)
             ? patternLocal
             : null;
-        arm = new ArmData(patternType, localIndex, Subpattern: null, guard, value);
+        arm = new ArmData(patternType, localIndex, Subpattern: null, guard, value, IsInline: false);
         nextIndex = index + consumed;
         return true;
     }
@@ -485,25 +506,38 @@ public sealed class PatternSwitchExpressionPass : IIrPass
     static bool IsReEvaluablePlace(IrExpression expression)
         => expression is LoadArgument or LoadLocal;
 
-    // A direct (temp-less) scrutinee's place must be re-readable with an identical
-    // value at each arm. Reject any write or address-of the underlying local or
-    // argument inside the consumed cascade: a store changes the value directly,
-    // and an address-of admits indirect mutation through a by-ref call in a guard
-    // or value. An unrecognized place kind is refused outright.
-    static bool DirectScrutineeUnmutated(IrExpression place, IReadOnlyCollection<IrNode> consumed)
+    // A direct (temp-less) scrutinee's place must yield an identical value at each
+    // arm's re-read. Reject (a) a store to the underlying local/argument anywhere
+    // inside the cascade — a value change between arm tests — and (b) an address-of
+    // the place ANYWHERE in the method: a live alias admits an indirect by-ref
+    // mutation during the cascade that a consumed-only scan would miss. An
+    // unrecognized place kind is refused outright.
+    static bool DirectScrutineeStable(IrFunction function, IrExpression place, IReadOnlyCollection<IrNode> consumed)
     {
-        System.Func<IrNode, bool> mutates = place switch
+        switch (place)
         {
-            LoadLocal local => node =>
-                (node is StoreLocal store && store.Index == local.Index)
-                || (node is LoadLocalAddress address && address.Index == local.Index),
-            LoadArgument argument => node =>
-                (node is StoreArgument store && store.Index == argument.Index)
-                || (node is LoadArgumentAddress address && address.Index == argument.Index),
-            _ => _ => true,
-        };
-        return !consumed.Any(root => root.Descendants.Prepend(root).Any(mutates));
+            case LoadLocal local:
+                return !ConsumedContains(consumed, node => node is StoreLocal store && store.Index == local.Index)
+                    && !function.Descendants.Any(node => node is LoadLocalAddress address && address.Index == local.Index);
+            case LoadArgument argument:
+                return !ConsumedContains(consumed, node => node is StoreArgument store && store.Index == argument.Index)
+                    && !function.Descendants.Any(node => node is LoadArgumentAddress address && address.Index == argument.Index);
+            default:
+                return false;
+        }
     }
+
+    // A temp scrutinee (`StoreLocal SV = place`, its defining store consumed as
+    // head) must be read-only across the cascade: no re-store of SV inside the arm
+    // region, and no address-of SV anywhere in the consumed cascade. Either would
+    // let a guard mutate the switch value between arm tests while the fold keeps a
+    // single evaluation (and deletes SV's defining store).
+    static bool TempScrutineeReadOnly(int tempLocal, IReadOnlyCollection<IrNode> region, IReadOnlyCollection<IrNode> consumed)
+        => !ConsumedContains(region, node => node is StoreLocal store && store.Index == tempLocal)
+            && !ConsumedContains(consumed, node => node is LoadLocalAddress address && address.Index == tempLocal);
+
+    static bool ConsumedContains(IReadOnlyCollection<IrNode> roots, System.Func<IrNode, bool> predicate)
+        => roots.Any(root => root.Descendants.Prepend(root).Any(predicate));
 
     static bool ReferencesLocalIn(IrExpression? expression, int local)
         => expression is not null && ReferenceOwnership.SubtreeReferencesLocal(expression, local);

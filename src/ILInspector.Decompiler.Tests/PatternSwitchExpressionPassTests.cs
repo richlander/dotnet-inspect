@@ -380,22 +380,20 @@ public class PatternSwitchExpressionPassTests
     }
 
     [Fact]
-    public void Synthetic_InlineGuardFallsThrough_Raises()
+    public void Synthetic_InlineGuardFallsThrough_DoesNotRaise()
     {
-        // The safe counterpart: a positive-form inline guard (`if (G) return V;`)
-        // whose failure falls out of the `then` block to the next sibling — the
-        // exact fall-through a switch `when` guard performs. This still folds, so
-        // Finding 1's fix rejects only the short-circuiting shape, not every
-        // guarded inline arm.
+        // #3028 PR A scopes the newly recognized heterogeneous surface (a direct
+        // scrutinee or any inline-positive arm) to UNGUARDED arms only. A guarded
+        // arm whose failure short-circuits to the default folds faithfully only
+        // when no later arm can match the same value, which needs a
+        // type-disjointness oracle this SRM-only pass does not have. Even the safe
+        // fall-through inline guard is therefore deferred to a follow-up; only the
+        // unguarded new-surface shape folds under PR A.
         var function = DirectIntroGuardedInline(new LoadArgument(0, "node", Node), shortCircuitToDefault: false);
 
         RunPass(function);
 
-        var switchExpression = Assert.Single(function.Descendants.OfType<PatternSwitchExpression>());
-        Assert.Equal(2, switchExpression.Arms.Count);
-        Assert.True(switchExpression.Arms[1].HasGuard);
-        Assert.True(switchExpression.HasDefault);
-        Assert.Empty(function.Descendants.OfType<IfStatement>());
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
     }
 
     // Builds a direct-place cascade (intro head + one inline sibling) whose inline
@@ -438,6 +436,150 @@ public class PatternSwitchExpressionPassTests
         // folding to a single read would diverge. The stability check rejects any
         // store or address-of the direct scrutinee inside the cascade.
         var function = DirectIntroAddressOfScrutinee(argAddress);
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    // Builds a direct-place cascade whose head is an intro-chain arm carrying a
+    // short-circuiting `when` guard (`if (!G) return <default>;`), followed by one
+    // inline sibling arm of `laterType`:
+    //   `L0 = place as Leaf; if (!L0) { if (place is laterType L1) return 2;
+    //    return -1; } if (!Guard(L0)) return -1; return 1;`
+    static IrFunction DirectIntroShortCircuitPlusInline(IrExpression place, TypeRef laterType)
+    {
+        IrExpression Guard() => new Call(new MethodRef(Leaf, "Ok", Bool, [Leaf], HasThis: false), isVirtual: false, [new LoadLocal(0, Leaf)]);
+
+        var innerThen = new Block();
+        innerThen.Add(new Return(new Constant(2, Int32)));
+        var rest = new Block();
+        rest.Add(new IfStatement(new IsPattern((IrExpression)place.Clone(), laterType, 1), innerThen, null));
+        rest.Add(new Return(new Constant(-1, Int32)));
+
+        var guardFail = new Block();
+        guardFail.Add(new Return(new Constant(-1, Int32)));
+
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, Leaf, new IsInstance(Leaf, (IrExpression)place.Clone())));
+        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, Leaf)), rest, null));
+        block.Add(new IfStatement(new LogicalNot(Guard()), guardFail, null));
+        block.Add(new Return(new Constant(1, Int32)));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Int32, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Leaf, Node), container);
+    }
+
+    [Fact]
+    public void Synthetic_IntroGuardShortCircuitOverlapsLaterArm_DoesNotRaise()
+    {
+        // #3028 review round 2 (GPT Finding A / Gemini Finding 1): a guarded
+        // intro arm in the direct (temp-less) form whose guard failure
+        // short-circuits to the default, followed by a later arm that can match
+        // the same value (`Leaf` again, or any base type of `Leaf`). Folding it
+        // makes the guard failure fall through to that later arm, whereas the IL
+        // routed it to the default — divergent. PR A rejects the whole class by
+        // declining any guarded arm on the new heterogeneous surface, so no
+        // type-disjointness oracle is needed.
+        var function = DirectIntroShortCircuitPlusInline(new LoadArgument(0, "node", Node), Leaf);
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    [Fact]
+    public void Synthetic_IntroGuardDistinctLaterArmInDirectForm_DoesNotRaise()
+    {
+        // The same guarded intro arm with a distinct later type (`Twig`) is
+        // semantically foldable, but PR A still declines it: the direct
+        // (temp-less) form is the new heterogeneous surface, restricted to
+        // unguarded arms. Guarded heterogeneous folding is deferred to a follow-up
+        // that carries a real type-disjointness oracle. The pre-existing temp-form
+        // intro cascade (#3022) keeps its guarded arms.
+        var function = DirectIntroShortCircuitPlusInline(new LoadArgument(0, "node", Node), Twig);
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    // A direct argument-scrutinee cascade preceded by an aliasing store
+    // (`ref9 = &arg;`) — the address escapes the cascade even though every arm
+    // test re-reads `arg` directly.
+    static IrFunction DirectCascadeWithArgAlias()
+    {
+        IrExpression Arg() => new LoadArgument(0, "node", Node);
+
+        var innerThen = new Block();
+        innerThen.Add(new Return(new Constant(2, Int32)));
+        var rest = new Block();
+        rest.Add(new IfStatement(new IsPattern(Arg(), Twig, 1), innerThen, null));
+        rest.Add(new Return(new Constant(-1, Int32)));
+
+        var block = new Block(0);
+        block.Add(new StoreLocal(9, TypeRef.ByRef(Node), new LoadArgumentAddress(0, "node", Node)));
+        block.Add(new StoreLocal(0, Leaf, new IsInstance(Leaf, Arg())));
+        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, Leaf)), rest, null));
+        block.Add(new Return(new Constant(1, Int32)));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Int32, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Twig, Node, Node, Node, Node, Node, Node, Node, TypeRef.ByRef(Node)), container);
+    }
+
+    [Fact]
+    public void Synthetic_DirectScrutineeAliasedBeforeCascade_DoesNotRaise()
+    {
+        // #3028 review round 2 (GPT, Finding B): the scrutinee argument's address
+        // is taken into an alias BEFORE the cascade. A consumed-region-only scan
+        // misses it, but a by-ref call through that alias inside a guard could
+        // mutate `arg` between arm tests. The stability check scans the whole
+        // method for an address-of the direct scrutinee and declines.
+        var function = DirectCascadeWithArgAlias();
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    // A temp-form cascade (`SV = arg;` then arms testing `SV`) whose inline arm
+    // takes the address of the temp — `Mutate(ref SV)` — inside its value.
+    static IrFunction TempCascadeWithTempAddress()
+    {
+        IrExpression Sv() => new LoadLocal(5, Node);
+        var mutate = new MethodRef(Node, "Mutate", Int32, [TypeRef.ByRef(Node)], HasThis: false);
+
+        var innerThen = new Block();
+        innerThen.Add(new Return(new Call(mutate, isVirtual: false, [new LoadLocalAddress(5, Node)])));
+        var rest = new Block();
+        rest.Add(new IfStatement(new IsPattern(Sv(), Twig, 1), innerThen, null));
+        rest.Add(new Return(new Constant(-1, Int32)));
+
+        var block = new Block(0);
+        block.Add(new StoreLocal(5, Node, new LoadArgument(0, "node", Node)));
+        block.Add(new StoreLocal(0, Leaf, new IsInstance(Leaf, Sv())));
+        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, Leaf)), rest, null));
+        block.Add(new Return(new Constant(1, Int32)));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Int32, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Twig, Node, Node, Node, Node), container);
+    }
+
+    [Fact]
+    public void Synthetic_TempScrutineeAddressTaken_DoesNotRaise()
+    {
+        // #3028 review round 2 (GPT, Finding C): the temp-form ownership check
+        // proves `SV` is referenced only inside the cascade, but an address-of
+        // `SV` in an arm (`Mutate(ref SV)`) is such a reference — and the fold
+        // deletes `SV`'s defining store, dangling it, while a by-ref mutation
+        // would change the value later arms read. The read-only check declines.
+        var function = TempCascadeWithTempAddress();
 
         RunPass(function);
 
