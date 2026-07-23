@@ -143,6 +143,24 @@ public sealed class MemberBodyProducerMemberRenderTests
         // compile-back OperandDiff (#3062).
         Assert.Contains("System.String", rendered.Text);
     }
+
+    [Fact]
+    public void ProduceMember_PreservesQualifiedNameInsideInterpolationHoleLiteral()
+    {
+        var type = Specimen();
+        var member = Assert.Single(type.Members, m => m.Name == nameof(MemberRenderSpecimen.InterpolatedQuotedTypeName));
+
+        var rendered = MemberBodyProducer.ProduceMember(type, member, AssemblyPath, pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        // The body re-sugars to an interpolated string; guard that the shape is
+        // actually recovered so the hole scan is exercised.
+        Assert.Contains("$\"", rendered.Text);
+        // Name-shortening scans a hole's code but must copy nested literals
+        // verbatim: System.String inside the hole's "System.String" constant
+        // must survive, not be mis-segmented and shortened to String (#3064).
+        Assert.Contains("\"System.String\"", rendered.Text);
+    }
 }
 
 #pragma warning disable CA1822 // members are instance to exercise real signatures
@@ -169,5 +187,14 @@ public sealed class MemberRenderSpecimen
     // so a name-shortener that splits on '"' without honoring escapes flips its
     // in-literal parity and mutates System.String inside the constant (#3062).
     public string QuotedTypeName() => "a \"System.String\" b";
+
+    static string Echo(string value) => value;
+
+    // An interpolated string whose hole contains a nested string literal that
+    // is itself a fully-qualified type name. The decompiler re-sugars this to
+    // $"…{Echo("System.String")}…", so a name-shortener that treats the outer
+    // $"…" as one literal mis-segments the hole and shortens System.String
+    // inside the nested constant, corrupting the ldstr operand (#3064).
+    public string InterpolatedQuotedTypeName(int n) => $"n={n} t={Echo("System.String")}";
 }
 #pragma warning restore CA1822
