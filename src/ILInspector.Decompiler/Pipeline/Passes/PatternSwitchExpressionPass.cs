@@ -121,6 +121,18 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             if (arms.Any(a => PatternLocals(a).Contains(svLocal)))
                 continue;
 
+            // The switch value is re-spelled as the raised switch's governing
+            // expression, and the rewrite removes the temp's lowered binding
+            // (`svStore`). The temp may therefore be read only by the arm type
+            // tests (which become the patterns). Any other read — in a guard, an
+            // arm value, or the default — would see the original receiver in the
+            // cascade but `default(T)` in the raised switch (the binding is
+            // gone), so decline when the temp leaks into an arm body or default.
+            if (arms.Any(a => ReferencesLocalIn(a.Guard, svLocal)
+                    || ReferenceOwnership.SubtreeReferencesLocal(a.Value, svLocal))
+                || ReferenceOwnership.SubtreeReferencesLocal(defaultValue, svLocal))
+                continue;
+
             // A pattern variable is scoped to its own switch arm: no sibling
             // arm's guard/value and not the default may read it. In the lowered
             // cascade the bound local outlives its arm, but the raised C# would

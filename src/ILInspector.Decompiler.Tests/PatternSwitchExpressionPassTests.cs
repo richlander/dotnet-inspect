@@ -454,6 +454,26 @@ public class PatternSwitchExpressionPassTests
         Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
     }
 
+    [Fact]
+    public void Synthetic_SwitchValueTempReadInArmValue_DoesNotRaise()
+    {
+        // Identical to Synthetic_MatchingShape_Raises except the arm value reads
+        // the switch-value temp (V5) rather than a constant. The rewrite removes
+        // the temp's binding (`V5 = node`) and re-spells the governing
+        // expression, so the raised arm body `Use(V5)` would read `default(Node)`
+        // instead of the original receiver. The temp may be read only by the arm
+        // type tests; a read in an arm value must decline. Reported by GPT at the
+        // alias-fix head.
+        var function = SingleArm(
+            switchValue: new LoadArgument(0, "node", Node),
+            guard: null,
+            armValue: new Call(new MethodRef(Node, "Use", Bool, [Node], HasThis: false), isVirtual: false, [new LoadLocal(5, Node)]),
+            noMatchDefault: False());
+
+        RunPass(function);
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
     // ── Disjointness oracle guards (PR #3082, Finding 2) ───────────────────
 
     static readonly string TestAssembly =
