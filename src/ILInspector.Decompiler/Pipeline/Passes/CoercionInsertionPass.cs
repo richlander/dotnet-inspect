@@ -107,7 +107,7 @@ public static class CoercionSinks
         {
             if (ambiguous.Contains(load.Slot))
                 continue;
-            var evidence = load.Type ?? LoadSinkTargetType(load, returnType, shapes);
+            var evidence = BitwiseEnumSinkType(load, shapes) ?? load.Type ?? LoadSinkTargetType(load, returnType, shapes);
             if (evidence is null)
             {
                 types.Remove(load.Slot);
@@ -142,6 +142,32 @@ public static class CoercionSinks
             Return ret when ReferenceEquals(ret.Value, load) => returnType,
             _ => null,
         };
+
+    /// <summary>
+    /// The enum family a slot load contributes when it is an operand of a
+    /// flags-enum bitwise op (<c>and</c>/<c>or</c>/<c>xor</c>) whose sibling
+    /// operand is enum-typed. #3009: a spilled accumulator holding a bare
+    /// integer flag constant (<c>long S_0 = (long)512</c>) is only ever
+    /// consumed as the enum in the OR chain, so it should testify — and
+    /// materialize as — the enum, not the integer storage width the IL stack
+    /// load carries. This wins over the load's own primitive
+    /// <see cref="LoadStackSlot.Type"/>; a slot load feeding a non-enum sink
+    /// elsewhere still disagrees at the join and vetoes as before. A load
+    /// already carrying an enum type is left to the normal path so genuine
+    /// cross-enum disagreement is preserved.
+    /// </summary>
+    static TypeRef? BitwiseEnumSinkType(LoadStackSlot load, IReadOnlyDictionary<TypeRef, TypeShape> shapes)
+    {
+        if (load.Parent is not Binary { Kind: BinaryKind.And or BinaryKind.Or or BinaryKind.Xor } binary)
+            return null;
+        var sibling = ReferenceEquals(binary.Left, load) ? binary.Right : binary.Left;
+        if (sibling is Constant || sibling.ResultType is not { } siblingType
+                || shapes.GetValueOrDefault(siblingType) != TypeShape.Enum)
+            return null;
+        if (load.Type is { } loadType && shapes.GetValueOrDefault(loadType) == TypeShape.Enum)
+            return null;
+        return siblingType;
+    }
 
     /// <summary>
     /// Walks one body scope. Nested bodies carry their own return types: a
