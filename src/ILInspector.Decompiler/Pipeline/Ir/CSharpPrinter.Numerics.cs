@@ -390,14 +390,16 @@ public sealed partial class CSharpPrinter
                 ? CheckedSafeCast(() => $"({TypeText(target)}){Operand(operand)}")
                 : $"({TypeText(target)}){Operand(operand)}";
         }
-        // A cross-assembly enum (backing unresolved): the bare enum load carries no
-        // storage-width hint, so recover the width from the compiler-baked shift-count
-        // mask (& 31 => 4-byte, & 63 => 8-byte). Signedness is always the opcode's. A
-        // constant count carries no mask, so the width is genuinely unknowable and the
-        // shift is left visibly invalid (CS0019) rather than guessed. The reinterpret
-        // can add a conv.ovf in a checked region against the (recompile-visible) real
-        // backing, so guard it — the source's cast was a no-op reinterpret.
-        if (IsEnumLikeInteger(operand.ResultType)
+        // A cross-assembly enum (backing unresolved): the enum load carries no
+        // storage-width hint (a bare load types as the enum; a typed ldelem/ldind
+        // masks it as its primitive backing), so recover the width from the
+        // compiler-baked shift-count mask (& 31 => 4-byte, & 63 => 8-byte).
+        // Signedness is always the opcode's. A constant count carries no mask, so
+        // the width is genuinely unknowable and the shift is left visibly invalid
+        // (CS0019) rather than guessed. The reinterpret can add a conv.ovf in a
+        // checked region against the (recompile-visible) real backing, so guard it —
+        // the source's cast was a no-op reinterpret.
+        if (IsEnumLikeShiftOperand(operand)
             && ShiftCountMaskWidthBytes(shift) is { } widthBytes)
         {
             var target = widthBytes == 8
@@ -428,6 +430,28 @@ public sealed partial class CSharpPrinter
             _ => null,
         };
     }
+
+    /// <summary>
+    /// Whether a shift's left operand is an enum whose backing is UNRESOLVED
+    /// (cross-assembly), recognized through the same bare/<c>ldelem</c>/<c>ldind</c>
+    /// shapes as <see cref="ShiftLeftEnumType"/> but via <see cref="IsEnumLikeInteger"/>
+    /// — which admits a referenced-assembly enum that <c>ShiftLeftEnumType</c> declines
+    /// because <c>EnumUnderlyingType</c> returns null off-module. A typed
+    /// <c>ldelem</c>/<c>ldind</c> masks the enum as its primitive storage width in
+    /// <c>ResultType</c>, so the array element / by-ref pointee type must be consulted
+    /// too, or an array or <c>ref</c> cross-assembly enum shift renders as a bare,
+    /// uncast (CS0019) shift with its count mask stripped.
+    /// </summary>
+    bool IsEnumLikeShiftOperand(IrExpression operand)
+        => IsEnumLikeInteger(operand.ResultType)
+            || operand switch
+            {
+                LoadElement { Array.ResultType: { Kind: TypeRefKind.SzArray or TypeRefKind.Array, ElementType: { } element } }
+                    => IsEnumLikeInteger(element),
+                LoadIndirect load when WideIndexPointee(load.Address) is { } pointee
+                    => IsEnumLikeInteger(pointee),
+                _ => false,
+            };
 
     /// <summary>
     /// Casts an integer operand to the enum type it is compared or combined with
@@ -1049,9 +1073,10 @@ public sealed partial class CSharpPrinter
                 // A cross-assembly enum has no resolved backing, but the outermost
                 // count mask IS the shift's implicit width mask (any user-written mask
                 // sits inside it), so a 31/63 mask strips exactly as the resolved path.
-                // ShiftEnumLeftOperand keys the recovered cast width off the same mask,
-                // so the strip and the cast width always agree.
-                || (IsEnumLikeInteger(shift.Left.ResultType) && mask is 31 or 63)))
+                // ShiftEnumLeftOperand keys the recovered cast width off the same mask
+                // (via the same IsEnumLikeShiftOperand predicate, so an array/ref enum
+                // operand agrees too), so the strip and the cast width always agree.
+                || (IsEnumLikeShiftOperand(shift.Left) && mask is 31 or 63)))
             return IntShiftCount(masked.Left);
         return IntShiftCount(shift.Right);
     }

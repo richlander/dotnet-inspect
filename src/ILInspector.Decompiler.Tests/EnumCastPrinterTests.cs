@@ -300,6 +300,59 @@ public class EnumCastPrinterTests
         AssertCompiles("public static long M(ExternalLong e, int n)", body, ExternalLongDecl);
     }
 
+    // #3066 ref/array siblings: a typed ldind/ldelem masks the referenced enum as its
+    // primitive backing width in the operand ResultType, so recognition must consult
+    // the by-ref pointee / array element type. Without it, these render as an uncast
+    // `e << n` / `a[i] << n` (CS0019) with the count mask stripped — a cast/strip
+    // disagreement. With it, the pointee/element-recovered reinterpret is emitted.
+    [Fact]
+    public void CrossAssemblyEnumLeftShift_ByRefEnum_CastsPointeeToRecoveredWidth()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalLongRefLeftShift));
+
+        Assert.Contains("(long)", body);
+        Assert.Contains("<<", body);
+        Assert.DoesNotContain(" e <<", body);
+        Assert.DoesNotContain("& 63", body);
+        AssertCompiles("public static long M(ref ExternalLong e, int n)", body, ExternalLongDecl);
+    }
+
+    [Fact]
+    public void CrossAssemblyEnumLeftShift_ArrayElement_CastsElementToRecoveredWidth()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalLongArrayLeftShift));
+
+        Assert.Contains("(long)a[i] <<", body);
+        Assert.DoesNotContain(" a[i] <<", body);
+        Assert.DoesNotContain("& 63", body);
+        AssertCompiles("public static long M(ExternalLong[] a, int i, int n)", body, ExternalLongDecl);
+    }
+
+    // Opcode-wins mirror through an array element: a signed shr on a uint-backed
+    // referenced enum element reinterprets to `(int)`, width recovered from `& 31`.
+    [Fact]
+    public void CrossAssemblyEnumRightShift_UIntArrayElementSignedOpcode_CastsElementToSigned()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalUIntArrayRightShift));
+
+        Assert.Contains("(int)a[i] >>", body);
+        Assert.DoesNotContain(" a[i] >>", body);
+        Assert.DoesNotContain("& 31", body);
+        AssertCompiles("public static int M(ExternalUInt[] a, int i, int n)", body, ExternalUIntDecl);
+    }
+
+    // The compound sibling through an array element decomposes to a cast-back
+    // assignment whose inner shift still reinterprets the element to the recovered width.
+    [Fact]
+    public void CrossAssemblyEnumCompoundLeftShift_ArrayElement_CastsElementInsideDecomposition()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.ExternalLongArrayCompoundLeftShift));
+
+        Assert.Contains("a[i] = (ExternalLong)((long)a[i] <<", body);
+        Assert.DoesNotContain("a[i] <<=", body);
+        AssertCompiles("public static ExternalLong M(ExternalLong[] a, int i, int n)", body, ExternalLongDecl);
+    }
+
     // The residual, and the soundness boundary: a CONSTANT shift count carries no
     // width mask, so a cross-assembly enum's width is genuinely unknowable. The
     // printer must NOT fabricate a width — it leaves the bare (visibly invalid)

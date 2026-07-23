@@ -5201,6 +5201,21 @@ public static class EnumCastSamples
     // 8-byte backing (stripped), and the user's `& 31` is preserved untouched.
     public static long ExternalLongRightShiftInnerUserMask(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong e, int n) => (long)e >> (n & 31);
 
+    // #3066: the ref/array siblings of the direct cross-assembly enum shift. A
+    // typed ldelem/ldind masks the referenced enum as its primitive backing width in
+    // the operand ResultType, so recognition must consult the array element / by-ref
+    // pointee type (IsEnumLikeShiftOperand) — otherwise these render as a bare, uncast
+    // `e << n` / `a[i] << n` (CS0019) with the count mask stripped. Both the plain
+    // expression and the compound `<<=` decomposition are covered.
+    public static long ExternalLongRefLeftShift(ref ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong e, int n) => (long)e << n;
+    public static long ExternalLongArrayLeftShift(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong[] a, int i, int n) => (long)a[i] << n;
+    public static int ExternalUIntArrayRightShift(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalUInt[] a, int i, int n) => (int)a[i] >> n;
+    public static ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong ExternalLongArrayCompoundLeftShift(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong[] a, int i, int n)
+    {
+        a[i] = (ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong)((long)a[i] << n);
+        return a[i];
+    }
+
     // #1766: ternary with enum-constant arms stored to a cross-assembly enum
     // local (StringComparison.Ordinal = 4, OrdinalIgnoreCase = 5).
     public static bool EnumConditional(string name, bool ci)
