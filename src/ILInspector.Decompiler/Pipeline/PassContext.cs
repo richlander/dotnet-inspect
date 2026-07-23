@@ -18,8 +18,9 @@ public sealed class PassContext
     public PassContext(
         Stepper stepper,
         StructuringDiagnostics? structuringDiagnostics = null,
-        Func<MethodRef, IrFunction?>? importMethodBody = null)
-        : this(stepper, structuringDiagnostics, importMethodBody, [])
+        Func<MethodRef, IrFunction?>? importMethodBody = null,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
+        : this(stepper, structuringDiagnostics, importMethodBody, typesProvablyDisjoint, [])
     {
     }
 
@@ -27,11 +28,13 @@ public sealed class PassContext
         Stepper stepper,
         StructuringDiagnostics? structuringDiagnostics,
         Func<MethodRef, IrFunction?>? importMethodBody,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint,
         List<string> activeCrossMethodPipelines)
     {
         Stepper = stepper;
         StructuringDiagnostics = structuringDiagnostics;
         ImportMethodBody = importMethodBody;
+        TypesProvablyDisjoint = typesProvablyDisjoint;
         _activeCrossMethodPipelines = activeCrossMethodPipelines;
     }
 
@@ -57,6 +60,18 @@ public sealed class PassContext
     /// this delegate directly.
     /// </summary>
     public Func<MethodRef, IrFunction?>? ImportMethodBody { get; }
+
+    /// <summary>
+    /// Optional type-relationship oracle: returns <c>true</c> only when it can
+    /// prove no single value inhabits both argument types as a type pattern (see
+    /// <see cref="MetadataSource.AreProvablyDisjoint"/>). Wired from the assembly's
+    /// already-open <see cref="MetadataSource"/> on the product and staged paths;
+    /// <c>null</c> on runs with no metadata backing (direct pass tests, synthetic
+    /// IR). A pass whose soundness depends on disjointness must decline the rewrite
+    /// when this is <c>null</c> or returns <c>false</c> — an unproven relationship
+    /// is never treated as disjoint.
+    /// </summary>
+    public Func<TypeRef, TypeRef, bool>? TypesProvablyDisjoint { get; }
 
     /// <summary>
     /// Imports a sibling body and runs a pass pipeline over it while marking that
@@ -87,7 +102,7 @@ public sealed class PassContext
         // method's reconstruction. Keep stepper output and structuring-stop
         // accounting scoped to the requested method; imported siblings are
         // scanned as their own top-level methods by whole-assembly sweeps.
-        return new PassContext(new Stepper(enabled: false), structuringDiagnostics: null, ImportMethodBody, _activeCrossMethodPipelines);
+        return new PassContext(new Stepper(enabled: false), structuringDiagnostics: null, ImportMethodBody, TypesProvablyDisjoint, _activeCrossMethodPipelines);
     }
 
     /// <summary>
@@ -165,6 +180,19 @@ public sealed class PassContext
     /// (classic-async / iterator / lambda / local-function reconstruction) run in
     /// the single-method dumps as they do in the shipped product path.
     /// </summary>
-    public static PassContext ForImport(Func<MethodRef, IrFunction?>? importMethodBody)
-        => importMethodBody is null ? None : new PassContext(new Stepper(enabled: false), importMethodBody: importMethodBody);
+    /// <summary>
+    /// A non-stepping context that carries the cross-method import
+    /// <paramref name="importMethodBody"/> seam (and, when available, the
+    /// <paramref name="typesProvablyDisjoint"/> oracle) for the diagnostic dump
+    /// paths, or <see cref="None"/> when neither is wired. Lets cross-method passes
+    /// (classic-async / iterator / lambda / local-function reconstruction) and the
+    /// disjointness-gated raises run in the single-method dumps as they do in the
+    /// shipped product path.
+    /// </summary>
+    public static PassContext ForImport(
+        Func<MethodRef, IrFunction?>? importMethodBody,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
+        => importMethodBody is null && typesProvablyDisjoint is null
+            ? None
+            : new PassContext(new Stepper(enabled: false), importMethodBody: importMethodBody, typesProvablyDisjoint: typesProvablyDisjoint);
 }

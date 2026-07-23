@@ -341,7 +341,8 @@ internal static class MemberCodeProvider
                 ?? throw new InvalidOperationException($"{type}::{method} has no IL body");
             var result = Decompiler.Pipeline.CSharpPrinter.PrintRaised(
                 imported,
-                target => IrImporter.Import(source, target));
+                target => IrImporter.Import(source, target),
+                typesProvablyDisjoint: source.AreProvablyDisjoint);
             return result;
         }
         catch (Exception ex)

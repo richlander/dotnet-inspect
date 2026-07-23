@@ -290,7 +290,7 @@ public static class StageDump
                 }
             }
 
-            sb.Append(Format(IrPasses.RunWithStages(function, method => IrImporter.Import(source, method)), includesRaisedCSharp: true));
+            sb.Append(Format(IrPasses.RunWithStages(function, method => IrImporter.Import(source, method), source.AreProvablyDisjoint), includesRaisedCSharp: true));
 
             sb.AppendLine();
             // RunWithStages above ran the canonical Default pass list on
