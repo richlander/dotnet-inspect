@@ -284,12 +284,64 @@ public class PatternSwitchExpressionPassTests
         // to a two-arm switch.
         var function = DirectIntroCascade(new LoadArgument(0, "node", Node), inlineArmCount: 1);
 
+        // The new (temp-less) surface folds only when the disjointness oracle
+        // proves no earlier arm subsumes a later one (CS8510). Leaf and Twig are
+        // unrelated synthetic siblings, so a faithful oracle answers No for every
+        // pair; the oracle's Yes/Unknown/absent verdicts are pinned by the three
+        // negative tests below, and MetadataSource.Subsumes is unit-tested against
+        // compiled types further down. A synthetic function carries no oracle by
+        // default, so stamp the all-disjoint answer this shape genuinely warrants.
+        function.TypeSubsumption = static (_, _) => MetadataFactState.No;
+
         RunPass(function);
 
         var switchExpression = Assert.Single(function.Descendants.OfType<PatternSwitchExpression>());
         Assert.Equal(2, switchExpression.Arms.Count);
         Assert.True(switchExpression.HasDefault);
         Assert.Empty(function.Descendants.OfType<IfStatement>());
+    }
+
+    [Fact]
+    public void Synthetic_NewSurfaceOracleReportsSubsumption_DoesNotRaise()
+    {
+        // Same temp-less new surface, but the oracle reports the intro-head arm
+        // subsumes the later inline arm. A first-match-wins ladder is valid, but
+        // the folded `switch` would carry an arm the compiler proves unreachable
+        // (CS8510), so the guard declines.
+        var function = DirectIntroCascade(new LoadArgument(0, "node", Node), inlineArmCount: 1);
+        function.TypeSubsumption = static (_, _) => MetadataFactState.Yes;
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    [Fact]
+    public void Synthetic_NewSurfaceOracleUnknownSubsumption_DoesNotRaise()
+    {
+        // An unresolved link (or a variance-reachable pair) yields Unknown, which
+        // the guard must treat as possibly subsuming and decline — never fold on
+        // anything short of a proven No.
+        var function = DirectIntroCascade(new LoadArgument(0, "node", Node), inlineArmCount: 1);
+        function.TypeSubsumption = static (_, _) => MetadataFactState.Unknown;
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    [Fact]
+    public void Synthetic_NewSurfaceWithoutOracle_DoesNotRaise()
+    {
+        // No oracle is stamped (synthetic/stage-dump path). The new-surface fold
+        // cannot prove pairwise non-subsumption, so it declines conservatively
+        // rather than risk emitting an unreachable arm.
+        var function = DirectIntroCascade(new LoadArgument(0, "node", Node), inlineArmCount: 1);
+        Assert.Null(function.TypeSubsumption);
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
     }
 
     [Fact]
@@ -635,5 +687,110 @@ public class PatternSwitchExpressionPassTests
         RunPass(function);
 
         Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    // ── Subsumption oracle (#3028 follow-up to #3065) ───────────────────────
+    //
+    // #3065 raised the heterogeneous surface but anchors every fold on a
+    // compiler-lowered intro-chain head (a `switch`-expression lowering, whose
+    // arms csc already proved mutually non-subsuming, or it would have been
+    // CS8510 at the original compile). A hand-written `if (p is T x)` ladder —
+    // whose arm types MAY subsume — lowers instead to the flat all-inline shape,
+    // which #3065 leaves unfolded (see Synthetic_AllInlineWithoutIntroHead). So
+    // the CS8510 hazard is not reachable through #3065's current matcher.
+    //
+    // This follow-up carries the type-disjointness oracle #3065 deferred: a
+    // reusable metadata service (MetadataSource.Subsumes) plus a guard that a
+    // future extension folding hand-written ladders (or the deferred guarded/
+    // subpattern arms) requires to stay CS8510-safe. The oracle is unit-tested
+    // for correctness here; the guard's wiring is pinned by the synthetic
+    // new-surface tests above; and the compiled canaries below document that a
+    // real hand-written subsuming/variance/guarded ladder is left as an
+    // if-cascade rather than reshaped.
+
+    static TypeRef PatternTypeMatching(IrFunction function, string display)
+        => function.Descendants.OfType<IsPattern>().Select(p => p.Type)
+            .First(t => t.ToDisplayString().Contains(display));
+
+    [Fact]
+    public void SubsumptionOracle_ResolvesSameAssemblyRelationship()
+    {
+        // Circle : Shape, both same-assembly, so the oracle resolves the pair
+        // precisely: an earlier Shape arm subsumes a later Circle arm (Yes), and
+        // the reverse is provably disjoint (No).
+        using var source = MetadataSource.Open(typeof(InlinePatternSwitchSample).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(InlinePatternSwitchSample).FullName!, nameof(InlinePatternSwitchSample.Subsumed));
+        Assert.NotNull(function);
+        IrPasses.Run(function!);
+        var shape = PatternTypeMatching(function!, "Shape");
+        var circle = PatternTypeMatching(function!, "Circle");
+
+        Assert.Equal(MetadataFactState.Yes, source.Subsumes(shape, circle));
+        Assert.Equal(MetadataFactState.No, source.Subsumes(circle, shape));
+    }
+
+    [Fact]
+    public void SubsumptionOracle_ReportsUnknownForVarianceReachablePair()
+    {
+        // `ICovariant<string>` is assignable to `ICovariant<object>` through
+        // `out T` covariance, a conversion with no nominal base/interface edge for
+        // the walk to follow. Both arms are constructed generics, so the oracle
+        // cannot prove disjointness and reports Unknown in either direction —
+        // never a false No that would let a subsuming pair fold to CS8510.
+        using var source = MetadataSource.Open(typeof(InlinePatternSwitchSample).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(InlinePatternSwitchSample).FullName!, nameof(InlinePatternSwitchSample.Variance));
+        Assert.NotNull(function);
+        IrPasses.Run(function!);
+        var objects = PatternTypeMatching(function!, "object");
+        var strings = PatternTypeMatching(function!, "string");
+
+        Assert.Equal(MetadataFactState.Unknown, source.Subsumes(objects, strings));
+        Assert.Equal(MetadataFactState.Unknown, source.Subsumes(strings, objects));
+    }
+
+    [Fact]
+    public void CompiledFixture_SubsumingHandWrittenLadder_LeftAsIfCascade()
+    {
+        // `if (value is Shape s) …; if (value is Circle c) …;` (Circle : Shape) —
+        // a hand-written ladder csc lowers to the flat all-inline shape. #3065
+        // anchors only on intro-chain heads, so this is left unfolded (never
+        // reshaped into a CS8510 switch). Compiled canary: the subsuming shape
+        // does not reach a fold.
+        var function = Raised(typeof(InlinePatternSwitchSample), nameof(InlinePatternSwitchSample.Subsumed));
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+        Assert.NotEmpty(function.Descendants.OfType<IfStatement>());
+    }
+
+    [Fact]
+    public void CompiledFixture_GuardedOverlapHandWrittenLadder_LeftAsIfCascade()
+    {
+        // `if (value is IComparable c) { if (flag) …; return 0; } if (value is
+        // ICloneable c2) …;` — `string` satisfies both interfaces, so the arms
+        // overlap. As a hand-written ladder it lowers to the all-inline shape and
+        // is left unfolded; even on the intro-chain surface the guard gate would
+        // decline a guarded arm. Compiled canary for the overlap-plus-guard case.
+        var function = Raised(typeof(InlinePatternSwitchSample), nameof(InlinePatternSwitchSample.GuardedOverlap));
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+        Assert.NotEmpty(function.Descendants.OfType<IfStatement>());
+    }
+
+    [Fact]
+    public void CompiledFixture_DisjointSwitchExpressionSource_RaisesToPatternSwitchExpression()
+    {
+        // The contrasting positive: a genuine `switch` expression as the ORIGINAL
+        // source (`shape switch { Dot d => …, Bar b => …, Box x => …, _ => -1 }`)
+        // over sealed sibling subtypes. csc lowers it to the intro-chain-plus-
+        // inline shape #3065 folds, the oracle answers No for every disjoint pair,
+        // and it round-trips back to one switch expression. This is why folding is
+        // NOT a free taste choice: it fires on the compiler's switch lowering, not
+        // on hand-written if-ladders (which the canaries above leave intact).
+        var function = Raised(typeof(HeterogeneousArmSample), nameof(HeterogeneousArmSample.Area));
+
+        var switchExpression = Assert.Single(function.Descendants.OfType<PatternSwitchExpression>());
+        Assert.True(switchExpression.HasDefault);
+        Assert.Empty(function.Descendants.OfType<IfStatement>());
+        Assert.All(switchExpression.Arms, arm => Assert.False(arm.HasGuard));
     }
 }

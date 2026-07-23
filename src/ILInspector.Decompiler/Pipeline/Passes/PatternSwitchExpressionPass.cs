@@ -155,6 +155,23 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         if (isNewSurface && arms.Any(a => a.Guard is not null || a.Subpattern is not null))
             return false;
 
+        // Subsumption guard for the new (heterogeneous inline/direct) surface.
+        // Every arm here is now an unguarded plain type pattern — the guard/
+        // subpattern gate above rejected the rest. A `switch` expression rejects
+        // an arm the compiler proves unreachable (CS8510): `case Base` before
+        // `case Derived` is a legal first-match-wins `if` ladder yet does not
+        // compile as a `switch`. Today the surface #3065 folds is only ever a
+        // compiler-lowered `switch` expression, whose arms csc already proved
+        // mutually non-subsuming, so this oracle returns No for every reachable
+        // fold and never blocks one. It is the type-disjointness oracle #3065
+        // deferred: it makes that safety explicit and keeps a future extension
+        // that folds hand-written ladders (or the deferred guarded/subpattern
+        // arms) CS8510-safe. The oracle answers No only from resolved types —
+        // Yes, Unknown, or no oracle (synthetic/stage-dump paths) all leave the
+        // ladder intact rather than reorder it blindly.
+        if (isNewSurface && !ArmsProvenDisjoint(function, arms))
+            return false;
+
         var consumed = new List<IrNode>(headConsumed);
         consumed.AddRange(region);
 
@@ -196,6 +213,28 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             (IrExpression)switchValue.Clone(),
             builtArms,
             (IrExpression)defaultValue.Clone());
+        return true;
+    }
+
+    // True only when the metadata oracle proves that no earlier arm's pattern type
+    // subsumes a later arm's — the precondition for folding a first-match-wins
+    // ladder into a `switch` without producing an unreachable (CS8510) arm. A
+    // subsumption may hold across a conversion with no nominal edge (generic
+    // co/contravariance, array covariance); the oracle returns Unknown for those,
+    // which — like a missing oracle — declines the fold. Only a proven No folds.
+    static bool ArmsProvenDisjoint(IrFunction function, List<ArmData> arms)
+    {
+        var subsumes = function.TypeSubsumption;
+        if (subsumes is null)
+            return false;
+        for (int earlier = 0; earlier < arms.Count; earlier++)
+        {
+            for (int later = earlier + 1; later < arms.Count; later++)
+            {
+                if (subsumes(arms[earlier].PatternType, arms[later].PatternType) != MetadataFactState.No)
+                    return false;
+            }
+        }
         return true;
     }
 
