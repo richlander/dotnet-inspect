@@ -1,6 +1,7 @@
 using System.Reflection.PortableExecutable;
 
 using ILInspector.Decompiler;
+using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
 
 namespace ILInspector.Decompiler.Tests;
@@ -57,6 +58,23 @@ public sealed class MemberBodyProducerMemberRenderTests
         // Whole member: CSharp-owned signature + decompiler body, arrow layout.
         Assert.Contains("int Increment(", rendered.Text);
         Assert.Contains("=> ", rendered.Text);
+    }
+
+    [Fact]
+    public void ProduceMember_WrapsExpressionBodiedArrow_WhenRequested()
+    {
+        var type = Specimen();
+        var increment = Assert.Single(type.Members, m => m.Name == nameof(MemberRenderSpecimen.Increment));
+
+        var rendered = MemberBodyProducer.ProduceMember(
+            type,
+            increment,
+            AssemblyPath,
+            pdbPath: null,
+            printerOptions: new PrinterOptions { ExpressionBodyArrowPlacement = ExpressionBodyArrowPlacement.NextLine });
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.Equal("    public int Increment(int n)\n        => n + 1;", rendered.Text!.Replace("\r\n", "\n"));
     }
 
     [Fact]
