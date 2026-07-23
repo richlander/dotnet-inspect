@@ -922,6 +922,67 @@ public class ApiSurfaceExtractorTests
         Assert.Contains(host.Members, m => m.Name == "_customBacking" && m.Kind == "field");
     }
 
+    [Fact]
+    public void Extract_KeepsPublicFieldMaskedBySameNamedNonFieldLikeEvent()
+    {
+        // C#/VB/F# forbid a same-named field+event (CS0102/BC30260/FS0023), but arbitrary IL
+        // may contain both. Emit a type with a public field `Clash` alongside a private event
+        // `Clash` whose accessors are NOT compiler-generated (a custom/explicit event backed by
+        // a distinctly-named field). The field-like fold must NOT suppress the legitimate public
+        // field: the event is not field-like, so the same-named field is not its backing field.
+        string dllPath = EmitSameNameFieldAndCustomEvent();
+        try
+        {
+            using var stream = File.OpenRead(dllPath);
+            using var peReader = new PEReader(stream);
+            var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+            var type = surface.Types.Single(t => t.Name == "PublicFieldPrivateEvent");
+
+            // The legitimate public field survives; the non-field-like event is faithfully
+            // surfaced too (both members genuinely exist in this hand-authored type).
+            Assert.Contains(type.Members, m => m.Name == "Clash" && m.Kind == "field");
+            Assert.Contains(type.Members, m => m.Name == "Clash" && m.Kind == "event");
+        }
+        finally
+        {
+            try { File.Delete(dllPath); } catch { /* best-effort */ }
+        }
+    }
+
+    // Emits (via Reflection.Emit, whose accessors are not [CompilerGenerated]) a type carrying a
+    // public field and a private custom event that share the name `Clash` — a shape valid in raw
+    // metadata but not producible by C#/VB/F#. Returns the path to the persisted assembly.
+    static string EmitSameNameFieldAndCustomEvent()
+    {
+        var ab = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new System.Reflection.AssemblyName("ClashEmit"), typeof(object).Assembly);
+        var module = ab.DefineDynamicModule("ClashEmit");
+        var tb = module.DefineType("PublicFieldPrivateEvent",
+            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
+
+        tb.DefineField("Clash", typeof(int), System.Reflection.FieldAttributes.Public);
+        tb.DefineField("_eventBacking", typeof(Action), System.Reflection.FieldAttributes.Private);
+
+        const System.Reflection.MethodAttributes accessorAttrs =
+            System.Reflection.MethodAttributes.Private
+            | System.Reflection.MethodAttributes.SpecialName
+            | System.Reflection.MethodAttributes.HideBySig;
+        var add = tb.DefineMethod("add_Clash", accessorAttrs, typeof(void), new[] { typeof(Action) });
+        add.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        var remove = tb.DefineMethod("remove_Clash", accessorAttrs, typeof(void), new[] { typeof(Action) });
+        remove.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+
+        var eventBuilder = tb.DefineEvent("Clash", System.Reflection.EventAttributes.None, typeof(Action));
+        eventBuilder.SetAddOnMethod(add);
+        eventBuilder.SetRemoveOnMethod(remove);
+        tb.CreateType();
+
+        string path = Path.Combine(Path.GetTempPath(), $"clash-event-{Guid.NewGuid():N}.dll");
+        ab.Save(path);
+        return path;
+    }
+
 }
 
 /// <summary>
