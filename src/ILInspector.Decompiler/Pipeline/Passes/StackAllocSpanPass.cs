@@ -173,9 +173,12 @@ public sealed class StackAllocSpanPass : IIrPass
     /// declared type matches the stored value (no dropped widening/narrowing
     /// witness), the store is the count statement's immediate predecessor in the
     /// same block (no statement between them to observe or reorder past the moved
-    /// allocation), and the count is either that statement's first-evaluated leaf
-    /// (evaluation order preserved verbatim) or a provably pure value (its
-    /// evaluation point is unobservable). The count load is, by construction,
+    /// allocation), and the count is that statement's first-evaluated leaf
+    /// (evaluation order preserved verbatim — nothing runs before it, so moving the
+    /// stored value into the count position crosses no effect). A pure stored value
+    /// alone is deliberately not accepted for a non-first-leaf count: an earlier
+    /// leaf can mutate a local the value reads, which would fold in a stale count.
+    /// The count load is, by construction,
     /// the just-raised <see cref="StackAllocArray"/>'s own operand — never an
     /// increment lvalue — so this cannot mint an invalid <c>1++</c> the way an
     /// unrestricted late inline of a user local could.</para>
@@ -219,9 +222,13 @@ public sealed class StackAllocSpanPass : IIrPass
         if (loadStatement == null || loadStatement.Parent != store.Parent || loadStatement.ChildIndex != store.ChildIndex + 1)
             return;
 
-        // Either the count still evaluates first (order preserved verbatim) or the
-        // stored value is pure (its evaluation point cannot be observed at all).
-        if (!IsFirstEvaluatedLeaf(load, loadStatement) && !IsSideEffectFree(store.Value))
+        // The count must still be the statement's first-evaluated leaf, so nothing
+        // runs before it and moving the stored value into the count position crosses
+        // no effect. A pure stored value is NOT sufficient on its own: an earlier
+        // leaf (e.g. `V0++` in `Consume(V0++, stackalloc byte[V1])` with `V1 = V0`)
+        // can mutate a local the value reads, so folding it later would read a stale
+        // count. Requiring the first-leaf position rules that reordering out entirely.
+        if (!IsFirstEvaluatedLeaf(load, loadStatement))
             return;
 
         var value = (IrExpression)store.DetachChildren()[0];

@@ -1443,6 +1443,37 @@ public class StackAllocSpanPassTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void DynamicCountSpillPureValueNotFirstEvaluated_DoesNotFold()
+    {
+        // Regression for the stale-read hazard: the spill value `V_3` is pure, but
+        // the stackalloc-span is the second argument of a call whose first argument
+        // `V_3++` mutates the very local the value reads. Folding the pure read into
+        // the (non-first-leaf) count position would move it past the increment and
+        // allocate the post-increment length. Purity alone is no license to reorder.
+        var value = new LoadLocal(3, Int32);
+        var spill = new StoreLocal(1, Int32, value);
+        var span = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Span`1"), [Byte]);
+        var newObject = StackAllocSpanConstructor(
+            TypeRef.CoreLib("System", "Span`1"),
+            new StackAllocate(new LoadLocal(1, Int32)),
+            new LoadLocal(1, Int32),
+            Byte);
+        var mutateFirstArg = new IncrementDecrement(new LoadLocal(3, Int32), isIncrement: true, isPrefix: false);
+        var consume = new Call(
+            new MethodRef(Holder, "Consume", Void, [Int32, span], HasThis: false),
+            isVirtual: false,
+            [mutateFirstArg, newObject]);
+        var function = BuildBody(spill, new ExpressionStatement(consume), new Return(new Constant(0, Int32)));
+
+        new StackAllocSpanPass().Run(function, PassContext.None);
+
+        var raised = Assert.Single(function.Descendants.OfType<StackAllocArray>());
+        Assert.IsType<LoadLocal>(raised.Count); // pure spill left in place, not reordered past the mutation
+        Assert.Contains(function.Descendants.OfType<StoreLocal>(), s => s.Index == 1);
+        function.CheckInvariant();
+    }
+
     /// <summary>
     /// Builds `V_1 = value; Span<byte> V_0 = new Span<byte>(localloc V_1, V_1); return 0;`
     /// — the compiler's dynamic one-byte `stackalloc byte[n]` shape whose byte
