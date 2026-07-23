@@ -24,6 +24,8 @@ public class PatternSwitchExpressionPassTests
     static readonly TypeRef Int32 = TypeRef.CoreLib("System", "Int32");
     static readonly TypeRef Node = TypeRef.CoreLib("Synthetic", "Node");
     static readonly TypeRef Leaf = TypeRef.CoreLib("Synthetic", "Leaf");
+    static readonly TypeRef Outer = TypeRef.CoreLib("Synthetic", "Outer");
+    static readonly TypeRef Inner = TypeRef.CoreLib("Synthetic", "Inner");
 
     static Constant False() => new(false, Bool);
 
@@ -580,6 +582,55 @@ public class PatternSwitchExpressionPassTests
         // deletes `SV`'s defining store, dangling it, while a by-ref mutation
         // would change the value later arms read. The read-only check declines.
         var function = TempCascadeWithTempAddress();
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    // Builds a direct-place cascade whose head is an intro-chain arm carrying a
+    // single-level property subpattern (`Outer { Inner: Leaf }`), followed by one
+    // inline sibling arm of the SAME outer type (`Outer`):
+    //   `L0 = place as Outer; if (!L0) { if (place is Outer) return 2; return -1; }
+    //    L1 = L0.Inner as Leaf; if (L1) return 1; return -1;`
+    // A failed subpattern (`Inner` not `Leaf`) routes straight to the default,
+    // exactly as a failed `when` guard does.
+    static IrFunction DirectSubpatternPlusInline(IrExpression place)
+    {
+        var accessor = new MethodRef(Outer, "get_Inner", Inner, [], HasThis: true);
+
+        var innerThen = new Block();
+        innerThen.Add(new Return(new Constant(2, Int32)));
+        var rest = new Block();
+        rest.Add(new IfStatement(new IsPattern((IrExpression)place.Clone(), Outer, 5), innerThen, null));
+        rest.Add(new Return(new Constant(-1, Int32)));
+
+        var subThen = new Block();
+        subThen.Add(new Return(new Constant(1, Int32)));
+
+        var block = new Block(0);
+        block.Add(new StoreLocal(0, Outer, new IsInstance(Outer, (IrExpression)place.Clone())));
+        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, Outer)), rest, null));
+        block.Add(new StoreLocal(1, Leaf, new IsInstance(Leaf, new LoadProperty(accessor, new LoadLocal(0, Outer), []))));
+        block.Add(new IfStatement(new LoadLocal(1, Leaf), subThen, null));
+        block.Add(new Return(new Constant(-1, Int32)));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Int32, [new Parameter("node", Outer)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Outer, signature, ImmutableArray.Create(Outer, Leaf), container);
+    }
+
+    [Fact]
+    public void Synthetic_DirectSubpatternOverlapsLaterArm_DoesNotRaise()
+    {
+        // #3028 review round 2 (GPT): the unguarded-surface gate must also reject
+        // property-subpattern arms on the new surface. An `Outer { Inner: Leaf }`
+        // arm whose inner match fails routes to the default just like a failed
+        // guard; folding it (with a later overlapping `Outer` arm) would make that
+        // failure fall through to the `Outer` arm instead — divergent. The gate
+        // declines any guarded OR subpattern arm on the direct/inline surface.
+        var function = DirectSubpatternPlusInline(new LoadArgument(0, "node", Outer));
 
         RunPass(function);
 

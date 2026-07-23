@@ -141,16 +141,18 @@ public sealed class PatternSwitchExpressionPass : IIrPass
 
         // PR A (#3028) scopes the newly recognized heterogeneous surface — a
         // direct (temp-less) scrutinee, or any inline-positive sibling arm — to
-        // unguarded arms. A guarded arm whose guard failure short-circuits to the
-        // trailing default folds faithfully only when no later arm can match the
-        // same value; in the folded switch a failed `when` guard falls through to
-        // the later arms instead. Proving no overlap needs a type-disjointness
-        // oracle this SRM-only, no-inspected-assembly-loading pass does not have.
-        // The pre-existing temp-form intro cascade (#3022) keeps its guarded arms
-        // under the compiler's proven mutual exclusivity; guarded heterogeneous
-        // arms are deferred to a follow-up that carries a real disjointness oracle.
+        // plain, unguarded type-pattern arms. A guarded arm, or a property-
+        // subpattern arm (`Outer { Inner: T }`), routes its guard/subpattern
+        // FAILURE straight to the trailing default; in the folded switch that
+        // failure instead falls through to the later arms. Reproducing the
+        // original routing is faithful only when no later arm can match the same
+        // value, which needs a type-disjointness oracle this SRM-only,
+        // no-inspected-assembly-loading pass does not have. The pre-existing
+        // temp-form intro cascade (#3022) keeps its guarded and subpattern arms
+        // under the compiler's proven mutual exclusivity; guarded/subpattern
+        // heterogeneous arms are deferred to a follow-up carrying a real oracle.
         bool isNewSurface = scrutinee.TempLocal is null || arms.Any(a => a.IsInline);
-        if (isNewSurface && arms.Any(a => a.Guard is not null))
+        if (isNewSurface && arms.Any(a => a.Guard is not null || a.Subpattern is not null))
             return false;
 
         var consumed = new List<IrNode>(headConsumed);
