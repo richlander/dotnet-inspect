@@ -71,22 +71,29 @@ public sealed partial class CSharpPrinter
     }
 
     // The output-path pass context: stepping off, plus the optional cross-method
-    // import seam so a pass can reach a sibling body (lambda raising).
-    static PassContext RaiseContext(Func<MethodRef, IrFunction?>? importMethodBody)
-        => importMethodBody is null
+    // import seam so a pass can reach a sibling body (lambda raising) and the
+    // optional type-disjointness oracle a disjointness-gated raise needs.
+    static PassContext RaiseContext(
+        Func<MethodRef, IrFunction?>? importMethodBody,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
+        => importMethodBody is null && typesProvablyDisjoint is null
             ? PassContext.None
-            : new PassContext(new Stepper(enabled: false), importMethodBody: importMethodBody);
+            : new PassContext(new Stepper(enabled: false), importMethodBody: importMethodBody, typesProvablyDisjoint: typesProvablyDisjoint);
 
     /// <summary>The product path: runs the default raising passes, then prints. <see cref="Print"/> alone renders whatever tree it is given — right for stage dumps, wrong for output paths.</summary>
     public static DecompilerResult PrintRaised(IrFunction function)
         => PrintRaised(function, importMethodBody: null);
 
-    /// <summary>As <see cref="PrintRaised(IrFunction)"/>, with <paramref name="importMethodBody"/> wiring the cross-method import seam (e.g. for lambda raising); null leaves cross-method passes as no-ops. <paramref name="options"/> defaults to the shipped output.</summary>
-    public static DecompilerResult PrintRaised(IrFunction function, Func<MethodRef, IrFunction?>? importMethodBody, PrinterOptions? options = null)
+    /// <summary>As <see cref="PrintRaised(IrFunction)"/>, with <paramref name="importMethodBody"/> wiring the cross-method import seam (e.g. for lambda raising); null leaves cross-method passes as no-ops. <paramref name="typesProvablyDisjoint"/> wires the type-disjointness oracle (from the assembly's open metadata) a disjointness-gated raise needs; null makes those raises conservatively decline. <paramref name="options"/> defaults to the shipped output.</summary>
+    public static DecompilerResult PrintRaised(
+        IrFunction function,
+        Func<MethodRef, IrFunction?>? importMethodBody,
+        PrinterOptions? options = null,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
     {
         try
         {
-            IrPasses.Run(function, IrPasses.Default, RaiseContext(importMethodBody));
+            IrPasses.Run(function, IrPasses.Default, RaiseContext(importMethodBody, typesProvablyDisjoint));
         }
         catch (Exception ex)
         {
@@ -107,12 +114,13 @@ public sealed partial class CSharpPrinter
 
     /// <inheritdoc cref="PrintRaised(IrFunction, out IReadOnlyDictionary{IrNode, int})"/>
     public static DecompilerResult PrintRaised(
-        IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines, Func<MethodRef, IrFunction?>? importMethodBody)
+        IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines, Func<MethodRef, IrFunction?>? importMethodBody,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
     {
         statementLines = new Dictionary<IrNode, int>();
         try
         {
-            IrPasses.Run(function, IrPasses.Default, RaiseContext(importMethodBody));
+            IrPasses.Run(function, IrPasses.Default, RaiseContext(importMethodBody, typesProvablyDisjoint));
         }
         catch (Exception ex)
         {

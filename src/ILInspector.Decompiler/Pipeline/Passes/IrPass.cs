@@ -491,8 +491,9 @@ public static class IrPasses
     /// them no-ops (the historical behaviour).
     /// </summary>
     public static IReadOnlyList<PipelineStage> RunWithStages(
-        IrFunction function, Func<MethodRef, IrFunction?>? importMethodBody)
-        => RunWithStages(function, Default, IrPrinter.Dump, importMethodBody);
+        IrFunction function, Func<MethodRef, IrFunction?>? importMethodBody,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
+        => RunWithStages(function, Default, IrPrinter.Dump, importMethodBody, typesProvablyDisjoint);
 
     /// <summary>
     /// Runs <paramref name="passes"/>, capturing <paramref name="project"/>'s
@@ -512,9 +513,10 @@ public static class IrPasses
     /// </summary>
     public static IReadOnlyList<PipelineStage> RunWithStages(
         IrFunction function, ImmutableArray<IIrPass> passes, Func<IrFunction, string> project,
-        Func<MethodRef, IrFunction?>? importMethodBody)
+        Func<MethodRef, IrFunction?>? importMethodBody,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
     {
-        var context = PassContext.ForImport(importMethodBody);
+        var context = PassContext.ForImport(importMethodBody, typesProvablyDisjoint);
         var stages = new List<PipelineStage>(passes.Length + 1)
         {
             new(ImportStageName, project(function), function.Fidelity),

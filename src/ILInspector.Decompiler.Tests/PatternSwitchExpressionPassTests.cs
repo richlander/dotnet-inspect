@@ -34,12 +34,25 @@ public class PatternSwitchExpressionPassTests
         using var source = MetadataSource.Open(fixtureType.Assembly.Location);
         var function = IrImporter.Import(source, fixtureType.FullName!, methodName);
         Assert.NotNull(function);
-        IrPasses.Run(function!);
+        // Match the product path: wire the cross-method import seam and the
+        // type-disjointness oracle (from the assembly's open metadata) so the
+        // disjointness-gated switch-expression raise fires exactly as it does when
+        // the shipped `member` command renders this method.
+        var context = new PassContext(
+            new Stepper(enabled: false),
+            importMethodBody: method => IrImporter.Import(source, method),
+            typesProvablyDisjoint: source.AreProvablyDisjoint);
+        IrPasses.Run(function!, IrPasses.Default, context);
         function!.CheckInvariant();
         return function;
     }
 
     static void RunPass(IrFunction function) => new PatternSwitchExpressionPass().Run(function, PassContext.None);
+
+    static void RunPass(IrFunction function, System.Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint)
+        => new PatternSwitchExpressionPass().Run(
+            function,
+            new PassContext(new Stepper(enabled: false), typesProvablyDisjoint: typesProvablyDisjoint));
 
     // ── Compiler-backed positives ──────────────────────────────────────────
 
@@ -631,6 +644,149 @@ public class PatternSwitchExpressionPassTests
         // failure fall through to the `Outer` arm instead — divergent. The gate
         // declines any guarded OR subpattern arm on the direct/inline surface.
         var function = DirectSubpatternPlusInline(new LoadArgument(0, "node", Outer));
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    // ── #3082 soundness gates on the temp-form intro cascade ───────────────
+
+    // Temp-form two-arm cascade whose FIRST arm carries a short-circuiting `when`
+    // guard (`if (!G) return <default>;`) and whose second arm is a plain later
+    // type: `SV = arg; k0 = SV as Leaf; if (!k0) { k1 = SV as Twig; if (!k1)
+    // return false; return V1(k1); } if (!G(k0)) return false; return V0(k0);`.
+    // A guard failure routes to the default in the lowering but would fall to the
+    // Twig arm in a switch — faithful only if Leaf and Twig cannot both match.
+    static IrFunction TwoArmTempGuardedFirst()
+    {
+        IrExpression Sv() => new LoadLocal(5, Node);
+        IrExpression Guard() => new Call(new MethodRef(Leaf, "Ok", Bool, [Leaf], HasThis: false), isVirtual: false, [new LoadLocal(0, Leaf)]);
+
+        var arm1NoMatch = new Block();
+        arm1NoMatch.Add(new Return(False()));
+        var rest = new Block();
+        rest.Add(new StoreLocal(1, Twig, new IsInstance(Twig, Sv())));
+        rest.Add(new IfStatement(new LogicalNot(new LoadLocal(1, Twig)), arm1NoMatch, null));
+        rest.Add(new Return(new Call(new MethodRef(Twig, "V1", Bool, [Twig], HasThis: false), isVirtual: false, [new LoadLocal(1, Twig)])));
+
+        var guardFail = new Block();
+        guardFail.Add(new Return(False()));
+
+        var block = new Block(0);
+        block.Add(new StoreLocal(5, Node, new LoadArgument(0, "node", Node)));
+        block.Add(new StoreLocal(0, Leaf, new IsInstance(Leaf, Sv())));
+        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, Leaf)), rest, null));
+        block.Add(new IfStatement(new LogicalNot(Guard()), guardFail, null));
+        block.Add(new Return(new Call(new MethodRef(Leaf, "V0", Bool, [Leaf], HasThis: false), isVirtual: false, [new LoadLocal(0, Leaf)])));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Bool, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Twig, Bool, Node, Node, Node), container);
+    }
+
+    [Fact]
+    public void Synthetic_TempGuardedNonLastArm_RaisesOnlyWhenProvablyDisjoint()
+    {
+        // #3082 finding 1: a refutable (guarded) non-last arm folds faithfully
+        // only when no later arm's type can match the same value. The oracle must
+        // PROVE it; an absent or negative oracle is never treated as disjoint.
+
+        // No oracle wired → decline.
+        var noOracle = TwoArmTempGuardedFirst();
+        RunPass(noOracle);
+        Assert.Empty(noOracle.Descendants.OfType<PatternSwitchExpression>());
+
+        // Oracle that cannot prove disjointness → decline.
+        var refuses = TwoArmTempGuardedFirst();
+        RunPass(refuses, (_, _) => false);
+        Assert.Empty(refuses.Descendants.OfType<PatternSwitchExpression>());
+
+        // Oracle proving the two distinct arm types disjoint → raise.
+        var proves = TwoArmTempGuardedFirst();
+        RunPass(proves, (a, b) => !a.Equals(b));
+        var switchExpression = Assert.Single(proves.Descendants.OfType<PatternSwitchExpression>());
+        Assert.Equal(2, switchExpression.Arms.Count);
+        Assert.True(switchExpression.HasDefault);
+        Assert.True(switchExpression.Arms[0].HasGuard);
+    }
+
+    // Temp-form two-arm cascade whose FIRST arm binds an isinst local it never
+    // renders (`k0` unused by the arm's own value), but whose default READS that
+    // local: `SV = arg; k0 = SV as Leaf; if (!k0) { k1 = SV as Twig; if (!k1)
+    // return k0; return true; } return true;`. Both arms are unguarded, so only
+    // the arm-scoping gate (with Fix A's always-present local) catches the
+    // default's read of the first arm's unrendered pattern local. The default is
+    // a bare place load so it round-trips the default-equality check.
+    static IrFunction TwoArmTempUnrenderedDefaultLeak()
+    {
+        IrExpression Sv() => new LoadLocal(5, Node);
+        IrExpression Leak() => new LoadLocal(0, Leaf);
+
+        var arm1NoMatch = new Block();
+        arm1NoMatch.Add(new Return(Leak()));
+        var rest = new Block();
+        rest.Add(new StoreLocal(1, Twig, new IsInstance(Twig, Sv())));
+        rest.Add(new IfStatement(new LogicalNot(new LoadLocal(1, Twig)), arm1NoMatch, null));
+        rest.Add(new Return(new Constant(true, Bool)));
+
+        var block = new Block(0);
+        block.Add(new StoreLocal(5, Node, new LoadArgument(0, "node", Node)));
+        block.Add(new StoreLocal(0, Leaf, new IsInstance(Leaf, Sv())));
+        block.Add(new IfStatement(new LogicalNot(new LoadLocal(0, Leaf)), rest, null));
+        block.Add(new Return(new Constant(true, Bool)));
+
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Bool, [new Parameter("node", Node)], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", Node, signature, ImmutableArray.Create(Leaf, Twig, Bool, Node, Node, Node), container);
+    }
+
+    [Fact]
+    public void Synthetic_UnrenderedPatternLocalReadByDefault_DoesNotRaise()
+    {
+        // #3082 finding 2 + Fix A: the first arm never renders its own isinst
+        // local, so LocalIndex is null; but the default reads it. Rendering the
+        // fold would emit `_ => k0` with k0 out of scope. The always-present
+        // PatternLocal keeps the unrendered local visible to the scope check.
+        var function = TwoArmTempUnrenderedDefaultLeak();
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    [Fact]
+    public void Synthetic_TempScrutineeReadInArmValue_DoesNotRaise()
+    {
+        // #3082 Fix D: the fold deletes the switch-value temp's defining store, so
+        // a read of that temp in an arm value would observe default(T). The
+        // read-only check rejects stores/address-of the temp, not a misplaced
+        // load, so this dedicated gate declines the read.
+        var function = SingleArm(
+            switchValue: new LoadArgument(0, "node", Node),
+            guard: null,
+            armValue: new Call(new MethodRef(Node, "Use", Bool, [Node], HasThis: false), isVirtual: false, [new LoadLocal(5, Node)]),
+            noMatchDefault: False());
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    [Fact]
+    public void Synthetic_GoverningValueAliasesRenderedPatternLocal_DoesNotRaise()
+    {
+        // #3082 Fix E: the switch value is re-read from local 0, which the arm
+        // also binds as its rendered pattern variable. Folding would emit
+        // `V_0 switch { Leaf V_0 => Use(V_0) }` — the governing name collides with
+        // the arm's pattern variable and is out of scope. Decline.
+        var function = SingleArm(
+            switchValue: new LoadLocal(0, Leaf),
+            guard: null,
+            armValue: new Call(new MethodRef(Leaf, "Use", Bool, [Leaf], HasThis: false), isVirtual: false, [new LoadLocal(0, Leaf)]),
+            noMatchDefault: False());
 
         RunPass(function);
 

@@ -27,7 +27,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
 {
     public string Name => "pattern-switch-expression";
 
-    sealed record ArmData(TypeRef PatternType, int? LocalIndex, PropertySubpattern? Subpattern, IrExpression? Guard, IrExpression Value, bool IsInline);
+    sealed record ArmData(TypeRef PatternType, int PatternLocal, int? LocalIndex, PropertySubpattern? Subpattern, IrExpression? Guard, IrExpression Value, bool IsInline);
 
     /// <summary>
     /// The value every arm of the cascade tests. csc reads it either through a
@@ -52,7 +52,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
     {
         foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
         {
-            if (container.Blocks is [var block] && TryMatch(function, block, out int startIndex, out var switchExpression))
+            if (container.Blocks is [var block] && TryMatch(function, block, context.TypesProvablyDisjoint, out int startIndex, out var switchExpression))
             {
                 block.SetChild(startIndex, new Return(switchExpression!));
                 for (int i = block.Children.Count - 1; i > startIndex; i--)
@@ -62,7 +62,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         }
     }
 
-    bool TryMatch(IrFunction function, Block block, out int startIndex, out PatternSwitchExpression? switchExpression)
+    bool TryMatch(IrFunction function, Block block, System.Func<TypeRef, TypeRef, bool>? disjoint, out int startIndex, out PatternSwitchExpression? switchExpression)
     {
         startIndex = -1;
         switchExpression = null;
@@ -84,7 +84,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
                 && TestsScrutinee(children[i + 1], new Scrutinee(svStore.Index, svValue)))
             {
                 var scrutinee = new Scrutinee(svStore.Index, svValue);
-                if (TryFold(function, children, i + 1, scrutinee, svValue, new IrNode[] { svStore }, minArms: 1, out switchExpression))
+                if (TryFold(function, children, i + 1, scrutinee, svValue, new IrNode[] { svStore }, minArms: 1, disjoint, out switchExpression))
                 {
                     startIndex = i;
                     return true;
@@ -100,7 +100,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             // guard, which IsPatternPass already renders idiomatically.
             if (TryScrutineeFromDirectArm(children[i], out var directScrutinee)
                 && !IsScrutineeStoredBefore(children, i, directScrutinee)
-                && TryFold(function, children, i, directScrutinee, directScrutinee.Place, System.Array.Empty<IrNode>(), minArms: 2, out switchExpression))
+                && TryFold(function, children, i, directScrutinee, directScrutinee.Place, System.Array.Empty<IrNode>(), minArms: 2, disjoint, out switchExpression))
             {
                 startIndex = i;
                 return true;
@@ -124,6 +124,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         IrExpression switchValue,
         IReadOnlyList<IrNode> headConsumed,
         int minArms,
+        System.Func<TypeRef, TypeRef, bool>? disjoint,
         out PatternSwitchExpression? switchExpression)
     {
         switchExpression = null;
@@ -155,6 +156,22 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         if (isNewSurface && arms.Any(a => a.Guard is not null || a.Subpattern is not null))
             return false;
 
+        // [#3082 finding 1] The guarded / property-subpattern arms that survive
+        // here are the temp-form intro cascade (#3022) the compiler proved
+        // mutually exclusive. A refutable non-last arm routes its refinement
+        // FAILURE to the trailing default in the lowered cascade, but to the NEXT
+        // arm in a switch expression. Reproducing that routing is faithful only
+        // when no later arm's type can also match the same value — require a
+        // provable-disjointness proof from the oracle and decline without one.
+        if (!RefutableArmsDisjointFromLaterArms(arms, disjoint))
+            return false;
+
+        // [#3082 finding 2] Pattern variables are arm-scoped: no sibling arm's
+        // guard/value and not the default may read a local another arm binds,
+        // including an unrendered intro/inline match local (Fix A).
+        if (!PatternLocalsAreArmScoped(arms, defaultValue))
+            return false;
+
         var consumed = new List<IrNode>(headConsumed);
         consumed.AddRange(region);
 
@@ -165,6 +182,25 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         if (scrutinee.TempLocal is { } tempLocal
             && (!ReferenceOwnership.LocalReferencesOnlyWithin(function, tempLocal, consumed)
                 || !TempScrutineeReadOnly(tempLocal, region, consumed)))
+            return false;
+
+        // [#3082 Fix D] A temp scrutinee may be READ only by the arm type tests.
+        // A read in an arm guard/value or in the default observes default(T)
+        // once the fold deletes the temp's defining store; the read-only check
+        // above rejects stores and address-of, not a misplaced load.
+        if (scrutinee.TempLocal is { } tempReadLocal
+            && (arms.Any(a => ReferencesLocalIn(a.Guard, tempReadLocal) || ReferenceOwnership.SubtreeReferencesLocal(a.Value, tempReadLocal))
+                || ReferenceOwnership.SubtreeReferencesLocal(defaultValue, tempReadLocal)))
+            return false;
+
+        // [#3082 Fix E] The temp form re-spells the switch value as the governing
+        // expression. If that place is a LoadLocal aliasing a rendered pattern
+        // local, the emitted `V switch { T V => ... }` is unspellable — the
+        // governing name collides with the arm's pattern variable / is out of
+        // scope. (The direct form is covered by DirectScrutineeStable.)
+        if (scrutinee.TempLocal is not null
+            && switchValue is LoadLocal governing
+            && arms.Any(a => a.LocalIndex == governing.Index || a.Subpattern?.LocalIndex == governing.Index))
             return false;
 
         // A direct (temp-less) scrutinee is re-read by every arm from its
@@ -240,7 +276,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             // Inline arms are the newly recognized heterogeneous surface; PR A
             // (#3028) folds them only unguarded (the guard gate in TryFold rejects
             // a guarded new-surface fold). Tag the arm inline so that gate applies.
-            arms.Add(new ArmData(inlineType, inlineIndex, Subpattern: null, inlineGuard, inlineValue, IsInline: true));
+            arms.Add(new ArmData(inlineType, inlineLocal, inlineIndex, Subpattern: null, inlineGuard, inlineValue, IsInline: true));
             return TryParseChain(stmts, index + 1, scrutinee, defaultValue, arms);
         }
 
@@ -346,7 +382,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             int? outerLocal = ReferencesLocalIn(innerGuard, patternLocal) || ReferenceOwnership.SubtreeReferencesLocal(innerValue, patternLocal)
                 ? patternLocal
                 : null;
-            arm = new ArmData(patternType, outerLocal, subpattern, innerGuard, innerValue, IsInline: false);
+            arm = new ArmData(patternType, patternLocal, outerLocal, subpattern, innerGuard, innerValue, IsInline: false);
             nextIndex = index + 2;
             return true;
         }
@@ -357,7 +393,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         int? localIndex = ReferencesLocalIn(guard, patternLocal) || ReferenceOwnership.SubtreeReferencesLocal(value, patternLocal)
             ? patternLocal
             : null;
-        arm = new ArmData(patternType, localIndex, Subpattern: null, guard, value, IsInline: false);
+        arm = new ArmData(patternType, patternLocal, localIndex, Subpattern: null, guard, value, IsInline: false);
         nextIndex = index + consumed;
         return true;
     }
@@ -549,9 +585,65 @@ public sealed class PatternSwitchExpressionPass : IIrPass
 
     static IEnumerable<int> PatternLocals(ArmData arm)
     {
-        if (arm.LocalIndex is { } outer)
-            yield return outer;
+        // Every intro/inline arm binds its match result to an always-present
+        // outer local, rendered as a C# pattern variable or not. Scope validation
+        // must see the unrendered local too (Fix A) so a sibling arm or the
+        // default reading it is still caught. A negative sentinel means the arm
+        // binds no outer local at all.
+        if (arm.PatternLocal >= 0)
+            yield return arm.PatternLocal;
         if (arm.Subpattern is { } sub)
             yield return sub.LocalIndex;
+    }
+
+    // [#3082 finding 1] A refutable (guarded or property-subpattern) non-last arm
+    // routes its refinement failure to the default in the lowered cascade but to
+    // the next arm in a switch expression. The rewrite is faithful only when no
+    // later arm's pattern type can also match the value, which the oracle must
+    // prove; absent a proof, decline (an unproven relationship is never disjoint).
+    static bool RefutableArmsDisjointFromLaterArms(List<ArmData> arms, System.Func<TypeRef, TypeRef, bool>? disjoint)
+    {
+        for (int i = 0; i < arms.Count - 1; i++)
+        {
+            if (arms[i].Guard is null && arms[i].Subpattern is null)
+                continue;
+            for (int j = i + 1; j < arms.Count; j++)
+            {
+                if (disjoint is null || !disjoint(arms[i].PatternType, arms[j].PatternType))
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    // [#3082 finding 2] A pattern variable is scoped to its own arm. A slot shared
+    // by two arms, or a local read by a sibling arm's guard/value or by the
+    // default, cannot be rendered as an arm-scoped pattern variable — decline.
+    static bool PatternLocalsAreArmScoped(List<ArmData> arms, IrExpression defaultValue)
+    {
+        var owner = new Dictionary<int, int>();
+        for (int i = 0; i < arms.Count; i++)
+        {
+            foreach (int local in PatternLocals(arms[i]))
+            {
+                if (owner.ContainsKey(local))
+                    return false;
+                owner[local] = i;
+            }
+        }
+
+        foreach (var (local, armIndex) in owner)
+        {
+            for (int i = 0; i < arms.Count; i++)
+            {
+                if (i == armIndex)
+                    continue;
+                if (ReferencesLocalIn(arms[i].Guard, local) || ReferenceOwnership.SubtreeReferencesLocal(arms[i].Value, local))
+                    return false;
+            }
+            if (ReferenceOwnership.SubtreeReferencesLocal(defaultValue, local))
+                return false;
+        }
+        return true;
     }
 }
