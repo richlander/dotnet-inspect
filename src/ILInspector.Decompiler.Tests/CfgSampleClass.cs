@@ -5248,6 +5248,25 @@ public static class EnumCastSamples
     // underlying integer — `(int)e << 4 | y | (int)other`.
     public static int EnumShiftChainEnumSibling(CfgPriority e, int y, CfgPriority other) => ((int)e << 4) | y | (int)other;
 
+    // #3087 follow-up (adversarial review): an UNSIGNED ordering (`clt.un`) of an
+    // enum shift against an enum sibling. Down-coercing both to the shift's SIGNED
+    // rendered integer would silently turn the unsigned compare into a signed `<`;
+    // instead the shift up-coerces to the uint-backed enum so C#'s enum `<` compares
+    // the underlying uint — `(CfgFlags)((int)e << n) < other`, matching `clt.un`.
+    public static bool EnumShiftUnsignedCompare(CfgFlags e, int n, CfgFlags other) => (uint)((uint)e << n) < (uint)other;
+
+    // #3087 follow-up: a bitwise sibling MASKED as its primitive by a typed ldelem —
+    // `values[i]` renders enum-typed though its ResultType is the storage width, so
+    // it must still be down-coerced — `(int)e << n | (int)values[i]`, not
+    // `| values[i]` (int | E, CS0019).
+    public static CfgPriority EnumShiftOrArraySibling(CfgPriority e, int n, CfgPriority[] values, int i) => (CfgPriority)(((int)e << n) | (int)values[i]);
+
+    // #3087 follow-up: an enum-CONSTANT sibling whose unsigned-backed value overflows
+    // the shift's signed rendered integer (CfgFlags.Top = 0x80000000u > int.MaxValue):
+    // the down-coercion needs `unchecked` — `(int)e << n == unchecked((int)CfgFlags.Top)`
+    // (a plain `(int)CfgFlags.Top` is CS0221).
+    public static bool EnumShiftCompareOverflowConst(CfgFlags e, int n) => ((int)e << n) == unchecked((int)CfgFlags.Top);
+
     // #1766: ternary with enum-constant arms stored to a cross-assembly enum
     // local (StringComparison.Ordinal = 4, OrdinalIgnoreCase = 5).
     public static bool EnumConditional(string name, bool ci)

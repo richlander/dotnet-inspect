@@ -619,22 +619,46 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
-    /// Coerces a bare enum operand DOWN to <paramref name="integerType"/> — the
+    /// Coerces an enum operand DOWN to <paramref name="integerType"/> — the
     /// underlying-integer render of an enum shift it is combined or compared with,
     /// so both sides are integers (<c>(int)e &lt;&lt; n | (int)other</c>). Null when
     /// the operand already renders as an integer (an enum shift/chain needs no
-    /// down-coercion) or is not a bare enum (a plain integer sibling stays as-is,
-    /// falling through to its own spelling). The cast runs through
-    /// <see cref="CoerceText"/> — the one enum->integer door — so it matches the
-    /// shift's own <see cref="ShiftEnumLeftOperand"/> spelling.
+    /// down-coercion) or does not render as an enum (a plain integer sibling stays
+    /// as-is, falling through to its own spelling).
+    /// <para>
+    /// The enum comes from the rendered spelling, not the stack <c>ResultType</c>:
+    /// a bare enum load carries the enum in its <c>ResultType</c> and the cast runs
+    /// through <see cref="CoerceText"/> (the one enum->integer door, matching
+    /// <see cref="ShiftEnumLeftOperand"/>); a typed <c>ldelem</c>/<c>ldind</c> masks
+    /// the enum as its primitive storage width, so <see cref="CoerceText"/> would
+    /// see an int->int identity and drop the cast — the reinterpret is spelled
+    /// directly (mirroring <see cref="ShiftEnumLeftOperand"/>'s masked branch). An
+    /// out-of-range enum <em>constant</em> (an unsigned-backed member the signed
+    /// target cannot hold, <c>(int)F.Top</c>) is a constant-expression conversion
+    /// that is CS0221 without <c>unchecked</c>.
+    /// </para>
     /// </summary>
     string? TryCoerceEnumToInteger(IrExpression value, TypeRef integerType)
     {
         if (BitwiseOperandRendersAsInteger(value))
             return null;
-        if (value.ResultType is not { } valueType || !IsEnumLikeInteger(valueType))
+        if (ShiftLeftEnumType(value) is not { } enumType
+            || EnumUnderlyingType(enumType) is not { } underlying)
             return null;
-        return CoerceText(value, integerType);
+        // A constant cast that steps outside the target's range is CS0221 unless it
+        // is wrapped in `unchecked`; the underlying type's signedness decides range,
+        // not the masked stack width.
+        bool constantOverflows = value is Constant or Convert
+            && CSharpConversionRules.CheckedConversionCanThrow(underlying, integerType);
+        if (EnumUnderlyingType(value.ResultType) is not null)
+        {
+            return constantOverflows
+                ? CheckedSafeCast(() => CoerceText(value, integerType), force: true)
+                : CoerceText(value, integerType);
+        }
+        return CSharpConversionRules.CheckedConversionCanThrow(underlying, integerType)
+            ? CheckedSafeCast(() => $"({TypeText(integerType)}){Operand(value)}", force: constantOverflows)
+            : $"({TypeText(integerType)}){Operand(value)}";
     }
 
     // True when a constant enum cast is CS0221 as a plain (checked) cast, so it must
@@ -1372,11 +1396,19 @@ public sealed partial class CSharpPrinter
         // DOWN to that rendered integer — `(int)e << n == (int)other` — not the shift
         // up to the enum. Runs before the enum up-coercion below, whose stale
         // enum-typed test would otherwise coerce the sibling the wrong way.
-        if (BitwiseOperandRendersAsInteger(left)
+        // Restricted to sign-safe kinds: equality (`ceq`/`bne.un`) compares the raw
+        // bits, so a same-width signed spelling is faithful, but an UNSIGNED ordering
+        // (`clt.un`/`cgt.un`) would silently become a signed `<`/`>` once both sides
+        // render signed — an unsigned enum-shift ordering keeps its loud CS0019 here
+        // (the sibling is not coerced) rather than a wrong-signedness comparison.
+        bool comparisonSignSafe = kind is ComparisonKind.Equal or ComparisonKind.NotEqual || !isUnsigned;
+        if (comparisonSignSafe
+            && BitwiseOperandRendersAsInteger(left)
             && BitwiseOperandRenderedType(left) is { } leftRenderedInteger
             && TryCoerceEnumToInteger(right, leftRenderedInteger) is { } downRight)
             return $"{Operand(left)} {ComparisonOperator(kind)} {downRight}";
-        if (BitwiseOperandRendersAsInteger(right)
+        if (comparisonSignSafe
+            && BitwiseOperandRendersAsInteger(right)
             && BitwiseOperandRenderedType(right) is { } rightRenderedInteger
             && TryCoerceEnumToInteger(left, rightRenderedInteger) is { } downLeft)
             return $"{downLeft} {ComparisonOperator(kind)} {Operand(right)}";

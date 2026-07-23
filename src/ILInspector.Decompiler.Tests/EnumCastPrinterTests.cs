@@ -416,6 +416,49 @@ public class EnumCastPrinterTests
         AssertCompiles("public static int M(CfgPriority e, int y, CfgPriority other)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
     }
 
+    // #3087 follow-up (adversarial review, GPT): an UNSIGNED ordering (`clt.un`) of
+    // an enum shift against an enum sibling. Down-coercing both to the shift's SIGNED
+    // rendered integer would silently render a signed `<` — flipping high-bit values.
+    // The sign-safe guard skips the down-coercion for unsigned ordering, so the shift
+    // up-coerces to the uint-backed enum and C#'s enum `<` compares the underlying
+    // uint, matching `clt.un`. The rendered `<` must NOT be a bare signed int compare.
+    [Fact]
+    public void EnumShiftUnsignedOrdering_ComparesAsUnsignedEnum()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumShiftUnsignedCompare));
+
+        Assert.Contains("(CfgFlags)((int)e << n) < other", body);
+        Assert.DoesNotContain("(int)other", body);
+        AssertCompiles("public static bool M(CfgFlags e, int n, CfgFlags other)", body, "public enum CfgFlags : uint { None = 0, Top = 0x80000000u }");
+    }
+
+    // #3087 follow-up (adversarial review, GPT): a bitwise sibling MASKED as its
+    // primitive by a typed ldelem — `values[i]` renders enum-typed though its
+    // ResultType is the storage width, so it must still be coerced DOWN —
+    // `(int)e << n | (int)values[i]`, never `| values[i]` (int | E, CS0019).
+    [Fact]
+    public void EnumShiftInBitwiseOr_MaskedArraySibling_CoercesSiblingToInteger()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumShiftOrArraySibling));
+
+        Assert.Contains("(int)values[i]", body);
+        Assert.DoesNotContain("| values[i]", body);
+        AssertCompiles("public static CfgPriority M(CfgPriority e, int n, CfgPriority[] values, int i)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // #3087 follow-up (adversarial review, GPT): an enum-CONSTANT sibling whose
+    // unsigned-backed value overflows the shift's signed rendered integer
+    // (CfgFlags.Top = 0x80000000u > int.MaxValue). The down-coercion needs
+    // `unchecked` — a plain `(int)CfgFlags.Top` is a CS0221 constant overflow.
+    [Fact]
+    public void EnumShiftComparedToOverflowingConstant_WrapsUnchecked()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumShiftCompareOverflowConst));
+
+        Assert.Contains("== unchecked((int)CfgFlags.Top)", body);
+        AssertCompiles("public static bool M(CfgFlags e, int n)", body, "public enum CfgFlags : uint { None = 0, Top = 0x80000000u }");
+    }
+
     // A sub-int (byte) backing promotes to int in a C# shift; the reinterpret
     // targets the 4-byte width the shift runs on. Synthetic to keep the enum load
     // a bare operand (a compiled `(byte)` narrowing could add a conv node).
