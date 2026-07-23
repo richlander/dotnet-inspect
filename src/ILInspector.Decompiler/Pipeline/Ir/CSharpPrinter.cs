@@ -239,6 +239,7 @@ public sealed partial class CSharpPrinter
         {
             ReadableLocalNames = _options.ReadableLocalNames,
             PreferFrameworkTypeImports = true,
+            ExpressionBodyArrowPlacement = _options.ExpressionBodyArrowPlacement,
         };
 
     void AddDecision(string ruleId, string category, string subject, string detail, string? oldValue = null, string? newValue = null)

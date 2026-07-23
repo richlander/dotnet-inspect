@@ -21,10 +21,13 @@ public static class CSharpMemberLayout
     /// out as: <c>head;</c> when <paramref name="body"/> is <see langword="null"/>;
     /// <c>head =&gt; expr;</c> when the body is a single legal expression
     /// statement (per <see cref="CSharpExpressionBody.FromSingleStatement"/>);
-    /// otherwise a brace block with the body content one level (four spaces)
+    /// or, when <paramref name="wrapExpressionBodyArrow"/> is
+    /// <see langword="true"/>, <c>head</c> on one line and
+    /// <c>=&gt; expr;</c> on the next indented one level (four spaces) deeper.
+    /// Otherwise a brace block with the body content one level (four spaces)
     /// deeper. Blank lines in the body are preserved.
     /// </summary>
-    public static void Append(StringBuilder sb, string head, string? body, int indent)
+    public static void Append(StringBuilder sb, string head, string? body, int indent, bool wrapExpressionBodyArrow = false)
     {
         ArgumentNullException.ThrowIfNull(sb);
         ArgumentNullException.ThrowIfNull(head);
@@ -37,7 +40,15 @@ public static class CSharpMemberLayout
         }
         if (CSharpExpressionBody.FromSingleStatement(body) is { } expression)
         {
-            sb.AppendLine($"{pad}{head} => {expression};");
+            if (wrapExpressionBodyArrow)
+            {
+                sb.AppendLine($"{pad}{head}");
+                sb.AppendLine($"{pad}    => {expression};");
+            }
+            else
+            {
+                sb.AppendLine($"{pad}{head} => {expression};");
+            }
             return;
         }
         sb.AppendLine($"{pad}{head}");
