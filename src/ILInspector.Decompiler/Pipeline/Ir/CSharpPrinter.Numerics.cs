@@ -1494,6 +1494,22 @@ public sealed partial class CSharpPrinter
         {
             return $"({TypeText(target)}){Operand(value)}";
         }
+        // An enum shift — or a bitwise chain over one — renders as its underlying
+        // integer (ShiftEnumLeftOperand: `(int)e >> n`), not the enum its stale
+        // Binary ResultType still reports. Flowing into an enum target (a return,
+        // a local/field/array store) it is an int->enum conversion needing an
+        // explicit `(Enum)` cast (CS0266); without it CoerceText reads the stale
+        // enum ResultType as an identity to the target and drops the cast. The
+        // rendered integer drives the enum-spellability test, and EnumIntegerCast
+        // wraps the shift — `(MyEnum)((int)e >> n)`. Runs before the plain
+        // integer->enum branch, whose EffectiveType(value) would be the stale enum.
+        if (target is { } shiftEnumTarget
+            && BitwiseOperandRendersAsInteger(value)
+            && BitwiseOperandRenderedType(value) is { } shiftRenderedInteger
+            && CoercionRendering.CanSpellIntegerToEnum(shiftRenderedInteger, shiftEnumTarget, _function.TypeShapes))
+        {
+            return EnumIntegerCast(value, shiftEnumTarget);
+        }
         // An integer flowing into an enum-typed position — a comparison kind, a
         // flags value computed at run time — needs an explicit (Enum)x cast: C#
         // converts int→enum implicitly only for the literal 0. The cast is always

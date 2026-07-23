@@ -5187,6 +5187,16 @@ public static class EnumCastSamples
 
     public static ulong ChainLongEnumShiftOrUnsigned(CfgLongPriority e, ulong x, ulong y) => ((ulong)e << 8) | x | y;
 
+    // An enum shift RETURNED or STORED to an enum target: the shift renders as its
+    // underlying integer, so the sink is an int->enum conversion needing an outer
+    // `(E)` cast (CS0266). The shift's stale enum ResultType would otherwise read
+    // as an identity to the target and the cast would be dropped.
+    public static CfgPriority EnumShiftReturn(CfgPriority e, int n) => (CfgPriority)((int)e >> n);
+
+    public static CfgLongPriority EnumShiftReturnLong(CfgLongPriority e, int n) => (CfgLongPriority)((long)e >> n);
+
+    public static void EnumShiftStoreArray(CfgPriority[] arr, int n) => arr[0] = (CfgPriority)((int)arr[0] >> n);
+
     // #1766: ternary with enum-constant arms stored to a cross-assembly enum
     // local (StringComparison.Ordinal = 4, OrdinalIgnoreCase = 5).
     public static bool EnumConditional(string name, bool ci)

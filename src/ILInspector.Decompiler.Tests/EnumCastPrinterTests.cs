@@ -266,6 +266,38 @@ public class EnumCastPrinterTests
         AssertCompiles("public static ulong M(CfgLongPriority e, ulong x, ulong y)", body, "public enum CfgLongPriority : long { Low, Medium = 1, High = 2, Critical = 3 }");
     }
 
+    // An enum shift RETURNED to an enum target renders as its underlying integer,
+    // so it needs an outer `(E)` cast (CS0266) — the shift's stale enum ResultType
+    // would otherwise read as an identity to the return type and drop the cast.
+    [Fact]
+    public void EnumShiftReturnedToEnum_KeepsOuterEnumCast()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumShiftReturn));
+
+        Assert.Contains("(CfgPriority)((int)e >> n)", body);
+        AssertCompiles("public static CfgPriority M(CfgPriority e, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    [Fact]
+    public void EnumShiftReturnedToLongEnum_KeepsOuterEnumCast()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumShiftReturnLong));
+
+        Assert.Contains("(CfgLongPriority)((long)e >> n)", body);
+        AssertCompiles("public static CfgLongPriority M(CfgLongPriority e, int n)", body, "public enum CfgLongPriority : long { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // An enum shift STORED to an enum array element: the same int->enum sink as a
+    // return, reached through the assignment coercion funnel.
+    [Fact]
+    public void EnumShiftStoredToEnumArray_KeepsOuterEnumCast()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumShiftStoreArray));
+
+        Assert.Contains("(CfgPriority)((int)arr[0] >> n)", body);
+        AssertCompiles("public static void M(CfgPriority[] arr, int n)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
     // A sub-int (byte) backing promotes to int in a C# shift; the reinterpret
     // targets the 4-byte width the shift runs on. Synthetic to keep the enum load
     // a bare operand (a compiled `(byte)` narrowing could add a conv node).
