@@ -328,4 +328,81 @@ public class ExpressionTreeLambdaTests
         var lambda = (LambdaExpression)make.Invoke(null, null)!;
         return lambda.Body;
     }
+
+    // Constant-fold guard for comparisons: a hand-written constant-only comparison
+    // graph (`GreaterThan(2, 3)`) would be folded to a single Constant(false) by the
+    // compiler on recompile (proven by the oracle below), so recovering it as
+    // `x => 2 > 3` would change the tree. It stays in honest factory-call form.
+    [Fact]
+    public void ManualConstantOnlyComparisonFactory_StaysFactoryCalls()
+    {
+        var function = Raised(nameof(CfgSampleClass.ManualConstantOnlyComparisonFactory));
+
+        Assert.Empty(function.Descendants.OfType<Lambda>());
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("Expression.Lambda<Func<int, bool>>", output);
+        Assert.Contains("Expression.GreaterThan", output);
+        Assert.DoesNotContain("=>", output);
+    }
+
+    // Real compile-back tree oracle for the comparison subset. A parameter-dependent
+    // comparison keeps its 2-arg comparison node with no method/lift (so the
+    // recovered `l OP r` rebuilds the identical factory node), while a constant-only
+    // comparison is folded to a single Constant — which is exactly why the
+    // constant-fold guard declines the constant-only near miss.
+    [Theory]
+    [InlineData("Func<int, int, bool>", "(x, y) => x > y", ExpressionType.GreaterThan)]
+    [InlineData("Func<int, int, bool>", "(x, y) => x == y", ExpressionType.Equal)]
+    [InlineData("Func<int, int, bool>", "(x, y) => x != y", ExpressionType.NotEqual)]
+    [InlineData("Func<int, int, bool>", "(a, b) => a <= b", ExpressionType.LessThanOrEqual)]
+    [InlineData("Func<int, bool>", "x => x > 5", ExpressionType.GreaterThan)]
+    public void ComparisonOracle_ParameterDependent_KeepsComparisonNode(string delegateType, string lambda, ExpressionType expected)
+    {
+        var (nodeType, method, lifted) = BuildPredicateTree(delegateType, lambda);
+        Assert.Equal(expected, nodeType);
+        // The 2-arg factory the pass matches: no user-defined method, not lifted.
+        Assert.Null(method);
+        Assert.False(lifted);
+    }
+
+    [Fact]
+    public void ComparisonOracle_ConstantOnly_FoldsToConstant()
+    {
+        var (nodeType, _, _) = BuildPredicateTree("Func<int, bool>", "x => 2 > 3");
+        Assert.Equal(ExpressionType.Constant, nodeType);
+    }
+
+    static (ExpressionType NodeType, System.Reflection.MethodInfo? Method, bool Lifted) BuildPredicateTree(string delegateType, string lambda)
+    {
+        string source = $$"""
+            using System;
+            using System.Linq.Expressions;
+
+            public static class PredicateShell
+            {
+                public static Expression<{{delegateType}}> Make() => {{lambda}};
+            }
+            """;
+        var tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
+        var compilation = CSharpCompilation.Create(
+            "expression-tree-predicate-shell",
+            [tree],
+            RuntimeReferences(),
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+
+        using var stream = new MemoryStream();
+        var emit = compilation.Emit(stream, cancellationToken: TestContext.Current.CancellationToken);
+        Assert.True(
+            emit.Success,
+            string.Join(Environment.NewLine, emit.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)));
+
+        var assembly = System.Reflection.Assembly.Load(stream.ToArray());
+        var make = assembly.GetType("PredicateShell")!.GetMethod("Make")!;
+        var body = ((LambdaExpression)make.Invoke(null, null)!).Body;
+        return body is BinaryExpression binary
+            ? (body.NodeType, binary.Method, binary.IsLiftedToNull)
+            : (body.NodeType, null, false);
+    }
 }

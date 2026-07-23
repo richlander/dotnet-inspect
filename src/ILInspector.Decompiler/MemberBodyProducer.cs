@@ -42,6 +42,25 @@ public sealed record MemberBodyProductionResult(
 }
 
 /// <summary>
+/// Product-owned result for one whole rendered member: the CSharp-owned
+/// signature (spelled from the Metadata rich model) composed with the
+/// decompiler-owned body — <c>signature { body }</c> / <c>signature =&gt; expr;</c>
+/// / <c>signature;</c>. This is the per-member analog of the whole-type
+/// <see cref="MemberBodyProducer.Project(ApiType, string, string?, IAssemblyReferenceResolver, ILInspector.Decompiler.Pipeline.MetadataContext?)"/>
+/// listing: <see cref="Text"/> is byte-identical to the member's segment in that
+/// listing (indented one level for a type body, with no surrounding blank-line
+/// separators). Consumers that wrap the member in their own type shell add
+/// <see cref="Namespaces"/> as using directives.
+/// </summary>
+public sealed record MemberRenderResult(
+    MemberBodyProductionStatus Status,
+    string? Text,
+    IReadOnlyList<string> Namespaces)
+{
+    public bool IsComplete => Status == MemberBodyProductionStatus.Complete;
+}
+
+/// <summary>
 /// Projects a whole type as one C# listing: the type declaration, field
 /// declarations (including non-public fields, for context the bodies
 /// reference), and every member's decompiled body — the reading unit for
@@ -169,17 +188,24 @@ public static class MemberBodyProducer
     }
 
     /// <summary>
-    /// Legacy path-only entry point. Prefer the <see cref="IAssemblyReferenceResolver"/>
-    /// overload for new product and harness code.
+    /// Convenience entry point that resolves referenced assemblies with the
+    /// default sibling policy (<see cref="Pipeline.MetadataSource.DefaultAssemblyReferenceResolver"/>).
+    /// Prefer the <see cref="IAssemblyReferenceResolver"/> overload when a
+    /// caller needs identity- or stream-backed resolution.
+    /// <paramref name="printerOptions"/> defaults to the shipped output.
     /// </summary>
-    public static DecompilerResult Project(ApiType type, string dllPath, string? pdbPath, AssemblyLocator? locateAssembly = null, Pipeline.MetadataContext? context = null)
+    public static DecompilerResult Project(ApiType type, string dllPath, string? pdbPath, Pipeline.MetadataContext? context = null, Pipeline.PrinterOptions? printerOptions = null)
     {
-        var resolver = locateAssembly?.ToAssemblyReferenceResolver()
-            ?? Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(dllPath);
-        return Project(type, dllPath, pdbPath, resolver, context);
+        var resolver = Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(dllPath);
+        return Project(type, dllPath, pdbPath, resolver, context, printerOptions);
     }
 
-    public static DecompilerResult Project(ApiType type, string dllPath, string? pdbPath, IAssemblyReferenceResolver resolver, Pipeline.MetadataContext? context = null)
+    /// <summary>
+    /// Projects a whole type as one C# listing using the optional
+    /// <paramref name="printerOptions"/> for body rendering and member layout;
+    /// omitting them preserves the shipped byte-identical output.
+    /// </summary>
+    public static DecompilerResult Project(ApiType type, string dllPath, string? pdbPath, IAssemblyReferenceResolver resolver, Pipeline.MetadataContext? context = null, Pipeline.PrinterOptions? printerOptions = null)
     {
         var start = new ResolvedAssemblyReference(
             new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(dllPath), Version: null, Culture: null, PublicKeyToken: null),
@@ -192,10 +218,93 @@ public static class MemberBodyProducer
             pdbPath,
             () => TypeForwardResolver.LocateType(start, type.FullName, resolver),
             (location, ctx) => Pipeline.MetadataSource.Open(location.ToResolvedAssemblyReference(), pdbPath, resolver, ctx),
-            context);
+            context,
+            printerOptions);
         return composed is null
             ? DecompilerResult.Failure("DI_TYPESOURCE_NONE", $"No C# type source composed for {type.FullName}.")
             : DecompilerResult.Success(composed);
+    }
+
+    /// <summary>
+    /// Convenience entry point that resolves referenced assemblies with the
+    /// default sibling policy (<see cref="Pipeline.MetadataSource.DefaultAssemblyReferenceResolver"/>).
+    /// Prefer the <see cref="IAssemblyReferenceResolver"/> overload when a
+    /// caller needs identity- or stream-backed resolution.
+    /// <paramref name="printerOptions"/> defaults to the shipped output.
+    /// </summary>
+    public static MemberRenderResult ProduceMember(ApiType type, ApiMember member, string dllPath, string? pdbPath, Pipeline.MetadataContext? context = null, Pipeline.PrinterOptions? printerOptions = null)
+    {
+        var resolver = Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(dllPath);
+        return ProduceMember(type, member, dllPath, pdbPath, resolver, context, printerOptions);
+    }
+
+    /// <summary>
+    /// Renders one member of <paramref name="type"/> as a whole member —
+    /// CSharp-owned signature composed with the decompiler-owned body — reusing
+    /// the exact per-member composition of the whole-type
+    /// <see cref="Project(ApiType, string, string?, IAssemblyReferenceResolver, Pipeline.MetadataContext?)"/>
+    /// listing, so the rendered text is byte-identical to that member's segment.
+    /// <paramref name="member"/> must be an instance from
+    /// <see cref="ApiType.Members"/> (matched by reference). Enum values, and
+    /// members that produce no listing output, return
+    /// <see cref="MemberBodyProductionStatus.Absent"/>. Omitting
+    /// <paramref name="printerOptions"/> preserves the shipped output.
+    /// </summary>
+    public static MemberRenderResult ProduceMember(ApiType type, ApiMember member, string dllPath, string? pdbPath, IAssemblyReferenceResolver resolver, Pipeline.MetadataContext? context = null, Pipeline.PrinterOptions? printerOptions = null)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        ArgumentNullException.ThrowIfNull(member);
+        var start = new ResolvedAssemblyReference(
+            new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(dllPath), Version: null, Culture: null, PublicKeyToken: null),
+            dllPath,
+            () => File.OpenRead(dllPath),
+            Provenance: "StartAssembly");
+        return ComposeMemberCore(
+            type,
+            member,
+            () => TypeForwardResolver.LocateType(start, type.FullName, resolver),
+            (location, ctx) => Pipeline.MetadataSource.Open(location.ToResolvedAssemblyReference(), pdbPath, resolver, ctx),
+            context,
+            printerOptions);
+    }
+
+    /// <summary>
+    /// Convenience entry point that resolves referenced assemblies with the
+    /// default sibling policy (<see cref="Pipeline.MetadataSource.DefaultAssemblyReferenceResolver"/>).
+    /// Prefer the <see cref="IAssemblyReferenceResolver"/> overload when a
+    /// caller needs identity- or stream-backed resolution.
+    /// </summary>
+    public static IReadOnlyDictionary<ApiMember, MemberRenderResult> ProduceMembers(ApiType type, string dllPath, string? pdbPath, Pipeline.MetadataContext? context = null)
+    {
+        var resolver = Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(dllPath);
+        return ProduceMembers(type, dllPath, pdbPath, resolver, context);
+    }
+
+    /// <summary>
+    /// Renders every member of <paramref name="type"/> as a whole member in one
+    /// pass — the batch form of
+    /// <see cref="ProduceMember(ApiType, ApiMember, string, string?, IAssemblyReferenceResolver, Pipeline.MetadataContext?)"/>.
+    /// Each entry is byte-identical to what <c>ProduceMember</c> returns for that
+    /// member, but the assembly is opened and its type maps built once for the
+    /// whole type rather than once per member — the cost model a caller rendering
+    /// many members of the same type (such as the compile-back harness) needs.
+    /// The returned map is keyed by the same <see cref="ApiMember"/> instances in
+    /// <see cref="ApiType.Members"/> (reference identity). Members that produce no
+    /// listing output are mapped to <see cref="MemberBodyProductionStatus.Absent"/>.
+    /// </summary>
+    public static IReadOnlyDictionary<ApiMember, MemberRenderResult> ProduceMembers(ApiType type, string dllPath, string? pdbPath, IAssemblyReferenceResolver resolver, Pipeline.MetadataContext? context = null)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        var start = new ResolvedAssemblyReference(
+            new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(dllPath), Version: null, Culture: null, PublicKeyToken: null),
+            dllPath,
+            () => File.OpenRead(dllPath),
+            Provenance: "StartAssembly");
+        return ComposeMembersBatch(
+            type,
+            () => TypeForwardResolver.LocateType(start, type.FullName, resolver),
+            (location, ctx) => Pipeline.MetadataSource.Open(location.ToResolvedAssemblyReference(), pdbPath, resolver, ctx),
+            context);
     }
 
     static string? ComposeCore(
@@ -204,7 +313,8 @@ public static class MemberBodyProducer
         string? pdbPath,
         Func<TypeLocation?> locateType,
         Func<TypeLocation, Pipeline.MetadataContext?, Pipeline.MetadataSource> openPipelineSource,
-        Pipeline.MetadataContext? context)
+        Pipeline.MetadataContext? context,
+        Pipeline.PrinterOptions? printerOptions)
     {
         if (type.Kind is "delegate")
             return null;
@@ -279,7 +389,7 @@ public static class MemberBodyProducer
                     {
                         ComposeFields(sb, reader, typeHandle, bodyNamespaces,
                             CollectFieldInitializers(pipelineSource, reader, typeHandle), ref any);
-                        ComposeMembers(sb, type, pipelineSource, reader, typeHandle, union, bodyNamespaces, ref any);
+                        ComposeMembers(sb, type, pipelineSource, reader, typeHandle, union, bodyNamespaces, ref any, printerOptions: printerOptions);
                     }
 
                     sb.AppendLine("}");
@@ -298,6 +408,163 @@ public static class MemberBodyProducer
             // Degrade honestly: the section renders the reason instead of
             // silently disappearing.
             return $"// {DiagnosticIds.InternalError}: type source unavailable: {ex.GetType().Name}: {ex.Message}";
+        }
+    }
+
+    static MemberRenderResult ComposeMemberCore(
+        ApiType type,
+        ApiMember member,
+        Func<TypeLocation?> locateType,
+        Func<TypeLocation, Pipeline.MetadataContext?, Pipeline.MetadataSource> openPipelineSource,
+        Pipeline.MetadataContext? context,
+        Pipeline.PrinterOptions? printerOptions)
+    {
+        if (type.Kind is "delegate")
+            return new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, []);
+
+        try
+        {
+            if (locateType() is not { } location)
+                return new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, []);
+
+            Stream? stream = null;
+            PEReader? peReader = null;
+            try
+            {
+                stream = location.OpenRead();
+                peReader = new PEReader(stream);
+                MetadataReader reader = peReader.GetMetadataReader();
+
+                TypeDefinitionHandle typeHandle = default;
+                foreach (var h in reader.TypeDefinitions)
+                {
+                    if (reader.GetFullTypeName(reader.GetTypeDefinition(h)) == type.FullName)
+                    {
+                        typeHandle = h;
+                        break;
+                    }
+                }
+                if (typeHandle.IsNil)
+                    return new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, []);
+
+                using var pipelineSource = openPipelineSource(location, context);
+                var union = TryUnionDeclaration(reader, typeHandle, type);
+
+                // The same body/attribute namespaces the whole-type listing
+                // collects for this member — a wrapping consumer emits them as
+                // using directives.
+                var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
+                var sb = new StringBuilder();
+                bool any = false;
+                ComposeMembers(sb, type, pipelineSource, reader, typeHandle, union, bodyNamespaces, ref any, only: member, printerOptions: printerOptions);
+
+                if (!any)
+                    return new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, bodyNamespaces.ToArray());
+
+                // Shorten qualified names and normalize newlines exactly as the
+                // whole-type Project listing does, so the per-member text is
+                // byte-identical to this member's segment there. The harvested
+                // imports (body namespaces + qualified prefixes) are returned for
+                // the wrapping consumer to emit; directives are not prepended.
+                var imports = new SortedSet<string>(bodyNamespaces, StringComparer.Ordinal);
+                string text = ShortenQualifiedNames(sb.ToString(), reader, imports);
+                return new MemberRenderResult(MemberBodyProductionStatus.Complete, text, imports.ToArray());
+            }
+            finally
+            {
+                peReader?.Dispose();
+                stream?.Dispose();
+            }
+        }
+        catch (Exception ex)
+        {
+            // Degrade honestly, matching ComposeCore: the failure reason is the
+            // rendered text instead of silently disappearing.
+            return new MemberRenderResult(
+                MemberBodyProductionStatus.Failed,
+                $"// {DiagnosticIds.InternalError}: member source unavailable: {ex.GetType().Name}: {ex.Message}",
+                []);
+        }
+    }
+
+    /// <summary>
+    /// Batch form of <see cref="ComposeMemberCore"/>: opens the assembly and
+    /// builds its type maps once for the whole type, then renders each member
+    /// through the same single-member composition (<see cref="ComposeMembers"/>
+    /// with <c>only</c> plus <see cref="ShortenQualifiedNames"/>) so every entry
+    /// is byte-identical to the per-member <see cref="ProduceMember"/> path. Bodies
+    /// decode against the shared open <see cref="Pipeline.MetadataSource"/>, so the
+    /// per-member setup cost is paid once rather than once per member.
+    /// </summary>
+    static IReadOnlyDictionary<ApiMember, MemberRenderResult> ComposeMembersBatch(
+        ApiType type,
+        Func<TypeLocation?> locateType,
+        Func<TypeLocation, Pipeline.MetadataContext?, Pipeline.MetadataSource> openPipelineSource,
+        Pipeline.MetadataContext? context)
+    {
+        var results = new Dictionary<ApiMember, MemberRenderResult>(ReferenceEqualityComparer.Instance);
+        if (type.Kind is "delegate")
+            return results;
+
+        try
+        {
+            if (locateType() is not { } location)
+                return results;
+
+            Stream? stream = null;
+            PEReader? peReader = null;
+            try
+            {
+                stream = location.OpenRead();
+                peReader = new PEReader(stream);
+                MetadataReader reader = peReader.GetMetadataReader();
+
+                TypeDefinitionHandle typeHandle = default;
+                foreach (var h in reader.TypeDefinitions)
+                {
+                    if (reader.GetFullTypeName(reader.GetTypeDefinition(h)) == type.FullName)
+                    {
+                        typeHandle = h;
+                        break;
+                    }
+                }
+                if (typeHandle.IsNil)
+                    return results;
+
+                using var pipelineSource = openPipelineSource(location, context);
+                var union = TryUnionDeclaration(reader, typeHandle, type);
+
+                foreach (var member in type.Members)
+                {
+                    var bodyNamespaces = new SortedSet<string>(StringComparer.Ordinal);
+                    var sb = new StringBuilder();
+                    bool any = false;
+                    ComposeMembers(sb, type, pipelineSource, reader, typeHandle, union, bodyNamespaces, ref any, only: member);
+
+                    if (!any)
+                    {
+                        results[member] = new MemberRenderResult(MemberBodyProductionStatus.Absent, Text: null, bodyNamespaces.ToArray());
+                        continue;
+                    }
+
+                    var imports = new SortedSet<string>(bodyNamespaces, StringComparer.Ordinal);
+                    string text = ShortenQualifiedNames(sb.ToString(), reader, imports);
+                    results[member] = new MemberRenderResult(MemberBodyProductionStatus.Complete, text, imports.ToArray());
+                }
+
+                return results;
+            }
+            finally
+            {
+                peReader?.Dispose();
+                stream?.Dispose();
+            }
+        }
+        catch
+        {
+            // Degrade honestly: return whatever composed so far; the caller falls
+            // back to its own rendering for any member missing from the map.
+            return results;
         }
     }
 
@@ -494,7 +761,7 @@ public static class MemberBodyProducer
     static void ComposeMembers(
         StringBuilder sb, ApiType type, Pipeline.MetadataSource pipelineSource,
         MetadataReader reader, TypeDefinitionHandle typeHandle, UnionDeclarationInfo? union,
-        SortedSet<string> bodyNamespaces, ref bool any)
+        SortedSet<string> bodyNamespaces, ref bool any, ApiMember? only = null, Pipeline.PrinterOptions? printerOptions = null)
     {
         // Per-name running overload index — the same positional pairing the
         // member command uses for Name:N — used only when a member carries no
@@ -515,6 +782,17 @@ public static class MemberBodyProducer
                 // Hidden union case constructors still occupy metadata overload
                 // slots. Keep fallback overload counting aligned for any
                 // original public members that are not synthesized below.
+                if (member.Kind is "constructor" or "method" or "operator" or "explicit-interface-implementation")
+                    overloadIndex[member.Name] = overloadIndex.GetValueOrDefault(member.Name) + 1;
+                continue;
+            }
+
+            // Single-member render (only is not null): advance the same overload
+            // counting a full pass would so the target's fallback index matches,
+            // but emit only the requested member. 'first' stays true, so the
+            // target renders with no leading blank-line separator.
+            if (only is not null && !ReferenceEquals(member, only))
+            {
                 if (member.Kind is "constructor" or "method" or "operator" or "explicit-interface-implementation")
                     overloadIndex[member.Name] = overloadIndex.GetValueOrDefault(member.Name) + 1;
                 continue;
@@ -563,7 +841,7 @@ public static class MemberBodyProducer
                     bool requiresUnsafeContext = false;
                     string? body = member.IsAbstract
                         ? null
-                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext);
+                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, printerOptions);
 
                     // An explicit interface property implementation surfaces
                     // as its accessor method (Iface.get_X). Render the
@@ -579,23 +857,23 @@ public static class MemberBodyProducer
                                 ? sig[..sp]
                                 : "object");
                         string unsafeModifier = (member.IsUnsafe || requiresUnsafeContext) ? "unsafe " : "";
-                        string head = $"    {unsafeModifier}{EscapeKnownIdentifiers(accessorReturn, type.TypeParameters.Select(p => p.Name))} {propertyPath}";
+                        string head = $"{unsafeModifier}{EscapeKnownIdentifiers(accessorReturn, type.TypeParameters.Select(p => p.Name))} {propertyPath}";
                         if (member.Name.Contains(".set_", StringComparison.Ordinal))
                         {
-                            sb.AppendLine(head);
+                            sb.AppendLine($"    {head}");
                             sb.AppendLine("    {");
-                            CSharpMemberLayout.Append(sb, "set", body, 8);
+                            CSharpMemberLayout.Append(sb, "set", body, 8, WrapExpressionBodyArrow(printerOptions));
                             sb.AppendLine("    }");
                         }
-                        else if (CSharpExpressionBody.FromSingleStatement(body) is { } getExpr)
+                        else if (CSharpExpressionBody.FromSingleStatement(body) is not null)
                         {
-                            sb.AppendLine($"{head} => {getExpr};");
+                            CSharpMemberLayout.Append(sb, head, body, 4, WrapExpressionBodyArrow(printerOptions));
                         }
                         else
                         {
-                            sb.AppendLine(head);
+                            sb.AppendLine($"    {head}");
                             sb.AppendLine("    {");
-                            CSharpMemberLayout.Append(sb, "get", body, 8);
+                            CSharpMemberLayout.Append(sb, "get", body, 8, WrapExpressionBodyArrow(printerOptions));
                             sb.AppendLine("    }");
                         }
                         break;
@@ -612,7 +890,7 @@ public static class MemberBodyProducer
                     var declaration = bodyShape is null
                         ? DefaultDeclarationFormatter.FormatMember(type, member)
                         : DefaultDeclarationFormatter.FormatMemberWithBody(type, member, bodyShape);
-                    AppendMember(sb, declaration, body, constructorChain);
+                    AppendMember(sb, declaration, body, WrapExpressionBodyArrow(printerOptions), constructorChain);
                     break;
                 }
 
@@ -624,7 +902,7 @@ public static class MemberBodyProducer
                     foreach (var attribute in AttributeReader.RenderPropertyAttributes(
                         reader, typeHandle, member.Name, bodyNamespaces))
                         sb.AppendLine($"    [{attribute}]");
-                    ComposeProperty(sb, pipelineSource, reader, typeHandle, type, member, bodyNamespaces);
+                    ComposeProperty(sb, pipelineSource, reader, typeHandle, type, member, bodyNamespaces, printerOptions);
                     break;
                 }
 
@@ -642,6 +920,8 @@ public static class MemberBodyProducer
                 }
             }
 
+            if (only is not null)
+                return;
         }
     }
 
@@ -839,12 +1119,12 @@ public static class MemberBodyProducer
         return null;
     }
 
-    static void AppendMember(StringBuilder sb, string signature, string? body, string? constructorChain = null)
+    static void AppendMember(StringBuilder sb, string signature, string? body, bool wrapExpressionBodyArrow, string? constructorChain = null)
     {
         // An explicit base(...)/this(...) chain renders as a signature
         // initializer (the printer lifted it out of the body).
         string head = constructorChain is null ? signature : $"{signature} : {constructorChain}";
-        CSharpMemberLayout.Append(sb, head, body, 4);
+        CSharpMemberLayout.Append(sb, head, body, 4, wrapExpressionBodyArrow);
     }
 
     static string TypeParameterDisplayName(TypeParameter typeParameter)
@@ -895,7 +1175,7 @@ public static class MemberBodyProducer
     static void ComposeProperty(
         StringBuilder sb, Pipeline.MetadataSource pipelineSource,
         MetadataReader reader, TypeDefinitionHandle typeHandle, ApiType type, ApiMember member,
-        SortedSet<string> bodyNamespaces)
+        SortedSet<string> bodyNamespaces, Pipeline.PrinterOptions? printerOptions)
     {
         string typeFullName = type.FullName;
         string signature = DefaultDeclarationFormatter.FormatMember(type, member);
@@ -911,11 +1191,11 @@ public static class MemberBodyProducer
         {
             string list = signature[accessorList..];
             if (list.Contains("get;", StringComparison.Ordinal))
-                accessors.Add(("get", DecompileAccessor(pipelineSource, getterHandle, typeFullName, $"get_{member.Name}", bodyNamespaces, out var getRequiresUnsafe), getRequiresUnsafe));
+                accessors.Add(("get", DecompileAccessor(pipelineSource, getterHandle, typeFullName, $"get_{member.Name}", bodyNamespaces, out var getRequiresUnsafe, printerOptions), getRequiresUnsafe));
             if (list.Contains("set;", StringComparison.Ordinal))
-                accessors.Add(("set", DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var setRequiresUnsafe), setRequiresUnsafe));
+                accessors.Add(("set", DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var setRequiresUnsafe, printerOptions), setRequiresUnsafe));
             if (list.Contains("init;", StringComparison.Ordinal))
-                accessors.Add(("init", DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var initRequiresUnsafe), initRequiresUnsafe));
+                accessors.Add(("init", DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var initRequiresUnsafe, printerOptions), initRequiresUnsafe));
         }
 
         if (!requiresUnsafeContext && accessors.Any(a => a.RequiresUnsafeContext))
@@ -948,9 +1228,9 @@ public static class MemberBodyProducer
         // (csharp_style_expression_bodied_properties/accessors = true):
         // a lone getter returning one expression is 'head => expr;', and any
         // single-statement accessor is 'get/set => ...;'.
-        if (accessors is [("get", { } loneGet, _)] && CSharpExpressionBody.FromSingleStatement(loneGet) is { } propExpr)
+        if (accessors is [("get", { } loneGet, _)] && CSharpExpressionBody.FromSingleStatement(loneGet) is not null)
         {
-            sb.AppendLine($"    {head} => {propExpr};");
+            CSharpMemberLayout.Append(sb, head, loneGet, 4, WrapExpressionBodyArrow(printerOptions));
             return;
         }
 
@@ -960,10 +1240,13 @@ public static class MemberBodyProducer
         {
             var (keyword, body, _) = accessors[i];
             if (i > 0) sb.AppendLine();
-            CSharpMemberLayout.Append(sb, keyword, body, 8);
+            CSharpMemberLayout.Append(sb, keyword, body, 8, WrapExpressionBodyArrow(printerOptions));
         }
         sb.AppendLine("    }");
     }
+
+    static bool WrapExpressionBodyArrow(Pipeline.PrinterOptions? printerOptions)
+        => (printerOptions ?? Pipeline.PrinterOptions.Default).ExpressionBodyArrowPlacement == Pipeline.ExpressionBodyArrowPlacement.NextLine;
 
     /// <summary>
     /// The expression of a single-statement body suitable for '=>':
@@ -1012,7 +1295,8 @@ public static class MemberBodyProducer
     static string? DecompileBody(
         Pipeline.MetadataSource pipelineSource, MethodDefinitionHandle? memberHandle,
         string typeFullName, ApiMember member, int overloadIndex,
-        SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext)
+        SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
+        Pipeline.PrinterOptions? printerOptions)
     {
         // Prefer the member's own metadata handle — the canonical same-reader
         // addressing (see docs/design/member-body-substrate.md). The caller has
@@ -1023,7 +1307,7 @@ public static class MemberBodyProducer
         if (memberHandle is { } methodHandle)
             return DecompileFunction(pipelineSource,
                 Pipeline.IrImporter.Import(pipelineSource, methodHandle),
-                bodyNamespaces, out constructorChain, out requiresUnsafeContext);
+                bodyNamespaces, out constructorChain, out requiresUnsafeContext, printerOptions);
 
         // Public-only overload counting, except explicit interface
         // implementations (non-public by nature) — matching the API surface
@@ -1032,7 +1316,7 @@ public static class MemberBodyProducer
             publicOnly: member.Kind != "explicit-interface-implementation"
                 && !(member.Kind == "constructor" && member.DeclaringOverloadIndex is not null)
                 && member.Accessibility is null,
-            bodyNamespaces, out constructorChain, out requiresUnsafeContext);
+            bodyNamespaces, out constructorChain, out requiresUnsafeContext, printerOptions);
     }
 
     /// <summary>
@@ -1102,7 +1386,8 @@ public static class MemberBodyProducer
     static string? DecompileAccessor(
         Pipeline.MetadataSource pipelineSource, MethodDefinitionHandle? accessorHandle,
         string typeFullName, string accessorName,
-        SortedSet<string> bodyNamespaces, out bool requiresUnsafeContext)
+        SortedSet<string> bodyNamespaces, out bool requiresUnsafeContext,
+        Pipeline.PrinterOptions? printerOptions)
         // Prefer the accessor's own handle (fixes indexer get_Item/set_Item
         // drift, where name+index:0 always selects the first indexer's
         // accessor). Fall back to the by-name path — accessors are non-public
@@ -1111,9 +1396,9 @@ public static class MemberBodyProducer
         => accessorHandle is { } handle
             ? DecompileFunction(pipelineSource,
                 Pipeline.IrImporter.Import(pipelineSource, handle),
-                bodyNamespaces, out _, out requiresUnsafeContext)
+                bodyNamespaces, out _, out requiresUnsafeContext, printerOptions)
             : DecompileMethod(pipelineSource, typeFullName, accessorName, overloadIndex: 0,
-            publicOnly: false, bodyNamespaces, out _, out requiresUnsafeContext);
+            publicOnly: false, bodyNamespaces, out _, out requiresUnsafeContext, printerOptions);
 
     /// <summary>
     /// Imports one method to typed IR, runs the raising passes, and prints the
@@ -1125,10 +1410,11 @@ public static class MemberBodyProducer
     /// </summary>
     static string? DecompileMethod(
         Pipeline.MetadataSource pipelineSource, string typeFullName, string methodName, int overloadIndex,
-        bool publicOnly, SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext)
+        bool publicOnly, SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
+        Pipeline.PrinterOptions? printerOptions)
         => DecompileFunction(pipelineSource,
             Pipeline.IrImporter.Import(pipelineSource, typeFullName, methodName, overloadIndex, publicOnly),
-            bodyNamespaces, out constructorChain, out requiresUnsafeContext);
+            bodyNamespaces, out constructorChain, out requiresUnsafeContext, printerOptions);
 
     /// <summary>
     /// Runs the raising passes and prints an already-imported function. A null
@@ -1138,7 +1424,8 @@ public static class MemberBodyProducer
     /// </summary>
     static string? DecompileFunction(
         Pipeline.MetadataSource pipelineSource, Pipeline.IrFunction? function,
-        SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext)
+        SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
+        Pipeline.PrinterOptions? printerOptions)
     {
         constructorChain = null;
         requiresUnsafeContext = false;
@@ -1146,7 +1433,7 @@ public static class MemberBodyProducer
             return null;
         CollectNamespaces(function, bodyNamespaces);
         var result = Pipeline.CSharpPrinter.PrintRaised(
-            function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method));
+            function, importMethodBody: method => Pipeline.IrImporter.Import(pipelineSource, method), printerOptions);
         constructorChain = result.ConstructorChain;
         requiresUnsafeContext = result.RequiresUnsafeBodyModifier;
         return result.Output?.TrimEnd() ?? DiagnosticComment(result);
@@ -1207,6 +1494,39 @@ public static class MemberBodyProducer
     /// </summary>
     static string HoistUsings(string listing, MetadataReader reader, string? ownNamespace, SortedSet<string> seedNamespaces)
     {
+        // The IR-collected body namespaces seed the set; text shortening of
+        // the declaration lines adds any it harvests from qualified prefixes.
+        var usings = new SortedSet<string>(seedNamespaces, StringComparer.Ordinal);
+        string result = ShortenQualifiedNames(listing, reader, usings);
+
+        // Implicit usings (and the type's own namespace) need no directive.
+        usings.Remove(ownNamespace ?? "");
+        foreach (var implicitNs in (string[])
+            ["System", "System.Collections.Generic", "System.IO", "System.Linq",
+             "System.Net.Http", "System.Threading", "System.Threading.Tasks"])
+        {
+            usings.Remove(implicitNs);
+        }
+
+        if (usings.Count == 0)
+            return result;
+
+        // dotnet/runtime style: using directives precede the namespace.
+        string directives = string.Join('\n', usings.Select(ns => $"using {ns};"));
+        return $"{directives}\n\n{result}";
+    }
+
+    /// <summary>
+    /// Shortens qualified type names in <paramref name="listing"/> to simple
+    /// names, harvesting the namespaces that need importing into
+    /// <paramref name="usings"/>, and normalizes to one deterministic <c>\n</c>
+    /// newline per line. Shared by the whole-type <see cref="HoistUsings"/> (which
+    /// then prepends the directives) and the per-member
+    /// <see cref="ComposeMemberCore"/> (whose caller emits the imports), so a
+    /// single member renders byte-identically to its whole-type listing segment.
+    /// </summary>
+    static string ShortenQualifiedNames(string listing, MetadataReader reader, SortedSet<string> usings)
+    {
         // Namespace → simple type names (arity-stripped), from real metadata.
         var nsToNames = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
         void Register(string ns, string name)
@@ -1254,38 +1574,73 @@ public static class MemberBodyProducer
         // Longest first so System.Collections.Generic wins over System.Collections.
         prefixes.Sort((a, b) => b.Text.Length.CompareTo(a.Text.Length));
 
-        // The IR-collected body namespaces seed the set; text shortening of
-        // the declaration lines adds any it harvests from qualified prefixes.
-        var usings = new SortedSet<string>(seedNamespaces, StringComparer.Ordinal);
         var output = new StringBuilder(listing.Length);
         foreach (var rawLine in listing.Split('\n'))
         {
             string line = rawLine.TrimEnd('\r');
-            // Never rewrite string literal contents: transform only the
-            // segments outside double quotes.
-            var segments = line.Split('"');
-            for (int i = 0; i < segments.Length; i += 2)
-                segments[i] = ShortenSegment(segments[i], prefixes, nsToNames, shortNameOwners, usings);
+            // Never rewrite literal contents: shorten only the code spans
+            // outside string/char literals, honoring backslash escapes.
+            ShortenLine(line, output, prefixes, nsToNames, shortNameOwners, usings);
             // Generated source uses one deterministic newline on every host.
-            output.Append(string.Join('"', segments)).Append('\n');
+            output.Append('\n');
         }
 
-        // Implicit usings (and the type's own namespace) need no directive.
-        usings.Remove(ownNamespace ?? "");
-        foreach (var implicitNs in (string[])
-            ["System", "System.Collections.Generic", "System.IO", "System.Linq",
-             "System.Net.Http", "System.Threading", "System.Threading.Tasks"])
+        return output.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// Shortens qualified names in the code spans of one line, copying string
+    /// (<c>"…"</c>) and character (<c>'…'</c>) literals verbatim. The scan honors
+    /// backslash escapes, so an escaped quote (<c>\"</c>) inside a literal — or a
+    /// quote character constant (<c>'"'</c>) — does not end the literal early and
+    /// expose its contents to shortening, which would corrupt the constant (a
+    /// naive split on <c>"</c> flips its in-literal parity). The decompiler never
+    /// emits verbatim (<c>@"…"</c>) or raw (<c>"""…"""</c>) literals — every
+    /// control character and quote is backslash-escaped and no literal spans
+    /// lines — so a backslash-aware single-line scan is sufficient.
+    /// </summary>
+    static void ShortenLine(
+        string line,
+        StringBuilder output,
+        List<(string Text, string Namespace)> prefixes,
+        Dictionary<string, HashSet<string>> nsToNames,
+        Dictionary<string, int> shortNameOwners,
+        SortedSet<string> usings)
+    {
+        int i = 0;
+        int codeStart = 0;
+        while (i < line.Length)
         {
-            usings.Remove(implicitNs);
+            if (line[i] is not ('"' or '\''))
+            {
+                i++;
+                continue;
+            }
+            // Flush the shortened code span preceding this literal.
+            output.Append(ShortenSegment(line[codeStart..i], prefixes, nsToNames, shortNameOwners, usings));
+            // Copy the literal verbatim, honoring backslash escapes so an
+            // escaped delimiter does not terminate it early.
+            char delimiter = line[i];
+            output.Append(line[i]);
+            i++;
+            while (i < line.Length)
+            {
+                char c = line[i];
+                if (c == '\\' && i + 1 < line.Length)
+                {
+                    output.Append(c).Append(line[i + 1]);
+                    i += 2;
+                    continue;
+                }
+                output.Append(c);
+                i++;
+                if (c == delimiter)
+                    break;
+            }
+            codeStart = i;
         }
-
-        string result = output.ToString().TrimEnd();
-        if (usings.Count == 0)
-            return result;
-
-        // dotnet/runtime style: using directives precede the namespace.
-        string directives = string.Join('\n', usings.Select(ns => $"using {ns};"));
-        return $"{directives}\n\n{result}";
+        if (codeStart < line.Length)
+            output.Append(ShortenSegment(line[codeStart..], prefixes, nsToNames, shortNameOwners, usings));
     }
 
     static string ShortenSegment(

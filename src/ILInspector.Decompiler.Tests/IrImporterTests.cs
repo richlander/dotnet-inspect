@@ -2120,13 +2120,14 @@ public class RaisingPassTests
     public void StructConstructor_InPlaceCtor_PrintsNewObject()
     {
         // The in-place struct .ctor (ldloca; call S::.ctor) must print as an
-        // assignment of a fresh value, never the illegal handler..ctor(...).
+        // assignment of a fresh value, never the illegal handler..ctor(...). The
+        // type is apparent on the declaration, so the creation renders target-typed.
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         var result = CSharpPrinter.Print(RunThroughStructConstructor(nameof(CfgSampleClass.InterpolatedStruct), source));
         Assert.True(result.Succeeded);
         string output = result.Output!.ReplaceLineEndings("\n").TrimEnd();
 
-        Assert.Contains("new DefaultInterpolatedStringHandler(", output);
+        Assert.Contains("DefaultInterpolatedStringHandler V_0 = new(", output);
         Assert.DoesNotContain("..ctor", output);
     }
 
@@ -2170,7 +2171,7 @@ public class RaisingPassTests
         Assert.Equal(0, store.Index);
         var value = Assert.IsType<NewObject>(store.Value);
         Assert.Equal(ctor, value.Constructor);
-        Assert.Equal("Carrier V_0 = new Carrier(42);", CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").Trim());
+        Assert.Equal("Carrier V_0 = new(42);", CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").Trim());
     }
 
     [Fact]
@@ -5604,13 +5605,14 @@ public class EnumConstantTests
     }
 
     [Fact]
-    public void NotOverRelationalOperatorCall_Parenthesizes()
+    public void NotOverRelationalOperatorCall_OutsideTotalOrderAllowlist_Parenthesizes()
     {
         // !(a > b) — a relational operator-spelled call renders as a compound
         // `a > b`, so the enclosing `!` must parenthesize it; a bare `!a > b`
-        // binds as `(!a) > b` (CS0023). Unlike equality/inequality, relational
-        // operator calls are NOT folded (!(a>b) is not always a<=b for a
-        // user-defined partial order), so the un-folded node must still be
+        // binds as `(!a) > b` (CS0023). System.Type is NOT in the total-order
+        // relational allowlist (MemberIdentity.IsTotalOrderRelationalOperator —
+        // decimal/DateTime/DateTimeOffset/TimeSpan/DateOnly/TimeOnly), so this
+        // relational call is NOT folded and the un-folded node must still be
         // built and parenthesized directly (#2955).
         var type = TypeRef.CoreLib("System", "Type");
         var boolType = TypeRef.CoreLib("System", "Boolean");
@@ -5697,6 +5699,120 @@ public class EnumConstantTests
 
         Assert.Contains("!(a == b)", output);
         Assert.DoesNotContain("a != b", output);
+    }
+
+    static string PrintNegatedRelationalReturn(TypeRef declaringType, string operatorName)
+    {
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var callee = new MethodRef(declaringType, operatorName, boolType, [declaringType, declaringType], HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.Yes,
+        };
+        var call = new Call(callee, isVirtual: false,
+            [new LoadArgument(0, "a", declaringType), new LoadArgument(1, "b", declaringType)]);
+        var block = new Block(0);
+        block.Add(new Return(new LogicalNot(call)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(boolType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+        return CSharpPrinter.Print(function).Output!.Trim();
+    }
+
+    [Theory]
+    [InlineData("op_LessThan", "a >= b")]
+    [InlineData("op_LessThanOrEqual", "a > b")]
+    [InlineData("op_GreaterThan", "a <= b")]
+    [InlineData("op_GreaterThanOrEqual", "a < b")]
+    public void NotOverRelationalOperatorCall_OnTotalOrderType_FoldsToDualComparison(string operatorName, string expected)
+    {
+        // For a total-order core-library value type (here System.DateTime), the
+        // four relational operators are exact De Morgan duals for every input —
+        // there is no unordered/NaN pair — so the printer folds a negated
+        // relational operator-spelled call directly to the dual comparison:
+        // !(a < b) -> a >= b, !(a <= b) -> a > b, !(a > b) -> a <= b,
+        // !(a >= b) -> a < b (#2955).
+        string output = PrintNegatedRelationalReturn(TypeRef.CoreLib("System", "DateTime"), operatorName);
+
+        Assert.Contains($"return {expected};", output);
+        Assert.DoesNotContain("op_", output);
+        Assert.DoesNotContain("!(", output);
+    }
+
+    [Fact]
+    public void NotOverRelationalOperatorCall_OnDecimal_FoldsToDualComparison()
+    {
+        // decimal is a total order (no NaN), so !(a < b) is exactly a >= b.
+        // Confirms the fold is keyed on the whole allowlist, not one type (#2955).
+        string output = PrintNegatedRelationalReturn(TypeRef.CoreLib("System", "Decimal"), "op_LessThan");
+
+        Assert.Contains("return a >= b;", output);
+        Assert.DoesNotContain("!(a < b)", output);
+    }
+
+    [Fact]
+    public void NotOverRelationalOperatorCall_InCondition_FoldsToDualComparison()
+    {
+        // The value-position (return) and condition-position (if) switches share
+        // the same fold; an `if (!(a < b))` on a total-order type spells
+        // `if (a >= b)` (#2955).
+        var timeSpan = TypeRef.CoreLib("System", "TimeSpan");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var callee = new MethodRef(timeSpan, "op_LessThan", boolType, [timeSpan, timeSpan], HasThis: false)
+        {
+            IsSpecialName = true,
+            IsOperator = MetadataFactState.Yes,
+        };
+        var call = new Call(callee, isVirtual: false,
+            [new LoadArgument(0, "a", timeSpan), new LoadArgument(1, "b", timeSpan)]);
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        var then = new Block(4);
+        then.Add(new Return(null));
+        block.Add(new IfStatement(new LogicalNot(call), then, null));
+        block.Add(new Return(null));
+        var signature = new MethodSignature(voidType,
+            [new Parameter("a", timeSpan), new Parameter("b", timeSpan)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+
+        string output = CSharpPrinter.Print(function).Output!.Trim();
+
+        Assert.Contains("if (a >= b)", output);
+        Assert.DoesNotContain("!(a < b)", output);
+    }
+
+    [Fact]
+    public void NotOverRelationalOperatorCall_OnHalf_DoesNotFold()
+    {
+        // System.Half uses operator CALLS (not native clt/cgt) AND is an
+        // IEEE-754 partial order: NaN is unordered, so when a or b is NaN,
+        // !(a < b) is true while a >= b is false. Folding !(a < b) to a >= b
+        // would therefore change behavior, so Half is deliberately EXCLUDED
+        // from the total-order allowlist and the negated relational call must
+        // stay un-folded and parenthesized (#2955 soundness guard).
+        string output = PrintNegatedRelationalReturn(TypeRef.CoreLib("System", "Half"), "op_LessThan");
+
+        Assert.Contains("!(a < b)", output);
+        Assert.DoesNotContain("a >= b", output);
+    }
+
+    [Fact]
+    public void NotOverRelationalOperatorCall_OnUserDefinedType_DoesNotFold()
+    {
+        // A user-defined type's operator < and >= need not be exact duals (they
+        // can implement a partial order or unrelated semantics), so an arbitrary
+        // user type carrying real specialname/operator metadata is NOT in the
+        // trusted total-order allowlist; the negated relational call must stay
+        // un-folded and parenthesized even though it still spells `a < b` via the
+        // operator-call spelling (#2955 scope guard).
+        var declaring = TypeRef.Definition("UserAssembly", "UserAssembly", "Vector");
+        string output = PrintNegatedRelationalReturn(declaring, "op_LessThan");
+
+        Assert.Contains("!(a < b)", output);
+        Assert.DoesNotContain("a >= b", output);
     }
 
     [Fact]

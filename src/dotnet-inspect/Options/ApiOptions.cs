@@ -23,6 +23,13 @@ public partial record ApiOptions
     public string? PlatformAssembly { get; init; }
     public string? ProjectPath { get; init; }
     public string? ProjectAssetsPath { get; init; }
+
+    /// <summary>
+    /// Local git clone(s) to read authored source from (keyed on the SourceLink commit and
+    /// authenticated by the portable-PDB checksum) before falling back to the remote SourceLink
+    /// URL. Empty = network only. Set via <c>--repo</c>; can repeat.
+    /// </summary>
+    public string[] SourceRepositories { get; init; } = [];
     public string? PlatformFramework { get; init; }
     public string? Tfm { get; init; }
     public bool IncludeAll { get; init; }

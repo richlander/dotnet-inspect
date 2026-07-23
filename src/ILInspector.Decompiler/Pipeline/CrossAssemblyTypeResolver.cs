@@ -36,6 +36,7 @@ internal sealed class CrossAssemblyTypeResolver
 
     readonly string _selfSimpleName;
     readonly MetadataReader _selfReader;
+    readonly string _selfCanonical;
     readonly MetadataContext _context;
     readonly ConcurrentDictionary<TypeRef, ValueTypeHint> _valueTypeCache = new();
     readonly ConcurrentDictionary<TypeRef, MetadataFactState> _inlineArrayCache = new();
@@ -47,6 +48,13 @@ internal sealed class CrossAssemblyTypeResolver
     {
         _selfSimpleName = selfSimpleName;
         _selfReader = selfReader;
+        // Same-assembly identity comparisons must use the same PKT-gated
+        // canonicalization as GetTypeFromDefinition's own self path (issue
+        // #3045): a plain name-only Canonical(_selfSimpleName) would disagree
+        // with a TypeRef.Assembly that GetTypeFromDefinition already refused to
+        // canonicalize for an unsigned facade-named self, wrongly treating a
+        // same-assembly type as cross-assembly (or vice versa).
+        _selfCanonical = selfReader.IsAssembly ? TypeRefDecoder.CanonicalSelf(selfReader) : "";
         _context = context;
     }
 
@@ -63,7 +71,7 @@ internal sealed class CrossAssemblyTypeResolver
         if (string.IsNullOrEmpty(type.Assembly))
             return type;
         // Same-assembly references are resolved by the importer's own shapes.
-        if (type.Assembly == TypeRefDecoder.Canonical(_selfSimpleName))
+        if (type.Assembly == _selfCanonical)
             return type;
 
         var result = type;
@@ -87,7 +95,7 @@ internal sealed class CrossAssemblyTypeResolver
         if (field.DeclaringTypeCompilerGenerated == MetadataFactState.Unknown && field.DeclaringType is { Assembly: not null })
         {
             var dtType = NamedDefinition(field.DeclaringType);
-            if (dtType is not null && dtType.Assembly != TypeRefDecoder.Canonical(_selfSimpleName) && Locate(dtType) is { } location && _context.Open(location) is { } assembly && assembly.TryGetType(location.FullTypeName, out var handle))
+            if (dtType is not null && dtType.Assembly != _selfCanonical && Locate(dtType) is { } location && _context.Open(location) is { } assembly && assembly.TryGetType(location.FullTypeName, out var handle))
             {
                 var typeDef = assembly.Reader.GetTypeDefinition(handle);
                 field = field with { DeclaringTypeCompilerGenerated = MethodDefinitionFacts.HasCompilerGeneratedAttribute(assembly.Reader, typeDef.GetCustomAttributes()) ? MetadataFactState.Yes : MetadataFactState.No };
@@ -102,7 +110,7 @@ internal sealed class CrossAssemblyTypeResolver
         var type = NamedDefinition(field.DeclaringType);
         if (type is null || string.IsNullOrEmpty(type.Assembly))
             return field;
-        if (type.Assembly == TypeRefDecoder.Canonical(_selfSimpleName))
+        if (type.Assembly == _selfCanonical)
             return field;
 
         return ResolveFieldBackingProperty(field, type) is { } property
@@ -134,7 +142,7 @@ internal sealed class CrossAssemblyTypeResolver
         if (type is null || string.IsNullOrEmpty(type.Assembly))
             return callee;
         // Same-assembly callees are stamped by the importer from their MethodDef.
-        if (type.Assembly == TypeRefDecoder.Canonical(_selfSimpleName))
+        if (type.Assembly == _selfCanonical)
             return callee;
 
         var facts = _methodFactCache.GetOrAdd(callee, c => ResolveMethodFacts(c, type));
@@ -205,7 +213,7 @@ internal sealed class CrossAssemblyTypeResolver
         {
             if (NamedDefinition(type) is { } definition
                 && !string.IsNullOrEmpty(definition.Assembly)
-                && definition.Assembly != TypeRefDecoder.Canonical(_selfSimpleName)
+                && definition.Assembly != _selfCanonical
                 && TryImplements(type, iface, out var implements))
             {
                 result = implements ? MetadataFactState.Yes : MetadataFactState.No;

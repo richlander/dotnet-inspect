@@ -200,6 +200,11 @@ public static class ApiCommandDefinitions
             Description = "Download and scan package(s) for inbound callers (Callers section). Can repeat.",
             AllowMultipleArgumentsPerToken = false
         };
+        var repoOption = new Option<string[]>("--repo")
+        {
+            Description = "Read authored source from local git clone(s) by SourceLink commit + PDB checksum, before the network (Original Source). Can repeat.",
+            AllowMultipleArgumentsPerToken = false
+        };
         var kindOption = new Option<string[]>("-k")
         {
             Description = "Filter by member kind (method, property, field, event, constructor)",
@@ -229,6 +234,7 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(binOption);
         memberCommand.Options.Add(callerProjectOption);
         memberCommand.Options.Add(callerPackageOption);
+        memberCommand.Options.Add(repoOption);
         memberCommand.Options.Add(kindOption);
         opts.AddSectionOptionsTo(memberCommand);
         opts.AddCountOptionTo(memberCommand);
@@ -246,7 +252,7 @@ public static class ApiCommandDefinitions
             allOption, memberOption, ctorOption,
             compactOption, opts.NoHeaders,
             unsafeOption, indexOption, selectOption, kindOption,
-            binOption, callerProjectOption, callerPackageOption, atOption);
+            binOption, callerProjectOption, callerPackageOption, repoOption, atOption);
 
         memberCommand.SetAction(async (parseResult, ct) =>
         {

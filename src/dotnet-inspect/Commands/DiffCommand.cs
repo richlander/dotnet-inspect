@@ -973,7 +973,8 @@ public class DiffCommand
                         target.Method.MetadataToken,
                         target.Method.Name,
                         new FindingSubject(subject.Id, subject.Display),
-                        fetcher);
+                        fetcher,
+                        options.SourceRepositories);
                     results[subject.Id] = inspection.Lines;
                 }
             }
@@ -2064,6 +2065,12 @@ public record DiffOptions
     public string[]? Fields { get; init; }
     public RowWindow? Rows { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
+
+    /// <summary>
+    /// Local git clone paths consulted for authored source (Implementation Diff), by SourceLink
+    /// commit + PDB checksum, before the network. Empty = network only. Set via <c>--repo</c>.
+    /// </summary>
+    public string[] SourceRepositories { get; init; } = [];
 
     /// <summary>
     /// True when output is raw text (not rendered markdown).

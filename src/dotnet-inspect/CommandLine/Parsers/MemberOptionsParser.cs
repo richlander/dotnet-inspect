@@ -35,6 +35,7 @@ public static class MemberOptionsParser
         Option<string[]> BinOption,
         Option<string[]> ProjectOption,
         Option<string[]> CallerPackageOption,
+        Option<string[]> RepoOption,
         Option<string?> AtOption);
 
     /// <summary>
@@ -302,6 +303,7 @@ public static class MemberOptionsParser
                 ? projectValues
                 : projectValues.Length > 1 ? projectValues[1..] : [],
             CallerScopePackages = parseResult.GetValue(args.CallerPackageOption) ?? [],
+            SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),
             Select = select,

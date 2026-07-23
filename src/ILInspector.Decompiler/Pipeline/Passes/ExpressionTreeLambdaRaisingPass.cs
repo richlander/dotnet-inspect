@@ -7,7 +7,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <c>ExpressionLambdaRewriter</c>'s lowering of
 /// <c>Expression&lt;Func&lt;…&gt;&gt; f = p =&gt; e</c> to a run of
 /// <c>System.Linq.Expressions</c> factory calls — back into the source lambda
-/// <c>p =&gt; e</c> (issue #2864, first slice: homogeneous <c>int</c> arithmetic).
+/// <c>p =&gt; e</c> (issue #2864). Two body subsets are recovered: homogeneous
+/// <c>int</c> arithmetic (a <c>Func&lt;…,int&gt;</c> body) and a single <c>int</c>
+/// comparison predicate (a <c>Func&lt;…,bool&gt;</c> body such as <c>x =&gt; x &gt; y</c>).
 ///
 /// <para>Unlike the delegate-lambda raise (<see cref="LambdaRaisingPass"/>) there
 /// is no synthesized closure method and no <c>[CompilerGenerated]</c> marker: the
@@ -27,11 +29,14 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <item>one <c>StoreLocal p_i = Expression.Parameter(typeof(int), "name")</c> per
 /// parameter — the parameter's <b>single</b> owning definition;</item>
 /// <item><c>StoreStackSlot arr = new ParameterExpression[N]</c>;</item>
-/// <item>the body <c>Expression.Add/Subtract/Multiply/Divide/Modulo</c> tree over
-/// parameter loads and <c>Expression.Constant(c, typeof(int))</c> leaves, spilled
-/// to a single-use slot or inlined into the <c>Lambda</c> call;</item>
+/// <item>the body <c>Expression.Add/Subtract/Multiply/Divide/Modulo</c> arithmetic
+/// tree (for an <c>int</c> result) or a single <c>Expression.Equal/NotEqual/
+/// LessThan/LessThanOrEqual/GreaterThan/GreaterThanOrEqual</c> comparison (for a
+/// <c>bool</c> result) over parameter loads and <c>Expression.Constant(c,
+/// typeof(int))</c> leaves, spilled to a single-use slot or inlined into the
+/// <c>Lambda</c> call;</item>
 /// <item><c>arr[i] = p_i</c> element stores registering each parameter;</item>
-/// <item><c>return Expression.Lambda&lt;Func&lt;int,…,int&gt;&gt;(body, arr);</c></item>
+/// <item><c>return Expression.Lambda&lt;Func&lt;int,…,int|bool&gt;&gt;(body, arr);</c></item>
 /// </list>
 ///
 /// <para>Every statement of the block must be one of those and nothing else, and
@@ -41,9 +46,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// and a local (the body reads the slot, the array reads the local): two
 /// independent value sources whose sameness cannot be proven, so the lambda's
 /// declared parameter and its body reference might not be the same node. Captured,
-/// member-token (<c>ldtoken</c>), method-call, comparison, conversion, non-<c>int</c>,
-/// shared, mutated, and multi-block graphs all fall outside the subset and stay in
-/// their honest factory-call / <c>Partial</c> form for later slices (#2864).</para>
+/// member-token (<c>ldtoken</c>), method-call, conversion, boolean-composition
+/// (<c>AndAlso/OrElse</c>), non-<c>int</c>, shared, mutated, and multi-block graphs
+/// all fall outside the subset and stay in their honest factory-call /
+/// <c>Partial</c> form for later slices (#2864).</para>
 /// </summary>
 public sealed class ExpressionTreeLambdaRaisingPass : IIrPass
 {
@@ -88,7 +94,7 @@ public sealed class ExpressionTreeLambdaRaisingPass : IIrPass
         if (!IsExpressionFactory(returnValue, "Lambda", out var lambdaCall)
             || lambdaCall.Callee.TypeArguments is not [var delegateType]
             || lambdaCall.Arguments.Count != 2
-            || !IsHomogeneousIntFunc(delegateType, out int arity))
+            || !IsIntParameterFunc(delegateType, out int arity, out var resultKind))
             return;
 
         // The rewrite emits a bare lambda literal in the return position, which C#
@@ -107,14 +113,19 @@ public sealed class ExpressionTreeLambdaRaisingPass : IIrPass
             return;
 
         // Rebuild the parameter list and the body over LoadArgument references, in
-        // parameter (array) order. RaiseBody rejects anything outside the int
-        // arithmetic subset, so a member/comparison/method-call/convert body bails.
+        // parameter (array) order. The body raiser rejects anything outside its
+        // subset — an int arithmetic body for a Func<…,int> delegate, or a single
+        // int comparison for a Func<…,bool> predicate — so a member/method-call/
+        // convert/boolean-composition body bails.
         var parameters = plan.Parameters;
         var indexByLocal = new Dictionary<int, int>();
         for (int i = 0; i < plan.ParameterLocals.Length; i++)
             indexByLocal[plan.ParameterLocals[i]] = i;
 
-        if (RaiseBody(plan.Body, parameters, indexByLocal) is not { } body)
+        var body = resultKind == ExpressionBodyResult.Int
+            ? RaiseBody(plan.Body, parameters, indexByLocal)
+            : RaiseComparisonBody(plan.Body, parameters, indexByLocal);
+        if (body is null)
             return;
 
         var lambdaBody = new BlockContainer();
@@ -134,7 +145,9 @@ public sealed class ExpressionTreeLambdaRaisingPass : IIrPass
             // Recovered from the unchecked Expression.Add/Subtract/Multiply
             // factories, so the printer must spell overflow-prone arithmetic in an
             // explicit unchecked(...) to keep the tree unchecked under a checked
-            // consuming project.
+            // consuming project. A pure comparison body carries no overflow form and
+            // is unaffected; a comparison over an arithmetic operand still needs the
+            // unchecked spelling on that operand.
             IsExpressionTree = true,
         };
         lambda.InheritSourceOffset(ret);
@@ -371,16 +384,78 @@ public sealed class ExpressionTreeLambdaRaisingPass : IIrPass
         }
     }
 
+    // Rebuild a predicate body: exactly one int comparison node (the recovered
+    // C# `l OP r`) whose operands are raised through the int arithmetic subset.
+    // The compiler emits the 2-arg Expression.Equal/NotEqual/LessThan/
+    // LessThanOrEqual/GreaterThan/GreaterThanOrEqual for a source `int` comparison;
+    // that recovered comparison recompiles to exactly that same 2-arg factory node,
+    // so the round-trip tree is identical. Anything else — a boolean composition
+    // (AndAlso/OrElse) root, a method-call/member/convert operand, the lifted/
+    // method-carrying 4-arg overload, or a non-int operand — bails, keeping the
+    // graph in its honest factory-call form.
+    static IrExpression? RaiseComparisonBody(IrExpression node, ImmutableArray<Parameter> parameters, IReadOnlyDictionary<int, int> indexByLocal)
+    {
+        if (!TryComparisonKind(node, out var kind, out var left, out var right))
+            return null;
+        if (RaiseBody(left, parameters, indexByLocal) is not { } raisedLeft
+            || RaiseBody(right, parameters, indexByLocal) is not { } raisedRight
+            || !IsInt(raisedLeft.ResultType) || !IsInt(raisedRight.ResultType))
+            return null;
+        // Constant-fold guard, mirroring RaiseBody's arithmetic case: a comparison
+        // of two compile-time constants (e.g. Equal(Constant(2), Constant(3))) is
+        // folded by the C# compiler to a single Constant(false) when the recovered
+        // lambda is recompiled to an expression tree, so the tree is NOT identical.
+        // Require at least one parameter-dependent operand; a bare int comparison
+        // against a constant (x > 5) or between parameters (x < y) keeps identity.
+        if (!DependsOnParameter(raisedLeft) && !DependsOnParameter(raisedRight))
+            return null;
+        // int comparisons are signed (the compiler emits the signed factory and C#
+        // `<`/`>` on int are signed); there is no unsigned int comparison factory to
+        // match here.
+        return new Comparison(kind, isUnsigned: false, raisedLeft, raisedRight);
+    }
+
     // A raised subtree is parameter-dependent when it transitively loads a lambda
     // parameter. Only such subtrees are safe operands for a recovered arithmetic
-    // node: a constant-only operand pair would be constant-folded on recompile,
-    // breaking exact expression-tree identity (see RaiseBody's arithmetic guard).
+    // or comparison node: a constant-only operand pair would be constant-folded on
+    // recompile, breaking exact expression-tree identity (see RaiseBody's arithmetic
+    // guard and RaiseComparisonBody's guard).
     static bool DependsOnParameter(IrExpression raised) => raised switch
     {
         LoadArgument => true,
         Binary binary => DependsOnParameter(binary.Left) || DependsOnParameter(binary.Right),
         _ => false,
     };
+
+    // Expression.<Comparison>(left, right) — the exact 2-arg int comparison shape
+    // ExpressionLambdaRewriter emits. The lifted/method-carrying 4-arg overload has
+    // a different argument count and bails, keeping any user-defined-operator or
+    // nullable-lifted comparison in factory form.
+    static bool TryComparisonKind(IrExpression node, out ComparisonKind kind, out IrExpression left, out IrExpression right)
+    {
+        left = right = null!;
+        kind = default;
+        if (node is not Call { Callee.Name: var factoryName })
+            return false;
+        var mapped = factoryName switch
+        {
+            "Equal" => ComparisonKind.Equal,
+            "NotEqual" => ComparisonKind.NotEqual,
+            "LessThan" => ComparisonKind.LessThan,
+            "LessThanOrEqual" => ComparisonKind.LessThanOrEqual,
+            "GreaterThan" => ComparisonKind.GreaterThan,
+            "GreaterThanOrEqual" => ComparisonKind.GreaterThanOrEqual,
+            _ => (ComparisonKind)(-1),
+        };
+        if ((int)mapped < 0)
+            return false;
+        if (!IsExpressionFactory(node, factoryName, out var call) || call.Arguments.Count != 2)
+            return false;
+        kind = mapped;
+        left = call.Arguments[0];
+        right = call.Arguments[1];
+        return true;
+    }
 
     static bool TryArithmeticKind(IrExpression node, out BinaryKind kind, out IrExpression left, out IrExpression right)
     {
@@ -421,21 +496,40 @@ public sealed class ExpressionTreeLambdaRaisingPass : IIrPass
         return true;
     }
 
-    // The delegate type is System.Func<T1,…,Tn,TResult> with every argument int.
-    // Homogeneous int keeps the recovered lambda's literals and operators binding
-    // to built-in int arithmetic with no promotion/Convert, so the round-trip tree
-    // is identical. arity is the parameter count (n).
-    static bool IsHomogeneousIntFunc(TypeRef delegateType, out int arity)
+    // The body result kind selected by the delegate's TResult: an int arithmetic
+    // body (Func<…,int>) or a bool comparison predicate (Func<…,bool>).
+    enum ExpressionBodyResult { Int, Bool }
+
+    static bool IsBool(TypeRef? type) => type is not null && type.Equals(TypeRef.CoreLib("System", "Boolean"));
+
+    // The delegate type is System.Func<T1,…,Tn,TResult> with every parameter int
+    // and TResult either int (an arithmetic body) or bool (a comparison predicate).
+    // Homogeneous int parameters keep the recovered lambda's literals and operators
+    // binding to built-in int arithmetic/comparison with no promotion/Convert, so
+    // the round-trip tree is identical. arity is the parameter count (n).
+    static bool IsIntParameterFunc(TypeRef delegateType, out int arity, out ExpressionBodyResult resultKind)
     {
         arity = 0;
+        resultKind = default;
         if (delegateType is not { Kind: TypeRefKind.GenericInstance, ElementType: { Namespace: "System", Name: var name }, TypeArguments: { Length: >= 2 } args }
             || !name.StartsWith("Func`", StringComparison.Ordinal)
             // The delegate family must be the real corelib System.Func: identity is
             // the (name-canonicalized) core-library assembly, not the simple name, so
             // a lookalike System.Func in a user assembly is not raised to framework
-            // lambda semantics. Every type argument is int (checked below).
-            || !MemberIdentity.IsKnownCoreLibraryDelegateType(delegateType)
-            || !args.All(IsInt))
+            // lambda semantics.
+            || !MemberIdentity.IsKnownCoreLibraryDelegateType(delegateType))
+            return false;
+        // Every parameter (all but the trailing TResult) is int.
+        for (int i = 0; i < args.Length - 1; i++)
+            if (!IsInt(args[i]))
+                return false;
+        // TResult decides the body subset: int arithmetic or a bool comparison.
+        var result = args[^1];
+        if (IsInt(result))
+            resultKind = ExpressionBodyResult.Int;
+        else if (IsBool(result))
+            resultKind = ExpressionBodyResult.Bool;
+        else
             return false;
         arity = args.Length - 1;
         return true;

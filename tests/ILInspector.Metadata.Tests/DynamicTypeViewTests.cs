@@ -418,6 +418,20 @@ public sealed class DynamicTypeViewTests
     {
         Assert.Equal(expected, DynamicReader.IsTopLevelDynamic(flags));
     }
+
+    // --- IsByRefElementDynamic predicate: the element sits at index 1 ---------
+
+    [Theory]
+    [InlineData(null, false)]                 // attribute absent -> object element
+    [InlineData(new byte[] { }, false)]       // empty flags -> not dynamic
+    [InlineData(new byte[] { 0 }, false)]     // ByRef modifier only, no element flag
+    [InlineData(new byte[] { 1 }, false)]     // single flag is the top-level form, not by-ref element
+    [InlineData(new byte[] { 0, 1 }, true)]   // `ref dynamic` -> ByRef at 0, dynamic element at 1
+    [InlineData(new byte[] { 0, 0 }, false)]  // `ref object` (unusual explicit form) -> object element
+    public void IsByRefElementDynamic_ReadsElementPositionOnly(byte[]? flags, bool expected)
+    {
+        Assert.Equal(expected, DynamicReader.IsByRefElementDynamic(flags));
+    }
 }
 
 // ===== Test fixture types with a spread of dynamic type shapes =====

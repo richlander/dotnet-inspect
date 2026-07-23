@@ -96,7 +96,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             var root = reader.GetTypeDefinition(chain[0]);
             var leaf = reader.GetTypeDefinition(handle);
             string assembly = reader.IsAssembly
-                ? Canonical(reader.GetString(reader.GetAssemblyDefinition().Name))
+                ? CanonicalSelf(reader)
                 : "";
             string ns = reader.GetString(root.Namespace);
             string name = TypeDefinitionName(reader, chain);
@@ -140,8 +140,7 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             string ns = reader.GetString(root.Namespace);
             string name = TypeReferenceName(reader, chain);
             string assembly = terminal.Kind == HandleKind.AssemblyReference
-                ? Canonical(reader.GetString(
-                    reader.GetAssemblyReference((AssemblyReferenceHandle)terminal).Name))
+                ? CanonicalReferenced(reader, (AssemblyReferenceHandle)terminal)
                 : "";
             return TypeRef.Definition(assembly, ns, name, HintFrom(rawTypeKind));
         }
@@ -344,11 +343,67 @@ internal sealed class TypeRefDecoder : ISignatureTypeProvider<TypeRef, GenericSc
             ? MetadataFactState.Yes
             : MetadataFactState.No;
 
-    /// <summary>Canonicalizes corelib spellings so facade choice never affects identity.</summary>
-    internal static string Canonical(string assemblyName) => assemblyName is
-        "System.Private.CoreLib" or "System.Runtime" or "mscorlib" or "netstandard" or "System.Runtime.Extensions"
-        ? TypeRef.CoreLibrary
-        : assemblyName;
+    /// <summary>
+    /// Canonicalizes corelib spellings so facade choice never affects identity.
+    /// Name-only: safe ONLY as an input to <see cref="CanonicalSelf"/>-consistent
+    /// comparisons where the reader's own token has already been asserted
+    /// elsewhere, or for non-identity display purposes. Never call this directly
+    /// on an <see cref="AssemblyReference"/>'s name (forgeable; see
+    /// <see cref="CanonicalReferenced"/>) or as a substitute for
+    /// <see cref="CanonicalSelf"/> on an <see cref="AssemblyDefinition"/>'s own
+    /// name (also forgeable: the reader could be an untrusted assembly opened by
+    /// cross-assembly resolution, not the originally-opened target).
+    /// </summary>
+    internal static string Canonical(string assemblyName)
+        => IsCoreLibFacadeName(assemblyName) ? TypeRef.CoreLibrary : assemblyName;
+
+    /// <summary>
+    /// Canonicalizes the reader's own <see cref="AssemblyDefinition"/> simple
+    /// name to <see cref="TypeRef.CoreLibrary"/> only when its public key hashes
+    /// to a trusted platform token (<see cref="PlatformKeys.IsPlatform"/>). The
+    /// reader is not always the originally-opened, explicitly-trusted target: a
+    /// cross-assembly resolver can open an untrusted sibling file (e.g. a
+    /// same-directory <c>System.Runtime.dll</c> resolved for an unsigned
+    /// reference) and decode types from ITS OWN metadata through
+    /// <see cref="GetTypeFromDefinition"/>. Trusting that reader's self-claimed
+    /// name would let a planted file mint corelib identity for the types it
+    /// defines. Every caller of self-name canonicalization (same-assembly
+    /// identity comparisons included) must use this, never plain
+    /// <see cref="Canonical(string)"/>, so identity stays consistent.
+    /// </summary>
+    internal static string CanonicalSelf(MetadataReader reader)
+    {
+        var definition = reader.GetAssemblyDefinition();
+        string name = reader.GetString(definition.Name);
+        if (!IsCoreLibFacadeName(name))
+            return name;
+        if (definition.PublicKey.IsNil)
+            return name;
+        string token = AssemblyReferenceIdentity.ComputePublicKeyToken(reader.GetBlobBytes(definition.PublicKey));
+        return PlatformKeys.IsPlatform(token) ? TypeRef.CoreLibrary : name;
+    }
+
+    /// <summary>
+    /// Canonicalizes a referenced assembly's simple name to
+    /// <see cref="TypeRef.CoreLibrary"/> only when its public-key token is a
+    /// trusted platform key (<see cref="PlatformKeys.IsPlatform"/>). An
+    /// <see cref="AssemblyReference"/>'s <c>Name</c> is forgeable — a planted
+    /// assembly can declare an <c>AssemblyRef</c> row named
+    /// <c>"System.Runtime"</c> with no valid public-key token — so name alone
+    /// must never grant corelib identity for a reference.
+    /// </summary>
+    static string CanonicalReferenced(MetadataReader reader, AssemblyReferenceHandle handle)
+    {
+        var reference = reader.GetAssemblyReference(handle);
+        string name = reader.GetString(reference.Name);
+        if (!IsCoreLibFacadeName(name))
+            return name;
+        string? token = AssemblyReferenceIdentity.From(reader, handle).PublicKeyToken;
+        return PlatformKeys.IsPlatform(token) ? TypeRef.CoreLibrary : name;
+    }
+
+    static bool IsCoreLibFacadeName(string assemblyName) => assemblyName is
+        "System.Private.CoreLib" or "System.Runtime" or "mscorlib" or "netstandard" or "System.Runtime.Extensions";
 
     static string RelationshipFailure(
         string relationship,

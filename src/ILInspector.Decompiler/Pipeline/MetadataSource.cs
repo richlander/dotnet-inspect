@@ -78,22 +78,21 @@ public sealed class MetadataSource : IDisposable
     /// without managed metadata. <paramref name="externalPdbPath"/> is a portable
     /// PDB to use for source local names when the assembly carries no embedded
     /// or sidecar PDB — e.g. one the CLI downloaded from a symbol server.
-    /// <paramref name="locator"/> is the legacy path-only adapter for resolving
-    /// referenced assemblies for cross-assembly type facts (value-type-ness of a
-    /// bare token); when null, the default policy looks only beside the opened
-    /// assembly. New callers should prefer the <see cref="IAssemblyReferenceResolver"/>
-    /// overload so identity and stream-backed assemblies flow through.
+    /// Referenced assemblies for cross-assembly type facts (value-type-ness of a
+    /// bare token) are resolved by the default policy, which looks only beside
+    /// the opened assembly. Callers that need identity- or stream-backed
+    /// resolution should use the <see cref="IAssemblyReferenceResolver"/> overload.
     /// <paramref name="context"/> is a shared <see cref="MetadataContext"/> a
     /// batch caller may pass so a dependency such as CoreLib is opened once
     /// across many sources; when null, this source creates and owns one seeded
     /// by the effective resolver. A supplied context is
     /// borrowed — the caller owns its disposal.
     /// </summary>
-    public static MetadataSource Open(string path, string? externalPdbPath = null, AssemblyLocator? locator = null, MetadataContext? context = null)
-        => OpenCore(path, externalPdbPath, readSymbols: true, locator, resolver: null, context);
+    public static MetadataSource Open(string path, string? externalPdbPath = null, MetadataContext? context = null)
+        => OpenCore(path, externalPdbPath, readSymbols: true, resolver: null, context);
 
     public static MetadataSource Open(string path, string? externalPdbPath, IAssemblyReferenceResolver resolver, MetadataContext? context = null)
-        => OpenCore(path, externalPdbPath, readSymbols: true, locator: null, resolver, context);
+        => OpenCore(path, externalPdbPath, readSymbols: true, resolver, context);
 
     public static MetadataSource Open(ResolvedAssemblyReference assembly, string? externalPdbPath, IAssemblyReferenceResolver resolver, MetadataContext? context = null)
         => OpenCore(assembly, externalPdbPath, readSymbols: true, resolver, context);
@@ -104,11 +103,11 @@ public sealed class MetadataSource : IDisposable
     /// deterministic, symbol-independent output: the same DLL renders identically
     /// whether or not a PDB happens to be embedded, sidecar, or downloaded.
     /// </summary>
-    public static MetadataSource OpenWithoutSymbols(string path, AssemblyLocator? locator = null, MetadataContext? context = null)
-        => OpenCore(path, externalPdbPath: null, readSymbols: false, locator, resolver: null, context);
+    public static MetadataSource OpenWithoutSymbols(string path, MetadataContext? context = null)
+        => OpenCore(path, externalPdbPath: null, readSymbols: false, resolver: null, context);
 
     public static MetadataSource OpenWithoutSymbols(string path, IAssemblyReferenceResolver resolver, MetadataContext? context = null)
-        => OpenCore(path, externalPdbPath: null, readSymbols: false, locator: null, resolver, context);
+        => OpenCore(path, externalPdbPath: null, readSymbols: false, resolver, context);
 
     public static MetadataSource OpenWithoutSymbols(ResolvedAssemblyReference assembly, IAssemblyReferenceResolver resolver, MetadataContext? context = null)
         => OpenCore(assembly, externalPdbPath: null, readSymbols: false, resolver, context);
@@ -121,13 +120,7 @@ public sealed class MetadataSource : IDisposable
     /// </summary>
     public static IAssemblyReferenceResolver DefaultAssemblyReferenceResolver(string path) => new SiblingAssemblyReferenceResolver(path);
 
-    /// <summary>
-    /// Legacy path-only view over <see cref="DefaultAssemblyReferenceResolver"/>.
-    /// Prefer the resolver-returning API for new code.
-    /// </summary>
-    public static AssemblyLocator DefaultAssemblyLocator(string path) => DefaultAssemblyReferenceResolver(path).ToAssemblyLocator();
-
-    static MetadataSource OpenCore(string path, string? externalPdbPath, bool readSymbols, AssemblyLocator? locator, IAssemblyReferenceResolver? resolver, MetadataContext? context)
+    static MetadataSource OpenCore(string path, string? externalPdbPath, bool readSymbols, IAssemblyReferenceResolver? resolver, MetadataContext? context)
     {
         var stream = File.OpenRead(path);
         PEReader? peReader = null;
@@ -140,7 +133,7 @@ public sealed class MetadataSource : IDisposable
             string assemblyName = reader.IsAssembly
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
                 : System.IO.Path.GetFileNameWithoutExtension(path);
-            var effectiveResolver = resolver ?? locator?.ToAssemblyReferenceResolver() ?? DefaultAssemblyReferenceResolver(path);
+            var effectiveResolver = resolver ?? DefaultAssemblyReferenceResolver(path);
             return new MetadataSource(path, stream, peReader, reader, assemblyName, externalPdbPath, readSymbols, effectiveResolver, context);
         }
         catch
@@ -328,7 +321,7 @@ public sealed class MetadataSource : IDisposable
         if (NamedDefinition(type) is not { } definition || string.IsNullOrEmpty(definition.Assembly))
             return TypeShapeKind.Unknown;
 
-        if (definition.Assembly == TypeRefDecoder.Canonical(AssemblyName))
+        if (definition.Assembly == (Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : ""))
         {
             EnsureTypeMaps();
             if (_delegates!.Contains(definition))
@@ -582,7 +575,7 @@ public sealed class MetadataSource : IDisposable
         if (type.Equals(s_enumerable) || definition.Equals(s_enumerable))
             return MetadataFactState.Yes;
 
-        if (definition.Assembly == TypeRefDecoder.Canonical(AssemblyName))
+        if (definition.Assembly == (Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : ""))
             return Implements(type, s_enumerable) ? MetadataFactState.Yes : MetadataFactState.No;
 
         return CrossAssembly.Implements(type, s_enumerable);

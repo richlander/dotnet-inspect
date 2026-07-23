@@ -38,7 +38,13 @@ public sealed record AssemblyReferenceIdentity(
             : Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
-    static string ComputePublicKeyToken(byte[] publicKey)
+    /// <summary>
+    /// Derives the lowercase-hex public-key token from a full public-key blob
+    /// (ECMA-335 II.23.3: SHA-1 hash, last 8 bytes, byte-reversed). Shared with
+    /// <see cref="AssemblyDefinition"/> canonicalization, whose <c>PublicKey</c>
+    /// column is always the full key, never a pre-computed token.
+    /// </summary>
+    public static string ComputePublicKeyToken(byte[] publicKey)
     {
         var hash = SHA1.HashData(publicKey);
         Span<byte> token = stackalloc byte[8];
@@ -64,42 +70,4 @@ public sealed record ResolvedAssemblyReference(
 public interface IAssemblyReferenceResolver
 {
     ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope);
-}
-
-public static class AssemblyReferenceResolverExtensions
-{
-    /// <summary>
-    /// Adapts the canonical identity resolver to the legacy path-only locator
-    /// shape. This adapter can only represent file-backed resolutions.
-    /// </summary>
-    public static AssemblyLocator ToAssemblyLocator(this IAssemblyReferenceResolver resolver)
-        => (assemblyName, scope) =>
-        {
-            var resolved = resolver.Resolve(new AssemblyReferenceIdentity(assemblyName, Version: null, Culture: null, PublicKeyToken: null), scope);
-            return resolved?.Path ?? (resolved is null
-                ? null
-                : throw new NotSupportedException("AssemblyLocator requires a file-backed resolver result."));
-        };
-
-    /// <summary>
-    /// Adapts a legacy path-only locator to the canonical identity resolver
-    /// boundary.
-    /// </summary>
-    public static IAssemblyReferenceResolver ToAssemblyReferenceResolver(this AssemblyLocator locator)
-        => new AssemblyLocatorReferenceResolver(locator);
-
-    sealed class AssemblyLocatorReferenceResolver(AssemblyLocator locator) : IAssemblyReferenceResolver
-    {
-        public ResolvedAssemblyReference? Resolve(AssemblyReferenceIdentity identity, AssemblyResolutionScope scope)
-        {
-            if (locator(identity.Name, scope) is not { } path)
-                return null;
-
-            return new ResolvedAssemblyReference(
-                identity,
-                path,
-                () => File.OpenRead(path),
-                Provenance: "AssemblyLocator");
-        }
-    }
 }

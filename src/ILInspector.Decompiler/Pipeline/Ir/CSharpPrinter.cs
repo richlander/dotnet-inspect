@@ -239,6 +239,8 @@ public sealed partial class CSharpPrinter
         {
             ReadableLocalNames = _options.ReadableLocalNames,
             PreferFrameworkTypeImports = true,
+            ExpressionBodyArrowPlacement = _options.ExpressionBodyArrowPlacement,
+            WrapSplittableExpressions = _options.WrapSplittableExpressions,
         };
 
     void AddDecision(string ruleId, string category, string subject, string detail, string? oldValue = null, string? newValue = null)
@@ -1813,7 +1815,8 @@ public sealed partial class CSharpPrinter
         }
         if (Statement(node) is { } line)
         {
-            if (!TryAppendFluentChain(sb, node, line, indent))
+            if (!TryAppendFluentChain(sb, node, line, indent)
+                && !TryAppendSplittableExpression(sb, node, line, indent))
                 sb.Append(pad).AppendLine(line);
         }
     }
@@ -2149,6 +2152,72 @@ public sealed partial class CSharpPrinter
         }
     }
 
+    /// <summary>
+    /// Emits <paramref name="node"/> as a wrapped short-circuit
+    /// <c>&amp;&amp;</c>/<c>||</c> chain (one operand per line) when
+    /// <see cref="PrinterOptions.WrapSplittableExpressions"/> is set and the chain
+    /// is long enough, returning true after appending; false to fall through to
+    /// the flat single-line emit. Chosen only when the flat statement
+    /// <paramref name="line"/> is exactly <c>prefix + chain + ";"</c>, so any
+    /// coercion cast, compound assignment, or property-pattern rewrite the
+    /// renderer applied around the chain keeps the statement inline — wrapping
+    /// never drops or reshapes a token.
+    /// </summary>
+    bool TryAppendSplittableExpression(StringBuilder sb, IrNode node, string line, int indent)
+    {
+        if (!_options.WrapSplittableExpressions)
+            return false;
+        if (!TryLogicalChainStatement(node, out var root, out var prefix))
+            return false;
+        if (line != prefix + LogicalText(root) + ";")
+            return false;
+        if (LogicalChainLines(root, prefix, ";", indent) is not { } broken)
+            return false;
+        AddDecision(
+            "expression.wrap-splittable-chain",
+            "taste",
+            _function.Name,
+            $"Wrapped a long short-circuit {(root.Kind == LogicalKind.And ? "&&" : "||")} chain across continuation lines.");
+        sb.AppendLine(broken);
+        return true;
+    }
+
+    /// <summary>
+    /// Recognizes the statement positions whose value is a top-level short-circuit
+    /// <c>&amp;&amp;</c>/<c>||</c> chain — a <c>return</c> or a (non-ref) local or
+    /// stack-slot store — and yields the chain root plus the exact statement prefix
+    /// the flat renderer prints before it. (A bare chain as an expression statement
+    /// is CS0201, so there is no expression-statement case.) The caller re-derives
+    /// the flat text and only wraps when it matches, so the prefix here need only
+    /// cover the common (cast-free) spelling.
+    /// </summary>
+    bool TryLogicalChainStatement(IrNode node, out LogicalBinary root, out string prefix)
+    {
+        switch (node)
+        {
+            case Return { Value: LogicalBinary logical }:
+                root = logical;
+                prefix = "return ";
+                return true;
+            case StoreLocal { Type.Kind: not TypeRefKind.ByRef, Value: LogicalBinary logical } store:
+                root = logical;
+                prefix = _declaringStores.Contains(store)
+                    ? $"{DeclarationTypeText(store.Type, store.Value)} {LocalName(store.Index)} = "
+                    : $"{LocalName(store.Index)} = ";
+                return true;
+            case StoreStackSlot store when store.Value is LogicalBinary logical && StackSlotTargetType(store) is { Kind: not TypeRefKind.ByRef }:
+                root = logical;
+                prefix = _declaringStores.Contains(store)
+                    ? $"{DeclarationTypeText(StackSlotTargetType(store)!, store.Value)} {StackSlotName(store)} = "
+                    : $"{StackSlotName(store)} = ";
+                return true;
+            default:
+                root = null!;
+                prefix = "";
+                return false;
+        }
+    }
+
     string? Statement(IrNode node) => node switch
     {
         ExpressionStatement
@@ -2179,7 +2248,7 @@ public sealed partial class CSharpPrinter
             ? $"{TypeText(s.Type)} {LocalName(s.Index)} = ref {Deref(s.Value)};"
             : $"{LocalName(s.Index)} = ref {Deref(s.Value)};",
         StoreLocal s => _declaringStores.Contains(s)
-            ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {CoerceText(s.Value, s.Type)};"
+            ? $"{DeclarationTypeText(s.Type, s.Value)} {LocalName(s.Index)} = {InitializerText(s.Value, s.Type)};"
             : AssignmentText($"{LocalName(s.Index)}", s.Value, left => left is LoadLocal load && load.Index == s.Index, s.Type),
         DeconstructionAssignment d => $"({string.Join(", ", d.Targets.Select(DeconstructionTargetText))}) = {Expression(d.Source)};",
         ChainedAssignment c => $"{string.Join(" = ", c.Targets.Select(ChainedAssignmentTargetText))} = {CoerceText(c.Value, c.InnermostTargetType)};",
@@ -2193,7 +2262,7 @@ public sealed partial class CSharpPrinter
             ? $"{TypeText(refType)} {StackSlotName(s)} = ref {Deref(s.Value)};"
             : $"{StackSlotName(s)} = ref {Deref(s.Value)};",
         StoreStackSlot s => _declaringStores.Contains(s)
-            ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {CoerceText(s.Value, StackSlotTargetType(s))};"
+            ? $"{DeclarationTypeText(StackSlotTargetType(s)!, s.Value)} {StackSlotName(s)} = {InitializerText(s.Value, StackSlotTargetType(s))};"
             : AssignmentText(StackSlotName(s), s.Value, left => left is LoadStackSlot load && StackSlotName(load) == StackSlotName(s), StackSlotTargetType(s)),
         StoreField s => AssignmentText(
             FieldTarget(s.Field, s.Instance), s.Value,
@@ -2213,7 +2282,7 @@ public sealed partial class CSharpPrinter
             StorePropertyTargetType(s)),
         EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual)} {(e.IsAdd ? "+=" : "-=")} {CoerceText(e.Value, e.Accessor.ParameterTypes[0])};",
         StoreElement s when InlineReceiverTempStoreValue(s) is { } value => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {value};",
-        StoreElement s => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {CoerceText(s.Value, StoreElementTargetType(s))};",
+        StoreElement s => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {InitializerText(s.Value, StoreElementTargetType(s), StoreElementNewTarget(s))};",
         StoreIndirect s => AssignmentText(
             IndirectTarget(s.Address, IndirectStoreType(s.Address, s.Type)),
             s.Value,
@@ -2298,6 +2367,27 @@ public sealed partial class CSharpPrinter
     // non-primitive definition), matching `Coerce`'s enum-cast reasoning.
     TypeRef? StoreElementTargetType(StoreElement store)
         => CoercionSinks.StoreElementTarget(store, _function.TypeShapes);
+
+    /// <summary>
+    /// The type C# binds a target-typed <c>new()</c> to at an array element store —
+    /// the array expression's static element type, which is what <c>a[i] = new()</c>
+    /// constructs. Offered only when that element type is exactly the coercion target
+    /// (<see cref="StoreElementTargetType"/>): a <c>stelem.ref</c> erases its token to
+    /// <c>object</c>, and a covariant <c>stelem</c> token can be wider than the
+    /// array's static element type, so when they disagree the exact-type-equality
+    /// guard would not reflect the constructed type — decline (return null) and keep
+    /// the explicit spelling. Never widens the reviewed firing set: value-type element
+    /// arrays (token == element) still fire, reference-type arrays still decline.
+    /// </summary>
+    TypeRef? StoreElementNewTarget(StoreElement store)
+    {
+        var coercionTarget = StoreElementTargetType(store);
+        return store.Array.ResultType is { Kind: TypeRefKind.SzArray or TypeRefKind.Array, ElementType: { } element }
+            && coercionTarget is not null
+            && element.Equals(coercionTarget)
+            ? coercionTarget
+            : null;
+    }
 
     /// <summary>
     /// The C# text for a single-dimension array element index. C# implicitly
@@ -2541,6 +2631,7 @@ public sealed partial class CSharpPrinter
             IsFloatComparison(c.Left, c.Right) ? !c.IsUnsigned : c.IsUnsigned,
             c.Left, c.Right),
         LogicalNot { Operand: Call { Callee.Name: "op_Equality" or "op_Inequality" } call } when InvertedEqualityOperatorCallText(call) is { } invertedEquality => invertedEquality,
+        LogicalNot { Operand: Call { Callee.Name: "op_LessThan" or "op_LessThanOrEqual" or "op_GreaterThan" or "op_GreaterThanOrEqual" } call } when InvertedRelationalOperatorCallText(call) is { } invertedRelational => invertedRelational,
         LogicalNot { Operand: LogicalBinary logical } when TryPropertyPatternText(logical, negated: true) is { } negatedPattern => negatedPattern,
         LogicalNot { Operand: { } operand } when Truthiness(operand) is { } negated => negated.Inverted,
         LogicalNot n => $"!{Operand(n.Operand)}",
@@ -2647,7 +2738,7 @@ public sealed partial class CSharpPrinter
         // display-class field carrying [DynamicAttribute]) recovers a dynamic
         // type view.
         if (IsDynamicTypedReceiver(d.Receiver))
-            return $"{Operand(d.Receiver)}.{member}";
+            return $"{DynamicDroppedCastReceiverText(d.Receiver)}.{member}";
         return $"((dynamic){Operand(d.Receiver)}).{member}";
     }
 
@@ -2655,17 +2746,36 @@ public sealed partial class CSharpPrinter
     {
         LoadArgument { IsDynamic: true } => true,
         LoadField { Field.IsDynamic: true } => true,
+        // A by-ref `dynamic` parameter (`ref`/`in`/`out dynamic`) reads through a
+        // deref of the by-ref argument; the referenced element's static type is
+        // still `dynamic`, so the `(dynamic)` cast is equally redundant (#3035).
+        LoadIndirect { Address: LoadArgument { IsDynamic: true } } => true,
         _ => false,
     };
+
+    // Bare place text for a dynamic-typed receiver whose redundant `(dynamic)` cast
+    // is dropped. A by-ref deref reads back as the underlying argument identifier
+    // (`value`), so its `Operand` receiver-parentheses (`(value).Member`) are
+    // dropped to match the plain-parameter form (`value.Member`) (#3035).
+    string DynamicDroppedCastReceiverText(IrExpression receiver)
+        => receiver is LoadIndirect load ? DerefLoad(load) : Operand(receiver);
 
     // A parameter authored as top-level `dynamic` must be spelled `dynamic` in
     // the declaration, not `object` (its TypeRef). This keeps a local-function
     // header consistent with a body that drops the redundant `(dynamic)` cast on
     // the parameter: `object Get(object v) => v.Length;` is CS1061, whereas
-    // `object Get(dynamic v) => v.Length;` binds. Top-level method signatures are
+    // `object Get(dynamic v) => v.Length;` binds. A by-ref `dynamic` parameter
+    // keeps its by-ref modifier — only the referenced element is `dynamic` — so
+    // it is spelled `ref dynamic`, not bare `dynamic` (which would drop `ref` and
+    // yield CS1615 at the call site) (#3035). Top-level method signatures are
     // spelled by the metadata signature printer; this covers the printer-owned
     // local-function declaration path.
-    string ParameterTypeText(Parameter p) => p.IsDynamic ? "dynamic" : TypeText(p.Type);
+    string ParameterTypeText(Parameter p)
+    {
+        if (!p.IsDynamic)
+            return TypeText(p.Type);
+        return p.Type.Kind == TypeRefKind.ByRef ? "ref dynamic" : "dynamic";
+    }
 
     string CoalesceText(Coalesce co, TypeRef? target = null)
     {
@@ -2745,6 +2855,7 @@ public sealed partial class CSharpPrinter
             IsFloatComparison(c.Left, c.Right) ? !c.IsUnsigned : c.IsUnsigned,
             c.Left, c.Right),
         LogicalNot { Operand: Call { Callee.Name: "op_Equality" or "op_Inequality" } call } when InvertedEqualityOperatorCallText(call) is { } invertedEquality => invertedEquality,
+        LogicalNot { Operand: Call { Callee.Name: "op_LessThan" or "op_LessThanOrEqual" or "op_GreaterThan" or "op_GreaterThanOrEqual" } call } when InvertedRelationalOperatorCallText(call) is { } invertedRelational => invertedRelational,
         LogicalNot { Operand: LogicalBinary logical } when TryPropertyPatternText(logical, negated: true) is { } negatedPattern => negatedPattern,
         LogicalNot { Operand: Call { Callee.Name: "op_True", Arguments: [var value] } } => InvertedUserTruthiness(value),
         LogicalNot { Operand: Call { Callee.Name: "op_False", Arguments: [var value] } } => OperatorOperand(value),
@@ -3432,24 +3543,99 @@ public sealed partial class CSharpPrinter
         if (TryPropertyPatternText(logical) is { } propertyPattern)
             return propertyPattern;
 
-        // Sides are condition positions: Condition() owns truthiness (a
-        // string operand spells 'is not null', never '!value') and the
-        // negation folds. Same-kind chains associate bare; mixed-kind
-        // LogicalBinary parenthesizes. Any other side renders at the
-        // operator's demand — a ternary or `??` (or one hidden behind a stale
-        // Coerce/Convert, the #2345/#2376 blind spot) is looser than `&&`/`||`
-        // and must parenthesize, while comparisons and unary forms out-bind it
-        // and stay bare (#2376 round-2: the enum/bool truthiness compositions
-        // share the one precedence rule, not just BoolToInteger).
-        var demand = logical.Kind == LogicalKind.And ? Precedence.ConditionalAnd : Precedence.ConditionalOr;
-        string Side(IrExpression side) => side switch
+        string op = logical.Kind == LogicalKind.And ? "&&" : "||";
+        return $"{LogicalOperandText(logical.Left, logical.Kind)} {op} {LogicalOperandText(logical.Right, logical.Kind)}";
+    }
+
+    // A single operand of a short-circuit chain of the given kind. Sides are
+    // condition positions: Condition() owns truthiness (a string operand spells
+    // 'is not null', never '!value') and the negation folds. Same-kind chains
+    // associate bare; a mixed-kind LogicalBinary parenthesizes. Any other side
+    // renders at the operator's demand — a ternary or `??` (or one hidden behind
+    // a stale Coerce/Convert, the #2345/#2376 blind spot) is looser than
+    // `&&`/`||` and must parenthesize, while comparisons and unary forms out-bind
+    // it and stay bare (#2376 round-2: the enum/bool truthiness compositions
+    // share the one precedence rule, not just BoolToInteger).
+    string LogicalOperandText(IrExpression side, LogicalKind kind)
+    {
+        var demand = kind == LogicalKind.And ? Precedence.ConditionalAnd : Precedence.ConditionalOr;
+        return side switch
         {
-            LogicalBinary nested when nested.Kind == logical.Kind => LogicalText(nested),
+            LogicalBinary nested when nested.Kind == kind => LogicalText(nested),
             LogicalBinary nested => $"({LogicalText(nested)})",
             _ => RenderedCondition(side).At(demand),
         };
-        string op = logical.Kind == LogicalKind.And ? "&&" : "||";
-        return $"{Side(logical.Left)} {op} {Side(logical.Right)}";
+    }
+
+    /// <summary>
+    /// Renders a short-circuit <c>&amp;&amp;</c>/<c>||</c> chain rooted at
+    /// <paramref name="root"/> as one operand per line — the first operand after
+    /// <paramref name="prefix"/> on the head line, each later operand under a
+    /// continuation indent, the operator trailing every broken line — when the
+    /// chain has at least <see cref="FluentChainMinSegments"/> operands and its
+    /// single-line form would exceed <see cref="FluentChainWrapWidth"/>. Returns
+    /// null (render inline) otherwise. Each operand's text is exactly the
+    /// <see cref="LogicalOperandText"/> the flat <see cref="LogicalText"/> emits,
+    /// and the routine declines unless the per-operand join reproduces that flat
+    /// text (so a property-pattern rewrite or any other reshaping keeps the
+    /// statement inline); the broken form is therefore token-identical to the
+    /// inline form — only whitespace differs and the IL is unchanged. Gated on
+    /// <see cref="PrinterOptions.WrapSplittableExpressions"/> by the caller.
+    /// </summary>
+    string? LogicalChainLines(LogicalBinary root, string prefix, string suffix, int indent)
+    {
+        var operands = new List<IrExpression>();
+        CollectLogicalChainOperands(root, root.Kind, operands);
+        if (operands.Count < FluentChainMinSegments)
+            return null;
+
+        string op = root.Kind == LogicalKind.And ? "&&" : "||";
+        var texts = new List<string>(operands.Count);
+        foreach (var operand in operands)
+            texts.Add(LogicalOperandText(operand, root.Kind));
+
+        // The broken form must be a pure whitespace variant of the flat chain:
+        // decline unless re-rendering the flattened operands reproduces the flat
+        // LogicalText exactly (guards the property-pattern rewrite and any other
+        // reshaping the flat renderer would apply).
+        string flat = LogicalText(root);
+        if (string.Join($" {op} ", texts) != flat)
+            return null;
+
+        if (indent * 4 + prefix.Length + flat.Length + suffix.Length <= FluentChainWrapWidth)
+            return null;
+
+        string pad = new(' ', indent * 4);
+        string continuation = pad + "    ";
+        var sb = new System.Text.StringBuilder();
+        sb.Append(pad).Append(prefix);
+        for (int i = 0; i < texts.Count; i++)
+        {
+            if (i > 0)
+                sb.Append('\n').Append(continuation);
+            sb.Append(texts[i]);
+            if (i < texts.Count - 1)
+                sb.Append(' ').Append(op);
+        }
+        sb.Append(suffix);
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Flattens a same-kind short-circuit chain into its operands in
+    /// left-to-right source order; a nested chain of the <em>other</em> kind (or
+    /// any non-<see cref="LogicalBinary"/>) is one operand and is not descended
+    /// into — matching how <see cref="LogicalOperandText"/> parenthesizes it.
+    /// </summary>
+    static void CollectLogicalChainOperands(IrExpression expression, LogicalKind kind, List<IrExpression> operands)
+    {
+        if (expression is LogicalBinary logical && logical.Kind == kind)
+        {
+            CollectLogicalChainOperands(logical.Left, kind, operands);
+            CollectLogicalChainOperands(logical.Right, kind, operands);
+            return;
+        }
+        operands.Add(expression);
     }
 
     string? TryPropertyPatternText(LogicalBinary logical)
@@ -3663,6 +3849,92 @@ public sealed partial class CSharpPrinter
             : $"return {CoerceText(value, _function.Signature.ReturnType)};";
 
     /// <summary>
+    /// Renders the initializer for a place whose static type is <paramref name="target"/>:
+    /// a target-typed object creation (<c>new(args)</c>) when the value is a plain
+    /// <c>new T(args)</c> whose constructed type is exactly the target, otherwise the
+    /// ordinary coerced spelling. Reached only from single-target assignment/declaration
+    /// positions (local/field/property/stack-slot/indirect store, array-element store)
+    /// where the C# target type is unambiguous — never from a call argument, where a
+    /// target-typed <c>new</c> would participate in overload resolution and could change
+    /// binding. Return positions are intentionally out of scope for now.
+    /// </summary>
+    string InitializerText(IrExpression value, TypeRef? target)
+        => InitializerText(value, target, target);
+
+    /// <summary>
+    /// Initializer spelling where the type C# binds a target-typed <c>new()</c> to
+    /// (<paramref name="newTarget"/>) can differ from the coercion target
+    /// (<paramref name="coercionTarget"/>). They differ only for an array element
+    /// store: <c>a[i] = new()</c> binds to the array's static element type, while the
+    /// coercion runs through the (possibly wider or <c>stelem.ref</c>-erased)
+    /// <c>stelem</c> token. Every other site passes the same type for both.
+    /// </summary>
+    string InitializerText(IrExpression value, TypeRef? coercionTarget, TypeRef? newTarget)
+        => TargetTypedNewText(value, newTarget) ?? CoerceText(value, coercionTarget);
+
+    /// <summary>
+    /// Target-typed object creation: <c>T x = new T(args)</c> shortens to
+    /// <c>T x = new(args)</c> when the contextual target type is exactly the
+    /// constructed type. IL-identical — the target type fixes the constructed type
+    /// and therefore the constructor overload set, so both spellings emit the same
+    /// <c>newobj T::.ctor(args)</c> — and matches dotnet/runtime's editorconfig
+    /// (<c>csharp_style_implicit_object_creation_when_type_is_apparent</c>). Returns
+    /// null (keep the explicit spelling) unless the value is a plain object creation
+    /// whose type Equals the target: arrays (incl. multi-dimensional, modeled as
+    /// <see cref="NewObject"/>), object/collection initializers (a separate node),
+    /// tuple and nullable targets, and any base/interface/other target all decline.
+    /// A bare <c>System.Object</c> target also declines: the target type may be a
+    /// <c>dynamic</c> place (erased to <c>object</c> in the IR), and target-typed
+    /// <c>new()</c> is illegal for a <c>dynamic</c> target (CS8752); <c>new object()</c>
+    /// carries no type name to drop anyway, so the conservative decline costs nothing.
+    /// </summary>
+    string? TargetTypedNewText(IrExpression value, TypeRef? target)
+    {
+        if (target is null
+            || value is not NewObject creation
+            || MultiDimArrayCreationText(creation) is not null
+            || IsSystemObjectType(creation.Constructor.DeclaringType)
+            || !IsTargetTypedNewEligible(target)
+            || !target.Equals(creation.Constructor.DeclaringType))
+        {
+            return null;
+        }
+
+        return $"new({Arguments(creation.Arguments, creation.Constructor.ParameterTypes, creation.Constructor.ParameterRefKinds)})";
+    }
+
+    /// <summary>
+    /// The bare <c>System.Object</c> type, by name — assembly-agnostic so a facade or
+    /// spoofed core-library scope still matches. Used to decline target-typed
+    /// <c>new()</c> for an <c>object</c>/<c>dynamic</c> target (see
+    /// <see cref="TargetTypedNewText"/>).
+    /// </summary>
+    static bool IsSystemObjectType(TypeRef type)
+        => type is { Kind: TypeRefKind.Definition, Namespace: "System", Name: "Object" };
+
+    /// <summary>
+    /// A target type admits target-typed <c>new</c> only when it is spelled as a plain
+    /// constructible type name: a class or struct definition, or a generic instance
+    /// that is not <see cref="Nullable{T}"/> (spelled <c>T?</c>) or a
+    /// <c>ValueTuple</c> (spelled as a tuple). Pointers, by-refs, arrays, function
+    /// pointers, and open generic parameters are all excluded by the kind filter.
+    /// </summary>
+    static bool IsTargetTypedNewEligible(TypeRef target) => target.Kind switch
+    {
+        TypeRefKind.Definition => !IsNullableDefinition(target),
+        TypeRefKind.GenericInstance => !TypeFamilies.IsNullableType(target) && !IsValueTupleType(target),
+        _ => false,
+    };
+
+    static bool IsValueTupleType(TypeRef type)
+        => type is
+        {
+            Kind: TypeRefKind.GenericInstance,
+            ElementType: { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" } element,
+        }
+        && element.Name.StartsWith("ValueTuple`", StringComparison.Ordinal);
+
+    /// <summary>
     /// Assignment spelling with compound/increment sugar: when the value is
     /// an unchecked binary whose left operand reads the assignment target,
     /// the runtime style is x++/x-- for ±1 and x op= rest otherwise.
@@ -3681,7 +3953,7 @@ public sealed partial class CSharpPrinter
             // overflow-honoring operators ever carry IsChecked here.
             return binary.IsChecked ? $"checked {{ {statement} }}" : statement;
         }
-        return $"{target} = {CoerceText(value, targetType)};";
+        return $"{target} = {InitializerText(value, targetType)};";
     }
 
     /// <summary>
@@ -3711,6 +3983,19 @@ public sealed partial class CSharpPrinter
         // `IntPtr` even for a `ref nuint`, so the bare `binary.Left` type loses the
         // lvalue's real signedness.
         var lvalueType = targetType ?? binary.Left.ResultType;
+        // C# has no compound shift operator on an enum lvalue (CS0019, the compound
+        // sibling of the enum-shift expression fix): an int-backed `flags <<= n`
+        // folds to `store flags = shl(load flags, n)` with a bare enum left operand,
+        // yet C# rejects `flags <<= n`. Decompose to a plain assignment that
+        // reinterprets the enum to its shift integer (BinaryBody spells the left
+        // operand and count-mask) and casts the shift result back to the enum:
+        // `flags = (E)((int)flags >> (n & 31))`. The int→enum cast is a reinterpret
+        // that never overflows, so it stays a bare cast even inside `checked`.
+        if (binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight
+            && EnumUnderlyingType(lvalueType) is not null)
+        {
+            return $"{target} = ({TypeText(lvalueType!)}){RenderedExpression(binary).At(Precedence.Unary)};";
+        }
         string rightText = binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight
             ? ShiftCount(binary)
             // A bitwise &=/|=/^= against an enum lvalue whose right operand is still
@@ -3798,12 +4083,11 @@ public sealed partial class CSharpPrinter
     /// <see cref="IsOperatorCall"/> spelling guard) is deliberately excluded
     /// here: folding would substitute a call to one method with a call to a
     /// different method, which can observably change behavior for a
-    /// maliciously or buggily inconsistent pair. Unlike the relational
-    /// operator-call family (`op_LessThan` and friends, also NOT folded
-    /// here), a relational operator call CAN implement partial-order
-    /// (NaN-like) semantics the native float-comparison guard already
-    /// special-cases, so that family is deliberately left unfolded pending
-    /// its own analysis. Returns null when the call does not actually spell
+    /// maliciously or buggily inconsistent pair. The relational
+    /// operator-call family (`op_LessThan` and friends) is folded separately
+    /// by <see cref="InvertedRelationalOperatorCallText"/>, restricted to the
+    /// total-order core-library value types where the four operators are exact
+    /// duals. Returns null when the call does not actually spell
     /// as `==`/`!=` (an unrelated method that happens to be named
     /// op_Equality/op_Inequality without the metadata operator flag renders
     /// as a plain call, and `!` negating its result is already correct
@@ -3815,6 +4099,37 @@ public sealed partial class CSharpPrinter
             {
                 "op_Equality" => $"{OperatorOperand(left)} != {OperatorOperand(right)}",
                 "op_Inequality" => $"{OperatorOperand(left)} == {OperatorOperand(right)}",
+                _ => null,
+            }
+            : null;
+
+    /// <summary>
+    /// The direct idiom for a negated relational operator-spelled CALL on a
+    /// known total-order core-library value type:
+    /// <c>!(decimal.op_LessThan(a, b))</c> -> <c>a &gt;= b</c>, with the De Morgan
+    /// duals for <c>&lt;=</c>/<c>&gt;</c>/<c>&gt;=</c>. The relational counterpart of
+    /// the equality fold above and the native <c>clt</c>/<c>cgt</c> fold (#2955),
+    /// gated on <see cref="MemberIdentity.IsTotalOrderRelationalOperator"/> —
+    /// <see cref="decimal"/>, <see cref="System.DateTime"/>,
+    /// <see cref="System.DateTimeOffset"/>, <see cref="System.TimeSpan"/>,
+    /// <see cref="System.DateOnly"/>, <see cref="System.TimeOnly"/> — the total
+    /// orders whose four relational operators are exact duals for every input.
+    /// <see cref="System.Half"/> (IEEE-754 partial order: <c>NaN</c> is unordered,
+    /// so <c>!(a &lt; b)</c> can differ from <c>a &gt;= b</c>) and every
+    /// user-defined operator type are excluded there, so a relational negation is
+    /// never rewritten for a type where the operators can disagree;
+    /// <see cref="float"/>/<see cref="double"/> never reach this path (native
+    /// <c>clt</c>/<c>cgt</c>, folded with the unordered-flag guard). Returns null
+    /// off the allowlist, leaving the un-folded operator call to be parenthesized.
+    /// </summary>
+    string? InvertedRelationalOperatorCallText(Call call)
+        => call is { Arguments: [var left, var right] } && MemberIdentity.IsTotalOrderRelationalOperator(call.Callee)
+            ? call.Callee.Name switch
+            {
+                "op_LessThan" => $"{OperatorOperand(left)} >= {OperatorOperand(right)}",
+                "op_LessThanOrEqual" => $"{OperatorOperand(left)} > {OperatorOperand(right)}",
+                "op_GreaterThan" => $"{OperatorOperand(left)} <= {OperatorOperand(right)}",
+                "op_GreaterThanOrEqual" => $"{OperatorOperand(left)} < {OperatorOperand(right)}",
                 _ => null,
             }
             : null;
@@ -4005,13 +4320,43 @@ public sealed partial class CSharpPrinter
 
             var taken = CurrentReservedNames();
 
+            // Pattern-variable locals bound by mutually-exclusive switch-expression
+            // / union-switch arms each open their own scope, so sibling arms of one
+            // switch may legally bind the same source name (issue #3033). Map each
+            // such slot to its owning (switch, arm) and record, per switch and name,
+            // the set of arms already using it — so a sibling arm reuses the
+            // identical spelling instead of falling back to V_n, while a name shared
+            // with any wider-scoped binder (parameter, ordinary local, an enclosing
+            // switch's arm, or a second binding in the SAME arm) still dedups.
+            var armLocalOwners = ArmScopedPatternLocals();
+            var armNameUsers = new Dictionary<(object Switch, string Name), HashSet<object>>();
+
             var names = _function.LocalNames;
             if (!names.IsDefaultOrEmpty)
             {
                 for (int i = 0; i < count && i < names.Length; i++)
                 {
-                    if (names[i] is { } name && CSharpNaming.IsUsableIdentifier(name) && taken.Add(name))
+                    if (names[i] is not { } name || !CSharpNaming.IsUsableIdentifier(name))
+                        continue;
+                    bool isArmLocal = armLocalOwners.TryGetValue(i, out var owner);
+                    if (taken.Add(name))
                     {
+                        display[i] = name;
+                        sourceNamed[i] = true;
+                        if (isArmLocal)
+                            armNameUsers[(owner.Switch, name)] = [owner.Arm];
+                    }
+                    else if (isArmLocal
+                        && armNameUsers.TryGetValue((owner.Switch, name), out var users)
+                        && users.Add(owner.Arm))
+                    {
+                        // The name is already reserved, but only by a different
+                        // sibling arm of the same switch — a disjoint scope — so this
+                        // arm reuses the same source name rather than deduping to
+                        // V_n. `users.Add` gates on the owning arm: a reservation by
+                        // an enclosing switch's arm, a parameter, or an ordinary
+                        // local leaves no entry here, and a second binding in the
+                        // same arm is already in the set, so both still dedup.
                         display[i] = name;
                         sourceNamed[i] = true;
                     }
@@ -4047,6 +4392,33 @@ public sealed partial class CSharpPrinter
             _localDisplayNames = display;
         }
         return index >= 0 && index < _localDisplayNames.Length ? _localDisplayNames[index] : $"V_{index}";
+    }
+
+    /// <summary>
+    /// Maps each local slot bound as a pattern variable by a switch-expression or
+    /// union-switch arm — the arm's outer type-pattern binding and its single-level
+    /// property subpattern — to its owning <c>(switch node, arm node)</c>. Sibling
+    /// arms of one switch are disjoint scopes, so <see cref="LocalName"/> lets them
+    /// reuse the same source spelling instead of deduping the second to a synthetic
+    /// <c>V_n</c> (issue #3033). Keying reuse by the owning switch keeps an enclosing
+    /// switch's arm from being treated as a disjoint sibling of a nested one, and
+    /// keying by arm keeps two bindings of the same arm deduping.
+    /// </summary>
+    Dictionary<int, (object Switch, object Arm)> ArmScopedPatternLocals()
+    {
+        var owners = new Dictionary<int, (object, object)>();
+        foreach (var arm in DescendantsOutsideNestedFunctions(_function).OfType<PatternSwitchExpressionArm>())
+        {
+            object owningSwitch = arm.Parent ?? arm;
+            if (arm.LocalIndex is { } localIndex)
+                owners[localIndex] = (owningSwitch, arm);
+            if (arm.Subpattern is { } subpattern)
+                owners[subpattern.LocalIndex] = (owningSwitch, arm);
+        }
+        foreach (var arm in DescendantsOutsideNestedFunctions(_function).OfType<UnionSwitchExpressionArm>())
+            if (arm.LocalIndex is { } localIndex)
+                owners[localIndex] = (arm.Parent ?? arm, arm);
+        return owners;
     }
 
     static string ReserveName(string baseName, HashSet<string> taken)

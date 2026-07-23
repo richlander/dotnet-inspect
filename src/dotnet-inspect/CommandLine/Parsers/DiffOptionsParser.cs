@@ -34,7 +34,8 @@ public static class DiffOptionsParser
         Option<bool> AllocRegressionsOption,
         Option<bool> AuthoredSourceOption,
         Option<string?> FindingOption,
-        Option<bool> LegendOption);
+        Option<bool> LegendOption,
+        Option<string[]> RepoOption);
 
     /// <summary>
     /// Result of parsing diff command options.
@@ -131,6 +132,7 @@ public static class DiffOptionsParser
             IncludeAuthoredSource = parseResult.GetValue(args.AuthoredSourceOption),
             Finding = parseResult.GetValue(args.FindingOption),
             Legend = parseResult.GetValue(args.LegendOption),
+            SourceRepositories = parseResult.GetValue(args.RepoOption) ?? [],
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult),
             Discover = opts.ParseDiscover(parseResult),
             Tree = parseResult.GetValue(opts.Tree),

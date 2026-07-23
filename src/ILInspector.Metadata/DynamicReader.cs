@@ -72,6 +72,19 @@ public static class DynamicReader
         => dynamicFlags is { Length: > 0 } flags && flags[0] == 1;
 
     /// <summary>
+    /// True when a transform-flags array marks the <em>element</em> of a by-ref
+    /// type as <c>dynamic</c>. The flags are a preorder walk over the type; for a
+    /// by-ref signature (<c>ref</c>/<c>in</c>/<c>out</c>) index 0 is the ByRef
+    /// modifier itself (never dynamic) and the referenced element sits at index 1,
+    /// so <c>ref dynamic</c> emits <c>{ false, true }</c>. Callers must only use
+    /// this for a position whose type is by-ref; for a non-by-ref position use
+    /// <see cref="IsTopLevelDynamic"/>. Null (attribute absent) means the element
+    /// is a plain object.
+    /// </summary>
+    public static bool IsByRefElementDynamic(byte[]? dynamicFlags)
+        => dynamicFlags is { Length: > 1 } flags && flags[1] == 1;
+
+    /// <summary>
     /// Gets DynamicAttribute transform flags for a specific parameter by sequence
     /// number. Sequence 0 = return type, 1+ = parameters.
     /// </summary>

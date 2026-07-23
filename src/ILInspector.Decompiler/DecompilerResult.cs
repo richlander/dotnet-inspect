@@ -1,3 +1,5 @@
+using ILInspector.Decompiler.Pipeline;
+
 namespace ILInspector.Decompiler;
 
 /// <summary>
@@ -53,6 +55,20 @@ public sealed record DecompilerOptions
     /// shape supplies the namespace. This is the shipped taste choice.
     /// </summary>
     public bool PreferFrameworkTypeImports { get; init; } = true;
+
+    /// <summary>
+    /// Expression-bodied members keep the arrow on the declaration line by
+    /// default; callers may opt into wrapping it onto the next line.
+    /// </summary>
+    public ExpressionBodyArrowPlacement ExpressionBodyArrowPlacement { get; init; } = ExpressionBodyArrowPlacement.SameLine;
+
+    /// <summary>
+    /// Long splittable expressions (short-circuit <c>&amp;&amp;</c>/<c>||</c>
+    /// chains) may wrap one operand per continuation line instead of a single
+    /// wide line. Off by default; a whitespace-only tiebreaker that leaves the
+    /// tokens and IL unchanged.
+    /// </summary>
+    public bool WrapSplittableExpressions { get; init; }
 
     public static DecompilerOptions Default { get; } = new();
 }

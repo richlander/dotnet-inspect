@@ -556,6 +556,22 @@ public class CfgSampleClass
             x);
     }
 
+    // Near-miss: a constant-only comparison root (`GreaterThan(2, 3)`) with an
+    // unreferenced parameter. The C# compiler constant-folds `2 > 3` to a single
+    // Constant(false) when the recovered lambda is recompiled to an expression tree
+    // (verified: `x => 2 > 3` lowers to a Constant node, not GreaterThan), so
+    // recovering `x => 2 > 3` would rebuild a different tree. The comparison
+    // constant-fold guard declines it, keeping the honest factory calls.
+    public static System.Linq.Expressions.Expression<System.Func<int, bool>> ManualConstantOnlyComparisonFactory()
+    {
+        var x = System.Linq.Expressions.Expression.Parameter(typeof(int), "x");
+        return System.Linq.Expressions.Expression.Lambda<System.Func<int, bool>>(
+            System.Linq.Expressions.Expression.GreaterThan(
+                System.Linq.Expressions.Expression.Constant(2, typeof(int)),
+                System.Linq.Expressions.Expression.Constant(3, typeof(int))),
+            x);
+    }
+
     // Capturing: `n` is hoisted into a <>c__DisplayClass, so the delegate targets
     // an instance method on that class. LambdaRaisingPass substitutes the body's
     // `this.n` read with the captured value and recovers `x => x + n`.
@@ -5088,6 +5104,66 @@ public static class UserGridCalls
 // must cast structurally.
 public static class EnumCastSamples
 {
+    // #3011: an enum-typed value shifted (`>>`/`<<`) has no predefined C# shift
+    // operator (CS0019), though the IL shifts the enum's underlying integer. The
+    // identity `(long)`/`(uint)`/`(ulong)` cast the source carried leaves no IL
+    // trace, so the importer sees a bare enum-typed shift left operand; the printer
+    // must re-insert the underlying-integer cast. Witness: MySqlConnector's
+    // HandshakeResponse41Payload.CreateCapabilitiesPayload — `(int)(clientCapabilities >> 32)`
+    // on a long-backed [Flags] enum. Same-assembly enums with a known backing width.
+    public static long LongEnumRightShift(CfgLongPriority flags, int n) => (long)flags >> n;
+
+    public static long LongEnumLeftShift(CfgLongPriority flags, int n) => (long)flags << n;
+
+    public static int LongEnumRightShiftToInt(CfgLongPriority flags) => (int)((long)flags >> 32);
+
+    public static ulong ULongEnumRightShift(CfgULong flags, int n) => (ulong)flags >> n;
+
+    public static uint UIntEnumRightShift(CfgFlags flags, int n) => (uint)flags >> n;
+
+    public static int IntEnumRightShift(CfgPriority flags, int n) => (int)flags >> n;
+
+    // #3011 (review): the source may reinterpret the enum to the opposite-signedness
+    // same-width integer before shifting — an IL no-op — so the shift opcode
+    // (shr vs shr.un), not the enum backing, records the real signedness. An
+    // int-backed enum shifted as `(uint)e >> n` emits shr.un; a uint-backed enum
+    // shifted as `(int)e >> n` emits shr. The printed cast must follow the opcode.
+    public static uint IntEnumUnsignedRightShift(CfgPriority flags, int n) => (uint)flags >> n;
+
+    public static int UIntEnumSignedRightShift(CfgFlags flags, int n) => (int)flags >> n;
+
+    // #3011 (review): a compound shift on an enum lvalue (`flags <<= n`) is also
+    // CS0019. An int-backed enum shifted and stored back to itself folds to a
+    // compound with a bare enum left operand; the printer must decompose it to a
+    // plain cast-back assignment. The unsigned variant confirms the decomposed
+    // left-operand cast follows the shr.un opcode, not the enum backing.
+    public static CfgPriority IntEnumCompoundLeftShift(CfgPriority flags, int n)
+    {
+        flags = (CfgPriority)((int)flags << n);
+        return flags;
+    }
+
+    public static CfgPriority IntEnumCompoundUnsignedRightShift(CfgPriority flags, int n)
+    {
+        flags = (CfgPriority)((uint)flags >> n);
+        return flags;
+    }
+
+    // #3011 (review): a typed `ldelem.i4`/`ldind.i4` over an enum array or by-ref
+    // loads the enum's primitive storage width, so the shift operand's stack type
+    // is the primitive even though the rendered expression (`values[i]`, `e`) is
+    // enum-typed and rejects a bare shift (CS0019). The printer must recover the
+    // enum from the array element / pointee type and force the reinterpret cast.
+    public static int IntEnumArrayRightShift(CfgPriority[] values, int i, int n) => (int)values[i] >> n;
+
+    public static int IntEnumArrayLeftShift(CfgPriority[] values, int i, int n) => (int)values[i] << n;
+
+    public static long LongEnumArrayRightShift(CfgLongPriority[] values, int i, int n) => (long)values[i] >> n;
+
+    public static uint IntEnumArrayUnsignedRightShift(CfgPriority[] values, int i, int n) => (uint)values[i] >> n;
+
+    public static int RefIntEnumLeftShift(ref CfgPriority e, int n) => (int)e << n;
+
     // #1766: ternary with enum-constant arms stored to a cross-assembly enum
     // local (StringComparison.Ordinal = 4, OrdinalIgnoreCase = 5).
     public static bool EnumConditional(string name, bool ci)

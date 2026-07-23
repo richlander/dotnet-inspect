@@ -319,7 +319,7 @@ internal static class OptionalArgumentFacts
         if (string.IsNullOrEmpty(rootAssembly))
             return false;
         string current = reader.IsAssembly
-            ? TypeRefDecoder.Canonical(reader.GetString(reader.GetAssemblyDefinition().Name))
+            ? TypeRefDecoder.CanonicalSelf(reader)
             : "";
         return !string.Equals(rootAssembly, current, StringComparison.Ordinal);
     }

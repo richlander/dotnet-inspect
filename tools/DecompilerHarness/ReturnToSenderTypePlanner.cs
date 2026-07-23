@@ -773,7 +773,7 @@ public static class CompileBackSourceComposer
         // facades collapse to one identity). Without this, a target assembly whose
         // own name is a canonicalized facade (System.Runtime, mscorlib, ...) would
         // fail to resolve its own definitions and drop their closure roots/facts.
-        string assemblyName = TypeRefDecoder.Canonical(reader.GetString(reader.GetAssemblyDefinition().Name));
+        string assemblyName = reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(reader) : "";
         var definitions = TypeDefinitionsByTypeRefIdentity(reader);
         var consumedMemberEvidence = new List<ConsumedMemberEvidence>();
         AddTargetInterfaceRoots(targetType);
@@ -3591,7 +3591,7 @@ public static class CompileBackSourceComposer
                 Namespace: requirement.Type.Namespace,
                 MetadataName: requirement.Type.MetadataName,
                 Kind: ToShellKind(kind),
-                InterfaceDisplayNames: InterfaceSignatures(reader, typeDef)
+                InterfaceDisplayNames: InterfaceSignatures(reader, typeDef, requirementsByMetadataName)
                     .Select(signature => signature.DisplayName)
                     .ToList(),
                 MemberPolicies: policies,
@@ -3952,7 +3952,10 @@ public static class CompileBackSourceComposer
                 TargetBody: null,
                 [new CompileBackFact("synthetic", "base-parameterless-constructor", typeIdentity.MetadataFullName)]);
 
-        static IReadOnlyList<CompileBackTypeSignature> InterfaceSignatures(MetadataReader reader, TypeDefinition typeDef)
+        static IReadOnlyList<CompileBackTypeSignature> InterfaceSignatures(
+            MetadataReader reader,
+            TypeDefinition typeDef,
+            IReadOnlyDictionary<string, CompileBackTypeRequirement> requirementsByMetadataName)
         {
             if ((typeDef.Attributes & TypeAttributes.Interface) != 0)
                 return [];
@@ -3968,7 +3971,22 @@ public static class CompileBackSourceComposer
                 if (interfaceDef.GetGenericParameters().Count != 0 || !IsSupportedClosureRoot(reader, interfaceDef))
                     continue;
 
-                interfaces.Add(CompileBackTypeSignature.Definition(CompileBackTypeIdentity.FromDefinition(reader, interfaceDef)));
+                var interfaceIdentity = CompileBackTypeIdentity.FromDefinition(reader, interfaceDef);
+                // Naming a base-list interface that this compile-back unit never
+                // declares is worse than omitting it: metadata can carry two
+                // same-named interfaces of different arity in one namespace (a
+                // non-generic `IPropertyValidator` alongside `IPropertyValidator<T,
+                // TProperty>`, as in FluentValidation), and closure discovery may
+                // queue only one of them as an actual requirement. Referencing the
+                // undeclared one by its bare display name lets Roslyn resolve it to
+                // the *other*, wrong-arity type in scope (CS0305). Only name an
+                // interface here when it is already a known requirement — i.e. it
+                // will actually be declared somewhere in the composed unit — mirroring
+                // the same guard `AddRequiredInterfaceProperties` uses.
+                if (!requirementsByMetadataName.ContainsKey(interfaceIdentity.MetadataFullName))
+                    continue;
+
+                interfaces.Add(CompileBackTypeSignature.Definition(interfaceIdentity));
             }
 
             return interfaces;

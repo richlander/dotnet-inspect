@@ -43,6 +43,7 @@ public class MemberOptionsParserTests
         binOption.Aliases.Add("--directory");
         var callerProjectOption = new Option<string[]>("--project") { AllowMultipleArgumentsPerToken = true };
         var callerPackageOption = new Option<string[]>("--caller-package") { AllowMultipleArgumentsPerToken = true };
+        var repoOption = new Option<string[]>("--repo") { AllowMultipleArgumentsPerToken = true };
 
         memberCommand.Arguments.Add(argsArg);
         memberCommand.Options.Add(packageOption);
@@ -65,6 +66,7 @@ public class MemberOptionsParserTests
         memberCommand.Options.Add(binOption);
         memberCommand.Options.Add(callerProjectOption);
         memberCommand.Options.Add(callerPackageOption);
+        memberCommand.Options.Add(repoOption);
         opts.AddSectionOptionsTo(memberCommand);
         memberCommand.Options.Add(opts.Markdown);
         memberCommand.Options.Add(opts.PlainText);
@@ -79,7 +81,7 @@ public class MemberOptionsParserTests
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
             allOption, memberOption, ctorOption, compactOption, opts.NoHeaders,
             unsafeOption, indexOption, selectOption, kindOption,
-            binOption, callerProjectOption, callerPackageOption, atOption);
+            binOption, callerProjectOption, callerPackageOption, repoOption, atOption);
 
         return (root, opts, args);
     }
@@ -968,5 +970,25 @@ public class MemberOptionsParserTests
         var result = await MemberOptionsParser.ParseAsync(parseResult, opts, cmdArgs);
 
         Assert.IsType<MemberOptionsParser.Success>(result);
+    }
+
+    [Fact]
+    public async Task RepoOption_PopulatesSourceRepositories()
+    {
+        var options = await ParseSuccessAsync(
+            "member", "Some.Type.Method:1",
+            "--library", "x.dll",
+            "--repo", @"C:\clone-a",
+            "--repo", @"C:\clone-b");
+
+        Assert.Equal([@"C:\clone-a", @"C:\clone-b"], options.SourceRepositories);
+    }
+
+    [Fact]
+    public async Task RepoOption_DefaultsToEmpty()
+    {
+        var options = await ParseSuccessAsync("member", "Some.Type.Method:1", "--library", "x.dll");
+
+        Assert.Empty(options.SourceRepositories);
     }
 }

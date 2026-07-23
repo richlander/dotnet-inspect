@@ -68,10 +68,19 @@ public static class MethodImporter
             var parameter = reader.GetParameter(parameterHandle);
             if (parameter.SequenceNumber > 0)
             {
-                namesByIndex[parameter.SequenceNumber - 1] = reader.GetString(parameter.Name);
-                hasDefaultByIndex[parameter.SequenceNumber - 1] = HasDefault(reader, parameter);
-                dynamicByIndex[parameter.SequenceNumber - 1] = DynamicReader.IsTopLevelDynamic(
-                    DynamicReader.GetDynamicFlags(reader, parameter.GetCustomAttributes()));
+                int index = parameter.SequenceNumber - 1;
+                namesByIndex[index] = reader.GetString(parameter.Name);
+                hasDefaultByIndex[index] = HasDefault(reader, parameter);
+                // A by-ref parameter (`ref`/`in`/`out`) carries the ByRef modifier
+                // at DynamicAttribute flag index 0, so the element dynamic-ness sits
+                // at index 1; a non-by-ref parameter is dynamic only at index 0
+                // (#3035).
+                var dynamicFlags = DynamicReader.GetDynamicFlags(reader, parameter.GetCustomAttributes());
+                bool isByRef = index < decoded.ParameterTypes.Length
+                    && decoded.ParameterTypes[index].Kind == TypeRefKind.ByRef;
+                dynamicByIndex[index] = isByRef
+                    ? DynamicReader.IsByRefElementDynamic(dynamicFlags)
+                    : DynamicReader.IsTopLevelDynamic(dynamicFlags);
             }
         }
         for (int i = 0; i < decoded.ParameterTypes.Length; i++)

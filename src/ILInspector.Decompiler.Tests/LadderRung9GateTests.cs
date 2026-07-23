@@ -35,7 +35,11 @@ public class LadderRung9GateTests
         "DynamicEventRemove",
         "DynamicGetIndex",
         "DynamicGetLength",
+        "DynamicGetLengthByRef",
+        "DynamicGetLengthByRefObject",
+        "DynamicGetLengthIn",
         "DynamicGetLengthOfObject",
+        "DynamicGetLengthOut",
         "DynamicInvoke",
         "DynamicInvokeMember",
         "DynamicNamedOut",
@@ -113,6 +117,36 @@ public class LadderRung9GateTests
         var member = members.Single(m => m.Name == "DynamicGetLengthOfObject");
         Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
         Assert.Contains("((dynamic)value).Length", member.Body);
+    }
+
+    [Theory]
+    [InlineData("DynamicGetLengthByRef")] // ref dynamic
+    [InlineData("DynamicGetLengthIn")]    // in dynamic
+    [InlineData("DynamicGetLengthOut")]   // out dynamic
+    public void Rung9Fixture_DropsCastForByRefDynamicReceiver(string method)
+    {
+        // A by-ref `dynamic` parameter carries its [DynamicAttribute] element flag
+        // behind a leading ByRef modifier; once recognized, the referenced element
+        // is provably `dynamic`, so the redundant `(dynamic)` cast is dropped and
+        // the by-ref deref renders as the bare place `value.Length` (#3035).
+        var members = LoadRaisedMembers();
+        var member = members.Single(m => m.Name == method);
+        Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
+        Assert.Contains("value.Length;", member.Body);
+        Assert.DoesNotContain("(dynamic)", member.Body);
+    }
+
+    [Fact]
+    public void Rung9Fixture_KeepsCastForByRefObjectReceiver()
+    {
+        // Close negative for #3035: a `ref object` receiver has no
+        // [DynamicAttribute], so the access is dynamic only through the explicit
+        // source cast; the `(dynamic)` cast must be preserved.
+        var members = LoadRaisedMembers();
+        var member = members.Single(m => m.Name == "DynamicGetLengthByRefObject");
+        Assert.Equal(DecompilationFidelity.Full, member.Function.Fidelity);
+        Assert.Contains("(dynamic)", member.Body);
+        Assert.Contains(".Length", member.Body);
     }
 
     [Fact]
