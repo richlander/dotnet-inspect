@@ -3846,12 +3846,17 @@ public sealed partial class CSharpPrinter
         // yet C# rejects `flags <<= n`. Decompose to a plain assignment that
         // reinterprets the enum to its shift integer (BinaryBody spells the left
         // operand and count-mask) and casts the shift result back to the enum:
-        // `flags = (E)((int)flags >> (n & 31))`. The int→enum cast is a reinterpret
-        // that never overflows, so it stays a bare cast even inside `checked`.
+        // `flags = (E)((int)flags >> (n & 31))`. The int->enum cast is a reinterpret
+        // that never overflows, so it stays a bare cast even inside `checked`. A
+        // cross-assembly enum lvalue has no resolved backing; decompose only when the
+        // inner shift will render validly — its width is recoverable from the count
+        // mask (a constant-count compound has no mask, so it stays visibly invalid).
         if (binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight
-            && EnumUnderlyingType(lvalueType) is not null)
+            && lvalueType is not null
+            && (EnumUnderlyingType(lvalueType) is not null
+                || (IsEnumLikeInteger(lvalueType) && ShiftCountMaskWidthBytes(binary) is not null)))
         {
-            return $"{target} = ({TypeText(lvalueType!)}){RenderedExpression(binary).At(Precedence.Unary)};";
+            return $"{target} = ({TypeText(lvalueType)}){RenderedExpression(binary).At(Precedence.Unary)};";
         }
         string rightText = binary.Kind is BinaryKind.ShiftLeft or BinaryKind.ShiftRight
             ? ShiftCount(binary)

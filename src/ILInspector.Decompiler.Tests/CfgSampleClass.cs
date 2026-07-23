@@ -5164,6 +5164,37 @@ public static class EnumCastSamples
 
     public static int RefIntEnumLeftShift(ref CfgPriority e, int n) => (int)e << n;
 
+    // #3066 (follow-up to #3011/#3060): a shift on an enum defined in a REFERENCED
+    // assembly is CS0019 too, but EnsureTypeMaps (this assembly's type defs only)
+    // leaves it Unknown-shaped, so EnumUnderlyingType has no backing width. A bare
+    // enum load carries no storage-width hint, so the width is recovered from the
+    // compiler-baked shift-count mask (& 31 => 4-byte, & 63 => 8-byte) and the
+    // signedness from the opcode. ExternalLong/ExternalULong are 8-byte (mask 63),
+    // ExternalUInt is 4-byte (mask 31); the variable count `n` carries the mask.
+    public static long ExternalLongRightShift(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong e, int n) => (long)e >> n;
+
+    public static long ExternalLongLeftShift(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong e, int n) => (long)e << n;
+
+    public static ulong ExternalULongRightShift(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalULong e, int n) => (ulong)e >> n;
+
+    public static uint ExternalUIntRightShift(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalUInt e, int n) => (uint)e >> n;
+
+    // Opcode-wins mirror across the assembly boundary: a signed shr on a uint-backed
+    // referenced enum must reinterpret to `(int)`, not the backing's `(uint)`.
+    public static int ExternalUIntSignedRightShift(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalUInt e, int n) => (int)e >> n;
+
+    // The unsigned-opcode mirror on an 8-byte signed backing: shr.un must reinterpret
+    // to `(ulong)`, recovered as 8-byte from the mask, not the backing's `(long)`.
+    public static ulong ExternalLongUnsignedRightShift(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong e, int n) => (ulong)e >> n;
+
+    // The compound sibling: a compound shift on a referenced-enum lvalue decomposes
+    // to a plain cast-back assignment `e = (ExternalLong)((long)e << (n & 63))`.
+    public static ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong ExternalLongCompoundLeftShift(ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong e, int n)
+    {
+        e = (ILInspector.Decompiler.Fixtures.CrossAssemblyEnums.ExternalLong)((long)e << n);
+        return e;
+    }
+
     // #1766: ternary with enum-constant arms stored to a cross-assembly enum
     // local (StringComparison.Ordinal = 4, OrdinalIgnoreCase = 5).
     public static bool EnumConditional(string name, bool ci)

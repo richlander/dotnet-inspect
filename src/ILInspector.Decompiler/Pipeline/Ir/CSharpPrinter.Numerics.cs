@@ -366,25 +366,46 @@ public sealed partial class CSharpPrinter
     /// enum div/rem operands). When it is the masked primitive, CoerceText would see
     /// an int→int identity and drop the cast, so the reinterpret is spelled directly
     /// — with the same <c>checked</c>-region <c>unchecked</c> guard for a
-    /// sign-flipping cast. A cross-assembly enum whose backing width is unknown has
-    /// no underlying type and is left alone.
+    /// sign-flipping cast. A cross-assembly enum has no resolved backing, so its
+    /// width is recovered from the compiler-baked shift-count mask (<c>&amp; 31</c> =&gt;
+    /// 4-byte, <c>&amp; 63</c> =&gt; 8-byte); a constant count carries no mask, so that
+    /// residual stays a bare, visibly invalid shift rather than guessing a width.
     /// </para>
     /// </summary>
-    string? ShiftEnumLeftOperand(IrExpression operand, bool isUnsigned)
+    string? ShiftEnumLeftOperand(Binary shift)
     {
-        if (ShiftLeftEnumType(operand) is not { } enumType
-            || EnumUnderlyingType(enumType) is not { } underlying)
+        var operand = shift.Left;
+        bool isUnsigned = shift.IsUnsigned;
+        // A resolvable enum (same-assembly, or an array/by-ref element): the width
+        // comes from the backing.
+        if (ShiftLeftEnumType(operand) is { } enumType
+            && EnumUnderlyingType(enumType) is { } underlying)
         {
-            return null;
+            var target = Is8ByteInteger(underlying)
+                ? (isUnsigned ? TypeRef.CoreLib("System", "UInt64") : TypeRef.CoreLib("System", "Int64"))
+                : (isUnsigned ? TypeRef.CoreLib("System", "UInt32") : TypeRef.CoreLib("System", "Int32"));
+            if (EnumUnderlyingType(operand.ResultType) is not null)
+                return CoerceText(operand, target);
+            return CSharpConversionRules.CheckedConversionCanThrow(underlying, target)
+                ? CheckedSafeCast(() => $"({TypeText(target)}){Operand(operand)}")
+                : $"({TypeText(target)}){Operand(operand)}";
         }
-        var target = Is8ByteInteger(underlying)
-            ? (isUnsigned ? TypeRef.CoreLib("System", "UInt64") : TypeRef.CoreLib("System", "Int64"))
-            : (isUnsigned ? TypeRef.CoreLib("System", "UInt32") : TypeRef.CoreLib("System", "Int32"));
-        if (EnumUnderlyingType(operand.ResultType) is not null)
-            return CoerceText(operand, target);
-        return CSharpConversionRules.CheckedConversionCanThrow(underlying, target)
-            ? CheckedSafeCast(() => $"({TypeText(target)}){Operand(operand)}")
-            : $"({TypeText(target)}){Operand(operand)}";
+        // A cross-assembly enum (backing unresolved): the bare enum load carries no
+        // storage-width hint, so recover the width from the compiler-baked shift-count
+        // mask (& 31 => 4-byte, & 63 => 8-byte). Signedness is always the opcode's. A
+        // constant count carries no mask, so the width is genuinely unknowable and the
+        // shift is left visibly invalid (CS0019) rather than guessed. The reinterpret
+        // can add a conv.ovf in a checked region against the (recompile-visible) real
+        // backing, so guard it — the source's cast was a no-op reinterpret.
+        if (IsEnumLikeInteger(operand.ResultType)
+            && ShiftCountMaskWidthBytes(shift) is { } widthBytes)
+        {
+            var target = widthBytes == 8
+                ? (isUnsigned ? TypeRef.CoreLib("System", "UInt64") : TypeRef.CoreLib("System", "Int64"))
+                : (isUnsigned ? TypeRef.CoreLib("System", "UInt32") : TypeRef.CoreLib("System", "Int32"));
+            return CheckedSafeCast(() => $"({TypeText(target)}){Operand(operand)}");
+        }
+        return null;
     }
 
     /// <summary>
@@ -613,7 +634,7 @@ public sealed partial class CSharpPrinter
         // left operand to that integer — `(long)flags >> 32` — so the shift
         // type-checks; the cast's signedness follows the shift opcode (shr/shr.un),
         // not the enum backing, so it round-trips opcode-exact. (Count is int.)
-        string left = isShift && ShiftEnumLeftOperand(binary.Left, binary.IsUnsigned) is { } shiftedEnum ? shiftedEnum
+        string left = isShift && ShiftEnumLeftOperand(binary) is { } shiftedEnum ? shiftedEnum
             : mixedSign ? BitwiseUnsignedOperand(binary.Left, wrapConstantCast: !covered)
             : castLeft ? UnsignedOperand(binary.Left)
             : preserveUnsignedConstants ? UnsignedConstantArithmeticOperand(binary.Left, EffectiveType(binary))
@@ -1024,7 +1045,13 @@ public sealed partial class CSharpPrinter
     string ShiftCount(Binary shift)
     {
         if (shift.Right is Binary { Kind: BinaryKind.And, Right: Constant { Value: int mask } } masked
-            && ShiftWidthMask(ShiftWidthType(shift.Left)) is { } width && mask == width)
+            && ((ShiftWidthMask(ShiftWidthType(shift.Left)) is { } width && mask == width)
+                // A cross-assembly enum has no resolved backing, but the outermost
+                // count mask IS the shift's implicit width mask (any user-written mask
+                // sits inside it), so a 31/63 mask strips exactly as the resolved path.
+                // ShiftEnumLeftOperand keys the recovered cast width off the same mask,
+                // so the strip and the cast width always agree.
+                || (IsEnumLikeInteger(shift.Left.ResultType) && mask is 31 or 63)))
             return IntShiftCount(masked.Left);
         return IntShiftCount(shift.Right);
     }
@@ -1056,6 +1083,17 @@ public sealed partial class CSharpPrinter
         StackFamily.I8 => 63,
         _ => null,
     };
+
+    // The shift width the compiler baked into a variable count's mask: 4 bytes for
+    // `& 31`, 8 bytes for `& 63`. Null for a constant count (no mask) or an
+    // unrecognized mask. The outermost mask is always the compiler's implicit width
+    // mask (any user-written mask sits inside it), so it names the width the shift
+    // ran on — for a bare enum operand, its backing width. Used to recover a
+    // cross-assembly enum's shift width when the backing type is unresolved.
+    static int? ShiftCountMaskWidthBytes(Binary shift)
+        => shift.Right is Binary { Kind: BinaryKind.And, Right: Constant { Value: int mask } }
+            ? mask switch { 31 => 4, 63 => 8, _ => (int?)null }
+            : null;
 
     string ComparisonText(Comparison comparison)
         => ComparisonText(comparison.Kind, comparison.IsUnsigned, comparison.Left, comparison.Right);
