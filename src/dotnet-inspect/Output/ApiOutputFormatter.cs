@@ -1169,6 +1169,13 @@ public static class ApiOutputFormatter
             ProjectAssetsPath: options?.ProjectAssetsPath,
             TargetFramework: options?.Tfm);
 
+        // A decompiled-source or source-diff render consumes the resolved config
+        // via MemberCodeProvider.Collect(... options.RenderOptions) below; surface
+        // any pending config warnings exactly here, once, so they never fire on a
+        // member run that does not read source.
+        if (request.DecompiledSource)
+            options?.RenderConfigWarnings?.EmitOnce();
+
         // An index-backed section that is explicitly selected (via -S or a category like
         // @Audit) renders an empty-state note instead of vanishing when it yields no rows.
         // Sections merely auto-included by verbosity stay silent when empty.

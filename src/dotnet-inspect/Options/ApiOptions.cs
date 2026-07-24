@@ -47,6 +47,17 @@ public partial record ApiOptions
     /// </summary>
     public PrinterOptions? RenderOptions { get; init; }
 
+    /// <summary>
+    /// Pending <c>.dotnet-inspectconfig</c> parse/read warnings, emitted to stderr
+    /// exactly once at the point a decompiled-source render consumes
+    /// <see cref="RenderOptions"/> (see
+    /// <see cref="DotnetInspector.Services.RenderConfigWarningSink"/>). A
+    /// reference-typed latch so the single emission survives the record <c>with</c>
+    /// copies that flow the options. Null when the resolved config raised no
+    /// warnings.
+    /// </summary>
+    internal DotnetInspector.Services.RenderConfigWarningSink? RenderConfigWarnings { get; init; }
+
     // Enrichment
     public bool ShowDocs { get; init; }
 

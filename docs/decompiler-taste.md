@@ -293,11 +293,16 @@ dotnet_style_qualification_for_property = true
   `Warning:` on stderr and skipped — the rest of the file still applies. A bad
   config never fails the run silently.
 
-Config warnings surface only when a render actually consumes the config — that
-is, when a decompiled-source or source-diff section is requested (explicitly via
-`-S`, or at `-v n`/`-v d` where the decompiled-source view is part of the default
-set). A malformed config never dirties stderr on a command that does not read
-source (for example `-S Facts`).
+Config warnings are emitted at the point a render actually consumes the config,
+exactly once: a decompiled-source or source-diff render reads the resolved
+`PrinterOptions`, and the pending warnings are flushed to stderr there. A command
+that never decompiles stays silent — a JSON, `--count`, or tabular projection
+(which serializes the metadata model without rendering source), a discovery
+manifest (`-D @Source`, which only lists the sections in a category), or a
+selection that excludes source (`-S Facts`) all leave a malformed config
+unreported on that run. Because emission is tied to the consumption site rather
+than predicted up front, the warning fires if and only if the config is read,
+independent of output mode or verbosity.
 
 Only the tool-owned filename is auto-discovered; a foreign `.editorconfig` is not
 read. Configuration is resolved once at the CLI edge and threaded into the render

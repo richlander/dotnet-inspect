@@ -193,35 +193,21 @@ public class ApiCommand
         // CLI edge and attach the decompiler spelling options to the flowed
         // options. Config discovery lives only here; the decompiler library stays
         // a pure function of explicit PrinterOptions. The options are attached
-        // unconditionally (harmless when no source renders), but parse/read
-        // warnings surface only when a decompiled-source render will actually
-        // consume the config — a bad config should not dirty stderr for scripts
-        // that never asked for source (e.g. -S Facts). Warnings still never
-        // corrupt stdout and never become a silent success.
+        // unconditionally (harmless when no source renders). Parse/read warnings
+        // are carried on a latch and emitted at the exact point a decompiled-source
+        // render consumes the config, so a bad config never dirties stderr for a
+        // run that does not read source (e.g. -S Facts, --json) and always surfaces
+        // once — never a silent success — on a run that does.
         var renderStyle = RenderStyleConfig.Resolve(Environment.CurrentDirectory);
-        options = options with { RenderOptions = renderStyle.Options };
-        if (renderStyle.Warnings.Count > 0 && ConsumesRenderStyleConfig(options))
+        options = options with
         {
-            foreach (var warning in renderStyle.Warnings)
-                Console.Error.WriteLine($"Warning: {RenderStyleConfig.FileName}: {warning}");
-        }
+            RenderOptions = renderStyle.Options,
+            RenderConfigWarnings = renderStyle.Warnings.Count > 0
+                ? new RenderConfigWarningSink(renderStyle.Warnings)
+                : null,
+        };
 
         return (new PreambleResult(options, typePipeline, memberPipeline), null);
-    }
-
-    // The decompiled-source and source-diff renders are the only consumers of the
-    // resolved PrinterOptions. With an explicit -S they render only when selected;
-    // without -S the (non-expensive, non-explicit-only) decompiled-source section
-    // auto-renders at Normal verbosity and above. This mirrors SectionPipeline's
-    // IsRequested so config warnings track the flow that actually reads the config.
-    private static bool ConsumesRenderStyleConfig(ApiOptions options)
-    {
-        if (options.IncludeSections is { Count: > 0 } sel)
-            return sel.Any(s =>
-                string.Equals(s, SectionNames.DecompiledSource, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(s, SectionNames.SourceDiff, StringComparison.OrdinalIgnoreCase));
-
-        return options.Verbosity >= Verbosity.Normal;
     }
 
     static bool MightPeelDottedGenericMemberSelector(string? typeName)
@@ -817,6 +803,8 @@ public class ApiCommand
             && options.IncludeSections is { Count: > 0 }
             && GetRequestedMemberSections(type, options).Contains(SectionNames.DecompiledSource))
         {
+            // A whole-type decompiled-source render consumes the resolved config here.
+            options.RenderConfigWarnings?.EmitOnce();
             var resolver = ApiAnalysisInspection.CreateReferenceResolver(typeDllPath, options);
             using var metadata = new Decompiler.Pipeline.MetadataContext(resolver);
             var listing = Decompiler.MemberBodyProducer.Project(

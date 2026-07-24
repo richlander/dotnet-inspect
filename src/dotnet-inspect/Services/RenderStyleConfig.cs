@@ -208,3 +208,35 @@ internal static class RenderStyleConfig
         return false;
     }
 }
+
+/// <summary>
+/// Carries the <see cref="RenderStyleConfig"/> parse/read warnings from the CLI
+/// edge to the point a decompiled-source render actually consumes the resolved
+/// <see cref="PrinterOptions"/>, then emits them to stderr exactly once. A
+/// reference-typed latch so a single emission survives the record <c>with</c>
+/// copies that flow the options, and so warnings surface only on a run that truly
+/// reads source (never on, say, a <c>--json</c> or <c>-S Facts</c> run that never
+/// touches the config). Emitting at consumption keeps the warning honest: it fires
+/// if and only if the config is read, without predicting output mode or verbosity.
+/// </summary>
+internal sealed class RenderConfigWarningSink
+{
+    private readonly IReadOnlyList<string> _warnings;
+    private bool _emitted;
+
+    public RenderConfigWarningSink(IReadOnlyList<string> warnings) => _warnings = warnings;
+
+    /// <summary>Emits the pending warnings to stderr the first time it is called; a no-op thereafter.</summary>
+    public void EmitOnce() => EmitOnce(Console.Error);
+
+    /// <summary>Test seam: emits to <paramref name="writer"/> so the latch and format are checkable without touching global console state.</summary>
+    internal void EmitOnce(TextWriter writer)
+    {
+        if (_emitted || _warnings.Count == 0)
+            return;
+
+        _emitted = true;
+        foreach (var warning in _warnings)
+            writer.WriteLine($"Warning: {RenderStyleConfig.FileName}: {warning}");
+    }
+}

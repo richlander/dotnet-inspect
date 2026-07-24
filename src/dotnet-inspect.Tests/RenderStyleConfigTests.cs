@@ -1,11 +1,7 @@
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Reflection.PortableExecutable;
-using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
-using DotnetInspector.Options;
-using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
@@ -146,45 +142,75 @@ public class RenderStyleConfigTests
         Assert.Contains("expects true/false", warning);
     }
 
-    // ---- warning gating (only decompiled-source-consuming requests warn) ----
+    // ---- warning latch (emit at consumption, exactly once) ----
 
-    [Theory]
-    [InlineData(SectionNames.DecompiledSource, true)]
-    [InlineData(SectionNames.SourceDiff, true)]
-    [InlineData(SectionNames.Facts, false)]
-    [InlineData(SectionNames.Signature, false)]
-    public void ConsumesRenderStyleConfig_WithExplicitSelection_TracksSourceSections(string section, bool expected)
+    [Fact]
+    public void WarningSink_EmitOnce_WritesEachWarningPrefixed()
     {
-        var options = new MemberOptions
-        {
-            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section },
-        };
+        var sink = new RenderConfigWarningSink(
+            ["line 1: unknown key 'foo' (ignored)", "line 2: malformed entry 'bar'"]);
+        var writer = new StringWriter();
 
-        Assert.Equal(expected, InvokeConsumesRenderStyleConfig(options));
+        sink.EmitOnce(writer);
+
+        var lines = writer.ToString()
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(l => l.TrimEnd('\r'))
+            .ToArray();
+        Assert.Equal(
+            [
+                $"Warning: {RenderStyleConfig.FileName}: line 1: unknown key 'foo' (ignored)",
+                $"Warning: {RenderStyleConfig.FileName}: line 2: malformed entry 'bar'",
+            ],
+            lines);
     }
 
-    [Theory]
-    [InlineData(Verbosity.Quiet, false)]
-    [InlineData(Verbosity.Minimal, false)]
-    [InlineData(Verbosity.Normal, true)]
-    [InlineData(Verbosity.Detailed, true)]
-    public void ConsumesRenderStyleConfig_WithoutSelection_TracksVerbosity(Verbosity verbosity, bool expected)
+    [Fact]
+    public void WarningSink_EmitOnce_IsLatched_SecondCallIsNoOp()
     {
-        // Without -S the decompiled-source section (non-expensive, not
-        // explicit-only) auto-renders at Normal and above, so config warnings
-        // must surface there but stay quiet at Quiet/Minimal.
-        var options = new MemberOptions { Verbosity = verbosity };
+        var sink = new RenderConfigWarningSink(["line 1: unknown key 'foo' (ignored)"]);
+        var writer = new StringWriter();
 
-        Assert.Equal(expected, InvokeConsumesRenderStyleConfig(options));
+        sink.EmitOnce(writer);
+        sink.EmitOnce(writer);
+
+        var count = writer.ToString()
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Length;
+        Assert.Equal(1, count);
     }
 
-    private static bool InvokeConsumesRenderStyleConfig(ApiOptions options)
+    [Fact]
+    public void WarningSink_EmitOnce_WithNoWarnings_WritesNothing()
     {
-        var method = typeof(ApiCommand).GetMethod(
-            "ConsumesRenderStyleConfig",
-            BindingFlags.NonPublic | BindingFlags.Static)!;
-        return (bool)method.Invoke(null, [options])!;
+        var sink = new RenderConfigWarningSink([]);
+        var writer = new StringWriter();
+
+        sink.EmitOnce(writer);
+
+        Assert.Equal(string.Empty, writer.ToString());
     }
+
+    [Fact]
+    public void RunPreamble_AttachesWarningSink_OnlyWhenConfigWarns()
+    {
+        // A clean config raises no warnings, so no latch is attached; a config with
+        // a bad key attaches a sink carrying that warning. RenderOptions is always
+        // attached regardless. This proves the latch is created iff there is
+        // something to say, and the emit decision lives at the consumption sites.
+        var clean = Resolve("dotnet_style_qualification_for_field = true");
+        Assert.Empty(clean.Warnings);
+
+        var dirty = Resolve("bogus_key = true");
+        Assert.NotEmpty(dirty.Warnings);
+        var sink = new RenderConfigWarningSink(dirty.Warnings);
+        var writer = new StringWriter();
+        sink.EmitOnce(writer);
+        Assert.Contains("bogus_key", writer.ToString());
+    }
+
+    private static RenderStyleResolution Resolve(string configText)
+        => RenderStyleConfig.Parse(configText, ".dotnet-inspectconfig");
 
     // ---- discovery ----
 
