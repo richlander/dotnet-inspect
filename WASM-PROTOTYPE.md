@@ -38,9 +38,40 @@ the generated Wasm assets over HTTP(S). WebAssembly, module scripts, and
 SourceLink requests require a real origin; opening the HTML file directly is
 not supported.
 
-The development server should be bound to an externally reachable interface
-when testing from another machine. HTTPS is recommended when the browser's
-secure-context requirements apply.
+### HTTPS hosting approach
+
+The browser bundle and the Wasm runtime should be served by the ASP.NET Core
+engine host over HTTPS. This keeps the static UI, `dotnet.*.js`, Wasm binaries,
+and engine endpoints on one origin and avoids cross-origin and secure-context
+surprises. Plain `http://localhost` is useful for a same-machine smoke test,
+but a LAN address such as `http://192.168.x.x` is not a reliable secure context
+for the browser APIs used by the .NET loader.
+
+For local development, create or trust the .NET development certificate and
+run the engine with an HTTPS URL:
+
+```bash
+dotnet dev-certs https --trust
+dotnet run --project prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+  -c Release --urls https://127.0.0.1:5199
+```
+
+For testing from another machine, bind the host to all interfaces and use a
+certificate whose hostname/IP the client can trust. A local CA tool such as
+`mkcert` is convenient for a private network; otherwise put the published
+bundle behind an HTTPS reverse proxy such as Caddy or nginx and let the proxy
+own the certificate. The client machine must trust that certificate (or its
+private CA), and the firewall must allow the selected port:
+
+```bash
+dotnet run --project prototypes/inspect-web/engine/InspectWeb.Engine.csproj \
+  -c Release --urls https://0.0.0.0:5199
+```
+
+The current launch profile remains HTTP for quick local iteration. It is not
+the recommended configuration for a remote browser. Do not mix HTTP and HTTPS
+for the engine assets or endpoints; mixed content can make the page appear to
+load while preventing the Wasm runtime from starting.
 
 ## Remaining backlog
 
@@ -82,4 +113,3 @@ secure-context requirements apply.
   `Application Support` directory).
 - Define a deployment model, package cache limits, telemetry/privacy policy,
   and nuget.org deep-link integration.
-
