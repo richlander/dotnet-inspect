@@ -309,9 +309,10 @@ styling is user-visible:
   into a discarded view; that internal render is not user-visible styled source, so
   a discovery request never surfaces a config warning.
 - A request that *selects* source but yields none renders nothing to style: a
-  callers-only aggregation (`--directory`/`--bin` with no overload selector) and an
-  empty type whose whole-type projection has no body both request `Decompiled
-  Source` yet produce no listing, so no warning fires.
+  callers-only aggregation (`--directory`/`--bin` with no overload selector), a
+  member with no IL body (e.g. a P/Invoke, which renders only a decode
+  diagnostic), and an empty type whose whole-type projection has no body all
+  request `Decompiled Source` yet produce no printed C#, so no warning fires.
 
 Because emission is tied to the point of visible consumption rather than predicted
 up front, the warning fires if and only if styled source reaches the user, exactly

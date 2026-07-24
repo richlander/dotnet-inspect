@@ -1398,13 +1398,14 @@ public static class ApiOutputFormatter
 
             hasCode |= PopulateCSharpSections(memberCode, type, member, code);
 
-            // The resolved config is consumed only when a styled decompiled
-            // result is actually produced. Collect returns one only for a
-            // selected overload, never for callers-only aggregation (no overload
-            // index) or a fidelity-only projection. Surface pending config
-            // warnings exactly here, once, so a member run that requests but does
-            // not render decompiled source never emits a spurious warning.
-            if (code.DecompiledResult is not null)
+            // The resolved config is consumed only when styled C# is actually
+            // printed. Collect returns a decompiled result only for a selected
+            // overload (never callers-only aggregation or a fidelity-only
+            // projection), and even then its Output is null when the method has no
+            // IL body (e.g. a P/Invoke) -- the printer never ran, so no styling
+            // occurred. Key the warning latch off a produced Output so a member
+            // run that requests but does not render styled source stays silent.
+            if (code.DecompiledResult?.Output is not null)
                 options?.RenderConfigWarnings?.EmitOnce();
 
             if (code.FidelityCauses is not null)

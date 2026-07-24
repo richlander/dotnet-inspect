@@ -435,6 +435,35 @@ public class RenderStyleConfigTests
         Assert.Null(result.Output);
     }
 
+    // GPT adversarial finding (head 32e7c966): a P/Invoke method (extern, no IL
+    // body) yields a non-null DecompilerResult whose Output is null -- only a
+    // DEC0001 diagnostic renders, no styled C#. The printer never ran, so the
+    // config is not consumed; the warning latch must key off a produced Output,
+    // not merely a non-null result.
+    [Fact]
+    public void NoBodyMethod_ProducesResultWithoutOutput_SoNoStyledSource()
+    {
+        var decompiledSourceRequested = new MemberCodeProvider.Request(
+            DecompiledSource: true, AnnotatedSource: false, CostOverlay: false,
+            SemanticsOverlay: false, IL: false, Attributes: false, Calls: false,
+            Callers: false, CallGraph: false, UnsafeOperations: false);
+
+        string assemblyPath = typeof(SamplePInvokeClass).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var surface = ApiSurfaceExtractor.Extract(pe, includeAll: false);
+        var type = surface.Types.Single(t => t.FullName == typeof(SamplePInvokeClass).FullName);
+        var methods = type.Members
+            .Where(m => m.Name == nameof(SamplePInvokeClass.GetCurrentProcessId)).ToList();
+
+        var results = MemberCodeProvider.Collect(
+            type, methods, assemblyPath, overloadIndex: 0, decompiledSourceRequested,
+            renderOptions: PrinterOptions.Default with { QualifyFieldAccess = true });
+
+        var (_, code) = Assert.Single(results);
+        Assert.NotNull(code.DecompiledResult);
+        Assert.Null(code.DecompiledResult!.Output);
+    }
+
     private static MemberCodeProvider.Item CollectSpecimenCompute(
         MemberCodeProvider.Request request, PrinterOptions? renderOptions)
     {

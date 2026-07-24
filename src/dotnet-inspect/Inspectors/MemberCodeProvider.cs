@@ -128,8 +128,8 @@ internal static class MemberCodeProvider
                 // printed string, so it must not consume the config -- pass the
                 // shipped defaults there. This keeps "config consumed" exactly
                 // equal to "styled source produced", which is the signal the
-                // config-warning latch keys off (a non-null DecompiledResult) at
-                // the formatter emit site.
+                // config-warning latch keys off (a non-null DecompiledResult
+                // Output) at the formatter emit site.
                 var projectionRenderOptions = request.DecompiledSource ? renderOptions : null;
                 projectionResult = TrimOutput(RenderDecompiledSource(
                     pipelineSource,
