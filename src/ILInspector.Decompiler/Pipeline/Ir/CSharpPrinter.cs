@@ -239,8 +239,37 @@ public sealed partial class CSharpPrinter
             RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
             RequiresUnsafeBodyModifier = function.Descendants.Prepend(function).Any(NeedsUnsafeContext),
             ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
+            BodyIsSingleReturnExpression = BodyIsSingleReturnExpression(function),
             Metadata = new DecompilerResultMetadata(EffectiveDecompilerOptions(), [.. _decisions]),
         };
+
+    /// <summary>
+    /// True when the printed body is exactly one top-level
+    /// <c>return &lt;switch-expression&gt;;</c> statement — a multi-line
+    /// switch-expression return with nothing else in the body. The member layer
+    /// renders such a body as an expression-bodied member (issue #3088). The
+    /// check is structural (the emitted top-level statement list plus the lifts
+    /// the printer already tracked), never a re-parse of the rendered text, and
+    /// stays deliberately narrow: only the switch-expression return values that
+    /// render as a self-contained <c>&lt;value&gt; switch { … }</c> qualify, so a
+    /// return whose printed form spans several statements (a
+    /// <c>stackalloc</c>-to-pointer return) is excluded.
+    /// </summary>
+    bool BodyIsSingleReturnExpression(IrFunction function)
+        => !_emittedDeclarations
+            && !_topLevelHasLabel
+            && _constructorChain is null
+            && _fieldInitializers.Count == 0
+            && !function.RequiresAsyncBodyModifier
+            && !NeedsUnsupportedFallbackReturn(function)
+            && _topLevelStatements is
+            [
+                Return
+                {
+                    Value: SwitchExpression or PatternSwitchExpression
+                        or UnionSwitchExpression or TupleSwitchExpression
+                }
+            ];
 
     DecompilerOptions EffectiveDecompilerOptions()
         => new()
@@ -299,6 +328,25 @@ public sealed partial class CSharpPrinter
     /// <summary>Field initializers (<c>this.f = value</c> stores preceding the base call) lifted out of a constructor body to the field declarations, keyed in source order.</summary>
     readonly List<(string Field, string Value)> _fieldInitializers = [];
     readonly HashSet<IrNode> _fieldInitStores = [];
+
+    /// <summary>
+    /// True once <see cref="PrintBody"/> has emitted at least one up-front local
+    /// declaration (before the body statements). A body with declarations is not
+    /// a single-return expression, so it disqualifies the
+    /// <see cref="DecompilerResult.BodyIsSingleReturnExpression"/> signal.
+    /// </summary>
+    bool _emittedDeclarations;
+
+    /// <summary>
+    /// The top-level statements <see cref="AppendContainer"/> actually emitted
+    /// (chain/field-initializer lifts and the trimmed trailing <c>return;</c>
+    /// excluded), plus whether any top-level label was emitted. Together they let
+    /// <see cref="Result"/> recognize the single <c>return &lt;switch&gt;;</c> body
+    /// that <see cref="DecompilerResult.BodyIsSingleReturnExpression"/> reports —
+    /// a structural fact, not a re-parse of the rendered text.
+    /// </summary>
+    readonly List<IrNode> _topLevelStatements = [];
+    bool _topLevelHasLabel;
 
     /// <summary>Pinned local slots a <see cref="Fixed"/> statement owns: declared by the fixed header (skipped up front) and read as a pointer of the fixed's element type.</summary>
     readonly HashSet<int> _fixedLocals = [];
@@ -422,7 +470,10 @@ public sealed partial class CSharpPrinter
         foreach (var declaration in CollectDeclarations(function))
             sb.AppendLine(declaration);
         if (sb.Length > 0)
+        {
+            _emittedDeclarations = true;
             sb.AppendLine();
+        }
 
         AppendContainer(sb, function.Body, 0, topLevel: true);
         if (NeedsUnsupportedFallbackReturn(function))
@@ -475,6 +526,8 @@ public sealed partial class CSharpPrinter
             {
                 AppendLabel(sb, pad, block.StartOffset);
                 labelPendingStatement = true;
+                if (topLevel)
+                    _topLevelHasLabel = true;
             }
             // The trailing 'return;' trims, current-style — unless it is a
             // labeled block's only statement, where trimming would strand
@@ -491,6 +544,8 @@ public sealed partial class CSharpPrinter
                 emit.Add(statement);
             }
 
+            if (topLevel)
+                _topLevelStatements.AddRange(emit);
             if (emit.Any(n => !RendersAsCommentOnly(n)))
                 labelPendingStatement = false;
             AppendStatements(sb, emit, indent);
