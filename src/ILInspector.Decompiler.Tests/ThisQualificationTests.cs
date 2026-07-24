@@ -238,6 +238,28 @@ public sealed class ThisQualificationTests
         Assert.DoesNotContain("this.Value", text);
     }
 
+    // A closed static extension method group over this shares the base group's
+    // `ldarg.0; ldftn` shape but is NOT base.M: the callee is static and declared
+    // on the extension host, so base.Extend is CS0117. It must never enter the
+    // base arm -- bare by default, this.Extend under the qualify-method knob.
+    [Fact]
+    public void ExtensionMethodGroup_NeverRendersBase_ByDefault()
+    {
+        var text = RenderMember(typeof(ThisQualificationDerived),
+            nameof(ThisQualificationDerived.ExtensionGroup));
+        Assert.DoesNotContain("base.", text);
+    }
+
+    [Fact]
+    public void ExtensionMethodGroup_RendersThis_WhenMethodQualificationRequested()
+    {
+        var text = RenderMember(typeof(ThisQualificationDerived),
+            nameof(ThisQualificationDerived.ExtensionGroup),
+            new PrinterOptions { QualifyMethodAccess = true });
+        Assert.Contains("this.Extend", text);
+        Assert.DoesNotContain("base.", text);
+    }
+
     [Fact]
     public void EffectiveOptions_RecordsMethodKnob()
     {
@@ -298,4 +320,17 @@ public sealed class ThisQualificationDerived : ThisQualificationBase
     // so it must render `base.Value` (bare or this.Value would rebind to the
     // override with virtual dispatch and change behavior).
     public System.Func<int> BaseValueGroup() => base.Value;
+
+    // A method group over an extension method also emits `ldarg.0; ldftn`, but the
+    // callee is static (HasThis == false) and its declaring type is the extension
+    // host, not a base type. It must NOT render base.Extend (CS0117 on the base);
+    // under the qualify-method knob it stays this.Extend.
+    public System.Func<int> ExtensionGroup() => this.Extend;
+}
+
+// An extension on ThisQualificationDerived so `this.Extend` forms a closed
+// static-method group (ldarg.0; ldftn Extensions::Extend(Derived)).
+public static class ThisQualificationExtensions
+{
+    public static int Extend(this ThisQualificationDerived value) => 42;
 }

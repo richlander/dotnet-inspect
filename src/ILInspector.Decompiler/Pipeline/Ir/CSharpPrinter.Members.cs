@@ -238,12 +238,16 @@ public sealed partial class CSharpPrinter
             return $"{TypeQualifierText(method.DeclaringType)}.{name}";
         if (target is LoadArgument { Index: 0, Name: "this" })
         {
-            // A non-virtual (ldftn) method group over this to a base-declared
-            // method is C#'s base.M — the ldftn deliberately captures the base
-            // slot. Bare M or this.M would rebind to the derived override and
-            // recompile to ldvirtftn (virtual dispatch), changing behavior; so it
-            // stays base even under the qualify-method knob, mirroring CallText.
-            if (!isVirtual && IsCrossType(method.DeclaringType))
+            // A non-virtual (ldftn) instance method group over this to a
+            // base-declared method is C#'s base.M — the ldftn deliberately
+            // captures the base slot. Bare M or this.M would rebind to the derived
+            // override and recompile to ldvirtftn (virtual dispatch), changing
+            // behavior; so it stays base even under the qualify-method knob,
+            // mirroring CallText. HasThis excludes closed static extension groups,
+            // which share the `ldarg.0; ldftn` shape but bind the receiver as their
+            // first argument — base.Ext would be CS0117 on the base type; they
+            // stay this.Ext (or bare) like any other extension group.
+            if (method.HasThis && !isVirtual && IsCrossType(method.DeclaringType))
                 return $"base.{name}";
             return _options.QualifyMethodAccess ? $"this.{name}" : name;
         }
