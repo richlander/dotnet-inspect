@@ -45,8 +45,14 @@ public static class CallGraphMermaid
         // prefer the resolved member as the single centered target node.
         bool callerResolved = callerRoot is { Member.Kind: not MemberKind.Unsupported };
         bool calleeResolved = calleeRoot is { Member.Kind: not MemberKind.Unsupported };
-        if (callerResolved && calleeResolved
-            && IdentityKey(callerRoot!.Member) != IdentityKey(calleeRoot!.Member))
+        // Compare identities whenever both sides carry one: two resolved roots must name
+        // the same member, and two Unsupported placeholders must at least name the same
+        // token. Only a resolved / placeholder pair may differ — the placeholder is
+        // unknown identity, not a contradiction (a bodiless target the builders resolve
+        // asymmetrically).
+        if (callerRoot is not null && calleeRoot is not null
+            && callerResolved == calleeResolved
+            && IdentityKey(callerRoot.Member) != IdentityKey(calleeRoot.Member))
             throw new ArgumentException($"{nameof(callerRoot)} and {nameof(calleeRoot)} must describe the same selected member.");
 
         var target = calleeResolved ? calleeRoot!.Member
@@ -204,21 +210,30 @@ public static class CallGraphMermaid
     }
 
     /// <summary>
-    /// A stable structural identity for a member so shared callees, cycles, and the
-    /// target-as-caller-and-callee all collapse to one node. Overloads stay distinct
-    /// (parameter types, generic arity, and return type — which alone separates C#
-    /// conversion operators) and distinct generic instantiations stay distinct (type
-    /// arguments). Keyed on <see cref="GenericMemberIdentity.KeyFragment"/>, which is
-    /// assembly-qualified, so same-namespace/same-name types from <em>different
-    /// assemblies</em> do not merge (the display spellings drop the assembly; see #1741).
+    /// A stable structural identity for a member so shared callees, cycles, the
+    /// target-as-caller-and-callee, and self-recursion all collapse to one node. This
+    /// mirrors the Analysis layer's cross-assembly caller-graph identity
+    /// (<see cref="GenericMemberIdentity"/>): the open-definition side (the target root
+    /// and caller nodes, which <c>BuildCallerTree</c> builds without method type
+    /// arguments) and the constructed-call-site side (callee edges decoded from IL) must
+    /// erase to the <em>same</em> key, so a generic target that calls itself collapses
+    /// onto <c>n0</c> instead of splitting. Non-generic members keep their exact
+    /// instantiated signature — including the return type, which alone separates C#
+    /// conversion operators — while same-name / same-arity generic overloads coarsen, the
+    /// accepted trade the rest of the product already makes. The declaring type is
+    /// assembly-qualified, so same-namespace / same-name types from different assemblies
+    /// stay distinct (#1741).
     /// </summary>
     static string IdentityKey(MemberRef member)
     {
-        var typeArguments = member.TypeArguments.IsDefaultOrEmpty
-            ? ""
-            : "<" + string.Join(",", member.TypeArguments.Select(GenericMemberIdentity.KeyFragment)) + ">";
-        var parameters = string.Join(",", member.ParameterTypes.Select(GenericMemberIdentity.KeyFragment));
-        return $"{GenericMemberIdentity.KeyFragment(member.DeclaringType)}::{member.Name}`{member.GenericArity}{typeArguments}({parameters}):{GenericMemberIdentity.KeyFragment(member.ReturnType)}";
+        // Mirror LibraryBodyIndex.CallerGraphKey exactly so the projection and the builder
+        // compute byte-identical keys for the same MemberRef.
+        var eraseGenericSignature = GenericMemberIdentity.ShouldErase(member.DeclaringType, member.ParameterTypes, member.ReturnType, member.TypeArguments);
+        var openDeclaring = GenericMemberIdentity.OpenDeclaringType(member.DeclaringType);
+        var shape = eraseGenericSignature
+            ? GenericMemberIdentity.ErasedParameterShape(member.OpenSignatureParameters)
+            : string.Join(",", member.ParameterTypes.Select(GenericMemberIdentity.KeyFragment));
+        return $"{GenericMemberIdentity.KeyFragment(openDeclaring)}|{member.Name}|{member.ParameterTypes.Length}|{shape}|{GenericMemberIdentity.KeyFragment(member.OpenSignatureReturn)}";
     }
 
     /// <summary>Compact, host-neutral member spelling used as the Mermaid node label.</summary>

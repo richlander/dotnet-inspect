@@ -320,23 +320,32 @@ public class CallGraphMermaidTests
     }
 
     [Fact]
-    public void KeepsGenericArityOverloadsDistinct()
+    public void CollapsesGenericTargetSelfRecursionOntoOneNode()
     {
-        // Invoke() and Invoke<T>() are legal overloads that differ only by generic arity.
-        var nonGeneric = new MemberRef(Type("Host"), "Invoke", [], TypeRef.CoreLib("System", "Void"), MemberKind.Method) { GenericArity = 0 };
-        var generic = new MemberRef(Type("Host"), "Invoke", [], TypeRef.CoreLib("System", "Void"), MemberKind.Method) { GenericArity = 1 };
+        // A generic target that calls itself: the Analysis builders build the root as an
+        // open definition (its return type is the open T) while the recursive callee edge
+        // is a constructed MethodSpec that still carries the open signature (OpenReturnType)
+        // for cross-assembly keying. Both must erase to one identity so recursion renders as
+        // a self-loop rather than splitting into two same-named nodes.
+        var openReturn = TypeRef.MethodGenericParameter(0, "T");
+        var rootMember = new MemberRef(Type("Calc"), "Recurse", [], openReturn, MemberKind.Method) { GenericArity = 1 };
+        var recursiveCall = new MemberRef(Type("Calc"), "Recurse", [], TypeRef.CoreLib("System", "Int32"), MemberKind.Method)
+        {
+            GenericArity = 1,
+            TypeArguments = [TypeRef.CoreLib("System", "Int32")],
+            OpenReturnType = openReturn,
+        };
 
         var callees = Node(
-            Member("Target", "Run"),
+            rootMember,
             CallTreeStatus.Expanded,
-            [Leaf(nonGeneric), Leaf(generic)]);
+            [Leaf(recursiveCall, CallTreeStatus.AlreadyShown)]);
 
         var lines = Lines(CallGraphMermaid.RenderCallees(callees));
 
-        Assert.Contains("n1[\"Host.Invoke()\"]", lines);
-        Assert.Contains("n2[\"Host.Invoke()\"]", lines);
-        Assert.Contains("n0 --> n1", lines);
-        Assert.Contains("n0 --> n2", lines);
+        Assert.Single(lines, line => line.Contains("\"Calc.Recurse"));
+        Assert.Contains("n0 --> n0", lines);
+        Assert.DoesNotContain(lines, line => line.StartsWith("n1["));
     }
 
     [Fact]
@@ -377,6 +386,18 @@ public class CallGraphMermaidTests
         Assert.Contains("n1 --> n0", lines);
         // No third node: the Unsupported placeholder collapses onto the resolved target.
         Assert.DoesNotContain(lines, line => line.StartsWith("n2["));
+    }
+
+    [Fact]
+    public void RejectsDifferentUnsupportedRoots()
+    {
+        // Two placeholder roots naming different tokens are genuinely different members and
+        // must still be rejected: the wildcard applies only to a placeholder paired with a
+        // resolved member.
+        var callers = Leaf(MemberRef.Unsupported("method token 0x06000001"));
+        var callees = Leaf(MemberRef.Unsupported("method token 0x06000002"));
+
+        Assert.Throws<ArgumentException>(() => CallGraphMermaid.Render(callers, callees));
     }
 
     [Fact]

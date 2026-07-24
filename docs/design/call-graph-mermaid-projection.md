@@ -45,7 +45,10 @@ resolve asymmetrically: `BuildCallerTree` recovers the real member from an
 inbound call operand while `BuildCallTree` has no body and yields an `Unsupported`
 placeholder root. The projection treats an `Unsupported` placeholder as *unknown
 identity* — it never contradicts a resolved member — and centers the graph on the
-resolved member, so the combined view still renders instead of throwing.
+resolved member, so the combined view still renders instead of throwing. Two
+*different* `Unsupported` placeholder roots (each naming a different unresolved
+token) are still rejected: the wildcard applies only to a placeholder paired with
+a resolved member, never to two contradictory unknowns.
 
 The projection owns everything a host must not re-invent in JavaScript:
 
@@ -53,13 +56,19 @@ The projection owns everything a host must not re-invent in JavaScript:
   *into* the target); callee-tree edges point parent → child (the target flows
   *out* to a callee).
 - **Stable node identity.** Members are keyed with the Analysis layer's
-  assembly-qualified `GenericMemberIdentity.KeyFragment` over the declaring type,
-  method type arguments, and parameter types, plus the member name, generic
-  arity, and return type. Shared callees, cycles, and the
-  target-as-both-caller-and-callee collapse to one node, while overloads that
-  differ only by parameter types, generic arity, or return type (C# conversion
-  operators), distinct generic instantiations, and same-namespace/same-name types
-  from *different assemblies* all stay separate.
+  erased-identity convention (`GenericMemberIdentity`): the assembly-qualified
+  `KeyFragment` of the *open* declaring type, the member name, the open parameter
+  count, the erased/open parameter shape, and the open return type. This is the
+  same key the builders compute, so the open definition side (caller tree, generic
+  root) and the constructed call-site side (callee tree MethodSpec) agree. A
+  generic method therefore keeps one identity across recursion and across distinct
+  instantiations — they collapse onto one node with a self-loop rather than
+  splitting into same-named twins. Following that convention, same-name generic
+  overloads that differ only by arity coarsen together (the accepted coarsening
+  `GenericMemberIdentity` documents), while overloads that differ by parameter
+  types or by return type (C# conversion operators) and same-namespace/same-name
+  types from *different assemblies* all stay separate. Shared callees, cycles, and
+  the target-as-both-caller-and-callee collapse to one node.
 - **Deterministic ids/ordering.** The target is `n0`; remaining ids are assigned
   in first-seen order over a caller depth-first walk, then a callee walk. Nodes
   are declared in id order and edges in first-seen order, so the same input
@@ -92,6 +101,6 @@ Coverage lives in
 `src/ILInspector.Analysis.Tests/CallGraphMermaidTests.cs` (edge direction,
 escaping, edge-label structural encoding, duplicates/cycles,
 external/already-shown/depth-limited/truncated statuses, deterministic ids, loop
-annotations, cross-assembly / generic-arity / return-type identity separation,
-the bodiless-target combined view, and an exact combined
-caller/target/callee document).
+annotations, cross-assembly / generic-recursion-collapse / return-type identity
+behavior, the bodiless-target combined view, the two-different-unsupported-roots
+rejection, and an exact combined caller/target/callee document).
