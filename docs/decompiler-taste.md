@@ -286,6 +286,33 @@ d` collapse (IDE0075) is a separate future knob, so a literal-arm ternary such a
 the opt-in raised path, after the default pipeline, and the IL-anchored Annotated
 view never applies it (it must stay byte-faithful for line/IL alignment).
 
+The second lens is `PrinterOptions.PreferBranchlessBoolean`
+(`dotnet_inspect_style_prefer_branchless_boolean`). It targets the *same* declined
+guarded return, but renders the compact short-circuit "bool hack" — the exact form
+the default's short-circuit fold produced before #3114 guarded it — instead of the
+ternary:
+
+```csharp
+// shipped default (byte-faithful — the flat guard is what recompiles exactly):
+if (a) { return false; }
+return b;
+// with PreferBranchlessBoolean (behavior-faithful, byte-divergent):
+return !a && b;
+```
+
+The four constant-arm shapes fold to `a && b`, `!a || b`, `a || b`, and `!a && b`
+respectively. Unlike the ternary, this form is **not oracle-endorsed** —
+dotnet/runtime's `.editorconfig` would never recommend it — so it is a user
+*compactness/branchless* preference, opt-in only, and it is **never** part of a
+"full taste" aggregate. It is exposed under a tool-owned
+`dotnet_inspect_style_*` key rather than a `dotnet_style_*` key to make that
+distinction explicit. Two hazards stay declined because they are about *behavior*,
+not just bytes: a user-defined-truthiness condition (lifting it rebinds to a
+user-defined `&&`/`||`, changing the result) and a managed by-ref surviving
+operand (csc's branchless lowering would eagerly dereference a location the branch
+had guarded). When both lenses are enabled the oracle-endorsed ternary wins the
+shared shape.
+
 ## Names
 
 Without a PDB, locals are slot names (`V_0`, `S_0`) shared with the Annotated IL view — the two views stay name-aligned by construction. With a PDB, source names are used. Synthesizing readable names (`size`, `array`, `item`) where no PDB exists is an open design question: it is the largest remaining cosmetic gap against source, but it would break view alignment unless opt-in.
@@ -295,8 +322,8 @@ Without a PDB, locals are slot names (`V_0`, `S_0`) shared with the Annotated IL
 The oracle settles a single shipped default per equivalence class, but a few
 class-3 no-anchor spellings are also exposed as opt-in knobs (see
 [`this` member qualification](#this-member-qualification) and
-[Line wrapping](#line-wrapping)), as is the first byte-divergent
-[style lens](#style-lenses-behavior-faithful-byte-divergent). A tool-owned config
+[Line wrapping](#line-wrapping)), as are the byte-divergent
+[style lenses](#style-lenses-behavior-faithful-byte-divergent). A tool-owned config
 file selects them without a per-run flag.
 
 `dotnet-inspect` discovers a `.dotnet-inspectconfig` file by walking up from the
@@ -325,10 +352,11 @@ dotnet_style_prefer_conditional_expression_over_return = true
   `root = true` drives no behavior on its own; it is the conventional, explicit
   way to mark a repository-root config as the boundary.
 - Recognized keys map to `PrinterOptions`: the two `this`-qualification keys
-  above (byte-preserving class-3 spellings) and
-  `dotnet_style_prefer_conditional_expression_over_return` (the first
-  byte-divergent [style lens](#style-lenses-behavior-faithful-byte-divergent)).
-  The set grows as more knobs ship.
+  above (byte-preserving class-3 spellings),
+  `dotnet_style_prefer_conditional_expression_over_return` (the oracle-endorsed
+  ternary [style lens](#style-lenses-behavior-faithful-byte-divergent)), and
+  `dotnet_inspect_style_prefer_branchless_boolean` (the non-oracle-endorsed
+  branchless lens, under a tool-owned key). The set grows as more knobs ship.
 - Unknown keys, malformed lines, and non-boolean values are reported as a
   `Warning:` on stderr and skipped — the rest of the file still applies. A bad
   config never fails the run silently.
