@@ -167,7 +167,7 @@ public sealed class ShortCircuitTernaryPass : IIrPass
     /// </summary>
     static bool RendersAsBranchlessBarePlace(IrExpression operand)
         => operand is LoadLocal or LoadArgument or LoadStackSlot
-           || operand is LoadIndirect { Address.ResultType.Kind: TypeRefKind.ByRef };
+           || ShortCircuitFidelity.IsManagedByRefDeref(operand);
 
     /// <summary>
     /// Whether <paramref name="condition"/> is a user-defined-truthiness evaluation
@@ -183,7 +183,7 @@ public sealed class ShortCircuitTernaryPass : IIrPass
     /// operator) binds the primitive operator and is safe to lift.
     /// </summary>
     static bool IsUserDefinedTruthiness(IrExpression condition)
-        => condition is Call { Callee.Name: "op_True" or "op_False" };
+        => ShortCircuitFidelity.IsUserDefinedTruthiness(condition);
 
     /// <summary>
     /// Whether negating <paramref name="condition"/> re-forms to something that

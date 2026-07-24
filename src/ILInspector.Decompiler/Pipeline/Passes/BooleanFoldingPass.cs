@@ -485,6 +485,34 @@ public sealed class BooleanFoldingPass : IIrPass
         if (tailConstant is null && thenConstant is null)
             return false;  // general ternary returns are a separate decision
 
+        // #3114: decline the two folds whose output the correctness bar rejects, so
+        // the faithful guarded return stands. (The opcode-divergent but VALID and
+        // readable re-forms — a block-reordered guard clause and the both-constant
+        // `return c` — are accepted readability raises and still fold.)
+        //
+        // 1. A user-defined-truthiness condition (`operator true`/`operator false`)
+        //    prints as its bare receiver, so returning or lifting it yields C# that
+        //    does not bind: `return t` needs a nonexistent user→bool conversion, and
+        //    `t && A` binds the user-defined `&` (result typed as the user type, not
+        //    bool). Declined in every arm.
+        if (ShortCircuitFidelity.IsUserDefinedTruthiness(guard.Condition))
+            return false;
+
+        // 2. When the surviving (short-circuited) operand is a managed by-ref
+        //    dereference, csc collapses the spelled `&&`/`||` to a branchless `&`/`|`
+        //    that eagerly dereferences a location the branch had guarded — an
+        //    observable NullReferenceException divergence. The both-constant arm lifts
+        //    no operand; the tailConstant arm lifts `thenValue`, the thenConstant arm
+        //    lifts `tailValue`. (A bare local or pointer deref stays a readability
+        //    raise and is left to fold.)
+        bool bothOppositeConstants =
+            thenConstant is { } thenC && tailConstant is { } tailC && thenC != tailC;
+        IrExpression? survivingOperand = bothOppositeConstants ? null
+            : tailConstant is not null ? thenValue
+            : tailValue;
+        if (survivingOperand is not null && ShortCircuitFidelity.IsManagedByRefDeref(survivingOperand))
+            return false;
+
         var condition = guard.Condition;
         condition.Detach();
         IrExpression folded;
