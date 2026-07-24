@@ -1802,6 +1802,19 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_MethodsTable_OmitsDecodeColumn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "-m", "Serialize", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Serialize", output);
+        // The Decode degradation marker is never a default table column; it surfaces on stderr.
+        Assert.DoesNotContain("Decode", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
     public async Task Router_ConstructorSelector_NormalizesCtorAlias()
     {
         var (exit, output, error) = await RunAppAsync(

@@ -743,7 +743,6 @@ public static class ApiOutputFormatter
                     select,
                     OperatorNames.FormatDisplayName(m.Name),
                     MarkoutInline.Code(sigDisplay),
-                    SignatureDecodeMarker(m),
                     hasDocs ? (m.Documentation.Summary ?? "") : null);
             }).ToList();
 
@@ -799,6 +798,15 @@ public static class ApiOutputFormatter
                     break;
             }
         }
+
+        var degradedSignatures = allMembers
+            .Where(m => m.SignatureDecodeStatus is SignatureDecodeStatus.Degraded)
+            .Select(m => FormatMemberDeclaration(type, m, abbreviate: abbreviate))
+            .ToList();
+        if (degradedSignatures.Count > 0)
+            view.DegradedSignatureMembers = (view.DegradedSignatureMembers ?? [])
+                .Concat(degradedSignatures)
+                .ToList();
 
         return (truncated, "members");
     }
@@ -1046,6 +1054,23 @@ public static class ApiOutputFormatter
         }
 
         return (truncated, "members");
+    }
+
+    /// <summary>
+    /// Emits a stderr warning listing rendered members whose metadata signature blob could
+    /// not be fully decoded. The default member tables no longer carry a Decode column, so
+    /// this keeps signature-decode failures visible without cluttering successful output.
+    /// </summary>
+    internal static void WriteSignatureDecodeWarning(TypeView view, TextWriter error)
+    {
+        if (view.DegradedSignatureMembers is not { Count: > 0 } degraded)
+            return;
+
+        error.WriteLine(
+            $"Warning: {degraded.Count} member signature(s) could not be fully decoded from " +
+            "metadata; the displayed signature(s) may be incomplete or approximate:");
+        foreach (var signature in degraded)
+            error.WriteLine($"  - {signature}");
     }
 
     private static string? SignatureDecodeMarker(ApiMember member)

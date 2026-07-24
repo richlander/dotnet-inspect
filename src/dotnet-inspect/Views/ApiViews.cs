@@ -251,6 +251,13 @@ public class TypeView
     [JsonIgnore]
     public MemberCodeView? MemberCode { get; set; }
 
+    // Signatures of rendered members whose metadata signature blob could not be fully
+    // decoded. Never rendered as a column; surfaced as a stderr warning after the table
+    // so degradation stays visible without polluting the default output with an empty column.
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public List<string>? DegradedSignatureMembers { get; set; }
+
     private List<TypeSourceFileRow>? TypeSourceFiles()
     {
         List<TypeSourceFileRow> rows = [];
@@ -507,14 +514,13 @@ public record MemberRow(
     [property: MarkoutSkipNull] string? Select,
     string Name,
     string Signature,
-    [property: MarkoutSkipNull] string? Decode,
     string? Description)
 {
     /// <summary>
     /// Creates a MemberRow without Select column.
     /// </summary>
-    public MemberRow(string name, string signature, string? decode, string? description)
-        : this(null, name, signature, decode, description) { }
+    public MemberRow(string name, string signature, string? description)
+        : this(null, name, signature, description) { }
 }
 
 [MarkoutSerializable]

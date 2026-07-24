@@ -917,6 +917,7 @@ public class ApiCommand
                 sink.WriteLine(OutputFormatter.ApplyRowLimit(markdown, options.Rows));
             }
         }
+        ApiOutputFormatter.WriteSignatureDecodeWarning(view, Console.Error);
         return 0;
     }
 

@@ -1000,6 +1000,68 @@ public class OutputFormatterTests
     }
 
     [Fact]
+    public void PopulateMemberSections_CollectsDegradedSignaturesForStderrWarning()
+    {
+        var type = new ApiType
+        {
+            Namespace = "Samples",
+            Name = "Worker",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember
+                {
+                    Kind = "method",
+                    Name = "Run",
+                    Signature = "object Run()",
+                    SignatureModel = new ApiSignature { ReturnType = "object", MemberName = "Run" },
+                    SignatureDecodeStatus = SignatureDecodeStatus.Degraded
+                },
+                new ApiMember
+                {
+                    Kind = "method",
+                    Name = "Ok",
+                    Signature = "void Ok()",
+                    SignatureModel = new ApiSignature { ReturnType = "void", MemberName = "Ok" }
+                }
+            ]
+        };
+        var view = new TypeView();
+
+        ApiOutputFormatter.PopulateMemberSections(
+            view, new MethodsView(), new OperatorsView(), new ExplicitInterfaceImplementationsView(),
+            new ExtensionMethodsView(), new EventsView(), type, new MemberOptions());
+
+        // Only the degraded member is recorded; the healthy member is not.
+        var degraded = Assert.Single(view.DegradedSignatureMembers!);
+        Assert.Contains("Run", degraded);
+        Assert.DoesNotContain("Ok", degraded);
+
+        var writer = new StringWriter();
+        ApiOutputFormatter.WriteSignatureDecodeWarning(view, writer);
+        var warning = writer.ToString();
+        Assert.Contains("could not be fully decoded", warning);
+        Assert.Contains("Run", warning);
+    }
+
+    [Fact]
+    public void WriteSignatureDecodeWarning_EmitsNothingWhenNoMemberDegraded()
+    {
+        var writer = new StringWriter();
+        ApiOutputFormatter.WriteSignatureDecodeWarning(new TypeView(), writer);
+        Assert.Empty(writer.ToString());
+    }
+
+    [Fact]
+    public void MemberRow_HasNoDecodeColumnInDefaultMemberTables()
+    {
+        // The Decode degradation marker is reported via stderr, never as a table column.
+        Assert.DoesNotContain(
+            typeof(MemberRow).GetProperties(),
+            p => p.Name == "Decode");
+    }
+
+    [Fact]
     public void BuildTypeRenderManifest_CapturesActualMemberTable()
     {
         var type = new ApiType
