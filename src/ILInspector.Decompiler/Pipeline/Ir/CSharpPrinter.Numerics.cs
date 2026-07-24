@@ -497,6 +497,28 @@ public sealed partial class CSharpPrinter
     /// </summary>
     TypeRef? BitwiseChainRenderedType(IrExpression left, IrExpression right)
     {
+        // Mirror BinaryBody's bitwise-with-enum-shift coercion FIRST: when one side
+        // renders as an integer (an enum shift or a chain over one) and the other is
+        // a bare enum, BinaryBody coerces the enum sibling DOWN to that side's
+        // rendered integer (`(int)e << n | (int)x`), so the chain renders as THAT
+        // integer — the enum sibling contributes the shift's type and SIGN, not its
+        // own backing. Using the mixed-sign "unsigned if either side unsigned" rule
+        // here would report a `uint`-backed enum sibling as unsigned though it is
+        // rendered `(int)x`, so an enclosing `clt.un` would (wrongly) find the chain
+        // already unsigned and drop the outer `(uint)` reinterpret — a silent signed
+        // 64-bit promotion (or CS0034 at 8-byte width).
+        if (BitwiseOperandRendersAsInteger(left)
+            && BitwiseOperandRenderedType(left) is { } leftShiftInteger
+            && TryCoerceEnumToInteger(right, leftShiftInteger) is not null)
+        {
+            return leftShiftInteger;
+        }
+        if (BitwiseOperandRendersAsInteger(right)
+            && BitwiseOperandRenderedType(right) is { } rightShiftInteger
+            && TryCoerceEnumToInteger(left, rightShiftInteger) is not null)
+        {
+            return rightShiftInteger;
+        }
         var leftType = ChainOperandRenderedInteger(left);
         var rightType = ChainOperandRenderedInteger(right);
         if (!IsWideInteger(leftType) || !IsWideInteger(rightType))
@@ -716,7 +738,10 @@ public sealed partial class CSharpPrinter
     /// integer-rendering shift/chain by a same-width bit-preserving reinterpret that
     /// ignores the stale enum <c>ResultType</c>, and a plain integer through
     /// <see cref="CoerceText"/> (identity when it already is that width and sign).
-    /// Null for a non-integer operand.
+    /// Null for a non-integer operand. The inserted reinterpret is not in the IL, so
+    /// it routes through <see cref="CheckedSafeCast"/> — under an enclosing
+    /// <c>checked</c> region a signed→unsigned cast is wrapped in <c>unchecked</c> so
+    /// it reinterprets (as the IL does) rather than throwing on a negative value.
     /// </summary>
     string? ReconcileComparisonOperand(IrExpression operand, TypeRef target)
     {
@@ -726,7 +751,7 @@ public sealed partial class CSharpPrinter
         {
             return BitwiseOperandRenderedType(operand) is { } rendered && SamePrimitive(rendered, target)
                 ? Operand(operand)
-                : $"({TypeText(target)}){Operand(operand)}";
+                : CheckedSafeCast(() => $"({TypeText(target)}){Operand(operand)}");
         }
         return TypeFamilies.IsInteger(EffectiveType(operand))
             ? CoerceText(operand, target)

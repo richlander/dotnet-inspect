@@ -5317,6 +5317,27 @@ public static class EnumCastSamples
     // (uint)other`, silently changing the ordering.
     public static bool EnumShiftUnsignedShrSignedCompare(CfgPriority e, int n, CfgPriority other) => (int)((uint)e >> n) < (int)other;
 
+    // #3087 follow-up (adversarial review R5, GPT): the reconcile cast the printer
+    // INSERTS to reinterpret the shift is not in the IL, so under an enclosing
+    // `checked` region a signed->unsigned reinterpret (`(uint)(-1)`) would THROW
+    // though the IL (`shl; clt.un`) only reinterprets bits. The inserted cast must be
+    // `unchecked`-wrapped — `checked((unchecked((uint)((int)e << n)) < other ...))` —
+    // exactly as the enum and plain-integer reconcile paths already are.
+    public static int EnumShiftCheckedUnsignedCompare(CfgPriority e, int n, uint other, int y)
+        => checked((unchecked((uint)((int)e << n)) < unchecked((uint)other) ? 1 : 0) + y);
+
+    // #3087 follow-up (adversarial review R5, Gemini): a bitwise chain mixing an
+    // int enum-shift with an UNSIGNED-backed enum sibling (CfgFlags : uint),
+    // compared unsigned. BinaryBody coerces the enum sibling DOWN to the shift's
+    // signed stack type (`(int)x`), so the chain renders as `int`; the outer
+    // unsigned comparison must therefore keep the `(uint)` reinterpret —
+    // `(uint)((int)e << n | (int)x) > other`. Reporting the chain as `uint` (because
+    // a uint-backed sibling is present) would drop that cast, silently promoting
+    // `int > uint` to a signed 64-bit compare (inverting results for high-bit
+    // patterns) or emitting CS0034 at 8-byte width.
+    public static bool EnumShiftChainUintEnumSiblingCompare(CfgPriority e, int n, CfgFlags x, uint other)
+        => (uint)(((int)e << n) | (int)x) > other;
+
     // #1766: ternary with enum-constant arms stored to a cross-assembly enum
     // local (StringComparison.Ordinal = 4, OrdinalIgnoreCase = 5).
     public static bool EnumConditional(string name, bool ci)

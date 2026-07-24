@@ -564,6 +564,41 @@ public class EnumCastPrinterTests
         AssertCompiles("public static bool M(CfgPriority e, int n, CfgPriority other)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
     }
 
+    // #3087 follow-up (adversarial review R5, GPT): the reconcile cast the printer
+    // INSERTS is not in the IL (`shl; clt.un`), so under an enclosing `checked`
+    // region the signed->unsigned reinterpret must be `unchecked`-wrapped or it
+    // throws OverflowException on a negative shift value (`(uint)(-1)`), where the
+    // IL only reinterprets bits. Both reconcile paths (this shift side and the enum/
+    // plain-integer sides) route through CheckedSafeCast.
+    [Fact]
+    public void EnumShiftComparison_InCheckedContext_WrapsInsertedCastUnchecked()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumShiftCheckedUnsignedCompare));
+
+        Assert.Contains("checked(", body);
+        Assert.Contains("unchecked((uint)((int)e << n))", body);
+        AssertCompiles("public static int M(CfgPriority e, int n, uint other, int y)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // #3087 follow-up (adversarial review R5, Gemini): a bitwise chain mixing an int
+    // enum-shift with an UNSIGNED-backed enum sibling, compared unsigned. The enum
+    // sibling is coerced DOWN to the shift's signed stack type (`(int)x`), so the
+    // chain is `int` and the outer unsigned comparison must keep the `(uint)`
+    // reinterpret. Reporting the chain as `uint` would drop it — a silent signed
+    // 64-bit promotion (or CS0034 at 8-byte width).
+    [Fact]
+    public void EnumShiftChain_UintEnumSibling_UnsignedCompare_KeepsOuterReinterpret()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumShiftChainUintEnumSiblingCompare));
+
+        Assert.Contains("(uint)(((int)e << n) | (int)x) > other", body);
+        Assert.DoesNotContain("(CfgFlags)", body);
+        AssertCompiles(
+            "public static bool M(CfgPriority e, int n, CfgFlags x, uint other)",
+            body,
+            "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 } public enum CfgFlags : uint { None = 0, Top = 0x80000000u }");
+    }
+
     // A sub-int (byte) backing promotes to int in a C# shift; the reinterpret
     // targets the 4-byte width the shift runs on. Synthetic to keep the enum load
     // a bare operand (a compiled `(byte)` narrowing could add a conv node).
