@@ -521,6 +521,49 @@ public class EnumCastPrinterTests
         AssertCompiles("public static bool M(CfgFlags e, int n)", body, "public enum CfgFlags : uint { None = 0, Top = 0x80000000u }");
     }
 
+    // #3087 follow-up (adversarial review R4, GPT + Gemini): EQUALITY against a
+    // plain `uint` sibling reconciles to the shift's SIGNED stack width —
+    // `((int)e << n) == (int)x`. The stale-ResultType fallthrough dropped the cast
+    // (`== x`); `int == uint` widens to a signed 64-bit `ceq` in C#, so with
+    // `e = (CfgPriority)(-1)`, `x = 0xFFFFFFFF` the IL 32-bit `ceq` is TRUE but
+    // `-1L == 4294967295L` is FALSE — a silent behavior change.
+    [Fact]
+    public void EnumShiftEquality_PlainUintSibling_ReconcilesToSignedWidth()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumShiftEqualsUintSibling));
+
+        Assert.Contains("((int)e << n) == (int)x", body);
+        Assert.DoesNotContain("(uint)", body);
+        AssertCompiles("public static bool M(CfgPriority e, int n, uint x)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // #3087 follow-up (adversarial review R4, GPT + Gemini): SIGNED ordering with a
+    // plain `int` sibling reconciles to the shift's signed stack width; the sibling
+    // is already `int`, so it stays bare — `((int)e << n) < other`, no promotion.
+    [Fact]
+    public void EnumShiftSignedOrdering_PlainIntSibling_StaysSigned()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumShiftSignedLessIntSibling));
+
+        Assert.Contains("((int)e << n) < other", body);
+        Assert.DoesNotContain("(uint)", body);
+        AssertCompiles("public static bool M(CfgPriority e, int n, int other)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
+    // #3087 follow-up (adversarial review R4, GPT): a SIGNED ordering after an
+    // UNSIGNED shift (`shr.un` renders `uint`). The target follows the COMPARISON
+    // (signed), not the shift's rendered sign, so the shift is reinterpreted back to
+    // `int` — `(int)((uint)e >> n) < (int)other`. Coercing to the shift's `uint`
+    // instead would emit an unsigned compare, silently flipping the ordering.
+    [Fact]
+    public void EnumShiftUnsignedShr_SignedOrdering_ReinterpretsToSignedWidth()
+    {
+        string body = RenderFixture(nameof(EnumCastSamples.EnumShiftUnsignedShrSignedCompare));
+
+        Assert.Contains("(int)((uint)e >> n) < (int)other", body);
+        AssertCompiles("public static bool M(CfgPriority e, int n, CfgPriority other)", body, "public enum CfgPriority { Low, Medium = 1, High = 2, Critical = 3 }");
+    }
+
     // A sub-int (byte) backing promotes to int in a C# shift; the reinterpret
     // targets the 4-byte width the shift runs on. Synthetic to keep the enum load
     // a bare operand (a compiled `(byte)` narrowing could add a conv node).

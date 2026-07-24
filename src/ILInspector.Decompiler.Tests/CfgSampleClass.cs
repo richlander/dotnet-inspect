@@ -5295,6 +5295,28 @@ public static class EnumCastSamples
     // (a plain `(int)CfgFlags.Top` is CS0221).
     public static bool EnumShiftCompareOverflowConst(CfgFlags e, int n) => ((int)e << n) == unchecked((int)CfgFlags.Top);
 
+    // #3087 follow-up (adversarial review R4, GPT + Gemini): EQUALITY against a
+    // plain `uint` sibling. Equality is bit-exact, so it reconciles to the shift's
+    // SIGNED stack width — `((int)e << n) == (int)x`. The stale-ResultType
+    // fallthrough dropped the sibling cast (`== x`), and `int == uint` widens to a
+    // signed 64-bit `ceq` in C# — with `e = (CfgPriority)(-1)`, `x = 0xFFFFFFFF` the
+    // IL 32-bit `ceq` is TRUE but `-1L == 4294967295L` is FALSE.
+    public static bool EnumShiftEqualsUintSibling(CfgPriority e, int n, uint x) => (uint)((int)e << n) == x;
+
+    // #3087 follow-up (adversarial review R4, GPT + Gemini): SIGNED ordering with a
+    // plain integer sibling reconciles to the shift's signed stack width —
+    // `((int)e << n) < other` (identity when the sibling already is `int`), never a
+    // sign-widened `int < uint` promotion.
+    public static bool EnumShiftSignedLessIntSibling(CfgPriority e, int n, int other) => ((int)e << n) < other;
+
+    // #3087 follow-up (adversarial review R4, GPT): a SIGNED ordering after an
+    // UNSIGNED shift (`shr.un` renders `uint`). The target is driven by the
+    // comparison (signed), not the shift's rendered sign, so the shift is
+    // reinterpreted back to `int` — `(int)((uint)e >> n) < (int)other`. Coercing to
+    // the shift's `uint` instead would emit an unsigned compare `((uint)e >> n) <
+    // (uint)other`, silently changing the ordering.
+    public static bool EnumShiftUnsignedShrSignedCompare(CfgPriority e, int n, CfgPriority other) => (int)((uint)e >> n) < (int)other;
+
     // #1766: ternary with enum-constant arms stored to a cross-assembly enum
     // local (StringComparison.Ordinal = 4, OrdinalIgnoreCase = 5).
     public static bool EnumConditional(string name, bool ci)

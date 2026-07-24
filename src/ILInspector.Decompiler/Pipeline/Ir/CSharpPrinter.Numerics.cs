@@ -672,21 +672,22 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
-    /// Renders an enum shift (or a bitwise chain over one) compared to an enum
-    /// sibling, coercing the sibling so both sides bind, or null when
-    /// <paramref name="shiftSide"/> is not an integer-rendering shift or
-    /// <paramref name="enumSide"/> is not an enum. Equality (<c>ceq</c>/<c>bne.un</c>)
-    /// and signed ordering (<c>clt</c>/<c>cgt</c>) coerce the sibling DOWN to the
-    /// shift's rendered integer — <c>(int)e &lt;&lt; n == (int)other</c> — a faithful
-    /// same-width spelling.
+    /// Renders an enum shift (or a bitwise chain over one) compared to a sibling,
+    /// reconciling both operands to one C# type so the comparison binds and matches
+    /// the IL, or null when <paramref name="shiftSide"/> is not an integer-rendering
+    /// shift or <paramref name="enumSide"/> is not an integer/enum.
     /// <para>
-    /// An UNSIGNED ordering (<c>clt.un</c>/<c>cgt.un</c>) cannot use the enum's own
-    /// backing: a signed backing would compare signed and a narrow backing would
-    /// truncate the widened shift value on the round-trip through the enum
-    /// (<c>(U8)((int)e &lt;&lt; n)</c> re-narrows to a byte). Reconcile BOTH sides to
-    /// the unsigned counterpart of the shift's stack width — <c>(uint)((int)e &lt;&lt; n)
-    /// &lt; (uint)other</c> — so the comparison is the unsigned one the IL performs,
-    /// independent of the enum backing.
+    /// The common type is derived from the COMPARISON's signedness, not the shift's
+    /// rendered signedness: an unsigned ordering (<c>clt.un</c>/<c>cgt.un</c>) uses
+    /// the unsigned counterpart of the shift's stack width
+    /// (<c>(uint)((int)e &lt;&lt; n) &lt; (uint)other</c>), while a signed ordering
+    /// (<c>clt</c>/<c>cgt</c>) and equality (<c>ceq</c>/<c>bne.un</c>, bit-exact) use
+    /// the signed counterpart (<c>(int)((uint)e &gt;&gt; n) &lt; (int)other</c>).
+    /// Keying off the comparison keeps a signed compare after <c>shr.un</c> signed
+    /// and an unsigned compare after <c>shl</c> unsigned, independent of the enum
+    /// backing — a signed backing would otherwise compare signed, a narrow backing
+    /// would truncate the widened shift value on a round-trip through the enum, and a
+    /// plain unsigned sibling would sign-widen an <c>int</c>-rendered shift.
     /// </para>
     /// </summary>
     string? DownCoercedShiftComparison(ComparisonKind kind, bool isUnsigned, IrExpression shiftSide, IrExpression enumSide, bool shiftIsLeft)
@@ -696,30 +697,46 @@ public sealed partial class CSharpPrinter
             return null;
         bool ordering = kind is ComparisonKind.LessThan or ComparisonKind.LessThanOrEqual
             or ComparisonKind.GreaterThan or ComparisonKind.GreaterThanOrEqual;
-        if (isUnsigned && ordering)
-        {
-            var unsignedTarget = TypeRef.CoreLib("System", Is8ByteInteger(renderedInteger) ? "UInt64" : "UInt32");
-            // The sibling reconciles to the same unsigned stack width. An enum
-            // sibling goes through TryCoerceEnumToInteger (bare/masked/overflow);
-            // any other integer sibling (a plain `int`/`uint`, or another integer-
-            // rendering shift) still needs the unsigned reinterpret so the compare
-            // is `clt.un`, not a sign-widened `int < uint` — the fallthrough
-            // UnsignedOperand omits it because it trusts the shift's stale enum
-            // ResultType. CoerceText is identity when the sibling is already the
-            // target width and sign.
-            string unsignedSibling = TryCoerceEnumToInteger(enumSide, unsignedTarget)
-                ?? CoerceText(enumSide, unsignedTarget);
-            string unsignedShift = $"({TypeText(unsignedTarget)}){Operand(shiftSide)}";
-            return shiftIsLeft
-                ? $"{unsignedShift} {ComparisonOperator(kind)} {unsignedSibling}"
-                : $"{unsignedSibling} {ComparisonOperator(kind)} {unsignedShift}";
-        }
-        if (TryCoerceEnumToInteger(enumSide, renderedInteger) is not { } sibling)
+        bool eightByte = Is8ByteInteger(renderedInteger);
+        var target = TypeRef.CoreLib("System", (isUnsigned && ordering)
+            ? (eightByte ? "UInt64" : "UInt32")
+            : (eightByte ? "Int64" : "Int32"));
+        if (ReconcileComparisonOperand(enumSide, target) is not { } sibling)
             return null;
+        string shift = ReconcileComparisonOperand(shiftSide, target) ?? Operand(shiftSide);
         return shiftIsLeft
-            ? $"{Operand(shiftSide)} {ComparisonOperator(kind)} {sibling}"
-            : $"{sibling} {ComparisonOperator(kind)} {Operand(shiftSide)}";
+            ? $"{shift} {ComparisonOperator(kind)} {sibling}"
+            : $"{sibling} {ComparisonOperator(kind)} {shift}";
     }
+
+    /// <summary>
+    /// Reconciles a comparison operand to <paramref name="target"/> (the width/sign
+    /// the enclosing enum-shift comparison compares at): an enum through
+    /// <see cref="TryCoerceEnumToInteger"/> (bare/masked/overflow constant), an
+    /// integer-rendering shift/chain by a same-width bit-preserving reinterpret that
+    /// ignores the stale enum <c>ResultType</c>, and a plain integer through
+    /// <see cref="CoerceText"/> (identity when it already is that width and sign).
+    /// Null for a non-integer operand.
+    /// </summary>
+    string? ReconcileComparisonOperand(IrExpression operand, TypeRef target)
+    {
+        if (TryCoerceEnumToInteger(operand, target) is { } enumCoerced)
+            return enumCoerced;
+        if (BitwiseOperandRendersAsInteger(operand))
+        {
+            return BitwiseOperandRenderedType(operand) is { } rendered && SamePrimitive(rendered, target)
+                ? Operand(operand)
+                : $"({TypeText(target)}){Operand(operand)}";
+        }
+        return TypeFamilies.IsInteger(EffectiveType(operand))
+            ? CoerceText(operand, target)
+            : null;
+    }
+
+    static bool SamePrimitive(TypeRef a, TypeRef b)
+        => a is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" }
+            && b is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System" }
+            && a.Name == b.Name;
 
     // True when a constant enum cast is CS0221 as a plain (checked) cast, so it must
     // be wrapped in `unchecked`: a value outside the backing type's range — negative
