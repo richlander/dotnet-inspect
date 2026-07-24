@@ -257,6 +257,131 @@ public class ExpressionInliningPassTests
         function.CheckInvariant();
     }
 
+    // A catch clause binds the caught exception into a local (folded into the
+    // header as `VariableIndex`), which csc can place in a slot a prior value
+    // read. The slot holds `x + 1` reading local 0; the following try's catch
+    // rebinds local 0. The slot's single load sits in the catch body — not the
+    // first-evaluated leaf (the try body runs first) — so purity alone would
+    // inline `x + 1` into the handler and read the caught exception. The catch
+    // binding must count as a write (issue #3133 adversarial review — GPT catch
+    // case).
+    [Fact]
+    public void PureCompositeReadingLocal_IsNotInlinedPastCatchBinding()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadLocal(0, Int32),
+            new Constant(1, Int32))));
+
+        var tryBody = new BlockContainer();
+        var tryBlock = new Block(1);
+        tryBlock.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new Constant(0, Int32)])));
+        tryBody.Add(tryBlock);
+
+        var catchBody = new BlockContainer();
+        var catchBlock = new Block(2);
+        catchBlock.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(0, Int32)])));
+        catchBody.Add(catchBlock);
+        var clause = new CatchClause(ExceptionType, catchBody) { VariableIndex = 0 };
+
+        block.Add(new TryCatch(tryBody, [clause]));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
+    // A foreach header rebinds its iteration local each pass; csc can reuse a
+    // slot for it that a prior value read. The slot holds `x + 1` reading local
+    // 0; the following foreach iterates into local 0. The slot's single load
+    // sits in the loop body — not the first-evaluated leaf (the collection runs
+    // first) — so purity alone would inline `x + 1` into the body and read the
+    // iteration value. The foreach binding must count as a write (issue #3133
+    // adversarial review — Gemini foreach case).
+    [Fact]
+    public void PureCompositeReadingLocal_IsNotInlinedPastForeachBinding()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadLocal(0, Int32),
+            new Constant(1, Int32))));
+
+        var foreachBody = new Block(1);
+        foreachBody.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(0, Int32)])));
+        block.Add(new ForeachStatement(0, Int32, new LoadArgument(0, "xs", Object), foreachBody));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [new Parameter("xs", Object)], HasThis: false, GenericParameterCount: 0),
+            [Int32],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
+    // Correct-by-construction guard for the interference check. Every IR node
+    // that binds a local or argument names its place through a `LocalIndex` /
+    // `VariableIndex` property; ExpressionInliningPass.Writes must recognize each
+    // so a deferred pure value is never moved past a binding of a place it reads.
+    // A newly added binding node fails this pin until it is handled in Writes
+    // (issue #3133 adversarial review kept surfacing missing writers).
+    [Fact]
+    public void Writes_CoversEveryLocalOrArgumentBindingNode()
+    {
+        string[] bindingIndexNames = ["LocalIndex", "VariableIndex"];
+        var discovered = typeof(IrNode).Assembly.GetTypes()
+            .Where(t => t.IsPublic
+                && t.Namespace == typeof(IrNode).Namespace
+                && t.GetProperties().Any(p => bindingIndexNames.Contains(p.Name)
+                    && (p.PropertyType == typeof(int) || p.PropertyType == typeof(int?))))
+            .Select(t => t.Name)
+            .OrderBy(n => n, StringComparer.Ordinal)
+            .ToArray();
+
+        string[] expected =
+        [
+            "CatchClause",
+            "DeconstructionTarget",
+            "Fixed",
+            "ForeachStatement",
+            "IsPattern",
+            "NullCoalescingAssignment",
+            "PatternSwitchExpressionArm",
+            "PropertySubpattern",
+            "RecursivePropertyDeclarationPattern",
+            "UnionSwitchExpressionArm",
+            "UsingStatement",
+        ];
+
+        Assert.Equal(expected, discovered);
+    }
+
     [Fact]
     public void CachedDelegateArgument_InlinesToSingleCall()
     {
