@@ -16,7 +16,7 @@ public static class ApiSurfaceExtractor
     private const string OptionalAttributeName = "System.Runtime.InteropServices.Optional";
     private const string DateTimeConstantAttributeName = "System.Runtime.CompilerServices.DateTimeConstant";
 
-    public static ApiSurface Extract(PEReader peReader, bool includeAll = false, bool typesOnly = false)
+    public static ApiSurface Extract(PEReader peReader, bool includeAll = false, bool typesOnly = false, bool includeCompilerGenerated = false)
     {
         var surface = new ApiSurface();
         var reader = peReader.GetMetadataReader();
@@ -41,8 +41,10 @@ public static class ApiSurfaceExtractor
 
             string metadataName = reader.GetString(typeDef.Name);
 
-            // Skip compiler-generated types
-            if (TypeFilters.IsCompilerGenerated(metadataName))
+            // Skip compiler-generated types unless explicitly requested. The opt-in
+            // surfaces closure/display/state-machine types and their real fields so
+            // tooling (and compile-back reconstruction) can enumerate captured state.
+            if (TypeFilters.IsCompilerGenerated(metadataName) && !includeCompilerGenerated)
                 continue;
 
             // Skip EditorBrowsable(Never) and Obsolete types unless --all
@@ -307,31 +309,10 @@ public static class ApiSurfaceExtractor
             bool isEnum = apiType.Kind == "enum";
 
             // A C# field-like event's compiler-generated backing field is private, is itself
-            // marked [CompilerGenerated], and shares the event's exact (unmangled) name. Fold a
-            // field only when it carries all of that positive backing-field evidence AND matches
-            // an event whose adder is [CompilerGenerated] (i.e. a genuinely field-like event).
-            // The decisive signal is the candidate field's own [CompilerGenerated] marker, not the
-            // accessor's: hand-authored or non-C# metadata may attach [CompilerGenerated] to a
-            // custom accessor while a legitimate, same-named field backs nothing of the sort (the
-            // C# CS0102 restriction does not bind arbitrary IL). Requiring the field itself to be
-            // private and compiler-generated keeps a genuine field from being suppressed.
-            HashSet<string>? fieldLikeEventBackingFieldNames = null;
-            foreach (var eventHandle in typeDef.GetEvents())
-            {
-                var eventDef = reader.GetEventDefinition(eventHandle);
-                var adder = eventDef.GetAccessors().Adder;
-                if (adder.IsNil
-                    || !AttributeReader.HasAttribute(
-                        reader,
-                        reader.GetMethodDefinition(adder).GetCustomAttributes(),
-                        KnownAttributeNames.CompilerGeneratedAttribute))
-                {
-                    continue;
-                }
-
-                (fieldLikeEventBackingFieldNames ??= new HashSet<string>(StringComparer.Ordinal))
-                    .Add(reader.GetString(eventDef.Name));
-            }
+            // marked [CompilerGenerated], and shares the event's exact (unmangled) name. That
+            // pre-scan and the per-field fold below are factored into shared helpers so
+            // API-surface extraction and compile-back reconstruction agree on the fold.
+            var fieldLikeEventBackingFieldNames = FieldLikeEventBackingFieldNames(reader, typeDef);
 
             foreach (var fieldHandle in typeDef.GetFields())
             {
@@ -341,15 +322,10 @@ public static class ApiSurfaceExtractor
                     continue;
 
                 string fieldName = reader.GetString(field.Name);
-                if (fieldName.StartsWith("<"))
-                    continue; // Skip backing fields
+                if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated))
+                    continue; // Skip auto-property backing fields; other compiler-generated fields unless opted in
 
-                if (fieldAccess == FieldAttributes.Private
-                    && fieldLikeEventBackingFieldNames?.Contains(fieldName) == true
-                    && AttributeReader.HasAttribute(
-                        reader,
-                        field.GetCustomAttributes(),
-                        KnownAttributeNames.CompilerGeneratedAttribute))
+                if (IsFieldLikeEventBackingField(reader, field, fieldName, fieldLikeEventBackingFieldNames))
                     continue; // Skip a field-like event's private, compiler-generated backing field
 
                 // Skip EditorBrowsable(Never) fields unless --all; obsolete are surfaced with marker.
@@ -884,6 +860,115 @@ public static class ApiSurfaceExtractor
             value = value[..arityIndex];
 
         return value;
+    }
+
+    /// <summary>
+    /// Names of a type's field-like events. A C# field-like event's compiler-generated backing
+    /// field is private, is itself marked <c>[CompilerGenerated]</c>, and shares the event's exact
+    /// (unmangled) name. Only events whose adder is <c>[CompilerGenerated]</c> (i.e. genuinely
+    /// field-like) contribute a name; hand-authored or non-C# accessors are excluded so a
+    /// legitimate same-named field is not suppressed.
+    /// </summary>
+    static HashSet<string>? FieldLikeEventBackingFieldNames(MetadataReader reader, TypeDefinition typeDef)
+    {
+        HashSet<string>? names = null;
+        foreach (var eventHandle in typeDef.GetEvents())
+        {
+            var eventDef = reader.GetEventDefinition(eventHandle);
+            var adder = eventDef.GetAccessors().Adder;
+            if (adder.IsNil
+                || !AttributeReader.HasAttribute(
+                    reader,
+                    reader.GetMethodDefinition(adder).GetCustomAttributes(),
+                    KnownAttributeNames.CompilerGeneratedAttribute))
+            {
+                continue;
+            }
+
+            (names ??= new HashSet<string>(StringComparer.Ordinal)).Add(reader.GetString(eventDef.Name));
+        }
+
+        return names;
+    }
+
+    /// <summary>
+    /// True when a field is a field-like event's private, compiler-generated backing field. The
+    /// decisive signal is the candidate field's own <c>[CompilerGenerated]</c> marker (not the
+    /// accessor's): the C# CS0102 same-name restriction does not bind arbitrary IL, so a genuine
+    /// field could share an event's name; requiring the field itself to be private and
+    /// compiler-generated keeps it from being folded away.
+    /// </summary>
+    static bool IsFieldLikeEventBackingField(
+        MetadataReader reader,
+        FieldDefinition field,
+        string fieldName,
+        HashSet<string>? fieldLikeEventBackingFieldNames)
+        => (field.Attributes & FieldAttributes.FieldAccessMask) == FieldAttributes.Private
+           && fieldLikeEventBackingFieldNames?.Contains(fieldName) == true
+           && AttributeReader.HasAttribute(
+               reader,
+               field.GetCustomAttributes(),
+               KnownAttributeNames.CompilerGeneratedAttribute);
+
+    /// <summary>
+    /// A synthesized auto-property backing field, spelled <c>&lt;Prop&gt;k__BackingField</c>. The
+    /// pattern is matched precisely (leading <c>&lt;</c> plus the <c>k__BackingField</c> suffix) so
+    /// a legitimate user field whose name merely contains <c>__BackingField</c> is not dropped.
+    /// </summary>
+    static bool IsAutoPropertyBackingFieldName(string name)
+        => name.StartsWith('<') && name.EndsWith("k__BackingField", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Whether a field name belongs to a type's declarable field surface. Auto-property backing
+    /// fields are always excluded; other compiler-generated (<c>&lt;...&gt;</c>) fields are
+    /// excluded unless <paramref name="includeCompilerGenerated"/> is set. Ordinary fields
+    /// (including the enum <c>value__</c> slot, which callers handle separately) are surfaced.
+    /// </summary>
+    static bool IsSurfaceableFieldName(string name, bool includeCompilerGenerated)
+    {
+        if (IsAutoPropertyBackingFieldName(name))
+            return false;
+        if (name.StartsWith('<'))
+            return includeCompilerGenerated;
+        return true;
+    }
+
+    /// <summary>
+    /// The field handles that make up a type's declarable field surface: ordinary fields,
+    /// excluding synthesized auto-property backing fields, the enum storage slot (<c>value__</c>),
+    /// and a field-like event's compiler-generated backing field. Compiler-generated fields (e.g.
+    /// state-machine hoisted locals, display-class captures) are included only when
+    /// <paramref name="includeCompilerGenerated"/> is set; non-public fields only when
+    /// <paramref name="includeAll"/> is set. This is the single field-inclusion decision shared by
+    /// API-surface extraction and compile-back reconstruction so both agree on which fields a type
+    /// really has.
+    /// </summary>
+    public static List<FieldDefinitionHandle> SurfaceFieldHandles(
+        MetadataReader reader,
+        TypeDefinition typeDef,
+        bool includeAll,
+        bool includeCompilerGenerated)
+    {
+        var fieldLikeEventBackingFieldNames = FieldLikeEventBackingFieldNames(reader, typeDef);
+        var handles = new List<FieldDefinitionHandle>();
+        foreach (var fieldHandle in typeDef.GetFields())
+        {
+            var field = reader.GetFieldDefinition(fieldHandle);
+            if ((field.Attributes & FieldAttributes.FieldAccessMask) != FieldAttributes.Public && !includeAll)
+                continue;
+
+            string fieldName = reader.GetString(field.Name);
+            if (fieldName == "value__")
+                continue;
+            if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated))
+                continue;
+            if (IsFieldLikeEventBackingField(reader, field, fieldName, fieldLikeEventBackingFieldNames))
+                continue;
+
+            handles.Add(fieldHandle);
+        }
+
+        return handles;
     }
 
     /// <summary>

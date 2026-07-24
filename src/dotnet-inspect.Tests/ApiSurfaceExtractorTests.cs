@@ -1,3 +1,4 @@
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
@@ -971,6 +972,145 @@ public class ApiSurfaceExtractorTests
         }
     }
 
+    [Fact]
+    public void Extract_ExcludesCompilerGeneratedTypesByDefault()
+    {
+        // The test assembly itself is a real csc artifact: SampleClosureHost's capturing lambda
+        // forces the compiler to emit a nested `<>c__DisplayClass`. By default (opt-in off) no
+        // compiler-generated type is surfaced, even under --all.
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        Assert.DoesNotContain(surface.Types, t => (t.MetadataName ?? "").Contains("DisplayClass"));
+    }
+
+    [Fact]
+    public void Extract_SurfacesCompilerGeneratedTypesAndRealFieldsWhenOptedIn()
+    {
+        // With the opt-in, compiler-generated types are surfaced together with their genuine
+        // fields (the display class carries the captured state), but synthesized auto-property
+        // backing fields stay excluded everywhere — even under the opt-in.
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(
+            peReader, includeAll: true, includeCompilerGenerated: true);
+
+        // A display class from a real capturing lambda is surfaced with at least one field member.
+        Assert.Contains(
+            surface.Types,
+            t => (t.MetadataName ?? "").Contains("DisplayClass")
+                 && t.Members.Any(m => m.Kind == "field"));
+
+        // Auto-property backing fields (<Prop>k__BackingField) are never surfaced as fields, even
+        // once compiler-generated members are opted in.
+        Assert.DoesNotContain(
+            surface.Types.SelectMany(t => t.Members),
+            m => m.Kind == "field" && m.Name.EndsWith("k__BackingField", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void SurfaceFieldHandles_ExcludesSynthesizedFieldsAndGatesCompilerGeneratedFields()
+    {
+        // Direct unit test of the shared field-inclusion primitive over a hand-authored type with
+        // precisely-named fields. Synthetic metadata is appropriate here: the primitive is a pure
+        // name/attribute filter, so exact field names isolate exactly what it decides.
+        string dllPath = EmitFieldSurfaceSample();
+        try
+        {
+            using var stream = File.OpenRead(dllPath);
+            using var peReader = new PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            var typeDef = reader.TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(t => reader.GetString(t.Name) == "FieldSurfaceSample");
+
+            var off = SurfaceFieldNames(reader, typeDef, includeCompilerGenerated: false);
+            var on = SurfaceFieldNames(reader, typeDef, includeCompilerGenerated: true);
+
+            // Ordinary fields are always surfaced, including a user field whose name merely
+            // contains "__BackingField" (only the exact <Prop>k__BackingField shape is synthetic).
+            Assert.Contains("Plain", off);
+            Assert.Contains("count__BackingField", off);
+            Assert.Contains("Plain", on);
+            Assert.Contains("count__BackingField", on);
+
+            // Synthesized fields are excluded regardless of the opt-in.
+            foreach (var set in new[] { off, on })
+            {
+                Assert.DoesNotContain("<Value>k__BackingField", set); // auto-property backing
+                Assert.DoesNotContain("value__", set);                // enum storage slot name
+                Assert.DoesNotContain("Evt", set);                    // field-like event backing
+            }
+
+            // A compiler-generated (<...>) field is gated behind the opt-in.
+            Assert.DoesNotContain("<hoisted>5__1", off);
+            Assert.Contains("<hoisted>5__1", on);
+        }
+        finally
+        {
+            try { File.Delete(dllPath); } catch { /* best-effort */ }
+        }
+    }
+
+    static HashSet<string> SurfaceFieldNames(
+        MetadataReader reader, TypeDefinition typeDef, bool includeCompilerGenerated)
+        => ApiSurfaceExtractor
+            .SurfaceFieldHandles(reader, typeDef, includeAll: true, includeCompilerGenerated)
+            .Select(h => reader.GetString(reader.GetFieldDefinition(h).Name))
+            .ToHashSet(StringComparer.Ordinal);
+
+    // Emits (via Reflection.Emit) a type whose fields exercise every branch of the field-inclusion
+    // primitive: an ordinary field, a user field that merely contains "__BackingField", a real
+    // auto-property backing field, the enum storage-slot name, a compiler-generated hoisted local,
+    // and a field-like event's private [CompilerGenerated] backing field. Returns the saved path.
+    static string EmitFieldSurfaceSample()
+    {
+        var ab = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new System.Reflection.AssemblyName("FieldSurfaceEmit"), typeof(object).Assembly);
+        var module = ab.DefineDynamicModule("FieldSurfaceEmit");
+        var tb = module.DefineType("FieldSurfaceSample",
+            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
+
+        tb.DefineField("Plain", typeof(int), System.Reflection.FieldAttributes.Public);
+        tb.DefineField("count__BackingField", typeof(int), System.Reflection.FieldAttributes.Public);
+        tb.DefineField("<Value>k__BackingField", typeof(int), System.Reflection.FieldAttributes.Private);
+        tb.DefineField("value__", typeof(int), System.Reflection.FieldAttributes.Public);
+        tb.DefineField("<hoisted>5__1", typeof(int), System.Reflection.FieldAttributes.Public);
+
+        var cgCtor = typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute)
+            .GetConstructor(Type.EmptyTypes)!;
+        var cgAttr = new System.Reflection.Emit.CustomAttributeBuilder(cgCtor, Array.Empty<object>());
+
+        // Field-like event: a private [CompilerGenerated] field sharing the event name, with
+        // [CompilerGenerated] add/remove accessors.
+        var evtField = tb.DefineField("Evt", typeof(Action), System.Reflection.FieldAttributes.Private);
+        evtField.SetCustomAttribute(cgAttr);
+        const System.Reflection.MethodAttributes accessorAttrs =
+            System.Reflection.MethodAttributes.Private
+            | System.Reflection.MethodAttributes.SpecialName
+            | System.Reflection.MethodAttributes.HideBySig;
+        var add = tb.DefineMethod("add_Evt", accessorAttrs, typeof(void), new[] { typeof(Action) });
+        add.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        add.SetCustomAttribute(cgAttr);
+        var remove = tb.DefineMethod("remove_Evt", accessorAttrs, typeof(void), new[] { typeof(Action) });
+        remove.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        remove.SetCustomAttribute(cgAttr);
+        var eventBuilder = tb.DefineEvent("Evt", System.Reflection.EventAttributes.None, typeof(Action));
+        eventBuilder.SetAddOnMethod(add);
+        eventBuilder.SetRemoveOnMethod(remove);
+
+        tb.CreateType();
+
+        string path = Path.Combine(Path.GetTempPath(), $"field-surface-{Guid.NewGuid():N}.dll");
+        ab.Save(path);
+        return path;
+    }
+
     static IReadOnlyList<ApiMember> ExtractClashTypeMembers(string dllPath)
     {
         using var stream = File.OpenRead(dllPath);
@@ -1027,6 +1167,21 @@ public class ApiSurfaceExtractorTests
         return path;
     }
 
+}
+
+/// <summary>
+/// Fixture: a capturing lambda that forces csc to emit a compiler-generated display class with
+/// fields for the captured state, plus an auto-property whose backing field must stay excluded.
+/// </summary>
+public class SampleClosureHost
+{
+    public int AutoValue { get; set; }
+
+    public System.Func<int> Capture(int seed)
+    {
+        int local = seed * 2;
+        return () => seed + local;
+    }
 }
 
 /// <summary>
