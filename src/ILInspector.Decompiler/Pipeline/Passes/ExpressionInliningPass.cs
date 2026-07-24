@@ -470,6 +470,29 @@ public sealed class ExpressionInliningPass : IIrPass
         LoadArgument argument => !argumentAddresses.Contains(argument.Index)
             && !(function.Signature.HasThis && argument.Index == 0),
         LoadLocal load => !locals.TryGetValue((false, load.Index), out var entry) || !entry.AddressTaken,
+        // Side-effect-free, non-throwing composites: pure iff every operand is
+        // pure. Purity here must imply "cannot throw" as well as "no effect",
+        // because a pure value is deferred to its load site — moving a value
+        // that could throw past a prefix that could also throw (or have an
+        // effect) would change which exception surfaces. So division and
+        // remainder (DivideByZero/Overflow) and checked arithmetic/conversions
+        // (Overflow) are excluded; neg/not, bitwise/shift, unchecked
+        // arithmetic, comparisons, and conditionals never throw.
+        LogicalNot not => IsPure(not.Operand, locals, argumentAddresses, function),
+        Unary unary => IsPure(unary.Operand, locals, argumentAddresses, function),
+        Comparison comparison =>
+            IsPure(comparison.Left, locals, argumentAddresses, function)
+            && IsPure(comparison.Right, locals, argumentAddresses, function),
+        LogicalBinary logical =>
+            IsPure(logical.Left, locals, argumentAddresses, function)
+            && IsPure(logical.Right, locals, argumentAddresses, function),
+        Binary { Kind: not (BinaryKind.Divide or BinaryKind.Remainder), IsChecked: false } binary =>
+            IsPure(binary.Left, locals, argumentAddresses, function)
+            && IsPure(binary.Right, locals, argumentAddresses, function),
+        Conditional conditional =>
+            IsPure(conditional.Condition, locals, argumentAddresses, function)
+            && IsPure(conditional.WhenTrue, locals, argumentAddresses, function)
+            && IsPure(conditional.WhenFalse, locals, argumentAddresses, function),
         _ => false,
     };
 }
