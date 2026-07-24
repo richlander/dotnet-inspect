@@ -103,8 +103,8 @@ jobs:
           restore-keys: |
             nuget-${{ runner.os }}-${{ runner.arch }}-
 
-      - name: Build managed tool
-        run: dotnet build src/dotnet-inspect -c Release -p:PublishAot=false
+      - name: Build solution (tool + fixtures)
+        run: dotnet build dotnet-inspect.slnx -c Release
 
       - name: Run CLI tests (including slow integration)
         run: dotnet run --project src/dotnet-inspect.Tests -c Release

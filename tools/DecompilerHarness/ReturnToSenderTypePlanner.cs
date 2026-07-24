@@ -2850,43 +2850,6 @@ public static class CompileBackSourceComposer
         return false;
     }
 
-    // Backing field metadata names (`<Name>k__BackingField`) for every auto-property on the
-    // type whose skeleton the member surface re-emits. The compiler re-synthesizes each such
-    // backing field, so the raw field must be suppressed to avoid a stray duplicate (issue #3036).
-    static HashSet<string> AutoPropertyBackingFieldNames(MetadataReader reader, TypeDefinition typeDef)
-    {
-        var names = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var propertyHandle in typeDef.GetProperties())
-        {
-            var property = reader.GetPropertyDefinition(propertyHandle);
-            string propertyName = reader.GetString(property.Name);
-            if (propertyName.Contains('<', StringComparison.Ordinal)
-                || propertyName.Contains('.', StringComparison.Ordinal))
-                continue;
-
-            string returnTypeDisplay;
-            try
-            {
-                var declaration = MetadataDeclarationQuery.GetProperty(reader, typeDef, property);
-                if (declaration.Signature.ReturnType is not { } propertyReturnType)
-                    continue;
-                returnTypeDisplay = CompileBackTypeSignature.Display(propertyReturnType).DisplayName;
-            }
-            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
-            {
-                continue;
-            }
-
-            var accessors = property.GetAccessors();
-            bool isAuto = (!accessors.Getter.IsNil && IsAutoProperty(reader, typeDef, property, accessors.Getter, returnTypeDisplay))
-                || (!accessors.Setter.IsNil && IsAutoPropertySetter(reader, typeDef, property, accessors.Setter, returnTypeDisplay));
-            if (isAuto)
-                names.Add($"<{propertyName}>k__BackingField");
-        }
-
-        return names;
-    }
-
     static bool IsAutoProperty(
         MetadataReader reader,
         TypeDefinition typeDef,
@@ -4090,13 +4053,15 @@ public static class CompileBackSourceComposer
                 || requirement.IncludeMemberSurface;
             var accessorMethods = new HashSet<MethodDefinitionHandle>();
             var typeContext = GenericContext.ForType(reader, typeDef);
-            // The compiler re-synthesizes the backing field for each auto-property skeleton this
-            // surface emits, so the raw `<Name>k__BackingField` must not also be emitted as a
-            // field. Its unspeakable name is sanitized to a legal identifier (e.g.
-            // `__Name_k__BackingField`), which would otherwise compile as a stray duplicate field
-            // sitting next to the reconstructed auto-property (issue #3036).
-            var autoPropertyBackingFields = AutoPropertyBackingFieldNames(reader, typeDef);
-            foreach (var fieldHandle in typeDef.GetFields())
+            // The product owns the field-inclusion decision (ApiSurfaceExtractor.SurfaceFieldHandles):
+            // it drops synthesized auto-property backing fields (`<Name>k__BackingField`, which the
+            // compiler re-synthesizes for each reconstructed auto-property, issue #3036), the enum
+            // `value__` slot, and a field-like event's compiler-generated backing field (issue
+            // #3083), while surfacing the closure/state-machine captures reconstruction needs
+            // (includeCompilerGenerated). RTS keeps only the reconstruction-side gates below
+            // (unspeakable names, signature decode, fixed buffers, pointer surface, dedup).
+            foreach (var fieldHandle in ApiSurfaceExtractor.SurfaceFieldHandles(
+                reader, typeDef, includeAll: true, includeCompilerGenerated: true))
             {
                 var field = reader.GetFieldDefinition(fieldHandle);
                 string fieldName = reader.GetString(field.Name);
@@ -4104,8 +4069,6 @@ public static class CompileBackSourceComposer
                 {
                     continue;
                 }
-                if (autoPropertyBackingFields.Contains(fieldName))
-                    continue;
                 if (members.Any(member => member.Kind == CompileBackMemberKind.Field && member.Identity.Method == Identifier(fieldName)))
                     continue;
 
