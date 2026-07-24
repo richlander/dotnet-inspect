@@ -39,17 +39,27 @@ callers -> selected overload -> callees
 Both roots are the selected overload. `callerRoot` is the reverse tree (its
 children are inbound callers); `calleeRoot` is the outbound tree (its children
 are callees). Either may be null (e.g. the browser's first caller-only view),
-but not both, and when both are supplied they must name the same member.
+but not both, and when both are supplied they must name the same member. A
+bodiless target (abstract / interface / extern) is the one exception the builders
+resolve asymmetrically: `BuildCallerTree` recovers the real member from an
+inbound call operand while `BuildCallTree` has no body and yields an `Unsupported`
+placeholder root. The projection treats an `Unsupported` placeholder as *unknown
+identity* — it never contradicts a resolved member — and centers the graph on the
+resolved member, so the combined view still renders instead of throwing.
 
 The projection owns everything a host must not re-invent in JavaScript:
 
 - **Edge direction.** Caller-tree edges point child → parent (a caller flows
   *into* the target); callee-tree edges point parent → child (the target flows
   *out* to a callee).
-- **Stable node identity.** Members are keyed on fully-qualified declaring type,
-  name, method type arguments, and parameter types, so shared callees, cycles,
-  and the target-as-both-caller-and-callee collapse to one node; overloads and
-  distinct generic instantiations stay separate.
+- **Stable node identity.** Members are keyed with the Analysis layer's
+  assembly-qualified `GenericMemberIdentity.KeyFragment` over the declaring type,
+  method type arguments, and parameter types, plus the member name, generic
+  arity, and return type. Shared callees, cycles, and the
+  target-as-both-caller-and-callee collapse to one node, while overloads that
+  differ only by parameter types, generic arity, or return type (C# conversion
+  operators), distinct generic instantiations, and same-namespace/same-name types
+  from *different assemblies* all stay separate.
 - **Deterministic ids/ordering.** The target is `n0`; remaining ids are assigned
   in first-seen order over a caller depth-first walk, then a callee walk. Nodes
   are declared in id order and edges in first-seen order, so the same input
@@ -66,7 +76,9 @@ The projection owns everything a host must not re-invent in JavaScript:
   outbound, `-->|loop call|` inbound), read from the child node's loop flag.
 - **Mermaid-safe escaping.** Hostile or unusual member names (quotes, angle
   brackets, pipes, `#`) are escaped with Mermaid entity codes so they cannot
-  break out of the label or the flowchart grammar.
+  break out of the label or the flowchart grammar. Edge labels are unquoted, so
+  they additionally entity-encode the structural delimiters (`()[]{}`) that would
+  otherwise corrupt an edge label.
 
 ## Consumers
 
@@ -78,6 +90,8 @@ call-graph view and the browser prototype adopt.
 
 Coverage lives in
 `src/ILInspector.Analysis.Tests/CallGraphMermaidTests.cs` (edge direction,
-escaping, duplicates/cycles, external/already-shown/depth-limited/truncated
-statuses, deterministic ids, loop annotations, and an exact combined
+escaping, edge-label structural encoding, duplicates/cycles,
+external/already-shown/depth-limited/truncated statuses, deterministic ids, loop
+annotations, cross-assembly / generic-arity / return-type identity separation,
+the bodiless-target combined view, and an exact combined
 caller/target/callee document).

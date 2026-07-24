@@ -37,17 +37,31 @@ public static class CallGraphMermaid
         if (callerRoot is null && calleeRoot is null)
             throw new ArgumentException($"At least one of {nameof(callerRoot)} or {nameof(calleeRoot)} must be provided.");
 
-        if (callerRoot is not null && calleeRoot is not null
-            && IdentityKey(callerRoot.Member) != IdentityKey(calleeRoot.Member))
+        // Both roots are the selected overload, but the Analysis builders can resolve a
+        // bodiless target (abstract / interface / extern) differently: BuildCallerTree
+        // recovers the real member from an inbound call operand, while BuildCallTree has
+        // no body to resolve and yields an Unsupported placeholder. Treat an Unsupported
+        // placeholder as "unknown identity" so it never contradicts a resolved member, and
+        // prefer the resolved member as the single centered target node.
+        bool callerResolved = callerRoot is { Member.Kind: not MemberKind.Unsupported };
+        bool calleeResolved = calleeRoot is { Member.Kind: not MemberKind.Unsupported };
+        if (callerResolved && calleeResolved
+            && IdentityKey(callerRoot!.Member) != IdentityKey(calleeRoot!.Member))
             throw new ArgumentException($"{nameof(callerRoot)} and {nameof(calleeRoot)} must describe the same selected member.");
 
+        var target = calleeResolved ? calleeRoot!.Member
+            : callerResolved ? callerRoot!.Member
+            : (calleeRoot ?? callerRoot)!.Member;
+
         var builder = new GraphBuilder();
-        // The selected overload is the single centered node shared by both trees.
-        builder.RegisterTarget((calleeRoot ?? callerRoot)!.Member);
+        // The selected overload is the single centered node shared by both trees; each
+        // tree's root *is* that target, so map both roots to the centered id. This keeps a
+        // bodiless placeholder root from becoming a second, stray "?" node.
+        int targetId = builder.RegisterTarget(target);
         if (callerRoot is not null)
-            builder.WalkCallers(callerRoot);
+            builder.WalkCallers(callerRoot, targetId);
         if (calleeRoot is not null)
-            builder.WalkCallees(calleeRoot);
+            builder.WalkCallees(calleeRoot, targetId);
         return builder.Render();
     }
 
@@ -94,29 +108,27 @@ public static class CallGraphMermaid
         readonly Dictionary<(int From, int To), int> _edgeIndex = [];
         readonly List<Edge> _edges = [];
 
-        public void RegisterTarget(MemberRef member) => GetOrAdd(member, NodeClass.Target);
+        public int RegisterTarget(MemberRef member) => GetOrAdd(member, NodeClass.Target);
 
         /// <summary>Walk a reverse (caller) tree: each child calls its parent, so edges point child → parent.</summary>
-        public void WalkCallers(CallTreeNode node)
+        public void WalkCallers(CallTreeNode node, int nodeId)
         {
-            int parentId = GetOrAdd(node.Member, ClassFor(node.Status));
             foreach (var child in node.Children)
             {
                 int childId = GetOrAdd(child.Member, ClassFor(child.Status));
-                AddEdge(childId, parentId, LoopLabel(child.Perf));
-                WalkCallers(child);
+                AddEdge(childId, nodeId, LoopLabel(child.Perf));
+                WalkCallers(child, childId);
             }
         }
 
         /// <summary>Walk an outbound (callee) tree: each parent calls its children, so edges point parent → child.</summary>
-        public void WalkCallees(CallTreeNode node)
+        public void WalkCallees(CallTreeNode node, int nodeId)
         {
-            int parentId = GetOrAdd(node.Member, ClassFor(node.Status));
             foreach (var child in node.Children)
             {
                 int childId = GetOrAdd(child.Member, ClassFor(child.Status));
-                AddEdge(parentId, childId, LoopLabel(child.Perf));
-                WalkCallees(child);
+                AddEdge(nodeId, childId, LoopLabel(child.Perf));
+                WalkCallees(child, childId);
             }
         }
 
@@ -173,7 +185,7 @@ public static class CallGraphMermaid
             {
                 sb.Append("    ").Append(NodeId(edge.From));
                 if (edge.LoopLabel is { } loop)
-                    sb.Append(" -->|").Append(Escape(loop)).Append("| ");
+                    sb.Append(" -->|").Append(Escape(loop, edgeLabel: true)).Append("| ");
                 else
                     sb.Append(" --> ");
                 sb.Append(NodeId(edge.To)).Append('\n');
@@ -194,17 +206,19 @@ public static class CallGraphMermaid
     /// <summary>
     /// A stable structural identity for a member so shared callees, cycles, and the
     /// target-as-caller-and-callee all collapse to one node. Overloads stay distinct
-    /// (parameter types) and distinct generic instantiations stay distinct (type
-    /// arguments), keyed on fully-qualified spellings so unrelated same-named types do
-    /// not merge.
+    /// (parameter types, generic arity, and return type — which alone separates C#
+    /// conversion operators) and distinct generic instantiations stay distinct (type
+    /// arguments). Keyed on <see cref="GenericMemberIdentity.KeyFragment"/>, which is
+    /// assembly-qualified, so same-namespace/same-name types from <em>different
+    /// assemblies</em> do not merge (the display spellings drop the assembly; see #1741).
     /// </summary>
     static string IdentityKey(MemberRef member)
     {
         var typeArguments = member.TypeArguments.IsDefaultOrEmpty
             ? ""
-            : "<" + string.Join(",", member.TypeArguments.Select(t => t.ToQualifiedDisplayString())) + ">";
-        var parameters = string.Join(",", member.ParameterTypes.Select(p => p.ToQualifiedDisplayString()));
-        return $"{member.DeclaringType.ToQualifiedDisplayString()}::{member.Name}{typeArguments}({parameters})";
+            : "<" + string.Join(",", member.TypeArguments.Select(GenericMemberIdentity.KeyFragment)) + ">";
+        var parameters = string.Join(",", member.ParameterTypes.Select(GenericMemberIdentity.KeyFragment));
+        return $"{GenericMemberIdentity.KeyFragment(member.DeclaringType)}::{member.Name}`{member.GenericArity}{typeArguments}({parameters}):{GenericMemberIdentity.KeyFragment(member.ReturnType)}";
     }
 
     /// <summary>Compact, host-neutral member spelling used as the Mermaid node label.</summary>
@@ -248,9 +262,12 @@ public static class CallGraphMermaid
     /// <summary>
     /// Escapes text for a Mermaid quoted label / edge label using Mermaid entity codes,
     /// so hostile or unusual member names (quotes, angle brackets, pipes, <c>#</c>)
-    /// cannot break out of the label or the flowchart grammar.
+    /// cannot break out of the label or the flowchart grammar. Node labels are wrapped in
+    /// <c>["..."]</c> so brackets/parentheses are already safe there; edge labels
+    /// (<c>|...|</c>) are unquoted, so <paramref name="edgeLabel"/> additionally entity-
+    /// encodes the structural delimiters that would otherwise corrupt an edge label.
     /// </summary>
-    static string Escape(string text)
+    static string Escape(string text, bool edgeLabel = false)
     {
         var sb = new StringBuilder(text.Length + 8);
         foreach (var ch in text)
@@ -265,6 +282,12 @@ public static class CallGraphMermaid
                 case '|': sb.Append("#124;"); break;
                 case '\r': sb.Append("#13;"); break;
                 case '\n': sb.Append("#10;"); break;
+                case '(' when edgeLabel: sb.Append("#40;"); break;
+                case ')' when edgeLabel: sb.Append("#41;"); break;
+                case '[' when edgeLabel: sb.Append("#91;"); break;
+                case ']' when edgeLabel: sb.Append("#93;"); break;
+                case '{' when edgeLabel: sb.Append("#123;"); break;
+                case '}' when edgeLabel: sb.Append("#125;"); break;
                 default: sb.Append(ch); break;
             }
         }

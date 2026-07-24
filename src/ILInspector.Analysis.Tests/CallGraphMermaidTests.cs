@@ -296,4 +296,104 @@ public class CallGraphMermaidTests
 
         Assert.Equal(expected, actual);
     }
+
+    [Fact]
+    public void KeepsSameNameMembersFromDifferentAssembliesDistinct()
+    {
+        // Two callees whose declaring type has the same namespace + name but a different
+        // assembly must not collapse: the display spelling drops the assembly, but they are
+        // genuinely different members (#1741-class hazard).
+        var fromA = new MemberRef(TypeRef.Definition("AsmA", "Shared", "Widget"), "Work", [], TypeRef.CoreLib("System", "Void"), MemberKind.Method);
+        var fromB = new MemberRef(TypeRef.Definition("AsmB", "Shared", "Widget"), "Work", [], TypeRef.CoreLib("System", "Void"), MemberKind.Method);
+
+        var callees = Node(
+            Member("Target", "Run"),
+            CallTreeStatus.Expanded,
+            [Leaf(fromA), Leaf(fromB)]);
+
+        var lines = Lines(CallGraphMermaid.RenderCallees(callees));
+
+        Assert.Contains("n1[\"Widget.Work()\"]", lines);
+        Assert.Contains("n2[\"Widget.Work()\"]", lines);
+        Assert.Contains("n0 --> n1", lines);
+        Assert.Contains("n0 --> n2", lines);
+    }
+
+    [Fact]
+    public void KeepsGenericArityOverloadsDistinct()
+    {
+        // Invoke() and Invoke<T>() are legal overloads that differ only by generic arity.
+        var nonGeneric = new MemberRef(Type("Host"), "Invoke", [], TypeRef.CoreLib("System", "Void"), MemberKind.Method) { GenericArity = 0 };
+        var generic = new MemberRef(Type("Host"), "Invoke", [], TypeRef.CoreLib("System", "Void"), MemberKind.Method) { GenericArity = 1 };
+
+        var callees = Node(
+            Member("Target", "Run"),
+            CallTreeStatus.Expanded,
+            [Leaf(nonGeneric), Leaf(generic)]);
+
+        var lines = Lines(CallGraphMermaid.RenderCallees(callees));
+
+        Assert.Contains("n1[\"Host.Invoke()\"]", lines);
+        Assert.Contains("n2[\"Host.Invoke()\"]", lines);
+        Assert.Contains("n0 --> n1", lines);
+        Assert.Contains("n0 --> n2", lines);
+    }
+
+    [Fact]
+    public void KeepsReturnTypeOnlyOverloadsDistinct()
+    {
+        // Conversion operators can share declaring type, name, and parameters yet differ
+        // only by return type; they must stay distinct nodes.
+        var toInt = new MemberRef(Type("Conv"), "op_Implicit", [Type("Src")], TypeRef.CoreLib("System", "Int32"), MemberKind.Method);
+        var toString = new MemberRef(Type("Conv"), "op_Implicit", [Type("Src")], TypeRef.CoreLib("System", "String"), MemberKind.Method);
+
+        var callees = Node(
+            Member("Target", "Run"),
+            CallTreeStatus.Expanded,
+            [Leaf(toInt), Leaf(toString)]);
+
+        var lines = Lines(CallGraphMermaid.RenderCallees(callees));
+
+        Assert.Contains("n1[\"Conv.op_Implicit(Src)\"]", lines);
+        Assert.Contains("n2[\"Conv.op_Implicit(Src)\"]", lines);
+        Assert.Contains("n0 --> n1", lines);
+        Assert.Contains("n0 --> n2", lines);
+    }
+
+    [Fact]
+    public void CombinesResolvedCallersWithUnsupportedCalleeRoot()
+    {
+        // Bodiless target: BuildCallerTree recovers the real member, BuildCallTree yields an
+        // Unsupported placeholder root. The combined view must render, center on the resolved
+        // member, and not sprout a stray placeholder node.
+        var resolved = Member("Widget", "Build");
+        var callers = Node(resolved, CallTreeStatus.Expanded, [Leaf(Member("Program", "Main"))]);
+        var calleeRoot = Leaf(MemberRef.Unsupported("method token 0x06000001"));
+
+        var lines = Lines(CallGraphMermaid.Render(callers, calleeRoot));
+
+        Assert.Contains("n0[\"Widget.Build()\"]:::target", lines);
+        Assert.Contains("n1[\"Program.Main()\"]", lines);
+        Assert.Contains("n1 --> n0", lines);
+        // No third node: the Unsupported placeholder collapses onto the resolved target.
+        Assert.DoesNotContain(lines, line => line.StartsWith("n2["));
+    }
+
+    [Fact]
+    public void EncodesStructuralCharactersInEdgeLabels()
+    {
+        // A host-supplied loop hint carrying an unbalanced ')' would break an unquoted
+        // Mermaid edge label; it must be entity-encoded so the flowchart grammar stays valid.
+        var callees = Node(
+            Member("Target", "Run"),
+            CallTreeStatus.Expanded,
+            [Leaf(Member("Svc", "Do"), inLoop: true, loopHint: "loop) x")]);
+
+        var mermaid = CallGraphMermaid.RenderCallees(callees);
+        var lines = Lines(mermaid);
+
+        Assert.Contains("n0 -->|loop#41; x| n1", lines);
+        // The raw structural character never reaches the edge label.
+        Assert.DoesNotContain("loop) x", mermaid);
+    }
 }
