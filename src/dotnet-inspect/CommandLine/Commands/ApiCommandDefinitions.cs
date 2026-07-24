@@ -183,7 +183,6 @@ public static class ApiCommandDefinitions
         var compactOption = new Option<bool>("--compact") { Description = "Output as minified JSON (use with --json)" };
         var unsafeOption = new Option<bool>("--unsafe") { Description = "Filter members to unsafe signatures (pointers)" };
         var indexOption = new Option<int?>("--index") { Description = "Select member overload by index (or use Name:N shorthand)" };
-        var selectOption = new Option<bool>("--show-index") { Description = "Show the Member Index section with copyable selectors and canonical signatures" };
         var binOption = new Option<string[]>("--bin")
         {
             Description = "Scan output directory(s) for inbound callers of the selected member (Callers section). Can repeat.",
@@ -230,7 +229,6 @@ public static class ApiCommandDefinitions
         opts.AddTableOptionsTo(memberCommand);
         memberCommand.Options.Add(unsafeOption);
         memberCommand.Options.Add(indexOption);
-        memberCommand.Options.Add(selectOption);
         memberCommand.Options.Add(binOption);
         memberCommand.Options.Add(callerProjectOption);
         memberCommand.Options.Add(callerPackageOption);
@@ -251,7 +249,7 @@ public static class ApiCommandDefinitions
             argsArg, packageOption, assemblyOption, platformOption, frameworkOption, tfmOption,
             allOption, memberOption, ctorOption,
             compactOption, opts.NoHeaders,
-            unsafeOption, indexOption, selectOption, kindOption,
+            unsafeOption, indexOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, repoOption, atOption);
 
         memberCommand.SetAction(async (parseResult, ct) =>

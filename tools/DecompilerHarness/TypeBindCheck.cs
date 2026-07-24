@@ -208,6 +208,8 @@ static class TypeBindCheck
         {
             if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
                 return;
+            if (!ManagedReferenceFilter.IsManagedAssembly(path))
+                return;
             if (!seen.Add(Path.GetFileNameWithoutExtension(path)))
                 return;
             try { builder.Add(MetadataReference.CreateFromFile(path)); }

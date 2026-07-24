@@ -1708,7 +1708,7 @@ public class CommandExecutionTests
     public async Task Member_FullyQualifiedPlatformMember_UsesPlatformMemberFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "System.String.IndexOf", "--table", "--show-index", "--tips", "q");
+            "member", "System.String.IndexOf", "--table", "-S", "Member Index", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("IndexOf:1", output);
@@ -1798,6 +1798,113 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("Deserialize", output);
         Assert.Contains("Deserialize<TValue>", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_MethodsTable_OmitsDecodeColumn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "-m", "Serialize", "--table", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Serialize", output);
+        // The Decode degradation marker is never a default table column; it surfaces on stderr.
+        Assert.DoesNotContain("Decode", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_MethodsTable_ShowsAlwaysOnDigestColumn()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializer", "-m", "Serialize", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        // The durable ~digest handle is always shown as a Digest column in the default member table.
+        Assert.Contains("| Name | Digest | Signature | Description |", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_CompactSummaryTables_OmitDecodeColumn()
+    {
+        // The compact per-kind summary tables (Constructors, Properties, Fields, Method
+        // Groups) also drop the empty Decode degradation column; degradation surfaces on stderr.
+        var (exit, output, error) = await RunAppAsync(
+            "System.Text.Json.JsonSerializerOptions", "-m", "8", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Constructors", output);
+        Assert.Contains("## Properties", output);
+        Assert.DoesNotContain("Decode", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_Json_CarriesDigestAndCanonicalSignature()
+    {
+        // The agent-facing JSON must expose the durable overload handle (digest) and the
+        // doc-ID canonical signature, not just the human-facing Markdown Digest column.
+        var (exit, output, error) = await RunAppAsync(
+            "System.Text.Json.JsonSerializer.Serialize:1", "--json", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("\"digest\": \"1dc14dd1fb\"", output);
+        Assert.Contains("\"canonical_signature\": \"M:System.Text.Json.JsonSerializer.Serialize", output);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public async Task Member_JsonLimit_SelectsSameOverloadDigestAsTable()
+    {
+        // -m N over --json applies the same display ordering as the Markdown table, so the
+        // selected overload's digest matches across the two experiences.
+        var table = await RunAppAsync(
+            "System.Text.Json.JsonSerializer.Serialize", "-m", "1", "--tips", "q");
+        var json = await RunAppAsync(
+            "System.Text.Json.JsonSerializer.Serialize", "-m", "1", "--json", "--tips", "q");
+
+        Assert.Equal(0, table.Exit);
+        Assert.Equal(0, json.Exit);
+        var tableDigest = System.Text.RegularExpressions.Regex.Match(table.Output, "`([0-9a-f]{10})`");
+        Assert.True(tableDigest.Success, "Expected a ~digest in the Methods table Digest column.");
+        Assert.Contains($"\"digest\": \"{tableDigest.Groups[1].Value}\"", json.Output);
+    }
+
+    [Fact]
+    public async Task Member_Limit_SelectsSameOverloadInTableAndMemberIndex()
+    {
+        // The default member table and the Member Index apply -m N over the same ordering,
+        // so a one-member limit selects the same overload (same ~digest) in both views.
+        var table = await RunAppAsync(
+            "System.Text.Json.JsonSerializer.Serialize", "-m", "1", "--tips", "q");
+        var index = await RunAppAsync(
+            "System.Text.Json.JsonSerializer.Serialize", "-m", "1", "-S", "Member Index", "--tips", "q");
+
+        Assert.Equal(0, table.Exit);
+        Assert.Equal(0, index.Exit);
+        Assert.Empty(table.Error);
+        Assert.Empty(index.Error);
+
+        var digest = System.Text.RegularExpressions.Regex.Match(table.Output, "`([0-9a-f]{10})`");
+        Assert.True(digest.Success, "Expected a ~digest in the Methods table Digest column.");
+        // The Member Index Stable selector for the same overload is Name~<digest>.
+        Assert.Contains($"~{digest.Groups[1].Value}", index.Output);
+    }
+
+    [Fact]
+    public async Task Member_OverloadDetail_ShowsDigestAndCanonicalSignature()
+    {
+        // Drilling into a single overload (even via the non-durable positional :N) must surface
+        // the durable Digest and the Canonical Signature so the reference can be upgraded.
+        var (exit, output, error) = await RunAppAsync(
+            "System.Text.Json.JsonSerializer.Serialize:6", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Signature", output);
+        Assert.Contains("| Signature | Digest | Canonical Signature | Description |", output);
+        Assert.Contains("M:System.Text.Json.JsonSerializer.Serialize", output);
         Assert.Empty(error);
     }
 
@@ -1963,7 +2070,7 @@ public class CommandExecutionTests
     public async Task Member_BareSimpleTypeMiss_UsesPlatformFindIfMiss()
     {
         var (exit, output, error) = await RunAppAsync(
-            "member", "Regex", "-m", "Match", "--show-index", "--rows", "-n", "4", "--tips", "q");
+            "member", "Regex", "-m", "Match", "-S", "Member Index", "--rows", "-n", "4", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("# System.Text.RegularExpressions.Regex", output);
@@ -2937,7 +3044,7 @@ public class CommandExecutionTests
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
             Discover = ["Member Index"],
-            ShowMemberIndex = true,
+            Select = ["Member Index"],
             Schema = true
         };
 
@@ -2945,7 +3052,7 @@ public class CommandExecutionTests
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        // --show-index is now a compatibility alias for the dedicated Member Index section.
+        // Selecting the dedicated Member Index section renders its selector/identity columns.
         Assert.Contains("| Stable | column |", output);
         Assert.Contains("| Canonical Signature | column |", output);
     }
@@ -2996,7 +3103,7 @@ public class CommandExecutionTests
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
             Discover = ["Member Index"],
-            ShowMemberIndex = true,
+            Select = ["Member Index"],
             Verbosity = Verbosity.Normal
         };
 
@@ -3004,7 +3111,7 @@ public class CommandExecutionTests
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
-        // With --show-index the dedicated Member Index section renders.
+        // Selecting the Member Index section renders it at Normal verbosity too.
         Assert.Contains("| Stable | column |", output);
         Assert.Contains("| Canonical Signature | column |", output);
     }
@@ -3478,7 +3585,7 @@ public class CommandExecutionTests
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializer",
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SerializeToNode" },
-            ShowMemberIndex = true
+            Select = ["Member Index"]
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -3502,7 +3609,7 @@ public class CommandExecutionTests
             PlatformAssembly = "System.Text.Json",
             TypeName = "JsonSerializerOptions",
             MemberFilter = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "GetConverter" },
-            ShowMemberIndex = true
+            Select = ["Member Index"]
         };
 
         var (exit, output, _) = await ConsoleCapture.RunAsync(
@@ -3514,13 +3621,13 @@ public class CommandExecutionTests
         Assert.Contains("`GetConverter`", output);
         Assert.DoesNotContain("## Signature", output);
 
-        options = options with { Select = ["Methods"], ShowMemberIndex = false };
+        options = options with { Select = ["Methods"] };
         (exit, output, _) = await ConsoleCapture.RunAsync(
             () => MemberCommand.ExecuteAsync(options));
 
         Assert.Equal(0, exit);
         Assert.Contains("## Methods", output);
-        Assert.Contains("| Name | Signature |", output);
+        Assert.Contains("| Name | Digest | Signature |", output);
         Assert.DoesNotContain("## Signature", output);
     }
 
@@ -3651,8 +3758,8 @@ public class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("section 'Call Graph' requires a single selected overload", error);
-        Assert.Contains("Use Overloaded:1 through Overloaded:2", error);
-        Assert.Contains("-S \"Member Index\"", error);
+        Assert.Contains("Overloaded~<digest>", error);
+        Assert.Contains("Overloaded:1 through Overloaded:2", error);
         Assert.DoesNotContain("Select value 'Call Graph' not found", error);
     }
 
@@ -3681,7 +3788,8 @@ public class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("section 'Callers' requires a single selected overload", error);
-        Assert.Contains("Use Overloaded:1 through Overloaded:2", error);
+        Assert.Contains("Overloaded~<digest>", error);
+        Assert.Contains("Overloaded:1 through Overloaded:2", error);
     }
 
     [Fact]
@@ -3709,7 +3817,8 @@ public class CommandExecutionTests
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Contains("section 'Callers' requires a single selected overload", error);
-        Assert.Contains("Use Overloaded:1 through Overloaded:2", error);
+        Assert.Contains("Overloaded~<digest>", error);
+        Assert.Contains("Overloaded:1 through Overloaded:2", error);
     }
 
     [Fact]
@@ -4485,7 +4594,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--package", "System.Text.Json",
-            "-m", "Serialize", "--show-index", "--table");
+            "-m", "Serialize", "-S", "Member Index", "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -4886,7 +4995,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "-S", "Explicit Interface Implementations", "--show-index", "--tips", "q", "--rows", "-n", "4");
+            "-S", "Explicit Interface Implementations,Member Index", "--tips", "q", "--rows", "-n", "4");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -4921,7 +5030,7 @@ public class CommandExecutionTests
 
         (exit, output, error) = await RunAppAsync(
             "member", "String", "--platform", "System.Private.CoreLib",
-            "-S", "Extension Methods", "--show-index", "--tips", "q", "--rows", "-n", "4");
+            "-S", "Extension Methods,Member Index", "--tips", "q", "--rows", "-n", "4");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -8687,7 +8796,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberGenericSelectorFixture).FullName!, "--library", TestAssemblyPath,
-            "GenericChoice<T>", "--show-index", "--table");
+            "GenericChoice<T>", "-S", "Member Index", "--table");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);

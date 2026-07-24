@@ -93,7 +93,17 @@ public sealed partial class CSharpPrinter
     {
         try
         {
-            IrPasses.Run(function, IrPasses.Default, RaiseContext(importMethodBody, typesProvablyDisjoint));
+            var context = RaiseContext(importMethodBody, typesProvablyDisjoint);
+            IrPasses.Run(function, IrPasses.Default, context);
+            // Opt-in tier-3 style lens (#3138), byte-divergent by design: runs
+            // only when requested, after the byte-faithful default pipeline has
+            // left the guarded bool return flat. The oracle-endorsed ternary runs
+            // first so that, when both lenses are enabled, it wins the shared shape
+            // (it consumes the guarded return, leaving the branchless pass a no-op).
+            if (options?.PreferConditionalExpressionReturn == true)
+                new PreferConditionalReturnPass().Run(function, context);
+            if (options?.PreferBranchlessBoolean == true)
+                new PreferBranchlessBooleanPass().Run(function, context);
         }
         catch (Exception ex)
         {
@@ -239,8 +249,57 @@ public sealed partial class CSharpPrinter
             RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
             RequiresUnsafeBodyModifier = function.Descendants.Prepend(function).Any(NeedsUnsafeContext),
             ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
+            BodyIsSingleReturnExpression = BodyIsSingleReturnExpression(function, output),
             Metadata = new DecompilerResultMetadata(EffectiveDecompilerOptions(), [.. _decisions]),
         };
+
+    /// <summary>
+    /// True when the printed body is exactly one top-level
+    /// <c>return &lt;expression&gt;;</c> statement whose expression spans several
+    /// lines — a single multi-line expression with nothing else in the body. The
+    /// member layer renders such a body as an expression-bodied member (a raised
+    /// multi-line switch return, issue #3088; a wrapped fluent chain or other
+    /// wrapped single expression, issue #3084). The single-statement shape is
+    /// structural (the emitted top-level statement list plus the lifts the printer
+    /// already tracked), never a re-parse of the rendered text: because the body
+    /// is exactly one <see cref="Return"/> with no lifted declarations, its whole
+    /// printed form is that one <c>return &lt;expr&gt;;</c> statement, so folding it
+    /// to <c>head =&gt; &lt;expr&gt;;</c> is a language-guaranteed equivalence. The
+    /// only text-derived input is whether that single return actually wrapped and
+    /// printed as a bare <c>return &lt;expr&gt;;</c>: a single-line return already
+    /// folds on the <see cref="CSharpExpressionBody.FromSingleStatement"/> path, so
+    /// this signal stays reserved for the multi-line case the flat helper cannot
+    /// recover. A rare single <see cref="Return"/> whose value the printer expands
+    /// into several statements (for example a <c>stackalloc</c>-to-pointer return
+    /// that lifts a local declaration inside an <c>unsafe</c> block) does not print
+    /// as a leading <c>return </c>, so the text guard keeps the flag off — matching
+    /// what <see cref="CSharpExpressionBody.MultilineReturnExpressionLines"/> would
+    /// accept, so the signal never claims a fold the member layer would reject.
+    /// </summary>
+    bool BodyIsSingleReturnExpression(IrFunction function, string output)
+        => !_emittedDeclarations
+            && !_topLevelHasLabel
+            && _constructorChain is null
+            && _fieldInitializers.Count == 0
+            && !function.RequiresAsyncBodyModifier
+            && !NeedsUnsupportedFallbackReturn(function)
+            && _topLevelStatements is [Return { Value: not null }]
+            && IsMultilineReturnExpressionText(output);
+
+    /// <summary>
+    /// True when <paramref name="output"/> is a multi-line body that begins with a
+    /// bare <c>return </c> — the exact text shape
+    /// <see cref="CSharpExpressionBody.MultilineReturnExpressionLines"/> extracts.
+    /// Keeps <see cref="BodyIsSingleReturnExpression"/> aligned with the downstream
+    /// extractor so the typed flag is never set for a single return the printer
+    /// expanded into multiple statements (which would not fold anyway).
+    /// </summary>
+    static bool IsMultilineReturnExpressionText(string output)
+    {
+        var trimmed = output.AsSpan().Trim();
+        return trimmed.Contains('\n')
+            && trimmed.StartsWith("return ", StringComparison.Ordinal);
+    }
 
     DecompilerOptions EffectiveDecompilerOptions()
         => new()
@@ -299,6 +358,25 @@ public sealed partial class CSharpPrinter
     /// <summary>Field initializers (<c>this.f = value</c> stores preceding the base call) lifted out of a constructor body to the field declarations, keyed in source order.</summary>
     readonly List<(string Field, string Value)> _fieldInitializers = [];
     readonly HashSet<IrNode> _fieldInitStores = [];
+
+    /// <summary>
+    /// True once <see cref="PrintBody"/> has emitted at least one up-front local
+    /// declaration (before the body statements). A body with declarations is not
+    /// a single-return expression, so it disqualifies the
+    /// <see cref="DecompilerResult.BodyIsSingleReturnExpression"/> signal.
+    /// </summary>
+    bool _emittedDeclarations;
+
+    /// <summary>
+    /// The top-level statements <see cref="AppendContainer"/> actually emitted
+    /// (chain/field-initializer lifts and the trimmed trailing <c>return;</c>
+    /// excluded), plus whether any top-level label was emitted. Together they let
+    /// <see cref="Result"/> recognize the single <c>return &lt;switch&gt;;</c> body
+    /// that <see cref="DecompilerResult.BodyIsSingleReturnExpression"/> reports —
+    /// a structural fact, not a re-parse of the rendered text.
+    /// </summary>
+    readonly List<IrNode> _topLevelStatements = [];
+    bool _topLevelHasLabel;
 
     /// <summary>Pinned local slots a <see cref="Fixed"/> statement owns: declared by the fixed header (skipped up front) and read as a pointer of the fixed's element type.</summary>
     readonly HashSet<int> _fixedLocals = [];
@@ -422,7 +500,10 @@ public sealed partial class CSharpPrinter
         foreach (var declaration in CollectDeclarations(function))
             sb.AppendLine(declaration);
         if (sb.Length > 0)
+        {
+            _emittedDeclarations = true;
             sb.AppendLine();
+        }
 
         AppendContainer(sb, function.Body, 0, topLevel: true);
         if (NeedsUnsupportedFallbackReturn(function))
@@ -475,6 +556,8 @@ public sealed partial class CSharpPrinter
             {
                 AppendLabel(sb, pad, block.StartOffset);
                 labelPendingStatement = true;
+                if (topLevel)
+                    _topLevelHasLabel = true;
             }
             // The trailing 'return;' trims, current-style — unless it is a
             // labeled block's only statement, where trimming would strand
@@ -491,6 +574,8 @@ public sealed partial class CSharpPrinter
                 emit.Add(statement);
             }
 
+            if (topLevel)
+                _topLevelStatements.AddRange(emit);
             if (emit.Any(n => !RendersAsCommentOnly(n)))
                 labelPendingStatement = false;
             AppendStatements(sb, emit, indent);

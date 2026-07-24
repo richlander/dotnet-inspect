@@ -54,4 +54,21 @@ public class FlagsEnumAccumulatorTests
         Assert.DoesNotContain("(long)512", output);
         Assert.Contains("FlagCaps64.Protocol", output);
     }
+
+    // #3009 sub-part 2: with the accumulator fully raised, the remaining ternary
+    // slot (`FlagCaps64 S_1 = interactive ? ... : ...;`) is a side-effect-free,
+    // non-throwing value, so ExpressionInliningPass inlines it into its single
+    // use in the OR chain. No spilled slot local survives; the whole method
+    // collapses to one fully-raised expression.
+    [Fact]
+    public void FlagsEnumAccumulator_InlinesTernarySlot_NoSlotLocalSurvives()
+    {
+        var output = Render(nameof(FlagsEnumAccumulatorSamples.Accumulate));
+
+        // No spilled stack-slot local of any type survives the inline.
+        Assert.DoesNotContain("S_1", output);
+        Assert.DoesNotContain("FlagCaps64 S_", output);
+        // The ternary now appears inline as an operand of the OR chain.
+        Assert.Contains("interactive ? (server & FlagCaps64.Interactive) : FlagCaps64.None", output);
+    }
 }

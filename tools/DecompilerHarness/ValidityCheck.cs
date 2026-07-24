@@ -1202,6 +1202,8 @@ static class ValidityCheck
         {
             if (!path.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
                 continue;
+            if (!ManagedReferenceFilter.IsManagedAssembly(path))
+                continue;
             try { builder.Add(MetadataReference.CreateFromFile(path)); }
             catch { }
         }

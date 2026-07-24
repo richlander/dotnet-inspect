@@ -265,6 +265,20 @@ public sealed record DecompilerResult(
     public bool ContainsAwaitExpression { get; init; }
 
     /// <summary>
+    /// True when the whole body is exactly one multi-line
+    /// <c>return &lt;expression&gt;;</c> statement — a single wrapped expression with
+    /// nothing else in the body. The member layer
+    /// (<see cref="ILInspector.CSharp.CSharpMemberLayout"/>) consumes this typed
+    /// structural fact to render the member expression-bodied
+    /// (<c>head =&gt; &lt;expr&gt;;</c>) instead of a brace block wrapping a lone
+    /// <c>return</c> — a raised multi-line switch return (issue #3088) or any other
+    /// wrapped single expression such as a fluent chain (issue #3084). It is a
+    /// body-shape fact the printer proves from the emitted statement tree, so
+    /// consumers never re-parse the rendered text to recover it.
+    /// </summary>
+    public bool BodyIsSingleReturnExpression { get; init; }
+
+    /// <summary>
     /// A telemetry-free record of what the decompilation observed — its fidelity
     /// outcome, the symbol source it used, and its diagnostics — for a host to
     /// convert into its own diagnostics. Null for projections that do not build
@@ -301,6 +315,7 @@ public sealed record DecompilerResult(
             && RequiresAsyncBodyModifier == other.RequiresAsyncBodyModifier
             && RequiresUnsafeBodyModifier == other.RequiresUnsafeBodyModifier
             && ContainsAwaitExpression == other.ContainsAwaitExpression
+            && BodyIsSingleReturnExpression == other.BodyIsSingleReturnExpression
             && EqualityComparer<DecompilerTrace?>.Default.Equals(Trace, other.Trace);
 
     public override int GetHashCode()
@@ -314,6 +329,7 @@ public sealed record DecompilerResult(
         hash.Add(RequiresAsyncBodyModifier);
         hash.Add(RequiresUnsafeBodyModifier);
         hash.Add(ContainsAwaitExpression);
+        hash.Add(BodyIsSingleReturnExpression);
         hash.Add(Trace);
         return hash.ToHashCode();
     }

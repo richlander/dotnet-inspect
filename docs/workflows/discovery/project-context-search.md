@@ -96,7 +96,7 @@ System.CommandLine.Command
 ### 2b. Inspect members
 
 ```bash
-dotnet-inspect member Command --project /tmp/find-project-workflow/FindDemo/FindDemo.csproj --show-index -n 12
+dotnet-inspect member Command --project /tmp/find-project-workflow/FindDemo/FindDemo.csproj -S "Member Index" -n 12
 ```
 
 ```expect

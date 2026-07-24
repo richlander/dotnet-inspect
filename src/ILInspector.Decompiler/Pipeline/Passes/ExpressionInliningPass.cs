@@ -130,8 +130,19 @@ public sealed class ExpressionInliningPass : IIrPass
                 continue;  // the local declaration carries a required cast/type witness
 
             bool pure = IsPure(store is StoreLocal sl ? sl.Value : ((StoreStackSlot)store).Value, locals, argumentAddresses, function);
-            if (!IsFirstEvaluatedLeaf(load, next) && !pure)
+            bool firstLeaf = IsFirstEvaluatedLeaf(load, next);
+            if (!firstLeaf && !pure)
                 continue;  // inlining would move the computation past whatever evaluates before the load
+            // Purity proves the value has no effect and cannot throw, but a value
+            // deferred to a NON-first-leaf load also moves past `next`'s prefix.
+            // If that prefix writes a place the value reads, the deferred value
+            // would observe the mutated place. A pure value reads only arguments
+            // and locals (IsPure admits nothing else), so guard exactly those
+            // against any conflicting write anywhere in `next` — a store, a
+            // compound assignment, an increment, a `ref`/`out` escape, a catch or
+            // loop or pattern binding (#3133 adversarial review; see Writes).
+            if (!firstLeaf && DefersPastConflictingWrite(store is StoreLocal s2 ? s2.Value : ((StoreStackSlot)store).Value, next))
+                continue;
 
             var value = (IrExpression)store.DetachChildren()[0];
 
@@ -344,14 +355,72 @@ public sealed class ExpressionInliningPass : IIrPass
             _ => false,
         })];
 
-    static bool Writes(IrNode statement, PlaceKind kind, int index)
-        => statement.Descendants.Prepend(statement).Any(n => kind switch
+    // A pure value deferred to a non-first-leaf load must not read a place that
+    // `next` writes: enumerate the value's argument/local reads (IsPure admits no
+    // other place read) and block if `next` mutates one. Conservative over the
+    // whole statement — a write strictly after the load only costs a missed
+    // collapse, never correctness.
+    static bool DefersPastConflictingWrite(IrExpression value, IrNode next)
+    {
+        foreach (var node in value.Descendants.Prepend(value))
         {
-            PlaceKind.Slot => n is StoreStackSlot s && s.Slot == index,
-            PlaceKind.Local => n is StoreLocal l && l.Index == index,
-            PlaceKind.Argument => n is StoreArgument a && a.Index == index,
-            _ => false,
-        });
+            switch (node)
+            {
+                case LoadArgument argument when Writes(next, PlaceKind.Argument, argument.Index): return true;
+                case LoadLocal load when Writes(next, PlaceKind.Local, load.Index): return true;
+            }
+        }
+        return false;
+    }
+
+    static bool Writes(IrNode statement, PlaceKind kind, int index)
+        => statement.Descendants.Prepend(statement).Any(n => WritesNode(n, kind, index));
+
+    // True when a single node binds or mutates the given place. A deferred pure
+    // value reads only arguments and locals (IsPure admits nothing else), but the
+    // guard also covers slots for the live-range collapse.
+    //
+    // Completeness is the point here: an omitted writer would let a deferred pure
+    // value observe a mutated place (the #3133 adversarial review repeatedly
+    // surfaced missing writers — IncrementDecrement, `??=`, tuple deconstruction,
+    // catch bindings, foreach/using/fixed headers, and pattern bindings). Two
+    // structural facts bound the writer set so it stays complete:
+    //   * Every INDIRECT write to a local or argument — a `ref`/`out` call or
+    //     constructor argument, an `InitObject`, any store through an address — is
+    //     mediated by a `LoadLocalAddress`/`LoadArgumentAddress` node (see
+    //     DefiniteAssignment.IsVerifiedOutLocal). Detecting an escaped address
+    //     covers all of them without enumerating callee shapes.
+    //   * Every DIRECT binding writer names its place through a `LocalIndex` /
+    //     `VariableIndex` on the node itself. BindingWriterCoverageTests pins that
+    //     the node types carrying such a binding index are exactly those handled
+    //     below, so a newly added binding node fails that test until it is added
+    //     here.
+    static bool WritesNode(IrNode n, PlaceKind kind, int index) => kind switch
+    {
+        PlaceKind.Slot =>
+            (n is StoreStackSlot s && s.Slot == index)
+            || (n is IncrementDecrement { Target: LoadStackSlot isl } && isl.Slot == index),
+        PlaceKind.Local =>
+            (n is StoreLocal l && l.Index == index)
+            || (n is IncrementDecrement { Target: LoadLocal il } && il.Index == index)
+            || (n is LoadLocalAddress la && la.Index == index)
+            || (n is NullCoalescingAssignment nca && nca.LocalIndex == index)
+            || (n is DeconstructionAssignment dal && dal.Targets.Any(t => t.Kind == DeconstructionTargetKind.Local && t.LocalIndex == index))
+            || (n is CatchClause cc && cc.VariableIndex == index)
+            || (n is Fixed fx && fx.LocalIndex == index)
+            || (n is UsingStatement us && us.LocalIndex == index)
+            || (n is ForeachStatement fe && fe.LocalIndex == index)
+            || (n is IsPattern ip && ip.LocalIndex == index)
+            || (n is RecursivePropertyDeclarationPattern rp && rp.LocalIndex == index)
+            || (n is UnionSwitchExpressionArm ua && ua.LocalIndex == index)
+            || (n is PatternSwitchExpressionArm pa && (pa.LocalIndex == index || pa.Subpattern?.LocalIndex == index)),
+        PlaceKind.Argument =>
+            (n is StoreArgument a && a.Index == index)
+            || (n is IncrementDecrement { Target: LoadArgument ia } && ia.Index == index)
+            || (n is LoadArgumentAddress aa && aa.Index == index)
+            || (n is DeconstructionAssignment daa && daa.Targets.Any(t => t.Kind == DeconstructionTargetKind.Argument && t.ArgumentIndex == index)),
+        _ => false,
+    };
 
     static bool WritesStaticDelegateTarget(IrNode statement, IrExpression value)
         => value is DelegateCreation { Target: LoadField { Instance: null, Field: var field } }
@@ -470,6 +539,29 @@ public sealed class ExpressionInliningPass : IIrPass
         LoadArgument argument => !argumentAddresses.Contains(argument.Index)
             && !(function.Signature.HasThis && argument.Index == 0),
         LoadLocal load => !locals.TryGetValue((false, load.Index), out var entry) || !entry.AddressTaken,
+        // Side-effect-free, non-throwing composites: pure iff every operand is
+        // pure. Purity here must imply "cannot throw" as well as "no effect",
+        // because a pure value is deferred to its load site — moving a value
+        // that could throw past a prefix that could also throw (or have an
+        // effect) would change which exception surfaces. So division and
+        // remainder (DivideByZero/Overflow) and checked arithmetic/conversions
+        // (Overflow) are excluded; neg/not, bitwise/shift, unchecked
+        // arithmetic, comparisons, and conditionals never throw.
+        LogicalNot not => IsPure(not.Operand, locals, argumentAddresses, function),
+        Unary unary => IsPure(unary.Operand, locals, argumentAddresses, function),
+        Comparison comparison =>
+            IsPure(comparison.Left, locals, argumentAddresses, function)
+            && IsPure(comparison.Right, locals, argumentAddresses, function),
+        LogicalBinary logical =>
+            IsPure(logical.Left, locals, argumentAddresses, function)
+            && IsPure(logical.Right, locals, argumentAddresses, function),
+        Binary { Kind: not (BinaryKind.Divide or BinaryKind.Remainder), IsChecked: false } binary =>
+            IsPure(binary.Left, locals, argumentAddresses, function)
+            && IsPure(binary.Right, locals, argumentAddresses, function),
+        Conditional conditional =>
+            IsPure(conditional.Condition, locals, argumentAddresses, function)
+            && IsPure(conditional.WhenTrue, locals, argumentAddresses, function)
+            && IsPure(conditional.WhenFalse, locals, argumentAddresses, function),
         _ => false,
     };
 }

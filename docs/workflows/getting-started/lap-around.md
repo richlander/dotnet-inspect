@@ -170,10 +170,10 @@ Kind: class
 Methods: 36
 ```
 
-For code, use `--show-index` (or `-S "Member Index"`) to see addressing hints, then drill into a specific overload:
+For code, use `-S "Member Index"` to see the full addressing table (the durable `~digest` selector is also shown in the default member table's Digest column), then drill into a specific overload:
 
 ```bash
-dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory --show-index
+dotnet-inspect member --package Microsoft.Extensions.Options OptionsFactory -S "Member Index"
 ```
 
 ```expect

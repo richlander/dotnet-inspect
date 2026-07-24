@@ -2312,6 +2312,11 @@ public class RaisingPassTests
         block.Add(new StoreIndirect(sbyteType,
             new LoadArgument(2, "target", TypeRef.ByRef(boolType)),
             new LoadStackSlot(0, intType)));
+        // A second consumer keeps the slot materialized (two loads), so this test
+        // pins slot typing rather than being subsumed by single-use inlining.
+        block.Add(new StoreIndirect(sbyteType,
+            new LoadArgument(2, "target", TypeRef.ByRef(boolType)),
+            new LoadStackSlot(0, intType)));
         var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"),
             [new Parameter("flag", boolType), new Parameter("other", boolType), new Parameter("target", TypeRef.ByRef(boolType))],
             HasThis: false,
@@ -2396,6 +2401,12 @@ public class RaisingPassTests
             new Constant(null, objectType),
             new LoadArgument(2, "value", stringType))
         { MergedType = objectType }));
+        block.Add(new StoreField(
+            new FieldRef(owner, "_fmt", stringType),
+            new LoadArgument(0, "this", owner),
+            new LoadStackSlot(0, stringType)));
+        // A second consumer keeps the slot materialized (two loads), so this test
+        // pins slot typing rather than being subsumed by single-use inlining.
         block.Add(new StoreField(
             new FieldRef(owner, "_fmt", stringType),
             new LoadArgument(0, "this", owner),

@@ -169,6 +169,105 @@ public class ApiOutputFormatterTests
         Assert.DoesNotContain(DiagnosticIds.EmptyOutput, source);
     }
 
+    [Fact]
+    public void FormatSourceWithDeclaration_SingleSwitchReturn_RendersExpressionBodied()
+    {
+        // #3088: a member whose only statement is a multi-line
+        // `return <switch>;` renders expression-bodied. The block lines keep
+        // their column-zero body indent under the column-zero declaration.
+        var type = new ApiType { Namespace = "Samples", Name = "Shapes", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Area",
+            Kind = "method",
+            SignatureModel = new ApiSignature { MemberName = "Area", ReturnType = "System.Int32" }
+        };
+        var result = DecompilerResult.Success(
+            "return shape switch\n{\n    string s => s.Length,\n    int[] a => a.Length,\n    _ => 0,\n};") with
+        {
+            BodyIsSingleReturnExpression = true
+        };
+
+        var source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            member,
+            methodGenericParameters: null,
+            result,
+            preferExpressionBodied: true)
+            .ReplaceLineEndings("\n");
+
+        Assert.EndsWith(" => shape switch", Declaration(source));
+        Assert.Contains("\n{\n    string s => s.Length,\n    int[] a => a.Length,\n    _ => 0,\n};", source);
+        Assert.EndsWith("};", source.TrimEnd());
+        Assert.DoesNotContain("return shape switch", source);
+    }
+
+    [Fact]
+    public void FormatSourceWithDeclaration_SwitchReturn_StaysBlockWhenSignalNotSet()
+    {
+        // Same multi-line switch-return body, but the printer did not prove it a
+        // single-return expression (e.g. a statement precedes it), so it must
+        // keep the brace-block body.
+        var type = new ApiType { Namespace = "Samples", Name = "Shapes", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Area",
+            Kind = "method",
+            SignatureModel = new ApiSignature { MemberName = "Area", ReturnType = "System.Int32" }
+        };
+        var result = DecompilerResult.Success(
+            "return shape switch\n{\n    string s => s.Length,\n    int[] a => a.Length,\n    _ => 0,\n};") with
+        {
+            BodyIsSingleReturnExpression = false
+        };
+
+        var source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            member,
+            methodGenericParameters: null,
+            result,
+            preferExpressionBodied: true)
+            .ReplaceLineEndings("\n");
+
+        Assert.DoesNotContain("=>", Declaration(source));
+        Assert.Contains("return shape switch", source);
+    }
+
+    [Fact]
+    public void FormatSourceWithDeclaration_SingleFluentReturn_RendersExpressionBodied()
+    {
+        // #3084: the single-return expression-body fold is not switch-specific.
+        // A member whose only statement is a multi-line `return <fluent chain>;`
+        // renders expression-bodied too — the chain receiver trails the arrow and
+        // the chained calls keep their column-zero body indent under the
+        // column-zero declaration.
+        var type = new ApiType { Namespace = "Samples", Name = "Builder", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Build",
+            Kind = "method",
+            SignatureModel = new ApiSignature { MemberName = "Build", ReturnType = "System.String" }
+        };
+        var result = DecompilerResult.Success(
+            "return builder\n    .Append(\"a\")\n    .Append(\"b\")\n    .ToString();") with
+        {
+            BodyIsSingleReturnExpression = true
+        };
+
+        var source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            member,
+            methodGenericParameters: null,
+            result,
+            preferExpressionBodied: true)
+            .ReplaceLineEndings("\n");
+
+        Assert.EndsWith(" => builder", Declaration(source));
+        Assert.Contains("\n    .Append(\"a\")\n    .Append(\"b\")\n    .ToString();", source);
+        Assert.EndsWith(".ToString();", source.TrimEnd());
+        Assert.DoesNotContain("return builder", source);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

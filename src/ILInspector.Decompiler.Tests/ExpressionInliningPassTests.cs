@@ -13,6 +13,7 @@ public class ExpressionInliningPassTests
     static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef Action = TypeRef.CoreLib("System", "Action");
     static readonly TypeRef String = TypeRef.CoreLib("System", "String");
+    static readonly TypeRef Bool = TypeRef.CoreLib("System", "Boolean");
 
     static string PrintRaised(string methodName)
     {
@@ -29,6 +30,358 @@ public class ExpressionInliningPassTests
     // The collapsed cache leaves the chain spilled across reused stack slots
     // (`S_0 = xs; S_1 = x => ...; S_0 = Where(S_0, S_1); ...`). Live-range
     // inlining folds those temps into the call arguments, leaving one statement.
+    // A pure composite (a comparison) spilled across a post-increment must not
+    // be deferred past the `x++`: doing so would evaluate `x > 0` on the mutated
+    // value. ExpressionInliningPass records the increment's target as a mutation,
+    // so the comparison keeps its position and evaluates before the increment
+    // (issue #3133 adversarial review of the #3009 purity broadening).
+    [Fact]
+    public void CompositeReadingIncrementedArgument_DoesNotReorderPastIncrement()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.IncrementReorderGuard));
+
+        int comparison = output.IndexOf("x > 0", StringComparison.Ordinal);
+        int increment = output.IndexOf("x++", StringComparison.Ordinal);
+        Assert.True(comparison >= 0, $"expected `x > 0` in output, got: {output}");
+        Assert.True(increment >= 0, $"expected `x++` in output, got: {output}");
+        Assert.True(comparison < increment,
+            $"`x > 0` must evaluate before `x++`; the comparison was reordered past the increment: {output}");
+    }
+
+    // Direct-IR proof for the late slots-only path the compiled fixture above
+    // cannot reach (csc spills the reordered argument to a local, which the early
+    // full run protects by pass ordering). A slot holds the pure comparison
+    // `x > 0`; a post-increment of `x` sits before the slot's single load, which
+    // is not the first-evaluated leaf. Without tracking the increment as a
+    // mutation the pass would deem the comparison pure and defer it past `x++`,
+    // reading the incremented value. The slot must survive (issue #3133).
+    [Fact]
+    public void SlotCompositeReadingIncrementedArgument_IsNotInlinedPastIncrement()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32, Bool], HasThis: false);
+
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Comparison(
+            ComparisonKind.GreaterThan,
+            isUnsigned: false,
+            new LoadArgument(0, "x", Int32),
+            new Constant(0, Int32))));
+        block.Add(new ExpressionStatement(new Call(
+            use,
+            isVirtual: false,
+            [
+                new IncrementDecrement(new LoadArgument(0, "x", Int32), isIncrement: true, isPrefix: false),
+                new LoadStackSlot(0, Bool),
+            ])));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [new Parameter("x", Int32)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
+    // A pure value (no effect, cannot throw) is still unsound to defer past a
+    // write to a place it READS. A slot holds `x + 1`; a for-loop follows whose
+    // initializer assigns `x = 10`. The slot's single load sits in the loop
+    // condition, which is not the first-evaluated leaf (the initializer runs
+    // first), so purity alone would inline `x + 1` into the condition and read
+    // the overwritten `x`. The interference check keeps the slot alive
+    // (issue #3133 adversarial review — GPT for-loop-initializer case).
+    [Fact]
+    public void PureCompositeReadingReassignedLocal_IsNotInlinedPastForLoopInitializer()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadLocal(0, Int32),
+            new Constant(1, Int32))));
+        block.Add(new ForLoop(
+            new StoreLocal(0, Int32, new Constant(10, Int32)),
+            new Comparison(
+                ComparisonKind.LessThan,
+                isUnsigned: false,
+                new LoadStackSlot(0, Int32),
+                new Constant(5, Int32)),
+            new IncrementDecrement(new LoadLocal(0, Int32), isIncrement: true, isPrefix: false),
+            new Block(1)));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
+    // Counterpart to the reorder guards: the interference check is precise, not a
+    // blanket ban. A slot holds `x > 0`; the increment `x++` happens strictly
+    // AFTER the slot's single load, so deferring the comparison into the call is
+    // safe. The value must still inline — a coarse function-wide mutation scan
+    // would drop it (issue #3133 adversarial review — Gemini over-blocking case).
+    [Fact]
+    public void PureCompositeReadingArgument_InlinesWhenIncrementFollowsTheLoad()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32, Bool], HasThis: false);
+
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Comparison(
+            ComparisonKind.GreaterThan,
+            isUnsigned: false,
+            new LoadArgument(0, "x", Int32),
+            new Constant(0, Int32))));
+        block.Add(new ExpressionStatement(new Call(
+            use,
+            isVirtual: false,
+            [
+                new LoadArgument(1, "y", Int32),
+                new LoadStackSlot(0, Bool),
+            ])));
+        block.Add(new ExpressionStatement(
+            new IncrementDecrement(new LoadArgument(0, "x", Int32), isIncrement: true, isPrefix: false)));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [new Parameter("x", Int32), new Parameter("y", Int32)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
+    // The interference check must recognize compound assignments, not just plain
+    // stores and increments. A `??=` (`NullCoalescingAssignment`) reconstructed
+    // before the late inlining run mutates its local; a pure composite reading
+    // that local must not be deferred past it. Here the slot holds `x + 1` and
+    // the for-loop initializer is `x ??= 5`, whose write sits before the slot's
+    // load in the condition (issue #3133 adversarial review — GPT/Gemini `??=`).
+    [Fact]
+    public void PureCompositeReadingLocal_IsNotInlinedPastNullCoalescingAssignment()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadLocal(0, Int32),
+            new Constant(1, Int32))));
+        block.Add(new ForLoop(
+            new NullCoalescingAssignment(0, Int32, new Constant(5, Int32)),
+            new Comparison(
+                ComparisonKind.LessThan,
+                isUnsigned: false,
+                new LoadStackSlot(0, Int32),
+                new Constant(10, Int32)),
+            new IncrementDecrement(new LoadLocal(1, Int32), isIncrement: true, isPrefix: false),
+            new Block(1)));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32, Int32],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
+    // Same hazard via a tuple deconstruction that reassigns an existing local
+    // (`IsDeclared: false`). The slot holds `x + 1`; the for-loop initializer
+    // deconstructs into `x`, so the deferred composite would read the mutated
+    // value. `DeconstructionAssignment` local targets must count as writes
+    // (issue #3133 adversarial review — Gemini deconstruction case).
+    [Fact]
+    public void PureCompositeReadingLocal_IsNotInlinedPastDeconstructionAssignment()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadLocal(0, Int32),
+            new Constant(1, Int32))));
+        block.Add(new ForLoop(
+            new DeconstructionAssignment(
+                [0],
+                [Int32],
+                new Constant(0, Int32),
+                [false]),
+            new Comparison(
+                ComparisonKind.LessThan,
+                isUnsigned: false,
+                new LoadStackSlot(0, Int32),
+                new Constant(10, Int32)),
+            new IncrementDecrement(new LoadLocal(1, Int32), isIncrement: true, isPrefix: false),
+            new Block(1)));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32, Int32],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
+    // A catch clause binds the caught exception into a local (folded into the
+    // header as `VariableIndex`), which csc can place in a slot a prior value
+    // read. The slot holds `x + 1` reading local 0; the following try's catch
+    // rebinds local 0. The slot's single load sits in the catch body — not the
+    // first-evaluated leaf (the try body runs first) — so purity alone would
+    // inline `x + 1` into the handler and read the caught exception. The catch
+    // binding must count as a write (issue #3133 adversarial review — GPT catch
+    // case).
+    [Fact]
+    public void PureCompositeReadingLocal_IsNotInlinedPastCatchBinding()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadLocal(0, Int32),
+            new Constant(1, Int32))));
+
+        var tryBody = new BlockContainer();
+        var tryBlock = new Block(1);
+        tryBlock.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new Constant(0, Int32)])));
+        tryBody.Add(tryBlock);
+
+        var catchBody = new BlockContainer();
+        var catchBlock = new Block(2);
+        catchBlock.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(0, Int32)])));
+        catchBody.Add(catchBlock);
+        var clause = new CatchClause(ExceptionType, catchBody) { VariableIndex = 0 };
+
+        block.Add(new TryCatch(tryBody, [clause]));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
+    // A foreach header rebinds its iteration local each pass; csc can reuse a
+    // slot for it that a prior value read. The slot holds `x + 1` reading local
+    // 0; the following foreach iterates into local 0. The slot's single load
+    // sits in the loop body — not the first-evaluated leaf (the collection runs
+    // first) — so purity alone would inline `x + 1` into the body and read the
+    // iteration value. The foreach binding must count as a write (issue #3133
+    // adversarial review — Gemini foreach case).
+    [Fact]
+    public void PureCompositeReadingLocal_IsNotInlinedPastForeachBinding()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32], HasThis: false);
+
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadLocal(0, Int32),
+            new Constant(1, Int32))));
+
+        var foreachBody = new Block(1);
+        foreachBody.Add(new ExpressionStatement(new Call(use, isVirtual: false, [new LoadStackSlot(0, Int32)])));
+        block.Add(new ForeachStatement(0, Int32, new LoadArgument(0, "xs", Object), foreachBody));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [new Parameter("xs", Object)], HasThis: false, GenericParameterCount: 0),
+            [Int32],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
+    // Correct-by-construction guard for the interference check. Every IR node
+    // that binds a local or argument names its place through a `LocalIndex` /
+    // `VariableIndex` property; ExpressionInliningPass.Writes must recognize each
+    // so a deferred pure value is never moved past a binding of a place it reads.
+    // A newly added binding node fails this pin until it is handled in Writes
+    // (issue #3133 adversarial review kept surfacing missing writers).
+    [Fact]
+    public void Writes_CoversEveryLocalOrArgumentBindingNode()
+    {
+        string[] bindingIndexNames = ["LocalIndex", "VariableIndex"];
+        var discovered = typeof(IrNode).Assembly.GetTypes()
+            .Where(t => t.IsPublic
+                && t.Namespace == typeof(IrNode).Namespace
+                && t.GetProperties().Any(p => bindingIndexNames.Contains(p.Name)
+                    && (p.PropertyType == typeof(int) || p.PropertyType == typeof(int?))))
+            .Select(t => t.Name)
+            .OrderBy(n => n, StringComparer.Ordinal)
+            .ToArray();
+
+        string[] expected =
+        [
+            "CatchClause",
+            "DeconstructionTarget",
+            "Fixed",
+            "ForeachStatement",
+            "IsPattern",
+            "NullCoalescingAssignment",
+            "PatternSwitchExpressionArm",
+            "PropertySubpattern",
+            "RecursivePropertyDeclarationPattern",
+            "UnionSwitchExpressionArm",
+            "UsingStatement",
+        ];
+
+        Assert.Equal(expected, discovered);
+    }
+
     [Fact]
     public void CachedDelegateArgument_InlinesToSingleCall()
     {

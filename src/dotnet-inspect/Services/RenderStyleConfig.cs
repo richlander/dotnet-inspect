@@ -38,11 +38,21 @@ internal static class RenderStyleConfig
     /// <summary>The tool-owned style file name discovered by walking up from the working directory.</summary>
     public const string FileName = ".dotnet-inspectconfig";
 
-    // v1 recognizes exactly the two class-3 this.-qualification knobs, which are
-    // the only shipped spelling knobs with an exact editorconfig key. More keys
-    // are added here as further class-3 knobs land.
+    // v1 recognizes the two class-3 this.-qualification knobs (byte-preserving
+    // spelling choices) plus the opt-in ternary style lens
+    // (dotnet_style_prefer_conditional_expression_over_return). The latter is the
+    // first BYTE-DIVERGENT key: it is behavior-preserving but not opcode-faithful
+    // (#3138), so it is a deliberate style lens, not a class-3 spelling knob. More
+    // keys are added here as further knobs land.
     private const string FieldKey = "dotnet_style_qualification_for_field";
     private const string PropertyKey = "dotnet_style_qualification_for_property";
+    private const string PreferConditionalReturnKey = "dotnet_style_prefer_conditional_expression_over_return";
+
+    // The branchless "bool hack" lens (#3138) is NOT oracle-endorsed — no real
+    // .editorconfig key encourages it — so it is exposed under a tool-owned
+    // namespace rather than a dotnet_style_* key, making clear it is a
+    // dotnet-inspect compactness preference, not an editorconfig concept.
+    private const string PreferBranchlessBooleanKey = "dotnet_inspect_style_prefer_branchless_boolean";
 
     // The editorconfig boundary marker. Discovery is nearest-wins, so the nearest
     // file is already a hard boundary (nothing above it is read); 'root' is
@@ -118,6 +128,8 @@ internal static class RenderStyleConfig
     {
         bool qualifyField = false;
         bool qualifyProperty = false;
+        bool preferConditionalReturn = false;
+        bool preferBranchlessBoolean = false;
         List<string>? warnings = null;
 
         void Warn(string message) => (warnings ??= []).Add(message);
@@ -167,6 +179,18 @@ internal static class RenderStyleConfig
                     else
                         Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
                     break;
+                case PreferConditionalReturnKey:
+                    if (TryParseBool(value, out var t))
+                        preferConditionalReturn = t;
+                    else
+                        Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
+                    break;
+                case PreferBranchlessBooleanKey:
+                    if (TryParseBool(value, out var b))
+                        preferBranchlessBoolean = b;
+                    else
+                        Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
+                    break;
                 case RootKey:
                     // editorconfig boundary marker. Discovery is nearest-wins, so
                     // the nearest file is already a hard boundary; 'root' drives no
@@ -185,6 +209,8 @@ internal static class RenderStyleConfig
         {
             QualifyFieldAccess = qualifyField,
             QualifyPropertyAccess = qualifyProperty,
+            PreferConditionalExpressionReturn = preferConditionalReturn,
+            PreferBranchlessBoolean = preferBranchlessBoolean,
         };
 
         return new RenderStyleResolution(options, origin, (IReadOnlyList<string>?)warnings ?? []);
