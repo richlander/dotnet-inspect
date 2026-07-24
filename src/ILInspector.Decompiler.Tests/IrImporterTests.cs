@@ -2264,12 +2264,14 @@ public class RaisingPassTests
         // `cond ? false : boolExpr` lowers to a select whose false arm is the
         // literal 0; the pass recovers it as `false` and types the slot bool, so
         // the bool-returning method no longer returns an int slot (CS0029).
+        // ShortCircuitTernaryPass then canonicalizes the recovered
+        // `cond ? false : boolExpr` to `!cond && boolExpr`.
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         string output = PrintWithPasses(typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.SelectBoolReturn), source);
 
         Assert.Contains("bool S_0", output);
         Assert.DoesNotContain("int S_0", output);
-        Assert.Contains("false", output);
+        Assert.Contains("x <= 0 && x.GetHashCode() > 0", output);
         Assert.DoesNotContain("? 0", output);
         Assert.DoesNotContain(": 0", output);
     }
@@ -2293,7 +2295,9 @@ public class RaisingPassTests
     {
         // A bool computed into a stack slot and stored through ref bool is still a
         // bool consumer. Without this, the slot stays int and the ref bool store is
-        // `target = S_0` (CS0029).
+        // `target = S_0` (CS0029). The recovered `flag ? false : other` is left as a
+        // ternary: its surviving operand is a bare parameter load, which csc would
+        // emit branchless, so ShortCircuitTernaryPass declines it to stay opcode-exact.
         var boolType = TypeRef.CoreLib("System", "Boolean");
         var intType = TypeRef.CoreLib("System", "Int32");
         var sbyteType = TypeRef.CoreLib("System", "SByte");
@@ -2318,7 +2322,7 @@ public class RaisingPassTests
         string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n");
 
         Assert.Contains("bool S_0", output);
-        Assert.Contains("? false :", output);
+        Assert.Contains("flag ? false : other", output);
         Assert.DoesNotContain("int S_0", output);
         Assert.Contains("target = S_0;", output);
     }
@@ -3976,7 +3980,7 @@ public class RaisingPassTests
         Assert.DoesNotContain("goto", output);
         Assert.DoesNotContain(function.Descendants.OfType<ConditionalBranch>(), _ => true);
         Assert.Contains("if (node is Call c)", output);
-        Assert.Contains("return c.Callee.RequiresUnsafe ? true : SignatureRequiresUnsafe(c.Callee);", output);
+        Assert.Contains("return c.Callee.RequiresUnsafe || SignatureRequiresUnsafe(c.Callee);", output);
     }
 
     [Fact]
@@ -4069,7 +4073,9 @@ public class RaisingPassTests
         // terminator, so the dispatch cannot inline it as a leaf and the whole
         // method stays flat goto soup (issue #912). The pass folds each diamond to
         // `return c ? a : b`, making the arm a terminator so the dispatch fully
-        // raises — no surviving goto, and the folded ternary present.
+        // raises — no surviving goto. ShortCircuitTernaryPass then canonicalizes the
+        // recovered when-true-false diamond arm (`(y < 16) ? false : (y <= 31)`) to
+        // the `&&` it spells (`y >= 16 && y <= 31`).
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.SlotDiamondDispatch));
         Assert.NotNull(function);
@@ -4077,7 +4083,7 @@ public class RaisingPassTests
         string output = CSharpPrinter.Print(function!).Output!;
 
         Assert.DoesNotContain("goto", output);
-        Assert.Contains("?", output);   // a folded conditional arm survives
+        Assert.Contains("return y >= 16 && y <= 31;", output);   // a folded diamond arm survives as a short-circuit terminator
     }
 
     [Fact]
