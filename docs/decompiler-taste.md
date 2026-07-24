@@ -307,11 +307,17 @@ dotnet/runtime's `.editorconfig` would never recommend it — so it is a user
 "full taste" aggregate. It is exposed under a tool-owned
 `dotnet_inspect_style_*` key rather than a `dotnet_style_*` key to make that
 distinction explicit. Two hazards stay declined because they are about *behavior*,
-not just bytes: a user-defined-truthiness condition (lifting it rebinds to a
-user-defined `&&`/`||`, changing the result) and a managed by-ref surviving
+not just bytes: a user-defined-truthiness condition and a managed by-ref surviving
 operand (csc's branchless lowering would eagerly dereference a location the branch
-had guarded). When both lenses are enabled the oracle-endorsed ternary wins the
-shared shape.
+had guarded). The lens declines *every* user-defined-truthiness condition
+wholesale — anywhere in the condition subtree, including one wrapped in a negation.
+Such a condition never yields the compact bool-hack this lens targets: lifting it
+is either invalid (the printer strips `op_True`/`op_False` to a bare user-typed
+receiver, so `t && b` fails to compile), behavior-divergent (were a user `&`/`|`
+present, it would rebind to that operator's semantics), or valid but not branchless
+(a negation spelled as the ternary `(t ? false : true)` re-embeds a branch).
+Over-declining is always valid and faithful. When both lenses are enabled the
+oracle-endorsed ternary wins the shared shape.
 
 ## Names
 

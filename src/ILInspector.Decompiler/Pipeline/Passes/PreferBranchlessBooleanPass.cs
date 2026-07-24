@@ -122,16 +122,25 @@ public sealed class PreferBranchlessBooleanPass : IIrPass
         //   thenConstant == false: And(!c, tailValue)  negates; operand = tailValue
         IrExpression survivingOperand = tailConstant is not null ? thenValue : tailValue;
 
-        // BEHAVIOR guards (kept from the default; NOT the opcode-only guards).
-        //  - User-defined truthiness ANYWHERE in the condition rebinds to a
-        //    user-defined &&/|| operator, changing the runtime result (and
-        //    typically failing to compile). The direct-call check is not enough:
-        //    a wrapped condition such as `LogicalNot(op_True(t))` is unwrapped by
-        //    Conditions.Negate to reveal the bare op_True call the printer strips
-        //    to its user-typed receiver, so we scan the whole condition subtree.
-        //    The default's FoldGuardReturn is incidentally shielded from the
-        //    wrapped case by the opcode-fidelity negation guard this lens relaxes,
-        //    so the lens must guard it explicitly.
+        // BEHAVIOR/SCOPE guards (kept from the default; NOT the opcode-only guards).
+        //  - User-defined truthiness ANYWHERE in the condition takes the shape out
+        //    of this lens's scope. Every fold of such a condition is one of:
+        //    (a) INVALID — the printer strips op_True/op_False to its bare user-typed
+        //        receiver, so `t && b` / `t || b` fails to compile (no user &/|,
+        //        CS0019); (b) BEHAVIOR-DIVERGENT — were a user `&`/`|` present, the
+        //        lift would rebind to its operator semantics instead of the guarded
+        //        control flow; or (c) VALID but NOT branchless — a negation spelled
+        //        as the ternary `(t ? false : true)` re-embeds a branch, which is not
+        //        the compact short-circuit form this lens exists to produce. So the
+        //        lens declines every user-truthiness condition wholesale. The direct
+        //        root check is not enough (a `LogicalNot(op_True(t))` unwraps to a
+        //        bare op_True under Conditions.Negate), so we scan the whole subtree.
+        //        Plain bools, comparisons, and nullable bools never emit
+        //        op_True/op_False, so this only ever declines the out-of-scope
+        //        truthiness family; over-declining is always valid and faithful.
+        //    The default's FoldGuardReturn is incidentally shielded from the wrapped
+        //    case by the opcode-fidelity negation guard this lens relaxes, so the
+        //    lens must guard it explicitly.
         //  - A surviving managed by-ref dereference is eagerly evaluated by csc's
         //    branchless lowering, dereferencing a location the branch had guarded
         //    (null-by-ref NRE divergence). Every other operand is behavior-safe:
@@ -176,12 +185,12 @@ public sealed class PreferBranchlessBooleanPass : IIrPass
 
     // True when a user-defined-truthiness call (op_True/op_False) appears anywhere
     // in the condition subtree — as the root, under a LogicalNot the negation would
-    // unwrap, or nested in a compound condition. Any such call is stripped by the
-    // printer to its bare user-typed receiver, so lifting the condition (or its
-    // negation) into a short-circuit operand would rebind to a user-defined
-    // &&/|| that need not exist (CS0019) and can change the runtime result. The
-    // scan is deliberately conservative: over-declining only leaves the shape flat,
-    // which is always valid and faithful.
+    // unwrap, or nested in a compound condition. Such a condition is out of this
+    // lens's scope: its fold is invalid, behavior-divergent, or a non-branchless
+    // ternary re-embed (see the call-site comment). The scan checks the condition
+    // itself AND its descendants because IrNode.Descendants is self-exclusive. It is
+    // deliberately conservative: over-declining only leaves the shape flat, which is
+    // always valid and faithful.
     static bool InvolvesUserDefinedTruthiness(IrExpression condition)
     {
         if (ShortCircuitFidelity.IsUserDefinedTruthiness(condition))

@@ -132,6 +132,22 @@ public sealed class PreferBranchlessBooleanLensTests
     }
 
     [Fact]
+    public void WrappedTruthinessNonNegatingGuard_LensDeclines_StaysFlat()
+    {
+        // Non-negating counterpart of the negated case: `if (t) {} else { return b; }`
+        // with a `false` tail keeps the condition `LogicalNot(op_True(t))` as-is, so
+        // the fold `(t ? false : true) && b` is VALID. The lens still declines it: a
+        // negation spelled as a ternary is not the compact short-circuit form this
+        // lens produces, and it stays out of every user-truthiness condition
+        // wholesale. Declining is always valid and faithful.
+        var defaultText = Render(nameof(PreferBranchlessBooleanSpecimen.WrappedTruthinessNonNegatingGuard));
+        var lensText = Render(nameof(PreferBranchlessBooleanSpecimen.WrappedTruthinessNonNegatingGuard), LensOptions);
+        Assert.Equal(defaultText, lensText);
+        Assert.Contains("return b;", lensText);
+        Assert.DoesNotContain("&&", lensText);
+    }
+
+    [Fact]
     public void ByRefOperandGuard_LensDeclines_StaysFlat()
     {
         // The surviving operand is a managed by-ref dereference; csc's branchless

@@ -130,6 +130,28 @@ public static class PreferBranchlessBooleanSpecimen
         return true;
     }
 
+    // User-defined truthiness under a negation, NON-negating fold shape: same
+    // `if (t) {} else { return b; }` head but a `false` tail. The condition
+    // `LogicalNot(op_True(t))` is used as-is (no Conditions.Negate), so the printer
+    // spells it as the bool-typed ternary `(t ? false : true)` and the fold
+    // `(t ? false : true) && b` is technically VALID. The lens still DECLINES it:
+    // that output is not a clean branchless short-circuit (it re-embeds a ternary),
+    // and the lens deliberately stays out of every user-defined-truthiness condition
+    // because none of them yield the compact bool-hack this lens targets. Declining
+    // is always valid and faithful.
+    public static bool WrappedTruthinessNonNegatingGuard(Truthy t, bool b)
+    {
+        if (t)
+        {
+        }
+        else
+        {
+            return b;
+        }
+
+        return false;
+    }
+
     // A struct usable in boolean context via operator true/false, but with NO
     // user-defined `&`/`|`, so any short-circuit lift of a `Truthy` condition is
     // uncompilable.
