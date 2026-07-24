@@ -485,6 +485,45 @@ public sealed class BooleanFoldingPass : IIrPass
         if (tailConstant is null && thenConstant is null)
             return false;  // general ternary returns are a separate decision
 
+        // Cases 2 and 3 (exactly one arm is a bool constant) re-form a short-circuit
+        // &&/|| that lifts the condition into the operator's LEFT operand — optionally
+        // negated — and keeps the other arm as the surviving right operand. That is the
+        // same lift ShortCircuitTernaryPass performs for the nested constant-arm ternary
+        // (#3107), so it needs the same opcode-fidelity guards or it can emit C# whose
+        // recompilation diverges in branch opcodes, operator tokens, or runtime behavior
+        // (#3114). The both-opposite-constant case below (`return c;`/`return !c;`) is a
+        // separate branch-materialization readability raise — no operator lift, no
+        // surviving operand — and is intentionally not gated here.
+        bool bothOppositeConstants =
+            thenConstant is { } t && tailConstant is { } t2 && t != t2;
+        if (!bothOppositeConstants)
+        {
+            // negate/operand map (mirrors the fold shapes chosen below):
+            //   tailConstant == true : Or(!c, thenValue)   negates; operand = thenValue
+            //   tailConstant == false: And(c, thenValue)              operand = thenValue
+            //   thenConstant == true : Or(c, tailValue)               operand = tailValue
+            //   thenConstant == false: And(!c, tailValue)  negates; operand = tailValue
+            bool negatesCondition;
+            IrExpression survivingOperand;
+            if (tailConstant is { } tailFlag)
+            {
+                negatesCondition = tailFlag;
+                survivingOperand = thenValue;
+            }
+            else
+            {
+                negatesCondition = thenConstant == false;
+                survivingOperand = tailValue;
+            }
+
+            if (ShortCircuitFidelity.IsUserDefinedTruthiness(guard.Condition)
+                || (negatesCondition && !ShortCircuitFidelity.NegationIsOpcodeExact(guard.Condition))
+                || ShortCircuitFidelity.RendersAsBranchlessBarePlace(survivingOperand))
+            {
+                return false;
+            }
+        }
+
         var condition = guard.Condition;
         condition.Detach();
         IrExpression folded;
