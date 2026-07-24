@@ -93,7 +93,13 @@ public sealed partial class CSharpPrinter
     {
         try
         {
-            IrPasses.Run(function, IrPasses.Default, RaiseContext(importMethodBody, typesProvablyDisjoint));
+            var context = RaiseContext(importMethodBody, typesProvablyDisjoint);
+            IrPasses.Run(function, IrPasses.Default, context);
+            // Opt-in tier-3 style lens (#3138), byte-divergent by design: runs
+            // only when requested, after the byte-faithful default pipeline has
+            // left the guarded bool return flat.
+            if (options?.PreferConditionalExpressionReturn == true)
+                new PreferConditionalReturnPass().Run(function, context);
         }
         catch (Exception ex)
         {
