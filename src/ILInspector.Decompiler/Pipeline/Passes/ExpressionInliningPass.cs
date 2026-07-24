@@ -78,16 +78,6 @@ public sealed class ExpressionInliningPass : IIrPass
                 case StoreArgument argumentStore: argumentAddresses.Add(argumentStore.Index); break;
                 case LoadStackSlot load: Entry(true, load.Slot).Loads.Add(load); break;
                 case StoreStackSlot store when store.Parent is Block: Entry(true, store.Slot).Stores.Add(store); break;
-                // A reconstructed `x++`/`x--` mutates its target place. Record it
-                // as a write so a value that reads that place cannot be deemed
-                // pure and reordered past the increment (Gemini #3133 review):
-                // IncrementDecrementPass folds the `starg`/`stloc` away before the
-                // late slots-only run, so without this the store that would flag
-                // the place mutated no longer exists in the tree.
-                case IncrementDecrement { Target: LoadLocal incLocal }:
-                    locals[(false, incLocal.Index)] = Entry(false, incLocal.Index) with { AddressTaken = true }; break;
-                case IncrementDecrement { Target: LoadArgument incArg }:
-                    argumentAddresses.Add(incArg.Index); break;
             }
         }
 
@@ -140,8 +130,19 @@ public sealed class ExpressionInliningPass : IIrPass
                 continue;  // the local declaration carries a required cast/type witness
 
             bool pure = IsPure(store is StoreLocal sl ? sl.Value : ((StoreStackSlot)store).Value, locals, argumentAddresses, function);
-            if (!IsFirstEvaluatedLeaf(load, next) && !pure)
+            bool firstLeaf = IsFirstEvaluatedLeaf(load, next);
+            if (!firstLeaf && !pure)
                 continue;  // inlining would move the computation past whatever evaluates before the load
+            // Purity proves the value has no effect and cannot throw, but a value
+            // deferred to a NON-first-leaf load also moves past `next`'s prefix.
+            // If that prefix writes a place the value reads (a `StoreLocal`, or a
+            // reconstructed `x++`/`x--` whose `starg`/`stloc` was folded away), the
+            // deferred value would observe the mutated place. A pure value reads
+            // only arguments and locals (IsPure admits nothing else), so guard
+            // exactly those against a conflicting write anywhere in `next`
+            // (#3133 adversarial review — GPT for-loop-initializer case).
+            if (!firstLeaf && DefersPastConflictingWrite(store is StoreLocal s2 ? s2.Value : ((StoreStackSlot)store).Value, next))
+                continue;
 
             var value = (IrExpression)store.DetachChildren()[0];
 
@@ -354,10 +355,29 @@ public sealed class ExpressionInliningPass : IIrPass
             _ => false,
         })];
 
+    // A pure value deferred to a non-first-leaf load must not read a place that
+    // `next` writes: enumerate the value's argument/local reads (IsPure admits no
+    // other place read) and block if `next` mutates one. Conservative over the
+    // whole statement — a write strictly after the load only costs a missed
+    // collapse, never correctness.
+    static bool DefersPastConflictingWrite(IrExpression value, IrNode next)
+    {
+        foreach (var node in value.Descendants.Prepend(value))
+        {
+            switch (node)
+            {
+                case LoadArgument argument when Writes(next, PlaceKind.Argument, argument.Index): return true;
+                case LoadLocal load when Writes(next, PlaceKind.Local, load.Index): return true;
+            }
+        }
+        return false;
+    }
+
     static bool Writes(IrNode statement, PlaceKind kind, int index)
         => statement.Descendants.Prepend(statement).Any(n => kind switch
         {
-            PlaceKind.Slot => n is StoreStackSlot s && s.Slot == index,
+            PlaceKind.Slot => (n is StoreStackSlot s && s.Slot == index)
+                || (n is IncrementDecrement { Target: LoadStackSlot isl } && isl.Slot == index),
             PlaceKind.Local => (n is StoreLocal l && l.Index == index)
                 || (n is IncrementDecrement { Target: LoadLocal il } && il.Index == index),
             PlaceKind.Argument => (n is StoreArgument a && a.Index == index)

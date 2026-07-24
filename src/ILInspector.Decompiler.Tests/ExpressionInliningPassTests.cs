@@ -89,6 +89,48 @@ public class ExpressionInliningPassTests
         function.CheckInvariant();
     }
 
+    // A pure value (no effect, cannot throw) is still unsound to defer past a
+    // write to a place it READS. A slot holds `x + 1`; a for-loop follows whose
+    // initializer assigns `x = 10`. The slot's single load sits in the loop
+    // condition, which is not the first-evaluated leaf (the initializer runs
+    // first), so purity alone would inline `x + 1` into the condition and read
+    // the overwritten `x`. The interference check keeps the slot alive
+    // (issue #3133 adversarial review — GPT for-loop-initializer case).
+    [Fact]
+    public void PureCompositeReadingReassignedLocal_IsNotInlinedPastForLoopInitializer()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadLocal(0, Int32),
+            new Constant(1, Int32))));
+        block.Add(new ForLoop(
+            new StoreLocal(0, Int32, new Constant(10, Int32)),
+            new Comparison(
+                ComparisonKind.LessThan,
+                isUnsigned: false,
+                new LoadStackSlot(0, Int32),
+                new Constant(5, Int32)),
+            new IncrementDecrement(new LoadLocal(0, Int32), isIncrement: true, isPrefix: false),
+            new Block(1)));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
     [Fact]
     public void CachedDelegateArgument_InlinesToSingleCall()
     {
