@@ -1028,28 +1028,45 @@ public class ApiSurfaceExtractorTests
             var typeDef = reader.TypeDefinitions
                 .Select(reader.GetTypeDefinition)
                 .Single(t => reader.GetString(t.Name) == "FieldSurfaceSample");
+            var enumDef = reader.TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(t => reader.GetString(t.Name) == "FieldSurfaceEnum");
 
             var off = SurfaceFieldNames(reader, typeDef, includeCompilerGenerated: false);
             var on = SurfaceFieldNames(reader, typeDef, includeCompilerGenerated: true);
 
-            // Ordinary fields are always surfaced, including a user field whose name merely
-            // contains "__BackingField" (only the exact <Prop>k__BackingField shape is synthetic).
-            Assert.Contains("Plain", off);
-            Assert.Contains("count__BackingField", off);
-            Assert.Contains("Plain", on);
-            Assert.Contains("count__BackingField", on);
-
-            // Synthesized fields are excluded regardless of the opt-in.
             foreach (var set in new[] { off, on })
             {
-                Assert.DoesNotContain("<Value>k__BackingField", set); // auto-property backing
-                Assert.DoesNotContain("value__", set);                // enum storage slot name
-                Assert.DoesNotContain("Evt", set);                    // field-like event backing
+                // Ordinary fields are always surfaced, including a user field whose name merely
+                // contains "__BackingField" (only the exact <Prop>k__BackingField shape is
+                // synthetic) and a non-enum type's `value__` field (the storage-slot exclusion is
+                // gated on enums, so on a plain class `value__` is an ordinary field).
+                Assert.Contains("Plain", set);
+                Assert.Contains("count__BackingField", set);
+                Assert.Contains("value__", set);
+
+                // A field-like event's private [CompilerGenerated] backing field is always folded.
+                Assert.DoesNotContain("Evt", set);
+
+                // A real auto-property backing field carries its own [CompilerGenerated] marker and
+                // is dropped everywhere, even under the opt-in.
+                Assert.DoesNotContain("<Value>k__BackingField", set);
             }
 
-            // A compiler-generated (<...>) field is gated behind the opt-in.
+            // Positive-evidence discriminator: a hand-authored <Orphan>k__BackingField with the
+            // backing-field name but NO [CompilerGenerated] marker is not a real backing field, so
+            // it is treated as an ordinary compiler-generated (<...>) field — gated by the opt-in,
+            // not folded by name. A plain state-machine hoisted local behaves the same way.
+            Assert.DoesNotContain("<Orphan>k__BackingField", off);
+            Assert.Contains("<Orphan>k__BackingField", on);
             Assert.DoesNotContain("<hoisted>5__1", off);
             Assert.Contains("<hoisted>5__1", on);
+
+            // On a genuine enum, `value__` is the storage slot and is excluded; literal members
+            // still surface.
+            var enumOff = SurfaceFieldNames(reader, enumDef, includeCompilerGenerated: false);
+            Assert.DoesNotContain("value__", enumOff);
+            Assert.Contains("Red", enumOff);
         }
         finally
         {
@@ -1064,10 +1081,12 @@ public class ApiSurfaceExtractorTests
             .Select(h => reader.GetString(reader.GetFieldDefinition(h).Name))
             .ToHashSet(StringComparer.Ordinal);
 
-    // Emits (via Reflection.Emit) a type whose fields exercise every branch of the field-inclusion
+    // Emits (via Reflection.Emit) types that exercise every branch of the field-inclusion
     // primitive: an ordinary field, a user field that merely contains "__BackingField", a real
-    // auto-property backing field, the enum storage-slot name, a compiler-generated hoisted local,
-    // and a field-like event's private [CompilerGenerated] backing field. Returns the saved path.
+    // [CompilerGenerated] auto-property backing field, a same-named lookalike WITHOUT the marker,
+    // a non-enum `value__` field, a compiler-generated hoisted local, and a field-like event's
+    // private [CompilerGenerated] backing field — plus a genuine enum whose `value__` is the
+    // storage slot. Returns the saved path.
     static string EmitFieldSurfaceSample()
     {
         var ab = new System.Reflection.Emit.PersistedAssemblyBuilder(
@@ -1076,15 +1095,23 @@ public class ApiSurfaceExtractorTests
         var tb = module.DefineType("FieldSurfaceSample",
             System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
 
-        tb.DefineField("Plain", typeof(int), System.Reflection.FieldAttributes.Public);
-        tb.DefineField("count__BackingField", typeof(int), System.Reflection.FieldAttributes.Public);
-        tb.DefineField("<Value>k__BackingField", typeof(int), System.Reflection.FieldAttributes.Private);
-        tb.DefineField("value__", typeof(int), System.Reflection.FieldAttributes.Public);
-        tb.DefineField("<hoisted>5__1", typeof(int), System.Reflection.FieldAttributes.Public);
-
         var cgCtor = typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute)
             .GetConstructor(Type.EmptyTypes)!;
         var cgAttr = new System.Reflection.Emit.CustomAttributeBuilder(cgCtor, Array.Empty<object>());
+
+        tb.DefineField("Plain", typeof(int), System.Reflection.FieldAttributes.Public);
+        tb.DefineField("count__BackingField", typeof(int), System.Reflection.FieldAttributes.Public);
+
+        // A real auto-property backing field: <Prop>k__BackingField AND [CompilerGenerated].
+        var realBacking = tb.DefineField(
+            "<Value>k__BackingField", typeof(int), System.Reflection.FieldAttributes.Private);
+        realBacking.SetCustomAttribute(cgAttr);
+
+        // A same-named lookalike without the [CompilerGenerated] marker: not a backing field.
+        tb.DefineField("<Orphan>k__BackingField", typeof(int), System.Reflection.FieldAttributes.Private);
+
+        tb.DefineField("value__", typeof(int), System.Reflection.FieldAttributes.Public);
+        tb.DefineField("<hoisted>5__1", typeof(int), System.Reflection.FieldAttributes.Public);
 
         // Field-like event: a private [CompilerGenerated] field sharing the event name, with
         // [CompilerGenerated] add/remove accessors.
@@ -1105,6 +1132,12 @@ public class ApiSurfaceExtractorTests
         eventBuilder.SetRemoveOnMethod(remove);
 
         tb.CreateType();
+
+        // A genuine enum: its `value__` storage slot must be excluded; literals surface.
+        var eb = module.DefineEnum(
+            "FieldSurfaceEnum", System.Reflection.TypeAttributes.Public, typeof(int));
+        eb.DefineLiteral("Red", 0);
+        eb.CreateType();
 
         string path = Path.Combine(Path.GetTempPath(), $"field-surface-{Guid.NewGuid():N}.dll");
         ab.Save(path);

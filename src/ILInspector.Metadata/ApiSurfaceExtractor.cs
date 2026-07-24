@@ -323,7 +323,10 @@ public static class ApiSurfaceExtractor
 
                 string fieldName = reader.GetString(field.Name);
                 if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated))
-                    continue; // Skip auto-property backing fields; other compiler-generated fields unless opted in
+                    continue; // Skip compiler-generated (<...>) fields unless opted in
+
+                if (IsAutoPropertyBackingField(reader, field, fieldName))
+                    continue; // Skip a synthesized auto-property backing field (re-synthesized on reconstruction)
 
                 if (IsFieldLikeEventBackingField(reader, field, fieldName, fieldLikeEventBackingFieldNames))
                     continue; // Skip a field-like event's private, compiler-generated backing field
@@ -919,15 +922,28 @@ public static class ApiSurfaceExtractor
         => name.StartsWith('<') && name.EndsWith("k__BackingField", StringComparison.Ordinal);
 
     /// <summary>
-    /// Whether a field name belongs to a type's declarable field surface. Auto-property backing
-    /// fields are always excluded; other compiler-generated (<c>&lt;...&gt;</c>) fields are
-    /// excluded unless <paramref name="includeCompilerGenerated"/> is set. Ordinary fields
-    /// (including the enum <c>value__</c> slot, which callers handle separately) are surfaced.
+    /// True when a field is a synthesized auto-property backing field: it is spelled
+    /// <c>&lt;Prop&gt;k__BackingField</c> AND carries its own <c>[CompilerGenerated]</c> marker.
+    /// Requiring the field's own marker (not the name alone) mirrors the field-like-event backing
+    /// fold: C# spelling rules do not bind arbitrary IL, so a genuine field could share the shape;
+    /// the C# compiler always marks a real auto-property backing field compiler-generated.
+    /// </summary>
+    static bool IsAutoPropertyBackingField(MetadataReader reader, FieldDefinition field, string name)
+        => IsAutoPropertyBackingFieldName(name)
+           && AttributeReader.HasAttribute(
+               reader,
+               field.GetCustomAttributes(),
+               KnownAttributeNames.CompilerGeneratedAttribute);
+
+    /// <summary>
+    /// Whether a field name belongs to a type's declarable field surface based on its name alone.
+    /// Compiler-generated (<c>&lt;...&gt;</c>) fields are excluded unless
+    /// <paramref name="includeCompilerGenerated"/> is set; ordinary fields are surfaced. Backing
+    /// fields (auto-property, field-like event) and an enum's <c>value__</c> slot carry additional
+    /// positive-evidence checks applied by callers.
     /// </summary>
     static bool IsSurfaceableFieldName(string name, bool includeCompilerGenerated)
     {
-        if (IsAutoPropertyBackingFieldName(name))
-            return false;
         if (name.StartsWith('<'))
             return includeCompilerGenerated;
         return true;
@@ -935,9 +951,10 @@ public static class ApiSurfaceExtractor
 
     /// <summary>
     /// The field handles that make up a type's declarable field surface: ordinary fields,
-    /// excluding synthesized auto-property backing fields, the enum storage slot (<c>value__</c>),
-    /// and a field-like event's compiler-generated backing field. Compiler-generated fields (e.g.
-    /// state-machine hoisted locals, display-class captures) are included only when
+    /// excluding synthesized auto-property backing fields (positive <c>[CompilerGenerated]</c>
+    /// evidence), an enum's storage slot (<c>value__</c>), and a field-like event's
+    /// compiler-generated backing field. Compiler-generated fields (e.g. state-machine hoisted
+    /// locals, display-class captures) are included only when
     /// <paramref name="includeCompilerGenerated"/> is set; non-public fields only when
     /// <paramref name="includeAll"/> is set. This is the single field-inclusion decision shared by
     /// API-surface extraction and compile-back reconstruction so both agree on which fields a type
@@ -949,6 +966,7 @@ public static class ApiSurfaceExtractor
         bool includeAll,
         bool includeCompilerGenerated)
     {
+        bool isEnum = IsEnum(reader, typeDef);
         var fieldLikeEventBackingFieldNames = FieldLikeEventBackingFieldNames(reader, typeDef);
         var handles = new List<FieldDefinitionHandle>();
         foreach (var fieldHandle in typeDef.GetFields())
@@ -958,10 +976,12 @@ public static class ApiSurfaceExtractor
                 continue;
 
             string fieldName = reader.GetString(field.Name);
-            if (fieldName == "value__")
-                continue;
+            if (isEnum && fieldName == "value__")
+                continue; // An enum's storage slot is not a declarable field member
             if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated))
                 continue;
+            if (IsAutoPropertyBackingField(reader, field, fieldName))
+                continue; // Skip a synthesized auto-property backing field (re-synthesized on reconstruction)
             if (IsFieldLikeEventBackingField(reader, field, fieldName, fieldLikeEventBackingFieldNames))
                 continue;
 
