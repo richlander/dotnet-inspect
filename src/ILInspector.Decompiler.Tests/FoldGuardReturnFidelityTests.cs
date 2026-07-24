@@ -227,51 +227,88 @@ public class FoldGuardReturnFidelityTests
         AssertDeclined(CondCompare(), byRefEqualsFalse, Bool(false), [Int32]);
     }
 
-    // === correctness declines: a managed by-ref deref nested inside a raised
-    // logical/bitwise composition (adversarial review round 3, #3119). A leaf-only
-    // peel stops at the composition node and misses the deref; the subtree scan
-    // reaches it. csc branchless-collapses `c && OP` whenever OP is side-effect-free,
-    // so any by-ref deref in a call-free OP becomes an eager deref of a guarded
-    // location — the same NullReferenceException divergence as the bare operand. ===
+    // === by-ref nested in a composition (adversarial review rounds 3–4, #3119).
+    // csc collapses `c && OP` to a branchless `c & OP` only when OP renders as a bare
+    // place; the printer flattens a same-kind logical chain, so a by-ref deref that
+    // becomes a bare operand of the emitted OUTER-kind chain is eagerly dereferenced
+    // (NRE divergence) and is declined — but one confined to a compound operand that
+    // keeps its branch (a bitwise `&`, a different-kind logical, a call argument) folds
+    // faithfully. All five shapes below were verified against SDK-csc /optimize IL plus
+    // a null-by-ref runtime probe. ===
 
     [Fact]
     public void ByRefUnderLogicalAndOperand_TailConstant_IsNotFolded()
     {
-        // `if (c) return a && *r; return false;` → `c && (a && *r)`, which flattens and
-        // recompiles branchless (`c & a & r`), eagerly dereferencing the guarded by-ref.
-        // The old leaf-only peel stopped at the LogicalBinary and missed the nested deref.
+        // `if (c) return a && *r; return false;` → `c && (a && *r)`. The inner `&&` is
+        // the SAME kind as the `&&` lift, so it flattens to `c && a && r` and recompiles
+        // branchless (`c & a & r`), eagerly dereferencing the guarded by-ref (verified:
+        // null-by-ref throws). The by-ref is a bare operand of the flattened And chain.
         var operand = new LogicalBinary(LogicalKind.And, new LoadLocal(1, Boolean), ByRefBoolDeref());
         AssertDeclined(CondCompare(), operand, Bool(false), [Int32, Boolean]);
     }
 
     [Fact]
-    public void ByRefUnderLogicalOrOperand_TailConstant_IsNotFolded()
+    public void ByRefBeforeCallInLogicalAndOperand_TailConstant_IsNotFolded()
     {
-        // `if (c) return *r || a; return false;` → `c && (*r || a)` → branchless
-        // `c & (r | a)`, the same eager deref with the by-ref on the `||` left.
-        var operand = new LogicalBinary(LogicalKind.Or, ByRefBoolDeref(), new LoadLocal(1, Boolean));
-        AssertDeclined(CondCompare(), operand, Bool(false), [Int32, Boolean]);
+        // #3119 round-4 finding 1: a trailing call does NOT guard an earlier by-ref.
+        // `if (c) return *r && Call(); return false;` → `c && (*r && Call())` flattens to
+        // `c && *r && Call()`; the call-free `c && *r` PREFIX collapses branchless
+        // (`c & *r`) before the call is reached, so the by-ref is dereferenced eagerly
+        // (verified: null-by-ref throws). The by-ref is a bare operand of the flattened
+        // And chain even though a call sits later in that chain.
+        var call = new Call(
+            new MethodRef(Holder, "Call", Boolean, [], HasThis: false), isVirtual: false, []);
+        var operand = new LogicalBinary(LogicalKind.And, ByRefBoolDeref(), call);
+        AssertDeclined(CondCompare(), operand, Bool(false), [Int32]);
     }
 
     [Fact]
-    public void ByRefUnderBitwiseAndOperand_TailConstant_IsNotFolded()
+    public void ByRefInSameKindLogicalOperand_TailTrue_OuterOr_IsNotFolded()
     {
-        // The real csc shape: source `if (c) return a && r; return false;` imports with
-        // the inner `a && r` already lowered to a bitwise `a & r` (both operands simple).
-        // Lifting `c && (a & r)` recompiles branchless → eager by-ref deref. The subtree
-        // scan reaches the deref under the bitwise node.
+        // The lift is `||`-kind here (`if (c) return *r || a; return true;` → `!c || (*r
+        // || a)`). Now the inner `||` matches the outer `||`, flattens to `!c || *r || a`,
+        // and collapses branchless — the by-ref is eager. The SAME operand folds under an
+        // `&&` lift (next test); the hazard is outer-kind-relative.
+        var operand = new LogicalBinary(LogicalKind.Or, ByRefBoolDeref(), new LoadLocal(1, Boolean));
+        AssertDeclined(CondCompare(), operand, Bool(true), [Int32, Boolean]);
+    }
+
+    [Fact]
+    public void ByRefInDifferentKindLogicalOperand_TailConstant_StillFolds()
+    {
+        // #3119 round-4 finding 2: `if (c) return *r || a; return false;` → `c && (*r ||
+        // a)`. The inner `||` differs from the `&&` lift, so the printer keeps it a
+        // parenthesized compound the outer `&&` branch guards — the by-ref is read only
+        // when c is true, exactly as in the original (verified: IL byte-identical to the
+        // guarded original, null-by-ref does NOT throw). A faithful, foldable raise.
+        var operand = new LogicalBinary(LogicalKind.Or, ByRefBoolDeref(), new LoadLocal(1, Boolean));
+        var result = RunGuard(CondCompare(), operand, Bool(false), [Int32, Boolean]);
+
+        Assert.IsType<LogicalBinary>(result);
+    }
+
+    [Fact]
+    public void ByRefUnderBitwiseAndOperand_TailConstant_StillFolds()
+    {
+        // #3119 round-4 finding 2: the real csc shape. Source `if (c) return a && r;
+        // return false;` imports with the inner `a && r` already lowered to a bitwise
+        // `a & r`. A bitwise composition is a compound operand csc keeps the `c` branch
+        // for, so `c && (a & r)` recompiles to IL byte-identical to the guarded original
+        // (verified: null-by-ref does NOT throw). My round-3 fix wrongly declined this;
+        // the by-ref is not a bare operand of the And chain.
         var operand = new Binary(BinaryKind.And, isChecked: false, isUnsigned: false,
             new LoadLocal(1, Boolean), ByRefBoolDeref());
-        AssertDeclined(CondCompare(), operand, Bool(false), [Int32, Boolean]);
+        var result = RunGuard(CondCompare(), operand, Bool(false), [Int32, Boolean]);
+
+        Assert.IsType<LogicalBinary>(result);
     }
 
     [Fact]
     public void ByRefBehindCallOperand_TailConstant_StillFolds()
     {
-        // `if (c) return Use(*r); return false;` → `c && Use(*r)`. The call is a
-        // side-effect barrier csc will not hoist past the lift, so it keeps the branch
-        // and the by-ref deref stays guarded — a faithful, foldable readability raise.
-        // The scan must NOT over-decline a by-ref that only appears inside a call.
+        // `if (c) return Use(*r); return false;` → `c && Use(*r)`. The by-ref is a call
+        // argument, so it lives inside the compound call operand the `c` branch guards —
+        // it is not a bare operand of the And chain, and folding stays faithful.
         var operand = new Call(
             new MethodRef(Holder, "Use", Boolean, [Boolean], HasThis: false),
             isVirtual: false, [ByRefBoolDeref()]);

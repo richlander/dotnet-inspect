@@ -33,49 +33,88 @@ internal static class ShortCircuitFidelity
         => PeelReducibleBoolWrappers(condition) is Call { Callee.Name: "op_True" or "op_False" };
 
     /// <summary>
-    /// Whether lifting <paramref name="operand"/> behind a spelled <c>&amp;&amp;</c>/
-    /// <c>||</c> would eagerly dereference a managed by-ref
-    /// (<c>in</c>/<c>ref</c>/<c>out</c>) the branch had guarded. csc treats a managed
-    /// by-ref as non-null and side-effect-free, so it collapses <c>c &amp;&amp; OP</c>
-    /// to a branchless <c>c &amp; OP</c> whenever <c>OP</c> is entirely side-effect-free
-    /// (has no call). That collapse re-evaluates every by-ref dereference in <c>OP</c>
-    /// unconditionally — an observable <see cref="System.NullReferenceException"/>
-    /// divergence on a null by-ref that the compiler's branch had short-circuited.
+    /// Whether lifting <paramref name="operand"/> as the surviving short-circuit operand
+    /// of a spelled <c>c <paramref name="outerKind"/> OP</c> re-form would eagerly
+    /// dereference a managed by-ref (<c>in</c>/<c>ref</c>/<c>out</c>) the compiler's
+    /// branch had guarded — an observable <see cref="System.NullReferenceException"/>
+    /// divergence on a null by-ref.
     ///
-    /// So the hazard is present exactly when <c>OP</c> contains a managed by-ref
-    /// dereference AND contains no call: a bare <c>*r</c>, a bool-constant comparison
-    /// (<c>*r == true</c>) or negation (<c>!*r</c>) over one, or — the case the earlier
-    /// leaf-only peel missed — one nested inside a raised logical/bitwise composition
-    /// (<c>a &amp;&amp; *r</c>, <c>a &amp; *r</c>, <c>r | a</c>; csc branchless-collapses
-    /// the inner <c>a &amp;&amp; r</c> to <c>a &amp; r</c>, and the outer lift then
-    /// collapses that whole operand). Conversely a call anywhere in <c>OP</c> is a
-    /// side-effect barrier csc will not hoist past the lift, so it keeps the branch and
-    /// guards the whole operand — <c>c &amp;&amp; SomeCall(*r)</c> stays faithful and is
-    /// deliberately kept foldable. A raw <em>pointer</em> dereference <c>*p</c> is
-    /// excluded (its address kind is not <see cref="TypeRefKind.ByRef"/>): a pointer read
-    /// can access-violate, so csc keeps the branch and lifting it is safe.
+    /// csc collapses a short-circuit <c>L &amp;&amp; R</c> to a branchless <c>L &amp; R</c>
+    /// (and <c>L || R</c> to <c>L | R</c>) exactly when <c>R</c> renders as a bare place
+    /// — a local/argument/field load or a managed by-ref dereference, which csc treats as
+    /// non-null and side-effect-free. A <em>compound</em> right operand (a bitwise
+    /// <c>&amp;</c>/<c>|</c>, a different-kind logical sub-expression, a comparison, or a
+    /// call) keeps the branch, so a by-ref dereference buried inside one stays guarded.
+    /// The printer flattens a maximal same-kind logical chain, so <c>c <paramref
+    /// name="outerKind"/> OP</c> makes every operand of <c>OP</c>'s <paramref
+    /// name="outerKind"/>-chain a collapsible right operand of the emitted chain; a by-ref
+    /// dereference reachable as one of those flattened operands (through the reducible
+    /// bool wrappers of <see cref="PeelReducibleBoolWrappers"/>) is therefore dereferenced
+    /// unconditionally.
+    ///
+    /// So the hazard is exactly a by-ref dereference that appears as a bare operand of the
+    /// flattened <paramref name="outerKind"/> chain: a bare <c>*r</c>, a <c>*r == true</c>
+    /// wrapper the fixpoint reduces back to a bare <c>*r</c>, or one under a same-kind
+    /// logical composition (<c>a &amp;&amp; *r</c>, <c>*r &amp;&amp; Call()</c> when
+    /// <paramref name="outerKind"/> is <c>And</c>). It is NOT a hazard when the by-ref
+    /// dereference is confined to a compound operand that keeps the branch: a bitwise
+    /// composition (<c>a &amp; *r</c>), a different-kind logical sub-expression
+    /// (<c>*r || a</c> under an <c>And</c> lift), a comparison (<c>*r &gt; 0</c>), a by-ref
+    /// struct field (<c>r.b</c>), or a call argument (<c>SomeCall(*r)</c>) — all recompile
+    /// with the guard intact and stay foldable. The shared, parity-agnostic
+    /// <see cref="PeelReducibleBoolWrappers"/> also strips a leading <c>!</c> / <c>== false</c>,
+    /// so a <c>!*r</c>/<c>*r == false</c> operand — which keeps its branch and is faithful —
+    /// is conservatively declined too; declining an extra readable raise is sound, and
+    /// modeling the exact reduction parity would re-implement <c>FoldBoolConstantComparison</c>.
+    /// A raw <em>pointer</em> dereference <c>*p</c> is excluded (its address kind is not
+    /// <see cref="TypeRefKind.ByRef"/>): a pointer read can access-violate, so csc keeps
+    /// the branch and lifting it is safe.
+    ///
+    /// Verified against SDK-csc <c>/optimize</c> IL + a null-by-ref runtime probe: the
+    /// same-kind chain (<c>c &amp;&amp; a &amp;&amp; *r</c>), the by-ref-before-call
+    /// (<c>c &amp;&amp; *r &amp;&amp; Call()</c>), and the bare operand
+    /// (<c>c &amp;&amp; *r</c>) each diverge from their guarded original (null-by-ref
+    /// throws), while the bitwise (<c>c &amp;&amp; (a &amp; *r)</c>), different-kind
+    /// (<c>c &amp;&amp; (*r || a)</c>), comparison (<c>c &amp;&amp; *r &gt; 0</c>), field
+    /// (<c>c &amp;&amp; r.b</c>), and negation (<c>c &amp;&amp; !*r</c>) folds compile to
+    /// byte-identical IL and do not throw.
     /// </summary>
-    internal static bool IsManagedByRefDeref(IrExpression operand)
-        => ContainsManagedByRefDereference(operand) && !ContainsCall(operand);
+    internal static bool LiftEagerlyDerefsByRef(IrExpression operand, LogicalKind outerKind)
+    {
+        foreach (var chainOperand in FlattenLogicalChain(operand, outerKind))
+        {
+            if (PeelReducibleBoolWrappers(chainOperand)
+                is LoadIndirect { Address.ResultType.Kind: TypeRefKind.ByRef })
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /// <summary>
-    /// Whether the <paramref name="operand"/> subtree contains a managed by-ref
-    /// (<c>in</c>/<c>ref</c>/<c>out</c>) dereference. A raw pointer dereference is
-    /// excluded — only <see cref="TypeRefKind.ByRef"/> addresses qualify.
+    /// The operands of the maximal logical chain of <paramref name="outerKind"/>
+    /// (<c>&amp;&amp;</c> or <c>||</c>) rooted at <paramref name="expression"/> — the
+    /// operands the printer's same-kind flattening would splice into the surrounding
+    /// <c>c <paramref name="outerKind"/> …</c> chain. A <see cref="LogicalBinary"/> of the
+    /// same kind is descended into; anything else (a different-kind logical, a bitwise
+    /// composition, a comparison, a call, a bare place) is a single opaque operand that
+    /// keeps its own branch and is yielded whole.
     /// </summary>
-    static bool ContainsManagedByRefDereference(IrExpression operand)
-        => operand is LoadIndirect { Address.ResultType.Kind: TypeRefKind.ByRef }
-            || operand.Descendants.OfType<LoadIndirect>().Any(load => load.Address.ResultType is { Kind: TypeRefKind.ByRef });
-
-    /// <summary>
-    /// Whether the <paramref name="operand"/> subtree contains a call — the
-    /// side-effect barrier csc will not hoist past a lifted short-circuit, so it keeps
-    /// the compiler's branch and every by-ref dereference the call transitively guards
-    /// stays guarded.
-    /// </summary>
-    static bool ContainsCall(IrExpression operand)
-        => operand is Call or CallIndirect
-            || operand.Descendants.Any(node => node is Call or CallIndirect);
+    static IEnumerable<IrExpression> FlattenLogicalChain(IrExpression expression, LogicalKind outerKind)
+    {
+        if (expression is LogicalBinary logical && logical.Kind == outerKind)
+        {
+            foreach (var operand in FlattenLogicalChain(logical.Left, outerKind))
+                yield return operand;
+            foreach (var operand in FlattenLogicalChain(logical.Right, outerKind))
+                yield return operand;
+        }
+        else
+        {
+            yield return expression;
+        }
+    }
 
     /// <summary>
     /// Follow the reducible operand through the wrappers that
@@ -98,8 +137,9 @@ internal static class ShortCircuitFidelity
     /// <c>FoldBoolConstantComparison</c> and <see cref="Conditions.Negate"/> here — a
     /// fragile second implementation this intentionally avoids. (For the ternary re-form
     /// the comparison reduction has already run upstream, so only the negation peel is
-    /// live there. The by-ref hazard no longer routes through this peel — see
-    /// <see cref="IsManagedByRefDeref"/>, which scans the whole operand subtree.)
+    /// live there. It also serves <see cref="LiftEagerlyDerefsByRef"/>, which peels each
+    /// flattened chain operand so a by-ref deref hidden under a <c>== true</c>/<c>!</c>
+    /// wrapper is still reached.)
     /// </summary>
     static IrExpression PeelReducibleBoolWrappers(IrExpression expression)
     {

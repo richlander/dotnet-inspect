@@ -99,8 +99,10 @@ public sealed class ShortCircuitTernaryPass : IIrPass
 
             // The surviving operand is always the when-false arm. Decline when csc
             // would emit a branchless `&`/`|` for the spelled operator: raising the
-            // ternary would trade branch IL for branchless.
-            if (RendersAsBranchlessBarePlace((IrExpression)conditional.WhenFalse))
+            // ternary would trade branch IL for branchless (and, for a by-ref deref
+            // reachable as a bare operand of the same-`kind` chain, eagerly dereference a
+            // guarded location — an NRE divergence).
+            if (RendersAsBranchlessBarePlace((IrExpression)conditional.WhenFalse, kind))
                 continue;
 
             var children = conditional.DetachChildren();
@@ -164,10 +166,17 @@ public sealed class ShortCircuitTernaryPass : IIrPass
     /// dereference <c>*p</c> (which can access-violate, so csc keeps the branch).
     /// The operand map was verified opcode-by-opcode: only the bare-load and
     /// managed-by-ref shapes compile branchless; all others keep the branch.
+    ///
+    /// The by-ref hazard is <paramref name="outerKind"/>-relative: the printer flattens
+    /// only a same-kind logical chain, so a by-ref dereference is eager only when it is a
+    /// bare operand of the emitted <paramref name="outerKind"/> chain — <see
+    /// cref="ShortCircuitFidelity.LiftEagerlyDerefsByRef"/> flattens against that kind.
+    /// A by-ref confined to a different-kind logical or a bitwise/call operand keeps its
+    /// own branch and stays raisable.
     /// </summary>
-    static bool RendersAsBranchlessBarePlace(IrExpression operand)
+    static bool RendersAsBranchlessBarePlace(IrExpression operand, LogicalKind outerKind)
         => operand is LoadLocal or LoadArgument or LoadStackSlot
-           || ShortCircuitFidelity.IsManagedByRefDeref(operand);
+           || ShortCircuitFidelity.LiftEagerlyDerefsByRef(operand, outerKind);
 
     /// <summary>
     /// Whether <paramref name="condition"/> is a user-defined-truthiness evaluation

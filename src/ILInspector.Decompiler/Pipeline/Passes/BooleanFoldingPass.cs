@@ -498,20 +498,40 @@ public sealed class BooleanFoldingPass : IIrPass
         if (ShortCircuitFidelity.IsUserDefinedTruthiness(guard.Condition))
             return false;
 
-        // 2. When the surviving (short-circuited) operand is a managed by-ref
-        //    dereference, csc collapses the spelled `&&`/`||` to a branchless `&`/`|`
-        //    that eagerly dereferences a location the branch had guarded — an
-        //    observable NullReferenceException divergence. The both-constant arm lifts
-        //    no operand; the tailConstant arm lifts `thenValue`, the thenConstant arm
-        //    lifts `tailValue`. (A bare local or pointer deref stays a readability
-        //    raise and is left to fold.)
+        // 2. When the surviving (short-circuited) operand would eagerly dereference a
+        //    managed by-ref, csc collapses the spelled `&&`/`||` to a branchless `&`/`|`
+        //    that dereferences a location the branch had guarded — an observable
+        //    NullReferenceException divergence. The hazard depends on the OUTER logical
+        //    kind the fold emits: the printer flattens only a same-kind chain, so a
+        //    by-ref under a `||` operand of an `&&` lift (or vice versa) stays a guarded
+        //    compound and folds faithfully. The both-constant arm lifts no operand; the
+        //    tailConstant arm lifts `thenValue` under `tailBool ? Or : And`, the
+        //    thenConstant arm lifts `tailValue` under `thenConstant ? Or : And`. (A bare
+        //    local or pointer deref stays a readability raise and is left to fold.)
         bool bothOppositeConstants =
             thenConstant is { } thenC && tailConstant is { } tailC && thenC != tailC;
-        IrExpression? survivingOperand = bothOppositeConstants ? null
-            : tailConstant is not null ? thenValue
-            : tailValue;
-        if (survivingOperand is not null && ShortCircuitFidelity.IsManagedByRefDeref(survivingOperand))
+        IrExpression? survivingOperand;
+        LogicalKind outerKind;
+        if (bothOppositeConstants)
+        {
+            survivingOperand = null;
+            outerKind = default;
+        }
+        else if (tailConstant is { } tailBool0)
+        {
+            survivingOperand = thenValue;
+            outerKind = tailBool0 ? LogicalKind.Or : LogicalKind.And;
+        }
+        else
+        {
+            survivingOperand = tailValue;
+            outerKind = thenConstant!.Value ? LogicalKind.Or : LogicalKind.And;
+        }
+        if (survivingOperand is not null
+            && ShortCircuitFidelity.LiftEagerlyDerefsByRef(survivingOperand, outerKind))
+        {
             return false;
+        }
 
         var condition = guard.Condition;
         condition.Detach();
