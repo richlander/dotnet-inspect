@@ -1735,19 +1735,7 @@ static class Program
         return new PackageAssemblyInputs(assemblies, tempDirs);
     }
 
-    static bool IsManaged(string path)
-    {
-        try
-        {
-            using var stream = File.OpenRead(path);
-            using var pe = new PEReader(stream);
-            return pe.HasMetadata;
-        }
-        catch
-        {
-            return false;
-        }
-    }
+    static bool IsManaged(string path) => ManagedReferenceFilter.IsManagedAssembly(path);
 
     static string TypeDisplayName(MetadataReader reader, TypeDefinition td)
     {
