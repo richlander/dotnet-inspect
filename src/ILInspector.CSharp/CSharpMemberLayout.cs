@@ -32,10 +32,11 @@ public static class CSharpMemberLayout
     /// <c>DecompilerResult.BodyIsSingleReturnExpression</c> signal, that
     /// <paramref name="body"/> is exactly one <c>return &lt;expr&gt;;</c>
     /// statement whose expression spans several lines (a raised switch
-    /// expression). Such a body renders expression-bodied — <c>head =&gt; &lt;value&gt;
-    /// switch { … };</c> — with the switch block re-indented under the member
-    /// (issue #3088). Only ever set for a multi-line body; single-line bodies
-    /// stay on the <see cref="CSharpExpressionBody.FromSingleStatement"/> path.
+    /// expression, a wrapped fluent chain, or any other wrapped single
+    /// expression). Such a body renders expression-bodied — <c>head =&gt; &lt;value&gt;</c>
+    /// with the continuation lines re-indented under the member (issues #3088 and
+    /// #3084). Only ever set for a multi-line body; single-line bodies stay on the
+    /// <see cref="CSharpExpressionBody.FromSingleStatement"/> path.
     /// </param>
     public static void Append(StringBuilder sb, string head, string? body, int indent, bool wrapExpressionBodyArrow = false, bool bodyIsSingleReturnExpression = false)
     {
@@ -75,13 +76,15 @@ public static class CSharpMemberLayout
 
     /// <summary>
     /// Renders a multi-line single-<c>return</c> expression body (a raised switch
+    /// expression, a wrapped fluent chain, or any other wrapped single
     /// expression). The value/arrow line sits after the arrow — on
     /// <paramref name="head"/>'s line, or, when
     /// <paramref name="wrapExpressionBodyArrow"/> is set, one level deeper on its
-    /// own line — and the block lines re-indent so the switch <c>{</c> aligns with
-    /// the token that opens the expression: the member indent for the same-line
-    /// arrow, or the arrow's indent for the wrapped arrow. The final line gains the
-    /// statement terminator (<c>};</c>). Blank lines are preserved.
+    /// own line — and the continuation lines re-indent so that whatever opens the
+    /// expression (a switch <c>{</c>, a chained <c>.Method(…)</c>) aligns with the
+    /// token after the arrow: the member indent for the same-line arrow, or the
+    /// arrow's indent for the wrapped arrow. The final line gains the statement
+    /// terminator (<c>;</c>). Blank lines are preserved.
     /// </summary>
     static void AppendMultilineExpressionBody(
         StringBuilder sb, string head, IReadOnlyList<string> expressionLines, int indent, bool wrapExpressionBodyArrow)

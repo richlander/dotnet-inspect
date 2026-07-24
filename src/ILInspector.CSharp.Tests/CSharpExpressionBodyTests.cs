@@ -47,6 +47,31 @@ public sealed class CSharpExpressionBodyTests
             lines);
     }
 
+    [Fact]
+    public void MultilineReturnExpressionLines_SplitsFluentChainReturn()
+    {
+        // Issue #3084: extraction is not switch-specific. A wrapped fluent chain
+        // return yields its receiver as the value line and each chained call as a
+        // continuation line at its body-relative indent.
+        var lines = CSharpExpressionBody.MultilineReturnExpressionLines(
+            "return builder\n    .Append(\"a\")\n    .Append(\"b\")\n    .ToString();");
+        Assert.NotNull(lines);
+        Assert.Equal(
+            ["builder", "    .Append(\"a\")", "    .Append(\"b\")", "    .ToString()"],
+            lines);
+    }
+
+    [Fact]
+    public void MultilineReturnExpressionLines_SplitsWrappedTernaryReturn()
+    {
+        var lines = CSharpExpressionBody.MultilineReturnExpressionLines(
+            "return condition\n    ? first\n    : second;");
+        Assert.NotNull(lines);
+        Assert.Equal(
+            ["condition", "    ? first", "    : second"],
+            lines);
+    }
+
     [Theory]
     [InlineData("return value.Length;")]          // single line — FromSingleStatement owns it
     [InlineData("result = 0;\nreturn x switch\n{\n    _ => 1,\n};")]  // has a leading statement, but the string still starts non-`return`

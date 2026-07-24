@@ -83,6 +83,58 @@ public class MemberBodyProducerExpressionBodyTests
         Assert.DoesNotContain("TwoStatements(object shape, out bool matched) =>", source);
     }
 
+    [Fact]
+    public void SingleWrappedFluentReturn_RendersExpressionBodied()
+    {
+        // Issue #3084: the single-return expression-body fold is not
+        // switch-specific. A method whose whole body is one `return <fluent
+        // chain>;` wide enough to wrap also folds to an expression-bodied
+        // member — the arrow trails the signature with the chain receiver after
+        // it, continuations one level deeper.
+        using var assembly = Compile("""
+            public class Fx
+            {
+                public static string Build(System.Text.StringBuilder builder)
+                {
+                    return builder.Append("alphabet").Append("bravissimo").Append("charlateral").Append("deltatango").Append("echolocation").Append("foxtrotter").ToString();
+                }
+            }
+            """);
+
+        string source = ComposeType(assembly.Path, "Fx");
+
+        Assert.Contains("public static string Build(StringBuilder builder) => builder", source);
+        Assert.Contains("\n        .Append(\"alphabet\")", source);
+        Assert.Contains("\n        .ToString();", source);
+        // The old block form (a brace block wrapping a lone `return`) is gone.
+        Assert.DoesNotContain("return builder", source);
+        Assert.DoesNotContain("Build(StringBuilder builder)\n    {", source);
+    }
+
+    [Fact]
+    public void WrappedFluentReturnAfterAnotherStatement_StaysBlock()
+    {
+        // Close negative: a statement preceding the wrapped return makes the
+        // body two statements, not a single return expression, so it keeps the
+        // brace-block body.
+        using var assembly = Compile("""
+            public class Fx
+            {
+                public static string Build(System.Text.StringBuilder builder)
+                {
+                    builder.Append("prefix");
+                    return builder.Append("alphabet").Append("bravissimo").Append("charlateral").Append("deltatango").Append("echolocation").Append("foxtrotter").ToString();
+                }
+            }
+            """);
+
+        string source = ComposeType(assembly.Path, "Fx");
+
+        Assert.Contains("public static string Build(StringBuilder builder)\n    {", source);
+        Assert.DoesNotContain("Build(StringBuilder builder) =>", source);
+        Assert.Contains("return builder", source);
+    }
+
     static string ComposeType(string path, string fullName)
     {
         using var pe = new PEReader(File.OpenRead(path));
