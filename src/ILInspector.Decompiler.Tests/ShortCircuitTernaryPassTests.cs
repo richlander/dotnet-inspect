@@ -10,6 +10,7 @@ public class ShortCircuitTernaryPassTests
     static readonly TypeRef s_bool = TypeRef.CoreLib("System", "Boolean");
     static readonly TypeRef s_double = TypeRef.CoreLib("System", "Double");
     static readonly TypeRef s_string = TypeRef.CoreLib("System", "String");
+    static readonly TypeRef s_truth = TypeRef.CoreLib("Synthetic", "TruthOver");
 
     static Constant Bool(bool value) => new(value, s_bool);
 
@@ -41,24 +42,73 @@ public class ShortCircuitTernaryPassTests
         => new(ComparisonKind.Equal, false,
                new LoadArgument(0, "a", s_string), new LoadArgument(1, "b", s_string));
 
+    // A user-defined-truthiness condition: the `operator true` call the compiler
+    // inserts for a user type used in boolean context. The printer strips it to the
+    // bare user-typed receiver `a`, so lifting `a` into `||`/`&&` would rebind the
+    // user-defined conditional operator (op_BitwiseOr/op_BitwiseAnd + op_True) and
+    // reselect the overload — the pass declines it for both forms.
+    static Call UserTruthiness()
+        => new(new MethodRef(s_truth, "op_True", s_bool, [s_truth], HasThis: false),
+               isVirtual: false, [new LoadArgument(0, "a", s_truth)]);
+
+    // A managed by-ref (`in`/`ref`/`out`) bool dereference: LoadIndirect over an
+    // argument typed `ref bool`. csc treats a managed by-ref as non-null and
+    // side-effect-free, so `c && refBool` collapses to a branchless `&` — the pass
+    // must decline it just like a bare local.
+    static LoadIndirect ByRefBoolDeref()
+        => new(s_bool, new LoadArgument(1, "y", TypeRef.ByRef(s_bool)));
+
+    // A raw pointer (`bool*`) dereference: LoadIndirect over an argument typed
+    // `bool*`. A pointer read can access-violate, so csc keeps the branch for
+    // `c && *p` — the pass raises it (opcode-exact), unlike the managed by-ref.
+    static LoadIndirect PointerBoolDeref()
+        => new(s_bool, new LoadArgument(1, "p", TypeRef.Pointer(s_bool)));
+
     [Fact]
     public void TrueThenValue_BecomesShortCircuitOr()
     {
+        // A-form `flag ? true : y`  →  `flag || y`. A bare bool condition spells as a
+        // primitive bool, so lifting it into `||`-operand position binds the
+        // primitive operator (no user-operator rebind) and is opcode-exact.
         var result = RunOn(new Conditional(Flag(), Bool(true), Y()));
 
         var logical = Assert.IsType<LogicalBinary>(result);
         Assert.Equal(LogicalKind.Or, logical.Kind);
-        Assert.IsType<LoadArgument>(logical.Left);   // condition unchanged
-        Assert.IsType<Comparison>(logical.Right);     // the surviving arm
+        Assert.IsType<LoadArgument>(logical.Left);    // condition unchanged
+        Assert.IsType<Comparison>(logical.Right);    // the surviving arm
+    }
+
+    [Fact]
+    public void UserTruthinessCondition_AForm_IsNotRewritten()
+    {
+        // A-form `a ? true : y` where `a` is a user type evaluated through
+        // `operator true` would become `a || y`. The printer strips the op_True call
+        // to the bare user-typed receiver `a`, so `a || y` rebinds to the
+        // user-defined conditional `|` (which requires op_True/op_False), reselecting
+        // the overload and changing the call tokens and runtime result — decline.
+        var result = RunOn(new Conditional(UserTruthiness(), Bool(true), Y()));
+
+        Assert.IsType<Conditional>(result);
+    }
+
+    [Fact]
+    public void UserTruthinessCondition_BForm_IsNotRewritten()
+    {
+        // Same rebind hazard in the B-form: `a ? false : y` → `!a && y` would rebind
+        // the user-defined conditional `&`. (The B-form also declines it through the
+        // integer-comparison negate gate, but the truthiness gate is the reason.)
+        var result = RunOn(new Conditional(UserTruthiness(), Bool(false), Y()));
+
+        Assert.IsType<Conditional>(result);
     }
 
     [Fact]
     public void BoolCondition_BForm_IsNotRewritten()
     {
-        // B-form `flag ? false : y` would become `!flag && y`. Negating a
-        // non-comparison condition is not the proven integer dual, and the printer
-        // can fold a negated condition to a different operator/branch polarity, so
-        // the B-form fires only for a confirmed-integer comparison — decline here.
+        // B-form `flag ? false : y` would become `!flag && y`. A bare bool is not a
+        // comparison, so negating it is not the proven integer dual and the printer
+        // can fold the negation to a different branch — the B-form declines it. (The
+        // A-form leaves a bare bool condition alone: `flag || y` is opcode-exact.)
         var result = RunOn(new Conditional(Flag(), Bool(false), Y()));
 
         Assert.IsType<Conditional>(result);
@@ -174,6 +224,43 @@ public class ShortCircuitTernaryPassTests
         var result = RunOn(new Conditional(StartLessEqualZero(), Bool(false), new LoadArgument(1, "other", s_bool)));
 
         Assert.IsType<Conditional>(result);
+    }
+
+    [Fact]
+    public void ByRefDereferenceOperand_BForm_IsNotRewritten()
+    {
+        // `c ? false : refBool` would become `!c && refBool`. csc treats a managed
+        // by-ref (`in`/`ref`/`out`) as non-null and side-effect-free, so it collapses
+        // that to a branchless `&` and eagerly dereferences the location the branch
+        // had guarded (an observable NullReferenceException divergence on a null
+        // by-ref). Decline so the raise never trades branch IL for branchless.
+        var result = RunOn(new Conditional(StartLessEqualZero(), Bool(false), ByRefBoolDeref()));
+
+        Assert.IsType<Conditional>(result);
+    }
+
+    [Fact]
+    public void ByRefDereferenceOperand_AForm_IsNotRewritten()
+    {
+        // Same branchless hazard for the A-form: `c ? true : refBool` would become
+        // `c || refBool`, which csc collapses to a branchless `|`.
+        var result = RunOn(new Conditional(StartLessEqualZero(), Bool(true), ByRefBoolDeref()));
+
+        Assert.IsType<Conditional>(result);
+    }
+
+    [Fact]
+    public void PointerDereferenceOperand_StillRewrites()
+    {
+        // `c ? false : *p` → `!c && *p`. A raw pointer read can access-violate, so
+        // csc keeps the branch for `c && *p` — raising it is opcode-exact. This is
+        // the negative boundary of the by-ref guard: the guard fires for a managed
+        // by-ref (which collapses branchless), not for a pointer dereference.
+        var result = RunOn(new Conditional(StartLessEqualZero(), Bool(false), PointerBoolDeref()));
+
+        var logical = Assert.IsType<LogicalBinary>(result);
+        Assert.Equal(LogicalKind.And, logical.Kind);
+        Assert.IsType<LoadIndirect>(logical.Right);
     }
 
     [Fact]

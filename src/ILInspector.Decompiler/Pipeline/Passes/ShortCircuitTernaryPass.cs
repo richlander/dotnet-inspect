@@ -22,24 +22,30 @@ namespace ILInspector.Decompiler.Pipeline;
 /// IL; the corpus compile-back gates guard the exact forms continuously).
 ///
 /// <para>Even for the two exact forms the rewrite is declined when the surviving
-/// operand is a bare local, parameter, or stack-slot load: csc collapses
-/// <c>a &amp;&amp; b</c> / <c>a || b</c> to a branchless <c>&amp;</c>/<c>|</c> for those
-/// operand shapes, so raising the ternary would trade branch IL for branchless
-/// (see <see cref="IsBareLocalOrArgumentLoad"/>). Every computed or memory-loaded
-/// operand (field/element load, comparison, call, negation, nested logical
-/// operator) keeps the branch.</para>
+/// operand renders as a bare, non-faulting place: a local, parameter, or
+/// stack-slot load, or a managed by-ref (<c>in</c>/<c>ref</c>/<c>out</c>)
+/// dereference. csc collapses <c>a &amp;&amp; b</c> / <c>a || b</c> to a branchless
+/// <c>&amp;</c>/<c>|</c> for those operand shapes, so raising the ternary would
+/// trade branch IL for branchless (see <see cref="RendersAsBranchlessBarePlace"/>).
+/// Every faulting or side-effecting operand — field/element load, comparison,
+/// call, and even a raw pointer dereference <c>*p</c> — keeps the branch and is
+/// raised.</para>
 ///
-/// <para>The B-form additionally negates the condition, and negation is only
-/// proven opcode-exact for a primitive-integer comparison, whose dual is the same
-/// integer branch (e.g. <c>start &lt;= 0</c> ↔ <c>start &gt; 0</c>, both
-/// <c>ble.s</c>). Every other condition's negation the printer can fold to a
-/// different operator token or branch polarity — a float dual flips the
-/// ordered/unordered sense, an <c>==</c>/<c>!=</c> dual or negated operator call
-/// flips to the inverse operator, and an <c>is</c>/<c>is null</c>/<c>!= 0</c>
-/// truthiness test inverts to its opposite — so the B-form fires only for a
-/// confirmed-integer comparison condition and declines the rest
-/// (<see cref="NegateIsIntegerComparisonDual"/>). The A-form (no negate) renders
-/// the condition verbatim and accepts any condition shape.</para>
+/// <para>The condition is lifted into the left operand of the spelled operator, so
+/// both forms decline a user-defined-truthiness condition — an <c>operator true</c>/
+/// <c>operator false</c> evaluation the compiler inserts for a user type used in
+/// boolean context. The printer strips such a call to its bare user-typed receiver,
+/// so <c>c || y</c> / <c>!c &amp;&amp; y</c> would rebind to the user-defined conditional
+/// <c>|</c>/<c>&amp;</c>, reselecting the overload and diverging in call tokens and
+/// runtime result (<see cref="IsUserDefinedTruthiness"/>). A primitive-bool condition
+/// — comparison, bool property/field/local/method, nested logical operator — binds
+/// the primitive operator. The B-form additionally negates the condition, and
+/// negation is only proven opcode-exact for a primitive-integer comparison, whose
+/// dual is the same integer branch (e.g. <c>start &lt;= 0</c> ↔ <c>start &gt; 0</c>,
+/// both <c>ble.s</c>). A float dual flips the ordered/unordered sense and a reference
+/// <c>==</c>/<c>!=</c> dual flips the operator token, so the B-form fires only for a
+/// confirmed-integer comparison (<see cref="NegateIsIntegerComparisonDual"/>); the
+/// A-form (no negate) renders any primitive-bool condition verbatim.</para>
 ///
 /// It fires only when the when-true arm is a bool constant and the when-false arm
 /// is a non-constant bool expression; a both-constant <c>c ? true : false</c> is
@@ -69,20 +75,32 @@ public sealed class ShortCircuitTernaryPass : IIrPass
             if (!TryClassify(conditional, out var kind, out bool negate))
                 continue;
 
-            // The B-form (`c ? false : y` → `!c && y`) negates the condition. The
-            // ONLY negation the pipeline is proven to spell back to the same branch
-            // opcodes is a primitive-integer comparison's dual (e.g. `start <= 0` →
-            // `start > 0`, both `ble.s`). Every other negation the printer can fold
-            // to a different operator token or branch polarity, so the B-form fires
-            // only for a confirmed-integer comparison; the A-form (no negate)
-            // renders the condition verbatim and is unaffected.
+            // Both forms lift the condition into the LEFT operand of the spelled
+            // `||`/`&&`. A user-defined-truthiness condition — an `operator true`/
+            // `operator false` evaluation the compiler inserts for a user type used
+            // in boolean context — renders as its bare user-typed receiver (the same
+            // strip the printer applies), so `c || y` / `!c && y` would rebind to the
+            // user-defined conditional `|`/`&`, reselecting the overload and diverging
+            // in call tokens and runtime result. A primitive-bool condition
+            // (comparison, bool property/field/local/method, nested logical operator)
+            // binds the primitive operator, so decline only the truthiness lift.
+            if (IsUserDefinedTruthiness(conditional.Condition))
+                continue;
+
+            // The B-form (`c ? false : y` → `!c && y`) additionally negates the
+            // condition. The ONLY negation the pipeline is proven to spell back to
+            // the same branch opcodes is a primitive-integer comparison's dual (e.g.
+            // `start <= 0` → `start > 0`, both `ble.s`); a float/reference comparison
+            // dual flips the ordered/unordered sense or the operator token, so the
+            // B-form declines everything but a confirmed-integer comparison. The
+            // A-form (no negate) renders the condition verbatim.
             if (negate && !NegateIsIntegerComparisonDual(conditional.Condition))
                 continue;
 
             // The surviving operand is always the when-false arm. Decline when csc
             // would emit a branchless `&`/`|` for the spelled operator: raising the
             // ternary would trade branch IL for branchless.
-            if (IsBareLocalOrArgumentLoad((IrExpression)conditional.WhenFalse))
+            if (RendersAsBranchlessBarePlace((IrExpression)conditional.WhenFalse))
                 continue;
 
             var children = conditional.DetachChildren();
@@ -131,20 +149,41 @@ public sealed class ShortCircuitTernaryPass : IIrPass
 
     /// <summary>
     /// csc emits a branchless <c>&amp;</c>/<c>|</c> (not a short-circuit branch) for
-    /// <c>a &amp;&amp; b</c>/<c>a || b</c> only when the non-short-circuiting operand is
-    /// a bare local, parameter, or stack-slot load — the operand shapes whose
-    /// evaluation it can prove is side-effect-free and cannot throw. (A residual
-    /// stack slot renders as a bare synthetic local, so csc collapses it the same
-    /// way.) Every other operand (field/element load, comparison, call, negation,
-    /// nested logical operator) keeps the branch, so raising its ternary is
-    /// opcode-exact. This mirrors Roslyn's branchless eligibility
-    /// (local/parameter/constant operands; a constant operand cannot occur here
-    /// because the pass requires the non-short-circuiting arm to be non-constant).
-    /// Confirmed against real csc-emitted IL: a bare-load operand compiles
-    /// branchless, every computed/memory-loaded operand keeps the branch.
+    /// <c>a &amp;&amp; b</c>/<c>a || b</c> only when the non-short-circuiting operand
+    /// renders as a bare, non-faulting place: a local, parameter, or stack-slot
+    /// load, or a <em>managed by-ref</em> dereference (an <c>in</c>/<c>ref</c>/<c>out</c>
+    /// parameter or <c>ref</c> local, which csc treats as non-null and side-effect
+    /// -free, spelling as the bare referent). A residual stack slot renders as a bare
+    /// synthetic local, so csc collapses it the same way. Raising those would trade
+    /// branch IL for branchless (and, for the by-ref case, eagerly dereference a
+    /// location the branch had guarded — an observable <c>NullReferenceException</c>
+    /// divergence on a null by-ref). Every other operand keeps the branch and is
+    /// safe to raise: a field/static/element load or call (can fault or has side
+    /// effects), a comparison (even over bare locals), a nested logical operator,
+    /// and — confirmed against real csc-emitted IL — a raw <em>pointer</em>
+    /// dereference <c>*p</c> (which can access-violate, so csc keeps the branch).
+    /// The operand map was verified opcode-by-opcode: only the bare-load and
+    /// managed-by-ref shapes compile branchless; all others keep the branch.
     /// </summary>
-    static bool IsBareLocalOrArgumentLoad(IrExpression operand)
-        => operand is LoadLocal or LoadArgument or LoadStackSlot;
+    static bool RendersAsBranchlessBarePlace(IrExpression operand)
+        => operand is LoadLocal or LoadArgument or LoadStackSlot
+           || operand is LoadIndirect { Address.ResultType.Kind: TypeRefKind.ByRef };
+
+    /// <summary>
+    /// Whether <paramref name="condition"/> is a user-defined-truthiness evaluation
+    /// — a call to <c>operator true</c>/<c>operator false</c> the compiler inserts
+    /// when a user type is used in boolean context. The printer strips such a call
+    /// to its bare user-typed receiver (it renders <c>op_True(a)</c>/<c>op_False(a)</c>
+    /// as <c>a</c>), so lifting it into a short-circuit operand — <c>a || y</c> /
+    /// <c>!a &amp;&amp; y</c> — would rebind to the user-defined conditional <c>|</c>/<c>&amp;</c>,
+    /// reselecting the overload and changing the call tokens and runtime result. Only
+    /// a type carrying <c>op_True</c>/<c>op_False</c> can bind a user-defined
+    /// <c>||</c>/<c>&amp;&amp;</c>, so this is the complete rebind set; a primitive-bool
+    /// condition (comparison, bool property/field/local/method, nested logical
+    /// operator) binds the primitive operator and is safe to lift.
+    /// </summary>
+    static bool IsUserDefinedTruthiness(IrExpression condition)
+        => condition is Call { Callee.Name: "op_True" or "op_False" };
 
     /// <summary>
     /// Whether negating <paramref name="condition"/> re-forms to something that
