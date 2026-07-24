@@ -1,5 +1,6 @@
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using ILInspector.Decompiler.Pipeline;
 using Markout;
 using Markout.Formatting;
 
@@ -35,6 +36,27 @@ public partial record ApiOptions
     public bool IncludeAll { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
     public bool Verbose { get; init; }
+
+    /// <summary>
+    /// Decompiler spelling options resolved from the tool-owned
+    /// <c>.dotnet-inspectconfig</c> at the CLI edge (see
+    /// <see cref="DotnetInspector.Services.RenderStyleConfig"/>). Null means the
+    /// shipped defaults; the render path treats null and
+    /// <see cref="PrinterOptions.Default"/> identically, keeping output
+    /// byte-for-byte unchanged when no config is present.
+    /// </summary>
+    public PrinterOptions? RenderOptions { get; init; }
+
+    /// <summary>
+    /// Pending <c>.dotnet-inspectconfig</c> parse/read warnings, emitted to stderr
+    /// exactly once at the point a decompiled-source render consumes
+    /// <see cref="RenderOptions"/> (see
+    /// <see cref="DotnetInspector.Services.RenderConfigWarningSink"/>). A
+    /// reference-typed latch so the single emission survives the record <c>with</c>
+    /// copies that flow the options. Null when the resolved config raised no
+    /// warnings.
+    /// </summary>
+    internal DotnetInspector.Services.RenderConfigWarningSink? RenderConfigWarnings { get; init; }
 
     // Enrichment
     public bool ShowDocs { get; init; }

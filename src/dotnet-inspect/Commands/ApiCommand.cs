@@ -51,7 +51,7 @@ public class ApiCommand
             Value = options.Value, Urls = options.Urls, Paths = options.Paths,
             Select = options.Select, Columns = options.Columns, Fields = options.Fields,
             Schema = options.Schema, Count = options.Count, SourceOptions = options.SourceOptions,
-            TipLevel = options.TipLevel
+            TipLevel = options.TipLevel, RenderOptions = options.RenderOptions
         })
     };
 
@@ -188,6 +188,32 @@ public class ApiCommand
         // Warn if tabular output is combined with detailed verbosity without section selector
         if (!options.Count)
             OutputFormatResolver.WarnIfTabularDetailMismatch(options.Tabular, options.Verbosity, options.IncludeSections);
+
+        // Resolve the tool-owned .dotnet-inspectconfig once per invocation at the
+        // CLI edge and attach the decompiler spelling options to the flowed
+        // options. Config discovery lives only here; the decompiler library stays
+        // a pure function of explicit PrinterOptions. RenderOptions is attached
+        // unconditionally (harmless when no source renders). Parse/read warnings
+        // are carried on a latch and emitted at the exact point a decompiled-source
+        // render consumes the config (see RenderConfigWarningSink), so a bad config
+        // never dirties stderr for a run that does not show styled source — a
+        // metadata projection (--json/--count/tabular), a section that does not
+        // read source (-S Facts), or a fidelity-only projection (whose result is
+        // style-invariant, so the config is genuinely not consumed) — and always
+        // surfaces once, never as a silent success, on a run that does.
+        //
+        // Discovery (-D) is excluded here rather than at the consumption site: it
+        // lists which sections would render by probing them into a discarded view,
+        // so its internal source render must not be mistaken for user-visible
+        // styled output. No latch is attached for a discovery request.
+        var renderStyle = RenderStyleConfig.Resolve(Environment.CurrentDirectory);
+        options = options with
+        {
+            RenderOptions = renderStyle.Options,
+            RenderConfigWarnings = renderStyle.Warnings.Count > 0 && options.Discover is null
+                ? new RenderConfigWarningSink(renderStyle.Warnings)
+                : null,
+        };
 
         return (new PreambleResult(options, typePipeline, memberPipeline), null);
     }
@@ -785,12 +811,17 @@ public class ApiCommand
             && options.IncludeSections is { Count: > 0 }
             && GetRequestedMemberSections(type, options).Contains(SectionNames.DecompiledSource))
         {
+            // A whole-type decompiled-source render consumes the resolved config.
             var resolver = ApiAnalysisInspection.CreateReferenceResolver(typeDllPath, options);
             using var metadata = new Decompiler.Pipeline.MetadataContext(resolver);
             var listing = Decompiler.MemberBodyProducer.Project(
-                type, typeDllPath, options.PdbPath, resolver, metadata).Output;
+                type, typeDllPath, options.PdbPath, resolver, metadata, options.RenderOptions).Output;
             if (listing is not null)
             {
+                // Surface pending config warnings only once the styled listing is
+                // actually produced, so a type whose Project yields no body (e.g.
+                // an enum) never emits a spurious warning.
+                options.RenderConfigWarnings?.EmitOnce();
                 view.MemberCode ??= new MemberCodeView();
                 view.MemberCode.DecompiledSourceCode = new Markout.CodeSection("csharp", listing);
             }

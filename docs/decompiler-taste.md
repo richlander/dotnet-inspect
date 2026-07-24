@@ -134,6 +134,28 @@ only drops a trailing argument that is still a bare constant equal to the
 recovered default while the call still carries the callee's full parameter list.
 Anything the count cannot prove safe stays explicit.
 
+### `this` member qualification
+
+`this.field` and `field`, and `this.Prop` and `Prop`, compile to the identical
+IL — a `this`-rooted instance member load is `ldarg.0; ldfld` / `ldarg.0; call
+get_Prop` either way, so the `this.` prefix has no IL consequence. This is a
+class-3 no-anchor spelling with **no binding hazard** (unlike target-typed
+`new()` or argument elision): the prefix cannot rebind the member, it can only be
+redundant. The shipped default renders the bare name, qualifying only where the
+bare name would not bind to the member — a local/parameter shadow or a
+member/type-name collision — matching how the runtime writes member access.
+
+The always-qualified spelling is available as an opt-in, off by default so
+default output stays byte-for-byte stable:
+
+- `PrinterOptions.QualifyFieldAccess` mirrors `dotnet_style_qualification_for_field`.
+- `PrinterOptions.QualifyPropertyAccess` mirrors `dotnet_style_qualification_for_property`.
+
+```csharp
+public int Compute() => _count + Extra;          // shipped default: bare
+public int Compute() => this._count + this.Extra; // both knobs on
+```
+
 ### Line wrapping
 
 Breaking a long line across continuation lines is pure whitespace: it emits the
@@ -232,6 +254,77 @@ and declines otherwise:
 ## Names
 
 Without a PDB, locals are slot names (`V_0`, `S_0`) shared with the Annotated IL view — the two views stay name-aligned by construction. With a PDB, source names are used. Synthesizing readable names (`size`, `array`, `item`) where no PDB exists is an open design question: it is the largest remaining cosmetic gap against source, but it would break view alignment unless opt-in.
+
+## Style configuration
+
+The oracle settles a single shipped default per equivalence class, but a few
+class-3 no-anchor spellings are also exposed as opt-in knobs (see
+[`this` member qualification](#this-member-qualification) and
+[Line wrapping](#line-wrapping)). A tool-owned config file selects them without a
+per-run flag.
+
+`dotnet-inspect` discovers a `.dotnet-inspectconfig` file by walking up from the
+current working directory to the filesystem root; the **nearest** file wins (no
+cross-level merge). Because there is no merge, the nearest file is a hard
+boundary — nothing above it is read — so placing a `.dotnet-inspectconfig` at a
+repository root isolates every nested run from configs higher up the tree. When
+no file is found, output is byte-for-byte the shipped default.
+
+The file is flat `key = value`, using the same key and value vocabulary as an
+`.editorconfig` so lines copy across directly:
+
+```ini
+# .dotnet-inspectconfig
+root = true
+dotnet_style_qualification_for_field = true
+dotnet_style_qualification_for_property = true
+```
+
+- `#` and `;` comment lines and `[section]` headers are ignored.
+- An editorconfig `value:severity` suffix is tolerated — only the value token
+  before `:` is read (`true:suggestion` is read as `true`).
+- The editorconfig `root` key is recognized (so a file copied from an
+  `.editorconfig` does not warn). Discovery already stops at the nearest file, so
+  `root = true` drives no behavior on its own; it is the conventional, explicit
+  way to mark a repository-root config as the boundary.
+- Recognized keys map to `PrinterOptions`; today the two `this`-qualification
+  keys above are recognized, and the set grows as more class-3 knobs ship.
+- Unknown keys, malformed lines, and non-boolean values are reported as a
+  `Warning:` on stderr and skipped — the rest of the file still applies. A bad
+  config never fails the run silently.
+
+Config warnings are emitted at the point styled decompiled source is actually
+shown, exactly once: a decompiled-source or source-diff render reads the resolved
+`PrinterOptions` and flushes any pending warnings to stderr there. Every other run
+stays silent, and the rule is exact — the config is *consumed* precisely when its
+styling is user-visible:
+
+- A metadata projection (`--json`, `--count`, tabular, `--value`/`--urls`) returns
+  before any source render.
+- A selection that excludes source (`-S Facts`) renders no source.
+- A fidelity-only projection (`-S "Fidelity Causes"`) reads the raised IR and
+  recompile diagnostics, both style-invariant, and discards the printed string, so
+  it renders with the shipped defaults and genuinely does not consume the config.
+- Discovery (`-D`/`--discover`) lists which sections *would* render by probing them
+  into a discarded view; that internal render is not user-visible styled source, so
+  a discovery request never surfaces a config warning.
+- A request that *selects* source but yields none renders nothing to style: a
+  callers-only aggregation (`--directory`/`--bin` with no overload selector), a
+  member with no IL body (e.g. a P/Invoke, which renders only a decode
+  diagnostic), and an empty type whose whole-type projection has no body all
+  request `Decompiled Source` yet produce no printed C#, so no warning fires.
+
+Because emission is tied to the point of visible consumption rather than predicted
+up front, the warning fires if and only if styled source reaches the user, exactly
+once, independent of output mode or verbosity.
+
+Only the tool-owned filename is auto-discovered; a foreign `.editorconfig` is not
+read. Configuration is resolved once at the CLI edge and threaded into the render
+as explicit `PrinterOptions`; the decompiler library itself stays a pure function
+of the assembly and the options it is handed, so the config surface never changes
+what the library computes for a given `PrinterOptions`. The knobs affect the
+primary decompiled-source view; the Annotated Source and IR-stage views stay on
+the shipped default so they remain aligned with the IL.
 
 ## Verification and soundness
 
