@@ -10,11 +10,14 @@ namespace ILInspector.Decompiler.Tests;
 /// <summary>
 /// The opt-in <c>this.</c>-qualification knobs
 /// (<see cref="PrinterOptions.QualifyFieldAccess"/> /
-/// <see cref="PrinterOptions.QualifyPropertyAccess"/>). These are class-3 spelling
-/// choices with no IL anchor: <c>this.field</c>/<c>this.Prop</c> emit the same
-/// <c>ldarg.0; ldfld</c> / <c>ldarg.0; call get_Prop</c> as the bare name. Off by
-/// default — an unshadowed instance member stays bare — so the default render is
-/// byte-identical to before the knobs existed.
+/// <see cref="PrinterOptions.QualifyPropertyAccess"/> /
+/// <see cref="PrinterOptions.QualifyMethodAccess"/> /
+/// <see cref="PrinterOptions.QualifyEventAccess"/>). These are class-3 spelling
+/// choices with no IL anchor: <c>this.field</c>/<c>this.Prop</c>/<c>this.M()</c>/
+/// <c>this.E += h</c> emit the same <c>ldarg.0; ...</c> sequence as the bare name.
+/// Off by default — an unshadowed instance member stays bare — so the default
+/// render is byte-identical to before the knobs existed. A genuine
+/// <c>base.M()</c> call is never rewritten (that would re-enable virtual dispatch).
 /// </summary>
 [Trait("Area", "RoundTrip")]
 public sealed class ThisQualificationTests
@@ -31,6 +34,18 @@ public sealed class ThisQualificationTests
     static string Render(string memberName, PrinterOptions? options = null)
     {
         var type = Specimen();
+        var member = Assert.Single(type.Members, m => m.Name == memberName);
+        var rendered = MemberBodyProducer.ProduceMember(type, member, AssemblyPath, pdbPath: null, printerOptions: options);
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.NotNull(rendered.Text);
+        return rendered.Text!;
+    }
+
+    static string RenderMember(System.Type declaringType, string memberName, PrinterOptions? options = null)
+    {
+        using var pe = new PEReader(File.OpenRead(AssemblyPath));
+        var api = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(api.Types, t => t.FullName == declaringType.FullName);
         var member = Assert.Single(type.Members, m => m.Name == memberName);
         var rendered = MemberBodyProducer.ProduceMember(type, member, AssemblyPath, pdbPath: null, printerOptions: options);
         Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
@@ -118,6 +133,102 @@ public sealed class ThisQualificationTests
         Assert.True(PrintSynthetic(new PrinterOptions { QualifyPropertyAccess = true }).EffectiveOptions.QualifyPropertyAccess);
         Assert.False(PrintSynthetic(PrinterOptions.Default).EffectiveOptions.QualifyPropertyAccess);
     }
+
+    [Fact]
+    public void MethodCall_DefaultsToBareName()
+    {
+        var text = Render(nameof(ThisQualificationSpecimen.CallMethod));
+        Assert.Contains("ReadField()", text);
+        Assert.DoesNotContain("this.ReadField()", text);
+    }
+
+    [Fact]
+    public void MethodCall_QualifiesWithThis_WhenRequested()
+    {
+        var text = Render(nameof(ThisQualificationSpecimen.CallMethod),
+            new PrinterOptions { QualifyMethodAccess = true });
+        Assert.Contains("this.ReadField()", text);
+    }
+
+    [Fact]
+    public void MethodGroup_DefaultsToBareName()
+    {
+        var text = Render(nameof(ThisQualificationSpecimen.MethodGroup));
+        Assert.Contains("ReadField", text);
+        Assert.DoesNotContain("this.ReadField", text);
+    }
+
+    [Fact]
+    public void MethodGroup_QualifiesWithThis_WhenRequested()
+    {
+        var text = Render(nameof(ThisQualificationSpecimen.MethodGroup),
+            new PrinterOptions { QualifyMethodAccess = true });
+        Assert.Contains("this.ReadField", text);
+    }
+
+    [Fact]
+    public void EventSubscription_DefaultsToBareName()
+    {
+        var text = Render(nameof(ThisQualificationSpecimen.Subscribe));
+        Assert.Contains("Changed +=", text);
+        Assert.DoesNotContain("this.Changed", text);
+    }
+
+    [Fact]
+    public void EventSubscription_QualifiesWithThis_WhenRequested()
+    {
+        var text = Render(nameof(ThisQualificationSpecimen.Subscribe),
+            new PrinterOptions { QualifyEventAccess = true });
+        Assert.Contains("this.Changed +=", text);
+    }
+
+    // The method and event knobs are independent from the field/property knobs
+    // and from each other: enabling one must not qualify a member the other
+    // governs. (Events and properties in particular share the printer's
+    // PropertyTarget helper, so this pins their decoupling.)
+    [Fact]
+    public void PropertyKnob_DoesNotQualifyEvents()
+    {
+        var text = Render(nameof(ThisQualificationSpecimen.Subscribe),
+            new PrinterOptions { QualifyPropertyAccess = true });
+        Assert.DoesNotContain("this.Changed", text);
+    }
+
+    [Fact]
+    public void EventKnob_DoesNotQualifyMethods()
+    {
+        var text = Render(nameof(ThisQualificationSpecimen.CallMethod),
+            new PrinterOptions { QualifyEventAccess = true });
+        Assert.DoesNotContain("this.ReadField", text);
+    }
+
+    // A genuine non-virtual base call (base.M()) deliberately skips virtual
+    // dispatch; the qualify-method knob must leave it as base.M() and never
+    // rewrite it to this.M() (which would re-enable dispatch -- here, unbounded
+    // recursion).
+    [Fact]
+    public void BaseCall_StaysBase_WhenMethodQualificationRequested()
+    {
+        var text = RenderMember(typeof(ThisQualificationDerived),
+            nameof(ThisQualificationDerived.Value),
+            new PrinterOptions { QualifyMethodAccess = true });
+        Assert.Contains("base.Value()", text);
+        Assert.DoesNotContain("this.Value()", text);
+    }
+
+    [Fact]
+    public void EffectiveOptions_RecordsMethodKnob()
+    {
+        Assert.True(PrintSynthetic(new PrinterOptions { QualifyMethodAccess = true }).EffectiveOptions.QualifyMethodAccess);
+        Assert.False(PrintSynthetic(PrinterOptions.Default).EffectiveOptions.QualifyMethodAccess);
+    }
+
+    [Fact]
+    public void EffectiveOptions_RecordsEventKnob()
+    {
+        Assert.True(PrintSynthetic(new PrinterOptions { QualifyEventAccess = true }).EffectiveOptions.QualifyEventAccess);
+        Assert.False(PrintSynthetic(PrinterOptions.Default).EffectiveOptions.QualifyEventAccess);
+    }
 }
 
 // A real compiled type: an unshadowed instance field and instance property, each
@@ -135,4 +246,29 @@ public sealed class ThisQualificationSpecimen
     public int ReadField() => _value;
 
     public int ReadProperty() => Count;
+
+    // Instance method call on the implicit this receiver.
+    public int CallMethod() => ReadField() + 1;
+
+    // Method group over the implicit this receiver.
+    public System.Func<int> MethodGroup() => ReadField;
+
+#pragma warning disable CS0067 // Changed is subscribed to via Subscribe; the fixture never raises it.
+    public event System.EventHandler? Changed;
+#pragma warning restore CS0067
+
+    // Event subscription (+=) on the implicit this receiver.
+    public void Subscribe(System.EventHandler handler) => Changed += handler;
+}
+
+// A base/derived pair so a genuine non-virtual base.Value() call is available:
+// the qualify-method knob must never rewrite it to this.Value().
+public class ThisQualificationBase
+{
+    public virtual int Value() => 1;
+}
+
+public sealed class ThisQualificationDerived : ThisQualificationBase
+{
+    public override int Value() => base.Value() + 1;
 }

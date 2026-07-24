@@ -86,6 +86,22 @@ public sealed record DecompilerOptions
     /// </summary>
     public bool QualifyPropertyAccess { get; init; }
 
+    /// <summary>
+    /// Instance methods invoked through <c>this</c> may render the explicit
+    /// <c>this.</c> qualifier even where the bare name is unambiguous. Off by
+    /// default; an IL-identical spelling choice. Mirrors
+    /// <c>dotnet_style_qualification_for_method</c>.
+    /// </summary>
+    public bool QualifyMethodAccess { get; init; }
+
+    /// <summary>
+    /// Instance events subscribed through <c>this</c> may render the explicit
+    /// <c>this.</c> qualifier even where the bare name is unambiguous. Off by
+    /// default; an IL-identical spelling choice. Mirrors
+    /// <c>dotnet_style_qualification_for_event</c>.
+    /// </summary>
+    public bool QualifyEventAccess { get; init; }
+
     public static DecompilerOptions Default { get; } = new();
 }
 

@@ -38,11 +38,13 @@ internal static class RenderStyleConfig
     /// <summary>The tool-owned style file name discovered by walking up from the working directory.</summary>
     public const string FileName = ".dotnet-inspectconfig";
 
-    // v1 recognizes exactly the two class-3 this.-qualification knobs, which are
-    // the only shipped spelling knobs with an exact editorconfig key. More keys
-    // are added here as further class-3 knobs land.
+    // Recognizes the class-3 this.-qualification knobs, which are the shipped
+    // spelling knobs with an exact editorconfig key. More keys are added here as
+    // further class-3 knobs land.
     private const string FieldKey = "dotnet_style_qualification_for_field";
     private const string PropertyKey = "dotnet_style_qualification_for_property";
+    private const string MethodKey = "dotnet_style_qualification_for_method";
+    private const string EventKey = "dotnet_style_qualification_for_event";
 
     // The editorconfig boundary marker. Discovery is nearest-wins, so the nearest
     // file is already a hard boundary (nothing above it is read); 'root' is
@@ -118,6 +120,8 @@ internal static class RenderStyleConfig
     {
         bool qualifyField = false;
         bool qualifyProperty = false;
+        bool qualifyMethod = false;
+        bool qualifyEvent = false;
         List<string>? warnings = null;
 
         void Warn(string message) => (warnings ??= []).Add(message);
@@ -167,6 +171,18 @@ internal static class RenderStyleConfig
                     else
                         Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
                     break;
+                case MethodKey:
+                    if (TryParseBool(value, out var m))
+                        qualifyMethod = m;
+                    else
+                        Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
+                    break;
+                case EventKey:
+                    if (TryParseBool(value, out var e))
+                        qualifyEvent = e;
+                    else
+                        Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
+                    break;
                 case RootKey:
                     // editorconfig boundary marker. Discovery is nearest-wins, so
                     // the nearest file is already a hard boundary; 'root' drives no
@@ -185,6 +201,8 @@ internal static class RenderStyleConfig
         {
             QualifyFieldAccess = qualifyField,
             QualifyPropertyAccess = qualifyProperty,
+            QualifyMethodAccess = qualifyMethod,
+            QualifyEventAccess = qualifyEvent,
         };
 
         return new RenderStyleResolution(options, origin, (IReadOnlyList<string>?)warnings ?? []);
