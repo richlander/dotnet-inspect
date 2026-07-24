@@ -29,8 +29,13 @@ namespace ILInspector.Decompiler.Tests;
 /// pin the new discriminators: a value-type arm whose unbox type disagrees with
 /// its isinst test, a guard whose failure diverges from the default, a diamond
 /// whose matched arm does not reach the shared default, a nullable test type
-/// (illegal as a declaration pattern), and a bound-slot type that disagrees with
-/// the pattern type (the last two from GPT review of #3124).
+/// (illegal as a declaration pattern), a bound-slot type that disagrees with the
+/// pattern type, un-spellable test types (pointer/function-pointer/bare
+/// <c>Nullable`1</c>/<c>void</c>/static class), and a framework ref struct
+/// (<c>Span&lt;int&gt;</c>) which resolves to a value-type shape but is illegal
+/// as a boxed pattern. A synthetic positive pins that a generic-parameter arm
+/// (<c>isinst T; unbox.any T</c>, which csc does emit) still raises. The last
+/// group is from GPT review of #3124.
 /// </summary>
 [Trait("Area", "Pass")]
 public class OuterTypePatternDispatchRaisingTests
@@ -240,6 +245,10 @@ public class OuterTypePatternDispatchRaisingTests
         yield return [TypeRef.Pointer(Int32)];
         // A function-pointer type: CS8521 as a pattern.
         yield return [TypeRef.FunctionPointer(Int32, ImmutableArray<TypeRef>.Empty, "")];
+        // System.Void: not a matchable value type (CS1547).
+        yield return [TypeRef.CoreLib("System", "Void")];
+        // A static/reference class definition (no value-type shape): CS0723/CS8121 as a pattern.
+        yield return [TypeRef.CoreLib("System", "Math")];
     }
 
     [Theory]
@@ -247,12 +256,12 @@ public class OuterTypePatternDispatchRaisingTests
     public void Synthetic_UnspellableValueTypePattern_DoesNotRaise(TypeRef testType)
     {
         // GPT review (#3124): the value-type arm accepted any non-`Nullable<T>`
-        // test type, so a bare `Nullable`1` definition, a pointer, or a
-        // function pointer raised to a switch arm (`Nullable =>`, `int* =>`,
-        // `delegate*<int> =>`) — none of which is a legal C# declaration pattern.
-        // IsSpellableValueTypePattern admits only concrete non-nullable value-type
-        // definitions/instances, so each of these declines and the cascade stays
-        // if/return. Test, unbox, and bind types agree, isolating the pattern-kind
+        // test type, so a bare `Nullable`1` definition, a pointer, a function
+        // pointer, `System.Void`, or a static/reference class raised to a switch
+        // arm — none of which is a legal C# declaration pattern. A test type must
+        // now prove it is a known non-nullable value type (or a generic
+        // parameter), so each of these declines and the cascade stays if/return.
+        // Test, unbox, and bind types agree, isolating the pattern-eligibility
         // gate from the unbox/bind checks.
         var function = DiamondValueTypeCascade(
             valueTypeTest: testType,
@@ -261,6 +270,62 @@ public class OuterTypePatternDispatchRaisingTests
             leafValue: new Constant(true, Bool),
             unboxType: testType,
             bindType: testType);
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    public static IEnumerable<object[]> GenericParameterPatternTypes()
+    {
+        yield return [TypeRef.GenericParameter(0, "T")];
+        yield return [TypeRef.MethodGenericParameter(0, "T")];
+    }
+
+    [Theory]
+    [MemberData(nameof(GenericParameterPatternTypes))]
+    public void Synthetic_GenericParameterValueTypeArm_Raises(TypeRef testType)
+    {
+        // GPT review (#3124): csc emits `isinst T; unbox.any T; stloc T` for an
+        // unconstrained (or struct-constrained) generic parameter, and `T t` is a
+        // legal C# declaration pattern. An over-strict kind whitelist wrongly
+        // declined these; IsSpellableValueTypePattern now admits generic
+        // parameters directly, so the value-type arm raises — matching the shape
+        // the compiler itself produces.
+        var function = DiamondValueTypeCascade(
+            valueTypeTest: testType,
+            noMatchDefault: Default(),
+            guardFailDefault: Default(),
+            leafValue: new Constant(true, Bool),
+            unboxType: testType,
+            bindType: testType);
+
+        RunPass(function);
+
+        var patternSwitch = Assert.Single(function.Descendants.OfType<PatternSwitchExpression>());
+        Assert.Equal(2, patternSwitch.Arms.Count);
+        Assert.True(patternSwitch.HasDefault);
+        Assert.Empty(function.Descendants.OfType<IfStatement>());
+    }
+
+    [Fact]
+    public void Synthetic_FrameworkRefStructWithValueShape_DoesNotRaise()
+    {
+        // GPT review (#3124): a ref struct (`Span<int>`) resolves to a value-type
+        // shape but is illegal as a boxed pattern (CS8121) and is never a
+        // compiler-produced value-type arm — a ref struct cannot be boxed. Even
+        // stamped with a value-type hint (so the general value-type gate would
+        // admit it), IsFrameworkRefStruct rejects `Span`/`ReadOnlySpan` by name,
+        // so the cascade stays if/return rather than raising invalid `Full` C#.
+        var spanDef = TypeRef.CoreLib("System", "Span`1").WithValueTypeHint(ValueTypeHint.ValueType);
+        var span = TypeRef.GenericInstance(spanDef, ImmutableArray.Create(Int32));
+        var function = DiamondValueTypeCascade(
+            valueTypeTest: span,
+            noMatchDefault: Default(),
+            guardFailDefault: Default(),
+            leafValue: new Constant(true, Bool),
+            unboxType: span,
+            bindType: span);
 
         RunPass(function);
 

@@ -27,6 +27,12 @@ public sealed class PatternSwitchExpressionPass : IIrPass
 {
     public string Name => "pattern-switch-expression";
 
+    // The processed function's type shapes, set at the start of each Run. Used by
+    // IsSpellableValueTypePattern to prove a value-type arm's test type is a legal,
+    // non-nullable value-type declaration pattern (structs/enums vs. static classes,
+    // interfaces, and other reference types are indistinguishable by TypeRef alone).
+    IReadOnlyDictionary<TypeRef, TypeShape> _shapes = new Dictionary<TypeRef, TypeShape>();
+
     sealed record ArmData(TypeRef PatternType, int PatternLocal, int? LocalIndex, PropertySubpattern? Subpattern, IrExpression? Guard, IrExpression Value, bool IsInline);
 
     /// <summary>
@@ -50,6 +56,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
+        _shapes = function.TypeShapes;
         foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
         {
             if (container.Blocks is [var block] && TryMatch(function, block, context.TypesProvablyDisjoint, out int startIndex, out var switchExpression))
@@ -628,7 +635,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
     // A bound local whose declared type disagrees with the pattern type is likewise declined
     // (`isinst int; unbox.any int; stloc bool` would declare an `int` pattern var for a `bool`
     // slot — CS0029).
-    static bool IsValueTypeArm(
+    bool IsValueTypeArm(
         IReadOnlyList<IrNode> stmts,
         int index,
         Scrutinee scrutinee,
@@ -664,16 +671,47 @@ public sealed class PatternSwitchExpressionPass : IIrPass
     }
 
     // Whether a value-type arm's test type is spellable as a C# declaration pattern `T x`.
-    // csc emits a value-type arm's isinst+unbox only for a concrete non-nullable value type,
-    // so the whitelist admits a named definition or a (non-nullable) generic instance and
-    // rejects everything else: `Nullable<T>` and the bare `Nullable`1` definition (not a legal
-    // pattern type — CS8116/CS0723), and the un-spellable kinds (pointer, function pointer,
-    // by-ref, pinned, unsupported, array, and open generic parameters). Declining any of these
-    // leaves the cascade in its valid statement form rather than raising invalid `Full` C#.
-    static bool IsSpellableValueTypePattern(TypeRef type)
-        => type.Kind is TypeRefKind.Definition or TypeRefKind.GenericInstance
-            && !TypeFamilies.IsNullableType(type)
-            && type is not { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Nullable`1" };
+    // csc emits a value-type arm's isinst+unbox for a concrete non-nullable value type or for
+    // an unconstrained generic parameter (`isinst T; unbox.any T; stloc T` — and `T t` is a
+    // legal declaration pattern). Generic parameters are admitted directly; framework ref
+    // structs are rejected by name (see IsFrameworkRefStruct); every other kind must prove it
+    // is a known non-nullable value type via its resolved shape, which rejects reference types
+    // (interfaces, delegates, static classes — CS0723/CS8121), `System.Void` (CS1547),
+    // `Nullable<T>` (CS8116), the un-spellable kinds (pointer, function pointer, by-ref,
+    // pinned, unsupported, array), and any type whose value-ness cannot be established.
+    // Declining any of these leaves the cascade in its valid statement form rather than raising
+    // invalid `Full` C#.
+    //
+    // Residual: a user-defined ref struct also resolves to a ValueType shape but carries no
+    // by-ref-like fact in the SRM-only TypeShape model, so it is indistinguishable from an
+    // ordinary struct here. It is reachable only by hostile, non-compiler IL — a ref struct
+    // cannot be boxed, so csc never emits `isinst`/`unbox.any` over one — and closing it would
+    // require plumbing by-ref-like metadata into the pipeline, out of scope for this pass.
+    bool IsSpellableValueTypePattern(TypeRef type)
+    {
+        if (type.Kind is TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter)
+            return true;
+        if (IsFrameworkRefStruct(type))
+            return false;
+        return TypeFamilies.IsKnownNonNullableValueType(type, _shapes);
+    }
+
+    // Span<T>/ReadOnlySpan<T> resolve to a ValueType shape but are ref structs — illegal as a
+    // boxed pattern (CS8121) and never a compiler-produced value-type arm. Recognised by name
+    // because the `IsByRefLike` fact lives on the cross-assembly definition, not the TypeRef;
+    // matching `System` avoids user types of the same simple name. Mirrors the same-reason
+    // heuristic in LifetimeClassifier.IsRefStruct.
+    static bool IsFrameworkRefStruct(TypeRef type)
+    {
+        var (name, ns) = type.Kind is TypeRefKind.GenericInstance
+            ? (type.ElementType?.Name, type.ElementType?.Namespace)
+            : (type.Name, type.Namespace);
+        if (ns != "System" || name is null)
+            return false;
+        int tick = name.IndexOf('`');
+        string simple = tick < 0 ? name : name[..tick];
+        return simple is "Span" or "ReadOnlySpan";
+    }
 
     // The value a value-type arm dispatch (`if (!(scrutinee is Tvt)) return X`) yields
     // on no-match. Used by default discovery, which needs only the returned value X and
