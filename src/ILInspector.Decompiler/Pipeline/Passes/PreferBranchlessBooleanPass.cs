@@ -123,15 +123,22 @@ public sealed class PreferBranchlessBooleanPass : IIrPass
         IrExpression survivingOperand = tailConstant is not null ? thenValue : tailValue;
 
         // BEHAVIOR guards (kept from the default; NOT the opcode-only guards).
-        //  - A user-truthiness condition rebinds to a user-defined &&/|| operator,
-        //    changing the runtime result (and typically failing to compile).
+        //  - User-defined truthiness ANYWHERE in the condition rebinds to a
+        //    user-defined &&/|| operator, changing the runtime result (and
+        //    typically failing to compile). The direct-call check is not enough:
+        //    a wrapped condition such as `LogicalNot(op_True(t))` is unwrapped by
+        //    Conditions.Negate to reveal the bare op_True call the printer strips
+        //    to its user-typed receiver, so we scan the whole condition subtree.
+        //    The default's FoldGuardReturn is incidentally shielded from the
+        //    wrapped case by the opcode-fidelity negation guard this lens relaxes,
+        //    so the lens must guard it explicitly.
         //  - A surviving managed by-ref dereference is eagerly evaluated by csc's
         //    branchless lowering, dereferencing a location the branch had guarded
         //    (null-by-ref NRE divergence). Every other operand is behavior-safe:
         //    a bare local/arg/stack load has no side effect and cannot fault, and a
         //    field/element/call operand keeps the branch (csc does not go branchless
         //    for it), so short-circuit order is preserved either way.
-        if (ShortCircuitFidelity.IsUserDefinedTruthiness(guard.Condition)
+        if (InvolvesUserDefinedTruthiness(guard.Condition)
             || survivingOperand is LoadIndirect { Address.ResultType.Kind: TypeRefKind.ByRef })
         {
             return false;
@@ -165,5 +172,26 @@ public sealed class PreferBranchlessBooleanPass : IIrPass
         foldedReturn.InheritSourceOffset(guard);
         guard.ReplaceWith(foldedReturn);
         return true;
+    }
+
+    // True when a user-defined-truthiness call (op_True/op_False) appears anywhere
+    // in the condition subtree — as the root, under a LogicalNot the negation would
+    // unwrap, or nested in a compound condition. Any such call is stripped by the
+    // printer to its bare user-typed receiver, so lifting the condition (or its
+    // negation) into a short-circuit operand would rebind to a user-defined
+    // &&/|| that need not exist (CS0019) and can change the runtime result. The
+    // scan is deliberately conservative: over-declining only leaves the shape flat,
+    // which is always valid and faithful.
+    static bool InvolvesUserDefinedTruthiness(IrExpression condition)
+    {
+        if (ShortCircuitFidelity.IsUserDefinedTruthiness(condition))
+            return true;
+        foreach (var node in condition.Descendants)
+        {
+            if (node is IrExpression expr && ShortCircuitFidelity.IsUserDefinedTruthiness(expr))
+                return true;
+        }
+
+        return false;
     }
 }

@@ -116,6 +116,22 @@ public sealed class PreferBranchlessBooleanLensTests
     }
 
     [Fact]
+    public void NegatedUserTruthinessGuard_LensDeclines_StaysFlat()
+    {
+        // A user-truthiness condition wrapped in a negation (`if (t) {} else { ... }`
+        // raises to `LogicalNot(op_True(t))`). The direct-call guard alone would miss
+        // it: Conditions.Negate unwraps the LogicalNot to the bare `op_True` call the
+        // printer strips to `t`, so lifting this NEGATING shape emits the uncompilable
+        // `t || b` (Truthy has no user `|`). The subtree scan must catch it and the
+        // lens must decline, leaving the flat guard exactly as the default.
+        var defaultText = Render(nameof(PreferBranchlessBooleanSpecimen.NegatedUserTruthinessGuard));
+        var lensText = Render(nameof(PreferBranchlessBooleanSpecimen.NegatedUserTruthinessGuard), LensOptions);
+        Assert.Equal(defaultText, lensText);
+        Assert.Contains("return b;", lensText);
+        Assert.DoesNotContain("||", lensText);
+    }
+
+    [Fact]
     public void ByRefOperandGuard_LensDeclines_StaysFlat()
     {
         // The surviving operand is a managed by-ref dereference; csc's branchless

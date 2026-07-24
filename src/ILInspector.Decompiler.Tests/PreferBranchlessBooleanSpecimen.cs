@@ -111,6 +111,25 @@ public static class PreferBranchlessBooleanSpecimen
         return false;
     }
 
+    // User-defined truthiness under a negation: `if (t) {} else { return b; }`
+    // raises to a guarded return whose condition is `LogicalNot(op_True(t))`. With a
+    // `true` tail this is a NEGATING fold shape (`!c || b`): Conditions.Negate
+    // unwraps the LogicalNot to the bare `op_True` call the printer strips to `t`,
+    // so the direct-call guard would miss it and the lens would emit the
+    // uncompilable `t || b` (Truthy has no user `|`). The lens must DECLINE.
+    public static bool NegatedUserTruthinessGuard(Truthy t, bool b)
+    {
+        if (t)
+        {
+        }
+        else
+        {
+            return b;
+        }
+
+        return true;
+    }
+
     // A struct usable in boolean context via operator true/false, but with NO
     // user-defined `&`/`|`, so any short-circuit lift of a `Truthy` condition is
     // uncompilable.
