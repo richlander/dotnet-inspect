@@ -143,6 +143,47 @@ public class FoldGuardReturnFidelityTests
         AssertDeclined(CondCompare(), Bool(false), ByRefBoolDeref(), [Int32]);
     }
 
+    // === correctness declines: the wrapped forms the fold's own downstream
+    // transforms would strip back to a bare hazard (adversarial review, #3119) ===
+
+    [Fact]
+    public void NegatedTruthinessCondition_TailConstant_IsNotFolded()
+    {
+        // `if (!t) return computed; return true;` lifts the condition through
+        // Conditions.Negate on the `||` arm, which unwraps the LogicalNot and re-exposes
+        // the bare `op_True(t)` — the printer then strips it to `return t || computed;`,
+        // which binds the user-defined `|` (typed TruthOver, not bool): non-compiling.
+        // The look-through peel must see the truthiness call under the negation.
+        AssertDeclined(new LogicalNot(UserTruthiness()), Computed(), Bool(true), [Int32]);
+    }
+
+    [Fact]
+    public void ByRefDereferenceUnderEqualsTrueComparison_IsNotFolded()
+    {
+        // `if (c) return *r == true; return false;` folds to `c && (*r == true)`, then
+        // BooleanFoldingPass's fixpoint reduces `*r == true` to the bare `*r` — the same
+        // branchless eager-deref divergence the raw-operand guard catches. The peel must
+        // see the by-ref deref under the identity comparison the pass will strip.
+        var byRefEqualsTrue = new Comparison(
+            ComparisonKind.Equal, isUnsigned: false, ByRefBoolDeref(), Bool(true));
+        AssertDeclined(CondCompare(), byRefEqualsTrue, Bool(false), [Int32]);
+    }
+
+    [Fact]
+    public void ByRefDereferenceUnderEqualsFalseComparison_StillFolds()
+    {
+        // `if (c) return *r == false; return false;` folds to `c && (*r == false)`, which
+        // the fixpoint reduces to `c && !*r`. The negating form keeps a `!` (and, per the
+        // merged round-2 boundary, a branch), so the surviving operand is not a bare
+        // deref and the readable fold is kept — the peel declines ONLY the bare-producing
+        // identity forms (`== true` / `!= false`), not `== false` / `!= true`.
+        var byRefEqualsFalse = new Comparison(
+            ComparisonKind.Equal, isUnsigned: false, ByRefBoolDeref(), Bool(false));
+        var result = RunGuard(CondCompare(), byRefEqualsFalse, Bool(false), [Int32]);
+
+        Assert.IsType<LogicalBinary>(result);
+    }
+
     static IrExpression RunGuard(
         IrExpression condition, IrExpression thenValue, IrExpression tailValue, ImmutableArray<TypeRef> locals)
     {
