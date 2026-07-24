@@ -37,6 +37,7 @@ Every proposed rendering falls into one of three classes, and the class decides 
 - `is null` / `is not null` for null tests that compile to a reference `ceq`/branch. (`== null` could mean an `op_Equality` call; render `==` exactly when the IL calls the operator.)
 - Is-pattern matching for the `isinst` + branch + captured-cast shape (`if (x is Foo f)`), where the stored-and-used cast binding is the anchor. Bare `x is Foo` with no binding is IL-identical to `(x as Foo) != null`, so *that* choice is a class-3 tiebreaker, not an IL-exact form.
 - Switch expressions for switch-plus-returns shapes.
+- Range indexer (`s[i..j]`) for the compiler's spilled `Substring`/`Slice(start, end - start)` range lowering — see [Range indexer](#range-indexer) for the spill-anchor discipline.
 - `continue`/`break` for loop-edge branches.
 - Compound assignment/increment, **but IL-anchored only where the target's storage location is computed once** — array and pointer elements compile to a distinct `ldelema` + `dup` address form (`a[i]++` differs from the re-indexing `a[i] = a[i] + 1`), and a member over a side-effecting receiver has *no* single-evaluation `x = x + 1` spelling at all, so the compound form is the only source for that IL. For a local, static field, `this`- or local-rooted instance field, or ordinary property, `x++`, `x += 1`, and `x = x + 1` are byte-identical IL, so *that* spelling is a class-3 no-anchor pick (below) the oracle settles (`x++`/`x--` for ±1, `x op= v` otherwise).
 
@@ -187,6 +188,46 @@ boolean-chain wrapper changes only layout, so it is introduced opt-in to keep
 default output byte-for-byte stable until the choice proves out, rather than
 churning every wide boolean `return` in the corpus. The always-on fluent wrapper
 predates it and stays on.
+
+### Range indexer
+
+`s[start..end]` and `s.Substring(start, end - start)` (and the `Span<T>` /
+`ReadOnlySpan<T>` `Slice` equivalents) do **not** compile to the same IL: the
+range indexer lowers with the compiler spilling the start index into a hidden
+`int` temp (`V = start; …(V, end - V)…`), while a hand-written two-argument
+`Substring`/`Slice` call has no such spill. That spill is the anchor — it is
+precisely the IL the range form compiles from, so recovering it to `s[start..end]`
+is a class-1 IL-exact preferred form (recompiling the slice re-creates the same
+spill), not a class-3 taste choice.
+
+```csharp
+// same lowering, so same recovered spelling:
+token = text.Substring(start, i - start);  // hand-lowered shape...
+token = text[start..i];                     // ...raised to the range indexer
+```
+
+Because the two calls share a method, the raise fires only on the spilled shape,
+and declines otherwise:
+
+- **Two-bound from-start only, spill-anchored.** The hidden start temp must be a
+  compiler-generated `int` (no source name), stored once and read exactly twice
+  (the range start and the `end - start` length), with no address-of — so
+  detaching the spill drops no live reference.
+- **Any consuming statement position.** The slice need not be the return value:
+  return, local assignment (the `EscapeReservedKeywordIdentifiers` witness
+  `token = text[start..i]`), and call-argument positions all qualify, provided
+  the receiver and everything the statement evaluates before the call are
+  side-effect free (the start re-spills at the slice site on recompile, so it
+  must not move past an observable effect). The receiver guard also excludes a
+  directly effectful receiver such as `Effect().Substring(V, end - V)`: the
+  compiler always spills an effectful receiver ahead of the start, so that shape
+  is a hand-written call, not a range lowering, and raising it would reorder the
+  receiver past the start.
+- **Declines one-sided forms.** `Substring(start)` (`s[start..]`) and
+  `Substring(0, end)` (`s[..end]`) carry no start spill, so they are
+  indistinguishable from hand-written slicing and stay as calls — a class-2
+  fidelity concern. The from-end open form (`s[^n..]`), which the compiler spills
+  distinctly, is recovered.
 
 ## Names
 
