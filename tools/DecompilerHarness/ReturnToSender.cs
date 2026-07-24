@@ -1878,6 +1878,10 @@ static class ReturnToSender
                     result[getter] = anchor;
                 if (member.SetterToken is { } setter)
                     result[setter] = anchor;
+                if (member.AdderToken is { } adder)
+                    result[adder] = anchor;
+                if (member.RemoverToken is { } remover)
+                    result[remover] = anchor;
             }
         }
 
@@ -2083,6 +2087,9 @@ static class ReturnToSender
 
         foreach (var dependency in resolver.ResolveAll())
         {
+            if (!ManagedReferenceFilter.IsManagedAssembly(dependency.Path))
+                continue;
+
             string simpleName = Path.GetFileNameWithoutExtension(dependency.Path);
             if (!seen.Add(simpleName))
                 continue;
