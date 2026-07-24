@@ -1,0 +1,273 @@
+using System.Collections.Immutable;
+using System.Globalization;
+using System.Text;
+using ILInspector.Analysis;
+
+namespace ILInspector.CallGraph;
+
+/// <summary>
+/// Projects the typed call-graph facts that <c>ILInspector.Analysis</c> produces
+/// (<see cref="CallTreeNode"/> caller and callee roots built by
+/// <c>LibraryBodyIndex.BuildCallerTree</c> / <c>BuildCallTree</c>) into a single
+/// deterministic Mermaid <c>flowchart</c> centered on one selected overload:
+/// <code>
+/// callers -&gt; selected overload -&gt; callees
+/// </code>
+/// This is a host-neutral product layer that sits <em>below</em> host applications
+/// so <c>dotnet-inspect</c> and the browser-Wasm prototype share one graph
+/// semantics and one Mermaid document. It owns the concerns a host must not
+/// re-invent: stable node identity, Mermaid escaping, duplicate/shared-node and
+/// cycle collapsing, depth-limited / truncated boundary marking, external-node
+/// styling, and loop-call edge annotations. It takes no dependency on Markout, the
+/// CLI, or inspected-assembly loading and stays SRM-only / NativeAOT / browser-Wasm
+/// friendly (see issue #3120).
+/// </summary>
+public static class CallGraphMermaid
+{
+    /// <summary>
+    /// Renders the combined caller/target/callee view. Both roots are the selected
+    /// overload: <paramref name="callerRoot"/>'s children are its inbound callers
+    /// (edges flow <em>into</em> the target) and <paramref name="calleeRoot"/>'s
+    /// children are its outbound callees (edges flow <em>out of</em> the target).
+    /// Either root may be null (e.g. the browser's first caller-only view), but not
+    /// both. When both are supplied they must name the same selected member.
+    /// </summary>
+    public static string Render(CallTreeNode? callerRoot, CallTreeNode? calleeRoot)
+    {
+        if (callerRoot is null && calleeRoot is null)
+            throw new ArgumentException($"At least one of {nameof(callerRoot)} or {nameof(calleeRoot)} must be provided.");
+
+        if (callerRoot is not null && calleeRoot is not null
+            && IdentityKey(callerRoot.Member) != IdentityKey(calleeRoot.Member))
+            throw new ArgumentException($"{nameof(callerRoot)} and {nameof(calleeRoot)} must describe the same selected member.");
+
+        var builder = new GraphBuilder();
+        // The selected overload is the single centered node shared by both trees.
+        builder.RegisterTarget((calleeRoot ?? callerRoot)!.Member);
+        if (callerRoot is not null)
+            builder.WalkCallers(callerRoot);
+        if (calleeRoot is not null)
+            builder.WalkCallees(calleeRoot);
+        return builder.Render();
+    }
+
+    /// <summary>Renders the inbound (caller) half only, centered on the selected overload.</summary>
+    public static string RenderCallers(CallTreeNode callerRoot)
+    {
+        ArgumentNullException.ThrowIfNull(callerRoot);
+        return Render(callerRoot, null);
+    }
+
+    /// <summary>Renders the outbound (callee) half only, centered on the selected overload.</summary>
+    public static string RenderCallees(CallTreeNode calleeRoot)
+    {
+        ArgumentNullException.ThrowIfNull(calleeRoot);
+        return Render(null, calleeRoot);
+    }
+
+    /// <summary>
+    /// How a graph node is styled. Higher values win when a member is seen more than
+    /// once: a member expanded somewhere (<see cref="Normal"/>) is not a boundary even
+    /// if depth-limited elsewhere, and the selected <see cref="Target"/> is sticky.
+    /// </summary>
+    enum NodeClass
+    {
+        Truncated = 0,
+        External = 1,
+        Normal = 2,
+        Target = 3,
+    }
+
+    sealed class NodeInfo(int id, string label, NodeClass nodeClass)
+    {
+        public int Id { get; } = id;
+        public string Label { get; } = label;
+        public NodeClass Class { get; set; } = nodeClass;
+    }
+
+    readonly record struct Edge(int From, int To, string? LoopLabel);
+
+    sealed class GraphBuilder
+    {
+        readonly Dictionary<string, int> _ids = new(StringComparer.Ordinal);
+        readonly List<NodeInfo> _nodes = [];
+        readonly Dictionary<(int From, int To), int> _edgeIndex = [];
+        readonly List<Edge> _edges = [];
+
+        public void RegisterTarget(MemberRef member) => GetOrAdd(member, NodeClass.Target);
+
+        /// <summary>Walk a reverse (caller) tree: each child calls its parent, so edges point child → parent.</summary>
+        public void WalkCallers(CallTreeNode node)
+        {
+            int parentId = GetOrAdd(node.Member, ClassFor(node.Status));
+            foreach (var child in node.Children)
+            {
+                int childId = GetOrAdd(child.Member, ClassFor(child.Status));
+                AddEdge(childId, parentId, LoopLabel(child.Perf));
+                WalkCallers(child);
+            }
+        }
+
+        /// <summary>Walk an outbound (callee) tree: each parent calls its children, so edges point parent → child.</summary>
+        public void WalkCallees(CallTreeNode node)
+        {
+            int parentId = GetOrAdd(node.Member, ClassFor(node.Status));
+            foreach (var child in node.Children)
+            {
+                int childId = GetOrAdd(child.Member, ClassFor(child.Status));
+                AddEdge(parentId, childId, LoopLabel(child.Perf));
+                WalkCallees(child);
+            }
+        }
+
+        int GetOrAdd(MemberRef member, NodeClass candidate)
+        {
+            var key = IdentityKey(member);
+            if (!_ids.TryGetValue(key, out var id))
+            {
+                id = _nodes.Count;
+                _ids[key] = id;
+                _nodes.Add(new NodeInfo(id, Label(member), candidate));
+                return id;
+            }
+
+            // A member seen more than once keeps its strongest classification: the
+            // selected target is sticky, an expanded/leaf occurrence outranks a boundary,
+            // so a shared node is not mislabelled a dead end.
+            var info = _nodes[id];
+            if (candidate > info.Class)
+                info.Class = candidate;
+            return id;
+        }
+
+        void AddEdge(int from, int to, string? loopLabel)
+        {
+            if (_edgeIndex.TryGetValue((from, to), out var index))
+            {
+                // A shared edge that is a loop call from any site keeps its loop annotation.
+                if (loopLabel is not null && _edges[index].LoopLabel is null)
+                    _edges[index] = _edges[index] with { LoopLabel = loopLabel };
+                return;
+            }
+
+            _edgeIndex[(from, to)] = _edges.Count;
+            _edges.Add(new Edge(from, to, loopLabel));
+        }
+
+        public string Render()
+        {
+            var sb = new StringBuilder();
+            sb.Append("flowchart LR\n");
+
+            // Nodes in stable id order (target first, then caller DFS, then callee DFS).
+            foreach (var node in _nodes)
+            {
+                sb.Append("    ").Append(NodeId(node.Id)).Append("[\"").Append(Escape(node.Label)).Append("\"]");
+                if (ClassName(node.Class) is { } className)
+                    sb.Append(":::").Append(className);
+                sb.Append('\n');
+            }
+
+            // Edges in stable first-seen order.
+            foreach (var edge in _edges)
+            {
+                sb.Append("    ").Append(NodeId(edge.From));
+                if (edge.LoopLabel is { } loop)
+                    sb.Append(" -->|").Append(Escape(loop)).Append("| ");
+                else
+                    sb.Append(" --> ");
+                sb.Append(NodeId(edge.To)).Append('\n');
+            }
+
+            // Emit a classDef only when the class is used, in a fixed order.
+            if (_nodes.Exists(n => n.Class == NodeClass.Target))
+                sb.Append("    classDef target fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px;\n");
+            if (_nodes.Exists(n => n.Class == NodeClass.External))
+                sb.Append("    classDef external fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#666666;\n");
+            if (_nodes.Exists(n => n.Class == NodeClass.Truncated))
+                sb.Append("    classDef truncated fill:#fff2cc,stroke:#d6b656,stroke-dasharray:2 2;\n");
+
+            return sb.ToString();
+        }
+    }
+
+    /// <summary>
+    /// A stable structural identity for a member so shared callees, cycles, and the
+    /// target-as-caller-and-callee all collapse to one node. Overloads stay distinct
+    /// (parameter types) and distinct generic instantiations stay distinct (type
+    /// arguments), keyed on fully-qualified spellings so unrelated same-named types do
+    /// not merge.
+    /// </summary>
+    static string IdentityKey(MemberRef member)
+    {
+        var typeArguments = member.TypeArguments.IsDefaultOrEmpty
+            ? ""
+            : "<" + string.Join(",", member.TypeArguments.Select(t => t.ToQualifiedDisplayString())) + ">";
+        var parameters = string.Join(",", member.ParameterTypes.Select(p => p.ToQualifiedDisplayString()));
+        return $"{member.DeclaringType.ToQualifiedDisplayString()}::{member.Name}{typeArguments}({parameters})";
+    }
+
+    /// <summary>Compact, host-neutral member spelling used as the Mermaid node label.</summary>
+    static string Label(MemberRef member)
+    {
+        if (member.Kind == MemberKind.Unsupported)
+            return member.DeclaringType.ToDisplayString();
+
+        var name = member.Name;
+        if (!member.TypeArguments.IsDefaultOrEmpty)
+            name += "<" + string.Join(", ", member.TypeArguments.Select(t => t.ToDisplayString())) + ">";
+        var parameters = string.Join(", ", member.ParameterTypes.Select(p => p.ToDisplayString()));
+        return $"{member.DeclaringType.ToDisplayString()}.{name}({parameters})";
+    }
+
+    static NodeClass ClassFor(CallTreeStatus status) => status switch
+    {
+        CallTreeStatus.External => NodeClass.External,
+        CallTreeStatus.DepthLimited or CallTreeStatus.Truncated => NodeClass.Truncated,
+        _ => NodeClass.Normal,
+    };
+
+    static string? ClassName(NodeClass nodeClass) => nodeClass switch
+    {
+        NodeClass.Target => "target",
+        NodeClass.External => "external",
+        NodeClass.Truncated => "truncated",
+        _ => null,
+    };
+
+    // The loop flag lives on the deeper (child) node and describes the parent↔child
+    // call edge: for a callee tree the parent calls the child in a loop; for a caller
+    // tree the child (caller) calls the parent in a loop.
+    static string? LoopLabel(CallTreePerf? perf)
+        => perf is { InLoop: true } p
+            ? string.IsNullOrEmpty(p.LoopHint) ? "loop" : p.LoopHint
+            : null;
+
+    static string NodeId(int id) => "n" + id.ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Escapes text for a Mermaid quoted label / edge label using Mermaid entity codes,
+    /// so hostile or unusual member names (quotes, angle brackets, pipes, <c>#</c>)
+    /// cannot break out of the label or the flowchart grammar.
+    /// </summary>
+    static string Escape(string text)
+    {
+        var sb = new StringBuilder(text.Length + 8);
+        foreach (var ch in text)
+        {
+            switch (ch)
+            {
+                case '#': sb.Append("#35;"); break;
+                case '"': sb.Append("#quot;"); break;
+                case '<': sb.Append("#60;"); break;
+                case '>': sb.Append("#62;"); break;
+                case '&': sb.Append("#38;"); break;
+                case '|': sb.Append("#124;"); break;
+                case '\r': sb.Append("#13;"); break;
+                case '\n': sb.Append("#10;"); break;
+                default: sb.Append(ch); break;
+            }
+        }
+        return sb.ToString();
+    }
+}
