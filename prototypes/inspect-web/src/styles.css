@@ -20,6 +20,49 @@
   --blue: #87aeca;
   --purple: #ad91cf;
   --mono: "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+  --graph-target-fill: #b9432c;
+  --graph-target-stroke: #ffb39f;
+  --graph-target-text: #ffffff;
+  --graph-same-type-fill: #176b73;
+  --graph-same-type-stroke: #7ed8dc;
+  --graph-same-type-text: #ffffff;
+  --graph-different-type-fill: #284c73;
+  --graph-different-type-stroke: #9cc8f1;
+  --graph-different-type-text: #ffffff;
+  --graph-different-assembly-fill: #343a46;
+  --graph-different-assembly-stroke: #aeb8c8;
+  --graph-different-assembly-text: #ffffff;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f5f2;
+  --panel: #ffffff;
+  --panel-raised: #f0f2ee;
+  --panel-active: #e5e9e2;
+  --line: #d5d9d1;
+  --line-strong: #aeb6aa;
+  --text: #20231f;
+  --muted: #5d665c;
+  --dim: #7a8379;
+  --accent: #b74728;
+  --accent-soft: #f5e4dd;
+  --green: #397044;
+  --yellow: #8a650d;
+  --blue: #245f86;
+  --purple: #6c4d91;
+  --graph-target-fill: #b74728;
+  --graph-target-stroke: #7c2814;
+  --graph-target-text: #ffffff;
+  --graph-same-type-fill: #b9e1df;
+  --graph-same-type-stroke: #176b73;
+  --graph-same-type-text: #102f32;
+  --graph-different-type-fill: #c9dcf1;
+  --graph-different-type-stroke: #284c73;
+  --graph-different-type-text: #172c43;
+  --graph-different-assembly-fill: #e0e3e8;
+  --graph-different-assembly-stroke: #596273;
+  --graph-different-assembly-text: #252a33;
 }
 
 * { box-sizing: border-box; }
@@ -50,7 +93,7 @@ body {
   border-bottom: 1px solid var(--line);
 }
 
-.titlebar { background: #11120f; }
+.titlebar { background: var(--panel); }
 .brand {
   width: 184px;
   height: 100%;
@@ -138,8 +181,9 @@ body {
   border-radius: 2px;
   font: 10px var(--mono);
 }
-.title-actions button:first-child { padding: 0 10px; }
-.title-actions button:last-child, .tiny-button { width: 27px; }
+.title-actions button { padding: 0 10px; }
+.title-actions #demo-call-graph { color: var(--accent); border-color: #70402f; }
+.title-actions #theme-toggle, .title-actions #help, .tiny-button { width: 27px; }
 .title-actions button:hover, .detail-actions button:hover, .tiny-button:hover { color: var(--text); border-color: var(--line-strong); }
 
 .scopebar { padding: 0 15px; gap: 20px; background: var(--panel); }
@@ -173,7 +217,7 @@ body {
 .scope-stats { display: flex; gap: 17px; color: var(--dim); font-size: 10px; white-space: nowrap; }
 .scope-stats strong { color: var(--muted); font: 11px var(--mono); }
 
-.lensbar { padding: 0 14px; background: #12130f; gap: 2px; }
+.lensbar { padding: 0 14px; background: var(--panel); gap: 2px; }
 .lensbar button {
   height: 38px;
   padding: 0 12px;
@@ -502,9 +546,16 @@ kbd {
 .call-graph-section { max-width: 1100px; padding-top: 8px; }
 .graph-scope { display: grid; grid-template-columns: max-content 1fr max-content 1fr; gap: 8px 14px; align-items: center; padding: 10px; border-top: 1px solid var(--line); color: var(--dim); font: 11px var(--mono); }
 .graph-scope strong { color: #c9cbc3; font-weight: 500; }
-.call-graph-diagram { min-height: 360px; display: grid; place-items: center; overflow: auto; padding: 20px; border-top: 1px solid var(--line); background: #10110e; }
+.call-graph-diagram { min-height: 360px; display: grid; place-items: center; overflow: auto; padding: 20px; border-top: 1px solid var(--line); background: var(--bg); }
 .call-graph-diagram > svg { min-width: 720px; max-width: none; height: auto; }
 .call-graph-diagram > p { color: var(--muted); font-size: 11px; }
+.graph-legend { display: flex; flex-wrap: wrap; gap: 10px 18px; padding: 12px 10px; border-top: 1px solid var(--line); color: var(--muted); font: 11px var(--mono); }
+.graph-legend span { display: inline-flex; align-items: center; gap: 7px; }
+.legend-swatch { width: 12px; height: 12px; display: inline-block; border: 1px solid; border-radius: 2px; }
+.legend-swatch.target { background: var(--graph-target-fill); border-color: var(--graph-target-stroke); }
+.legend-swatch.same-type { background: var(--graph-same-type-fill); border-color: var(--graph-same-type-stroke); }
+.legend-swatch.different-type { background: var(--graph-different-type-fill); border-color: var(--graph-different-type-stroke); }
+.legend-swatch.different-assembly { background: var(--graph-different-assembly-fill); border-color: var(--graph-different-assembly-stroke); }
 .graph-source { border-top: 1px solid var(--line); }
 .graph-source summary { cursor: pointer; padding: 11px 10px; color: var(--dim); font: 10px var(--mono); }
 .graph-source pre { overflow: auto; margin: 0; padding: 14px; border-top: 1px solid var(--line); background: #0d0e0c; color: #aeb1a8; font: 10px/1.55 var(--mono); }

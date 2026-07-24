@@ -22,6 +22,9 @@ published engine assets and is no longer independently fixture-backed.
   then falls back to dotnet-inspect decompilation.
 - Member Overview shows the product-owned stable selector, anchor digest, and
   canonical signature with copy actions.
+- The `demo` action loads `Microsoft.Extensions.DependencyInjection.Abstractions`
+  and `Microsoft.Extensions.Options`, selects `AddSingleton:4`, and opens its
+  workspace-wide Call graph.
 - Opening Call graph builds a bounded caller/callee graph and renders the
   shared product-owned Mermaid projection in the browser. Caller discovery
   spans the implementation assemblies from every package currently loaded in

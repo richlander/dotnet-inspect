@@ -503,7 +503,10 @@ public static partial class BrowserInspectionEngine
                 callers = index.BuildCallerTree(token, callerScopes, maxDepth: 2, maxNodes: 30);
             var callees = index.BuildCallTree(token, maxDepth: 2, maxNodes: 30);
             var result = new BrowserCallGraph(
-                CallGraphMermaid.Render(callers, callees),
+                CallGraphMermaid.Render(
+                    callers,
+                    callees,
+                    new CallGraphMermaid.Options(CompactLabels: true, RelationshipColors: true)),
                 ToBrowserCallNode(callers),
                 ToBrowserCallNode(callees),
                 new BrowserCallGraphScope(

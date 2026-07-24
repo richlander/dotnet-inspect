@@ -24,6 +24,10 @@ namespace ILInspector.CallGraph;
 /// </summary>
 public static class CallGraphMermaid
 {
+    public sealed record Options(
+        bool CompactLabels = false,
+        bool RelationshipColors = false);
+
     /// <summary>
     /// Renders the combined caller/target/callee view. Both roots are the selected
     /// overload: <paramref name="callerRoot"/>'s children are its inbound callers
@@ -32,7 +36,10 @@ public static class CallGraphMermaid
     /// Either root may be null (e.g. the browser's first caller-only view), but not
     /// both. When both are supplied they must name the same selected member.
     /// </summary>
-    public static string Render(CallTreeNode? callerRoot, CallTreeNode? calleeRoot)
+    public static string Render(
+        CallTreeNode? callerRoot,
+        CallTreeNode? calleeRoot,
+        Options? options = null)
     {
         if (callerRoot is null && calleeRoot is null)
             throw new ArgumentException($"At least one of {nameof(callerRoot)} or {nameof(calleeRoot)} must be provided.");
@@ -59,7 +66,7 @@ public static class CallGraphMermaid
             : callerResolved ? callerRoot!.Member
             : (calleeRoot ?? callerRoot)!.Member;
 
-        var builder = new GraphBuilder();
+        var builder = new GraphBuilder(options ?? new Options(), target);
         // The selected overload is the single centered node shared by both trees; each
         // tree's root *is* that target, so map both roots to the centered id. This keeps a
         // bodiless placeholder root from becoming a second, stray "?" node.
@@ -98,21 +105,30 @@ public static class CallGraphMermaid
         Target = 3,
     }
 
-    sealed class NodeInfo(int id, string label, NodeClass nodeClass)
+    sealed class NodeInfo(int id, string label, NodeClass nodeClass, string relationshipClass)
     {
         public int Id { get; } = id;
         public string Label { get; } = label;
         public NodeClass Class { get; set; } = nodeClass;
+        public string RelationshipClass { get; } = relationshipClass;
     }
 
     readonly record struct Edge(int From, int To, string? LoopLabel);
 
     sealed class GraphBuilder
     {
+        readonly Options _options;
+        readonly MemberRef _target;
         readonly Dictionary<string, int> _ids = new(StringComparer.Ordinal);
         readonly List<NodeInfo> _nodes = [];
         readonly Dictionary<(int From, int To), int> _edgeIndex = [];
         readonly List<Edge> _edges = [];
+
+        public GraphBuilder(Options options, MemberRef target)
+        {
+            _options = options;
+            _target = target;
+        }
 
         public int RegisterTarget(MemberRef member) => GetOrAdd(member, NodeClass.Target);
 
@@ -145,7 +161,7 @@ public static class CallGraphMermaid
             {
                 id = _nodes.Count;
                 _ids[key] = id;
-                _nodes.Add(new NodeInfo(id, Label(member), candidate));
+                _nodes.Add(new NodeInfo(id, Label(member), candidate, RelationshipClass(member)));
                 return id;
             }
 
@@ -181,7 +197,7 @@ public static class CallGraphMermaid
             foreach (var node in _nodes)
             {
                 sb.Append("    ").Append(NodeId(node.Id)).Append("[\"").Append(Escape(node.Label)).Append("\"]");
-                if (ClassName(node.Class) is { } className)
+                if (!_options.RelationshipColors && ClassName(node.Class) is { } className)
                     sb.Append(":::").Append(className);
                 sb.Append('\n');
             }
@@ -197,6 +213,19 @@ public static class CallGraphMermaid
                 sb.Append(NodeId(edge.To)).Append('\n');
             }
 
+            if (_options.RelationshipColors)
+            {
+                foreach (var node in _nodes)
+                    sb.Append("    class ").Append(NodeId(node.Id)).Append(' ').Append(node.RelationshipClass).Append(";\n");
+                // Keep the semantic palette in CSS variables so the host can switch
+                // between light and dark presentation without regenerating the graph.
+                sb.Append("    classDef target fill:var(--graph-target-fill),stroke:var(--graph-target-stroke),stroke-width:3px,color:var(--graph-target-text);\n");
+                sb.Append("    classDef sameType fill:var(--graph-same-type-fill),stroke:var(--graph-same-type-stroke),stroke-width:2px,color:var(--graph-same-type-text);\n");
+                sb.Append("    classDef differentType fill:var(--graph-different-type-fill),stroke:var(--graph-different-type-stroke),stroke-width:2px,color:var(--graph-different-type-text);\n");
+                sb.Append("    classDef differentAssembly fill:var(--graph-different-assembly-fill),stroke:var(--graph-different-assembly-stroke),stroke-width:2px,color:var(--graph-different-assembly-text);\n");
+                return sb.ToString();
+            }
+
             // Emit a classDef only when the class is used, in a fixed order.
             if (_nodes.Exists(n => n.Class == NodeClass.Target))
                 sb.Append("    classDef target fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px;\n");
@@ -206,6 +235,40 @@ public static class CallGraphMermaid
                 sb.Append("    classDef truncated fill:#fff2cc,stroke:#d6b656,stroke-dasharray:2 2;\n");
 
             return sb.ToString();
+        }
+
+        /// <summary>Compact, host-neutral member spelling used as the Mermaid node label.</summary>
+        string Label(MemberRef member)
+        {
+            if (member.Kind == MemberKind.Unsupported)
+                return member.DeclaringType.ToDisplayString();
+
+            if (_options.CompactLabels)
+                return $"{member.DeclaringType.Name}.{member.Name}";
+
+            var name = member.Name;
+            if (!member.TypeArguments.IsDefaultOrEmpty)
+                name += "<" + string.Join(", ", member.TypeArguments.Select(t => t.ToDisplayString())) + ">";
+            var parameters = string.Join(", ", member.ParameterTypes.Select(p => p.ToDisplayString()));
+            return $"{member.DeclaringType.ToDisplayString()}.{name}({parameters})";
+        }
+
+        string RelationshipClass(MemberRef member)
+        {
+            if (!_options.RelationshipColors)
+                return "normal";
+            if (IdentityKey(member) == IdentityKey(_target))
+                return "target";
+
+            var targetType = GenericMemberIdentity.KeyFragment(
+                GenericMemberIdentity.OpenDeclaringType(_target.DeclaringType));
+            var memberType = GenericMemberIdentity.KeyFragment(
+                GenericMemberIdentity.OpenDeclaringType(member.DeclaringType));
+            if (string.Equals(targetType, memberType, StringComparison.Ordinal))
+                return "sameType";
+            if (string.Equals(member.DeclaringType.Assembly, _target.DeclaringType.Assembly, StringComparison.Ordinal))
+                return "differentType";
+            return "differentAssembly";
         }
     }
 
@@ -234,19 +297,6 @@ public static class CallGraphMermaid
             ? GenericMemberIdentity.ErasedParameterShape(member.OpenSignatureParameters)
             : string.Join(",", member.ParameterTypes.Select(GenericMemberIdentity.KeyFragment));
         return $"{GenericMemberIdentity.KeyFragment(openDeclaring)}|{member.Name}|{member.ParameterTypes.Length}|{shape}|{GenericMemberIdentity.KeyFragment(member.OpenSignatureReturn)}";
-    }
-
-    /// <summary>Compact, host-neutral member spelling used as the Mermaid node label.</summary>
-    static string Label(MemberRef member)
-    {
-        if (member.Kind == MemberKind.Unsupported)
-            return member.DeclaringType.ToDisplayString();
-
-        var name = member.Name;
-        if (!member.TypeArguments.IsDefaultOrEmpty)
-            name += "<" + string.Join(", ", member.TypeArguments.Select(t => t.ToDisplayString())) + ">";
-        var parameters = string.Join(", ", member.ParameterTypes.Select(p => p.ToDisplayString()));
-        return $"{member.DeclaringType.ToDisplayString()}.{name}({parameters})";
     }
 
     static NodeClass ClassFor(CallTreeStatus status) => status switch

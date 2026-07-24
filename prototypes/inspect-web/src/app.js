@@ -2,6 +2,7 @@ import { lenses, rootCommands } from "./data.js";
 import { initializeEngine, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage } from "/engine.js";
 
 const state = {
+  theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   packages: [],
   package: null,
   requestedPackage: "System.Text.Json",
@@ -54,6 +55,7 @@ if (location.hash && lenses.some(([id]) => id === location.hash.slice(1))) {
 
 const app = document.querySelector("#app");
 let mermaidModule;
+document.documentElement.dataset.theme = state.theme;
 
 function escapeHtml(value) {
   return String(value)
@@ -172,6 +174,8 @@ function render() {
           <button>open</button>
         </form>
         <div class="title-actions">
+          <button id="demo-call-graph">demo</button>
+          <button id="theme-toggle" aria-label="Switch to light theme">${state.theme === "dark" ? "light" : "dark"}</button>
           <button id="share">share</button>
           <button id="help" aria-label="Keyboard help">?</button>
         </div>
@@ -434,6 +438,12 @@ function renderMember(type, member) {
             <div class="section-title"><h2>Call graph</h2><span>${callers.length} callers · ${callees.length} callees</span></div>
             <div class="graph-scope"><strong>Workspace callers</strong><span>${scope.packages} loaded packages · ${scope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(scope.calleeScope)} · depth 2</span></div>
             <div id="call-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
+            <div class="graph-legend" aria-label="Graph legend">
+              <span><i class="legend-swatch target"></i>target member</span>
+              <span><i class="legend-swatch same-type"></i>same declaring type</span>
+              <span><i class="legend-swatch different-type"></i>different type, same assembly</span>
+              <span><i class="legend-swatch different-assembly"></i>different assembly</span>
+            </div>
             <details class="graph-source"><summary>Mermaid source</summary><pre><code>${escapeHtml(state.memberCallGraph.mermaid)}</code></pre></details>
           </section>`
         : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(state.memberCallGraphError || "No call graph result was returned.")}</p></section>`;
@@ -719,7 +729,17 @@ function bindEvents() {
     loadPackage(packageId, version, "");
   });
   document.querySelector("#share").addEventListener("click", share);
+  document.querySelector("#demo-call-graph").addEventListener("click", runCallGraphDemo);
+  document.querySelector("#theme-toggle").addEventListener("click", toggleTheme);
   document.querySelector("#help").addEventListener("click", () => showToast("⌘K command · ⌘F filter · 1—6 lenses · ↑↓ types"));
+}
+
+function toggleTheme() {
+  state.theme = state.theme === "dark" ? "light" : "dark";
+  localStorage.setItem("inspect-theme", state.theme);
+  document.documentElement.dataset.theme = state.theme;
+  render();
+  if (state.memberCallGraph) renderMermaidCallGraph();
 }
 
 function handleTypeKeys(event) {
@@ -1015,7 +1035,7 @@ async function renderMermaidCallGraph() {
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: "strict",
-      theme: "dark",
+      theme: state.theme,
       themeVariables: { fontSize: "17px" },
       flowchart: { htmlLabels: false, curve: "basis" }
     });
@@ -1105,11 +1125,52 @@ async function loadPackage(packageId, version, framework) {
     state.namespaceFilter = "";
     state.loading = false;
     render();
+    return packageModel;
   } catch (error) {
     state.loading = false;
     state.error = String(error?.stack || error);
     render();
+    return null;
   }
+}
+
+async function runCallGraphDemo() {
+  state.loading = true;
+  state.error = "";
+  state.loadingMessage = "Loading cross-package call graph demo…";
+  render();
+
+  const targetPackage = await loadPackage(
+    "Microsoft.Extensions.DependencyInjection.Abstractions",
+    "10.0.0",
+    "net10.0");
+  const callerPackage = await loadPackage("Microsoft.Extensions.Options", "10.0.0", "net10.0");
+  if (!targetPackage || !callerPackage) return;
+
+  state.package = state.packages.find(item =>
+    item.id === "Microsoft.Extensions.DependencyInjection.Abstractions"
+    && item.version === "10.0.0") || targetPackage;
+  const type = state.package.types.find(item =>
+    item.id === "Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions");
+  const member = type && memberGroups(type).find(item =>
+    item.name === "AddSingleton" && item.kind === "method");
+  const overloadIndex = member?.overloads.findIndex(item => item.anchorDigest === "22bc678876") ?? -1;
+  if (!type || !member || overloadIndex < 0) {
+    state.loading = false;
+    state.error = "The call graph demo member was not found in the selected package.";
+    render();
+    return;
+  }
+
+  state.selectedTypeId = type.id;
+  state.selectedMemberKey = member.key;
+  state.selectedOverloadIndex = overloadIndex;
+  state.memberSection = "call-graph";
+  state.memberCallGraph = null;
+  state.memberCallGraphError = "";
+  state.loading = false;
+  render();
+  await loadSelectedMemberCallGraph();
 }
 
 async function bootstrap() {
