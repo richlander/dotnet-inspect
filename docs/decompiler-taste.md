@@ -156,6 +156,46 @@ public int Compute() => _count + Extra;          // shipped default: bare
 public int Compute() => this._count + this.Extra; // both knobs on
 ```
 
+### Expression-bodied members
+
+Rendering a value-returning member as `head => <expr>;` instead of a brace block
+wrapping a lone `return <expr>;` is an IL-identical framing choice — the two
+forms are a language-guaranteed equivalence — so it sits below the three-class
+rule, alongside brace style and line wrapping. The oracle is `dotnet/runtime`'s
+`.editorconfig` (`csharp_style_expression_bodied_methods` /
+`_properties` / `_accessors = true`), so the expression-bodied form is the
+shipped default.
+
+A body that is exactly one statement folds on the simple single-line path (a
+lone `return <expr>;`, a `throw`, or a statement-expression). A body that is one
+*multi-line* single expression folds too: a wrapped switch return (issue #3088)
+or any other wrapped single `return <expr>;`, such as a fluent chain
+(issue #3084). The arrow trails the signature line with the expression's opening
+token after it, and the continuation lines re-indent one level under the
+member — the natural multi-line extension of the single-line `head => expr;`
+form.
+
+```csharp
+public static string Pipeline(StringBuilder builder)
+{
+    return builder
+        .Append("alphabet")
+        .Append("bravissimo")
+        .ToString();
+}
+// folds to:
+public static string Pipeline(StringBuilder builder) => builder
+    .Append("alphabet")
+    .Append("bravissimo")
+    .ToString();
+```
+
+The fold is gated on a typed structural signal the printer proves from the
+emitted statement tree — the body is exactly one top-level `return` with no
+lifted declarations, label, constructor chain, field initializer, async
+modifier, or unsupported fallback — never a re-parse of the rendered text. A
+member with any statement preceding the return keeps its brace block.
+
 ### Line wrapping
 
 Breaking a long line across continuation lines is pure whitespace: it emits the
