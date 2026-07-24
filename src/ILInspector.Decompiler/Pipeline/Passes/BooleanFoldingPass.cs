@@ -771,7 +771,7 @@ public sealed class BooleanFoldingPass : IIrPass
         return true;
     }
 
-    static bool ConsumesBranchTarget(
+    internal static bool ConsumesBranchTarget(
         IrFunction function,
         IrNode anchor,
         IrNode firstConsumed,
