@@ -30,6 +30,8 @@ public class SubstratePredicateCensusTests
             "FieldRef equality paired with pass-owned receiver/index-shape checks for null-coalescing assignment.",
         [new("NullCoalescingAssignmentPass.cs", "SameReceiver")] =
             "Pass-local receiver admissibility: null static receiver or PlaceIdentity.SameVariable only.",
+        [new("PatternSwitchExpressionPass.cs", "SameSinkValue")] =
+            "Switch-expression default convergence check: composes PlaceIdentity.SameOperand with conservative recursive Call structural equality (MethodRef record equality + args), sound because exactly one default path runs so identical Fail(out x) returns fold to one `_ =>` arm; declines on any unlisted node kind.",
         [new("UnionSwitchExpressionPass.cs", "SameTailExpression")] =
             "Union switch store-tail folding compares a pass-owned duplicated tail shape; this is not a reusable re-evaluable-place atom and declines on unlisted expression kinds.",
         [new("UnionSwitchExpressionPass.cs", "SameTailExpressions")] =

@@ -137,6 +137,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                 function.EnumMembers = MergeMap(function.EnumMembers, body.EnumMembers);
                 function.EnumUnderlyingTypes = MergeMap(function.EnumUnderlyingTypes, body.EnumUnderlyingTypes);
                 function.UnionTypes = MergeSet(function.UnionTypes, body.UnionTypes);
+                function.ByRefLikeTypes = MergeSet(function.ByRefLikeTypes, body.ByRefLikeTypes);
                 environment?.Elide();
             }
         }

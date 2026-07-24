@@ -137,7 +137,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             return false;
 
         var arms = new List<ArmData>();
-        if (!TryParseChain(region, 0, scrutinee, defaultValue, arms, fallThroughIsDefault: false) || arms.Count < minArms)
+        if (!TryParseChain(function, region, 0, scrutinee, defaultValue, arms, fallThroughIsDefault: false) || arms.Count < minArms)
             return false;
 
         // A refutable (guarded or property-subpattern) non-last arm routes its
@@ -225,7 +225,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
     }
 
     // A chain of arms whose collective no-match fall-through reaches the default.
-    // Three arm shapes are recognized and may be mixed:
+    // Five arm shapes are recognized and may be mixed:
     //   * Intro-chain arm (then-only): `intro Lk = isinst Tk(SV); if (!Lk) { REST }
     //     MATCHED` where MATCHED (this arm's guard + value) trails the dispatch as
     //     sibling statements and REST (the remaining arms, ultimately a bare
@@ -237,6 +237,13 @@ public sealed class PatternSwitchExpressionPass : IIrPass
     //     or property subpattern whose failure must reach the default — so both
     //     REST (then) and MATCHED (else) fall off their block into that shared
     //     default.
+    //   * Diamond-return arm (if/else): the same two-armed shape, but MATCHED
+    //     (`else`) RETURNS its value outright and REST is `then` ++ the siblings
+    //     after the `if` (`then` falls through to them). csc emits this when the
+    //     matched value spans multiple blocks (e.g. a nested switch expression).
+    //   * Value-type arm: `if (!(SV is Tvt)) return <default>; Li = (Tvt)SV; MATCHED`
+    //     — a value-type pattern binds through a separate `unbox.any`, so it has no
+    //     isinst intro; its no-match returns the default, making it the last arm.
     //   * Inline-positive arm: `if (SV is Tk x) { MATCHED }` whose no-match falls
     //     straight through to the following sibling statement (the next arm, or the
     //     bare `return <default>`).
@@ -245,7 +252,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
     // enclosing dispatch is trailed by the default); at the top level, and inside a
     // then-only `then` (whose fall-through reaches the sibling MATCHED, not the
     // default), it is false and the list must end in an explicit `return <default>`.
-    bool TryParseChain(IReadOnlyList<IrNode> stmts, int index, Scrutinee scrutinee, IrExpression defaultValue, List<ArmData> arms, bool fallThroughIsDefault)
+    bool TryParseChain(IrFunction function, IReadOnlyList<IrNode> stmts, int index, Scrutinee scrutinee, IrExpression defaultValue, List<ArmData> arms, bool fallThroughIsDefault)
     {
         // Ran off the end: faithful only when fall-through lands on the default.
         if (index >= stmts.Count)
@@ -280,11 +287,30 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             // does; RefutableArmsDisjointFromLaterArms in TryFold still requires
             // its type disjoint from every later arm before folding.
             arms.Add(new ArmData(inlineType, inlineLocal, inlineIndex, Subpattern: null, inlineGuard, inlineValue, IsInline: true));
-            return TryParseChain(stmts, index + 1, scrutinee, defaultValue, arms, fallThroughIsDefault);
+            return TryParseChain(function, stmts, index + 1, scrutinee, defaultValue, arms, fallThroughIsDefault);
         }
 
         if (!IsArmIntro(stmts[index], scrutinee, out int patternLocal, out var patternType, out _))
+        {
+            // Value-type type-pattern arm: `if (!(scrut is Tvt)) return <default>;
+            // Li = (Tvt)scrut; MATCHED`. A value-type pattern binds through a separate
+            // `unbox.any` after the boolean `isinst` test, so — unlike a reference arm —
+            // it has no `StoreLocal Lk = isinst` intro. Its no-match returns the default,
+            // so it is necessarily the last matched arm before the default.
+            if (IsValueTypeArm(function, stmts, index, scrutinee, defaultValue, out int vtLocal, out var vtType, out int vtBodyStart))
+            {
+                if (!TryParseMatchedBody(stmts, vtBodyStart, vtType, vtLocal, defaultValue, out var vtArm, out int vtNext, out bool vtFallsThrough))
+                    return false;
+                bool vtTailReachesDefault = vtFallsThrough
+                    ? DefaultReachedFrom(stmts, vtNext, defaultValue, fallThroughIsDefault)
+                    : ReachesDefaultTail(stmts, vtNext, defaultValue);
+                if (!vtTailReachesDefault)
+                    return false;
+                arms.Add(vtArm);
+                return true;
+            }
             return false;
+        }
         if (index + 1 >= stmts.Count || stmts[index + 1] is not IfStatement dispatch)
             return false;
         if (!IsNegatedLocalTest(dispatch.Condition, patternLocal))
@@ -295,17 +321,34 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             // If/else form (csc's lowering of a refutable intro arm): MATCHED is
             // the `else`, REST the `then`, and both fall off their block into the
             // shared default that trails the dispatch.
-            if (!DefaultReachedFrom(stmts, index + 2, defaultValue, fallThroughIsDefault))
+            if (DefaultReachedFrom(stmts, index + 2, defaultValue, fallThroughIsDefault))
+            {
+                if (!TryParseMatchedBody(dispatch.Else!.Children, 0, patternType, patternLocal, defaultValue, out var elseArm, out int elseNext, out _))
+                    return false;
+                // MATCHED's own fall-through (a guard/subpattern failure) runs off the
+                // `else` block into that same shared default.
+                if (!DefaultReachedFrom(dispatch.Else!.Children, elseNext, defaultValue, fallThroughIsDefault: true))
+                    return false;
+                arms.Add(elseArm);
+                // REST nests in `then`; its fall-through reaches the shared default.
+                return TryParseChain(function, dispatch.Then.Children, 0, scrutinee, defaultValue, arms, fallThroughIsDefault: true);
+            }
+
+            // Diamond-return form (#3113): MATCHED (`else`) returns its arm value
+            // outright, and REST is the `then` block followed by the siblings after
+            // the `if` (`then` falls through to them). csc emits this two-armed `if`
+            // — rather than dropping the `else` — when the matched value spans
+            // multiple basic blocks (e.g. a nested switch expression). The remaining
+            // arms' fall-through destiny is unchanged from this call, so thread
+            // `fallThroughIsDefault` into the virtual continuation. Require MATCHED to
+            // return outright (`!diaFallsThrough`) with nothing reachable after it, so
+            // this stays distinct from the shared-default if/else form handled above.
+            if (!TryParseMatchedBody(dispatch.Else!.Children, 0, patternType, patternLocal, defaultValue, out var diaArm, out int diaNext, out bool diaFallsThrough)
+                || diaFallsThrough
+                || !ReachesDefaultTail(dispatch.Else!.Children, diaNext, defaultValue))
                 return false;
-            if (!TryParseMatchedBody(dispatch.Else!.Children, 0, patternType, patternLocal, defaultValue, out var elseArm, out int elseNext, out _))
-                return false;
-            // MATCHED's own fall-through (a guard/subpattern failure) runs off the
-            // `else` block into that same shared default.
-            if (!DefaultReachedFrom(dispatch.Else!.Children, elseNext, defaultValue, fallThroughIsDefault: true))
-                return false;
-            arms.Add(elseArm);
-            // REST nests in `then`; its fall-through reaches the shared default.
-            return TryParseChain(dispatch.Then.Children, 0, scrutinee, defaultValue, arms, fallThroughIsDefault: true);
+            arms.Add(diaArm);
+            return TryParseChain(function, ConcatContinuation(dispatch.Then.Children, stmts, index + 2), 0, scrutinee, defaultValue, arms, fallThroughIsDefault);
         }
 
         // Then-only form: MATCHED body = the sibling statements after the dispatch.
@@ -332,7 +375,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         arms.Add(arm);
         // REST nests in `then`; its fall-through reaches the sibling MATCHED (not
         // the default), so it must reach the default explicitly.
-        return TryParseChain(dispatch.Then.Children, 0, scrutinee, defaultValue, arms, fallThroughIsDefault: false);
+        return TryParseChain(function, dispatch.Then.Children, 0, scrutinee, defaultValue, arms, fallThroughIsDefault: false);
     }
 
     // Whether control arriving at <paramref name="index"/> reaches the default:
@@ -368,6 +411,13 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             {
                 index++;
                 continue;
+            }
+
+            // Value-type arm: its type-test failure returns the default directly.
+            if (IsValueTypeArmDefault(stmts[index], scrutinee, out var vtDefault))
+            {
+                defaultValue = vtDefault;
+                return true;
             }
 
             // Intro-chain arm: no-match nests in the dispatch test's `then` branch
@@ -462,14 +512,16 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         return true;
     }
 
-    // A value run in one of three shapes, all yielding (guard?, value):
+    // A value run in one of four shapes, all yielding (guard?, value):
     //   `return V;`                              -> unguarded
     //   `if (!G) return <default>; return V;`    -> guarded, negated form
+    //   `if (C)  return <default>; return V;`    -> guarded, flipped-comparison form
+    //                                               (guard = Conditions.Negate(C))
     //   `if (G) { return V; }`                   -> guarded, positive form
-    // `shortCircuitsToDefault` is true only for the negated form, whose guard
-    // failure returns the default immediately rather than falling through to the
-    // following statement — the caller uses it to reject short-circuiting shapes
-    // where fall-through order matters (inline sibling arms).
+    // `shortCircuitsToDefault` is true for both short-circuiting forms (negated and
+    // flipped-comparison), whose guard failure returns the default immediately rather
+    // than falling through to the following statement — the caller uses it to reject
+    // short-circuiting shapes where fall-through order matters (inline sibling arms).
     bool TryParseGuardedValue(
         IReadOnlyList<IrNode> stmts,
         int index,
@@ -511,6 +563,26 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             return true;
         }
 
+        // Flipped-comparison negated form: `if (C) return <default>; return V;` where
+        // C is any non-`LogicalNot` condition (the `LogicalNot` shape is consumed
+        // above). csc lowers a `when G` whose failure branches to the default as
+        // `if (!G) goto default`, and `!G` frequently surfaces as a flipped relational
+        // (`when i > 0` -> `if (i <= 0) …`) rather than a syntactic negation. The arm's
+        // guard is the type-aware dual of C (Conditions.Negate is NaN-safe: it inverts
+        // an integer relational and wraps float/unknown in `!(…)`), computed over a
+        // detached clone so the original condition is left intact for fidelity.
+        if (guardIf.Condition is not LogicalNot
+            && guardIf.Then.Children is [Return { Value: { } flippedDefault }] && DefaultEquals(flippedDefault, defaultValue)
+            && index + 1 < stmts.Count
+            && stmts[index + 1] is Return { Value: { } flippedValue } && !DefaultEquals(flippedValue, defaultValue))
+        {
+            guard = Conditions.Negate((IrExpression)guardIf.Condition.Clone());
+            value = flippedValue;
+            consumed = 2;
+            shortCircuitsToDefault = true;
+            return true;
+        }
+
         // Positive form: `if (G) { return V; }`
         if (guardIf.Then.Children is [Return { Value: { } positiveValue }] && !DefaultEquals(positiveValue, defaultValue))
         {
@@ -538,6 +610,142 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         return false;
     }
 
+    static bool TestsScrutinee(IrNode node, Scrutinee scrutinee)
+        => IsArmIntro(node, scrutinee, out _, out _, out _)
+            || IsInlineArm(node, scrutinee, out _, out _, out _);
+
+    // A value-type type-pattern arm dispatch: `if (!(scrutinee is Tvt)) return <default>;`
+    // immediately followed by `Li = (Tvt)scrutinee` (an `unbox.any` bind). Value-type
+    // patterns test with `isinst` then bind through a separate `unbox.any`, so they lack
+    // the `StoreLocal Lk = isinst` intro of a reference arm. Returns the bound local, the
+    // pattern type, and the index of the first matched-body statement.
+    //
+    // Declines shapes only reachable from IL csc never emits, each of which would render
+    // invalid C# under a `Full` label. The pattern type must be spellable as a C# value-type
+    // declaration pattern — a concrete non-nullable value type — so `IsSpellableValueTypePattern`
+    // rejects `Nullable<T>`/bare `Nullable`1` (CS8116/CS0723) and the un-spellable kinds
+    // (pointer, function pointer, by-ref, pinned, unsupported, array, open generic parameter).
+    // A bound local whose declared type disagrees with the pattern type is likewise declined
+    // (`isinst int; unbox.any int; stloc bool` would declare an `int` pattern var for a `bool`
+    // slot — CS0029).
+    bool IsValueTypeArm(
+        IrFunction function,
+        IReadOnlyList<IrNode> stmts,
+        int index,
+        Scrutinee scrutinee,
+        IrExpression defaultValue,
+        out int bindLocal,
+        out TypeRef patternType,
+        out int bodyStart)
+    {
+        bindLocal = -1;
+        patternType = null!;
+        bodyStart = -1;
+        if (stmts[index] is IfStatement
+            {
+                HasElse: false,
+                Condition: LogicalNot { Operand: IsInstance { Type: { } testType, Operand: { } testOperand } },
+                Then.Children: [Return { Value: { } noMatch }]
+            }
+            && scrutinee.Matches(testOperand)
+            && IsSpellableValueTypePattern(function, testType)
+            && DefaultEquals(noMatch, defaultValue)
+            && index + 1 < stmts.Count
+            && stmts[index + 1] is StoreLocal { Value: UnboxAny { Type: { } unboxType, Operand: { } unboxOperand } } bind
+            && unboxType.Equals(testType)
+            && bind.Type.Equals(testType)
+            && scrutinee.Matches(unboxOperand))
+        {
+            bindLocal = bind.Index;
+            patternType = testType;
+            bodyStart = index + 2;
+            return true;
+        }
+        return false;
+    }
+
+    // Whether a value-type arm's test type is spellable as a C# declaration pattern `T x`.
+    // csc emits a value-type arm's isinst+unbox for a boxable non-nullable value type or for
+    // an unconstrained generic parameter (`isinst T; unbox.any T; stloc T` — and `T t` is a
+    // legal declaration pattern). Generic parameters are admitted directly. Ref structs are
+    // rejected — they resolve to a ValueType shape but cannot be boxed (CS8121), so are never a
+    // compiler-produced value-type arm: framework/stack-only corelib ref structs by name (see
+    // IsStackOnlyValueType) and user-defined ones through the function's by-ref-like fact set.
+    // Every other kind must prove it is a known non-nullable value type via its resolved shape,
+    // which rejects reference types (interfaces, delegates, static classes — CS0723/CS8121),
+    // `System.Void` (CS1547), `Nullable<T>` (CS8116), the un-spellable kinds (pointer, function
+    // pointer, by-ref, pinned, unsupported, array), and any type whose value-ness cannot be
+    // established. Declining any of these leaves the cascade in its valid statement form rather
+    // than raising invalid `Full` C#.
+    static bool IsSpellableValueTypePattern(IrFunction function, TypeRef type)
+    {
+        if (type.Kind is TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter)
+            return true;
+        if (IsStackOnlyValueType(type) || IsByRefLike(function, type))
+            return false;
+        return TypeFamilies.IsKnownNonNullableValueType(type, function.TypeShapes);
+    }
+
+    // The corelib value types that resolve to a ValueType shape (or the hardcoded value-type
+    // list) but are ref-struct / stack-only and cannot be boxed, so are illegal as a boxed
+    // declaration pattern (CS8121). Recognised by name because their `IsByRefLike` /
+    // intrinsic-stack-only nature lives on the cross-assembly corelib definition, not the
+    // TypeRef; matching `System` avoids user types of the same simple name. User-defined ref
+    // structs in the inspected assembly are caught by IsByRefLike instead.
+    static bool IsStackOnlyValueType(TypeRef type)
+    {
+        var (name, ns) = type.Kind is TypeRefKind.GenericInstance
+            ? (type.ElementType?.Name, type.ElementType?.Namespace)
+            : (type.Name, type.Namespace);
+        if (ns != "System" || name is null)
+            return false;
+        int tick = name.IndexOf('`');
+        string simple = tick < 0 ? name : name[..tick];
+        return simple is "Span" or "ReadOnlySpan" or "TypedReference" or "ArgIterator" or "RuntimeArgumentHandle";
+    }
+
+    // Whether the type (or a generic instance's definition) carries the compiler's
+    // `[IsByRefLike]` fact recovered at import into the function's by-ref-like set — a
+    // user-defined `ref struct` in the inspected assembly. A ref struct cannot be boxed, so
+    // `isinst`/`unbox.any` over one is never compiler-produced and `T t` over it is illegal
+    // (CS8121); such an arm is declined rather than raised to invalid `Full` C#.
+    static bool IsByRefLike(IrFunction function, TypeRef type)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        return definition is not null && function.ByRefLikeTypes.Contains(definition);
+    }
+
+    // The value a value-type arm dispatch (`if (!(scrutinee is Tvt)) return X`) yields
+    // on no-match. Used by default discovery, which needs only the returned value X and
+    // not the subsequent `unbox.any` bind.
+    static bool IsValueTypeArmDefault(IrNode node, Scrutinee scrutinee, out IrExpression defaultValue)
+    {
+        defaultValue = null!;
+        if (node is IfStatement
+            {
+                HasElse: false,
+                Condition: LogicalNot { Operand: IsInstance { Operand: { } operand } },
+                Then.Children: [Return { Value: { } returned }]
+            }
+            && scrutinee.Matches(operand))
+        {
+            defaultValue = returned;
+            return true;
+        }
+        return false;
+    }
+
+    // The virtual continuation of a diamond-return arm: the dispatch `then` block's
+    // statements followed by the siblings after the `if` (from `outerStart`). The `then`
+    // falls through to those siblings, so together they form the remaining-arm chain.
+    static IReadOnlyList<IrNode> ConcatContinuation(IReadOnlyList<IrNode> nested, IReadOnlyList<IrNode> outer, int outerStart)
+    {
+        var continuation = new List<IrNode>(nested);
+        for (int i = outerStart; i < outer.Count; i++)
+            continuation.Add(outer[i]);
+        return continuation;
+    }
+
     // An inline-positive arm: `if (scrutinee is Tk x) { MATCHED }` with no `else`.
     // The matched body is the `then` block; the no-match path falls through to the
     // following sibling statement.
@@ -556,13 +764,6 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         }
         return false;
     }
-
-    // True when `node` is the first arm of a cascade over `scrutinee` — either an
-    // intro-chain arm or an inline-positive arm. Used to confirm a temp store is
-    // actually followed by a matching cascade before attempting the fold.
-    static bool TestsScrutinee(IrNode node, Scrutinee scrutinee)
-        => IsArmIntro(node, scrutinee, out _, out _, out _)
-            || IsInlineArm(node, scrutinee, out _, out _, out _);
 
     // Recovers a direct (temp-less) scrutinee from a leading intro-chain arm that
     // reads a re-evaluable place directly (`Lk = place as T; if (!Lk) …`). The
@@ -645,7 +846,41 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         => expression is not null && ReferenceOwnership.SubtreeReferencesLocal(expression, local);
 
     static bool DefaultEquals(IrExpression? left, IrExpression? right)
-        => left is not null && right is not null && PlaceIdentity.SameOperand(left, right);
+        => left is not null && right is not null && SameSinkValue(left, right);
+
+    // Structural equality for a switch-expression default sink value. Augments
+    // PlaceIdentity.SameOperand (variables/constants only — the narrow re-evaluable
+    // place set) with conservative recursive Call equality, because a value-typed
+    // switch-expression default `_ => Fail(out x)` lowers to several identical
+    // `return Fail(out x)` no-match paths, and only their structural identity proves
+    // the fold faithful. Callee is a record (value equality over the full signature),
+    // so overloads sharing a name do not collide. Sound because a switch expression
+    // runs exactly one default path, so folding N identical calls into one `_ =>`
+    // arm preserves behavior; declines on any non-Call, non-operand node.
+    static bool SameSinkValue(IrExpression? left, IrExpression? right)
+    {
+        if (ReferenceEquals(left, right))
+            return true;
+        if (left is null || right is null)
+            return false;
+        if (PlaceIdentity.SameOperand(left, right))
+            return true;
+        if (left is Call leftCall && right is Call rightCall)
+        {
+            if (leftCall.IsVirtual != rightCall.IsVirtual
+                || !Equals(leftCall.ConstrainedTo, rightCall.ConstrainedTo)
+                || !leftCall.Callee.Equals(rightCall.Callee)
+                || leftCall.Arguments.Count != rightCall.Arguments.Count)
+                return false;
+            for (int i = 0; i < leftCall.Arguments.Count; i++)
+            {
+                if (!SameSinkValue(leftCall.Arguments[i], rightCall.Arguments[i]))
+                    return false;
+            }
+            return true;
+        }
+        return false;
+    }
 
     static IEnumerable<int> PatternLocals(ArmData arm)
     {
