@@ -201,6 +201,35 @@ public sealed class TupleIdentityTests
         Assert.Equal(live, ApiMemberIdentity.GetCanonicalSignature(rtType, rtOp));
     }
 
+    [Theory]
+    [InlineData(nameof(TupleSampleClass.NamedReturn))]
+    [InlineData(nameof(TupleSampleClass.UnnamedReturn))]
+    [InlineData(nameof(TupleSampleClass.NestedTuple))]
+    [InlineData(nameof(TupleSampleClass.MidNested))]
+    [InlineData(nameof(TupleSampleClass.TupleInsideFunc))]
+    [InlineData(nameof(TupleSampleClass.TupleArray))]
+    public void RoundTrip_TupleReturningMethod_CanonicalIdentityMatchesLive(string name)
+    {
+        // A tuple in the RETURN type is not part of a non-conversion method's identity
+        // digest, but its '(...)' parentheses would derail the display-text fallback's
+        // first-'(' parameter-list detection after a JSON round-trip (corrupting the
+        // identity to e.g. "NamedReturn(int,string name))"). HasCanonicalDivergence must
+        // therefore persist a CanonicalSignature for these members too, so live and
+        // round-tripped surfaces produce identical digests.
+        var member = Method(name);
+        Assert.False(string.IsNullOrEmpty(member.CanonicalSignature));
+        var live = ApiMemberIdentity.GetCanonicalSignature(SampleType, member);
+        Assert.EndsWith($"{name}()", live);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(Surface);
+        var roundTripped = System.Text.Json.JsonSerializer.Deserialize<ApiSurface>(json)!;
+        var rtType = roundTripped.Types.First(t => t.Name == nameof(TupleSampleClass));
+        var rtMember = rtType.Members.First(m => m.Name == name && m.Kind == "method");
+
+        Assert.Null(rtMember.SignatureModel);
+        Assert.Equal(live, ApiMemberIdentity.GetCanonicalSignature(rtType, rtMember));
+    }
+
     // --- Invalid ValueTuple`8 (non-tuple Rest) must not masquerade as a tuple -
 
     [Fact]

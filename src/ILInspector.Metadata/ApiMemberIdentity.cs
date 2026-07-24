@@ -188,18 +188,23 @@ public static class ApiMemberIdentity
 
     static bool HasCanonicalDivergence(ApiMember member, ApiSignature signature)
     {
-        // A tuple parameter is part of member identity, so its erased spelling must be
-        // persisted. A tuple return type only affects identity for conversion operators
-        // (which overload on return type); for every other member the return type is not
-        // part of the digest, so a return-only divergence needs no persistence.
+        // Persist canonical identity for any member whose display signature carries C#
+        // tuple syntax the text fallback cannot re-canonicalize after a JSON round-trip
+        // (SignatureModel is not serialized). Two divergence sources both require it:
+        //   * A tuple PARAMETER is part of the identity digest; its erased spelling and
+        //     element names must not leak in and cannot be recovered from display text.
+        //   * A tuple RETURN type is only part of the digest for conversion operators, but
+        //     even for other members its '(...)' parentheses would derail the fallback's
+        //     first-'(' parameter-list detection, corrupting the round-tripped identity.
+        //     The persisted digest is computed live and correctly omits the non-conversion
+        //     return type, so short-circuiting to it keeps live and round-trip in lockstep.
         if (signature.Parameters.Any(parameter =>
                 !string.Equals(parameter.EffectiveCanonicalType, parameter.Type, StringComparison.Ordinal)))
         {
             return true;
         }
 
-        return IsConversionOperator(member.Name)
-            && !string.Equals(signature.EffectiveCanonicalReturnType, signature.ReturnType, StringComparison.Ordinal);
+        return !string.Equals(signature.EffectiveCanonicalReturnType, signature.ReturnType, StringComparison.Ordinal);
     }
 
     public static string GetMemberSignatureSortKey(ApiMember member)
