@@ -199,7 +199,12 @@ public class SelfQualifySyntheticShadow
 {
     public static int S_0() => 2;
 
-    public static int Uses(int a, int b) => S_0() + (a > b ? a : b);
+    public static int Side() => 5;
+
+    // The ternary condition calls a method, so it is impure and stays spilled to
+    // a synthetic S_0 slot (rather than inlining), keeping the name collision
+    // with the static S_0() call that this test exercises.
+    public static int Uses(int a, int b) => S_0() + (Side() > b ? a : b);
 }
 
 public class SelfQualifyGenericParamShadow
