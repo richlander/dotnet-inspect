@@ -811,14 +811,17 @@ public class ApiCommand
             && options.IncludeSections is { Count: > 0 }
             && GetRequestedMemberSections(type, options).Contains(SectionNames.DecompiledSource))
         {
-            // A whole-type decompiled-source render consumes the resolved config here.
-            options.RenderConfigWarnings?.EmitOnce();
+            // A whole-type decompiled-source render consumes the resolved config.
             var resolver = ApiAnalysisInspection.CreateReferenceResolver(typeDllPath, options);
             using var metadata = new Decompiler.Pipeline.MetadataContext(resolver);
             var listing = Decompiler.MemberBodyProducer.Project(
                 type, typeDllPath, options.PdbPath, resolver, metadata, options.RenderOptions).Output;
             if (listing is not null)
             {
+                // Surface pending config warnings only once the styled listing is
+                // actually produced, so a type whose Project yields no body (e.g.
+                // an enum) never emits a spurious warning.
+                options.RenderConfigWarnings?.EmitOnce();
                 view.MemberCode ??= new MemberCodeView();
                 view.MemberCode.DecompiledSourceCode = new Markout.CodeSection("csharp", listing);
             }

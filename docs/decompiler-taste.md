@@ -308,6 +308,10 @@ styling is user-visible:
 - Discovery (`-D`/`--discover`) lists which sections *would* render by probing them
   into a discarded view; that internal render is not user-visible styled source, so
   a discovery request never surfaces a config warning.
+- A request that *selects* source but yields none renders nothing to style: a
+  callers-only aggregation (`--directory`/`--bin` with no overload selector) and an
+  empty type whose whole-type projection has no body both request `Decompiled
+  Source` yet produce no listing, so no warning fires.
 
 Because emission is tied to the point of visible consumption rather than predicted
 up front, the warning fires if and only if styled source reaches the user, exactly

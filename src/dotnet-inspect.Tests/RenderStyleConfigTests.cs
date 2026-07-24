@@ -390,6 +390,51 @@ public class RenderStyleConfigTests
         Assert.Contains("this._count", code.DecompiledResult!.Output);
     }
 
+    // MAI review finding (head a25e01d9): `member <Type> --directory <dir>
+    // -S "Decompiled Source"` drives the callers-only aggregation path
+    // (HasCallerScope true, no overload selector). Collect returns no styled
+    // result there, so the production-gated warning latch -- which keys off a
+    // non-null DecompiledResult at the formatter emit site -- must not fire.
+    [Fact]
+    public void CallersOnlyRequest_WithoutOverloadIndex_SurfacesNoStyledSource()
+    {
+        var decompiledSourceRequested = new MemberCodeProvider.Request(
+            DecompiledSource: true, AnnotatedSource: false, CostOverlay: false,
+            SemanticsOverlay: false, IL: false, Attributes: false, Calls: false,
+            Callers: true, CallGraph: false, UnsafeOperations: false);
+
+        string assemblyPath = typeof(ThisQualificationConfigSpecimen).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var surface = ApiSurfaceExtractor.Extract(pe, includeAll: false);
+        var type = surface.Types.Single(t => t.FullName == typeof(ThisQualificationConfigSpecimen).FullName);
+        var methods = type.Members
+            .Where(m => m.Name == nameof(ThisQualificationConfigSpecimen.Compute)).ToList();
+
+        var results = MemberCodeProvider.Collect(
+            type, methods, assemblyPath, overloadIndex: null, decompiledSourceRequested,
+            renderOptions: PrinterOptions.Default with { QualifyFieldAccess = true });
+
+        Assert.DoesNotContain(results, r => r.Code.DecompiledResult is not null);
+    }
+
+    // Type-path counterpart: `type <empty type> -S "Decompiled Source"` requests
+    // source but MemberBodyProducer.Project yields no listing, so the whole-type
+    // emit gate (listing is not null) never surfaces a config warning.
+    [Fact]
+    public void WholeTypeProject_EmptyType_ProducesNoListing()
+    {
+        string assemblyPath = typeof(IEmptyStyleFixture).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var surface = ApiSurfaceExtractor.Extract(pe, includeAll: false);
+        var type = surface.Types.Single(t => t.FullName == typeof(IEmptyStyleFixture).FullName);
+
+        var result = ILInspector.Decompiler.MemberBodyProducer.Project(
+            type, assemblyPath, pdbPath: null,
+            printerOptions: PrinterOptions.Default with { QualifyFieldAccess = true });
+
+        Assert.Null(result.Output);
+    }
+
     private static MemberCodeProvider.Item CollectSpecimenCompute(
         MemberCodeProvider.Request request, PrinterOptions? renderOptions)
     {
@@ -472,4 +517,13 @@ public class ThisQualificationConfigSpecimen
     public int Extra { get; set; }
 
     public int Compute() => _count + Extra;
+}
+
+/// <summary>
+/// An empty public type whose whole-type decompilation yields no listing, so a
+/// <c>type -S "Decompiled Source"</c> render produces no styled source (and thus
+/// no config warning).
+/// </summary>
+public interface IEmptyStyleFixture
+{
 }

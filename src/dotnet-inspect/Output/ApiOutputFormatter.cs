@@ -1169,13 +1169,6 @@ public static class ApiOutputFormatter
             ProjectAssetsPath: options?.ProjectAssetsPath,
             TargetFramework: options?.Tfm);
 
-        // A decompiled-source or source-diff render consumes the resolved config
-        // via MemberCodeProvider.Collect(... options.RenderOptions) below; surface
-        // any pending config warnings exactly here, once, so they never fire on a
-        // member run that does not read source.
-        if (request.DecompiledSource)
-            options?.RenderConfigWarnings?.EmitOnce();
-
         // An index-backed section that is explicitly selected (via -S or a category like
         // @Audit) renders an empty-state note instead of vanishing when it yields no rows.
         // Sections merely auto-included by verbosity stay silent when empty.
@@ -1404,6 +1397,15 @@ public static class ApiOutputFormatter
             }
 
             hasCode |= PopulateCSharpSections(memberCode, type, member, code);
+
+            // The resolved config is consumed only when a styled decompiled
+            // result is actually produced. Collect returns one only for a
+            // selected overload, never for callers-only aggregation (no overload
+            // index) or a fidelity-only projection. Surface pending config
+            // warnings exactly here, once, so a member run that requests but does
+            // not render decompiled source never emits a spurious warning.
+            if (code.DecompiledResult is not null)
+                options?.RenderConfigWarnings?.EmitOnce();
 
             if (code.FidelityCauses is not null)
             {
