@@ -23,7 +23,7 @@ public class LoweredFidelityGateTests
     /// Methods whose lowered C# still differs under compile-back fidelity contract V1 — the open
     /// lowered docket. The gate tolerates these but fails if a NEW method joins the set.
     /// Beyond the shared sugared docket (BothPositive, GotoCommonExit,
-    /// NeitherOr, SelectBoolReturn), the lowered view adds ReverseCopy:
+    /// SelectBoolReturn), the lowered view adds ReverseCopy:
     /// lowering deliberately skips
     /// IncrementDecrementPass, so the dup-based ++/-- idiom round-trips as an explicit temp
     /// rather than the folded operator — a benign by-design divergence for this view.
@@ -52,7 +52,6 @@ public class LoweredFidelityGateTests
         // Span<T> indices for the same source idiom.
         "CollectionListLiteral",
         "GotoCommonExit",
-        "NeitherOr",
         "ManualAwaitEnumeratorLoop",
         "ReverseCopy",
         // RuntimeInlineArrayForeach is the runtime-style inline-array enumerator
