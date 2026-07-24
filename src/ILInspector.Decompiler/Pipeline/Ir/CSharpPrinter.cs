@@ -97,9 +97,13 @@ public sealed partial class CSharpPrinter
             IrPasses.Run(function, IrPasses.Default, context);
             // Opt-in tier-3 style lens (#3138), byte-divergent by design: runs
             // only when requested, after the byte-faithful default pipeline has
-            // left the guarded bool return flat.
+            // left the guarded bool return flat. The oracle-endorsed ternary runs
+            // first so that, when both lenses are enabled, it wins the shared shape
+            // (it consumes the guarded return, leaving the branchless pass a no-op).
             if (options?.PreferConditionalExpressionReturn == true)
                 new PreferConditionalReturnPass().Run(function, context);
+            if (options?.PreferBranchlessBoolean == true)
+                new PreferBranchlessBooleanPass().Run(function, context);
         }
         catch (Exception ex)
         {

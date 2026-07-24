@@ -93,6 +93,32 @@ public sealed record PrinterOptions
     /// </summary>
     public bool PreferConditionalExpressionReturn { get; init; }
 
+    /// <summary>
+    /// When set, a guarded boolean return with a constant arm the default view
+    /// must render as a flat <c>if (c) return A; return B;</c> — because the
+    /// short-circuit fold is not opcode-faithful for that shape (see
+    /// <c>ShortCircuitFidelity</c> / #3114) — is instead rendered as the compact
+    /// short-circuit "bool hack" (<c>return c &amp;&amp; A;</c>,
+    /// <c>return c || X;</c>, <c>return !c &amp;&amp; X;</c>,
+    /// <c>return !c || A;</c>).
+    ///
+    /// Like <see cref="PreferConditionalExpressionReturn"/> this is a
+    /// <b>byte-divergent</b> opt-in <b>style lens</b> (#3138): the short-circuit
+    /// spelling keeps the same condition, surviving operand, and short-circuit
+    /// order, so it is unconditionally <b>behavior-preserving</b>, but it is not
+    /// opcode-faithful (a bare operand recompiles branchless, a negation flips
+    /// polarity), so its output must not feed the compile-back fidelity gates.
+    ///
+    /// Unlike the ternary lens this form is <b>not</b> oracle-endorsed
+    /// (dotnet/runtime's <c>.editorconfig</c> would never recommend it), so it is a
+    /// user compactness preference, opt-in only, and never part of a "full taste"
+    /// aggregate. When both this and
+    /// <see cref="PreferConditionalExpressionReturn"/> are set the oracle-endorsed
+    /// ternary wins (it consumes the shape first). Off by default; the default view
+    /// stays byte-faithful.
+    /// </summary>
+    public bool PreferBranchlessBoolean { get; init; }
+
     /// <summary>The shipped defaults — every knob off.</summary>
     public static PrinterOptions Default { get; } = new();
 }
