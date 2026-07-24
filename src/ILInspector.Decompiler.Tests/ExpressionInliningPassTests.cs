@@ -131,6 +131,47 @@ public class ExpressionInliningPassTests
         function.CheckInvariant();
     }
 
+    // Counterpart to the reorder guards: the interference check is precise, not a
+    // blanket ban. A slot holds `x > 0`; the increment `x++` happens strictly
+    // AFTER the slot's single load, so deferring the comparison into the call is
+    // safe. The value must still inline — a coarse function-wide mutation scan
+    // would drop it (issue #3133 adversarial review — Gemini over-blocking case).
+    [Fact]
+    public void PureCompositeReadingArgument_InlinesWhenIncrementFollowsTheLoad()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32, Bool], HasThis: false);
+
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Comparison(
+            ComparisonKind.GreaterThan,
+            isUnsigned: false,
+            new LoadArgument(0, "x", Int32),
+            new Constant(0, Int32))));
+        block.Add(new ExpressionStatement(new Call(
+            use,
+            isVirtual: false,
+            [
+                new LoadArgument(1, "y", Int32),
+                new LoadStackSlot(0, Bool),
+            ])));
+        block.Add(new ExpressionStatement(
+            new IncrementDecrement(new LoadArgument(0, "x", Int32), isIncrement: true, isPrefix: false)));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [new Parameter("x", Int32), new Parameter("y", Int32)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.DoesNotContain(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.DoesNotContain(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
     [Fact]
     public void CachedDelegateArgument_InlinesToSingleCall()
     {
