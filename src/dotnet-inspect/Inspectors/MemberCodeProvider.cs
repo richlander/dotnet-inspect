@@ -41,7 +41,8 @@ internal static class MemberCodeProvider
 
     internal static List<(ApiMember Member, Item Code)> Collect(
         ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
-        Request request, string? pdbPath = null, bool includeAll = false)
+        Request request, string? pdbPath = null, bool includeAll = false,
+        PrinterOptions? renderOptions = null)
     {
         var results = new List<(ApiMember, Item)>();
         
@@ -120,6 +121,16 @@ internal static class MemberCodeProvider
             IrFunction? raisedFunction = null;
             if ((request.DecompiledSource || request.FidelityCauses) && pipelineSource is not null)
             {
+                // The style options (renderOptions) affect only the printed C#
+                // string, which is surfaced solely by the Decompiled Source
+                // section. A fidelity-only projection reads the raised IR and
+                // recompile diagnostics (both style-invariant) and discards the
+                // printed string, so it must not consume the config -- pass the
+                // shipped defaults there. This keeps "config consumed" exactly
+                // equal to "styled source produced", which is the signal the
+                // config-warning latch keys off (a non-null DecompiledResult
+                // Output) at the formatter emit site.
+                var projectionRenderOptions = request.DecompiledSource ? renderOptions : null;
                 projectionResult = TrimOutput(RenderDecompiledSource(
                     pipelineSource,
                     lookupType,
@@ -127,6 +138,7 @@ internal static class MemberCodeProvider
                     lookupOverloadIndex,
                     publicOnly,
                     methodToken,
+                    projectionRenderOptions,
                     out raisedFunction));
                 projectionResult = projectionResult with
                 {
@@ -330,6 +342,7 @@ internal static class MemberCodeProvider
         int overloadIndex,
         bool publicOnly,
         int? methodToken,
+        PrinterOptions? renderOptions,
         out IrFunction? imported)
     {
         imported = null;
@@ -342,6 +355,7 @@ internal static class MemberCodeProvider
             var result = Decompiler.Pipeline.CSharpPrinter.PrintRaised(
                 imported,
                 target => IrImporter.Import(source, target),
+                options: renderOptions,
                 typesProvablyDisjoint: source.AreProvablyDisjoint);
             return result;
         }

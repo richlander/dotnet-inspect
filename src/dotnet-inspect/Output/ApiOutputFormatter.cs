@@ -1387,7 +1387,7 @@ public static class ApiOutputFormatter
         if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts || request.FidelityCauses)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
-        foreach (var (member, code) in MemberCodeProvider.Collect(type, methods, dllPath, overloadIndex, request, pdbPath, options?.IncludeAll ?? false))
+        foreach (var (member, code) in MemberCodeProvider.Collect(type, methods, dllPath, overloadIndex, request, pdbPath, options?.IncludeAll ?? false, options?.RenderOptions))
         {
             if (code.Attributes is { Count: > 0 } attributes)
             {
@@ -1397,6 +1397,16 @@ public static class ApiOutputFormatter
             }
 
             hasCode |= PopulateCSharpSections(memberCode, type, member, code);
+
+            // The resolved config is consumed only when styled C# is actually
+            // printed. Collect returns a decompiled result only for a selected
+            // overload (never callers-only aggregation or a fidelity-only
+            // projection), and even then its Output is null when the method has no
+            // IL body (e.g. a P/Invoke) -- the printer never ran, so no styling
+            // occurred. Key the warning latch off a produced Output so a member
+            // run that requests but does not render styled source stays silent.
+            if (code.DecompiledResult?.Output is not null)
+                options?.RenderConfigWarnings?.EmitOnce();
 
             if (code.FidelityCauses is not null)
             {
