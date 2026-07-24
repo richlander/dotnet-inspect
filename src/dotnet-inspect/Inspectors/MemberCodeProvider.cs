@@ -121,6 +121,15 @@ internal static class MemberCodeProvider
             IrFunction? raisedFunction = null;
             if ((request.DecompiledSource || request.FidelityCauses) && pipelineSource is not null)
             {
+                // The style options (renderOptions) affect only the printed C#
+                // string, which is surfaced solely by the Decompiled Source
+                // section. A fidelity-only projection reads the raised IR and
+                // recompile diagnostics (both style-invariant) and discards the
+                // printed string, so it must not consume the config — pass the
+                // shipped defaults there. This keeps "config consumed" exactly
+                // equal to "styled source shown", which is what the config-warning
+                // latch keys off (request.DecompiledSource) at the emit site below.
+                var projectionRenderOptions = request.DecompiledSource ? renderOptions : null;
                 projectionResult = TrimOutput(RenderDecompiledSource(
                     pipelineSource,
                     lookupType,
@@ -128,7 +137,7 @@ internal static class MemberCodeProvider
                     lookupOverloadIndex,
                     publicOnly,
                     methodToken,
-                    renderOptions,
+                    projectionRenderOptions,
                     out raisedFunction));
                 projectionResult = projectionResult with
                 {

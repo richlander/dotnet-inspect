@@ -192,17 +192,25 @@ public class ApiCommand
         // Resolve the tool-owned .dotnet-inspectconfig once per invocation at the
         // CLI edge and attach the decompiler spelling options to the flowed
         // options. Config discovery lives only here; the decompiler library stays
-        // a pure function of explicit PrinterOptions. The options are attached
+        // a pure function of explicit PrinterOptions. RenderOptions is attached
         // unconditionally (harmless when no source renders). Parse/read warnings
         // are carried on a latch and emitted at the exact point a decompiled-source
-        // render consumes the config, so a bad config never dirties stderr for a
-        // run that does not read source (e.g. -S Facts, --json) and always surfaces
-        // once — never a silent success — on a run that does.
+        // render consumes the config (see RenderConfigWarningSink), so a bad config
+        // never dirties stderr for a run that does not show styled source — a
+        // metadata projection (--json/--count/tabular), a section that does not
+        // read source (-S Facts), or a fidelity-only projection (whose result is
+        // style-invariant, so the config is genuinely not consumed) — and always
+        // surfaces once, never as a silent success, on a run that does.
+        //
+        // Discovery (-D) is excluded here rather than at the consumption site: it
+        // lists which sections would render by probing them into a discarded view,
+        // so its internal source render must not be mistaken for user-visible
+        // styled output. No latch is attached for a discovery request.
         var renderStyle = RenderStyleConfig.Resolve(Environment.CurrentDirectory);
         options = options with
         {
             RenderOptions = renderStyle.Options,
-            RenderConfigWarnings = renderStyle.Warnings.Count > 0
+            RenderConfigWarnings = renderStyle.Warnings.Count > 0 && options.Discover is null
                 ? new RenderConfigWarningSink(renderStyle.Warnings)
                 : null,
         };

@@ -349,6 +349,63 @@ public class RenderStyleConfigTests
         Assert.Contains("this._count", code);
     }
 
+    // A fidelity-only projection reads style-invariant evidence (the raised IR
+    // and recompile diagnostics) and never surfaces the printed C# string, so the
+    // style config is genuinely not consumed -- which is why `-S "Fidelity Causes"`
+    // does not emit a config warning even when a config is present. The observable
+    // guarantee the warning latch keys off is that no styled DecompiledResult is
+    // surfaced for a fidelity-only request, regardless of the render options.
+
+    [Fact]
+    public void FidelityOnlyRequest_NeverSurfacesStyledSource_RegardlessOfConfig()
+    {
+        var fidelityOnly = new MemberCodeProvider.Request(
+            DecompiledSource: false, AnnotatedSource: false, CostOverlay: false,
+            SemanticsOverlay: false, IL: false, Attributes: false, Calls: false,
+            Callers: false, CallGraph: false, UnsafeOperations: false,
+            FidelityCauses: true);
+
+        var withConfig = CollectSpecimenCompute(
+            fidelityOnly, PrinterOptions.Default with { QualifyFieldAccess = true });
+        var withDefault = CollectSpecimenCompute(fidelityOnly, renderOptions: null);
+
+        Assert.Null(withConfig.DecompiledResult);
+        Assert.Null(withDefault.DecompiledResult);
+        Assert.NotNull(withConfig.FidelityCauses);
+        Assert.NotNull(withDefault.FidelityCauses);
+    }
+
+    [Fact]
+    public void DecompiledSourceRequest_SurfacesStyledSource_WhenConfigQualifies()
+    {
+        var decompiledSource = new MemberCodeProvider.Request(
+            DecompiledSource: true, AnnotatedSource: false, CostOverlay: false,
+            SemanticsOverlay: false, IL: false, Attributes: false, Calls: false,
+            Callers: false, CallGraph: false, UnsafeOperations: false);
+
+        var code = CollectSpecimenCompute(
+            decompiledSource, PrinterOptions.Default with { QualifyFieldAccess = true });
+
+        Assert.NotNull(code.DecompiledResult?.Output);
+        Assert.Contains("this._count", code.DecompiledResult!.Output);
+    }
+
+    private static MemberCodeProvider.Item CollectSpecimenCompute(
+        MemberCodeProvider.Request request, PrinterOptions? renderOptions)
+    {
+        string assemblyPath = typeof(ThisQualificationConfigSpecimen).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var surface = ApiSurfaceExtractor.Extract(pe, includeAll: false);
+        var type = surface.Types.Single(t => t.FullName == typeof(ThisQualificationConfigSpecimen).FullName);
+        var methods = type.Members
+            .Where(m => m.Name == nameof(ThisQualificationConfigSpecimen.Compute)).ToList();
+
+        var results = MemberCodeProvider.Collect(
+            type, methods, assemblyPath, overloadIndex: 0, request, renderOptions: renderOptions);
+        var (_, code) = Assert.Single(results);
+        return code;
+    }
+
     private static (string Code, ILInspector.Decompiler.DecompilerResult Result) RenderSpecimenCompute(
         PrinterOptions? renderOptions)
     {

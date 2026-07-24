@@ -293,16 +293,25 @@ dotnet_style_qualification_for_property = true
   `Warning:` on stderr and skipped — the rest of the file still applies. A bad
   config never fails the run silently.
 
-Config warnings are emitted at the point a render actually consumes the config,
-exactly once: a decompiled-source or source-diff render reads the resolved
-`PrinterOptions`, and the pending warnings are flushed to stderr there. A command
-that never decompiles stays silent — a JSON, `--count`, or tabular projection
-(which serializes the metadata model without rendering source), a discovery
-manifest (`-D @Source`, which only lists the sections in a category), or a
-selection that excludes source (`-S Facts`) all leave a malformed config
-unreported on that run. Because emission is tied to the consumption site rather
-than predicted up front, the warning fires if and only if the config is read,
-independent of output mode or verbosity.
+Config warnings are emitted at the point styled decompiled source is actually
+shown, exactly once: a decompiled-source or source-diff render reads the resolved
+`PrinterOptions` and flushes any pending warnings to stderr there. Every other run
+stays silent, and the rule is exact — the config is *consumed* precisely when its
+styling is user-visible:
+
+- A metadata projection (`--json`, `--count`, tabular, `--value`/`--urls`) returns
+  before any source render.
+- A selection that excludes source (`-S Facts`) renders no source.
+- A fidelity-only projection (`-S "Fidelity Causes"`) reads the raised IR and
+  recompile diagnostics, both style-invariant, and discards the printed string, so
+  it renders with the shipped defaults and genuinely does not consume the config.
+- Discovery (`-D`/`--discover`) lists which sections *would* render by probing them
+  into a discarded view; that internal render is not user-visible styled source, so
+  a discovery request never surfaces a config warning.
+
+Because emission is tied to the point of visible consumption rather than predicted
+up front, the warning fires if and only if styled source reaches the user, exactly
+once, independent of output mode or verbosity.
 
 Only the tool-owned filename is auto-discovered; a foreign `.editorconfig` is not
 read. Configuration is resolved once at the CLI edge and threaded into the render
