@@ -9999,6 +9999,9 @@ public class CommandExecutionTests
     [Fact]
     public async Task PInvokeMethods_DeclaringTypeAndSignature_RenderAsCodeSpansWithFunctionPointerPunctuation()
     {
+        Assert.SkipUnless(
+            OperatingSystem.IsWindows(),
+            "Interop.User32.EnumWindows P/Invokes exist only in the Windows build of System.Diagnostics.Process.");
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Diagnostics.Process",
             "--section", "P/Invoke Methods", "-v:d", "--tips", "q");
@@ -10017,6 +10020,9 @@ public class CommandExecutionTests
     [Fact]
     public async Task PInvokeMethods_MachineOutput_KeepsRawValuesWithoutCodeMarkup()
     {
+        Assert.SkipUnless(
+            OperatingSystem.IsWindows(),
+            "Interop.User32.EnumWindows P/Invokes exist only in the Windows build of System.Diagnostics.Process.");
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Diagnostics.Process",
             "--section", "P/Invoke Methods", "--jsonl");

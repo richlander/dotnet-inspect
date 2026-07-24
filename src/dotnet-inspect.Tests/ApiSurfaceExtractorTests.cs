@@ -1,3 +1,4 @@
+using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
@@ -971,6 +972,263 @@ public class ApiSurfaceExtractorTests
         }
     }
 
+    [Fact]
+    public void Extract_ExcludesCompilerGeneratedTypesByDefault()
+    {
+        // The test assembly itself is a real csc artifact: SampleClosureHost's capturing lambda
+        // forces the compiler to emit a nested `<>c__DisplayClass`. By default (opt-in off) no
+        // compiler-generated type is surfaced, even under --all.
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+
+        Assert.DoesNotContain(surface.Types, t => (t.MetadataName ?? "").Contains("DisplayClass"));
+    }
+
+    [Fact]
+    public void Extract_SurfacesCompilerGeneratedTypesAndRealFieldsWhenOptedIn()
+    {
+        // With the opt-in, compiler-generated types are surfaced together with their genuine
+        // fields (the display class carries the captured state), but synthesized auto-property
+        // backing fields stay excluded everywhere — even under the opt-in.
+        var assemblyPath = typeof(ApiSurfaceExtractorTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+
+        var surface = ApiSurfaceExtractor.Extract(
+            peReader, includeAll: true, includeCompilerGenerated: true);
+
+        // A display class from a real capturing lambda is surfaced with at least one field member.
+        Assert.Contains(
+            surface.Types,
+            t => (t.MetadataName ?? "").Contains("DisplayClass")
+                 && t.Members.Any(m => m.Kind == "field"));
+
+        // Auto-property backing fields (<Prop>k__BackingField) are never surfaced as fields, even
+        // once compiler-generated members are opted in.
+        Assert.DoesNotContain(
+            surface.Types.SelectMany(t => t.Members),
+            m => m.Kind == "field" && m.Name.EndsWith("k__BackingField", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void SurfaceFieldHandles_ExcludesSynthesizedFieldsAndGatesCompilerGeneratedFields()
+    {
+        // Direct unit test of the shared field-inclusion primitive over a hand-authored type with
+        // precisely-named fields. Synthetic metadata is appropriate here: the primitive is a pure
+        // name/attribute filter, so exact field names isolate exactly what it decides.
+        string dllPath = EmitFieldSurfaceSample();
+        try
+        {
+            using var stream = File.OpenRead(dllPath);
+            using var peReader = new PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            var typeDef = reader.TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(t => reader.GetString(t.Name) == "FieldSurfaceSample");
+            var enumDef = reader.TypeDefinitions
+                .Select(reader.GetTypeDefinition)
+                .Single(t => reader.GetString(t.Name) == "FieldSurfaceEnum");
+
+            var off = SurfaceFieldNames(reader, typeDef, includeCompilerGenerated: false);
+            var on = SurfaceFieldNames(reader, typeDef, includeCompilerGenerated: true);
+
+            foreach (var set in new[] { off, on })
+            {
+                // Ordinary fields are always surfaced, including a user field whose name merely
+                // contains "__BackingField" (only the exact <Prop>k__BackingField shape is
+                // synthetic) and a non-enum type's `value__` field (the storage-slot exclusion is
+                // gated on enums, so on a plain class `value__` is an ordinary field).
+                Assert.Contains("Plain", set);
+                Assert.Contains("count__BackingField", set);
+                Assert.Contains("value__", set);
+
+                // A field-like event's private [CompilerGenerated] backing field is always folded.
+                Assert.DoesNotContain("Evt", set);
+
+                // A genuine auto-property backing field — [CompilerGenerated] AND matched by a
+                // declared property of the same name (`Value`) — is dropped everywhere, even under
+                // the opt-in.
+                Assert.DoesNotContain("<Value>k__BackingField", set);
+            }
+
+            // Positive-evidence discriminator: <Orphan>k__BackingField is [CompilerGenerated] and
+            // has the mangled backing-field name shape, but NO property named `Orphan` is declared,
+            // so it backs no auto-property. It is preserved (surfaced as an ordinary
+            // compiler-generated <...> field under the opt-in), matching the old RTS field surface:
+            // the compiler-generated marker and mangled name alone are not enough; a matching
+            // property is required to fold. A plain hoisted local behaves the same way.
+            Assert.DoesNotContain("<Orphan>k__BackingField", off);
+            Assert.Contains("<Orphan>k__BackingField", on);
+            Assert.DoesNotContain("<hoisted>5__1", off);
+            Assert.Contains("<hoisted>5__1", on);
+
+            // Even with a matching property name, a candidate is folded only when its type and
+            // staticness agree with the property and the accessor is [CompilerGenerated]. A type
+            // mismatch (`string` field vs `int` property), a staticness mismatch (static field vs
+            // instance property), and a non-auto property (hand-authored accessor) each decline the
+            // fold, so the compiler-generated field is preserved rather than silently dropped.
+            foreach (var preserved in new[]
+                     {
+                         "<Mismatch>k__BackingField",
+                         "<Slot>k__BackingField",
+                         "<Manual>k__BackingField",
+                     })
+            {
+                Assert.DoesNotContain(preserved, off);
+                Assert.Contains(preserved, on);
+            }
+
+            // On a genuine enum, `value__` is the storage slot and is excluded; literal members
+            // still surface.
+            var enumOff = SurfaceFieldNames(reader, enumDef, includeCompilerGenerated: false);
+            Assert.DoesNotContain("value__", enumOff);
+            Assert.Contains("Red", enumOff);
+        }
+        finally
+        {
+            try { File.Delete(dllPath); } catch { /* best-effort */ }
+        }
+    }
+
+    static HashSet<string> SurfaceFieldNames(
+        MetadataReader reader, TypeDefinition typeDef, bool includeCompilerGenerated)
+        => ApiSurfaceExtractor
+            .SurfaceFieldHandles(reader, typeDef, includeAll: true, includeCompilerGenerated)
+            .Select(h => reader.GetString(reader.GetFieldDefinition(h).Name))
+            .ToHashSet(StringComparer.Ordinal);
+
+    // Emits (via Reflection.Emit) types that exercise every branch of the field-inclusion
+    // primitive: an ordinary field, a user field that merely contains "__BackingField", a genuine
+    // auto-property backing field ([CompilerGenerated], type/staticness-matched, [CompilerGenerated]
+    // accessor), same-named lookalikes that decline the fold (type mismatch, staticness mismatch,
+    // non-auto property, and no backing property), a non-enum `value__` field, a compiler-generated
+    // hoisted local, and a field-like event's private [CompilerGenerated] backing field — plus a
+    // genuine enum whose `value__` is the storage slot. Returns the saved path.
+    static string EmitFieldSurfaceSample()
+    {
+        var ab = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            new System.Reflection.AssemblyName("FieldSurfaceEmit"), typeof(object).Assembly);
+        var module = ab.DefineDynamicModule("FieldSurfaceEmit");
+        var tb = module.DefineType("FieldSurfaceSample",
+            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
+
+        var cgCtor = typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute)
+            .GetConstructor(Type.EmptyTypes)!;
+        var cgAttr = new System.Reflection.Emit.CustomAttributeBuilder(cgCtor, Array.Empty<object>());
+
+        // Defines a `<PropertyName>k__BackingField` field (always [CompilerGenerated]) alongside a
+        // matching property, letting a caller vary each fold discriminator independently: whether
+        // the accessor is [CompilerGenerated] (auto-property signal), and whether the field's type
+        // and staticness match the property. Only when every discriminator agrees is the field a
+        // genuine auto-property backing field.
+        void DefineBackingFieldLookalike(
+            string propertyName,
+            Type propertyType,
+            Type fieldType,
+            bool accessorCompilerGenerated,
+            bool fieldStatic,
+            bool accessorStatic)
+        {
+            var fieldAttrs = System.Reflection.FieldAttributes.Private;
+            if (fieldStatic)
+                fieldAttrs |= System.Reflection.FieldAttributes.Static;
+            var backing = tb.DefineField($"<{propertyName}>k__BackingField", fieldType, fieldAttrs);
+            backing.SetCustomAttribute(cgAttr);
+
+            var getterAttrs = System.Reflection.MethodAttributes.Public
+                | System.Reflection.MethodAttributes.SpecialName
+                | System.Reflection.MethodAttributes.HideBySig;
+            if (accessorStatic)
+                getterAttrs |= System.Reflection.MethodAttributes.Static;
+            var getter = tb.DefineMethod($"get_{propertyName}", getterAttrs, propertyType, Type.EmptyTypes);
+            var il = getter.GetILGenerator();
+            il.Emit(propertyType.IsValueType
+                ? System.Reflection.Emit.OpCodes.Ldc_I4_0
+                : System.Reflection.Emit.OpCodes.Ldnull);
+            il.Emit(System.Reflection.Emit.OpCodes.Ret);
+            if (accessorCompilerGenerated)
+                getter.SetCustomAttribute(cgAttr);
+
+            var prop = tb.DefineProperty(
+                propertyName, System.Reflection.PropertyAttributes.None, propertyType, null);
+            prop.SetGetMethod(getter);
+        }
+
+        tb.DefineField("Plain", typeof(int), System.Reflection.FieldAttributes.Public);
+        tb.DefineField("count__BackingField", typeof(int), System.Reflection.FieldAttributes.Public);
+
+        // A genuine auto-property backing field: [CompilerGenerated] <Value>k__BackingField whose
+        // type (int) and staticness (instance) match a declared auto-property `Value` with a
+        // [CompilerGenerated] accessor. Every discriminator agrees, so it is folded.
+        DefineBackingFieldLookalike(
+            "Value", typeof(int), typeof(int),
+            accessorCompilerGenerated: true, fieldStatic: false, accessorStatic: false);
+
+        // Type mismatch: <Mismatch>k__BackingField is a [CompilerGenerated] `string` field while the
+        // matching auto-property `Mismatch` is `int`. A field of a different type cannot be that
+        // property's backing field, so it is preserved (old RTS compared field/property types).
+        DefineBackingFieldLookalike(
+            "Mismatch", typeof(int), typeof(string),
+            accessorCompilerGenerated: true, fieldStatic: false, accessorStatic: false);
+
+        // Staticness mismatch: <Slot>k__BackingField is a [CompilerGenerated] static field while the
+        // matching auto-property `Slot` is an instance property. Staticness disagreement means it is
+        // not that property's backing field, so it is preserved.
+        DefineBackingFieldLookalike(
+            "Slot", typeof(int), typeof(int),
+            accessorCompilerGenerated: true, fieldStatic: true, accessorStatic: false);
+
+        // Non-auto property: a hand-authored (non-[CompilerGenerated]) property `Manual` plus an
+        // unrelated [CompilerGenerated] <Manual>k__BackingField. Because the property is not an
+        // auto-property, the field backs nothing the compiler re-synthesizes, so it must be
+        // preserved (its data would otherwise be silently lost).
+        DefineBackingFieldLookalike(
+            "Manual", typeof(int), typeof(int),
+            accessorCompilerGenerated: false, fieldStatic: false, accessorStatic: false);
+
+        // A [CompilerGenerated] field with the mangled backing-field name shape but NO declared
+        // property `Orphan`: it backs no auto-property, so it must be preserved.
+        var orphanBacking = tb.DefineField(
+            "<Orphan>k__BackingField", typeof(int), System.Reflection.FieldAttributes.Private);
+        orphanBacking.SetCustomAttribute(cgAttr);
+
+        tb.DefineField("value__", typeof(int), System.Reflection.FieldAttributes.Public);
+        tb.DefineField("<hoisted>5__1", typeof(int), System.Reflection.FieldAttributes.Public);
+
+        // Field-like event: a private [CompilerGenerated] field sharing the event name, with
+        // [CompilerGenerated] add/remove accessors.
+        var evtField = tb.DefineField("Evt", typeof(Action), System.Reflection.FieldAttributes.Private);
+        evtField.SetCustomAttribute(cgAttr);
+        const System.Reflection.MethodAttributes accessorAttrs =
+            System.Reflection.MethodAttributes.Private
+            | System.Reflection.MethodAttributes.SpecialName
+            | System.Reflection.MethodAttributes.HideBySig;
+        var add = tb.DefineMethod("add_Evt", accessorAttrs, typeof(void), new[] { typeof(Action) });
+        add.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        add.SetCustomAttribute(cgAttr);
+        var remove = tb.DefineMethod("remove_Evt", accessorAttrs, typeof(void), new[] { typeof(Action) });
+        remove.GetILGenerator().Emit(System.Reflection.Emit.OpCodes.Ret);
+        remove.SetCustomAttribute(cgAttr);
+        var eventBuilder = tb.DefineEvent("Evt", System.Reflection.EventAttributes.None, typeof(Action));
+        eventBuilder.SetAddOnMethod(add);
+        eventBuilder.SetRemoveOnMethod(remove);
+
+        tb.CreateType();
+
+        // A genuine enum: its `value__` storage slot must be excluded; literals surface.
+        var eb = module.DefineEnum(
+            "FieldSurfaceEnum", System.Reflection.TypeAttributes.Public, typeof(int));
+        eb.DefineLiteral("Red", 0);
+        eb.CreateType();
+
+        string path = Path.Combine(Path.GetTempPath(), $"field-surface-{Guid.NewGuid():N}.dll");
+        ab.Save(path);
+        return path;
+    }
+
     static IReadOnlyList<ApiMember> ExtractClashTypeMembers(string dllPath)
     {
         using var stream = File.OpenRead(dllPath);
@@ -1027,6 +1285,21 @@ public class ApiSurfaceExtractorTests
         return path;
     }
 
+}
+
+/// <summary>
+/// Fixture: a capturing lambda that forces csc to emit a compiler-generated display class with
+/// fields for the captured state, plus an auto-property whose backing field must stay excluded.
+/// </summary>
+public class SampleClosureHost
+{
+    public int AutoValue { get; set; }
+
+    public System.Func<int> Capture(int seed)
+    {
+        int local = seed * 2;
+        return () => seed + local;
+    }
 }
 
 /// <summary>
