@@ -227,22 +227,29 @@ public class FoldGuardReturnFidelityTests
         AssertDeclined(CondCompare(), byRefEqualsFalse, Bool(false), [Int32]);
     }
 
-    // === by-ref nested in a composition (adversarial review rounds 3–4, #3119).
+    // === by-ref nested in a composition (adversarial review rounds 3–5, #3119).
     // csc collapses `c && OP` to a branchless `c & OP` only when OP renders as a bare
     // place; the printer flattens a same-kind logical chain, so a by-ref deref that
     // becomes a bare operand of the emitted OUTER-kind chain is eagerly dereferenced
     // (NRE divergence) and is declined — but one confined to a compound operand that
     // keeps its branch (a bitwise `&`, a different-kind logical, a call argument) folds
-    // faithfully. All five shapes below were verified against SDK-csc /optimize IL plus
-    // a null-by-ref runtime probe. ===
+    // faithfully. The reachable-from-csc shapes below (bitwise `a & r`, different-kind
+    // `*r || a`, `*r > 0`, `*r.b`, and the call-barrier chain `*r && Call()`) were each
+    // verified against SDK-csc /optimize IL plus a null-by-ref runtime probe; the pure
+    // same-kind `LogicalBinary` cases are synthetic predicate tests (csc pre-lowers a
+    // bare-operand `a && *r` to bitwise), noted per test. ===
 
     [Fact]
     public void ByRefUnderLogicalAndOperand_TailConstant_IsNotFolded()
     {
-        // `if (c) return a && *r; return false;` → `c && (a && *r)`. The inner `&&` is
-        // the SAME kind as the `&&` lift, so it flattens to `c && a && r` and recompiles
-        // branchless (`c & a & r`), eagerly dereferencing the guarded by-ref (verified:
-        // null-by-ref throws). The by-ref is a bare operand of the flattened And chain.
+        // Synthetic/defensive predicate shape: a same-kind `LogicalBinary(And, a, *r)`.
+        // csc pre-lowers the bare-operand source `a && *r` to a BITWISE `a & r` (see
+        // ByRefUnderBitwiseAndOperand, which folds faithfully), so this literal
+        // LogicalBinary is not what that source imports as — the reachable logical-chain
+        // hazard needs a call barrier that keeps the `&&` (ByRefBeforeCallInLogicalAnd-
+        // Operand, next test). This test pins the by-ref scan: IF a same-kind
+        // `LogicalBinary` reaches the guard, it flattens to `c && a && r`, whose call-free
+        // prefix would collapse branchless (eager by-ref deref), so it is declined.
         var operand = new LogicalBinary(LogicalKind.And, new LoadLocal(1, Boolean), ByRefBoolDeref());
         AssertDeclined(CondCompare(), operand, Bool(false), [Int32, Boolean]);
     }
@@ -260,6 +267,41 @@ public class FoldGuardReturnFidelityTests
             new MethodRef(Holder, "Call", Boolean, [], HasThis: false), isVirtual: false, []);
         var operand = new LogicalBinary(LogicalKind.And, ByRefBoolDeref(), call);
         AssertDeclined(CondCompare(), operand, Bool(false), [Int32]);
+    }
+
+    [Fact]
+    public void ByRefInLogicalAndChainUnderEqualsTrueWrapper_TailConstant_IsNotFolded()
+    {
+        // #3119 round-5 finding 1: a same-kind chain hidden under a reducible `== true`
+        // wrapper. `if (c) return (*r && Call()) == true; return false;` → the fold lifts
+        // `(*r && Call()) == true`; FoldBoolConstantComparison then strips `== true`,
+        // leaving `c && *r && Call()`, whose call-free `c && *r` prefix collapses
+        // branchless (eager by-ref deref — same NRE divergence as the unwrapped chain).
+        // The peel must run BEFORE the same-kind flatten so the buried by-ref is reached;
+        // flattening first would treat the whole `== true` comparison as an opaque compound
+        // and wrongly fold. (The unwrapped chain is `ByRefBeforeCallInLogicalAndOperand`.)
+        var call = new Call(
+            new MethodRef(Holder, "Call", Boolean, [], HasThis: false), isVirtual: false, []);
+        var chain = new LogicalBinary(LogicalKind.And, ByRefBoolDeref(), call);
+        var wrapped = new Comparison(ComparisonKind.Equal, isUnsigned: false, chain, Bool(true));
+        AssertDeclined(CondCompare(), wrapped, Bool(false), [Int32]);
+    }
+
+    [Fact]
+    public void LocalOnlyLogicalAndChainUnderEqualsTrueWrapper_TailConstant_StillFolds()
+    {
+        // Negative for finding 1: the same `== true`-wrapped same-kind chain WITHOUT a
+        // by-ref folds. `if (c) return (a && Call()) == true; return false;` reduces to
+        // `c && a && Call()`; the branchless `c & a` prefix is a valid readability raise
+        // (a local never faults), so the guarded-return fold keeps it. The peel-then-
+        // flatten reaches the local `a` but the by-ref hazard predicate ignores it.
+        var call = new Call(
+            new MethodRef(Holder, "Call", Boolean, [], HasThis: false), isVirtual: false, []);
+        var chain = new LogicalBinary(LogicalKind.And, new LoadLocal(1, Boolean), call);
+        var wrapped = new Comparison(ComparisonKind.Equal, isUnsigned: false, chain, Bool(true));
+        var result = RunGuard(CondCompare(), wrapped, Bool(false), [Int32, Boolean]);
+
+        Assert.IsType<LogicalBinary>(result);
     }
 
     [Fact]

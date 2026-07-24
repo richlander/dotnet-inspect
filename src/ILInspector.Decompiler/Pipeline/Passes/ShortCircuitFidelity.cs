@@ -56,9 +56,11 @@ internal static class ShortCircuitFidelity
     /// flattened <paramref name="outerKind"/> chain: a bare <c>*r</c>, a <c>*r == true</c>
     /// wrapper the fixpoint reduces back to a bare <c>*r</c>, or one under a same-kind
     /// logical composition (<c>a &amp;&amp; *r</c>, <c>*r &amp;&amp; Call()</c> when
-    /// <paramref name="outerKind"/> is <c>And</c>). It is NOT a hazard when the by-ref
-    /// dereference is confined to a compound operand that keeps the branch: a bitwise
-    /// composition (<c>a &amp; *r</c>), a different-kind logical sub-expression
+    /// <paramref name="outerKind"/> is <c>And</c>) — including a same-kind chain itself
+    /// hidden under such a reducible wrapper (<c>(*r &amp;&amp; Call()) == true</c>), which
+    /// is why the peel runs BEFORE the same-kind flatten and recurses. It is NOT a hazard
+    /// when the by-ref dereference is confined to a compound operand that keeps the branch:
+    /// a bitwise composition (<c>a &amp; *r</c>), a different-kind logical sub-expression
     /// (<c>*r || a</c> under an <c>And</c> lift), a comparison (<c>*r &gt; 0</c>), a by-ref
     /// struct field (<c>r.b</c>), or a call argument (<c>SomeCall(*r)</c>) — all recompile
     /// with the guard intact and stay foldable. The shared, parity-agnostic
@@ -81,39 +83,19 @@ internal static class ShortCircuitFidelity
     /// </summary>
     internal static bool LiftEagerlyDerefsByRef(IrExpression operand, LogicalKind outerKind)
     {
-        foreach (var chainOperand in FlattenLogicalChain(operand, outerKind))
+        // Peel BEFORE classifying the node: a same-kind chain hidden under a reducible
+        // `== true`/`!= false` wrapper (which FoldBoolConstantComparison later strips,
+        // splicing the chain into the surrounding `outerKind` chain — e.g.
+        // `(*r && Call()) == true` reduces to `*r && Call()`) must be flattened so its
+        // by-ref operands are reached. Peeling only after flattening treats such a
+        // wrapper as an opaque compound and misses the buried by-ref.
+        var peeled = PeelReducibleBoolWrappers(operand);
+        if (peeled is LogicalBinary logical && logical.Kind == outerKind)
         {
-            if (PeelReducibleBoolWrappers(chainOperand)
-                is LoadIndirect { Address.ResultType.Kind: TypeRefKind.ByRef })
-            {
-                return true;
-            }
+            return LiftEagerlyDerefsByRef(logical.Left, outerKind)
+                || LiftEagerlyDerefsByRef(logical.Right, outerKind);
         }
-        return false;
-    }
-
-    /// <summary>
-    /// The operands of the maximal logical chain of <paramref name="outerKind"/>
-    /// (<c>&amp;&amp;</c> or <c>||</c>) rooted at <paramref name="expression"/> — the
-    /// operands the printer's same-kind flattening would splice into the surrounding
-    /// <c>c <paramref name="outerKind"/> …</c> chain. A <see cref="LogicalBinary"/> of the
-    /// same kind is descended into; anything else (a different-kind logical, a bitwise
-    /// composition, a comparison, a call, a bare place) is a single opaque operand that
-    /// keeps its own branch and is yielded whole.
-    /// </summary>
-    static IEnumerable<IrExpression> FlattenLogicalChain(IrExpression expression, LogicalKind outerKind)
-    {
-        if (expression is LogicalBinary logical && logical.Kind == outerKind)
-        {
-            foreach (var operand in FlattenLogicalChain(logical.Left, outerKind))
-                yield return operand;
-            foreach (var operand in FlattenLogicalChain(logical.Right, outerKind))
-                yield return operand;
-        }
-        else
-        {
-            yield return expression;
-        }
+        return peeled is LoadIndirect { Address.ResultType.Kind: TypeRefKind.ByRef };
     }
 
     /// <summary>
@@ -138,8 +120,9 @@ internal static class ShortCircuitFidelity
     /// fragile second implementation this intentionally avoids. (For the ternary re-form
     /// the comparison reduction has already run upstream, so only the negation peel is
     /// live there. It also serves <see cref="LiftEagerlyDerefsByRef"/>, which peels each
-    /// flattened chain operand so a by-ref deref hidden under a <c>== true</c>/<c>!</c>
-    /// wrapper is still reached.)
+    /// operand BEFORE the same-kind flatten so a by-ref deref hidden under a
+    /// <c>== true</c>/<c>!</c> wrapper — even one wrapping a whole same-kind chain — is
+    /// still reached.)
     /// </summary>
     static IrExpression PeelReducibleBoolWrappers(IrExpression expression)
     {
