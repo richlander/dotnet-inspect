@@ -30,15 +30,17 @@ public static class CSharpExpressionBody
     }
 
     /// <summary>
-    /// The expression of a <em>multi-line</em> single-<c>return</c> body — the
-    /// raised switch-expression return (issue #3088) — as its lines, with the
-    /// leading <c>return </c> and trailing <c>;</c> removed and every line's
-    /// trailing whitespace trimmed. The first entry is the value/arrow line
-    /// (<c>&lt;value&gt; switch</c>); the rest are the block lines (<c>{</c>,
-    /// one arm per line, <c>}</c>) at their body-relative (column-zero) indent,
-    /// which the layout re-indents under the member. Returns <see langword="null"/>
-    /// for a single-line body (that is <see cref="FromSingleStatement"/>'s job) or
-    /// anything not shaped as <c>return &lt;expr&gt;;</c>.
+    /// The expression of a <em>multi-line</em> single-<c>return</c> body — a raised
+    /// switch-expression return (issue #3088), a wrapped fluent chain, or any other
+    /// wrapped single expression (issue #3084) — as its lines, with the leading
+    /// <c>return </c> and trailing <c>;</c> removed and every line's trailing
+    /// whitespace trimmed. The first entry is the value/arrow line (the token that
+    /// opens the expression, such as <c>&lt;value&gt; switch</c> or the chain's
+    /// receiver); the rest are the continuation lines at their body-relative
+    /// (column-zero) indent, which the layout re-indents under the member. Returns
+    /// <see langword="null"/> for a single-line body (that is
+    /// <see cref="FromSingleStatement"/>'s job) or anything not shaped as
+    /// <c>return &lt;expr&gt;;</c>.
     /// </summary>
     /// <remarks>
     /// This never asserts, on its own, that the body is a single statement — a

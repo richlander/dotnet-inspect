@@ -122,6 +122,44 @@ public sealed class CSharpMemberLayoutTests
             + "    }\n",
             Render("int Area(Shape shape)", SwitchReturnBody, indent: 4, bodyIsSingleReturnExpression: false));
 
+    // Issue #3084: the same single-return expression-body fold is not
+    // switch-specific — any multi-line single `return <expr>;` (here a wrapped
+    // fluent chain) renders expression-bodied, the chain receiver trailing the
+    // arrow and each chained call re-indented one level under the member.
+    const string FluentChainReturnBody =
+        "return builder\n    .Append(\"a\")\n    .Append(\"b\")\n    .ToString();";
+
+    [Fact]
+    public void Append_MultilineFluentReturn_RendersExpressionBodied_SameLineArrow()
+        => Assert.Equal(
+            "    string Build(StringBuilder builder) => builder\n"
+            + "        .Append(\"a\")\n"
+            + "        .Append(\"b\")\n"
+            + "        .ToString();\n",
+            Render("string Build(StringBuilder builder)", FluentChainReturnBody, indent: 4, bodyIsSingleReturnExpression: true));
+
+    [Fact]
+    public void Append_MultilineFluentReturn_WrapsArrowOnNextLine_WhenRequested()
+        => Assert.Equal(
+            "    string Build(StringBuilder builder)\n"
+            + "        => builder\n"
+            + "            .Append(\"a\")\n"
+            + "            .Append(\"b\")\n"
+            + "            .ToString();\n",
+            Render("string Build(StringBuilder builder)", FluentChainReturnBody, indent: 4, wrapExpressionBodyArrow: true, bodyIsSingleReturnExpression: true));
+
+    [Fact]
+    public void Append_MultilineFluentReturn_StaysBlock_WhenSignalNotSet()
+        => Assert.Equal(
+            "    string Build(StringBuilder builder)\n"
+            + "    {\n"
+            + "        return builder\n"
+            + "            .Append(\"a\")\n"
+            + "            .Append(\"b\")\n"
+            + "            .ToString();\n"
+            + "    }\n",
+            Render("string Build(StringBuilder builder)", FluentChainReturnBody, indent: 4, bodyIsSingleReturnExpression: false));
+
     [Fact]
     public void AppendIndentedBody_PreservesBlankLinesAndTrimsTrailing()
     {

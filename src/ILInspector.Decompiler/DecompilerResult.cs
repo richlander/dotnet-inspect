@@ -265,13 +265,16 @@ public sealed record DecompilerResult(
     public bool ContainsAwaitExpression { get; init; }
 
     /// <summary>
-    /// True when the whole body is exactly one <c>return &lt;switch-expression&gt;;</c>
-    /// statement — a multi-line switch-expression return with nothing else in the
-    /// body. The member layer (<see cref="ILInspector.CSharp.CSharpMemberLayout"/>)
-    /// consumes this typed structural fact to render the member expression-bodied
-    /// (<c>head =&gt; &lt;value&gt; switch { … };</c>) instead of a brace block
-    /// (issue #3088). It is a body-shape fact the printer proves from the emitted
-    /// statement tree, so consumers never re-parse the rendered text to recover it.
+    /// True when the whole body is exactly one multi-line
+    /// <c>return &lt;expression&gt;;</c> statement — a single wrapped expression with
+    /// nothing else in the body. The member layer
+    /// (<see cref="ILInspector.CSharp.CSharpMemberLayout"/>) consumes this typed
+    /// structural fact to render the member expression-bodied
+    /// (<c>head =&gt; &lt;expr&gt;;</c>) instead of a brace block wrapping a lone
+    /// <c>return</c> — a raised multi-line switch return (issue #3088) or any other
+    /// wrapped single expression such as a fluent chain (issue #3084). It is a
+    /// body-shape fact the printer proves from the emitted statement tree, so
+    /// consumers never re-parse the rendered text to recover it.
     /// </summary>
     public bool BodyIsSingleReturnExpression { get; init; }
 

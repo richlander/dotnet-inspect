@@ -1230,8 +1230,9 @@ public static class MemberBodyProducer
         // (csharp_style_expression_bodied_properties/accessors = true):
         // a lone getter returning one expression is 'head => expr;', and any
         // single-statement accessor is 'get/set => ...;'. A lone getter whose
-        // body is one multi-line 'return <switch>;' also folds to an expression
-        // body (issue #3088), gated on the printer's typed single-return signal.
+        // body is one multi-line 'return <expr>;' also folds to an expression
+        // body (a raised switch return, issue #3088; a wrapped single expression,
+        // issue #3084), gated on the printer's typed single-return signal.
         if (accessors is [("get", { } loneGet, _, var loneGetSingleReturn)]
             && (loneGetSingleReturn || CSharpExpressionBody.FromSingleStatement(loneGet) is not null))
         {

@@ -233,6 +233,41 @@ public class ApiOutputFormatterTests
         Assert.Contains("return shape switch", source);
     }
 
+    [Fact]
+    public void FormatSourceWithDeclaration_SingleFluentReturn_RendersExpressionBodied()
+    {
+        // #3084: the single-return expression-body fold is not switch-specific.
+        // A member whose only statement is a multi-line `return <fluent chain>;`
+        // renders expression-bodied too — the chain receiver trails the arrow and
+        // the chained calls keep their column-zero body indent under the
+        // column-zero declaration.
+        var type = new ApiType { Namespace = "Samples", Name = "Builder", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Build",
+            Kind = "method",
+            SignatureModel = new ApiSignature { MemberName = "Build", ReturnType = "System.String" }
+        };
+        var result = DecompilerResult.Success(
+            "return builder\n    .Append(\"a\")\n    .Append(\"b\")\n    .ToString();") with
+        {
+            BodyIsSingleReturnExpression = true
+        };
+
+        var source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            member,
+            methodGenericParameters: null,
+            result,
+            preferExpressionBodied: true)
+            .ReplaceLineEndings("\n");
+
+        Assert.EndsWith(" => builder", Declaration(source));
+        Assert.Contains("\n    .Append(\"a\")\n    .Append(\"b\")\n    .ToString();", source);
+        Assert.EndsWith(".ToString();", source.TrimEnd());
+        Assert.DoesNotContain("return builder", source);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
