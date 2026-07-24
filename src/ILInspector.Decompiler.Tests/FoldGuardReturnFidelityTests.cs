@@ -227,6 +227,59 @@ public class FoldGuardReturnFidelityTests
         AssertDeclined(CondCompare(), byRefEqualsFalse, Bool(false), [Int32]);
     }
 
+    // === correctness declines: a managed by-ref deref nested inside a raised
+    // logical/bitwise composition (adversarial review round 3, #3119). A leaf-only
+    // peel stops at the composition node and misses the deref; the subtree scan
+    // reaches it. csc branchless-collapses `c && OP` whenever OP is side-effect-free,
+    // so any by-ref deref in a call-free OP becomes an eager deref of a guarded
+    // location — the same NullReferenceException divergence as the bare operand. ===
+
+    [Fact]
+    public void ByRefUnderLogicalAndOperand_TailConstant_IsNotFolded()
+    {
+        // `if (c) return a && *r; return false;` → `c && (a && *r)`, which flattens and
+        // recompiles branchless (`c & a & r`), eagerly dereferencing the guarded by-ref.
+        // The old leaf-only peel stopped at the LogicalBinary and missed the nested deref.
+        var operand = new LogicalBinary(LogicalKind.And, new LoadLocal(1, Boolean), ByRefBoolDeref());
+        AssertDeclined(CondCompare(), operand, Bool(false), [Int32, Boolean]);
+    }
+
+    [Fact]
+    public void ByRefUnderLogicalOrOperand_TailConstant_IsNotFolded()
+    {
+        // `if (c) return *r || a; return false;` → `c && (*r || a)` → branchless
+        // `c & (r | a)`, the same eager deref with the by-ref on the `||` left.
+        var operand = new LogicalBinary(LogicalKind.Or, ByRefBoolDeref(), new LoadLocal(1, Boolean));
+        AssertDeclined(CondCompare(), operand, Bool(false), [Int32, Boolean]);
+    }
+
+    [Fact]
+    public void ByRefUnderBitwiseAndOperand_TailConstant_IsNotFolded()
+    {
+        // The real csc shape: source `if (c) return a && r; return false;` imports with
+        // the inner `a && r` already lowered to a bitwise `a & r` (both operands simple).
+        // Lifting `c && (a & r)` recompiles branchless → eager by-ref deref. The subtree
+        // scan reaches the deref under the bitwise node.
+        var operand = new Binary(BinaryKind.And, isChecked: false, isUnsigned: false,
+            new LoadLocal(1, Boolean), ByRefBoolDeref());
+        AssertDeclined(CondCompare(), operand, Bool(false), [Int32, Boolean]);
+    }
+
+    [Fact]
+    public void ByRefBehindCallOperand_TailConstant_StillFolds()
+    {
+        // `if (c) return Use(*r); return false;` → `c && Use(*r)`. The call is a
+        // side-effect barrier csc will not hoist past the lift, so it keeps the branch
+        // and the by-ref deref stays guarded — a faithful, foldable readability raise.
+        // The scan must NOT over-decline a by-ref that only appears inside a call.
+        var operand = new Call(
+            new MethodRef(Holder, "Use", Boolean, [Boolean], HasThis: false),
+            isVirtual: false, [ByRefBoolDeref()]);
+        var result = RunGuard(CondCompare(), operand, Bool(false), [Int32]);
+
+        Assert.IsType<LogicalBinary>(result);
+    }
+
     static IrExpression RunGuard(
         IrExpression condition, IrExpression thenValue, IrExpression tailValue, ImmutableArray<TypeRef> locals)
     {

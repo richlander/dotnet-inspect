@@ -33,18 +33,49 @@ internal static class ShortCircuitFidelity
         => PeelReducibleBoolWrappers(condition) is Call { Callee.Name: "op_True" or "op_False" };
 
     /// <summary>
-    /// Whether <paramref name="operand"/> is (or, after the fold's own fixpoint peels
-    /// the wrappers in <see cref="PeelReducibleBoolWrappers"/>, becomes) a managed
-    /// by-ref (<c>in</c>/<c>ref</c>/<c>out</c>) dereference. csc treats a managed
-    /// by-ref as non-null and side-effect-free, so a spelled <c>a &amp;&amp; *r</c>/
-    /// <c>a || *r</c> collapses to a branchless <c>&amp;</c>/<c>|</c> that eagerly
-    /// dereferences a location the branch had guarded — an observable
-    /// <see cref="System.NullReferenceException"/> divergence on a null by-ref. A raw
-    /// <em>pointer</em> dereference <c>*p</c> is deliberately excluded: a pointer read
+    /// Whether lifting <paramref name="operand"/> behind a spelled <c>&amp;&amp;</c>/
+    /// <c>||</c> would eagerly dereference a managed by-ref
+    /// (<c>in</c>/<c>ref</c>/<c>out</c>) the branch had guarded. csc treats a managed
+    /// by-ref as non-null and side-effect-free, so it collapses <c>c &amp;&amp; OP</c>
+    /// to a branchless <c>c &amp; OP</c> whenever <c>OP</c> is entirely side-effect-free
+    /// (has no call). That collapse re-evaluates every by-ref dereference in <c>OP</c>
+    /// unconditionally — an observable <see cref="System.NullReferenceException"/>
+    /// divergence on a null by-ref that the compiler's branch had short-circuited.
+    ///
+    /// So the hazard is present exactly when <c>OP</c> contains a managed by-ref
+    /// dereference AND contains no call: a bare <c>*r</c>, a bool-constant comparison
+    /// (<c>*r == true</c>) or negation (<c>!*r</c>) over one, or — the case the earlier
+    /// leaf-only peel missed — one nested inside a raised logical/bitwise composition
+    /// (<c>a &amp;&amp; *r</c>, <c>a &amp; *r</c>, <c>r | a</c>; csc branchless-collapses
+    /// the inner <c>a &amp;&amp; r</c> to <c>a &amp; r</c>, and the outer lift then
+    /// collapses that whole operand). Conversely a call anywhere in <c>OP</c> is a
+    /// side-effect barrier csc will not hoist past the lift, so it keeps the branch and
+    /// guards the whole operand — <c>c &amp;&amp; SomeCall(*r)</c> stays faithful and is
+    /// deliberately kept foldable. A raw <em>pointer</em> dereference <c>*p</c> is
+    /// excluded (its address kind is not <see cref="TypeRefKind.ByRef"/>): a pointer read
     /// can access-violate, so csc keeps the branch and lifting it is safe.
     /// </summary>
     internal static bool IsManagedByRefDeref(IrExpression operand)
-        => PeelReducibleBoolWrappers(operand) is LoadIndirect { Address.ResultType.Kind: TypeRefKind.ByRef };
+        => ContainsManagedByRefDereference(operand) && !ContainsCall(operand);
+
+    /// <summary>
+    /// Whether the <paramref name="operand"/> subtree contains a managed by-ref
+    /// (<c>in</c>/<c>ref</c>/<c>out</c>) dereference. A raw pointer dereference is
+    /// excluded — only <see cref="TypeRefKind.ByRef"/> addresses qualify.
+    /// </summary>
+    static bool ContainsManagedByRefDereference(IrExpression operand)
+        => operand is LoadIndirect { Address.ResultType.Kind: TypeRefKind.ByRef }
+            || operand.Descendants.OfType<LoadIndirect>().Any(load => load.Address.ResultType is { Kind: TypeRefKind.ByRef });
+
+    /// <summary>
+    /// Whether the <paramref name="operand"/> subtree contains a call — the
+    /// side-effect barrier csc will not hoist past a lifted short-circuit, so it keeps
+    /// the compiler's branch and every by-ref dereference the call transitively guards
+    /// stays guarded.
+    /// </summary>
+    static bool ContainsCall(IrExpression operand)
+        => operand is Call or CallIndirect
+            || operand.Descendants.Any(node => node is Call or CallIndirect);
 
     /// <summary>
     /// Follow the reducible operand through the wrappers that
@@ -54,22 +85,21 @@ internal static class ShortCircuitFidelity
     /// <c>||</c>/negated-<c>&amp;&amp;</c> arms), and bool-constant comparisons
     /// (<c>x == true</c>/<c>x == false</c>/<c>x != true</c>/<c>x != false</c>) that
     /// <c>FoldBoolConstantComparison</c> reduces to <c>x</c> or <c>!x</c>. It follows the
-    /// non-constant side of each comparison so a hazard nested under any chain of these
-    /// wrappers is still reached — e.g. the double negation <c>(*r == false) == false</c>
-    /// whose outer <see cref="Conditions.Negate"/> inverts the inner comparison and
-    /// reduces back to the bare <c>*r</c>, or <c>op_True(t) == false</c> whose inversion
-    /// re-exposes the bare truthiness call.
+    /// non-constant side of each comparison so a truthiness call nested under any chain of
+    /// these wrappers is still reached — e.g. <c>op_True(t) == false</c> whose outer
+    /// <see cref="Conditions.Negate"/> inverts the inner comparison and reduces back to
+    /// the bare truthiness call, or the double negation <c>(op_True(t) == false) == false</c>.
     ///
     /// This is a deliberate CONSERVATIVE over-approximation: it ignores negation parity,
-    /// so it treats <c>!x</c> forms (which keep a branch — e.g. the safe
-    /// <c>c &amp;&amp; !*r</c>, or a valid inverted-truthiness <c>(t ? false : true)</c>)
-    /// the same as the bare hazard and may decline a valid, branch-preserving raise.
-    /// Declining an extra readable raise is sound; emitting a rebound or eager-deref one
-    /// is not. Modeling parity exactly would require re-simulating
+    /// so it treats <c>!x</c> forms (which keep a branch — e.g. a valid inverted-truthiness
+    /// <c>(t ? false : true)</c>) the same as the bare hazard and may decline a valid,
+    /// branch-preserving raise. Declining an extra readable raise is sound; emitting a
+    /// rebound one is not. Modeling parity exactly would require re-simulating
     /// <c>FoldBoolConstantComparison</c> and <see cref="Conditions.Negate"/> here — a
     /// fragile second implementation this intentionally avoids. (For the ternary re-form
     /// the comparison reduction has already run upstream, so only the negation peel is
-    /// live there.)
+    /// live there. The by-ref hazard no longer routes through this peel — see
+    /// <see cref="IsManagedByRefDeref"/>, which scans the whole operand subtree.)
     /// </summary>
     static IrExpression PeelReducibleBoolWrappers(IrExpression expression)
     {
