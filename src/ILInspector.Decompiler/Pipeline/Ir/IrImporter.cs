@@ -653,7 +653,9 @@ public static class IrImporter
             shapes[type] = shape;
             if (source.IsUnionType(type))
                 unionTypes.Add(type);
-            if (source.IsByRefLikeType(type))
+            // Only a value type can be a ref struct; skip the cross-assembly
+            // [IsByRefLike] resolution for reference/enum/unknown shapes.
+            if (shape == TypeShape.ValueType && source.IsByRefLikeType(type))
                 byRefLikeTypes.Add(type);
             if (shape == TypeShape.Enum && source.ResolveEnumMembers(type) is { } members)
             {

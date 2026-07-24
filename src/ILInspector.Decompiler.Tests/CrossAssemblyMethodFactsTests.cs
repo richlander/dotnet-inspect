@@ -181,6 +181,38 @@ public class CrossAssemblyMethodFactsTests
         Assert.True(call.Callee.IsSpecialNameInferred);
     }
 
+    [Fact]
+    public void CrossAssemblyRefStruct_RecoveredIntoByRefLikeTypes()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath);
+
+        // GPT review round 5 (#3124): a `ref struct` defined in a REFERENCED
+        // assembly resolves to a ValueType shape but carries no same-assembly
+        // by-ref-like fact, so the value-type-arm gate would raise `T t` over it —
+        // invalid C# (CS8121). The [IsByRefLike] fact is now resolved through the
+        // cross-assembly resolver and recovered into ByRefLikeTypes; the
+        // same-assembly value struct (ExternalNumber) stays out.
+        var refStructUser = ImportFunction(source, nameof(CrossAssemblyFixtureMethods.UseExternalRefStruct));
+        Assert.Contains(refStructUser.ByRefLikeTypes, t => t.Name == "ExternalRefStruct");
+
+        var structUser = ImportFunction(source, nameof(CrossAssemblyFixtureMethods.UseExternalStruct));
+        Assert.DoesNotContain(structUser.ByRefLikeTypes, t => t.Name == "ExternalNumber");
+    }
+
+    [Fact]
+    public void MissingCrossAssemblyRefStructMetadata_KeepsByRefLikeUnknown()
+    {
+        using var fixture = CrossAssemblyFixture.Create();
+        using var source = MetadataSource.Open(fixture.ConsumerPath, null, TestAssemblyReferenceResolvers.None);
+
+        // With the defining assembly outside the reference closure the fact cannot
+        // be resolved, so the referenced ref struct is absent from ByRefLikeTypes —
+        // fail visible, not a wrong-positive.
+        var refStructUser = ImportFunction(source, nameof(CrossAssemblyFixtureMethods.UseExternalRefStruct));
+        Assert.DoesNotContain(refStructUser.ByRefLikeTypes, t => t.Name == "ExternalRefStruct");
+    }
+
     static string Print(MetadataSource source, string methodName)
     {
         var function = ImportFunction(source, methodName);
@@ -273,6 +305,11 @@ public class CrossAssemblyMethodFactsTests
                             => new(left.Value + right.Value);
                     }
 
+                    public ref struct ExternalRefStruct
+                    {
+                        public int Value;
+                    }
+
                     [CompilerGenerated]
                     public static class Generated__DisplayClass0_0
                     {
@@ -327,6 +364,19 @@ public class CrossAssemblyMethodFactsTests
 
                         public static ExternalNumber UseRealOperator(ExternalNumber left, ExternalNumber right)
                             => left + right;
+
+                        public static int UseExternalRefStruct()
+                        {
+                            ExternalRefStruct value = default;
+                            value.Value = 3;
+                            return value.Value;
+                        }
+
+                        public static int UseExternalStruct()
+                        {
+                            ExternalNumber value = new(3);
+                            return value.Value;
+                        }
 
                         public static int UseProperty(PropertyLibrary library)
                             => library.Count;
@@ -389,6 +439,8 @@ public class CrossAssemblyMethodFactsTests
         public const string UseOperatorLikeAddition = nameof(UseOperatorLikeAddition);
         public const string UseOperatorLikeImplicit = nameof(UseOperatorLikeImplicit);
         public const string UseRealOperator = nameof(UseRealOperator);
+        public const string UseExternalRefStruct = nameof(UseExternalRefStruct);
+        public const string UseExternalStruct = nameof(UseExternalStruct);
         public const string UseProperty = nameof(UseProperty);
         public const string UseUri = nameof(UseUri);
         public const string UseExternalInlineArray = nameof(UseExternalInlineArray);

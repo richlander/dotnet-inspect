@@ -385,9 +385,16 @@ public sealed class MetadataSource : IDisposable
 
     internal bool IsByRefLikeType(TypeRef type)
     {
+        if (NamedDefinition(type) is not { } definition || string.IsNullOrEmpty(definition.Assembly))
+            return false;
         EnsureTypeMaps();
-        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
-        return definition is not null && _byRefLikeTypes!.Contains(definition);
+        // Same-assembly ref structs are authoritative in the enumerated set; a
+        // same-assembly type absent from it is not a ref struct. Only a
+        // cross-assembly (referenced) definition needs the resolver, which reads
+        // [IsByRefLike] from the defining assembly's metadata.
+        if (definition.Assembly == (Reader.IsAssembly ? TypeRefDecoder.CanonicalSelf(Reader) : ""))
+            return _byRefLikeTypes!.Contains(definition);
+        return CrossAssembly.IsByRefLike(definition) == MetadataFactState.Yes;
     }
 
     /// <summary>
