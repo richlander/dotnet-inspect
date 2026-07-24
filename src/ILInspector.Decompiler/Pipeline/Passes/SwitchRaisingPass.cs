@@ -593,6 +593,16 @@ public sealed class SwitchRaisingPass : IIrPass
         if (governingType.Equals(TypeRef.CoreLib("System", "UInt32")) && caseLabels.Any(label => label < 0))
             return false;
 
+        // Every SwitchExpressionArm label recorded here is an int32 that prints as
+        // an integer literal, but a Boolean governing value needs bool constant
+        // patterns — int does not convert to bool (CS0029), so `b switch { 0 => …,
+        // 1 => … }` would not compile. csc never emits this shape on a bool (a
+        // bool switch lowers to a single brtrue/brfalse, not an equality chain
+        // with `== k` tests), so this only fires on arbitrary or obfuscated
+        // non-csc IL; decline it and leave the if/else intact.
+        if (governingType.Equals(TypeRef.CoreLib("System", "Boolean")))
+            return false;
+
         // No explicit default branch: the last test falls through to the default arm.
         if (defaultOffset is null)
         {
