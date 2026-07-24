@@ -41,7 +41,8 @@ internal static class MemberCodeProvider
 
     internal static List<(ApiMember Member, Item Code)> Collect(
         ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
-        Request request, string? pdbPath = null, bool includeAll = false)
+        Request request, string? pdbPath = null, bool includeAll = false,
+        PrinterOptions? renderOptions = null)
     {
         var results = new List<(ApiMember, Item)>();
         
@@ -127,6 +128,7 @@ internal static class MemberCodeProvider
                     lookupOverloadIndex,
                     publicOnly,
                     methodToken,
+                    renderOptions,
                     out raisedFunction));
                 projectionResult = projectionResult with
                 {
@@ -330,6 +332,7 @@ internal static class MemberCodeProvider
         int overloadIndex,
         bool publicOnly,
         int? methodToken,
+        PrinterOptions? renderOptions,
         out IrFunction? imported)
     {
         imported = null;
@@ -342,6 +345,7 @@ internal static class MemberCodeProvider
             var result = Decompiler.Pipeline.CSharpPrinter.PrintRaised(
                 imported,
                 target => IrImporter.Import(source, target),
+                options: renderOptions,
                 typesProvablyDisjoint: source.AreProvablyDisjoint);
             return result;
         }

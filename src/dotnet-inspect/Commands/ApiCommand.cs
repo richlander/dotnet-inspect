@@ -51,7 +51,7 @@ public class ApiCommand
             Value = options.Value, Urls = options.Urls, Paths = options.Paths,
             Select = options.Select, Columns = options.Columns, Fields = options.Fields,
             Schema = options.Schema, Count = options.Count, SourceOptions = options.SourceOptions,
-            TipLevel = options.TipLevel
+            TipLevel = options.TipLevel, RenderOptions = options.RenderOptions
         })
     };
 
@@ -188,6 +188,16 @@ public class ApiCommand
         // Warn if tabular output is combined with detailed verbosity without section selector
         if (!options.Count)
             OutputFormatResolver.WarnIfTabularDetailMismatch(options.Tabular, options.Verbosity, options.IncludeSections);
+
+        // Resolve the tool-owned .dotnet-inspectconfig once per invocation at the
+        // CLI edge and attach the decompiler spelling options to the flowed
+        // options. Parse/read warnings surface to stderr (never a silent success,
+        // never stdout corruption). Config discovery lives only here; the
+        // decompiler library stays a pure function of explicit PrinterOptions.
+        var renderStyle = RenderStyleConfig.Resolve(Environment.CurrentDirectory);
+        foreach (var warning in renderStyle.Warnings)
+            Console.Error.WriteLine($"Warning: {RenderStyleConfig.FileName}: {warning}");
+        options = options with { RenderOptions = renderStyle.Options };
 
         return (new PreambleResult(options, typePipeline, memberPipeline), null);
     }

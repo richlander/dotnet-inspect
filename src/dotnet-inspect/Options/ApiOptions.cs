@@ -1,5 +1,6 @@
 using DotnetInspector.Output;
 using DotnetInspector.Packages;
+using ILInspector.Decompiler.Pipeline;
 using Markout;
 using Markout.Formatting;
 
@@ -35,6 +36,16 @@ public partial record ApiOptions
     public bool IncludeAll { get; init; }
     public NuGetSourceOptions? SourceOptions { get; init; }
     public bool Verbose { get; init; }
+
+    /// <summary>
+    /// Decompiler spelling options resolved from the tool-owned
+    /// <c>.dotnet-inspectconfig</c> at the CLI edge (see
+    /// <see cref="DotnetInspector.Services.RenderStyleConfig"/>). Null means the
+    /// shipped defaults; the render path treats null and
+    /// <see cref="PrinterOptions.Default"/> identically, keeping output
+    /// byte-for-byte unchanged when no config is present.
+    /// </summary>
+    public PrinterOptions? RenderOptions { get; init; }
 
     // Enrichment
     public bool ShowDocs { get; init; }

@@ -301,6 +301,12 @@ behind the grade. That section distinguishes Full fidelity, an absent method
 body, and inspection failure. Maintainers diagnose pipeline state with
 DecompilerHarness.
 
+The `Decompiled Source` view renders the shipped canonical C# by default. A
+tool-owned `.dotnet-inspectconfig` file (discovered by walking up from the
+working directory) selects opt-in class-3 spellings — today `this`-qualification
+of field and property access — using `.editorconfig` key names. See
+[docs/decompiler-taste.md](docs/decompiler-taste.md#style-configuration).
+
 ```bash
 dotnet-inspect member JsonSerializer --package System.Text.Json Serialize:1 -S @Source
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Decompiled Source"
