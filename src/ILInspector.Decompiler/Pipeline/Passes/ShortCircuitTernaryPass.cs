@@ -26,7 +26,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// stack-slot load, or a managed by-ref (<c>in</c>/<c>ref</c>/<c>out</c>)
 /// dereference. csc collapses <c>a &amp;&amp; b</c> / <c>a || b</c> to a branchless
 /// <c>&amp;</c>/<c>|</c> for those operand shapes, so raising the ternary would
-/// trade branch IL for branchless (see <see cref="RendersAsBranchlessBarePlace"/>).
+/// trade branch IL for branchless (see <see cref="ShortCircuitFidelity.RendersAsBranchlessBarePlace"/>).
 /// Every faulting or side-effecting operand — field/element load, comparison,
 /// call, and even a raw pointer dereference <c>*p</c> — keeps the branch and is
 /// raised.</para>
@@ -37,14 +37,14 @@ namespace ILInspector.Decompiler.Pipeline;
 /// boolean context. The printer strips such a call to its bare user-typed receiver,
 /// so <c>c || y</c> / <c>!c &amp;&amp; y</c> would rebind to the user-defined conditional
 /// <c>|</c>/<c>&amp;</c>, reselecting the overload and diverging in call tokens and
-/// runtime result (<see cref="IsUserDefinedTruthiness"/>). A primitive-bool condition
+/// runtime result (<see cref="ShortCircuitFidelity.IsUserDefinedTruthiness"/>). A primitive-bool condition
 /// — comparison, bool property/field/local/method, nested logical operator — binds
 /// the primitive operator. The B-form additionally negates the condition, and
 /// negation is only proven opcode-exact for a primitive-integer comparison, whose
 /// dual is the same integer branch (e.g. <c>start &lt;= 0</c> ↔ <c>start &gt; 0</c>,
 /// both <c>ble.s</c>). A float dual flips the ordered/unordered sense and a reference
 /// <c>==</c>/<c>!=</c> dual flips the operator token, so the B-form fires only for a
-/// confirmed-integer comparison (<see cref="NegateIsIntegerComparisonDual"/>); the
+/// confirmed-integer comparison (<see cref="ShortCircuitFidelity.NegateIsIntegerComparisonDual"/>); the
 /// A-form (no negate) renders any primitive-bool condition verbatim.</para>
 ///
 /// It fires only when the when-true arm is a bool constant and the when-false arm
@@ -84,7 +84,7 @@ public sealed class ShortCircuitTernaryPass : IIrPass
             // in call tokens and runtime result. A primitive-bool condition
             // (comparison, bool property/field/local/method, nested logical operator)
             // binds the primitive operator, so decline only the truthiness lift.
-            if (IsUserDefinedTruthiness(conditional.Condition))
+            if (ShortCircuitFidelity.IsUserDefinedTruthiness(conditional.Condition))
                 continue;
 
             // The B-form (`c ? false : y` → `!c && y`) additionally negates the
@@ -94,13 +94,13 @@ public sealed class ShortCircuitTernaryPass : IIrPass
             // dual flips the ordered/unordered sense or the operator token, so the
             // B-form declines everything but a confirmed-integer comparison. The
             // A-form (no negate) renders the condition verbatim.
-            if (negate && !NegateIsIntegerComparisonDual(conditional.Condition))
+            if (negate && !ShortCircuitFidelity.NegateIsIntegerComparisonDual(conditional.Condition))
                 continue;
 
             // The surviving operand is always the when-false arm. Decline when csc
             // would emit a branchless `&`/`|` for the spelled operator: raising the
             // ternary would trade branch IL for branchless.
-            if (RendersAsBranchlessBarePlace((IrExpression)conditional.WhenFalse))
+            if (ShortCircuitFidelity.RendersAsBranchlessBarePlace((IrExpression)conditional.WhenFalse))
                 continue;
 
             var children = conditional.DetachChildren();
@@ -145,76 +145,6 @@ public sealed class ShortCircuitTernaryPass : IIrPass
             default:
                 return false;
         }
-    }
-
-    /// <summary>
-    /// csc emits a branchless <c>&amp;</c>/<c>|</c> (not a short-circuit branch) for
-    /// <c>a &amp;&amp; b</c>/<c>a || b</c> only when the non-short-circuiting operand
-    /// renders as a bare, non-faulting place: a local, parameter, or stack-slot
-    /// load, or a <em>managed by-ref</em> dereference (an <c>in</c>/<c>ref</c>/<c>out</c>
-    /// parameter or <c>ref</c> local, which csc treats as non-null and side-effect
-    /// -free, spelling as the bare referent). A residual stack slot renders as a bare
-    /// synthetic local, so csc collapses it the same way. Raising those would trade
-    /// branch IL for branchless (and, for the by-ref case, eagerly dereference a
-    /// location the branch had guarded — an observable <c>NullReferenceException</c>
-    /// divergence on a null by-ref). Every other operand keeps the branch and is
-    /// safe to raise: a field/static/element load or call (can fault or has side
-    /// effects), a comparison (even over bare locals), a nested logical operator,
-    /// and — confirmed against real csc-emitted IL — a raw <em>pointer</em>
-    /// dereference <c>*p</c> (which can access-violate, so csc keeps the branch).
-    /// The operand map was verified opcode-by-opcode: only the bare-load and
-    /// managed-by-ref shapes compile branchless; all others keep the branch.
-    /// </summary>
-    static bool RendersAsBranchlessBarePlace(IrExpression operand)
-        => operand is LoadLocal or LoadArgument or LoadStackSlot
-           || operand is LoadIndirect { Address.ResultType.Kind: TypeRefKind.ByRef };
-
-    /// <summary>
-    /// Whether <paramref name="condition"/> is a user-defined-truthiness evaluation
-    /// — a call to <c>operator true</c>/<c>operator false</c> the compiler inserts
-    /// when a user type is used in boolean context. The printer strips such a call
-    /// to its bare user-typed receiver (it renders <c>op_True(a)</c>/<c>op_False(a)</c>
-    /// as <c>a</c>), so lifting it into a short-circuit operand — <c>a || y</c> /
-    /// <c>!a &amp;&amp; y</c> — would rebind to the user-defined conditional <c>|</c>/<c>&amp;</c>,
-    /// reselecting the overload and changing the call tokens and runtime result. Only
-    /// a type carrying <c>op_True</c>/<c>op_False</c> can bind a user-defined
-    /// <c>||</c>/<c>&amp;&amp;</c>, so this is the complete rebind set; a primitive-bool
-    /// condition (comparison, bool property/field/local/method, nested logical
-    /// operator) binds the primitive operator and is safe to lift.
-    /// </summary>
-    static bool IsUserDefinedTruthiness(IrExpression condition)
-        => condition is Call { Callee.Name: "op_True" or "op_False" };
-
-    /// <summary>
-    /// Whether negating <paramref name="condition"/> re-forms to something that
-    /// recompiles to the same branch opcodes. The pipeline's <see cref="Conditions.Negate"/>
-    /// plus the printer's negation folds are only proven opcode-exact for a
-    /// confirmed primitive-integer comparison, whose dual is the same integer
-    /// branch (e.g. <c>start &lt;= 0</c> → <c>start &gt; 0</c>, both <c>ble.s</c>).
-    /// Every other negation the printer can fold to a different operator token or
-    /// branch polarity, so the B-form declines it:
-    /// <list type="bullet">
-    /// <item>a <see cref="Comparison"/> over float operands takes a dual that
-    /// flips the ordered/unordered sense (<c>blt.s</c> vs <c>blt.un.s</c>);</item>
-    /// <item>an <c>Equal</c>/<c>NotEqual</c> <see cref="Comparison"/> over a
-    /// non-integer operand (string/object/enum/struct), and a negated
-    /// comparison/equality operator <em>call</em> (<c>op_Equality</c>,
-    /// <c>op_LessThan</c>, …), flip to the inverse operator and — for a
-    /// user-defined operator — a different call token;</item>
-    /// <item>a truthiness test (<c>is</c>/<c>is null</c>/<c>!= 0</c>) inverts to
-    /// its own opposite spelling.</item>
-    /// </list>
-    /// Declining hands those back to the base pipeline's faithful rendering. The
-    /// integer family is read the same way <c>InvertComparison</c> reads it.
-    /// </summary>
-    static bool NegateIsIntegerComparisonDual(IrExpression condition)
-    {
-        if (condition is not Comparison comparison)
-            return false;
-
-        StackFamily? family = TypeFamilies.Of(comparison.Left.ResultType)
-                              ?? TypeFamilies.Of(comparison.Right.ResultType);
-        return family is StackFamily.I4 or StackFamily.I8 or StackFamily.I;
     }
 
     static bool IsBool(TypeRef? type)
