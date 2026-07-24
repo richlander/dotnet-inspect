@@ -135,6 +135,43 @@ public class MemberBodyProducerExpressionBodyTests
         Assert.Contains("return builder", source);
     }
 
+    [Fact]
+    public void SingleStackallocPointerReturn_StaysBlock()
+    {
+        // GPT review of #3141: a lone `return stackalloc ...;` whose value the
+        // printer expands into a lifted local declaration (inside an `unsafe`
+        // block) is still one top-level Return, and its output is multi-line, so
+        // it satisfied the earlier flag guard. But its printed body does not
+        // begin with a bare `return `, so it is not a foldable expression body.
+        // The text guard keeps BodyIsSingleReturnExpression off, matching what
+        // MultilineReturnExpressionLines would accept, and the member stays a
+        // brace block. (Output was already correct via downstream re-gating;
+        // this locks the member framing so a future guard relaxation cannot
+        // silently fold a multi-statement expansion.)
+        using var assembly = Compile("""
+            public unsafe class Fx
+            {
+                public static int* Grab()
+                {
+                    unsafe
+                    {
+                        int* p = stackalloc int[10];
+                        return p;
+                    }
+                }
+            }
+            """, allowUnsafe: true);
+
+        string source = ComposeType(assembly.Path, "Fx");
+
+        // Brace-block body (arrow header absent; body opens with `{`), with the
+        // lifted stackalloc declaration inside.
+        Assert.DoesNotContain("Grab() =>", source);
+        Assert.Contains("Grab()\n    {", source);
+        Assert.Contains("stackalloc byte[40]", source);
+        Assert.Contains("return (int*)__stackalloc;", source);
+    }
+
     static string ComposeType(string path, string fullName)
     {
         using var pe = new PEReader(File.OpenRead(path));
@@ -145,7 +182,7 @@ public class MemberBodyProducerExpressionBodyTests
         return source!.ReplaceLineEndings("\n");
     }
 
-    static TempAssembly Compile(string source)
+    static TempAssembly Compile(string source, bool allowUnsafe = false)
     {
         var path = Path.Combine(Path.GetTempPath(), $"dotnet-inspect-exprbody-{Guid.NewGuid():N}.dll");
         var tree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
@@ -153,7 +190,10 @@ public class MemberBodyProducerExpressionBodyTests
             Path.GetFileNameWithoutExtension(path),
             [tree],
             RuntimeReferences(),
-            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, nullableContextOptions: NullableContextOptions.Enable));
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                allowUnsafe: allowUnsafe,
+                nullableContextOptions: NullableContextOptions.Enable));
 
         using var stream = File.Create(path);
         var result = compilation.Emit(stream);

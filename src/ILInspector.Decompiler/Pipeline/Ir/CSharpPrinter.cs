@@ -261,10 +261,16 @@ public sealed partial class CSharpPrinter
     /// is exactly one <see cref="Return"/> with no lifted declarations, its whole
     /// printed form is that one <c>return &lt;expr&gt;;</c> statement, so folding it
     /// to <c>head =&gt; &lt;expr&gt;;</c> is a language-guaranteed equivalence. The
-    /// only text-derived input is whether that single return actually wrapped:
-    /// a single-line return already folds on the
-    /// <see cref="CSharpExpressionBody.FromSingleStatement"/> path, so this signal
-    /// stays reserved for the multi-line case the flat helper cannot recover.
+    /// only text-derived input is whether that single return actually wrapped and
+    /// printed as a bare <c>return &lt;expr&gt;;</c>: a single-line return already
+    /// folds on the <see cref="CSharpExpressionBody.FromSingleStatement"/> path, so
+    /// this signal stays reserved for the multi-line case the flat helper cannot
+    /// recover. A rare single <see cref="Return"/> whose value the printer expands
+    /// into several statements (for example a <c>stackalloc</c>-to-pointer return
+    /// that lifts a local declaration inside an <c>unsafe</c> block) does not print
+    /// as a leading <c>return </c>, so the text guard keeps the flag off — matching
+    /// what <see cref="CSharpExpressionBody.MultilineReturnExpressionLines"/> would
+    /// accept, so the signal never claims a fold the member layer would reject.
     /// </summary>
     bool BodyIsSingleReturnExpression(IrFunction function, string output)
         => !_emittedDeclarations
@@ -274,7 +280,22 @@ public sealed partial class CSharpPrinter
             && !function.RequiresAsyncBodyModifier
             && !NeedsUnsupportedFallbackReturn(function)
             && _topLevelStatements is [Return { Value: not null }]
-            && output.AsSpan().Trim().Contains('\n');
+            && IsMultilineReturnExpressionText(output);
+
+    /// <summary>
+    /// True when <paramref name="output"/> is a multi-line body that begins with a
+    /// bare <c>return </c> — the exact text shape
+    /// <see cref="CSharpExpressionBody.MultilineReturnExpressionLines"/> extracts.
+    /// Keeps <see cref="BodyIsSingleReturnExpression"/> aligned with the downstream
+    /// extractor so the typed flag is never set for a single return the printer
+    /// expanded into multiple statements (which would not fold anyway).
+    /// </summary>
+    static bool IsMultilineReturnExpressionText(string output)
+    {
+        var trimmed = output.AsSpan().Trim();
+        return trimmed.Contains('\n')
+            && trimmed.StartsWith("return ", StringComparison.Ordinal);
+    }
 
     DecompilerOptions EffectiveDecompilerOptions()
         => new()
