@@ -840,9 +840,10 @@ public static class MemberBodyProducer
 
                     string? constructorChain = null;
                     bool requiresUnsafeContext = false;
+                    bool bodyIsSingleReturnExpression = false;
                     string? body = member.IsAbstract
                         ? null
-                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, printerOptions);
+                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleReturnExpression, printerOptions);
 
                     // An explicit interface property implementation surfaces
                     // as its accessor method (Iface.get_X). Render the
@@ -866,9 +867,9 @@ public static class MemberBodyProducer
                             CSharpMemberLayout.Append(sb, "set", body, 8, WrapExpressionBodyArrow(printerOptions));
                             sb.AppendLine("    }");
                         }
-                        else if (CSharpExpressionBody.FromSingleStatement(body) is not null)
+                        else if (bodyIsSingleReturnExpression || CSharpExpressionBody.FromSingleStatement(body) is not null)
                         {
-                            CSharpMemberLayout.Append(sb, head, body, 4, WrapExpressionBodyArrow(printerOptions));
+                            CSharpMemberLayout.Append(sb, head, body, 4, WrapExpressionBodyArrow(printerOptions), bodyIsSingleReturnExpression);
                         }
                         else
                         {
@@ -891,7 +892,7 @@ public static class MemberBodyProducer
                     var declaration = bodyShape is null
                         ? DefaultDeclarationFormatter.FormatMember(type, member)
                         : DefaultDeclarationFormatter.FormatMemberWithBody(type, member, bodyShape);
-                    AppendMember(sb, declaration, body, WrapExpressionBodyArrow(printerOptions), constructorChain);
+                    AppendMember(sb, declaration, body, WrapExpressionBodyArrow(printerOptions), constructorChain, bodyIsSingleReturnExpression);
                     break;
                 }
 
@@ -1120,12 +1121,12 @@ public static class MemberBodyProducer
         return null;
     }
 
-    static void AppendMember(StringBuilder sb, string signature, string? body, bool wrapExpressionBodyArrow, string? constructorChain = null)
+    static void AppendMember(StringBuilder sb, string signature, string? body, bool wrapExpressionBodyArrow, string? constructorChain = null, bool bodyIsSingleReturnExpression = false)
     {
         // An explicit base(...)/this(...) chain renders as a signature
         // initializer (the printer lifted it out of the body).
         string head = constructorChain is null ? signature : $"{signature} : {constructorChain}";
-        CSharpMemberLayout.Append(sb, head, body, 4, wrapExpressionBodyArrow);
+        CSharpMemberLayout.Append(sb, head, body, 4, wrapExpressionBodyArrow, bodyIsSingleReturnExpression);
     }
 
     static string TypeParameterDisplayName(TypeParameter typeParameter)
@@ -1187,16 +1188,16 @@ public static class MemberBodyProducer
         var getterHandle = ResolveAccessorHandle(reader, typeHandle, member.GetterToken, $"get_{member.Name}");
         var setterHandle = ResolveAccessorHandle(reader, typeHandle, member.SetterToken, $"set_{member.Name}");
 
-        var accessors = new List<(string Keyword, string? Body, bool RequiresUnsafeContext)>();
+        var accessors = new List<(string Keyword, string? Body, bool RequiresUnsafeContext, bool SingleReturnExpression)>();
         if (accessorList >= 0)
         {
             string list = signature[accessorList..];
             if (list.Contains("get;", StringComparison.Ordinal))
-                accessors.Add(("get", DecompileAccessor(pipelineSource, getterHandle, typeFullName, $"get_{member.Name}", bodyNamespaces, out var getRequiresUnsafe, printerOptions), getRequiresUnsafe));
+                accessors.Add(("get", DecompileAccessor(pipelineSource, getterHandle, typeFullName, $"get_{member.Name}", bodyNamespaces, out var getRequiresUnsafe, out var getSingleReturn, printerOptions), getRequiresUnsafe, getSingleReturn));
             if (list.Contains("set;", StringComparison.Ordinal))
-                accessors.Add(("set", DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var setRequiresUnsafe, printerOptions), setRequiresUnsafe));
+                accessors.Add(("set", DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var setRequiresUnsafe, out var setSingleReturn, printerOptions), setRequiresUnsafe, setSingleReturn));
             if (list.Contains("init;", StringComparison.Ordinal))
-                accessors.Add(("init", DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var initRequiresUnsafe, printerOptions), initRequiresUnsafe));
+                accessors.Add(("init", DecompileAccessor(pipelineSource, setterHandle, typeFullName, $"set_{member.Name}", bodyNamespaces, out var initRequiresUnsafe, out var initSingleReturn, printerOptions), initRequiresUnsafe, initSingleReturn));
         }
 
         if (!requiresUnsafeContext && accessors.Any(a => a.RequiresUnsafeContext))
@@ -1228,10 +1229,13 @@ public static class MemberBodyProducer
         // Expression bodies per the style oracle
         // (csharp_style_expression_bodied_properties/accessors = true):
         // a lone getter returning one expression is 'head => expr;', and any
-        // single-statement accessor is 'get/set => ...;'.
-        if (accessors is [("get", { } loneGet, _)] && CSharpExpressionBody.FromSingleStatement(loneGet) is not null)
+        // single-statement accessor is 'get/set => ...;'. A lone getter whose
+        // body is one multi-line 'return <switch>;' also folds to an expression
+        // body (issue #3088), gated on the printer's typed single-return signal.
+        if (accessors is [("get", { } loneGet, _, var loneGetSingleReturn)]
+            && (loneGetSingleReturn || CSharpExpressionBody.FromSingleStatement(loneGet) is not null))
         {
-            CSharpMemberLayout.Append(sb, head, loneGet, 4, WrapExpressionBodyArrow(printerOptions));
+            CSharpMemberLayout.Append(sb, head, loneGet, 4, WrapExpressionBodyArrow(printerOptions), loneGetSingleReturn);
             return;
         }
 
@@ -1239,9 +1243,9 @@ public static class MemberBodyProducer
         sb.AppendLine("    {");
         for (int i = 0; i < accessors.Count; i++)
         {
-            var (keyword, body, _) = accessors[i];
+            var (keyword, body, _, singleReturn) = accessors[i];
             if (i > 0) sb.AppendLine();
-            CSharpMemberLayout.Append(sb, keyword, body, 8, WrapExpressionBodyArrow(printerOptions));
+            CSharpMemberLayout.Append(sb, keyword, body, 8, WrapExpressionBodyArrow(printerOptions), singleReturn);
         }
         sb.AppendLine("    }");
     }
@@ -1298,7 +1302,7 @@ public static class MemberBodyProducer
         Pipeline.MetadataSource pipelineSource, MethodDefinitionHandle? memberHandle,
         string typeFullName, ApiMember member, int overloadIndex,
         SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
-        Pipeline.PrinterOptions? printerOptions)
+        out bool bodyIsSingleReturnExpression, Pipeline.PrinterOptions? printerOptions)
     {
         // Prefer the member's own metadata handle — the canonical same-reader
         // addressing (see docs/design/member-body-substrate.md). The caller has
@@ -1309,7 +1313,7 @@ public static class MemberBodyProducer
         if (memberHandle is { } methodHandle)
             return DecompileFunction(pipelineSource,
                 Pipeline.IrImporter.Import(pipelineSource, methodHandle),
-                bodyNamespaces, out constructorChain, out requiresUnsafeContext, printerOptions);
+                bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleReturnExpression, printerOptions);
 
         // Public-only overload counting, except explicit interface
         // implementations (non-public by nature) — matching the API surface
@@ -1318,7 +1322,7 @@ public static class MemberBodyProducer
             publicOnly: member.Kind != "explicit-interface-implementation"
                 && !(member.Kind == "constructor" && member.DeclaringOverloadIndex is not null)
                 && member.Accessibility is null,
-            bodyNamespaces, out constructorChain, out requiresUnsafeContext, printerOptions);
+            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleReturnExpression, printerOptions);
     }
 
     /// <summary>
@@ -1389,7 +1393,7 @@ public static class MemberBodyProducer
         Pipeline.MetadataSource pipelineSource, MethodDefinitionHandle? accessorHandle,
         string typeFullName, string accessorName,
         SortedSet<string> bodyNamespaces, out bool requiresUnsafeContext,
-        Pipeline.PrinterOptions? printerOptions)
+        out bool bodyIsSingleReturnExpression, Pipeline.PrinterOptions? printerOptions)
         // Prefer the accessor's own handle (fixes indexer get_Item/set_Item
         // drift, where name+index:0 always selects the first indexer's
         // accessor). Fall back to the by-name path — accessors are non-public
@@ -1398,9 +1402,9 @@ public static class MemberBodyProducer
         => accessorHandle is { } handle
             ? DecompileFunction(pipelineSource,
                 Pipeline.IrImporter.Import(pipelineSource, handle),
-                bodyNamespaces, out _, out requiresUnsafeContext, printerOptions)
+                bodyNamespaces, out _, out requiresUnsafeContext, out bodyIsSingleReturnExpression, printerOptions)
             : DecompileMethod(pipelineSource, typeFullName, accessorName, overloadIndex: 0,
-            publicOnly: false, bodyNamespaces, out _, out requiresUnsafeContext, printerOptions);
+            publicOnly: false, bodyNamespaces, out _, out requiresUnsafeContext, out bodyIsSingleReturnExpression, printerOptions);
 
     /// <summary>
     /// Imports one method to typed IR, runs the raising passes, and prints the
@@ -1413,10 +1417,10 @@ public static class MemberBodyProducer
     static string? DecompileMethod(
         Pipeline.MetadataSource pipelineSource, string typeFullName, string methodName, int overloadIndex,
         bool publicOnly, SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
-        Pipeline.PrinterOptions? printerOptions)
+        out bool bodyIsSingleReturnExpression, Pipeline.PrinterOptions? printerOptions)
         => DecompileFunction(pipelineSource,
             Pipeline.IrImporter.Import(pipelineSource, typeFullName, methodName, overloadIndex, publicOnly),
-            bodyNamespaces, out constructorChain, out requiresUnsafeContext, printerOptions);
+            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleReturnExpression, printerOptions);
 
     /// <summary>
     /// Runs the raising passes and prints an already-imported function. A null
@@ -1427,10 +1431,11 @@ public static class MemberBodyProducer
     static string? DecompileFunction(
         Pipeline.MetadataSource pipelineSource, Pipeline.IrFunction? function,
         SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
-        Pipeline.PrinterOptions? printerOptions)
+        out bool bodyIsSingleReturnExpression, Pipeline.PrinterOptions? printerOptions)
     {
         constructorChain = null;
         requiresUnsafeContext = false;
+        bodyIsSingleReturnExpression = false;
         if (function is null)
             return null;
         CollectNamespaces(function, bodyNamespaces);
@@ -1439,6 +1444,7 @@ public static class MemberBodyProducer
             typesProvablyDisjoint: pipelineSource.AreProvablyDisjoint);
         constructorChain = result.ConstructorChain;
         requiresUnsafeContext = result.RequiresUnsafeBodyModifier;
+        bodyIsSingleReturnExpression = result.BodyIsSingleReturnExpression;
         return result.Output?.TrimEnd() ?? DiagnosticComment(result);
     }
 

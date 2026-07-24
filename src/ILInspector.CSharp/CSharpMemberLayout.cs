@@ -27,7 +27,17 @@ public static class CSharpMemberLayout
     /// Otherwise a brace block with the body content one level (four spaces)
     /// deeper. Blank lines in the body are preserved.
     /// </summary>
-    public static void Append(StringBuilder sb, string head, string? body, int indent, bool wrapExpressionBodyArrow = false)
+    /// <param name="bodyIsSingleReturnExpression">
+    /// When <see langword="true"/> the caller has proven, from the typed
+    /// <c>DecompilerResult.BodyIsSingleReturnExpression</c> signal, that
+    /// <paramref name="body"/> is exactly one <c>return &lt;expr&gt;;</c>
+    /// statement whose expression spans several lines (a raised switch
+    /// expression). Such a body renders expression-bodied — <c>head =&gt; &lt;value&gt;
+    /// switch { … };</c> — with the switch block re-indented under the member
+    /// (issue #3088). Only ever set for a multi-line body; single-line bodies
+    /// stay on the <see cref="CSharpExpressionBody.FromSingleStatement"/> path.
+    /// </param>
+    public static void Append(StringBuilder sb, string head, string? body, int indent, bool wrapExpressionBodyArrow = false, bool bodyIsSingleReturnExpression = false)
     {
         ArgumentNullException.ThrowIfNull(sb);
         ArgumentNullException.ThrowIfNull(head);
@@ -36,6 +46,12 @@ public static class CSharpMemberLayout
         if (body is null)
         {
             sb.AppendLine($"{pad}{head};");
+            return;
+        }
+        if (bodyIsSingleReturnExpression
+            && CSharpExpressionBody.MultilineReturnExpressionLines(body) is { } expressionLines)
+        {
+            AppendMultilineExpressionBody(sb, head, expressionLines, indent, wrapExpressionBodyArrow);
             return;
         }
         if (CSharpExpressionBody.FromSingleStatement(body) is { } expression)
@@ -55,6 +71,48 @@ public static class CSharpMemberLayout
         sb.AppendLine($"{pad}{{");
         AppendIndentedBody(sb, body, indent + 4);
         sb.AppendLine($"{pad}}}");
+    }
+
+    /// <summary>
+    /// Renders a multi-line single-<c>return</c> expression body (a raised switch
+    /// expression). The value/arrow line sits after the arrow — on
+    /// <paramref name="head"/>'s line, or, when
+    /// <paramref name="wrapExpressionBodyArrow"/> is set, one level deeper on its
+    /// own line — and the block lines re-indent so the switch <c>{</c> aligns with
+    /// the token that opens the expression: the member indent for the same-line
+    /// arrow, or the arrow's indent for the wrapped arrow. The final line gains the
+    /// statement terminator (<c>};</c>). Blank lines are preserved.
+    /// </summary>
+    static void AppendMultilineExpressionBody(
+        StringBuilder sb, string head, IReadOnlyList<string> expressionLines, int indent, bool wrapExpressionBodyArrow)
+    {
+        string pad = new(' ', indent);
+        string valueLine = expressionLines[0];
+        if (wrapExpressionBodyArrow)
+        {
+            sb.AppendLine($"{pad}{head}");
+            sb.AppendLine($"{pad}    => {valueLine}");
+        }
+        else
+        {
+            sb.AppendLine($"{pad}{head} => {valueLine}");
+        }
+
+        string continuationPad = new(' ', wrapExpressionBodyArrow ? indent + 4 : indent);
+        for (int i = 1; i < expressionLines.Count; i++)
+        {
+            string line = expressionLines[i];
+            bool last = i == expressionLines.Count - 1;
+            if (line.Length == 0)
+            {
+                sb.AppendLine();
+                continue;
+            }
+            sb.Append(continuationPad).Append(line);
+            if (last)
+                sb.Append(';');
+            sb.AppendLine();
+        }
     }
 
     /// <summary>

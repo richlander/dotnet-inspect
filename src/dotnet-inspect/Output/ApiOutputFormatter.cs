@@ -2236,6 +2236,27 @@ public static class ApiOutputFormatter
         if (!hasLeadingComments && preferExpressionBodied && CSharpExpressionBody.FromSingleStatement(body) is { } expressionBody)
             return $"{declaration} => {expressionBody};";
 
+        // A multi-line single-return switch expression renders expression-bodied
+        // too (issue #3088): `head => <value> switch { ... };`. The block lines
+        // sit at their body-relative (column-zero) indent, so at this member's
+        // column-zero declaration they need no re-indentation. Gate strictly on
+        // the printer's typed BodyIsSingleReturnExpression signal; the extraction
+        // helper is not sound on the flat string alone.
+        if (!hasLeadingComments && preferExpressionBodied && result.BodyIsSingleReturnExpression
+            && CSharpExpressionBody.MultilineReturnExpressionLines(body) is { Count: > 0 } multilineExpression)
+        {
+            var expression = new StringBuilder();
+            expression.Append(declaration).Append(" => ").Append(multilineExpression[0]);
+            for (int i = 1; i < multilineExpression.Count; i++)
+            {
+                expression.Append(Environment.NewLine);
+                expression.Append(multilineExpression[i]);
+                if (i == multilineExpression.Count - 1)
+                    expression.Append(';');
+            }
+            return expression.ToString();
+        }
+
         var formattedBodyLines = body.ReplaceLineEndings("\n").Split('\n');
         var lines = hasLeadingComments
             ? leadingBodyComments!.Concat(formattedBodyLines)
