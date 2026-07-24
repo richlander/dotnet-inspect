@@ -1,7 +1,11 @@
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Commands;
 using DotnetInspector.Inspectors;
+using DotnetInspector.Options;
+using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Decompiler.Pipeline;
 using ILInspector.Metadata;
@@ -119,6 +123,69 @@ public class RenderStyleConfigTests
         Assert.Contains("malformed entry", warning);
     }
 
+    [Fact]
+    public void Parse_RootKey_IsRecognizedWithoutWarningAndDoesNotAffectKnobs()
+    {
+        var result = RenderStyleConfig.Parse(
+            "root = true\n" +
+            "dotnet_style_qualification_for_field = true\n",
+            origin: null);
+
+        // 'root' is the editorconfig boundary marker: recognized (never an
+        // "unknown key"), drives no knob, and leaves recognized keys applied.
+        Assert.True(result.Options.QualifyFieldAccess);
+        Assert.Empty(result.Warnings);
+    }
+
+    [Fact]
+    public void Parse_RootKey_WithInvalidBool_Warns()
+    {
+        var result = RenderStyleConfig.Parse("root = maybe", origin: null);
+
+        var warning = Assert.Single(result.Warnings);
+        Assert.Contains("expects true/false", warning);
+    }
+
+    // ---- warning gating (only decompiled-source-consuming requests warn) ----
+
+    [Theory]
+    [InlineData(SectionNames.DecompiledSource, true)]
+    [InlineData(SectionNames.SourceDiff, true)]
+    [InlineData(SectionNames.Facts, false)]
+    [InlineData(SectionNames.Signature, false)]
+    public void ConsumesRenderStyleConfig_WithExplicitSelection_TracksSourceSections(string section, bool expected)
+    {
+        var options = new MemberOptions
+        {
+            IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section },
+        };
+
+        Assert.Equal(expected, InvokeConsumesRenderStyleConfig(options));
+    }
+
+    [Theory]
+    [InlineData(Verbosity.Quiet, false)]
+    [InlineData(Verbosity.Minimal, false)]
+    [InlineData(Verbosity.Normal, true)]
+    [InlineData(Verbosity.Detailed, true)]
+    public void ConsumesRenderStyleConfig_WithoutSelection_TracksVerbosity(Verbosity verbosity, bool expected)
+    {
+        // Without -S the decompiled-source section (non-expensive, not
+        // explicit-only) auto-renders at Normal and above, so config warnings
+        // must surface there but stay quiet at Quiet/Minimal.
+        var options = new MemberOptions { Verbosity = verbosity };
+
+        Assert.Equal(expected, InvokeConsumesRenderStyleConfig(options));
+    }
+
+    private static bool InvokeConsumesRenderStyleConfig(ApiOptions options)
+    {
+        var method = typeof(ApiCommand).GetMethod(
+            "ConsumesRenderStyleConfig",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+        return (bool)method.Invoke(null, [options])!;
+    }
+
     // ---- discovery ----
 
     [Fact]
@@ -234,6 +301,28 @@ public class RenderStyleConfigTests
         Assert.False(result.EffectiveOptions.QualifyFieldAccess);
     }
 
+    // Whole-type decompilation (the `type -S "Decompiled Source"` path) routes
+    // through MemberBodyProducer.Project rather than Collect, so it needs the
+    // resolved options threaded separately.
+
+    [Fact]
+    public void WholeType_WithoutRenderOptions_RendersBareThisMemberAccess()
+    {
+        var code = RenderSpecimenWholeType(renderOptions: null);
+
+        Assert.Contains("Compute()", code);
+        Assert.DoesNotContain("this._count", code);
+    }
+
+    [Fact]
+    public void WholeType_WithQualifyFieldAccess_QualifiesField()
+    {
+        var code = RenderSpecimenWholeType(
+            PrinterOptions.Default with { QualifyFieldAccess = true });
+
+        Assert.Contains("this._count", code);
+    }
+
     private static (string Code, ILInspector.Decompiler.DecompilerResult Result) RenderSpecimenCompute(
         PrinterOptions? renderOptions)
     {
@@ -262,6 +351,20 @@ public class RenderStyleConfigTests
         var decompiled = code.DecompiledResult;
         Assert.NotNull(decompiled?.Output);
         return (decompiled!.Output, decompiled);
+    }
+
+    private static string RenderSpecimenWholeType(PrinterOptions? renderOptions)
+    {
+        string assemblyPath = typeof(ThisQualificationConfigSpecimen).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var surface = ApiSurfaceExtractor.Extract(pe, includeAll: false);
+        var type = surface.Types.Single(t => t.FullName == typeof(ThisQualificationConfigSpecimen).FullName);
+
+        var result = ILInspector.Decompiler.MemberBodyProducer.Project(
+            type, assemblyPath, pdbPath: null, printerOptions: renderOptions);
+
+        Assert.NotNull(result.Output);
+        return result.Output!;
     }
 
     private static string CreateTempDirectory()

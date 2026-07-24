@@ -224,14 +224,17 @@ per-run flag.
 
 `dotnet-inspect` discovers a `.dotnet-inspectconfig` file by walking up from the
 current working directory to the filesystem root; the **nearest** file wins (no
-cross-level merge). When no file is found, output is byte-for-byte the shipped
-default.
+cross-level merge). Because there is no merge, the nearest file is a hard
+boundary — nothing above it is read — so placing a `.dotnet-inspectconfig` at a
+repository root isolates every nested run from configs higher up the tree. When
+no file is found, output is byte-for-byte the shipped default.
 
 The file is flat `key = value`, using the same key and value vocabulary as an
 `.editorconfig` so lines copy across directly:
 
 ```ini
 # .dotnet-inspectconfig
+root = true
 dotnet_style_qualification_for_field = true
 dotnet_style_qualification_for_property = true
 ```
@@ -239,11 +242,21 @@ dotnet_style_qualification_for_property = true
 - `#` and `;` comment lines and `[section]` headers are ignored.
 - An editorconfig `value:severity` suffix is tolerated — only the value token
   before `:` is read (`true:suggestion` is read as `true`).
+- The editorconfig `root` key is recognized (so a file copied from an
+  `.editorconfig` does not warn). Discovery already stops at the nearest file, so
+  `root = true` drives no behavior on its own; it is the conventional, explicit
+  way to mark a repository-root config as the boundary.
 - Recognized keys map to `PrinterOptions`; today the two `this`-qualification
   keys above are recognized, and the set grows as more class-3 knobs ship.
 - Unknown keys, malformed lines, and non-boolean values are reported as a
   `Warning:` on stderr and skipped — the rest of the file still applies. A bad
   config never fails the run silently.
+
+Config warnings surface only when a render actually consumes the config — that
+is, when a decompiled-source or source-diff section is requested (explicitly via
+`-S`, or at `-v n`/`-v d` where the decompiled-source view is part of the default
+set). A malformed config never dirties stderr on a command that does not read
+source (for example `-S Facts`).
 
 Only the tool-owned filename is auto-discovered; a foreign `.editorconfig` is not
 read. Configuration is resolved once at the CLI edge and threaded into the render

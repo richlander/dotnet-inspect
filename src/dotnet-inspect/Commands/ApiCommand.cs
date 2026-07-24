@@ -191,15 +191,37 @@ public class ApiCommand
 
         // Resolve the tool-owned .dotnet-inspectconfig once per invocation at the
         // CLI edge and attach the decompiler spelling options to the flowed
-        // options. Parse/read warnings surface to stderr (never a silent success,
-        // never stdout corruption). Config discovery lives only here; the
-        // decompiler library stays a pure function of explicit PrinterOptions.
+        // options. Config discovery lives only here; the decompiler library stays
+        // a pure function of explicit PrinterOptions. The options are attached
+        // unconditionally (harmless when no source renders), but parse/read
+        // warnings surface only when a decompiled-source render will actually
+        // consume the config — a bad config should not dirty stderr for scripts
+        // that never asked for source (e.g. -S Facts). Warnings still never
+        // corrupt stdout and never become a silent success.
         var renderStyle = RenderStyleConfig.Resolve(Environment.CurrentDirectory);
-        foreach (var warning in renderStyle.Warnings)
-            Console.Error.WriteLine($"Warning: {RenderStyleConfig.FileName}: {warning}");
         options = options with { RenderOptions = renderStyle.Options };
+        if (renderStyle.Warnings.Count > 0 && ConsumesRenderStyleConfig(options))
+        {
+            foreach (var warning in renderStyle.Warnings)
+                Console.Error.WriteLine($"Warning: {RenderStyleConfig.FileName}: {warning}");
+        }
 
         return (new PreambleResult(options, typePipeline, memberPipeline), null);
+    }
+
+    // The decompiled-source and source-diff renders are the only consumers of the
+    // resolved PrinterOptions. With an explicit -S they render only when selected;
+    // without -S the (non-expensive, non-explicit-only) decompiled-source section
+    // auto-renders at Normal verbosity and above. This mirrors SectionPipeline's
+    // IsRequested so config warnings track the flow that actually reads the config.
+    private static bool ConsumesRenderStyleConfig(ApiOptions options)
+    {
+        if (options.IncludeSections is { Count: > 0 } sel)
+            return sel.Any(s =>
+                string.Equals(s, SectionNames.DecompiledSource, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(s, SectionNames.SourceDiff, StringComparison.OrdinalIgnoreCase));
+
+        return options.Verbosity >= Verbosity.Normal;
     }
 
     static bool MightPeelDottedGenericMemberSelector(string? typeName)
@@ -798,7 +820,7 @@ public class ApiCommand
             var resolver = ApiAnalysisInspection.CreateReferenceResolver(typeDllPath, options);
             using var metadata = new Decompiler.Pipeline.MetadataContext(resolver);
             var listing = Decompiler.MemberBodyProducer.Project(
-                type, typeDllPath, options.PdbPath, resolver, metadata).Output;
+                type, typeDllPath, options.PdbPath, resolver, metadata, options.RenderOptions).Output;
             if (listing is not null)
             {
                 view.MemberCode ??= new MemberCodeView();

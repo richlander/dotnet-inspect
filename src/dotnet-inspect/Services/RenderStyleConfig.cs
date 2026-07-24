@@ -28,9 +28,10 @@ internal sealed record RenderStyleResolution(
 /// vocabulary (so lines copy directly from a real <c>.editorconfig</c>);
 /// <c>#</c>/<c>;</c> comment lines and <c>[section]</c> headers are ignored, and
 /// an editorconfig <c>value:severity</c> suffix is tolerated (only the token
-/// before <c>:</c> is read). Unknown keys, malformed lines, invalid boolean
-/// values, and unreadable files are reported as warnings rather than failing the
-/// run.</para>
+/// before <c>:</c> is read). The editorconfig <c>root</c> key is recognized (see
+/// <see cref="Discover"/> for how it relates to the boundary). Unknown keys,
+/// malformed lines, invalid boolean values, and unreadable files are reported as
+/// warnings rather than failing the run.</para>
 /// </summary>
 internal static class RenderStyleConfig
 {
@@ -43,10 +44,20 @@ internal static class RenderStyleConfig
     private const string FieldKey = "dotnet_style_qualification_for_field";
     private const string PropertyKey = "dotnet_style_qualification_for_property";
 
+    // The editorconfig boundary marker. Discovery is nearest-wins, so the nearest
+    // file is already a hard boundary (nothing above it is read); 'root' is
+    // recognized so a file copied from a real .editorconfig does not warn, and it
+    // is the conventional way to declare that boundary explicitly.
+    private const string RootKey = "root";
+
     /// <summary>
     /// Walks up from <paramref name="startDirectory"/> to the filesystem root and
     /// returns the path of the nearest <see cref="FileName"/>, or null if none is
-    /// found. The nearest file wins; there is no cross-level merge.
+    /// found. The nearest file wins; there is no cross-level merge, so the nearest
+    /// file is a hard boundary — nothing above it is read. Placing a
+    /// <see cref="FileName"/> at a repository root (optionally with
+    /// <c>root = true</c>, editorconfig-style, to make the boundary explicit)
+    /// therefore isolates every nested run from configs higher up the tree.
     /// </summary>
     public static string? Discover(string startDirectory)
     {
@@ -154,6 +165,14 @@ internal static class RenderStyleConfig
                     if (TryParseBool(value, out var p))
                         qualifyProperty = p;
                     else
+                        Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
+                    break;
+                case RootKey:
+                    // editorconfig boundary marker. Discovery is nearest-wins, so
+                    // the nearest file is already a hard boundary; 'root' drives no
+                    // knob but is recognized (not an "unknown key") and its value is
+                    // still validated so a typo surfaces.
+                    if (!TryParseBool(value, out _))
                         Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
                     break;
                 default:
