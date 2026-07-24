@@ -53,15 +53,20 @@ internal static class ShortCircuitFidelity
     /// unconditionally.
     ///
     /// So the hazard is exactly a by-ref dereference that appears as a bare operand of the
-    /// flattened <paramref name="outerKind"/> chain: a bare <c>*r</c>, a <c>*r == true</c>
-    /// wrapper the fixpoint reduces back to a bare <c>*r</c>, or one under a same-kind
-    /// logical composition (<c>a &amp;&amp; *r</c>, <c>*r &amp;&amp; Call()</c> when
-    /// <paramref name="outerKind"/> is <c>And</c>) — including a same-kind chain itself
-    /// hidden under such a reducible wrapper (<c>(*r &amp;&amp; Call()) == true</c>), which
-    /// is why the peel runs BEFORE the same-kind flatten and recurses. It is NOT a hazard
+    /// flattened <paramref name="outerKind"/> chain: a bare <c>*r</c>, or one buried in a
+    /// same-kind logical chain that a call barrier keeps csc from collapsing
+    /// (<c>*r &amp;&amp; Call()</c> when <paramref name="outerKind"/> is <c>And</c>; a bare
+    /// <c>a &amp;&amp; *r</c> is lowered to bitwise <c>a &amp; *r</c> and stays foldable).
+    /// The reducible-bool-wrapper peel runs BEFORE the same-kind flatten and recurses, so a
+    /// by-ref buried in such a chain that is itself hidden under a leading <c>!</c>
+    /// (reachably <c>!(*r &amp;&amp; Call())</c>, which csc keeps branchful and
+    /// <c>ceq</c>-negates — conservatively declined for the same parity-agnostic reason as a
+    /// bare <c>!*r</c>) or a bool-constant comparison (<c>(*r &amp;&amp; Call()) == true</c>,
+    /// which csc itself constant-folds, so a defensive rather than csc-reachable case) is
+    /// still reached. It is NOT a hazard
     /// when the by-ref dereference is confined to a compound operand that keeps the branch:
     /// a bitwise composition (<c>a &amp; *r</c>), a different-kind logical sub-expression
-    /// (<c>*r || a</c> under an <c>And</c> lift), a comparison (<c>*r &gt; 0</c>), a by-ref
+    /// (<c>*r || Call()</c> under an <c>And</c> lift), a comparison (<c>*r &gt; 0</c>), a by-ref
     /// struct field (<c>r.b</c>), or a call argument (<c>SomeCall(*r)</c>) — all recompile
     /// with the guard intact and stay foldable. The shared, parity-agnostic
     /// <see cref="PeelReducibleBoolWrappers"/> also strips a leading <c>!</c> / <c>== false</c>,
@@ -73,11 +78,11 @@ internal static class ShortCircuitFidelity
     /// the branch and lifting it is safe.
     ///
     /// Verified against SDK-csc <c>/optimize</c> IL + a null-by-ref runtime probe: the
-    /// same-kind chain (<c>c &amp;&amp; a &amp;&amp; *r</c>), the by-ref-before-call
-    /// (<c>c &amp;&amp; *r &amp;&amp; Call()</c>), and the bare operand
+    /// by-ref-before-call same-kind chain (<c>c &amp;&amp; (*r &amp;&amp; Call())</c>,
+    /// flattening to <c>c &amp;&amp; *r &amp;&amp; Call()</c>) and the bare operand
     /// (<c>c &amp;&amp; *r</c>) each diverge from their guarded original (null-by-ref
-    /// throws), while the bitwise (<c>c &amp;&amp; (a &amp; *r)</c>), different-kind
-    /// (<c>c &amp;&amp; (*r || a)</c>), comparison (<c>c &amp;&amp; *r &gt; 0</c>), field
+    /// throws), while the bitwise (<c>c &amp;&amp; (a &amp; *r)</c>), different-kind logical
+    /// (<c>c &amp;&amp; (*r || Call())</c>), comparison (<c>c &amp;&amp; *r &gt; 0</c>), field
     /// (<c>c &amp;&amp; r.b</c>), and negation (<c>c &amp;&amp; !*r</c>) folds compile to
     /// byte-identical IL and do not throw.
     /// </summary>
