@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+    <WasmEnableExceptionHandling>false</WasmEnableExceptionHandling>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+    <ProjectReference Include="..\..\..\src\ILInspector.Decompiler\ILInspector.Decompiler.csproj" />
+    <ProjectReference Include="..\..\..\src\ILInspector.Analysis\ILInspector.Analysis.csproj" />
+    <ProjectReference Include="..\..\..\src\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
+    <Content Include="..\index.html" Link="wwwroot\index.html" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\src\app.js" Link="wwwroot\src\app.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\src\data.js" Link="wwwroot\src\data.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\src\styles.css" Link="wwwroot\src\styles.css" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="DisableRuntimeAsync" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <Features>runtime-async=off</Features>
+    </PropertyGroup>
+  </Target>
+</Project>

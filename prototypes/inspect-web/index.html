@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A type-first, keyboard-driven browser prototype for dotnet-inspect."
+    />
+    <title>System.Text.Json types — dotnet-inspect</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+    <link rel="preload" id="webassembly" />
+    <script type="importmap"></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/prismjs@1.30.0/components/prism-core.min.js"
+      integrity="sha384-zLRFO4dwowZvh8kzutOb5AWhH7f39HeJp+N7PtHF1SQtTBnifRx0AtmvTYs3F4YV"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/prismjs@1.30.0/components/prism-clike.min.js"
+      integrity="sha384-7LHwxHIDSHTBleLmgDWZbC/IMJsfYfFVOihKhvsrxYW4j47YQcRwZja4ToFE3bA8"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/prismjs@1.30.0/components/prism-csharp.min.js"
+      integrity="sha384-nMKYzg6yfy0qgpaRpVhHvZp0gT5sgvmZYlFC0XAKZSp+zFUB9rE6zsdmIEiou4bV"
+      crossorigin="anonymous"
+    ></script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      import("/src/app.js").catch(error => {
+        const app = document.querySelector("#app");
+        app.style.cssText =
+          "padding:24px;color:#e8e9e4;background:#10110f;font:14px/1.6 monospace;white-space:pre-wrap";
+        app.textContent = `Prototype startup failed\n\n${error?.stack || error}`;
+      });
+    </script>
+  </body>
+</html>

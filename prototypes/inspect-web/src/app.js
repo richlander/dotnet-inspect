@@ -1,0 +1,1142 @@
+import { lenses, rootCommands } from "./data.js";
+import { initializeEngine, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage } from "/engine.js";
+
+const state = {
+  packages: [],
+  package: null,
+  requestedPackage: "System.Text.Json",
+  requestedVersion: "10.0.0",
+  requestedFramework: "net10.0",
+  selectedTypeId: "",
+  selectedMemberKey: "",
+  selectedOverloadIndex: null,
+  memberSection: "overview",
+  memberSource: null,
+  memberSourceLoading: false,
+  memberSourceError: "",
+  memberCallGraph: null,
+  memberCallGraphLoading: false,
+  memberCallGraphError: "",
+  memberFacts: null,
+  memberFactsLoading: false,
+  memberFactsError: "",
+  memberDocumentationLoading: false,
+  memberDocumentationError: "",
+  lens: "api",
+  typeFilter: "",
+  namespaceFilter: "",
+  command: "",
+  completionIndex: 0,
+  promptOpen: false,
+  typeCursor: 0,
+  history: [],
+  loading: true,
+  loadingMessage: "Starting browser inspection engine…",
+  error: ""
+};
+
+const params = new URLSearchParams(location.search);
+const route = location.pathname.split("/").filter(Boolean);
+const packageAt = route.findIndex(part => part.toLowerCase() === "packages");
+const linkedPackage = packageAt >= 0 ? decodeURIComponent(route[packageAt + 1] || "") : params.get("package");
+const linkedVersion = packageAt >= 0 ? decodeURIComponent(route[packageAt + 2] || "") : params.get("version");
+const linkedType = params.get("type");
+const linkedFramework = params.get("framework");
+
+if (linkedPackage) {
+  state.requestedPackage = linkedPackage;
+  state.requestedVersion = linkedVersion || "latest";
+}
+if (linkedFramework) state.requestedFramework = linkedFramework;
+if (location.hash && lenses.some(([id]) => id === location.hash.slice(1))) {
+  state.lens = location.hash.slice(1);
+}
+
+const app = document.querySelector("#app");
+let mermaidModule;
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function selectedType() {
+  if (!state.package) return null;
+  return state.package.types.find(item => item.id === state.selectedTypeId) || filteredTypes()[0] || state.package.types[0];
+}
+
+function filteredTypes() {
+  if (!state.package) return [];
+  const needle = state.typeFilter.toLowerCase();
+  return state.package.types.filter(item => {
+    const matchesText = !needle || `${item.name} ${item.namespace} ${item.kind}`.toLowerCase().includes(needle);
+    return matchesText && (!state.namespaceFilter || item.namespace === state.namespaceFilter);
+  });
+}
+
+function namespaces() {
+  if (!state.package) return [];
+  return [...new Set(state.package.types.map(item => item.namespace))];
+}
+
+function typeGroups() {
+  const groups = new Map();
+  for (const item of filteredTypes()) {
+    if (!groups.has(item.namespace)) groups.set(item.namespace, []);
+    groups.get(item.namespace).push(item);
+  }
+  return groups;
+}
+
+function memberGroups(type) {
+  const groups = new Map();
+  for (const member of type.api ?? []) {
+    const key = `${member.kind}:${member.name}`;
+    if (!groups.has(key)) groups.set(key, { key, name: member.name, kind: member.kind, overloads: [] });
+    groups.get(key).overloads.push(member);
+  }
+  return [...groups.values()];
+}
+
+function selectedMember(type) {
+  return memberGroups(type).find(group => group.key === state.selectedMemberKey);
+}
+
+function parameterTitle(parameters) {
+  if (!parameters.length) return "()";
+  return `(${parameters.map(parameter => parameter.type.split(".").at(-1)).join(", ")})`;
+}
+
+function completions() {
+  const input = state.command.trimStart();
+  const tokens = input.split(/\s+/).filter(Boolean);
+  let entries;
+
+  if (!tokens.length) {
+    entries = rootCommands.map(([value, hint]) => ({ value, hint, kind: "command" }));
+  } else if (tokens[0] === "type") {
+    entries = state.package.types.map(item => ({
+      value: item.name,
+      hint: item.namespace,
+      kind: item.kind
+    }));
+  } else if (tokens[0] === "show") {
+    entries = lenses.map(([value, label]) => ({ value, hint: `${label} lens`, kind: "lens" }));
+  } else if (tokens[0] === "framework") {
+    entries = state.package.frameworks.map(value => ({ value, hint: "compile assets", kind: "framework" }));
+  } else if (tokens[0] === "types") {
+    entries = [
+      { value: "public", hint: "public surface (default)", kind: "filter" },
+      { value: "namespace", hint: "filter to a namespace", kind: "filter" },
+      { value: "kind", hint: "filter by class, struct, interface, or enum", kind: "filter" }
+    ];
+  } else {
+    entries = rootCommands.map(([value, hint]) => ({ value, hint, kind: "command" }));
+  }
+
+  if (input.endsWith(" ")) return entries.slice(0, 8);
+  const needle = tokens.at(-1)?.toLowerCase() || "";
+  return entries.filter(entry => entry.value.toLowerCase().includes(needle)).slice(0, 8);
+}
+
+function render() {
+  if (state.loading || state.error || !state.package) {
+    renderLoading();
+    return;
+  }
+  const current = selectedType();
+  const visible = filteredTypes();
+  state.typeCursor = Math.min(state.typeCursor, Math.max(visible.length - 1, 0));
+  const suggestions = completions();
+  state.completionIndex = Math.min(state.completionIndex, Math.max(suggestions.length - 1, 0));
+
+  app.innerHTML = `
+    <div class="workbench">
+      <header class="titlebar">
+        <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
+        <div class="package-tabs" role="tablist" aria-label="Package scope">
+          ${state.packages.map(item => `
+            <button class="package-tab ${item.id === state.package.id ? "active" : ""}" data-package="${escapeHtml(item.id)}" role="tab">
+              <span class="package-cube">⬡</span>
+              <span>${escapeHtml(item.id)}</span>
+              <small>${escapeHtml(item.version)}</small>
+              ${item.id === state.package.id ? '<span class="tab-close">×</span>' : ""}
+            </button>`).join("")}
+        </div>
+        <form class="package-query" id="package-query">
+          <span>+</span>
+          <input id="package-query-input" placeholder="Package or Package@version" aria-label="Open NuGet package" autocomplete="off" spellcheck="false" />
+          <button>open</button>
+        </form>
+        <div class="title-actions">
+          <button id="share">share</button>
+          <button id="help" aria-label="Keyboard help">?</button>
+        </div>
+      </header>
+
+      <section class="scopebar">
+        <div class="package-title">
+          <span class="scope-kicker">package</span>
+          <strong>${escapeHtml(state.package.id)}</strong>
+          <span>${escapeHtml(state.package.version)}</span>
+        </div>
+        <label class="framework-select">
+          <span>framework</span>
+          <select id="framework">
+            ${state.package.frameworks.map(item => `<option ${item === state.package.activeFramework ? "selected" : ""}>${item}</option>`).join("")}
+          </select>
+        </label>
+        <div class="asset-path">compile / lib/${escapeHtml(state.package.activeFramework)} / ${escapeHtml(state.package.assembly)}</div>
+        <div class="scope-stats">
+          <span><strong>${state.package.totalTypes}</strong> types</span>
+          <span><strong>${state.package.totalMembers.toLocaleString()}</strong> members</span>
+        </div>
+      </section>
+
+      <nav class="lensbar" aria-label="Inspection lenses">
+        <button class="home-lens active-static"><span>⌘</span> Types</button>
+        <span class="lens-separator"></span>
+        ${lenses.map(([id, label], index) => `
+          <button class="lens ${state.lens === id ? "active" : ""}" data-lens="${id}">
+            ${escapeHtml(label)}<kbd>${index + 1}</kbd>
+          </button>`).join("")}
+      </nav>
+
+      <main class="workspace">
+        <aside class="type-browser" aria-label="Public types">
+          <div class="browser-head">
+            <div>
+              <span class="pane-label">PUBLIC TYPES</span>
+              <span class="result-count">${visible.length} shown</span>
+            </div>
+            <button class="tiny-button" id="clear-filter" title="Clear filter">×</button>
+          </div>
+          <label class="type-search">
+            <span>/</span>
+            <input id="type-filter" value="${escapeHtml(state.typeFilter)}" placeholder="Filter types" autocomplete="off" spellcheck="false" />
+            <kbd>⌘F</kbd>
+          </label>
+          <div class="namespace-chips" aria-label="Namespace filters">
+            <button class="${!state.namespaceFilter ? "active" : ""}" data-namespace="">all</button>
+            ${namespaces().map(item => `<button class="${state.namespaceFilter === item ? "active" : ""}" data-namespace="${escapeHtml(item)}" title="${escapeHtml(item)}">${escapeHtml(item.split(".").at(-1))}</button>`).join("")}
+          </div>
+          <div class="type-list" role="listbox" tabindex="0" id="type-list">
+            ${[...typeGroups()].map(([namespace, types]) => `
+              <section class="type-group">
+                <button class="namespace-row" data-namespace="${escapeHtml(namespace)}">
+                  <span class="chevron">⌄</span>
+                  <span>${escapeHtml(namespace)}</span>
+                  <small>${types.length}</small>
+                </button>
+                ${types.map(item => {
+                  const selected = item.id === current.id;
+                  return `<button class="type-row ${selected ? "selected" : ""}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
+                    <span class="kind-icon">${kindIcon(item.kind)}</span>
+                    <span class="type-name">${escapeHtml(item.name)}</span>
+                    <small>${escapeHtml(shortKind(item.kind))}</small>
+                  </button>`;
+                }).join("")}
+              </section>`).join("") || '<div class="empty-list">No public types match this filter.</div>'}
+          </div>
+          <footer class="pane-footer"><span>↑↓ navigate</span><span>enter open</span><span>/ filter</span></footer>
+        </aside>
+
+        <section class="detail-pane">
+          <header class="detail-head">
+            <div class="breadcrumbs">
+              <span>${escapeHtml(state.package.id)}</span><b>/</b><span>${escapeHtml(current.namespace)}</span><b>/</b><strong>${escapeHtml(current.name)}</strong>
+              ${state.selectedMemberKey ? `<b>/</b><strong>${escapeHtml(selectedMember(current)?.name ?? "")}</strong>` : ""}
+            </div>
+            <div class="detail-actions"><button>copy name</button><button>⋯</button></div>
+          </header>
+          <article class="detail-scroll">
+            ${renderLens(current)}
+          </article>
+          <footer class="statusbar">
+            <span class="ready-dot"></span><span>browser wasm ready</span>
+          <span class="status-spacer"></span>
+          <span>${escapeHtml(current.assembly)}</span>
+          <span>${escapeHtml(state.package.activeFramework)}</span>
+          <span>public API surface</span>
+          </footer>
+        </section>
+      </main>
+
+      <section class="command-area">
+        <div class="command-panel ${state.promptOpen ? "open" : ""}">
+          <div class="suggestions" role="listbox">
+            ${suggestions.map((item, index) => `
+              <button class="suggestion ${index === state.completionIndex ? "selected" : ""}" data-completion="${escapeHtml(item.value)}">
+                <strong>${escapeHtml(item.value)}</strong><span>${escapeHtml(item.hint)}</span><small>${escapeHtml(item.kind)}</small>
+              </button>`).join("")}
+            <div class="suggestion-help"><span>↑↓ select</span><span>tab complete</span><span>enter run</span><span>esc dismiss</span></div>
+          </div>
+          <div class="command-line">
+            <span class="command-scope">${escapeHtml(state.package.id)}:${escapeHtml(state.package.activeFramework)}</span>
+            <span class="prompt">›</span>
+            <input id="command" value="${escapeHtml(state.command)}" placeholder="type a command…  try “type JsonSerializer”" autocomplete="off" spellcheck="false" />
+            <kbd>⌘K</kbd>
+          </div>
+        </div>
+      </section>
+    </div>`;
+
+  bindEvents();
+}
+
+function renderLens(item) {
+  const member = selectedMember(item);
+  if (state.lens === "api" && member) return renderMember(item, member);
+  if (state.lens === "source") {
+    return `
+      ${typeHeading(item)}
+      <section class="document-section empty-document"><span class="large-glyph">⌁</span><h2>Source not acquired</h2><p>The current query requests the public API facet only. SourceLink acquisition will be an explicit follow-up query.</p></section>`;
+  }
+  if (state.lens === "metadata") {
+    return `${typeHeading(item)}
+      <section class="document-section">
+        <div class="section-title"><h2>Type definition</h2><span>ECMA-335 metadata</span></div>
+        ${factRows([
+          ["Signature", item.signature],
+          ["Kind", item.kind],
+          ["Accessibility", item.accessibility],
+          ["Namespace", item.namespace],
+          ["Assembly", item.assembly],
+          ["Declared public members", String(item.members)]
+        ])}
+      </section>`;
+  }
+  if (state.lens === "findings") {
+    return `${typeHeading(item)}
+      <section class="document-section empty-document"><span class="large-glyph">△</span><h2>Findings not queried</h2><p>Analysis remains an explicit facet and has not run for this package session.</p></section>`;
+  }
+  if (state.lens === "dependencies") {
+    return `${typeHeading(item)}
+      <section class="document-section empty-document"><span class="large-glyph">⌘</span><h2>Dependencies not queried</h2><p>Type relationship analysis is outside the current public API query.</p></section>`;
+  }
+  if (state.lens === "il") {
+    return `${typeHeading(item)}
+      <section class="document-section empty-document"><span class="large-glyph">λ</span><h2>Select a method to inspect IL</h2><p>Choose a member from the API surface or run <code>member Deserialize show il</code>.</p></section>`;
+  }
+  const groups = memberGroups(item);
+  return `
+    ${typeHeading(item)}
+    <section class="document-section">
+      <div class="section-title"><h2>Public API</h2><span>${groups.length} member groups · ${item.members} overloads</span></div>
+      <div class="member-filter"><button class="active">all</button><button>methods</button><button>properties</button><button>fields</button><span></span><button>declared only</button></div>
+      <div class="api-list">${groups.map(group => `
+        <button class="api-row" data-member="${escapeHtml(group.key)}">
+          <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
+          <code>${highlight(group.overloads[0].signature)}</code>
+          <small>${group.overloads.length === 1 ? escapeHtml(group.kind) : `${group.overloads.length} overloads`}</small>
+        </button>`).join("") || '<div class="empty-list">No declared public members.</div>'}</div>
+    </section>`;
+}
+
+function renderMember(type, member) {
+  if (member.overloads.length > 1 && state.selectedOverloadIndex == null) {
+    return `
+      <button class="member-back" id="member-back">← ${escapeHtml(type.name)}</button>
+      <section class="overload-picker">
+        <p class="eyebrow">${escapeHtml(member.kind)} group</p>
+        <h1>${escapeHtml(member.name)}</h1>
+        <p>Choose a specific overload to inspect.</p>
+        <div class="api-list">
+          ${member.overloads.map((overload, index) => `
+            <button class="api-row overload-row" data-overload="${index}">
+              <span class="member-icon">${index + 1}</span>
+              <code>${highlight(overload.signature)}</code>
+              <small>open →</small>
+            </button>`).join("")}
+        </div>
+      </section>`;
+  }
+  const sections = [
+    ["overview", "Overview"],
+    ["call-graph", "Call graph"],
+    ["facts", "Facts"],
+    ["source", "Source"]
+  ];
+  const overloadIndex = state.selectedOverloadIndex ?? 0;
+  const overload = member.overloads[overloadIndex];
+  let content;
+  if (state.memberSection === "overview") {
+    const pageKind = member.kind === "constructor" ? "Constructor" : `${member.kind.slice(0, 1).toUpperCase()}${member.kind.slice(1)}`;
+    const parameters = overload.parameters ?? [];
+    content = `
+      <article class="learn-overview">
+        <header class="learn-title">
+          <p>${escapeHtml(type.namespace)}</p>
+          <h1>${escapeHtml(type.name)}.${escapeHtml(member.name)}${parameterTitle(parameters)} ${escapeHtml(pageKind)}</h1>
+          <span>${escapeHtml(state.package.id)} · ${escapeHtml(state.package.activeFramework)}</span>
+        </header>
+        <section class="learn-section definition-section">
+          <dl class="definition-list">
+            <div><dt>Namespace:</dt><dd>${escapeHtml(type.namespace || "global")}</dd></div>
+            <div><dt>Assembly:</dt><dd>${escapeHtml(type.assembly)}</dd></div>
+            <div><dt>Package:</dt><dd>${escapeHtml(state.package.id)} v${escapeHtml(state.package.version)}</dd></div>
+          </dl>
+          ${state.memberDocumentationLoading
+            ? '<p class="docs-loading">Loading package documentation…</p>'
+            : state.memberDocumentationError
+              ? `<p class="docs-unavailable">Documentation query failed: ${escapeHtml(state.memberDocumentationError)}</p>`
+            : overload.summary
+              ? `<p class="api-summary">${escapeHtml(overload.summary)}</p>`
+              : '<p class="docs-unavailable">No summary was found in the package XML documentation.</p>'}
+          <div class="signature-panel">
+            <div class="signature-language"><span>C#</span><small>declaration</small><button id="copy-signature" type="button">copy</button></div>
+            <pre class="language-csharp signature-code"><code class="language-csharp">${highlightCSharp(overload.signature)}</code></pre>
+          </div>
+          <section class="member-identity" aria-labelledby="member-identity-title">
+            <div class="identity-heading"><h2 id="member-identity-title">Identity</h2><span>stable across builds</span></div>
+            <dl>
+              <div><dt>Stable selector</dt><dd><code>${escapeHtml(overload.stableSelector)}</code><button type="button" data-copy-anchor="selector">copy</button></dd></div>
+              <div><dt>Digest</dt><dd><code>${escapeHtml(overload.anchorDigest)}</code><button type="button" data-copy-anchor="digest">copy</button></dd></div>
+              <div class="canonical-identity"><dt>Canonical signature</dt><dd><code>${escapeHtml(overload.canonicalSignature)}</code><button type="button" data-copy-anchor="canonical">copy</button></dd></div>
+            </dl>
+            <p>Derived from the canonical signature; suitable for selecting this overload across builds.</p>
+          </section>
+        </section>
+        ${parameters.length ? `<section class="learn-section">
+          <h2>Parameters</h2>
+          <dl class="parameter-docs">${parameters.map(parameter => `
+            <div>
+              <dt><code>${escapeHtml(parameter.name)}</code></dt>
+              <dd><a>${escapeHtml([parameter.modifier, parameter.type].filter(Boolean).join(" "))}</a>${parameter.hasDefault ? `<span>Default: <code>${escapeHtml(parameter.defaultValue ?? "default")}</code></span>` : ""}<p>${escapeHtml(state.memberDocumentationLoading ? "Loading documentation…" : parameter.description || "No parameter documentation was found in the package XML documentation.")}</p></dd>
+            </div>`).join("")}</dl>
+        </section>` : ""}
+        ${overload.returns ? `<section class="learn-section"><h2>Returns</h2><p class="api-summary">${escapeHtml(overload.returns)}</p></section>` : ""}
+        <section class="learn-section">
+          <h2>Exceptions</h2>
+          ${state.memberDocumentationLoading
+            ? '<p class="docs-loading">Loading documented exceptions…</p>'
+            : (overload.exceptions ?? []).length
+            ? `<dl class="exception-docs">${overload.exceptions.map(exception => `<div><dt>${escapeHtml(exception.type)}</dt><dd>${escapeHtml(exception.description)}</dd></div>`).join("")}</dl>`
+            : '<p class="docs-unavailable">No exceptions are documented for this overload.</p>'}
+        </section>
+        <section class="learn-section applies-to">
+          <h2>Applies to</h2>
+          <span>${escapeHtml(state.package.activeFramework)}</span>
+        </section>
+      </article>
+    `;
+  } else if (state.memberSection === "call-graph") {
+    const callers = state.memberCallGraph?.callers?.children ?? [];
+    const callees = state.memberCallGraph?.callees?.children ?? [];
+    content = state.memberCallGraphLoading
+      ? `<section class="document-section source-progress"><span class="loader"></span><h2>Building call graph…</h2><p>Scanning implementation IL for direct callers of this overload.</p></section>`
+      : state.memberCallGraph
+        ? `<section class="document-section call-graph-section">
+            <div class="section-title"><h2>Call graph</h2><span>${callers.length} callers · ${callees.length} callees</span></div>
+            <div id="call-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
+            <details class="graph-source"><summary>Mermaid source</summary><pre><code>${escapeHtml(state.memberCallGraph.mermaid)}</code></pre></details>
+          </section>`
+        : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(state.memberCallGraphError || "No call graph result was returned.")}</p></section>`;
+  } else if (state.memberSection === "facts") {
+    content = renderMemberFacts(type, member, overload, overloadIndex);
+  } else {
+    content = state.memberSourceLoading
+      ? `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`
+      : state.memberSource
+        ? `<section class="document-section source-result">
+            <div class="source-provenance"><strong>${state.memberSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.memberSource.provenance)}</span>${state.memberSource.url ? `<a href="${escapeHtml(state.memberSource.url)}" target="_blank" rel="noreferrer">open source ↗</a>` : ""}<button id="copy-source" type="button">copy</button></div>
+            <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.memberSource.text)}</code></pre>
+          </section>`
+        : `<section class="document-section empty-member-section"><h2>Source query failed</h2><p>${escapeHtml(state.memberSourceError || "No source result was returned.")}</p></section>`;
+  }
+  return `
+    <button class="member-back" id="member-back">← ${member.overloads.length > 1 ? `${escapeHtml(member.name)} overloads` : escapeHtml(type.name)}</button>
+    <nav class="member-sections" aria-label="Member details">
+      ${sections.map(([id, label]) => `<button class="${state.memberSection === id ? "active" : ""}" data-member-section="${id}">${label}</button>`).join("")}
+    </nav>
+    ${content}`;
+}
+
+function renderMemberFacts(type, member, overload, overloadIndex) {
+  if (state.memberFactsLoading) {
+    return `<section class="document-section source-progress"><span class="loader"></span><h2>Analyzing method…</h2><p>Decoding the selected overload and deriving method evidence and performance opportunities.</p></section>`;
+  }
+  if (!state.memberFacts) {
+    return `<section class="document-section empty-member-section"><h2>Facts query failed</h2><p>${escapeHtml(state.memberFactsError || "No facts result was returned.")}</p></section>`;
+  }
+
+  const facts = state.memberFacts;
+  const signals = facts.signals;
+  return `
+    <section class="document-section facts-section">
+      <div class="section-title"><h2>Method facts</h2><span>selected overload</span></div>
+      ${factRows([
+        ["Overload", `${overloadIndex + 1} of ${member.overloads.length}`],
+        ["Kind", overload.kind],
+        ["Metadata token", overload.metadataToken == null ? "not exposed" : `0x${overload.metadataToken.toString(16).padStart(8, "0")}`],
+        ["Declaring type", type.id],
+        ["Allocations", String(signals.allocations)],
+        ["Calls", String(facts.calls.length)],
+        ["Copies", String(signals.copies)],
+        ["Reflection calls", String(signals.reflection)],
+        ["Throws / catches / finally", `${signals.throws} / ${signals.catches} / ${signals.finallys}`],
+        ["Unsafe", signals.unsafe ? "yes" : "no"],
+        ["Allocates in loop", signals.allocatesInLoop ? "yes" : "no"],
+        ["Evidence", signals.evidenceOffsets.length ? signals.evidenceOffsets.join(", ") : "none"]
+      ])}
+    </section>
+    ${renderFactTable("Allocation facts", facts.allocations, [
+      ["IL", "offset"], ["Kind", "kind"], ["Type", "type"], ["Multiplicity", "multiplicity"],
+      ["Path", "path"], ["Escape", "escape"], ["Loop", row => row.inLoop ? "yes" : ""],
+      ["Size", row => row.estimatedSizeBytes == null ? "" : `${row.estimatedSizeBytes} B`]
+    ], "No heap-allocation occurrences were found in this method.")}
+    ${renderFactTable("Calls", facts.calls, [
+      ["IL", "offset"], ["Opcode", "opcode"], ["Callee", "callee"],
+      ["Multiplicity", "multiplicity"], ["Loop", row => row.inLoop ? "yes" : ""],
+      ["Target", row => row.exactTarget ? "exact" : "open"]
+    ], "No direct call sites were found in this method.")}
+    ${renderFactTable("Safety facts", facts.safety, [
+      ["IL", row => row.offset || ""], ["Kind", "kind"], ["Evidence", "detail"]
+    ], "No unsafe operations or declaration evidence were found.")}
+    ${renderFactTable("Exception regions", facts.exceptionRegions, [
+      ["Region", "region"], ["Clause", "clause"], ["Try", "tryRange"],
+      ["Handler", "handlerRange"], ["Filter", row => row.filterRange || ""],
+      ["Caught type", row => row.caughtType || ""]
+    ], "No exception regions were found in this method.")}
+    <section class="document-section performance-facts">
+      <div class="section-title"><h2>Performance opportunities</h2><span>ranked judgments · ${facts.performanceOpportunities.length}</span></div>
+      ${facts.performanceOpportunities.length
+        ? facts.performanceOpportunities.map(opportunity => `
+          <article class="performance-opportunity">
+            <div><strong>${escapeHtml(opportunity.shape)}</strong><span class="confidence ${escapeHtml(opportunity.confidence)}">${escapeHtml(opportunity.confidence)}</span>${opportunity.offset ? `<code>${escapeHtml(opportunity.offset)}</code>` : ""}</div>
+            <p>${escapeHtml(opportunity.evidence)}</p>
+            <dl><dt>Possible direction</dt><dd>${escapeHtml(opportunity.fix)}</dd>${opportunity.caveat ? `<dt>Caveat</dt><dd>${escapeHtml(opportunity.caveat)}</dd>` : ""}<dt>Provenance</dt><dd>${escapeHtml([opportunity.provenance, opportunity.finding].filter(Boolean).join(" · "))}</dd></dl>
+          </article>`).join("")
+        : '<div class="empty-fact-group">No curated performance opportunities were found for this method.</div>'}
+    </section>`;
+}
+
+function renderFactTable(title, rows, columns, emptyText) {
+  return `<section class="document-section fact-group">
+    <div class="section-title"><h2>${escapeHtml(title)}</h2><span>${rows.length}</span></div>
+    ${rows.length
+      ? `<div class="fact-table" style="--fact-columns:${columns.length}">${columns.map(([label]) => `<strong>${escapeHtml(label)}</strong>`).join("")}${rows.map(row => columns.map(([, field]) => {
+          const value = typeof field === "function" ? field(row) : row[field];
+          return `<code>${escapeHtml(value ?? "")}</code>`;
+        }).join("")).join("")}</div>`
+      : `<div class="empty-fact-group">${escapeHtml(emptyText)}</div>`}
+  </section>`;
+}
+
+function typeHeading(item) {
+  return `<header class="type-heading">
+    <div class="type-badge">${kindIcon(item.kind)}</div>
+    <div>
+      <div class="type-namespace">${escapeHtml(item.namespace)}</div>
+      <h1>${escapeHtml(item.name)}</h1>
+      <code class="type-signature">${highlight(item.signature)}</code>
+    </div>
+    <div class="type-metrics"><span><strong>${item.members}</strong> members</span><span><strong>public</strong> accessibility</span></div>
+    <p>Public type exposed by <code>${escapeHtml(item.assembly)}</code> for <code>${escapeHtml(state.package.activeFramework)}</code>.</p>
+  </header>`;
+}
+
+function factRows(rows) {
+  return `<dl class="fact-rows">${rows.map(([key, value]) => `<div><dt>${escapeHtml(key)}</dt><dd><code>${escapeHtml(value)}</code></dd></div>`).join("")}</dl>`;
+}
+
+function kindIcon(kind) {
+  if (kind.includes("struct")) return "S";
+  if (kind === "enum") return "E";
+  if (kind.includes("interface")) return "I";
+  return "C";
+}
+
+function shortKind(kind) {
+  return kind.replace("sealed ", "").replace("abstract ", "").replace("static ", "").replace("readonly ", "");
+}
+
+function highlight(value) {
+  return escapeHtml(value)
+    .replace(/\b(public|static|class|abstract|sealed|readonly|struct|return|if|is|new|default)\b/g, '<span class="kw">$1</span>')
+    .replace(/\b(string|object|void|Type|Stream|Task|ValueTask|CancellationToken|TValue)\b/g, '<span class="primitive">$1</span>');
+}
+
+function highlightCSharp(value) {
+  if (globalThis.Prism?.languages?.csharp) {
+    return globalThis.Prism.highlight(String(value), globalThis.Prism.languages.csharp, "csharp");
+  }
+  return escapeHtml(value);
+}
+
+function bindEvents() {
+  document.querySelectorAll("[data-package]").forEach(button => button.addEventListener("click", () => {
+    state.package = state.packages.find(item => item.id === button.dataset.package);
+    state.selectedTypeId = state.package.types[0].id;
+    state.selectedMemberKey = "";
+    state.typeFilter = "";
+    state.namespaceFilter = "";
+    render();
+  }));
+  document.querySelectorAll("[data-lens]").forEach(button => button.addEventListener("click", () => {
+    state.lens = button.dataset.lens;
+    state.selectedMemberKey = "";
+    render();
+  }));
+  document.querySelectorAll("[data-type]").forEach(button => button.addEventListener("click", () => {
+    state.selectedTypeId = button.dataset.type;
+    state.selectedMemberKey = "";
+    state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
+    render();
+  }));
+  document.querySelectorAll("[data-member]").forEach(button => button.addEventListener("click", () => {
+    state.selectedMemberKey = button.dataset.member;
+    state.selectedOverloadIndex = null;
+    state.memberSection = "overview";
+    state.memberSource = null;
+    state.memberSourceError = "";
+    state.memberCallGraph = null;
+    state.memberCallGraphError = "";
+    state.memberFacts = null;
+    state.memberFactsError = "";
+    loadSelectedMemberDocumentation();
+  }));
+  document.querySelectorAll("[data-overload]").forEach(button => button.addEventListener("click", () => {
+    state.selectedOverloadIndex = Number(button.dataset.overload);
+    state.memberSection = "overview";
+    state.memberSource = null;
+    state.memberSourceError = "";
+    state.memberCallGraph = null;
+    state.memberCallGraphError = "";
+    state.memberFacts = null;
+    state.memberFactsError = "";
+    loadSelectedMemberDocumentation();
+  }));
+  document.querySelectorAll("[data-member-section]").forEach(button => button.addEventListener("click", () => {
+    state.memberSection = button.dataset.memberSection;
+    if (state.memberSection === "source") loadSelectedMemberSource();
+    else if (state.memberSection === "call-graph") loadSelectedMemberCallGraph();
+    else if (state.memberSection === "facts") loadSelectedMemberFacts();
+    else if (state.memberSection === "overview") loadSelectedMemberDocumentation();
+    else render();
+  }));
+  document.querySelector("#member-back")?.addEventListener("click", () => {
+    const member = selectedMember(selectedType());
+    if (member?.overloads.length > 1 && state.selectedOverloadIndex != null) {
+      state.selectedOverloadIndex = null;
+    } else {
+      state.selectedMemberKey = "";
+    }
+    render();
+  });
+  document.querySelector("#copy-signature")?.addEventListener("click", async () => {
+    const type = selectedType();
+    const member = selectedMember(type);
+    const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+    if (overload) await copyText(overload.signature, "signature copied");
+  });
+  document.querySelectorAll("[data-copy-anchor]").forEach(button => button.addEventListener("click", async () => {
+    const type = selectedType();
+    const member = selectedMember(type);
+    const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+    const values = {
+      selector: overload?.stableSelector,
+      digest: overload?.anchorDigest,
+      canonical: overload?.canonicalSignature
+    };
+    const value = values[button.dataset.copyAnchor];
+    if (value) await copyText(value, `${button.dataset.copyAnchor} copied`);
+  }));
+  document.querySelector("#copy-source")?.addEventListener("click", async () => {
+    if (state.memberSource) await copyText(state.memberSource.text, "source copied");
+  });
+  document.querySelectorAll("[data-namespace]").forEach(button => button.addEventListener("click", () => {
+    state.namespaceFilter = button.dataset.namespace;
+    state.typeCursor = 0;
+    const first = filteredTypes()[0];
+    if (first) state.selectedTypeId = first.id;
+    state.selectedMemberKey = "";
+    render();
+  }));
+  document.querySelectorAll("[data-completion]").forEach(button => button.addEventListener("mousedown", event => {
+    event.preventDefault();
+    applyCompletion(button.dataset.completion);
+  }));
+
+  document.querySelector("#framework").addEventListener("change", event => {
+    loadPackage(state.package.id, state.package.version, event.target.value);
+  });
+  const filter = document.querySelector("#type-filter");
+  filter.addEventListener("input", event => {
+    state.typeFilter = event.target.value;
+    state.typeCursor = 0;
+    const first = filteredTypes()[0];
+    if (first) state.selectedTypeId = first.id;
+    state.selectedMemberKey = "";
+    render();
+    focusFilter();
+  });
+  filter.addEventListener("keydown", event => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      document.querySelector("#type-list").focus();
+    } else if (event.key === "Escape") {
+      state.typeFilter = "";
+      render();
+    }
+  });
+  document.querySelector("#type-list").addEventListener("keydown", handleTypeKeys);
+  document.querySelector("#clear-filter").addEventListener("click", () => {
+    state.typeFilter = "";
+    state.namespaceFilter = "";
+    render();
+    focusFilter();
+  });
+
+  const command = document.querySelector("#command");
+  command.addEventListener("focus", () => {
+    state.promptOpen = true;
+    document.querySelector(".command-panel").classList.add("open");
+  });
+  command.addEventListener("input", event => {
+    state.command = event.target.value;
+    state.promptOpen = true;
+    state.completionIndex = 0;
+    render();
+    focusCommand();
+  });
+  command.addEventListener("keydown", handleCommandKeys);
+  document.querySelector("#package-query").addEventListener("submit", event => {
+    event.preventDefault();
+    const value = document.querySelector("#package-query-input").value.trim();
+    const separator = value.lastIndexOf("@");
+    if (!value || separator === value.length - 1) {
+      showToast("enter a package, optionally followed by @version");
+      return;
+    }
+    const packageId = separator > 0 ? value.slice(0, separator) : value;
+    const version = separator > 0 ? value.slice(separator + 1) : "latest";
+    loadPackage(packageId, version, "");
+  });
+  document.querySelector("#share").addEventListener("click", share);
+  document.querySelector("#help").addEventListener("click", () => showToast("⌘K command · ⌘F filter · 1—6 lenses · ↑↓ types"));
+}
+
+function handleTypeKeys(event) {
+  const items = filteredTypes();
+  if (!items.length) return;
+  if (event.key === "ArrowDown" || event.key === "j") {
+    event.preventDefault();
+    state.typeCursor = Math.min(items.length - 1, state.typeCursor + 1);
+  } else if (event.key === "ArrowUp" || event.key === "k") {
+    event.preventDefault();
+    state.typeCursor = Math.max(0, state.typeCursor - 1);
+  } else if (event.key === "Home") {
+    state.typeCursor = 0;
+  } else if (event.key === "End") {
+    state.typeCursor = items.length - 1;
+  } else if (event.key === "/") {
+    event.preventDefault();
+    focusFilter();
+    return;
+  } else {
+    return;
+  }
+  state.selectedTypeId = items[state.typeCursor].id;
+  state.selectedMemberKey = "";
+  render();
+  requestAnimationFrame(() => {
+    document.querySelector("#type-list").focus();
+    document.querySelector(`[data-type="${CSS.escape(state.selectedTypeId)}"]`)?.scrollIntoView({ block: "nearest" });
+  });
+}
+
+function handleCommandKeys(event) {
+  const items = completions();
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    state.completionIndex = (state.completionIndex + 1) % Math.max(1, items.length);
+    render();
+    focusCommand();
+  } else if (event.key === "ArrowUp") {
+    event.preventDefault();
+    state.completionIndex = (state.completionIndex - 1 + Math.max(1, items.length)) % Math.max(1, items.length);
+    render();
+    focusCommand();
+  } else if (event.key === "Tab" && items.length) {
+    event.preventDefault();
+    applyCompletion(items[state.completionIndex].value);
+  } else if (event.key === "Enter") {
+    event.preventDefault();
+    executeCommand();
+  } else if (event.key === "Escape") {
+    state.promptOpen = false;
+    state.command = "";
+    render();
+    document.querySelector("#type-list").focus();
+  }
+}
+
+function applyCompletion(value) {
+  const tokens = state.command.trim().split(/\s+/).filter(Boolean);
+  if (!tokens.length) state.command = `${value} `;
+  else if (state.command.endsWith(" ")) state.command += `${value} `;
+  else {
+    tokens[tokens.length - 1] = value;
+    state.command = `${tokens.join(" ")} `;
+  }
+  state.completionIndex = 0;
+  state.promptOpen = true;
+  render();
+  focusCommand();
+}
+
+function executeCommand() {
+  const value = state.command.trim();
+  if (!value) return;
+  const [verb, ...rest] = value.split(/\s+/);
+  const argument = rest.join(" ");
+  if (verb === "type") {
+    const match = state.package.types.find(item => item.name.toLowerCase() === argument.toLowerCase())
+      || state.package.types.find(item => item.name.toLowerCase().includes(argument.toLowerCase()));
+    if (match) {
+      state.selectedTypeId = match.id;
+      state.selectedMemberKey = "";
+    }
+  } else if (verb === "show") {
+    const match = lenses.find(([id, label]) => id === argument.toLowerCase() || label.toLowerCase() === argument.toLowerCase());
+    if (match) state.lens = match[0];
+  } else if (verb === "framework" && state.package.frameworks.includes(argument)) {
+    loadPackage(state.package.id, state.package.version, argument);
+  } else if (verb === "package") {
+    const [id, version = "latest"] = argument.split("@");
+    if (id) loadPackage(id, version, "");
+  } else if (verb === "clear") {
+    state.typeFilter = "";
+    state.namespaceFilter = "";
+  } else if (verb === "find" || verb === "types") {
+    state.typeFilter = argument.replace(/^public\s*/, "");
+  } else if (verb === "share") {
+    share();
+  }
+  state.history = [value, ...state.history.filter(item => item !== value)].slice(0, 5);
+  state.command = "";
+  state.promptOpen = false;
+  render();
+}
+
+function openCommand(value = "") {
+  state.command = value;
+  state.promptOpen = true;
+  render();
+  focusCommand();
+}
+
+function focusCommand() {
+  requestAnimationFrame(() => {
+    const input = document.querySelector("#command");
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  });
+}
+
+function focusFilter() {
+  requestAnimationFrame(() => {
+    const input = document.querySelector("#type-filter");
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  });
+}
+
+async function share() {
+  const url = new URL(location.href);
+  url.pathname = `/packages/${encodeURIComponent(state.package.id)}/${encodeURIComponent(state.package.version)}`;
+  url.search = new URLSearchParams({
+    framework: state.package.activeFramework,
+    type: selectedType().id
+  });
+  url.hash = state.lens;
+  await navigator.clipboard?.writeText(url.toString());
+  showToast("selection link copied");
+}
+
+function showToast(message) {
+  document.querySelector(".toast")?.remove();
+  const toast = document.createElement("div");
+  toast.className = "toast";
+  toast.textContent = message;
+  document.body.append(toast);
+  setTimeout(() => toast.remove(), 2200);
+}
+
+async function copyText(value, confirmation) {
+  try {
+    await navigator.clipboard.writeText(value);
+    showToast(confirmation);
+  } catch {
+    showToast("clipboard access was denied");
+  }
+}
+
+function renderLoading() {
+  app.innerHTML = `
+    <div class="loading-screen">
+      <div class="loading-brand"><span>◇</span> dotnet-inspect</div>
+      ${state.error
+        ? `<div class="load-error"><strong>Inspection query failed</strong><pre>${escapeHtml(state.error)}</pre><button id="retry-load">retry</button></div>`
+        : `<div class="load-progress"><span class="loader"></span><strong>${escapeHtml(state.loadingMessage)}</strong><small>${escapeHtml(state.requestedPackage)}@${escapeHtml(state.requestedVersion)} · ${escapeHtml(state.requestedFramework || "best framework")}</small></div>`}
+    </div>`;
+  document.querySelector("#retry-load")?.addEventListener("click", bootstrap);
+}
+
+async function loadSelectedMemberDocumentation() {
+  const type = selectedType();
+  const member = selectedMember(type);
+  if (!member || (member.overloads.length > 1 && state.selectedOverloadIndex == null)) {
+    render();
+    return;
+  }
+  const overload = member.overloads[state.selectedOverloadIndex ?? 0];
+  if (!overload?.documentationId || overload.documentationLoaded) {
+    render();
+    return;
+  }
+
+  state.memberDocumentationLoading = true;
+  state.memberDocumentationError = "";
+  render();
+  try {
+    const documentation = await inspectMemberDocumentation({
+      packageId: state.package.id,
+      version: state.package.version,
+      framework: state.package.activeFramework,
+      assembly: type.assembly,
+      documentationId: overload.documentationId
+    });
+    overload.summary = documentation.summary;
+    overload.returns = documentation.returns;
+    overload.exceptions = documentation.exceptions ?? [];
+    overload.parameters = (overload.parameters ?? []).map(parameter => ({
+      ...parameter,
+      description: documentation.parameters?.[parameter.name] ?? null
+    }));
+    overload.documentationLoaded = true;
+  } catch (error) {
+    state.memberDocumentationError = String(error?.message || error);
+  } finally {
+    state.memberDocumentationLoading = false;
+    render();
+  }
+}
+
+async function loadSelectedMemberSource() {
+  if (state.memberSource) {
+    render();
+    return;
+  }
+  const type = selectedType();
+  const member = selectedMember(type);
+  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+  if (!type || !member || !overload) {
+    state.memberSourceError = "Select a concrete overload before opening Source.";
+    render();
+    return;
+  }
+
+  state.memberSourceLoading = true;
+  state.memberSourceError = "";
+  render();
+  try {
+    state.memberSource = await inspectMemberSource({
+      packageId: state.package.id,
+      version: state.package.version,
+      framework: state.package.activeFramework,
+      assembly: type.assembly,
+      type: type.id,
+      member: overload.name,
+      signature: overload.signature
+    });
+  } catch (error) {
+    state.memberSourceError = String(error?.message || error);
+  } finally {
+    state.memberSourceLoading = false;
+    render();
+  }
+}
+
+async function loadSelectedMemberCallGraph() {
+  if (state.memberCallGraph) {
+    render();
+    renderMermaidCallGraph();
+    return;
+  }
+  const type = selectedType();
+  const member = selectedMember(type);
+  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+  if (!type || !member || !overload) {
+    state.memberCallGraphError = "Select a concrete overload before opening Call graph.";
+    render();
+    return;
+  }
+
+  state.memberCallGraphLoading = true;
+  state.memberCallGraphError = "";
+  render();
+  try {
+    state.memberCallGraph = await inspectMemberCallGraph({
+      packageId: state.package.id,
+      version: state.package.version,
+      framework: state.package.activeFramework,
+      assembly: type.assembly,
+      type: type.id,
+      member: overload.name,
+      signature: overload.signature
+    });
+  } catch (error) {
+    state.memberCallGraphError = String(error?.message || error);
+  } finally {
+    state.memberCallGraphLoading = false;
+    render();
+    if (state.memberCallGraph) renderMermaidCallGraph();
+  }
+}
+
+async function renderMermaidCallGraph() {
+  const container = document.querySelector("#call-graph-diagram");
+  if (!container || !state.memberCallGraph?.mermaid) return;
+  try {
+    mermaidModule ??= import("https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.esm.min.mjs");
+    const { default: mermaid } = await mermaidModule;
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      theme: "dark",
+      themeVariables: { fontSize: "17px" },
+      flowchart: { htmlLabels: false, curve: "basis" }
+    });
+    const id = `call-graph-${Date.now().toString(36)}`;
+    const { svg } = await mermaid.render(id, state.memberCallGraph.mermaid);
+    if (document.querySelector("#call-graph-diagram") === container)
+      container.innerHTML = svg;
+  } catch (error) {
+    if (document.querySelector("#call-graph-diagram") === container) {
+      container.innerHTML = `<div class="graph-render-error"><strong>Diagram rendering failed</strong><p>${escapeHtml(String(error?.message || error))}</p></div>`;
+    }
+  }
+}
+
+async function loadSelectedMemberFacts() {
+  if (state.memberFacts) {
+    render();
+    return;
+  }
+  const type = selectedType();
+  const member = selectedMember(type);
+  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+  if (!type || !member || !overload) {
+    state.memberFactsError = "Select a concrete overload before opening Facts.";
+    render();
+    return;
+  }
+
+  state.memberFactsLoading = true;
+  state.memberFactsError = "";
+  render();
+  try {
+    state.memberFacts = await inspectMemberFacts({
+      packageId: state.package.id,
+      version: state.package.version,
+      framework: state.package.activeFramework,
+      assembly: type.assembly,
+      type: type.id,
+      member: overload.name,
+      signature: overload.signature
+    });
+  } catch (error) {
+    state.memberFactsError = String(error?.message || error);
+  } finally {
+    state.memberFactsLoading = false;
+    render();
+  }
+}
+
+async function loadPackage(packageId, version, framework) {
+  state.loading = true;
+  state.error = "";
+  state.requestedPackage = packageId;
+  state.requestedVersion = version;
+  state.requestedFramework = framework;
+  state.loadingMessage = `Querying ${packageId}@${version}…`;
+  render();
+
+  try {
+    const result = await inspectPackage(packageId, version, framework);
+    const types = (result.types ?? []).map(type => ({
+      ...type,
+      api: type.api ?? []
+    }));
+    const packageModel = {
+      id: result.package,
+      version: result.version,
+      frameworks: result.frameworks ?? [],
+      activeFramework: result.activeFramework,
+      assembly: (result.assemblies ?? []).map(item => item.name).join(", "),
+      assemblies: result.assemblies ?? [],
+      types,
+      totalTypes: types.length,
+      totalMembers: result.totalMembers
+    };
+    const existing = state.packages.findIndex(item =>
+      item.id.toLowerCase() === packageModel.id.toLowerCase()
+      && item.version.toLowerCase() === packageModel.version.toLowerCase());
+    if (existing >= 0) state.packages[existing] = packageModel;
+    else state.packages.push(packageModel);
+    state.package = packageModel;
+    state.selectedTypeId = linkedType && packageModel.types.some(item => item.id === linkedType)
+      ? linkedType
+      : packageModel.types[0]?.id || "";
+    state.selectedMemberKey = "";
+    state.typeFilter = "";
+    state.namespaceFilter = "";
+    state.loading = false;
+    render();
+  } catch (error) {
+    state.loading = false;
+    state.error = String(error?.stack || error);
+    render();
+  }
+}
+
+async function bootstrap() {
+  state.loading = true;
+  state.error = "";
+  render();
+  try {
+    await initializeEngine(message => {
+      state.loadingMessage = message;
+      render();
+    });
+    await loadPackage(state.requestedPackage, state.requestedVersion, state.requestedFramework);
+  } catch (error) {
+    state.loading = false;
+    state.error = String(error?.stack || error);
+    render();
+  }
+}
+
+document.addEventListener("keydown", event => {
+  const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName);
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    openCommand();
+  } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+    event.preventDefault();
+    focusFilter();
+  } else if (!typing && !event.metaKey && !event.ctrlKey && /^[1-6]$/.test(event.key)) {
+    state.lens = lenses[Number(event.key) - 1][0];
+    render();
+  } else if (!typing && event.key === "/") {
+    event.preventDefault();
+    focusFilter();
+  }
+});
+
+bootstrap();
