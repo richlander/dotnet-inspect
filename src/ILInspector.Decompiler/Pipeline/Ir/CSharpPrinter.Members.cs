@@ -231,13 +231,22 @@ public sealed partial class CSharpPrinter
     /// method group (Type.Method); a this-receiver drops the qualifier to match
     /// instance-call spelling; any other receiver qualifies the name.
     /// </summary>
-    string MethodGroupText(MethodRef method, IrExpression target)
+    string MethodGroupText(MethodRef method, IrExpression target, bool isVirtual)
     {
         string name = CSharpNaming.SourceMethodName(method.Name);
         if (target is Constant { Value: null })
             return $"{TypeQualifierText(method.DeclaringType)}.{name}";
         if (target is LoadArgument { Index: 0, Name: "this" })
+        {
+            // A non-virtual (ldftn) method group over this to a base-declared
+            // method is C#'s base.M — the ldftn deliberately captures the base
+            // slot. Bare M or this.M would rebind to the derived override and
+            // recompile to ldvirtftn (virtual dispatch), changing behavior; so it
+            // stays base even under the qualify-method knob, mirroring CallText.
+            if (!isVirtual && IsCrossType(method.DeclaringType))
+                return $"base.{name}";
             return _options.QualifyMethodAccess ? $"this.{name}" : name;
+        }
         if (PointerMethodReceiver(target) is { } pointerReceiver)
             return $"{pointerReceiver}->{name}";
         return $"{ReceiverText(target)}.{name}";

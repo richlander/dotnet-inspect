@@ -216,6 +216,28 @@ public sealed class ThisQualificationTests
         Assert.DoesNotContain("this.Value()", text);
     }
 
+    // A method group over base.<virtual method> compiles to a NON-virtual
+    // `ldftn Base::M`; rendering it bare or `this.M` rebinds to the derived
+    // override with virtual dispatch (ldvirtftn), changing behavior. It must stay
+    // `base.M` both by default and under the qualify-method knob.
+    [Fact]
+    public void BaseMethodGroup_RendersBase_ByDefault()
+    {
+        var text = RenderMember(typeof(ThisQualificationDerived),
+            nameof(ThisQualificationDerived.BaseValueGroup));
+        Assert.Contains("base.Value", text);
+    }
+
+    [Fact]
+    public void BaseMethodGroup_StaysBase_WhenMethodQualificationRequested()
+    {
+        var text = RenderMember(typeof(ThisQualificationDerived),
+            nameof(ThisQualificationDerived.BaseValueGroup),
+            new PrinterOptions { QualifyMethodAccess = true });
+        Assert.Contains("base.Value", text);
+        Assert.DoesNotContain("this.Value", text);
+    }
+
     [Fact]
     public void EffectiveOptions_RecordsMethodKnob()
     {
@@ -271,4 +293,9 @@ public class ThisQualificationBase
 public sealed class ThisQualificationDerived : ThisQualificationBase
 {
     public override int Value() => base.Value() + 1;
+
+    // A method group over base.Value: csc emits a NON-virtual `ldftn Base::Value`,
+    // so it must render `base.Value` (bare or this.Value would rebind to the
+    // override with virtual dispatch and change behavior).
+    public System.Func<int> BaseValueGroup() => base.Value;
 }
