@@ -38,12 +38,42 @@ sealed record ReturnToSenderSourceProbeResult(
     string? OriginalOpcodes = null,
     string? RecompiledOpcodes = null,
     IReadOnlyList<string>? IlDiffLines = null,
-    MemberAnchor? MemberAnchor = null)
+    MemberAnchor? MemberAnchor = null,
+    ReturnToSender.FaultIsolationKind? FaultIsolationKind = null)
 {
     public bool Passed => Outcome == ReturnToSenderSourceOutcome.ValidMatch;
     public bool Different => Outcome == ReturnToSenderSourceOutcome.ValidDifferent;
     public bool Failed => Outcome == ReturnToSenderSourceOutcome.Invalid;
     public bool Skipped => Outcome is ReturnToSenderSourceOutcome.SourceUnavailable or ReturnToSenderSourceOutcome.UnsupportedTarget;
+}
+
+enum ReturnToSenderInvalidKind
+{
+    ProductBodyDefect,
+    HarnessShellReconstruction,
+    Unclassified,
+}
+
+static class ReturnToSenderInvalidClassifier
+{
+    public static ReturnToSenderInvalidKind? Classify(ReturnToSenderSourceProbeResult result)
+    {
+        if (result.Outcome != ReturnToSenderSourceOutcome.Invalid)
+            return null;
+
+        return result.FaultIsolationKind switch
+        {
+            ReturnToSender.FaultIsolationKind.BodyDefect => ReturnToSenderInvalidKind.ProductBodyDefect,
+            ReturnToSender.FaultIsolationKind.ShellOrClosureDefect => ReturnToSenderInvalidKind.HarnessShellReconstruction,
+            _ when HasClosureStopDetail(result.Detail) => ReturnToSenderInvalidKind.HarnessShellReconstruction,
+            _ => ReturnToSenderInvalidKind.Unclassified,
+        };
+    }
+
+    static bool HasClosureStopDetail(string? detail)
+        => detail is not null
+            && (detail.StartsWith("closure-stalled", StringComparison.Ordinal)
+                || detail.StartsWith("closure-root-budget", StringComparison.Ordinal));
 }
 
 sealed record SourceCorrespondenceFinding(
@@ -244,7 +274,7 @@ static partial class ReturnToSenderSourceProbe
         if (targets.Count == 0)
             return [];
 
-        var rtsResults = ReturnToSender.CompileBackTargets(assemblyPath, targets.Distinct().ToArray())
+        var rtsResults = ReturnToSender.CompileBackTargets(assemblyPath, targets.Distinct().ToArray(), sourceIndex)
             .ToDictionary(
                 result => Key(
                     result.Plan.TargetMethod.Type,
@@ -283,7 +313,8 @@ static partial class ReturnToSenderSourceProbe
                     SourcePath: sourceMember?.SourcePath,
                     ExpectedBody: sourceMember?.Body,
                     ActualBody: result.TargetBody,
-                    MemberAnchor: result.MemberAnchor));
+                    MemberAnchor: result.MemberAnchor,
+                    FaultIsolationKind: result.FaultIsolation?.Kind));
                 continue;
             }
 
@@ -301,7 +332,8 @@ static partial class ReturnToSenderSourceProbe
                     SourcePath: null,
                     ExpectedBody: null,
                     ActualBody: result.TargetBody,
-                    MemberAnchor: result.MemberAnchor));
+                    MemberAnchor: result.MemberAnchor,
+                    FaultIsolationKind: result.FaultIsolation?.Kind));
                 continue;
             }
 
@@ -316,7 +348,8 @@ static partial class ReturnToSenderSourceProbe
                     SourcePath: null,
                     ExpectedBody: null,
                     ActualBody: result.TargetBody,
-                    MemberAnchor: result.MemberAnchor));
+                    MemberAnchor: result.MemberAnchor,
+                    FaultIsolationKind: result.FaultIsolation?.Kind));
                 continue;
             }
 
@@ -338,7 +371,8 @@ static partial class ReturnToSenderSourceProbe
                     SourcePath: null,
                     ExpectedBody: null,
                     ActualBody: result.TargetBody,
-                    MemberAnchor: result.MemberAnchor));
+                    MemberAnchor: result.MemberAnchor,
+                    FaultIsolationKind: result.FaultIsolation?.Kind));
                 continue;
             }
 
@@ -360,7 +394,8 @@ static partial class ReturnToSenderSourceProbe
                     sourceMember.SourcePath,
                     expected,
                     actual,
-                    MemberAnchor: result.MemberAnchor));
+                    MemberAnchor: result.MemberAnchor,
+                    FaultIsolationKind: result.FaultIsolation?.Kind));
                 continue;
             }
 
@@ -383,7 +418,8 @@ static partial class ReturnToSenderSourceProbe
                 OriginalOpcodes: fidelityEvidence?.OriginalOpcodes,
                 RecompiledOpcodes: fidelityEvidence?.RecompiledOpcodes,
                 IlDiffLines: fidelityEvidence?.IlDiffLines,
-                MemberAnchor: result.MemberAnchor));
+                MemberAnchor: result.MemberAnchor,
+                FaultIsolationKind: result.FaultIsolation?.Kind));
         }
 
         return results;
@@ -554,6 +590,7 @@ static partial class ReturnToSenderSourceProbe
                 source_path = result.SourcePath,
                 expected_body = result.ExpectedBody,
                 actual_body = result.ActualBody,
+                fault_isolation = result.FaultIsolationKind?.ToString(),
                 original_opcodes = result.OriginalOpcodes,
                 recompiled_opcodes = result.RecompiledOpcodes,
                 il_diff = result.IlDiffLines,
@@ -578,7 +615,8 @@ static partial class ReturnToSenderSourceProbe
             sourcePath,
             ExpectedBody: null,
             ActualBody: result.TargetBody,
-            MemberAnchor: result.MemberAnchor));
+            MemberAnchor: result.MemberAnchor,
+            FaultIsolationKind: result.FaultIsolation?.Kind));
     }
 
 }

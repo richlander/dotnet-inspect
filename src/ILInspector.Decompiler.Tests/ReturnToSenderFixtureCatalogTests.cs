@@ -166,6 +166,42 @@ public class ReturnToSenderFixtureCatalogTests
     }
 
     [Fact]
+    public void ReturnToSenderInvalidClassifier_UsesTypedFaultIsolation()
+    {
+        var target = new ReturnToSender.RequestedTarget("T", "M", 0);
+
+        var product = new ReturnToSenderSourceProbeResult(
+            target,
+            ReturnToSenderSourceOutcome.Invalid,
+            FidelityCheck.CompileBackStatus.RecompileFail,
+            "CS0029",
+            Detail: "target body does not bind",
+            SourcePath: "Fixture.cs",
+            ExpectedBody: "return true;",
+            ActualBody: "return 1;",
+            FaultIsolationKind: ReturnToSender.FaultIsolationKind.BodyDefect);
+        var shell = product with
+        {
+            FaultIsolationKind = ReturnToSender.FaultIsolationKind.ShellOrClosureDefect,
+        };
+        var closure = product with
+        {
+            FaultIsolationKind = null,
+            Detail = "closure-stalled-unextracted[CS0246]: CS0246: missing closure type",
+        };
+        var valid = product with
+        {
+            Outcome = ReturnToSenderSourceOutcome.ValidDifferent,
+            CompileBackStatus = FidelityCheck.CompileBackStatus.Exact,
+        };
+
+        Assert.Equal(ReturnToSenderInvalidKind.ProductBodyDefect, ReturnToSenderInvalidClassifier.Classify(product));
+        Assert.Equal(ReturnToSenderInvalidKind.HarnessShellReconstruction, ReturnToSenderInvalidClassifier.Classify(shell));
+        Assert.Equal(ReturnToSenderInvalidKind.HarnessShellReconstruction, ReturnToSenderInvalidClassifier.Classify(closure));
+        Assert.Null(ReturnToSenderInvalidClassifier.Classify(valid));
+    }
+
+    [Fact]
     public void ReturnToSenderSourceProbe_BucketsResidualFrontiersAsStructuringResidue()
     {
         var result = new ReturnToSenderSourceProbeResult(

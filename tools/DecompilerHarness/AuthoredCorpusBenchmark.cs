@@ -113,6 +113,7 @@ static class AuthoredCorpusBenchmark
         int unsupported = results.Count(result => ClassifyTaste(result) == TasteBucket.Unsupported);
         int evaluated = results.Count;
         int valid = match + different;
+        var invalidBreakdown = InvalidBreakdown(results);
 
         Console.WriteLine($"AUTHORED-SOURCE CORPUS BENCHMARK");
         Console.WriteLine();
@@ -139,6 +140,12 @@ static class AuthoredCorpusBenchmark
         if (frontierUnknown > 0)
             Console.WriteLine($"    frontier, IL-unknown              : {frontierUnknown}");
         Console.WriteLine($"  Invalid  (does not round-trip)      : {invalid}");
+        if (invalid > 0)
+        {
+            Console.WriteLine($"    product body defects              : {invalidBreakdown.ProductBodyDefect}");
+            Console.WriteLine($"    harness shell reconstruction      : {invalidBreakdown.HarnessShellReconstruction}");
+            Console.WriteLine($"    unclassified invalid              : {invalidBreakdown.Unclassified}");
+        }
         if (notFull > 0)
             Console.WriteLine($"  Not-Full (uncheckable at Full)      : {notFull}");
         if (drift > 0)
@@ -225,6 +232,40 @@ static class AuthoredCorpusBenchmark
         => reason.Contains("fidelity-unavailable", StringComparison.Ordinal)
             || reason.Equals("NotFull", StringComparison.Ordinal);
 
+    internal sealed record InvalidBreakdownCounts(
+        int ProductBodyDefect,
+        int HarnessShellReconstruction,
+        int Unclassified)
+    {
+        public int Total => ProductBodyDefect + HarnessShellReconstruction + Unclassified;
+    }
+
+    internal static InvalidBreakdownCounts InvalidBreakdown(IReadOnlyList<ReturnToSenderSourceProbeResult> results)
+    {
+        int productBodyDefect = 0;
+        int harnessShellReconstruction = 0;
+        int unclassified = 0;
+
+        foreach (var result in results.Where(result => ClassifyTaste(result) == TasteBucket.Invalid))
+        {
+            switch (ReturnToSenderInvalidClassifier.Classify(result))
+            {
+                case ReturnToSenderInvalidKind.ProductBodyDefect:
+                    productBodyDefect++;
+                    break;
+                case ReturnToSenderInvalidKind.HarnessShellReconstruction:
+                    harnessShellReconstruction++;
+                    break;
+                case ReturnToSenderInvalidKind.Unclassified:
+                case null:
+                    unclassified++;
+                    break;
+            }
+        }
+
+        return new InvalidBreakdownCounts(productBodyDefect, harnessShellReconstruction, unclassified);
+    }
+
     static void WriteReasonBuckets(
         string title,
         IReadOnlyList<ReturnToSenderSourceProbeResult> results,
@@ -259,6 +300,7 @@ static class AuthoredCorpusBenchmark
         int drift = results.Count(result => ClassifyTaste(result) == TasteBucket.Drift);
         int unsupported = results.Count(result => ClassifyTaste(result) == TasteBucket.Unsupported);
         int evaluated = results.Count;
+        var invalidBreakdown = InvalidBreakdown(results);
         // Honest-exit contract: an empty or partially unmatched run is never a
         // success — unmatched rows (assembly not supplied) and a zero-target run fail.
         bool honest = unmatchedRows == 0 && evaluated > 0;
@@ -282,6 +324,12 @@ static class AuthoredCorpusBenchmark
                 frontierIlUnknown = results.Count(result => ClassifyTaste(result) == TasteBucket.FrontierIlUnknown),
             },
             invalid,
+            invalidBreakdown = new
+            {
+                productBodyDefect = invalidBreakdown.ProductBodyDefect,
+                harnessShellReconstruction = invalidBreakdown.HarnessShellReconstruction,
+                unclassified = invalidBreakdown.Unclassified,
+            },
             notFull,
             drift,
             unsupported,
@@ -293,6 +341,8 @@ static class AuthoredCorpusBenchmark
                 outcome = result.Outcome.ToString(),
                 tasteBucket = ClassifyTaste(result).ToString(),
                 compileBackStatus = result.CompileBackStatus?.ToString(),
+                invalidKind = ReturnToSenderInvalidClassifier.Classify(result)?.ToString(),
+                faultIsolation = result.FaultIsolationKind?.ToString(),
                 reason = result.Reason,
                 detail = result.Detail,
                 sourceFile = result.SourcePath,
