@@ -5285,6 +5285,131 @@ public static class EnumCastSamples
 
     public static void EnumShiftStoreArray(CfgPriority[] arr, int n) => arr[0] = (CfgPriority)((int)arr[0] >> n);
 
+    // #3087 defect 1: a bitwise op whose sibling is itself an ENUM value. The shift
+    // renders as its underlying integer, so the enum sibling must be coerced to that
+    // integer — `(int)e << n | (int)other`, not `(int)e << n | other` (int | E,
+    // CS0019). The stale enum ResultType makes the sibling render bare.
+    public static CfgPriority EnumShiftOrEnumSibling(CfgPriority e, int n, CfgPriority other) => (CfgPriority)(((int)e << n) | (int)other);
+
+    // #3087 defect 2: an enum shift COMPARED to an enum-constant sibling. The shift
+    // renders as int, so the comparison must be integer-vs-integer — the stale enum
+    // ResultType instead coerces the sibling to the enum (`(int)e << n == E.High`,
+    // int == E, CS0019).
+    public static bool EnumShiftCompareEnumConst(CfgPriority e, int n) => ((int)e << n) == (int)CfgPriority.High;
+
+    // #3087 defect 3: an enum shift as a ternary arm flowing into an ENUM target.
+    // The shift's ResultType matches the target enum, so the `(CfgPriority)` cast is
+    // dropped and the arm renders `(int)e << n` (int) while the other arm is the
+    // enum — no common type (CS1503/CS0173). The cast must be kept. A method-argument
+    // ternary stays a genuine conditional (it cannot be raised to if/return).
+    public static void TakeCfgPriority(CfgPriority value) { }
+
+    public static void EnumShiftTernaryToEnum(bool b, CfgPriority e, int n) => TakeCfgPriority(b ? (CfgPriority)((int)e << n) : CfgPriority.High);
+
+    // #3087 negatives/edges. Mixed-sign: an UNSIGNED enum shift (`shr.un`) rendering
+    // as uint whose enum sibling must be coerced to that width/sign — `(uint)other`,
+    // not `(int)other` (which would be a mixed-sign bitwise op, CS0019).
+    public static uint EnumShiftUnsignedOrEnumSibling(CfgPriority e, int n, CfgPriority other) => ((uint)e >> n) | (uint)other;
+
+    // A comparison whose enum sibling is a RUNTIME value (not a constant): coerced
+    // down to the shift's rendered integer — `(int)e << n == (int)other`.
+    public static bool EnumShiftCompareEnumValue(CfgPriority e, int n, CfgPriority other) => ((int)e << n) == (int)other;
+
+    // A bitwise CHAIN over an enum shift with an enum FAR sibling: the down-coercion
+    // recurses so the enum sibling at the end of `shift | y | other` renders as its
+    // underlying integer — `(int)e << 4 | y | (int)other`.
+    public static int EnumShiftChainEnumSibling(CfgPriority e, int y, CfgPriority other) => ((int)e << 4) | y | (int)other;
+
+    // #3087 follow-up (adversarial review): an UNSIGNED ordering (`clt.un`) of an
+    // enum shift against an enum sibling. The compare cannot round-trip through the
+    // enum backing — a signed backing would compare signed and a narrow backing
+    // would truncate the widened shift value — so BOTH sides reconcile to the
+    // unsigned counterpart of the shift's stack width:
+    // `(uint)((int)e << n) < (uint)other`, matching `clt.un` for any backing.
+    public static bool EnumShiftUnsignedCompare(CfgFlags e, int n, CfgFlags other) => (uint)((uint)e << n) < (uint)other;
+
+    // #3087 follow-up: the same unsigned ordering with a byte-backed enum. Round-
+    // tripping through the byte enum (`(CfgTiny)((int)e << n)`) would re-narrow the
+    // 32-bit shift to 8 bits and then compare signed — the unsigned-width spelling
+    // `(uint)((int)e << n) < (uint)other` avoids both.
+    public static bool EnumShiftUnsignedCompareByte(CfgTiny e, int n, CfgTiny other) => (uint)((byte)e << n) < (uint)other;
+
+    // #3087 follow-up (adversarial review R3, GPT): the unsigned ordering with a
+    // PLAIN INTEGER sibling (not an enum). The shift still needs the unsigned
+    // reinterpret so the compare is `clt.un` — `(uint)((int)e << n) < (uint)other` —
+    // not the sign-widened `((int)e << n) < (uint)other` (`int < uint` promotes to a
+    // signed `long` compare) the stale-ResultType fallthrough produced.
+    public static bool EnumShiftUnsignedCompareIntSibling(CfgPriority e, int n, int other) => (uint)((int)e << n) < (uint)other;
+
+    // #3087 follow-up (adversarial review R3, GPT): the 8-byte case with a plain
+    // `long` sibling. The fallthrough rendered `((long)e << n) < (ulong)other`
+    // (`long < ulong`, CS0034 — did not compile); both sides must reconcile to
+    // `ulong` — `(ulong)((long)e << n) < (ulong)other`.
+    public static bool EnumShiftUnsignedCompareLongSibling(CfgLongPriority e, int n, long other) => (ulong)((long)e << n) < (ulong)other;
+
+    // #3087 follow-up (adversarial review R3, Gemini): a bitwise chain mixing an
+    // enum shift with a NARROW (ushort) integer, compared unsigned. IL promotes the
+    // short to Int32, so the chain's stack type is wide; treating it as narrow made
+    // BitwiseChainRenderedType fall back to the stale enum ResultType and drop the
+    // unsigned reinterpret — `((int)e << n | mask) < other` (CS0019 / signed). The
+    // chain must reconcile to `(uint)((int)e << n | mask) < (uint)other`.
+    public static bool EnumShiftNarrowChainUnsignedCompare(CfgTiny e, int n, ushort mask, CfgTiny other) => (uint)(((int)e << n) | mask) < (uint)other;
+
+    // #3087 follow-up: a bitwise sibling MASKED as its primitive by a typed ldelem —
+    // `values[i]` renders enum-typed though its ResultType is the storage width, so
+    // it must still be down-coerced — `(int)e << n | (int)values[i]`, not
+    // `| values[i]` (int | E, CS0019).
+    public static CfgPriority EnumShiftOrArraySibling(CfgPriority e, int n, CfgPriority[] values, int i) => (CfgPriority)(((int)e << n) | (int)values[i]);
+
+    // #3087 follow-up: an enum-CONSTANT sibling whose unsigned-backed value overflows
+    // the shift's signed rendered integer (CfgFlags.Top = 0x80000000u > int.MaxValue):
+    // the down-coercion needs `unchecked` — `(int)e << n == unchecked((int)CfgFlags.Top)`
+    // (a plain `(int)CfgFlags.Top` is CS0221).
+    public static bool EnumShiftCompareOverflowConst(CfgFlags e, int n) => ((int)e << n) == unchecked((int)CfgFlags.Top);
+
+    // #3087 follow-up (adversarial review R4, GPT + Gemini): EQUALITY against a
+    // plain `uint` sibling. Equality is bit-exact, so it reconciles to the shift's
+    // SIGNED stack width — `((int)e << n) == (int)x`. The stale-ResultType
+    // fallthrough dropped the sibling cast (`== x`), and `int == uint` widens to a
+    // signed 64-bit `ceq` in C# — with `e = (CfgPriority)(-1)`, `x = 0xFFFFFFFF` the
+    // IL 32-bit `ceq` is TRUE but `-1L == 4294967295L` is FALSE.
+    public static bool EnumShiftEqualsUintSibling(CfgPriority e, int n, uint x) => (uint)((int)e << n) == x;
+
+    // #3087 follow-up (adversarial review R4, GPT + Gemini): SIGNED ordering with a
+    // plain integer sibling reconciles to the shift's signed stack width —
+    // `((int)e << n) < other` (identity when the sibling already is `int`), never a
+    // sign-widened `int < uint` promotion.
+    public static bool EnumShiftSignedLessIntSibling(CfgPriority e, int n, int other) => ((int)e << n) < other;
+
+    // #3087 follow-up (adversarial review R4, GPT): a SIGNED ordering after an
+    // UNSIGNED shift (`shr.un` renders `uint`). The target is driven by the
+    // comparison (signed), not the shift's rendered sign, so the shift is
+    // reinterpreted back to `int` — `(int)((uint)e >> n) < (int)other`. Coercing to
+    // the shift's `uint` instead would emit an unsigned compare `((uint)e >> n) <
+    // (uint)other`, silently changing the ordering.
+    public static bool EnumShiftUnsignedShrSignedCompare(CfgPriority e, int n, CfgPriority other) => (int)((uint)e >> n) < (int)other;
+
+    // #3087 follow-up (adversarial review R5, GPT): the reconcile cast the printer
+    // INSERTS to reinterpret the shift is not in the IL, so under an enclosing
+    // `checked` region a signed->unsigned reinterpret (`(uint)(-1)`) would THROW
+    // though the IL (`shl; clt.un`) only reinterprets bits. The inserted cast must be
+    // `unchecked`-wrapped — `checked((unchecked((uint)((int)e << n)) < other ...))` —
+    // exactly as the enum and plain-integer reconcile paths already are.
+    public static int EnumShiftCheckedUnsignedCompare(CfgPriority e, int n, uint other, int y)
+        => checked((unchecked((uint)((int)e << n)) < unchecked((uint)other) ? 1 : 0) + y);
+
+    // #3087 follow-up (adversarial review R5, Gemini): a bitwise chain mixing an
+    // int enum-shift with an UNSIGNED-backed enum sibling (CfgFlags : uint),
+    // compared unsigned. BinaryBody coerces the enum sibling DOWN to the shift's
+    // signed stack type (`(int)x`), so the chain renders as `int`; the outer
+    // unsigned comparison must therefore keep the `(uint)` reinterpret —
+    // `(uint)((int)e << n | (int)x) > other`. Reporting the chain as `uint` (because
+    // a uint-backed sibling is present) would drop that cast, silently promoting
+    // `int > uint` to a signed 64-bit compare (inverting results for high-bit
+    // patterns) or emitting CS0034 at 8-byte width.
+    public static bool EnumShiftChainUintEnumSiblingCompare(CfgPriority e, int n, CfgFlags x, uint other)
+        => (uint)(((int)e << n) | (int)x) > other;
+
     // #1766: ternary with enum-constant arms stored to a cross-assembly enum
     // local (StringComparison.Ordinal = 4, OrdinalIgnoreCase = 5).
     public static bool EnumConditional(string name, bool ci)
