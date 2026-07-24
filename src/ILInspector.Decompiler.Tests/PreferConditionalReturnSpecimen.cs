@@ -54,4 +54,41 @@ public static class PreferConditionalReturnSpecimen
     // Pure no-op negative: no guarded return at all, so the lens finds nothing and
     // its output is byte-identical to the default.
     public static bool And(bool a, bool b) => a & b;
+
+    // Constant-false-arm shape: `if (c) return value; return false;`. The lens
+    // produces the conditional `c ? value : false`, which the printer idiomatically
+    // spells as the short-circuit `c && value` (behavior-faithful; valid for a
+    // primitive-bool condition).
+    public static bool AndShapedGuard(bool c, bool value)
+    {
+        if (c)
+        {
+            return value;
+        }
+
+        return false;
+    }
+
+    // User-defined truthiness in the condition: the lens must DECLINE (stay flat),
+    // because collapsing `c ? value : false` to `c && value` would rebind to a
+    // user-defined `&` that does not exist (CS0019).
+    public static bool UserTruthinessGuard(Truthy c, bool value)
+    {
+        if (c)
+        {
+            return value;
+        }
+
+        return false;
+    }
+
+    // A struct usable in boolean context via operator true/false, but with NO
+    // user-defined `&`/`|` — so any short-circuit lift of a `Truthy` condition is
+    // uncompilable.
+    public readonly struct Truthy
+    {
+        public static bool operator true(Truthy _) => true;
+
+        public static bool operator false(Truthy _) => false;
+    }
 }

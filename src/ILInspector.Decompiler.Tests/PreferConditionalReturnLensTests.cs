@@ -106,6 +106,33 @@ public sealed class PreferConditionalReturnLensTests
         Assert.DoesNotContain("?", lensText);
     }
 
+    [Fact]
+    public void AndShapedGuard_LensSpellsShortCircuit_AndStaysValid()
+    {
+        // `if (c) return value; return false;` -> conditional `c ? value : false`,
+        // which the printer idiomatically renders as `c && value`. Behavior-faithful
+        // and valid C# for a primitive-bool condition.
+        var defaultText = Render(nameof(PreferConditionalReturnSpecimen.AndShapedGuard));
+        Assert.Contains("return false;", defaultText);
+
+        var lensText = Render(nameof(PreferConditionalReturnSpecimen.AndShapedGuard), LensOptions);
+        Assert.Contains("c && value", lensText);
+        Assert.DoesNotContain("if (", lensText);
+    }
+
+    [Fact]
+    public void UserTruthinessGuard_LensDeclines_StaysFlatAndValid()
+    {
+        // The condition is a user-defined operator-true call with no user `&`, so a
+        // short-circuit lift would be uncompilable. The lens must decline and leave
+        // the flat guard exactly as the default renders it.
+        var defaultText = Render(nameof(PreferConditionalReturnSpecimen.UserTruthinessGuard));
+        var lensText = Render(nameof(PreferConditionalReturnSpecimen.UserTruthinessGuard), LensOptions);
+        Assert.Equal(defaultText, lensText);
+        Assert.Contains("return false;", lensText);
+        Assert.DoesNotContain("&&", lensText);
+    }
+
     // Executed behavioral-equivalence gate for the tier-3 lens: the specimen
     // methods run their compiled (source) semantics; the ternary is the lens's
     // rendering. Proving `method(inputs) == (ternary over inputs)` for every

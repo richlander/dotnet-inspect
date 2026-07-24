@@ -78,9 +78,23 @@ public sealed class PreferConditionalReturnPass : IIrPass
         if (BooleanFoldingPass.ConsumesBranchTarget(function, guard, thenReturn, tailReturn))
             return false;
 
+        // A user-defined-truthiness condition (`operator true`/`operator false`)
+        // is DECLINED, mirroring the default's FoldGuardReturn guard. The printer
+        // strips such a condition to its bare user-typed receiver and, when the
+        // false arm is the constant `false`, spells the conditional as a
+        // short-circuit `c && A` (SpellsAsLogicalAnd) — which rebinds to a
+        // user-defined `&` that need not exist, emitting uncompilable C# (CS0019).
+        // The flat guard is the valid, faithful rendering for that exotic shape.
+        if (ShortCircuitFidelity.IsUserDefinedTruthiness(guard.Condition))
+            return false;
+
         // `if (c) return A; return B;` ≡ `return c ? A : B;` — same condition
         // polarity, same arms, same evaluation order (IDE0046 keeps the guard
-        // condition as-is, unlike the polarity-swapped FoldTernaryReturn).
+        // condition as-is, unlike the polarity-swapped FoldTernaryReturn). The
+        // printer idiomatically spells the constant-false-arm case `c ? A : false`
+        // as the short-circuit `c && A`, matching how it renders every other
+        // boolean Conditional — that is behavior-faithful (short-circuit
+        // preserved) and, for a primitive-bool condition, always valid C#.
         var condition = guard.Condition;
         condition.Detach();
         thenValue.Detach();
