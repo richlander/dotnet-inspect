@@ -78,6 +78,16 @@ public sealed class ExpressionInliningPass : IIrPass
                 case StoreArgument argumentStore: argumentAddresses.Add(argumentStore.Index); break;
                 case LoadStackSlot load: Entry(true, load.Slot).Loads.Add(load); break;
                 case StoreStackSlot store when store.Parent is Block: Entry(true, store.Slot).Stores.Add(store); break;
+                // A reconstructed `x++`/`x--` mutates its target place. Record it
+                // as a write so a value that reads that place cannot be deemed
+                // pure and reordered past the increment (Gemini #3133 review):
+                // IncrementDecrementPass folds the `starg`/`stloc` away before the
+                // late slots-only run, so without this the store that would flag
+                // the place mutated no longer exists in the tree.
+                case IncrementDecrement { Target: LoadLocal incLocal }:
+                    locals[(false, incLocal.Index)] = Entry(false, incLocal.Index) with { AddressTaken = true }; break;
+                case IncrementDecrement { Target: LoadArgument incArg }:
+                    argumentAddresses.Add(incArg.Index); break;
             }
         }
 
@@ -348,8 +358,10 @@ public sealed class ExpressionInliningPass : IIrPass
         => statement.Descendants.Prepend(statement).Any(n => kind switch
         {
             PlaceKind.Slot => n is StoreStackSlot s && s.Slot == index,
-            PlaceKind.Local => n is StoreLocal l && l.Index == index,
-            PlaceKind.Argument => n is StoreArgument a && a.Index == index,
+            PlaceKind.Local => (n is StoreLocal l && l.Index == index)
+                || (n is IncrementDecrement { Target: LoadLocal il } && il.Index == index),
+            PlaceKind.Argument => (n is StoreArgument a && a.Index == index)
+                || (n is IncrementDecrement { Target: LoadArgument ia } && ia.Index == index),
             _ => false,
         });
 

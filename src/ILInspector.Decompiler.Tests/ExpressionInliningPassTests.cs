@@ -13,6 +13,7 @@ public class ExpressionInliningPassTests
     static readonly TypeRef Object = TypeRef.CoreLib("System", "Object");
     static readonly TypeRef Action = TypeRef.CoreLib("System", "Action");
     static readonly TypeRef String = TypeRef.CoreLib("System", "String");
+    static readonly TypeRef Bool = TypeRef.CoreLib("System", "Boolean");
 
     static string PrintRaised(string methodName)
     {
@@ -29,6 +30,65 @@ public class ExpressionInliningPassTests
     // The collapsed cache leaves the chain spilled across reused stack slots
     // (`S_0 = xs; S_1 = x => ...; S_0 = Where(S_0, S_1); ...`). Live-range
     // inlining folds those temps into the call arguments, leaving one statement.
+    // A pure composite (a comparison) spilled across a post-increment must not
+    // be deferred past the `x++`: doing so would evaluate `x > 0` on the mutated
+    // value. ExpressionInliningPass records the increment's target as a mutation,
+    // so the comparison keeps its position and evaluates before the increment
+    // (issue #3133 adversarial review of the #3009 purity broadening).
+    [Fact]
+    public void CompositeReadingIncrementedArgument_DoesNotReorderPastIncrement()
+    {
+        string output = PrintRaised(nameof(CfgSampleClass.IncrementReorderGuard));
+
+        int comparison = output.IndexOf("x > 0", StringComparison.Ordinal);
+        int increment = output.IndexOf("x++", StringComparison.Ordinal);
+        Assert.True(comparison >= 0, $"expected `x > 0` in output, got: {output}");
+        Assert.True(increment >= 0, $"expected `x++` in output, got: {output}");
+        Assert.True(comparison < increment,
+            $"`x > 0` must evaluate before `x++`; the comparison was reordered past the increment: {output}");
+    }
+
+    // Direct-IR proof for the late slots-only path the compiled fixture above
+    // cannot reach (csc spills the reordered argument to a local, which the early
+    // full run protects by pass ordering). A slot holds the pure comparison
+    // `x > 0`; a post-increment of `x` sits before the slot's single load, which
+    // is not the first-evaluated leaf. Without tracking the increment as a
+    // mutation the pass would deem the comparison pure and defer it past `x++`,
+    // reading the incremented value. The slot must survive (issue #3133).
+    [Fact]
+    public void SlotCompositeReadingIncrementedArgument_IsNotInlinedPastIncrement()
+    {
+        var use = new MethodRef(Holder, "Use", Void, [Int32, Bool], HasThis: false);
+
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Comparison(
+            ComparisonKind.GreaterThan,
+            isUnsigned: false,
+            new LoadArgument(0, "x", Int32),
+            new Constant(0, Int32))));
+        block.Add(new ExpressionStatement(new Call(
+            use,
+            isVirtual: false,
+            [
+                new IncrementDecrement(new LoadArgument(0, "x", Int32), isIncrement: true, isPrefix: false),
+                new LoadStackSlot(0, Bool),
+            ])));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [new Parameter("x", Int32)], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
     [Fact]
     public void CachedDelegateArgument_InlinesToSingleCall()
     {
