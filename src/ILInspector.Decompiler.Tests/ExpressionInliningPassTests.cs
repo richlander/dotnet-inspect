@@ -172,6 +172,91 @@ public class ExpressionInliningPassTests
         function.CheckInvariant();
     }
 
+    // The interference check must recognize compound assignments, not just plain
+    // stores and increments. A `??=` (`NullCoalescingAssignment`) reconstructed
+    // before the late inlining run mutates its local; a pure composite reading
+    // that local must not be deferred past it. Here the slot holds `x + 1` and
+    // the for-loop initializer is `x ??= 5`, whose write sits before the slot's
+    // load in the condition (issue #3133 adversarial review — GPT/Gemini `??=`).
+    [Fact]
+    public void PureCompositeReadingLocal_IsNotInlinedPastNullCoalescingAssignment()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadLocal(0, Int32),
+            new Constant(1, Int32))));
+        block.Add(new ForLoop(
+            new NullCoalescingAssignment(0, Int32, new Constant(5, Int32)),
+            new Comparison(
+                ComparisonKind.LessThan,
+                isUnsigned: false,
+                new LoadStackSlot(0, Int32),
+                new Constant(10, Int32)),
+            new IncrementDecrement(new LoadLocal(1, Int32), isIncrement: true, isPrefix: false),
+            new Block(1)));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32, Int32],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
+    // Same hazard via a tuple deconstruction that reassigns an existing local
+    // (`IsDeclared: false`). The slot holds `x + 1`; the for-loop initializer
+    // deconstructs into `x`, so the deferred composite would read the mutated
+    // value. `DeconstructionAssignment` local targets must count as writes
+    // (issue #3133 adversarial review — Gemini deconstruction case).
+    [Fact]
+    public void PureCompositeReadingLocal_IsNotInlinedPastDeconstructionAssignment()
+    {
+        var body = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new StoreStackSlot(0, new Binary(
+            BinaryKind.Add,
+            isChecked: false,
+            isUnsigned: false,
+            new LoadLocal(0, Int32),
+            new Constant(1, Int32))));
+        block.Add(new ForLoop(
+            new DeconstructionAssignment(
+                [0],
+                [Int32],
+                new Constant(0, Int32),
+                [false]),
+            new Comparison(
+                ComparisonKind.LessThan,
+                isUnsigned: false,
+                new LoadStackSlot(0, Int32),
+                new Constant(10, Int32)),
+            new IncrementDecrement(new LoadLocal(1, Int32), isIncrement: true, isPrefix: false),
+            new Block(1)));
+        body.Add(block);
+        var function = new IrFunction(
+            "M",
+            Holder,
+            new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0),
+            [Int32, Int32],
+            body);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        Assert.Contains(block.Children.OfType<StoreStackSlot>(), store => store.Slot == 0);
+        Assert.Contains(function.Descendants.OfType<LoadStackSlot>(), load => load.Slot == 0);
+        function.CheckInvariant();
+    }
+
     [Fact]
     public void CachedDelegateArgument_InlinesToSingleCall()
     {

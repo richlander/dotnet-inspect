@@ -135,12 +135,13 @@ public sealed class ExpressionInliningPass : IIrPass
                 continue;  // inlining would move the computation past whatever evaluates before the load
             // Purity proves the value has no effect and cannot throw, but a value
             // deferred to a NON-first-leaf load also moves past `next`'s prefix.
-            // If that prefix writes a place the value reads (a `StoreLocal`, or a
-            // reconstructed `x++`/`x--` whose `starg`/`stloc` was folded away), the
-            // deferred value would observe the mutated place. A pure value reads
-            // only arguments and locals (IsPure admits nothing else), so guard
-            // exactly those against a conflicting write anywhere in `next`
-            // (#3133 adversarial review — GPT for-loop-initializer case).
+            // If that prefix writes a place the value reads — a `StoreLocal`, a
+            // compound assignment (`??=` / tuple deconstruction), or a
+            // reconstructed `x++`/`x--` — the deferred value would observe the
+            // mutated place. A pure value reads only arguments and locals
+            // (IsPure admits nothing else), so guard exactly those against a
+            // conflicting write anywhere in `next` (#3133 adversarial review —
+            // GPT for-loop-initializer and `??=` cases).
             if (!firstLeaf && DefersPastConflictingWrite(store is StoreLocal s2 ? s2.Value : ((StoreStackSlot)store).Value, next))
                 continue;
 
@@ -379,9 +380,12 @@ public sealed class ExpressionInliningPass : IIrPass
             PlaceKind.Slot => (n is StoreStackSlot s && s.Slot == index)
                 || (n is IncrementDecrement { Target: LoadStackSlot isl } && isl.Slot == index),
             PlaceKind.Local => (n is StoreLocal l && l.Index == index)
-                || (n is IncrementDecrement { Target: LoadLocal il } && il.Index == index),
+                || (n is IncrementDecrement { Target: LoadLocal il } && il.Index == index)
+                || (n is NullCoalescingAssignment nca && nca.LocalIndex == index)
+                || (n is DeconstructionAssignment dal && dal.Targets.Any(t => t.Kind == DeconstructionTargetKind.Local && t.LocalIndex == index)),
             PlaceKind.Argument => (n is StoreArgument a && a.Index == index)
-                || (n is IncrementDecrement { Target: LoadArgument ia } && ia.Index == index),
+                || (n is IncrementDecrement { Target: LoadArgument ia } && ia.Index == index)
+                || (n is DeconstructionAssignment daa && daa.Targets.Any(t => t.Kind == DeconstructionTargetKind.Argument && t.ArgumentIndex == index)),
             _ => false,
         });
 
