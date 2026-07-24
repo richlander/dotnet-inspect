@@ -75,6 +75,9 @@ static class Program
         string? harvestOutputPath = null;
         bool benchmarkAuthoredCorpus = false;
         string? benchmarkCorpusPath = null;
+        bool historyCard = false;
+        string? historyCardPath = null;
+        int historyCardWindow = 5;
         bool verifyAuthoredCorpus = false;
         string? verifyCorpusPath = null;
         bool failOnDrift = false;
@@ -209,6 +212,9 @@ static class Program
                         benchmarkAuthoredCorpus = true;
                         benchmarkCorpusPath = NextArg(args, ref i, flag);
                         break;
+                    case "--history-card": historyCard = true; break;
+                    case "--history-path": historyCardPath = NextArg(args, ref i, flag); break;
+                    case "--history-window": historyCardWindow = int.Parse(NextArg(args, ref i, flag)); break;
                     case "--verify-authored-corpus":
                         verifyAuthoredCorpus = true;
                         verifyCorpusPath = NextArg(args, ref i, flag);
@@ -342,6 +348,13 @@ static class Program
             if (inputs.Count > 0)
                 return Fail("--fixture-source-inventory reports the registered Built and Generated catalogs; do not pass assembly paths.");
             return FixtureSourceInventory(json);
+        }
+
+        if (historyCard)
+        {
+            if (inputs.Count > 0)
+                return Fail("--history-card renders the committed EVIL run-history trend store; do not pass assembly paths.");
+            return AuthoredCorpusHistoryCard.Run(historyCardPath, historyCardWindow);
         }
 
         if (generatedFixtures)
@@ -2025,6 +2038,17 @@ static class Program
           --fail-on-drift        with --verify-authored-corpus: fail-closed gate —
                                 exit non-zero unless every evaluated row is
                                 Verified (any Drifted or Unavailable row fails).
+          --history-card         render a Markout progress card over the committed
+                                EVIL run-history trend store: the last N runs as a
+                                trend table plus a latest-vs-previous movement
+                                table. Headline metric is product defects (#3079),
+                                not raw invalid (~92% harness noise). Reads no
+                                assemblies and runs no decompiler.
+          --history-path <file>  with --history-card: read a specific history.jsonl
+                                instead of the committed default
+                                (tools/DecompilerHarness/corpus/evil-runs/history.jsonl).
+          --history-window <n>   with --history-card: show the last n runs
+                                (default 5; <= 0 shows all).
           --fidelity-timings      with --fidelity-check: print phase timings for collect/render,
                                 skeleton emit, parse, compilation create, emit, and opcode compare
           --fidelity-zero-signal-guard <n>

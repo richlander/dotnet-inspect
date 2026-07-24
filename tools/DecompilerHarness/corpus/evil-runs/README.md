@@ -62,3 +62,26 @@ Each row contains these fields:
 5. Record the UTC date, short SHA, and sweep-manifest SHA-256.
 6. Append one compact JSON object to `history.jsonl`.
 7. Validate every line parses before committing.
+
+## Progress card
+
+Render a Markout progress card over this trend store — the last N runs as a
+trend table plus a latest-vs-previous movement table — with:
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release -- --history-card
+```
+
+Options:
+
+- `--history-window <n>`: show the last `n` runs (default 5; `<= 0` shows all).
+- `--history-path <file>`: read a specific `history.jsonl` instead of the
+  committed default.
+
+The card reads no assemblies and runs no decompiler. Its headline metric is
+`invalidBreakdown.productBodyDefect` (genuine target-body decompiler defects),
+not raw `invalid`: per #3079 the raw invalid population is dominated by harness
+shell-reconstruction noise that does not move on decompiler fixes. Runs that
+predate PR #3096 have no `invalidBreakdown`, so their product/harness columns
+and the product-defect movement row render as `—`/`n/a` rather than a
+fabricated zero.
