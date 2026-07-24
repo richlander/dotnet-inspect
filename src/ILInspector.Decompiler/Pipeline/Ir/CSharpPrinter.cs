@@ -286,17 +286,20 @@ public sealed partial class CSharpPrinter
     /// <see cref="BodyIsSingleExpressionBody"/> aligned with the downstream
     /// extractor (<see cref="CSharpExpressionBody.MultilineExpressionBodyLines"/>)
     /// so the typed flag is never set for a statement the printer expanded into
-    /// several lines that would not fold:
+    /// several lines that would not fold. The shared guards require a multi-line
+    /// body that terminates in <c>;</c> — the exact shape the extractor accepts:
     /// <list type="bullet">
     /// <item>A lone <see cref="Return"/> whose value the printer lifts into a
     /// leading local declaration (a <c>stackalloc</c>-to-pointer return inside an
     /// <c>unsafe</c> block) prints a decl first, not a bare <c>return </c>, so the
     /// keyword prefix keeps the flag off.</item>
     /// <item>A single <see cref="ExpressionStatement"/> has no leading-decl lift
-    /// path — its whole printed form is that one statement (wrapped by the fluent
-    /// or splittable renderer, whose first line is always the expression's own
-    /// opening token) — so the multi-line guard alone is sound; no keyword prefix
-    /// exists to check.</item>
+    /// path, so its whole printed form is that one statement — but under the new
+    /// memory-safety rules the printer may wrap a lone unsafe statement as
+    /// <c>unsafe { &lt;stmt&gt;; }</c>, whose printed form ends in <c>}</c>, not
+    /// <c>;</c>. The trailing-<c>;</c> guard keeps the flag off for that wrapper
+    /// (the extractor rejects it too), so no keyword prefix is needed to
+    /// discriminate the un-wrapped case.</item>
     /// </list>
     /// </summary>
     static bool IsFoldableSingleStatement(IReadOnlyList<IrNode> statements, string output)
@@ -304,7 +307,7 @@ public sealed partial class CSharpPrinter
         if (statements is not [var only])
             return false;
         var trimmed = output.AsSpan().Trim();
-        if (!trimmed.Contains('\n'))
+        if (!trimmed.Contains('\n') || trimmed[^1] != ';')
             return false;
         return only switch
         {

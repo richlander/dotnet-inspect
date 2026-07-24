@@ -107,6 +107,7 @@ public sealed class CSharpExpressionBodyTests
     [InlineData("")]                               // empty
     [InlineData("return x switch\n{\n    _ => 1,\n}")] // no terminating ';'
     [InlineData("builder\n    .Append(x)")]        // no terminating ';'
+    [InlineData("unsafe\n{\n    NativeMemory.Free(p);\n}")] // unsafe wrapper — ends in '}', not ';'
     public void MultilineExpressionBodyLines_RejectsNonMultilineStatementForms(string body)
         => Assert.Null(CSharpExpressionBody.MultilineExpressionBodyLines(body));
 }
