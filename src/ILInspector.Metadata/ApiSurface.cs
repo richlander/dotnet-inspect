@@ -206,6 +206,7 @@ public readonly record struct TypeParameterConstraint(string Value, bool IsTypeN
 public class ApiSignature
 {
     public string? ReturnType { get; set; }
+    public string? CanonicalReturnType { get; set; }
     public List<string> ReturnAttributes { get; set; } = [];
     public string? MemberName { get; set; }
     public bool IsRequired { get; set; }
@@ -218,6 +219,24 @@ public class ApiSignature
     public string ParameterTypesSummary => Parameters.Count == 0
         ? ""
         : $"({string.Join(", ", Parameters.Select(parameter => parameter.TypeWithModifier))})";
+
+    /// <summary>
+    /// The presentation-independent parameter list used for member identity: identical
+    /// to <see cref="ParameterTypesSummary"/> except that tuple element names and C#
+    /// tuple syntax are erased (<c>System.ValueTuple&lt;int, string&gt;</c> rather than
+    /// <c>(int count, string name)</c>). For members with no tuple parameters this equals
+    /// <see cref="ParameterTypesSummary"/> character-for-character.
+    /// </summary>
+    public string CanonicalParameterTypesSummary => Parameters.Count == 0
+        ? ""
+        : $"({string.Join(", ", Parameters.Select(parameter => parameter.CanonicalTypeWithModifier))})";
+
+    /// <summary>
+    /// The canonical (tuple-erased) return-type spelling used for identity; falls back to
+    /// <see cref="ReturnType"/> when a canonical spelling was not recorded.
+    /// </summary>
+    public string? EffectiveCanonicalReturnType =>
+        string.IsNullOrEmpty(CanonicalReturnType) ? ReturnType : CanonicalReturnType;
 
     public List<(string name, string type, bool hasDefault)> ParameterInfoSummary => Parameters
         .Select(parameter => (parameter.Name, parameter.TypeWithModifier, parameter.HasDefault))
@@ -234,6 +253,7 @@ public class ApiParameter
     public List<string> Attributes { get; set; } = [];
     public string Name { get; set; } = "";
     public string Type { get; set; } = "";
+    public string? CanonicalType { get; set; }
     public string? Modifier { get; set; }
     public bool HasDefault { get; set; }
     public string? DefaultValueText { get; set; }
@@ -241,6 +261,20 @@ public class ApiParameter
     public string TypeWithModifier => string.IsNullOrEmpty(Modifier)
         ? Type
         : $"{Modifier} {Type}";
+
+    /// <summary>
+    /// The canonical (tuple-erased) parameter type; falls back to <see cref="Type"/> when a
+    /// canonical spelling was not recorded, so a non-tuple parameter's canonical spelling
+    /// equals its display spelling.
+    /// </summary>
+    public string EffectiveCanonicalType =>
+        string.IsNullOrEmpty(CanonicalType) ? Type : CanonicalType!;
+
+    /// <summary>Canonical type composed with its by-ref/params modifier, mirroring
+    /// <see cref="TypeWithModifier"/> but tuple-erased for identity.</summary>
+    public string CanonicalTypeWithModifier => string.IsNullOrEmpty(Modifier)
+        ? EffectiveCanonicalType
+        : $"{Modifier} {EffectiveCanonicalType}";
 }
 
 public class ApiAccessor
