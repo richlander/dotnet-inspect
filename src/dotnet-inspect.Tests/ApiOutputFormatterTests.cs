@@ -169,6 +169,70 @@ public class ApiOutputFormatterTests
         Assert.DoesNotContain(DiagnosticIds.EmptyOutput, source);
     }
 
+    [Fact]
+    public void FormatSourceWithDeclaration_SingleSwitchReturn_RendersExpressionBodied()
+    {
+        // #3088: a member whose only statement is a multi-line
+        // `return <switch>;` renders expression-bodied. The block lines keep
+        // their column-zero body indent under the column-zero declaration.
+        var type = new ApiType { Namespace = "Samples", Name = "Shapes", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Area",
+            Kind = "method",
+            SignatureModel = new ApiSignature { MemberName = "Area", ReturnType = "System.Int32" }
+        };
+        var result = DecompilerResult.Success(
+            "return shape switch\n{\n    string s => s.Length,\n    int[] a => a.Length,\n    _ => 0,\n};") with
+        {
+            BodyIsSingleReturnExpression = true
+        };
+
+        var source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            member,
+            methodGenericParameters: null,
+            result,
+            preferExpressionBodied: true)
+            .ReplaceLineEndings("\n");
+
+        Assert.EndsWith(" => shape switch", Declaration(source));
+        Assert.Contains("\n{\n    string s => s.Length,\n    int[] a => a.Length,\n    _ => 0,\n};", source);
+        Assert.EndsWith("};", source.TrimEnd());
+        Assert.DoesNotContain("return shape switch", source);
+    }
+
+    [Fact]
+    public void FormatSourceWithDeclaration_SwitchReturn_StaysBlockWhenSignalNotSet()
+    {
+        // Same multi-line switch-return body, but the printer did not prove it a
+        // single-return expression (e.g. a statement precedes it), so it must
+        // keep the brace-block body.
+        var type = new ApiType { Namespace = "Samples", Name = "Shapes", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Area",
+            Kind = "method",
+            SignatureModel = new ApiSignature { MemberName = "Area", ReturnType = "System.Int32" }
+        };
+        var result = DecompilerResult.Success(
+            "return shape switch\n{\n    string s => s.Length,\n    int[] a => a.Length,\n    _ => 0,\n};") with
+        {
+            BodyIsSingleReturnExpression = false
+        };
+
+        var source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            member,
+            methodGenericParameters: null,
+            result,
+            preferExpressionBodied: true)
+            .ReplaceLineEndings("\n");
+
+        Assert.DoesNotContain("=>", Declaration(source));
+        Assert.Contains("return shape switch", source);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
