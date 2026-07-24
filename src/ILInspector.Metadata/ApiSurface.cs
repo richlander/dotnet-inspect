@@ -396,6 +396,20 @@ public class ApiMember
     public string? ReturnType { get; set; }
     public string? Signature { get; set; }
 
+    /// <summary>
+    /// The persisted, presentation-independent canonical member identity — the Member Index
+    /// digest input (e.g. <c>M:N.C.Parse(System.ValueTuple&lt;int,string&gt;)</c>). Populated
+    /// at extraction only when it diverges from what parsing the display
+    /// <see cref="Signature"/> would yield — i.e. for members whose signature contains C#
+    /// tuple syntax, whose element names and <c>(...)</c> spelling must not leak into
+    /// identity and cannot be recovered from the display text after a JSON round-trip
+    /// (<see cref="SignatureModel"/> is <see cref="JsonIgnoreAttribute"/>). Null in the
+    /// common case, where the canonical spelling equals the display-derived one, so
+    /// serialized surfaces for non-tuple members are unchanged.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CanonicalSignature { get; set; }
+
     [JsonIgnore]
     public ApiSignature? SignatureModel { get; set; }
 

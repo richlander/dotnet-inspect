@@ -260,4 +260,17 @@ public class TupleSampleClass
     public string? NullRef(string? s) => s;
     private int _slot;
     public ref readonly int RefReadonlyReturn() => ref _slot;
+
+    // A genuine eight-element C# tuple lowers to ValueTuple<T1..T7, ValueTuple<T8>>.
+    public void GenuineEightTupleParam((int, int, int, int, int, int, int, int) t) { }
+
+    // An explicit ValueTuple`8 whose 8th ("Rest") argument is NOT a ValueTuple. This is a
+    // valid generic instantiation but not a C# tuple, so it must keep generic spelling and
+    // never collide with the genuine eight-tuple above.
+    public void InvalidRestValueTupleParam(
+        System.ValueTuple<int, int, int, int, int, int, int, int> t) { }
+
+    // A conversion operator returning a tuple: conversion operators overload on return type,
+    // so the tuple return is part of member identity and must canonicalize across round-trips.
+    public static implicit operator (int a, int b)(TupleSampleClass f) => default;
 }

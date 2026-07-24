@@ -125,12 +125,22 @@ internal abstract class TypeNode
             var args = current.Arguments;
             // A well-formed C# tuple of arity > 7 is ValueTuple<T1..T7, TRest>
             // where TRest is itself a ValueTuple holding the remaining elements.
-            if (args.Length == 8 && args[7] is GenericTypeNode { BaseName: ValueTupleBaseName } rest)
+            if (args.Length == 8)
             {
-                for (int i = 0; i < 7; i++)
-                    elements.Add(args[i]);
-                current = rest;
-                continue;
+                if (args[7] is GenericTypeNode { BaseName: ValueTupleBaseName } rest)
+                {
+                    for (int i = 0; i < 7; i++)
+                        elements.Add(args[i]);
+                    current = rest;
+                    continue;
+                }
+
+                // An 8-argument ValueTuple whose 8th ("Rest") argument is not itself a
+                // ValueTuple cannot arise from C# tuple syntax (TRest must be a ValueTuple).
+                // Treat it as an ordinary generic instantiation so it keeps its
+                // System.ValueTuple<...> spelling and never collides with a genuine
+                // eight-element tuple.
+                return null;
             }
             elements.AddRange(args);
             break;

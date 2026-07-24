@@ -623,6 +623,8 @@ public static class ApiSurfaceExtractor
             }
         }
 
+        ApiMemberIdentity.PopulateCanonicalIdentities(surface);
+
         return surface;
     }
 

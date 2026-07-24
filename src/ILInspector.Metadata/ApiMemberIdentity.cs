@@ -162,6 +162,46 @@ public static class ApiMemberIdentity
     public static ApiMemberHandle CreateHandle(ApiType type, ApiMember member)
         => new(type, member, GetMemberAnchor(type, member));
 
+    /// <summary>
+    /// Persists <see cref="ApiMember.CanonicalSignature"/> for every member whose canonical
+    /// (identity) spelling diverges from its display <see cref="ApiMember.Signature"/> — i.e.
+    /// members carrying C# tuple syntax, whose element names and <c>(...)</c> spelling must
+    /// not leak into identity and cannot be recovered from the display text after a JSON
+    /// round-trip (<see cref="ApiMember.SignatureModel"/> is not serialized). Computed here,
+    /// while the structural model is live, so a round-tripped surface pairs with the same
+    /// members read live. Non-divergent (non-tuple) members are left untouched, keeping
+    /// their serialized form and digests unchanged.
+    /// </summary>
+    public static void PopulateCanonicalIdentities(ApiSurface surface)
+    {
+        foreach (var type in surface.Types)
+        {
+            foreach (var member in type.Members)
+            {
+                if (member.SignatureModel is not { } signature || !HasCanonicalDivergence(member, signature))
+                    continue;
+
+                member.CanonicalSignature = GetCanonicalSignature(type, member);
+            }
+        }
+    }
+
+    static bool HasCanonicalDivergence(ApiMember member, ApiSignature signature)
+    {
+        // A tuple parameter is part of member identity, so its erased spelling must be
+        // persisted. A tuple return type only affects identity for conversion operators
+        // (which overload on return type); for every other member the return type is not
+        // part of the digest, so a return-only divergence needs no persistence.
+        if (signature.Parameters.Any(parameter =>
+                !string.Equals(parameter.EffectiveCanonicalType, parameter.Type, StringComparison.Ordinal)))
+        {
+            return true;
+        }
+
+        return IsConversionOperator(member.Name)
+            && !string.Equals(signature.EffectiveCanonicalReturnType, signature.ReturnType, StringComparison.Ordinal);
+    }
+
     public static string GetMemberSignatureSortKey(ApiMember member)
     {
         var signature = member.Signature ?? "";
@@ -358,6 +398,13 @@ public static class ApiMemberIdentity
 
     public static string GetCanonicalSignature(ApiType type, ApiMember member)
     {
+        // A persisted canonical identity (present for tuple-bearing members whose display
+        // signature cannot be re-canonicalized from text after a JSON round-trip) is
+        // authoritative: it was computed at extraction from the live structural model and
+        // guarantees round-tripped surfaces pair with the same members read live.
+        if (!string.IsNullOrEmpty(member.CanonicalSignature))
+            return member.CanonicalSignature!;
+
         if (TryGetCanonicalSignature(type, member, out var canonicalSignature))
             return canonicalSignature;
 
@@ -401,6 +448,14 @@ public static class ApiMemberIdentity
 
     public static bool TryGetCanonicalSignature(ApiType type, ApiMember member, out string canonicalSignature)
     {
+        // See GetCanonicalSignature: a persisted canonical identity is authoritative and
+        // survives the JSON round-trip that discards SignatureModel.
+        if (!string.IsNullOrEmpty(member.CanonicalSignature))
+        {
+            canonicalSignature = member.CanonicalSignature!;
+            return true;
+        }
+
         var declaringType = string.IsNullOrWhiteSpace(member.DeclaringType)
             ? MetadataTypeNameFormatter.FormatFullName(type)
             : member.DeclaringType!;

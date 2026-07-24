@@ -147,4 +147,83 @@ public sealed class TupleIdentityTests
         Assert.Equal("ref readonly int", member.SignatureModel!.ReturnType);
         Assert.Equal("ref readonly int", member.SignatureModel!.EffectiveCanonicalReturnType);
     }
+
+    // --- JSON round-trip identity parity (persisted CanonicalSignature) -------
+
+    [Fact]
+    public void RoundTrip_TupleParam_CanonicalIdentityMatchesLive()
+    {
+        // SignatureModel is [JsonIgnore]; a persisted CanonicalSignature is what lets a
+        // tuple member's identity survive serialization. Without it, the fallback would
+        // parse tuple DISPLAY syntax and diverge from the live digest.
+        var member = Method(nameof(TupleSampleClass.NamedParam));
+        Assert.False(string.IsNullOrEmpty(member.CanonicalSignature));
+
+        var live = ApiMemberIdentity.GetCanonicalSignature(SampleType, member);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(Surface);
+        var roundTripped = System.Text.Json.JsonSerializer.Deserialize<ApiSurface>(json)!;
+        var rtType = roundTripped.Types.First(t => t.Name == nameof(TupleSampleClass));
+        var rtMember = rtType.Members.First(m =>
+            m.Name == nameof(TupleSampleClass.NamedParam) && m.Kind == "method");
+
+        Assert.Null(rtMember.SignatureModel);
+        Assert.Equal(live, ApiMemberIdentity.GetCanonicalSignature(rtType, rtMember));
+        Assert.Contains("System.ValueTuple<int,int>", ApiMemberIdentity.GetCanonicalSignature(rtType, rtMember));
+    }
+
+    [Fact]
+    public void RoundTrip_NonTupleMember_NoCanonicalSignaturePersisted()
+    {
+        // Churn guard: a non-tuple member's canonical spelling equals its display spelling,
+        // so no CanonicalSignature is persisted and its serialized form is unchanged.
+        var member = Method(nameof(TupleSampleClass.NoTuple));
+        Assert.Null(member.CanonicalSignature);
+    }
+
+    [Fact]
+    public void RoundTrip_TupleReturningConversionOperator_CanonicalIdentityMatchesLive()
+    {
+        // Conversion operators overload on return type, so a tuple return is part of
+        // identity. The fallback string path cannot reverse (int a, int b) back to
+        // System.ValueTuple; the persisted CanonicalSignature must carry it.
+        var op = SampleType.Members.First(m => m.Name == "op_Implicit");
+        Assert.False(string.IsNullOrEmpty(op.CanonicalSignature));
+        var live = ApiMemberIdentity.GetCanonicalSignature(SampleType, op);
+        Assert.Contains("~System.ValueTuple<int,int>", live);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(Surface);
+        var roundTripped = System.Text.Json.JsonSerializer.Deserialize<ApiSurface>(json)!;
+        var rtType = roundTripped.Types.First(t => t.Name == nameof(TupleSampleClass));
+        var rtOp = rtType.Members.First(m => m.Name == "op_Implicit");
+
+        Assert.Null(rtOp.SignatureModel);
+        Assert.Equal(live, ApiMemberIdentity.GetCanonicalSignature(rtType, rtOp));
+    }
+
+    // --- Invalid ValueTuple`8 (non-tuple Rest) must not masquerade as a tuple -
+
+    [Fact]
+    public void InvalidRestValueTuple_KeepsGenericSpelling()
+    {
+        var member = Method(nameof(TupleSampleClass.InvalidRestValueTupleParam));
+        Assert.Contains("System.ValueTuple<int, int, int, int, int, int, int, int>", member.Signature);
+    }
+
+    [Fact]
+    public void InvalidRestValueTuple_DoesNotCollideWithGenuineEightTuple()
+    {
+        var genuine = Method(nameof(TupleSampleClass.GenuineEightTupleParam));
+        var invalid = Method(nameof(TupleSampleClass.InvalidRestValueTupleParam));
+
+        // Genuine eight-tuple renders as C# tuple syntax; the invalid Rest keeps generics.
+        Assert.Contains("(int, int, int, int, int, int, int, int)", genuine.Signature);
+        Assert.DoesNotContain("System.ValueTuple", genuine.Signature);
+        Assert.DoesNotContain("(int, int, int, int, int, int, int, int)", invalid.Signature);
+
+        // Their identities are distinct too.
+        Assert.NotEqual(
+            ApiMemberIdentity.GetCanonicalSignature(SampleType, genuine),
+            ApiMemberIdentity.GetCanonicalSignature(SampleType, invalid));
+    }
 }
