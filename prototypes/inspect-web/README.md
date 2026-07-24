@@ -23,7 +23,10 @@ published engine assets and is no longer independently fixture-backed.
 - Member Overview shows the product-owned stable selector, anchor digest, and
   canonical signature with copy actions.
 - Opening Call graph builds a bounded caller/callee graph and renders the
-  shared product-owned Mermaid projection in the browser.
+  shared product-owned Mermaid projection in the browser. Caller discovery
+  spans the implementation assemblies from every package currently loaded in
+  the workspace; callee traversal currently remains within the target
+  assembly.
 - Opening Facts lazily analyzes only the selected overload and separates
   objective method, allocation, call, safety, and exception evidence from
   ranked Performance Triage judgments.

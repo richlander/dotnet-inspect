@@ -81,13 +81,26 @@ public sealed record BrowserMemberSource(
 public sealed record BrowserCallGraph(
     string Mermaid,
     BrowserCallGraphNode Callers,
-    BrowserCallGraphNode Callees);
+    BrowserCallGraphNode Callees,
+    BrowserCallGraphScope Scope);
 
 public sealed record BrowserCallGraphNode(
     string Label,
     string Status,
     bool InLoop,
+    string? Source,
     BrowserCallGraphNode[] Children);
+
+public sealed record BrowserCallGraphScope(
+    int Packages,
+    int Assemblies,
+    int CallerAssemblies,
+    string CalleeScope);
+
+public sealed record BrowserWorkspacePackage(
+    string Package,
+    string Version,
+    string Framework);
 
 public sealed record BrowserMemberFacts(
     BrowserMethodSignals Signals,
@@ -160,6 +173,7 @@ public sealed record BrowserPerformanceOpportunity(
 [JsonSerializable(typeof(BrowserCallGraph))]
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
 [JsonSerializable(typeof(BrowserMemberFacts))]
+[JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 internal sealed partial class BrowserJsonContext : JsonSerializerContext;
 
 [SupportedOSPlatform("browser")]
@@ -400,7 +414,8 @@ public static partial class BrowserInspectionEngine
         string assemblyName,
         string typeId,
         string memberName,
-        string memberSignature)
+        string memberSignature,
+        string workspaceJson)
     {
         var normalizedId = packageId.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
@@ -409,17 +424,53 @@ public static partial class BrowserInspectionEngine
         Directory.CreateDirectory(tempRoot);
         try
         {
-            using var stream = new MemoryStream(packageBytes, writable: false);
-            using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
-            foreach (var entry in archive.Entries.Where(entry =>
-                entry.FullName.StartsWith($"lib/{targetFramework}/", StringComparison.OrdinalIgnoreCase)
-                && entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
+            var workspace = JsonSerializer.Deserialize(
+                    workspaceJson,
+                    BrowserJsonContext.Default.BrowserWorkspacePackageArray)
+                ?? [];
+            if (!workspace.Any(package =>
+                package.Package.Equals(packageId, StringComparison.OrdinalIgnoreCase)
+                && package.Version.Equals(version, StringComparison.OrdinalIgnoreCase)))
             {
-                await WriteEntryAsync(entry, Path.Combine(tempRoot, entry.Name));
+                workspace =
+                [
+                    .. workspace,
+                    new BrowserWorkspacePackage(packageId, version, targetFramework)
+                ];
             }
 
-            var implementationPath = Path.Combine(tempRoot, assemblyName);
-            if (!File.Exists(implementationPath))
+            var workspaceAssemblies = new List<(string Package, string Version, string Path)>();
+            string? implementationPath = null;
+            for (int packageIndex = 0; packageIndex < workspace.Length; packageIndex++)
+            {
+                var package = workspace[packageIndex];
+                var bytes = package.Package.Equals(packageId, StringComparison.OrdinalIgnoreCase)
+                    && package.Version.Equals(version, StringComparison.OrdinalIgnoreCase)
+                    ? packageBytes
+                    : await GetPackageBytesAsync(
+                        package.Package.ToLowerInvariant(),
+                        package.Version.ToLowerInvariant());
+                var packageDirectory = Path.Combine(tempRoot, $"package-{packageIndex}");
+                Directory.CreateDirectory(packageDirectory);
+                using var packageStream = new MemoryStream(bytes, writable: false);
+                using var archive = new ZipArchive(packageStream, ZipArchiveMode.Read);
+                foreach (var entry in archive.Entries.Where(entry =>
+                    entry.FullName.StartsWith($"lib/{package.Framework}/", StringComparison.OrdinalIgnoreCase)
+                    && entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
+                {
+                    var path = Path.Combine(packageDirectory, entry.Name);
+                    await WriteEntryAsync(entry, path);
+                    workspaceAssemblies.Add((package.Package, package.Version, path));
+                    if (package.Package.Equals(packageId, StringComparison.OrdinalIgnoreCase)
+                        && package.Version.Equals(version, StringComparison.OrdinalIgnoreCase)
+                        && entry.Name.Equals(assemblyName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        implementationPath = path;
+                    }
+                }
+            }
+
+            if (implementationPath is null || !File.Exists(implementationPath))
                 throw new InvalidOperationException($"No implementation asset for {assemblyName} at {targetFramework}.");
 
             using var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
@@ -440,12 +491,26 @@ public static partial class BrowserInspectionEngine
             var index = Analysis.LibraryBodyIndex.Open(
                 implementationPath,
                 Analysis.LibraryBodyAnalysisFeatures.MethodEvidence);
+            var callerScopes = workspaceAssemblies
+                .Where(assembly => !Path.GetFullPath(assembly.Path)
+                    .Equals(Path.GetFullPath(implementationPath), StringComparison.OrdinalIgnoreCase))
+                .Select(assembly => Analysis.LibraryBodyIndex.Open(
+                    assembly.Path,
+                    Analysis.LibraryBodyAnalysisFeatures.MethodEvidence))
+                .ToArray();
             var callers = index.BuildCallerTree(token, maxDepth: 2, maxNodes: 30);
+            if (callerScopes.Length > 0)
+                callers = index.BuildCallerTree(token, callerScopes, maxDepth: 2, maxNodes: 30);
             var callees = index.BuildCallTree(token, maxDepth: 2, maxNodes: 30);
             var result = new BrowserCallGraph(
                 CallGraphMermaid.Render(callers, callees),
                 ToBrowserCallNode(callers),
-                ToBrowserCallNode(callees));
+                ToBrowserCallNode(callees),
+                new BrowserCallGraphScope(
+                    workspace.Length,
+                    workspaceAssemblies.Count,
+                    callerScopes.Length + 1,
+                    assemblyName));
             return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserCallGraph);
         }
         finally
@@ -618,6 +683,7 @@ public static partial class BrowserInspectionEngine
             $"({string.Join(", ", node.Member.ParameterTypes.Select(type => type.ToDisplayString()))})",
             node.Status.ToString(),
             node.Perf?.InLoop ?? false,
+            node.Perf?.Source,
             node.Children.Select(ToBrowserCallNode).ToArray());
 
     static async Task<BrowserMemberSource?> TryGetAuthoredSourceAsync(

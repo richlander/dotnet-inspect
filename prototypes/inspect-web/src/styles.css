@@ -500,6 +500,8 @@ kbd {
 .exception-docs dd { margin: 0; color: #c5c6c0; font-size: 14px; line-height: 1.6; }
 .applies-to > span { display: inline-block; padding: 5px 9px; border: 1px solid #48545a; border-radius: 2px; color: #a9d2ec; font: 11px var(--mono); }
 .call-graph-section { max-width: 1100px; padding-top: 8px; }
+.graph-scope { display: grid; grid-template-columns: max-content 1fr max-content 1fr; gap: 8px 14px; align-items: center; padding: 10px; border-top: 1px solid var(--line); color: var(--dim); font: 11px var(--mono); }
+.graph-scope strong { color: #c9cbc3; font-weight: 500; }
 .call-graph-diagram { min-height: 360px; display: grid; place-items: center; overflow: auto; padding: 20px; border-top: 1px solid var(--line); background: #10110e; }
 .call-graph-diagram > svg { min-width: 720px; max-width: none; height: auto; }
 .call-graph-diagram > p { color: var(--muted); font-size: 11px; }

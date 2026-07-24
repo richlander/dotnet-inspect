@@ -426,11 +426,13 @@ function renderMember(type, member) {
   } else if (state.memberSection === "call-graph") {
     const callers = state.memberCallGraph?.callers?.children ?? [];
     const callees = state.memberCallGraph?.callees?.children ?? [];
+    const scope = state.memberCallGraph?.scope;
     content = state.memberCallGraphLoading
-      ? `<section class="document-section source-progress"><span class="loader"></span><h2>Building call graph…</h2><p>Scanning implementation IL for direct callers of this overload.</p></section>`
+      ? `<section class="document-section source-progress"><span class="loader"></span><h2>Building workspace call graph…</h2><p>Scanning implementation IL across ${state.packages.length} loaded package${state.packages.length === 1 ? "" : "s"}.</p></section>`
       : state.memberCallGraph
         ? `<section class="document-section call-graph-section">
             <div class="section-title"><h2>Call graph</h2><span>${callers.length} callers · ${callees.length} callees</span></div>
+            <div class="graph-scope"><strong>Workspace callers</strong><span>${scope.packages} loaded packages · ${scope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(scope.calleeScope)} · depth 2</span></div>
             <div id="call-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
             <details class="graph-source"><summary>Mermaid source</summary><pre><code>${escapeHtml(state.memberCallGraph.mermaid)}</code></pre></details>
           </section>`
@@ -988,7 +990,12 @@ async function loadSelectedMemberCallGraph() {
       assembly: type.assembly,
       type: type.id,
       member: overload.name,
-      signature: overload.signature
+      signature: overload.signature,
+      workspace: state.packages.map(packageItem => ({
+        package: packageItem.id,
+        version: packageItem.version,
+        framework: packageItem.activeFramework
+      }))
     });
   } catch (error) {
     state.memberCallGraphError = String(error?.message || error);

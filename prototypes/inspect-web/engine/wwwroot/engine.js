@@ -48,7 +48,8 @@ export async function inspectMemberCallGraph(request) {
     request.assembly,
     request.type,
     request.member,
-    request.signature);
+    request.signature,
+    JSON.stringify(request.workspace ?? []));
   return JSON.parse(json);
 }
 
