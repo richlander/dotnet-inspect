@@ -31,11 +31,12 @@ namespace ILInspector.Decompiler.Tests;
 /// whose matched arm does not reach the shared default, a nullable test type
 /// (illegal as a declaration pattern), a bound-slot type that disagrees with the
 /// pattern type, un-spellable test types (pointer/function-pointer/bare
-/// <c>Nullable`1</c>/<c>void</c>/static class), and a framework ref struct
-/// (<c>Span&lt;int&gt;</c>) which resolves to a value-type shape but is illegal
-/// as a boxed pattern. A synthetic positive pins that a generic-parameter arm
-/// (<c>isinst T; unbox.any T</c>, which csc does emit) still raises. The last
-/// group is from GPT review of #3124.
+/// <c>Nullable`1</c>/<c>void</c>/static class), a stack-only value type
+/// (<c>Span&lt;int&gt;</c>, <c>TypedReference</c>) which resolves to a value-type
+/// shape but is illegal as a boxed pattern, and a user-defined <c>ref struct</c>
+/// caught through the imported <c>[IsByRefLike]</c> fact. A synthetic positive
+/// pins that a generic-parameter arm (<c>isinst T; unbox.any T</c>, which csc
+/// does emit) still raises. The last group is from GPT review of #3124.
 /// </summary>
 [Trait("Area", "Pass")]
 public class OuterTypePatternDispatchRaisingTests
@@ -315,7 +316,7 @@ public class OuterTypePatternDispatchRaisingTests
         // shape but is illegal as a boxed pattern (CS8121) and is never a
         // compiler-produced value-type arm — a ref struct cannot be boxed. Even
         // stamped with a value-type hint (so the general value-type gate would
-        // admit it), IsFrameworkRefStruct rejects `Span`/`ReadOnlySpan` by name,
+        // admit it), IsStackOnlyValueType rejects `Span`/`ReadOnlySpan` by name,
         // so the cascade stays if/return rather than raising invalid `Full` C#.
         var spanDef = TypeRef.CoreLib("System", "Span`1").WithValueTypeHint(ValueTypeHint.ValueType);
         var span = TypeRef.GenericInstance(spanDef, ImmutableArray.Create(Int32));
@@ -326,6 +327,56 @@ public class OuterTypePatternDispatchRaisingTests
             leafValue: new Constant(true, Bool),
             unboxType: span,
             bindType: span);
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    [Fact]
+    public void Synthetic_TypedReferenceValueTypeArm_DoesNotRaise()
+    {
+        // GPT review round 4 (#3124): `System.TypedReference` sits in the corelib
+        // value-type list, so the general value-type gate admits it, yet it is a
+        // stack-only by-ref-like type — illegal as a boxed pattern (CS8121) and
+        // never a compiler-produced value-type arm. IsStackOnlyValueType rejects
+        // it by name (its by-ref-like nature lives on the cross-assembly corelib
+        // definition, not the TypeRef), so the cascade stays if/return.
+        var typedRef = TypeRef.CoreLib("System", "TypedReference");
+        var function = DiamondValueTypeCascade(
+            valueTypeTest: typedRef,
+            noMatchDefault: Default(),
+            guardFailDefault: Default(),
+            leafValue: new Constant(true, Bool),
+            unboxType: typedRef,
+            bindType: typedRef);
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    [Fact]
+    public void Synthetic_UserRefStructValueTypeArm_DoesNotRaise()
+    {
+        // GPT review round 4 (#3124): a user-defined `ref struct` in the inspected
+        // assembly resolves to a ValueType shape (indistinguishable from an
+        // ordinary struct by shape alone), so the general value-type gate admits
+        // it. A ref struct cannot be boxed, so the value-type arm over one is
+        // never compiler-produced and `T t` over it is illegal (CS8121). The
+        // `[IsByRefLike]` fact is recovered at import into `function.ByRefLikeTypes`
+        // (populated here to mirror that import); IsByRefLike consults it and
+        // declines, so the cascade stays if/return. State unreachable via csc — a
+        // synthetic fixture is the appropriate proof for this defensive gate.
+        var userRefStruct = TypeRef.CoreLib("Synthetic", "UserRefStruct").WithValueTypeHint(ValueTypeHint.ValueType);
+        var function = DiamondValueTypeCascade(
+            valueTypeTest: userRefStruct,
+            noMatchDefault: Default(),
+            guardFailDefault: Default(),
+            leafValue: new Constant(true, Bool),
+            unboxType: userRefStruct,
+            bindType: userRefStruct);
+        function.ByRefLikeTypes = ImmutableHashSet.Create(userRefStruct);
 
         RunPass(function);
 

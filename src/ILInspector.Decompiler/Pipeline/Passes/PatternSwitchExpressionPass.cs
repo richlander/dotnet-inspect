@@ -27,12 +27,6 @@ public sealed class PatternSwitchExpressionPass : IIrPass
 {
     public string Name => "pattern-switch-expression";
 
-    // The processed function's type shapes, set at the start of each Run. Used by
-    // IsSpellableValueTypePattern to prove a value-type arm's test type is a legal,
-    // non-nullable value-type declaration pattern (structs/enums vs. static classes,
-    // interfaces, and other reference types are indistinguishable by TypeRef alone).
-    IReadOnlyDictionary<TypeRef, TypeShape> _shapes = new Dictionary<TypeRef, TypeShape>();
-
     sealed record ArmData(TypeRef PatternType, int PatternLocal, int? LocalIndex, PropertySubpattern? Subpattern, IrExpression? Guard, IrExpression Value, bool IsInline);
 
     /// <summary>
@@ -56,7 +50,6 @@ public sealed class PatternSwitchExpressionPass : IIrPass
 
     public void Run(IrFunction function, PassContext context)
     {
-        _shapes = function.TypeShapes;
         foreach (var container in function.Descendants.OfType<BlockContainer>().ToList())
         {
             if (container.Blocks is [var block] && TryMatch(function, block, context.TypesProvablyDisjoint, out int startIndex, out var switchExpression))
@@ -144,7 +137,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             return false;
 
         var arms = new List<ArmData>();
-        if (!TryParseChain(region, 0, scrutinee, defaultValue, arms, fallThroughIsDefault: false) || arms.Count < minArms)
+        if (!TryParseChain(function, region, 0, scrutinee, defaultValue, arms, fallThroughIsDefault: false) || arms.Count < minArms)
             return false;
 
         // A refutable (guarded or property-subpattern) non-last arm routes its
@@ -259,7 +252,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
     // enclosing dispatch is trailed by the default); at the top level, and inside a
     // then-only `then` (whose fall-through reaches the sibling MATCHED, not the
     // default), it is false and the list must end in an explicit `return <default>`.
-    bool TryParseChain(IReadOnlyList<IrNode> stmts, int index, Scrutinee scrutinee, IrExpression defaultValue, List<ArmData> arms, bool fallThroughIsDefault)
+    bool TryParseChain(IrFunction function, IReadOnlyList<IrNode> stmts, int index, Scrutinee scrutinee, IrExpression defaultValue, List<ArmData> arms, bool fallThroughIsDefault)
     {
         // Ran off the end: faithful only when fall-through lands on the default.
         if (index >= stmts.Count)
@@ -294,7 +287,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             // does; RefutableArmsDisjointFromLaterArms in TryFold still requires
             // its type disjoint from every later arm before folding.
             arms.Add(new ArmData(inlineType, inlineLocal, inlineIndex, Subpattern: null, inlineGuard, inlineValue, IsInline: true));
-            return TryParseChain(stmts, index + 1, scrutinee, defaultValue, arms, fallThroughIsDefault);
+            return TryParseChain(function, stmts, index + 1, scrutinee, defaultValue, arms, fallThroughIsDefault);
         }
 
         if (!IsArmIntro(stmts[index], scrutinee, out int patternLocal, out var patternType, out _))
@@ -304,7 +297,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             // `unbox.any` after the boolean `isinst` test, so — unlike a reference arm —
             // it has no `StoreLocal Lk = isinst` intro. Its no-match returns the default,
             // so it is necessarily the last matched arm before the default.
-            if (IsValueTypeArm(stmts, index, scrutinee, defaultValue, out int vtLocal, out var vtType, out int vtBodyStart))
+            if (IsValueTypeArm(function, stmts, index, scrutinee, defaultValue, out int vtLocal, out var vtType, out int vtBodyStart))
             {
                 if (!TryParseMatchedBody(stmts, vtBodyStart, vtType, vtLocal, defaultValue, out var vtArm, out int vtNext, out bool vtFallsThrough))
                     return false;
@@ -338,7 +331,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
                     return false;
                 arms.Add(elseArm);
                 // REST nests in `then`; its fall-through reaches the shared default.
-                return TryParseChain(dispatch.Then.Children, 0, scrutinee, defaultValue, arms, fallThroughIsDefault: true);
+                return TryParseChain(function, dispatch.Then.Children, 0, scrutinee, defaultValue, arms, fallThroughIsDefault: true);
             }
 
             // Diamond-return form (#3113): MATCHED (`else`) returns its arm value
@@ -355,7 +348,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
                 || !ReachesDefaultTail(dispatch.Else!.Children, diaNext, defaultValue))
                 return false;
             arms.Add(diaArm);
-            return TryParseChain(ConcatContinuation(dispatch.Then.Children, stmts, index + 2), 0, scrutinee, defaultValue, arms, fallThroughIsDefault);
+            return TryParseChain(function, ConcatContinuation(dispatch.Then.Children, stmts, index + 2), 0, scrutinee, defaultValue, arms, fallThroughIsDefault);
         }
 
         // Then-only form: MATCHED body = the sibling statements after the dispatch.
@@ -382,7 +375,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         arms.Add(arm);
         // REST nests in `then`; its fall-through reaches the sibling MATCHED (not
         // the default), so it must reach the default explicitly.
-        return TryParseChain(dispatch.Then.Children, 0, scrutinee, defaultValue, arms, fallThroughIsDefault: false);
+        return TryParseChain(function, dispatch.Then.Children, 0, scrutinee, defaultValue, arms, fallThroughIsDefault: false);
     }
 
     // Whether control arriving at <paramref name="index"/> reaches the default:
@@ -636,6 +629,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
     // (`isinst int; unbox.any int; stloc bool` would declare an `int` pattern var for a `bool`
     // slot — CS0029).
     bool IsValueTypeArm(
+        IrFunction function,
         IReadOnlyList<IrNode> stmts,
         int index,
         Scrutinee scrutinee,
@@ -654,7 +648,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
                 Then.Children: [Return { Value: { } noMatch }]
             }
             && scrutinee.Matches(testOperand)
-            && IsSpellableValueTypePattern(testType)
+            && IsSpellableValueTypePattern(function, testType)
             && DefaultEquals(noMatch, defaultValue)
             && index + 1 < stmts.Count
             && stmts[index + 1] is StoreLocal { Value: UnboxAny { Type: { } unboxType, Operand: { } unboxOperand } } bind
@@ -671,37 +665,34 @@ public sealed class PatternSwitchExpressionPass : IIrPass
     }
 
     // Whether a value-type arm's test type is spellable as a C# declaration pattern `T x`.
-    // csc emits a value-type arm's isinst+unbox for a concrete non-nullable value type or for
+    // csc emits a value-type arm's isinst+unbox for a boxable non-nullable value type or for
     // an unconstrained generic parameter (`isinst T; unbox.any T; stloc T` — and `T t` is a
-    // legal declaration pattern). Generic parameters are admitted directly; framework ref
-    // structs are rejected by name (see IsFrameworkRefStruct); every other kind must prove it
-    // is a known non-nullable value type via its resolved shape, which rejects reference types
-    // (interfaces, delegates, static classes — CS0723/CS8121), `System.Void` (CS1547),
-    // `Nullable<T>` (CS8116), the un-spellable kinds (pointer, function pointer, by-ref,
-    // pinned, unsupported, array), and any type whose value-ness cannot be established.
-    // Declining any of these leaves the cascade in its valid statement form rather than raising
-    // invalid `Full` C#.
-    //
-    // Residual: a user-defined ref struct also resolves to a ValueType shape but carries no
-    // by-ref-like fact in the SRM-only TypeShape model, so it is indistinguishable from an
-    // ordinary struct here. It is reachable only by hostile, non-compiler IL — a ref struct
-    // cannot be boxed, so csc never emits `isinst`/`unbox.any` over one — and closing it would
-    // require plumbing by-ref-like metadata into the pipeline, out of scope for this pass.
-    bool IsSpellableValueTypePattern(TypeRef type)
+    // legal declaration pattern). Generic parameters are admitted directly. Ref structs are
+    // rejected — they resolve to a ValueType shape but cannot be boxed (CS8121), so are never a
+    // compiler-produced value-type arm: framework/stack-only corelib ref structs by name (see
+    // IsStackOnlyValueType) and user-defined ones through the function's by-ref-like fact set.
+    // Every other kind must prove it is a known non-nullable value type via its resolved shape,
+    // which rejects reference types (interfaces, delegates, static classes — CS0723/CS8121),
+    // `System.Void` (CS1547), `Nullable<T>` (CS8116), the un-spellable kinds (pointer, function
+    // pointer, by-ref, pinned, unsupported, array), and any type whose value-ness cannot be
+    // established. Declining any of these leaves the cascade in its valid statement form rather
+    // than raising invalid `Full` C#.
+    static bool IsSpellableValueTypePattern(IrFunction function, TypeRef type)
     {
         if (type.Kind is TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter)
             return true;
-        if (IsFrameworkRefStruct(type))
+        if (IsStackOnlyValueType(type) || IsByRefLike(function, type))
             return false;
-        return TypeFamilies.IsKnownNonNullableValueType(type, _shapes);
+        return TypeFamilies.IsKnownNonNullableValueType(type, function.TypeShapes);
     }
 
-    // Span<T>/ReadOnlySpan<T> resolve to a ValueType shape but are ref structs — illegal as a
-    // boxed pattern (CS8121) and never a compiler-produced value-type arm. Recognised by name
-    // because the `IsByRefLike` fact lives on the cross-assembly definition, not the TypeRef;
-    // matching `System` avoids user types of the same simple name. Mirrors the same-reason
-    // heuristic in LifetimeClassifier.IsRefStruct.
-    static bool IsFrameworkRefStruct(TypeRef type)
+    // The corelib value types that resolve to a ValueType shape (or the hardcoded value-type
+    // list) but are ref-struct / stack-only and cannot be boxed, so are illegal as a boxed
+    // declaration pattern (CS8121). Recognised by name because their `IsByRefLike` /
+    // intrinsic-stack-only nature lives on the cross-assembly corelib definition, not the
+    // TypeRef; matching `System` avoids user types of the same simple name. User-defined ref
+    // structs in the inspected assembly are caught by IsByRefLike instead.
+    static bool IsStackOnlyValueType(TypeRef type)
     {
         var (name, ns) = type.Kind is TypeRefKind.GenericInstance
             ? (type.ElementType?.Name, type.ElementType?.Namespace)
@@ -710,7 +701,18 @@ public sealed class PatternSwitchExpressionPass : IIrPass
             return false;
         int tick = name.IndexOf('`');
         string simple = tick < 0 ? name : name[..tick];
-        return simple is "Span" or "ReadOnlySpan";
+        return simple is "Span" or "ReadOnlySpan" or "TypedReference" or "ArgIterator" or "RuntimeArgumentHandle";
+    }
+
+    // Whether the type (or a generic instance's definition) carries the compiler's
+    // `[IsByRefLike]` fact recovered at import into the function's by-ref-like set — a
+    // user-defined `ref struct` in the inspected assembly. A ref struct cannot be boxed, so
+    // `isinst`/`unbox.any` over one is never compiler-produced and `T t` over it is illegal
+    // (CS8121); such an arm is declined rather than raised to invalid `Full` C#.
+    static bool IsByRefLike(IrFunction function, TypeRef type)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        return definition is not null && function.ByRefLikeTypes.Contains(definition);
     }
 
     // The value a value-type arm dispatch (`if (!(scrutinee is Tvt)) return X`) yields

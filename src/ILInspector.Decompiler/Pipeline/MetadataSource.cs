@@ -255,6 +255,7 @@ public sealed class MetadataSource : IDisposable
     HashSet<TypeRef>? _genericDefinitions;
     Dictionary<TypeRef, ImmutableArray<TypeRef>>? _interfaceImpls;
     HashSet<TypeRef>? _unionTypes;
+    HashSet<TypeRef>? _byRefLikeTypes;
     HashSet<TypeRef>? _delegates;
 
     /// <summary>
@@ -382,6 +383,13 @@ public sealed class MetadataSource : IDisposable
         return definition is not null && _unionTypes!.Contains(definition);
     }
 
+    internal bool IsByRefLikeType(TypeRef type)
+    {
+        EnsureTypeMaps();
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        return definition is not null && _byRefLikeTypes!.Contains(definition);
+    }
+
     /// <summary>
     /// The named members of a same-assembly enum, as value → name (every
     /// underlying integer width normalized to <see cref="long"/>). Null for a
@@ -421,6 +429,7 @@ public sealed class MetadataSource : IDisposable
         var genericDefinitions = new HashSet<TypeRef>();
         var interfaceImpls = new Dictionary<TypeRef, ImmutableArray<TypeRef>>();
         var unionTypes = new HashSet<TypeRef>();
+        var byRefLikeTypes = new HashSet<TypeRef>();
         var delegates = new HashSet<TypeRef>();
         foreach (var handle in Reader.TypeDefinitions)
         {
@@ -448,6 +457,8 @@ public sealed class MetadataSource : IDisposable
             if (MethodDefinitionFacts.HasUnionAttribute(Reader, typeDef)
                 && impls.Any(IsUnionInterface))
                 unionTypes.Add(key);
+            if (MethodDefinitionFacts.HasByRefLikeAttribute(Reader, typeDef))
+                byRefLikeTypes.Add(key);
             interfaceImpls[key] = impls;
             if (shape == TypeShape.Enum)
             {
@@ -463,6 +474,7 @@ public sealed class MetadataSource : IDisposable
         _genericDefinitions = genericDefinitions;
         _interfaceImpls = interfaceImpls;
         _unionTypes = unionTypes;
+        _byRefLikeTypes = byRefLikeTypes;
         _delegates = delegates;
         _shapes = shapes;   // assign last: ResolveShape gates on _shapes
         }
