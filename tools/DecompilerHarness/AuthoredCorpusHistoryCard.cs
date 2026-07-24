@@ -9,8 +9,9 @@ namespace ILInspector.DecompilerHarness;
 /// <summary>
 /// Renders a Markout progress card over the committed EVIL authored-corpus trend
 /// store (<c>tools/DecompilerHarness/corpus/evil-runs/history.jsonl</c>, one
-/// summarized run per line, newest-last). The card shows the last N runs as a
-/// trend table plus a latest-vs-previous movement table.
+/// summarized run per line, newest-last). The card shows every recorded run as a
+/// trend table plus a movement table that pivots the most recent runs onto
+/// per-metric rows with goal (↑/↓) and per-step (✓/✗) glyphs.
 ///
 /// The headline metric is <c>invalidBreakdown.productBodyDefect</c>, not raw
 /// <c>invalid</c>: per #3079/#3096 the raw invalid population is ~92% harness
@@ -21,8 +22,6 @@ static class AuthoredCorpusHistoryCard
 {
     internal const string DefaultHistoryRelativePath =
         "tools/DecompilerHarness/corpus/evil-runs/history.jsonl";
-
-    const int DefaultWindow = 5;
 
     public static int Run(string? historyPath, int window)
     {
@@ -73,16 +72,33 @@ static class AuthoredCorpusHistoryCard
     {
         ArgumentNullException.ThrowIfNull(runs);
 
-        int effectiveWindow = window <= 0 ? runs.Count : Math.Min(window, runs.Count);
-        var recent = runs.Skip(runs.Count - effectiveWindow).ToArray();
+        int movementCount = window <= 0 ? runs.Count : Math.Min(window, runs.Count);
+        var movementWindow = runs.Skip(runs.Count - movementCount).ToArray();
+        var movement = BuildMovement(movementWindow);
+
+        const string productSignalNote =
+            "Track product defects (target-body decompiler bugs), not raw invalid "
+            + "(~92% harness shell-reconstruction noise per #3079).";
+        string note;
+        if (movement is not null)
+        {
+            note = $"Runs lists every recorded run; the last {movementWindow.Length} are pivoted per metric "
+                + "below with goal (\u2191/\u2193) and per-step (\u2713/\u2717) glyphs. " + productSignalNote;
+        }
+        else if (runs.Count < 2)
+        {
+            note = "Only one recorded run so far; a trend needs at least two. " + productSignalNote;
+        }
+        else
+        {
+            note = "Movement window is 1 run; a trend needs at least two. " + productSignalNote;
+        }
 
         var view = new HistoryCardView
         {
-            Runs = [.. recent.Select(ToRunRow)],
-            Movement = BuildMovement(recent),
-            WindowNote = $"Showing {recent.Length} of {runs.Count} recorded run(s). "
-                + "Track product defects (target-body decompiler bugs), not raw invalid "
-                + "(~92% harness shell-reconstruction noise per #3079).",
+            Runs = [.. runs.Select(ToRunRow)],
+            Movement = movement,
+            WindowNote = note,
         };
 
         var output = new StringWriter();
@@ -105,74 +121,76 @@ static class AuthoredCorpusHistoryCard
             run.InvalidBreakdown is { } breakdown ? breakdown.ProductBodyDefect.ToString(CultureInfo.InvariantCulture) : "—",
             run.InvalidBreakdown is { } noise ? noise.HarnessShellReconstruction.ToString(CultureInfo.InvariantCulture) : "—");
 
-    static List<HistoryMovementRow>? BuildMovement(IReadOnlyList<HistoryRun> recent)
+    // Movement pivots the trend metrics: each metric is a row and each recent run a column, so a
+    // MultiSourceRow carries the row's Goal and lets Markout derive the goal glyph (↑/↓) on the label
+    // and a per-step polarity glyph (✓/✗) on each column vs the previous populated one — no hand-computed
+    // delta or trend word. It is the transpose (pivot) of the Runs table, bounded to the recent window.
+    static List<MultiSourceRow>? BuildMovement(IReadOnlyList<HistoryRun> window)
     {
-        if (recent.Count < 2)
+        if (window.Count < 2)
             return null;
 
-        HistoryRun previous = recent[^2];
-        HistoryRun latest = recent[^1];
-
+        string[] cols = ColumnKeys(window);
         return
         [
-            PercentMovement("Valid %", previous.ValidPct, latest.ValidPct, higherIsBetter: true),
-            CountMovement("Correct", previous.Correct, latest.Correct, higherIsBetter: true),
-            CountMovement("Invalid (raw)", previous.Invalid, latest.Invalid, higherIsBetter: false),
-            CountMovement(
-                "Product defects",
-                previous.InvalidBreakdown?.ProductBodyDefect,
-                latest.InvalidBreakdown?.ProductBodyDefect,
-                higherIsBetter: false),
+            ScalarRow("Valid %", Goal.Higher, window, cols, r => r.ValidPct),
+            ScalarRow("Correct", Goal.Higher, window, cols, r => r.Correct),
+            ScalarRow("Invalid (raw)", Goal.Lower, window, cols, r => r.Invalid),
+            ProductDefectRow(window, cols),
         ];
     }
 
-    static HistoryMovementRow PercentMovement(string metric, double previous, double latest, bool higherIsBetter)
+    static MultiSourceRow ScalarRow(
+        string label, Goal goal, IReadOnlyList<HistoryRun> window, string[] cols, Func<HistoryRun, double> value)
     {
-        double delta = latest - previous;
-        return new HistoryMovementRow(
-            metric,
-            FormatPct(previous),
-            FormatPct(latest),
-            SignedPct(delta),
-            Trend(delta, higherIsBetter));
+        var sources = new Source[window.Count];
+        for (int i = 0; i < window.Count; i++)
+            sources[i] = new Source(cols[i], value(window[i]));
+        return new MultiSourceRow(label, sources) { Goal = goal };
     }
 
-    static HistoryMovementRow CountMovement(string metric, int? previous, int? latest, bool higherIsBetter)
+    // Runs predating #3096 carry no invalid breakdown; render those columns as an absent cell so the
+    // product-defect signal stays honest (no fabricated zero) and Markout's pairwise chain skips them
+    // rather than charting a bogus step.
+    static MultiSourceRow ProductDefectRow(IReadOnlyList<HistoryRun> window, string[] cols)
     {
-        if (previous is not { } prev || latest is not { } cur)
+        var sources = new Source[window.Count];
+        for (int i = 0; i < window.Count; i++)
         {
-            return new HistoryMovementRow(
-                metric,
-                previous?.ToString(CultureInfo.InvariantCulture) ?? "—",
-                latest?.ToString(CultureInfo.InvariantCulture) ?? "—",
-                "—",
-                "n/a");
+            sources[i] = window[i].InvalidBreakdown is { } breakdown
+                ? new Source(cols[i], breakdown.ProductBodyDefect)
+                : new Source(cols[i], (IMarkoutCell?)null);
         }
 
-        int delta = cur - prev;
-        return new HistoryMovementRow(
-            metric,
-            prev.ToString(CultureInfo.InvariantCulture),
-            cur.ToString(CultureInfo.InvariantCulture),
-            SignedCount(delta),
-            Trend(delta, higherIsBetter));
+        return new MultiSourceRow("Product defects", sources) { Goal = Goal.Lower };
     }
 
-    static string Trend(double delta, bool higherIsBetter)
+    // Column keys are the run dates (the pivoted table's headers). Disambiguate a repeated date with its
+    // commit so each run stays a distinct column even when two runs share a day.
+    static string[] ColumnKeys(IReadOnlyList<HistoryRun> window)
     {
-        if (delta == 0)
-            return "unchanged";
-        bool better = higherIsBetter ? delta > 0 : delta < 0;
-        return better ? "improved" : "regressed";
+        var keys = new string[window.Count];
+        var seen = new Dictionary<string, int>();
+        for (int i = 0; i < window.Count; i++)
+        {
+            string key = window[i].Date ?? window[i].Commit ?? $"run{i + 1}";
+            if (seen.TryGetValue(key, out int count))
+            {
+                seen[key] = count + 1;
+                key = $"{key} #{window[i].Commit ?? (count + 1).ToString(CultureInfo.InvariantCulture)}";
+            }
+            else
+            {
+                seen[key] = 1;
+            }
+
+            keys[i] = key;
+        }
+
+        return keys;
     }
 
     static string FormatPct(double value) => value.ToString("F1", CultureInfo.InvariantCulture) + "%";
-
-    static string SignedPct(double delta)
-        => (delta > 0 ? "+" : delta < 0 ? "−" : "±") + Math.Abs(delta).ToString("F1", CultureInfo.InvariantCulture) + "%";
-
-    static string SignedCount(int delta)
-        => (delta > 0 ? "+" : delta < 0 ? "−" : "±") + Math.Abs(delta).ToString(CultureInfo.InvariantCulture);
 }
 
 internal sealed record HistoryRunValidDifferent(int Total, int FrontierIlExact, int FrontierIlDiff);
@@ -207,8 +225,9 @@ internal sealed class HistoryCardView
     [MarkoutSection(Name = "Runs")]
     public List<HistoryRunRow>? Runs { get; init; }
 
-    [MarkoutSection(Name = "Movement (latest vs previous)")]
-    public List<HistoryMovementRow>? Movement { get; init; }
+    [MarkoutSection(Name = "Movement")]
+    [MarkoutLabelHeader("Metric")]
+    public List<MultiSourceRow>? Movement { get; init; }
 }
 
 [MarkoutSerializable]
@@ -221,18 +240,9 @@ internal sealed record HistoryRunRow(
     [property: MarkoutPropertyName("Product defects")] string Product,
     [property: MarkoutPropertyName("Harness noise")] string Harness);
 
-[MarkoutSerializable]
-internal sealed record HistoryMovementRow(
-    string Metric,
-    string Previous,
-    string Latest,
-    [property: MarkoutPropertyName("Δ")] string Change,
-    string Trend);
-
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(HistoryCardView))]
 [MarkoutContext(typeof(HistoryRunRow))]
-[MarkoutContext(typeof(HistoryMovementRow))]
 internal sealed partial class AuthoredCorpusHistoryCardContext : MarkoutSerializerContext
 {
 }

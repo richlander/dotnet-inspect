@@ -41,39 +41,45 @@ public class AuthoredCorpusHistoryCardTests
     }
 
     [Fact]
-    public void Render_MovementUsesPerMetricPolarity()
+    public void Render_MovementPivotsMetricsWithPerMetricGoalAndStepGlyphs()
     {
-        // Latest (250 product, 5180 invalid, 1600 correct, 57.4%) vs previous
-        // (306 product, 5259 invalid, 1539 correct, 56.2%): every headline metric
-        // improves, and lower-is-better metrics must read "improved" when they drop.
+        // Movement is the transpose of Runs: metrics are rows, runs are columns. Each row carries its
+        // Goal, so Markout appends the goal glyph (↑/↓) to the label and a per-step polarity glyph (✓/✗)
+        // to each column vs the previous populated one — replacing the old hand-computed Δ/Trend columns.
         string card = AuthoredCorpusHistoryCard.Render(Parse(), window: 0);
 
-        Assert.Contains("| Valid % | 56.2% | 57.4% | +1.2% | improved |", card, StringComparison.Ordinal);
-        Assert.Contains("| Correct | 1539 | 1600 | +61 | improved |", card, StringComparison.Ordinal);
-        Assert.Contains("| Invalid (raw) | 5259 | 5180 | −79 | improved |", card, StringComparison.Ordinal);
-        Assert.Contains("| Product defects | 306 | 250 | −56 | improved |", card, StringComparison.Ordinal);
+        Assert.Contains("| Metric | 2026-07-20 | 2026-07-24 | 2026-07-30 |", card, StringComparison.Ordinal);
+        // Higher-is-better: 56.6→56.2 down (✗), 56.2→57.4 up (✓).
+        Assert.Contains("| Valid % \u2191 | 56.6 | 56.2 \u2717 | 57.4 \u2713 |", card, StringComparison.Ordinal);
+        Assert.Contains("| Correct \u2191 | 1501 | 1539 \u2713 | 1600 \u2713 |", card, StringComparison.Ordinal);
+        // Lower-is-better: 5209→5259 up (✗), 5259→5180 down (✓).
+        Assert.Contains("| Invalid (raw) \u2193 | 5209 | 5259 \u2717 | 5180 \u2713 |", card, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Render_MovementIsNotApplicableWhenPreviousLacksProductSplit()
+    public void Render_MovementSkipsAbsentProductSplitWithoutFabricatingAStep()
     {
-        // Window of two spans the null-breakdown baseline and the first split run,
-        // so the product-defect delta cannot be computed and must read n/a rather
-        // than treating the missing split as zero.
-        string card = AuthoredCorpusHistoryCard.Render(Parse().Take(2).ToArray(), window: 2);
+        // The baseline run predates the invalid breakdown, so its product-defect cell is absent (—/-) and
+        // the first populated value carries no step glyph (no previous populated column to compare to);
+        // the next step (306→250, lower-is-better) is an improvement (✓).
+        string card = AuthoredCorpusHistoryCard.Render(Parse(), window: 0);
 
-        Assert.Contains("| Product defects | — | 306 | — | n/a |", card, StringComparison.Ordinal);
+        Assert.Contains("| Product defects \u2193 | - | 306 | 250 \u2713 |", card, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Render_WindowKeepsMostRecentRuns()
+    public void Render_MovementWindowBoundsThePivotButRunsStaysUnbounded()
     {
+        // Window bounds only the movement pivot to the most recent n runs; the Runs trend table always
+        // lists every recorded run.
         string card = AuthoredCorpusHistoryCard.Render(Parse(), window: 2);
 
-        Assert.DoesNotContain("2026-07-20", card, StringComparison.Ordinal);
-        Assert.Contains("2026-07-24", card, StringComparison.Ordinal);
-        Assert.Contains("2026-07-30", card, StringComparison.Ordinal);
-        Assert.Contains("Showing 2 of 3 recorded run(s).", card, StringComparison.Ordinal);
+        // Runs table keeps the oldest run...
+        Assert.Contains("| 2026-07-20 | (baseline) |", card, StringComparison.Ordinal);
+        // ...but the movement pivot spans only the last two runs.
+        Assert.Contains("| Metric | 2026-07-24 | 2026-07-30 |", card, StringComparison.Ordinal);
+        Assert.DoesNotContain("| Metric | 2026-07-20 |", card, StringComparison.Ordinal);
+        Assert.Contains("the last 2 are pivoted", card, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -81,6 +87,22 @@ public class AuthoredCorpusHistoryCardTests
     {
         string card = AuthoredCorpusHistoryCard.Render(Parse().Take(1).ToArray(), window: 0);
 
-        Assert.DoesNotContain("Movement", card, StringComparison.Ordinal);
+        Assert.DoesNotContain("## Movement", card, StringComparison.Ordinal);
+        Assert.Contains("Only one recorded run so far", card, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Render_WindowOfOneOverManyRunsDoesNotClaimOnlyOneRun()
+    {
+        // A movement window of 1 omits the pivot (a trend needs two), but there are still three
+        // recorded runs above — the note must explain the window, not misstate the run count.
+        string card = AuthoredCorpusHistoryCard.Render(Parse(), window: 1);
+
+        Assert.DoesNotContain("## Movement", card, StringComparison.Ordinal);
+        Assert.DoesNotContain("Only one recorded run", card, StringComparison.Ordinal);
+        Assert.Contains("Movement window is 1 run", card, StringComparison.Ordinal);
+        // The Runs trend table still lists every run.
+        Assert.Contains("| 2026-07-20 | (baseline) |", card, StringComparison.Ordinal);
+        Assert.Contains("| 2026-07-30 | deadbeef |", card, StringComparison.Ordinal);
     }
 }

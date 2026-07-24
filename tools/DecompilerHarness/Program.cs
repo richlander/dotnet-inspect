@@ -77,7 +77,7 @@ static class Program
         string? benchmarkCorpusPath = null;
         bool historyCard = false;
         string? historyCardPath = null;
-        int historyCardWindow = 5;
+        int historyCardWindow = 3;
         bool verifyAuthoredCorpus = false;
         string? verifyCorpusPath = null;
         bool failOnDrift = false;
@@ -2039,16 +2039,18 @@ static class Program
                                 exit non-zero unless every evaluated row is
                                 Verified (any Drifted or Unavailable row fails).
           --history-card         render a Markout progress card over the committed
-                                EVIL run-history trend store: the last N runs as a
-                                trend table plus a latest-vs-previous movement
-                                table. Headline metric is product defects (#3079),
-                                not raw invalid (~92% harness noise). Reads no
-                                assemblies and runs no decompiler.
+                                EVIL run-history trend store: every run as a trend
+                                table plus a pivoted movement table over the last N
+                                runs with per-metric goal/step glyphs. Headline
+                                metric is product defects (#3079), not raw invalid
+                                (~92% harness noise). Reads no assemblies and runs
+                                no decompiler.
           --history-path <file>  with --history-card: read a specific history.jsonl
                                 instead of the committed default
                                 (tools/DecompilerHarness/corpus/evil-runs/history.jsonl).
-          --history-window <n>   with --history-card: show the last n runs
-                                (default 5; <= 0 shows all).
+          --history-window <n>   with --history-card: bound the movement pivot to the
+                                last n runs (default 3; <= 0 uses every run). The
+                                Runs trend table always lists every run.
           --fidelity-timings      with --fidelity-check: print phase timings for collect/render,
                                 skeleton emit, parse, compilation create, emit, and opcode compare
           --fidelity-zero-signal-guard <n>

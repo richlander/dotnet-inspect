@@ -65,8 +65,8 @@ Each row contains these fields:
 
 ## Progress card
 
-Render a Markout progress card over this trend store — the last N runs as a
-trend table plus a latest-vs-previous movement table — with:
+Render a Markout progress card over this trend store — every recorded run as a
+trend table plus a pivoted movement table over the most recent runs — with:
 
 ```bash
 dotnet run --project tools/DecompilerHarness -c Release -- --history-card
@@ -74,14 +74,22 @@ dotnet run --project tools/DecompilerHarness -c Release -- --history-card
 
 Options:
 
-- `--history-window <n>`: show the last `n` runs (default 5; `<= 0` shows all).
+- `--history-window <n>`: bound the movement pivot to the last `n` runs
+  (default 3; `<= 0` uses every run). The Runs trend table always lists every
+  run.
 - `--history-path <file>`: read a specific `history.jsonl` instead of the
   committed default.
 
 The card reads no assemblies and runs no decompiler. Its headline metric is
 `invalidBreakdown.productBodyDefect` (genuine target-body decompiler defects),
 not raw `invalid`: per #3079 the raw invalid population is dominated by harness
-shell-reconstruction noise that does not move on decompiler fixes. Runs that
-predate PR #3096 have no `invalidBreakdown`, so their product/harness columns
-and the product-defect movement row render as `—`/`n/a` rather than a
-fabricated zero.
+shell-reconstruction noise that does not move on decompiler fixes.
+
+The **Movement** table is the transpose (pivot) of **Runs**: each metric is a
+row and each recent run a column. Every metric row declares its optimization
+goal, so Markout renders the goal glyph (`↑` higher-is-better / `↓`
+lower-is-better) on the label and a per-step polarity glyph (`✓`/`✗`) on each
+column compared to the previous populated one — no hand-computed delta or trend
+word. Runs that predate PR #3096 have no `invalidBreakdown`, so their
+product/harness columns render as `—` and the product-defect pivot cell is
+absent (`-`) with no fabricated step, keeping the missing signal honest.
