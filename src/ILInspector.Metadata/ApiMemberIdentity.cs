@@ -162,6 +162,51 @@ public static class ApiMemberIdentity
     public static ApiMemberHandle CreateHandle(ApiType type, ApiMember member)
         => new(type, member, GetMemberAnchor(type, member));
 
+    /// <summary>
+    /// Persists <see cref="ApiMember.CanonicalSignature"/> for every member whose canonical
+    /// (identity) spelling diverges from its display <see cref="ApiMember.Signature"/> — i.e.
+    /// members carrying C# tuple syntax, whose element names and <c>(...)</c> spelling must
+    /// not leak into identity and cannot be recovered from the display text after a JSON
+    /// round-trip (<see cref="ApiMember.SignatureModel"/> is not serialized). Computed here,
+    /// while the structural model is live, so a round-tripped surface pairs with the same
+    /// members read live. Non-divergent (non-tuple) members are left untouched, keeping
+    /// their serialized form and digests unchanged.
+    /// </summary>
+    public static void PopulateCanonicalIdentities(ApiSurface surface)
+    {
+        foreach (var type in surface.Types)
+        {
+            foreach (var member in type.Members)
+            {
+                if (member.SignatureModel is not { } signature || !HasCanonicalDivergence(member, signature))
+                    continue;
+
+                member.CanonicalSignature = GetCanonicalSignature(type, member);
+            }
+        }
+    }
+
+    static bool HasCanonicalDivergence(ApiMember member, ApiSignature signature)
+    {
+        // Persist canonical identity for any member whose display signature carries C#
+        // tuple syntax the text fallback cannot re-canonicalize after a JSON round-trip
+        // (SignatureModel is not serialized). Two divergence sources both require it:
+        //   * A tuple PARAMETER is part of the identity digest; its erased spelling and
+        //     element names must not leak in and cannot be recovered from display text.
+        //   * A tuple RETURN type is only part of the digest for conversion operators, but
+        //     even for other members its '(...)' parentheses would derail the fallback's
+        //     first-'(' parameter-list detection, corrupting the round-tripped identity.
+        //     The persisted digest is computed live and correctly omits the non-conversion
+        //     return type, so short-circuiting to it keeps live and round-trip in lockstep.
+        if (signature.Parameters.Any(parameter =>
+                !string.Equals(parameter.EffectiveCanonicalType, parameter.Type, StringComparison.Ordinal)))
+        {
+            return true;
+        }
+
+        return !string.Equals(signature.EffectiveCanonicalReturnType, signature.ReturnType, StringComparison.Ordinal);
+    }
+
     public static string GetMemberSignatureSortKey(ApiMember member)
     {
         var signature = member.Signature ?? "";
@@ -358,6 +403,13 @@ public static class ApiMemberIdentity
 
     public static string GetCanonicalSignature(ApiType type, ApiMember member)
     {
+        // A persisted canonical identity (present for tuple-bearing members whose display
+        // signature cannot be re-canonicalized from text after a JSON round-trip) is
+        // authoritative: it was computed at extraction from the live structural model and
+        // guarantees round-tripped surfaces pair with the same members read live.
+        if (!string.IsNullOrEmpty(member.CanonicalSignature))
+            return member.CanonicalSignature!;
+
         if (TryGetCanonicalSignature(type, member, out var canonicalSignature))
             return canonicalSignature;
 
@@ -401,6 +453,14 @@ public static class ApiMemberIdentity
 
     public static bool TryGetCanonicalSignature(ApiType type, ApiMember member, out string canonicalSignature)
     {
+        // See GetCanonicalSignature: a persisted canonical identity is authoritative and
+        // survives the JSON round-trip that discards SignatureModel.
+        if (!string.IsNullOrEmpty(member.CanonicalSignature))
+        {
+            canonicalSignature = member.CanonicalSignature!;
+            return true;
+        }
+
         var declaringType = string.IsNullOrWhiteSpace(member.DeclaringType)
             ? MetadataTypeNameFormatter.FormatFullName(type)
             : member.DeclaringType!;
@@ -436,7 +496,7 @@ public static class ApiMemberIdentity
             // "this[...]" signature text instead, which IS preserved across JSON
             // round-trips.
             var indexerParameters = member.SignatureModel is { Parameters.Count: > 0 } propertySignature
-                ? NormalizeCanonicalParameters(propertySignature.ParameterTypesSummary)
+                ? NormalizeCanonicalParameters(propertySignature.CanonicalParameterTypesSummary)
                 : NormalizeDynamicToObject(ExtractCanonicalIndexerParameterList(member.Signature));
             canonicalSignature = $"{kindCode}:{declaringType}.{member.Name}{indexerParameters}";
             return true;
@@ -455,14 +515,14 @@ public static class ApiMemberIdentity
                   ? member.Name
                   : signature.MemberName!);
         memberName = NormalizeCanonicalCommas(memberName);
-        var canonical = $"{kindCode}:{declaringType}.{memberName}{NormalizeCanonicalParameters(signature.ParameterTypesSummary)}";
+        var canonical = $"{kindCode}:{declaringType}.{memberName}{NormalizeCanonicalParameters(signature.CanonicalParameterTypesSummary)}";
         // Conversion operators overload on return type, so the parameter list alone
         // is an ambiguous identity (every System.Decimal.op_Explicit(Decimal) collides).
         // Append a product-owned return-type suffix. It intentionally uses the
         // same "~ReturnType" delimiter as XML doc identity so conversion anchors
         // and XML lookups do not grow divergent spellings for the same fact.
-        if (IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(signature.ReturnType))
-            canonical += $"~{NormalizeCanonicalCommas(NormalizeDynamicToObject(signature.ReturnType!))}";
+        if (IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(signature.EffectiveCanonicalReturnType))
+            canonical += $"~{NormalizeCanonicalCommas(NormalizeDynamicToObject(signature.EffectiveCanonicalReturnType!))}";
         canonicalSignature = canonical;
         return true;
     }
@@ -490,7 +550,7 @@ public static class ApiMemberIdentity
             return false;
         }
         if (signature.Parameters.Any(parameter =>
-                string.IsNullOrWhiteSpace(parameter.TypeWithModifier)))
+                string.IsNullOrWhiteSpace(parameter.CanonicalTypeWithModifier)))
         {
             identityKey = "";
             variant = "";
@@ -498,11 +558,11 @@ public static class ApiMemberIdentity
         }
 
         string receiver = isExtension
-            ? signature.Parameters[0].TypeWithModifier
+            ? signature.Parameters[0].CanonicalTypeWithModifier
             : type.FullName;
         if (string.IsNullOrWhiteSpace(receiver)
             || string.IsNullOrWhiteSpace(member.Name)
-            || string.IsNullOrWhiteSpace(signature.ReturnType))
+            || string.IsNullOrWhiteSpace(signature.EffectiveCanonicalReturnType))
         {
             identityKey = "";
             variant = "";
@@ -517,10 +577,10 @@ public static class ApiMemberIdentity
             NormalizeCorrespondenceType(receiver),
             member.Name,
             signature.TypeParameters.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            NormalizeCorrespondenceType(signature.ReturnType),
+            NormalizeCorrespondenceType(signature.EffectiveCanonicalReturnType!),
         };
         facets.AddRange(parameters.Select(parameter =>
-            NormalizeCorrespondenceType(parameter.TypeWithModifier)));
+            NormalizeCorrespondenceType(parameter.CanonicalTypeWithModifier)));
 
         identityKey = string.Concat(facets.Select(facet => $"{facet.Length}:{facet}"));
         variant = isExtension ? "extension" : "instance";
@@ -589,6 +649,41 @@ public static class ApiMemberIdentity
             char.IsLetterOrDigit(c) || c is '_' or '.' or '`' or '+' or '/';
     }
 
+    /// <summary>
+    /// Locates the index of the parameter-list opening parenthesis in a member display
+    /// signature, skipping a leading balanced parenthesized group that represents a C#
+    /// tuple return type (e.g. <c>(int count, string name) Parse(...)</c>). A tuple return
+    /// puts <c>(</c> at position 0, which is never the parameter list; returns -1 when no
+    /// parameter-list parenthesis follows. Ordinary signatures (no leading tuple) resolve
+    /// to the first <c>(</c> exactly as before, preserving existing digests.
+    /// </summary>
+    static int IndexOfParameterListParen(string signature)
+    {
+        var searchFrom = 0;
+        if (signature.Length > 0 && signature[0] == '(')
+        {
+            var depth = 0;
+            for (var i = 0; i < signature.Length; i++)
+            {
+                if (signature[i] == '(')
+                {
+                    depth++;
+                }
+                else if (signature[i] == ')')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        searchFrom = i + 1;
+                        break;
+                    }
+                }
+            }
+        }
+
+        return signature.IndexOf('(', searchFrom);
+    }
+
     // Preserve the v1 Member Index digest contract for members that already have
     // compatibility signature text. The legacy parser had edge-case behavior
     // around method names inside generic parameter names, and published stable
@@ -598,8 +693,8 @@ public static class ApiMemberIdentity
         if (string.IsNullOrEmpty(signature))
             return null;
 
-        var parenStart = signature.IndexOf('(');
-        if (parenStart < 0)
+        var parenStart = IndexOfParameterListParen(signature);
+        if (parenStart <= 0)
             return null;
 
         var nameIndex = signature.LastIndexOf(memberName, parenStart - 1, StringComparison.Ordinal);
@@ -636,8 +731,8 @@ public static class ApiMemberIdentity
 
     static string ExtractMemberNameWithGeneric(string signature, string memberName)
     {
-        var parenStart = signature.IndexOf('(');
-        if (parenStart < 0)
+        var parenStart = IndexOfParameterListParen(signature);
+        if (parenStart <= 0)
             return memberName;
 
         var nameIndex = signature.LastIndexOf(memberName, parenStart - 1, StringComparison.Ordinal);
@@ -821,10 +916,10 @@ public static class ApiMemberIdentity
             .ToDictionary(p => p.Name, p => p.Index, StringComparer.Ordinal);
         var methodParameterMap = GetMethodGenericParameterMap(signature.MemberName);
         var parameters = signature.Parameters
-            .Select(parameter => NormalizeXmlDocParameterType(parameter.TypeWithModifier, typeParameterMap, methodParameterMap))
+            .Select(parameter => NormalizeXmlDocParameterType(parameter.CanonicalTypeWithModifier, typeParameterMap, methodParameterMap))
             .ToList();
-        var returnType = IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(signature.ReturnType)
-            ? NormalizeXmlDocParameterType(signature.ReturnType!, typeParameterMap, methodParameterMap)
+        var returnType = IsConversionOperator(member.Name) && !string.IsNullOrWhiteSpace(signature.EffectiveCanonicalReturnType)
+            ? NormalizeXmlDocParameterType(signature.EffectiveCanonicalReturnType!, typeParameterMap, methodParameterMap)
             : null;
         identity = new XmlDocMemberIdentity(lookupKey, parameters, returnType);
         return true;

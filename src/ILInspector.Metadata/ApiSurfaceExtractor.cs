@@ -471,11 +471,17 @@ public static class ApiSurfaceExtractor
                 eventNullableBytes ??= NullabilityReader.GetParameterNullableBytes(reader, adder.GetParameters(), 1);
                 if (eventNullableBytes is { Length: > 0 } && eventNullableBytes[0] == 2 && !eventType.EndsWith("?", StringComparison.Ordinal))
                     eventType += "?";
-                // A `dynamic` event handler (e.g. EventHandler<dynamic>) is always a
-                // generic instantiation, so re-decode the TypeSpec through the TypeNode
-                // tree to recover the dynamic view. Non-dynamic events are untouched.
+                // A `dynamic` event handler (e.g. EventHandler<dynamic>) or a
+                // named-tuple handler (EventHandler<(int a, int b)>) is always a
+                // generic instantiation, so re-decode the TypeSpec through the
+                // TypeNode tree to recover the dynamic / tuple view. Plain events
+                // are untouched.
+                var eventTupleNames = TupleElementNamesReader.GetTupleElementNames(reader, evt.GetCustomAttributes());
+                var eventDynamicFlags = evt.Type.Kind == HandleKind.TypeSpecification
+                    ? DynamicReader.GetDynamicFlags(reader, evt.GetCustomAttributes())
+                    : null;
                 if (evt.Type.Kind == HandleKind.TypeSpecification
-                    && DynamicReader.GetDynamicFlags(reader, evt.GetCustomAttributes()) is { } eventDynamicFlags)
+                    && (eventDynamicFlags is not null || eventTupleNames is not null))
                 {
                     var eventNode = GuardedProviderDecode.TypeSpec(
                         reader,
@@ -491,6 +497,7 @@ public static class ApiSurfaceExtractor
                         eventNode.ApplyNullability(eventNullableBytes, ref eventPos, 0);
                         eventPos = 0;
                         eventNode.ApplyDynamic(eventDynamicFlags, ref eventPos);
+                        eventNode.ApplyTupleNames(eventTupleNames);
                         eventType = eventNode.Render();
                     }
                 }
@@ -615,6 +622,8 @@ public static class ApiSurfaceExtractor
                     MetadataTypeNameFailure.Malformed(exportedTypeHandle, ex.Message));
             }
         }
+
+        ApiMemberIdentity.PopulateCanonicalIdentities(surface);
 
         return surface;
     }
@@ -773,6 +782,8 @@ public static class ApiSurfaceExtractor
         var fieldDynamicFlags = DynamicReader.GetDynamicFlags(reader, field.GetCustomAttributes());
         pos = 0;
         fieldNode.ApplyDynamic(fieldDynamicFlags, ref pos);
+        fieldNode.ApplyTupleNames(
+            TupleElementNamesReader.GetTupleElementNames(reader, field.GetCustomAttributes()));
         return (fieldNode.Render(), fieldNode.IsDegraded);
     }
 
@@ -959,6 +970,8 @@ public static class ApiSurfaceExtractor
         var returnDynamicFlags = DynamicReader.GetParameterDynamicFlags(reader, paramHandles, 0);
         pos = 0;
         treeSignature.ReturnType.ApplyDynamic(returnDynamicFlags, ref pos);
+        treeSignature.ReturnType.ApplyTupleNames(
+            TupleElementNamesReader.GetParameterTupleElementNames(reader, paramHandles, 0));
 
         // Build parameter list with nullability
         var paramTypes = treeSignature.ParameterTypes;
@@ -974,7 +987,10 @@ public static class ApiSurfaceExtractor
             var paramDynamicFlags = DynamicReader.GetParameterDynamicFlags(reader, paramHandles, i + 1);
             pos = 0;
             paramTypes[i].ApplyDynamic(paramDynamicFlags, ref pos);
+            paramTypes[i].ApplyTupleNames(
+                TupleElementNamesReader.GetParameterTupleElementNames(reader, paramHandles, i + 1));
             string type = paramTypes[i].Render();
+            string canonicalType = paramTypes[i].RenderCanonical();
 
             // Parameter handles may include return parameter at SequenceNumber 0
             // Actual parameters have SequenceNumber 1, 2, 3...
@@ -985,6 +1001,7 @@ public static class ApiSurfaceExtractor
             if (isByRef)
             {
                 type = type["ref ".Length..];
+                canonicalType = canonicalType["ref ".Length..];
                 refKind ??= "ref";
             }
             else
@@ -1008,6 +1025,7 @@ public static class ApiSurfaceExtractor
                 Attributes = attributes,
                 Name = paramName,
                 Type = type,
+                CanonicalType = canonicalType,
                 Modifier = modifier,
                 HasDefault = hasDefault,
                 DefaultValueText = DefaultValueText(reader, defaultValue, type, hasDefault, AcceptsNullDefault(paramTypes[i]))
@@ -1016,6 +1034,7 @@ public static class ApiSurfaceExtractor
 
         string paramStr2 = string.Join(", ", parameters);
         var returnType = FormatMethodReturnType(reader, treeSignature.ReturnType, paramHandles);
+        var canonicalReturnType = FormatCanonicalMethodReturnType(reader, treeSignature.ReturnType, paramHandles);
         var returnAttributes = ReturnParameterAttributes(reader, paramHandles);
         var methodTypeParameters = GenericParameters(reader, method.GetGenericParameters(), context, nullableDefault, includeVariance: false);
         var methodName = context.MethodParameters.Count > 0
@@ -1024,6 +1043,7 @@ public static class ApiSurfaceExtractor
         return ($"{returnType} {methodName}({paramStr2})", new ApiSignature
         {
             ReturnType = returnType,
+            CanonicalReturnType = canonicalReturnType,
             ReturnAttributes = returnAttributes,
             MemberName = methodName,
             TypeParameters = methodTypeParameters,
@@ -1053,6 +1073,24 @@ public static class ApiSurfaceExtractor
     private static string FormatMethodReturnType(MetadataReader reader, TypeNode returnType, ParameterHandleCollection paramHandles)
     {
         var rendered = returnType.Render();
+        if (!rendered.StartsWith("ref ", StringComparison.Ordinal)
+            || !IsReadOnlyByRefReturn(reader, returnType, paramHandles))
+        {
+            return rendered;
+        }
+
+        return $"ref readonly {rendered["ref ".Length..]}";
+    }
+
+    /// <summary>
+    /// Canonical (tuple-erased) counterpart to <see cref="FormatMethodReturnType"/>. Mirrors
+    /// its <c>ref readonly</c> synthesis so the canonical return spelling preserves by-ref
+    /// return modifiers used by member identity, differing from the display spelling only in
+    /// tuple rendering.
+    /// </summary>
+    private static string FormatCanonicalMethodReturnType(MetadataReader reader, TypeNode returnType, ParameterHandleCollection paramHandles)
+    {
+        var rendered = returnType.RenderCanonical();
         if (!rendered.StartsWith("ref ", StringComparison.Ordinal)
             || !IsReadOnlyByRefReturn(reader, returnType, paramHandles))
         {
@@ -1597,6 +1635,8 @@ public static class ApiSurfaceExtractor
         var propDynamicFlags = DynamicReader.GetDynamicFlags(reader, prop.GetCustomAttributes());
         pos = 0;
         treeSignature.ReturnType.ApplyDynamic(propDynamicFlags, ref pos);
+        treeSignature.ReturnType.ApplyTupleNames(
+            TupleElementNamesReader.GetTupleElementNames(reader, prop.GetCustomAttributes()));
 
         // Determine accessor visibility
         MethodAttributes getterAccess = 0;
@@ -1696,7 +1736,10 @@ public static class ApiSurfaceExtractor
             var paramDynamicFlags = DynamicReader.GetParameterDynamicFlags(reader, paramHandles, i + 1);
             pos = 0;
             paramTypes[i].ApplyDynamic(paramDynamicFlags, ref pos);
+            paramTypes[i].ApplyTupleNames(
+                TupleElementNamesReader.GetParameterTupleElementNames(reader, paramHandles, i + 1));
             var paramType = paramTypes[i].Render();
+            var canonicalParamType = paramTypes[i].RenderCanonical();
             var (paramName, isParams, refKind, hasDefault, defaultValue, attributes) = GetParameterInfo(reader, paramHandles, i + 1);
             paramName ??= $"arg{i}";
 
@@ -1704,6 +1747,7 @@ public static class ApiSurfaceExtractor
             if (isByRef)
             {
                 paramType = paramType["ref ".Length..];
+                canonicalParamType = canonicalParamType["ref ".Length..];
                 refKind ??= "ref";
             }
             else
@@ -1726,6 +1770,7 @@ public static class ApiSurfaceExtractor
                 Attributes = attributes,
                 Name = paramName,
                 Type = paramType,
+                CanonicalType = canonicalParamType,
                 Modifier = modifier,
                 HasDefault = hasDefault,
                 DefaultValueText = DefaultValueText(reader, defaultValue, paramType, hasDefault, AcceptsNullDefault(paramTypes[i]))
@@ -1733,9 +1778,11 @@ public static class ApiSurfaceExtractor
         }
 
         var returnType = FormatMethodReturnType(reader, treeSignature.ReturnType, paramHandles);
+        var canonicalReturnType = FormatCanonicalMethodReturnType(reader, treeSignature.ReturnType, paramHandles);
         var model = new ApiSignature
         {
             ReturnType = returnType,
+            CanonicalReturnType = canonicalReturnType,
             MemberName = indexerParameters.Count > 0 ? "this[]" : name,
             IsRequired = isRequired,
             Parameters = parameterModels,
