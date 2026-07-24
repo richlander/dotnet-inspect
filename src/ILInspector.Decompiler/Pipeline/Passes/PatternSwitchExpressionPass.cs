@@ -620,11 +620,14 @@ public sealed class PatternSwitchExpressionPass : IIrPass
     // the `StoreLocal Lk = isinst` intro of a reference arm. Returns the bound local, the
     // pattern type, and the index of the first matched-body statement.
     //
-    // Declines two shapes only reachable from IL csc never emits, each of which would
-    // render invalid C# under a `Full` label: a `Nullable<T>` test type (a nullable value
-    // type is illegal as a declaration-pattern type — CS8116), and a bound local whose
-    // declared type disagrees with the pattern type (`isinst int; unbox.any int; stloc bool`
-    // would declare an `int` pattern var for a `bool` slot — CS0029).
+    // Declines shapes only reachable from IL csc never emits, each of which would render
+    // invalid C# under a `Full` label. The pattern type must be spellable as a C# value-type
+    // declaration pattern — a concrete non-nullable value type — so `IsSpellableValueTypePattern`
+    // rejects `Nullable<T>`/bare `Nullable`1` (CS8116/CS0723) and the un-spellable kinds
+    // (pointer, function pointer, by-ref, pinned, unsupported, array, open generic parameter).
+    // A bound local whose declared type disagrees with the pattern type is likewise declined
+    // (`isinst int; unbox.any int; stloc bool` would declare an `int` pattern var for a `bool`
+    // slot — CS0029).
     static bool IsValueTypeArm(
         IReadOnlyList<IrNode> stmts,
         int index,
@@ -644,7 +647,7 @@ public sealed class PatternSwitchExpressionPass : IIrPass
                 Then.Children: [Return { Value: { } noMatch }]
             }
             && scrutinee.Matches(testOperand)
-            && !TypeFamilies.IsNullableType(testType)
+            && IsSpellableValueTypePattern(testType)
             && DefaultEquals(noMatch, defaultValue)
             && index + 1 < stmts.Count
             && stmts[index + 1] is StoreLocal { Value: UnboxAny { Type: { } unboxType, Operand: { } unboxOperand } } bind
@@ -659,6 +662,18 @@ public sealed class PatternSwitchExpressionPass : IIrPass
         }
         return false;
     }
+
+    // Whether a value-type arm's test type is spellable as a C# declaration pattern `T x`.
+    // csc emits a value-type arm's isinst+unbox only for a concrete non-nullable value type,
+    // so the whitelist admits a named definition or a (non-nullable) generic instance and
+    // rejects everything else: `Nullable<T>` and the bare `Nullable`1` definition (not a legal
+    // pattern type — CS8116/CS0723), and the un-spellable kinds (pointer, function pointer,
+    // by-ref, pinned, unsupported, array, and open generic parameters). Declining any of these
+    // leaves the cascade in its valid statement form rather than raising invalid `Full` C#.
+    static bool IsSpellableValueTypePattern(TypeRef type)
+        => type.Kind is TypeRefKind.Definition or TypeRefKind.GenericInstance
+            && !TypeFamilies.IsNullableType(type)
+            && type is not { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Nullable`1" };
 
     // The value a value-type arm dispatch (`if (!(scrutinee is Tvt)) return X`) yields
     // on no-match. Used by default discovery, which needs only the returned value X and

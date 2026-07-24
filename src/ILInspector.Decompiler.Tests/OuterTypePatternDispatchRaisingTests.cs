@@ -232,6 +232,41 @@ public class OuterTypePatternDispatchRaisingTests
         Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
     }
 
+    public static IEnumerable<object[]> UnspellablePatternTypes()
+    {
+        // A bare `Nullable`1` definition (open, no type argument): CS0723 as a pattern.
+        yield return [TypeRef.CoreLib("System", "Nullable`1")];
+        // A pointer type: not a pattern type (`int*` is a syntax error in a pattern).
+        yield return [TypeRef.Pointer(Int32)];
+        // A function-pointer type: CS8521 as a pattern.
+        yield return [TypeRef.FunctionPointer(Int32, ImmutableArray<TypeRef>.Empty, "")];
+    }
+
+    [Theory]
+    [MemberData(nameof(UnspellablePatternTypes))]
+    public void Synthetic_UnspellableValueTypePattern_DoesNotRaise(TypeRef testType)
+    {
+        // GPT review (#3124): the value-type arm accepted any non-`Nullable<T>`
+        // test type, so a bare `Nullable`1` definition, a pointer, or a
+        // function pointer raised to a switch arm (`Nullable =>`, `int* =>`,
+        // `delegate*<int> =>`) — none of which is a legal C# declaration pattern.
+        // IsSpellableValueTypePattern admits only concrete non-nullable value-type
+        // definitions/instances, so each of these declines and the cascade stays
+        // if/return. Test, unbox, and bind types agree, isolating the pattern-kind
+        // gate from the unbox/bind checks.
+        var function = DiamondValueTypeCascade(
+            valueTypeTest: testType,
+            noMatchDefault: Default(),
+            guardFailDefault: Default(),
+            leafValue: new Constant(true, Bool),
+            unboxType: testType,
+            bindType: testType);
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
     [Fact]
     public void Synthetic_NullableValueTypeTest_DoesNotRaise()
     {
