@@ -10,7 +10,7 @@ namespace ILInspector.Decompiler.Tests;
 // Issue #3088: a method (or accessor) whose entire body is a single
 // `return <switch-expression>;` renders as an expression-bodied member
 // (`head => <scrutinee> switch { ... };`) instead of a brace block. The
-// signal is computed structurally in the printer (BodyIsSingleReturnExpression)
+// signal is computed structurally in the printer (BodyIsSingleExpressionBody)
 // from the raised IR and threaded to the CSharp layout layer, which owns the
 // block-vs-expression-body decision and re-indents the switch block under the
 // member. These fixtures compile real C#, decompile the full member, and assert
@@ -136,6 +136,56 @@ public class MemberBodyProducerExpressionBodyTests
     }
 
     [Fact]
+    public void SingleVoidFluentExpressionStatement_RendersExpressionBodied()
+    {
+        // Issue #3084 (this slice): a void method whose whole body is one
+        // expression statement — a fluent call chain wide enough to wrap — folds
+        // to an expression-bodied member too. There is no `return`, so the arrow
+        // trails the signature with the chain receiver after it and the chained
+        // calls follow one level deeper.
+        using var assembly = Compile("""
+            public class Fx
+            {
+                public static void Build(System.Text.StringBuilder builder)
+                {
+                    builder.Append("alphabet").Append("bravissimo").Append("charlateral").Append("deltatango").Append("echolocation").Append("foxtrotter");
+                }
+            }
+            """);
+
+        string source = ComposeType(assembly.Path, "Fx");
+
+        Assert.Contains("public static void Build(StringBuilder builder) => builder", source);
+        Assert.Contains("\n        .Append(\"alphabet\")", source);
+        Assert.Contains("\n        .Append(\"foxtrotter\");", source);
+        // The old block form (a brace block wrapping the lone statement) is gone.
+        Assert.DoesNotContain("Build(StringBuilder builder)\n    {", source);
+    }
+
+    [Fact]
+    public void VoidFluentExpressionStatementAfterAnotherStatement_StaysBlock()
+    {
+        // Close negative: a statement preceding the fluent chain makes the body
+        // two statements, not a single expression body, so it keeps the
+        // brace-block form.
+        using var assembly = Compile("""
+            public class Fx
+            {
+                public static void Build(System.Text.StringBuilder builder)
+                {
+                    builder.Clear();
+                    builder.Append("alphabet").Append("bravissimo").Append("charlateral").Append("deltatango").Append("echolocation").Append("foxtrotter");
+                }
+            }
+            """);
+
+        string source = ComposeType(assembly.Path, "Fx");
+
+        Assert.Contains("public static void Build(StringBuilder builder)\n    {", source);
+        Assert.DoesNotContain("Build(StringBuilder builder) =>", source);
+    }
+
+    [Fact]
     public void SingleStackallocPointerReturn_StaysBlock()
     {
         // GPT review of #3141: a lone `return stackalloc ...;` whose value the
@@ -143,8 +193,8 @@ public class MemberBodyProducerExpressionBodyTests
         // block) is still one top-level Return, and its output is multi-line, so
         // it satisfied the earlier flag guard. But its printed body does not
         // begin with a bare `return `, so it is not a foldable expression body.
-        // The text guard keeps BodyIsSingleReturnExpression off, matching what
-        // MultilineReturnExpressionLines would accept, and the member stays a
+        // The text guard keeps BodyIsSingleExpressionBody off, matching what
+        // MultilineExpressionBodyLines would accept, and the member stays a
         // brace block. (Output was already correct via downstream re-gating;
         // this locks the member framing so a future guard relaxation cannot
         // silently fold a multi-statement expansion.)

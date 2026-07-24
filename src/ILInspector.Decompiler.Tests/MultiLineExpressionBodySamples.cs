@@ -19,4 +19,19 @@ public static class MultiLineExpressionBodySamples
             .Append("echolocation")
             .Append("foxtrotter")
             .ToString();
+
+    // #3084 (this slice) witness: a void method whose one statement is an
+    // expression statement (not a `return`) wide enough to wrap. The member
+    // layout must fold it to an expression-bodied member too — the whole first
+    // line trails the arrow with the chained calls one level deeper — even though
+    // there is no `return` keyword to strip.
+    public static void Drain(StringBuilder builder)
+        => builder
+            .Append("alphabet")
+            .Append("bravissimo")
+            .Append("charlateral")
+            .Append("deltatango")
+            .Append("echolocation")
+            .Append("foxtrotter")
+            .Clear();
 }

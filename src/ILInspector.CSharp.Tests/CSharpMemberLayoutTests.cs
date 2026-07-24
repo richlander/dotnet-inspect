@@ -4,10 +4,10 @@ namespace ILInspector.CSharp.Tests;
 
 public sealed class CSharpMemberLayoutTests
 {
-    static string Render(string head, string? body, int indent, bool wrapExpressionBodyArrow = false, bool bodyIsSingleReturnExpression = false)
+    static string Render(string head, string? body, int indent, bool wrapExpressionBodyArrow = false, bool bodyIsSingleExpressionBody = false)
     {
         var sb = new StringBuilder();
-        CSharpMemberLayout.Append(sb, head, body, indent, wrapExpressionBodyArrow, bodyIsSingleReturnExpression);
+        CSharpMemberLayout.Append(sb, head, body, indent, wrapExpressionBodyArrow, bodyIsSingleExpressionBody);
         return sb.ToString().Replace("\r\n", "\n");
     }
 
@@ -86,7 +86,7 @@ public sealed class CSharpMemberLayoutTests
             + "        Dot d => d.Radius,\n"
             + "        _ => -1,\n"
             + "    };\n",
-            Render("int Area(Shape shape)", SwitchReturnBody, indent: 4, bodyIsSingleReturnExpression: true));
+            Render("int Area(Shape shape)", SwitchReturnBody, indent: 4, bodyIsSingleExpressionBody: true));
 
     [Fact]
     public void Append_MultilineSwitchReturn_WrapsArrowOnNextLine_WhenRequested()
@@ -97,7 +97,7 @@ public sealed class CSharpMemberLayoutTests
             + "            Dot d => d.Radius,\n"
             + "            _ => -1,\n"
             + "        };\n",
-            Render("int Area(Shape shape)", SwitchReturnBody, indent: 4, wrapExpressionBodyArrow: true, bodyIsSingleReturnExpression: true));
+            Render("int Area(Shape shape)", SwitchReturnBody, indent: 4, wrapExpressionBodyArrow: true, bodyIsSingleExpressionBody: true));
 
     [Fact]
     public void Append_MultilineSwitchReturn_InNestedAccessor_RendersExpressionBodied()
@@ -107,7 +107,7 @@ public sealed class CSharpMemberLayoutTests
             + "            Dot d => d.Radius,\n"
             + "            _ => -1,\n"
             + "        };\n",
-            Render("get", SwitchReturnBody, indent: 8, bodyIsSingleReturnExpression: true));
+            Render("get", SwitchReturnBody, indent: 8, bodyIsSingleExpressionBody: true));
 
     [Fact]
     public void Append_MultilineSwitchReturn_StaysBlock_WhenSignalNotSet()
@@ -120,7 +120,7 @@ public sealed class CSharpMemberLayoutTests
             + "            _ => -1,\n"
             + "        };\n"
             + "    }\n",
-            Render("int Area(Shape shape)", SwitchReturnBody, indent: 4, bodyIsSingleReturnExpression: false));
+            Render("int Area(Shape shape)", SwitchReturnBody, indent: 4, bodyIsSingleExpressionBody: false));
 
     // Issue #3084: the same single-return expression-body fold is not
     // switch-specific — any multi-line single `return <expr>;` (here a wrapped
@@ -136,7 +136,7 @@ public sealed class CSharpMemberLayoutTests
             + "        .Append(\"a\")\n"
             + "        .Append(\"b\")\n"
             + "        .ToString();\n",
-            Render("string Build(StringBuilder builder)", FluentChainReturnBody, indent: 4, bodyIsSingleReturnExpression: true));
+            Render("string Build(StringBuilder builder)", FluentChainReturnBody, indent: 4, bodyIsSingleExpressionBody: true));
 
     [Fact]
     public void Append_MultilineFluentReturn_WrapsArrowOnNextLine_WhenRequested()
@@ -146,7 +146,7 @@ public sealed class CSharpMemberLayoutTests
             + "            .Append(\"a\")\n"
             + "            .Append(\"b\")\n"
             + "            .ToString();\n",
-            Render("string Build(StringBuilder builder)", FluentChainReturnBody, indent: 4, wrapExpressionBodyArrow: true, bodyIsSingleReturnExpression: true));
+            Render("string Build(StringBuilder builder)", FluentChainReturnBody, indent: 4, wrapExpressionBodyArrow: true, bodyIsSingleExpressionBody: true));
 
     [Fact]
     public void Append_MultilineFluentReturn_StaysBlock_WhenSignalNotSet()
@@ -158,7 +158,36 @@ public sealed class CSharpMemberLayoutTests
             + "            .Append(\"b\")\n"
             + "            .ToString();\n"
             + "    }\n",
-            Render("string Build(StringBuilder builder)", FluentChainReturnBody, indent: 4, bodyIsSingleReturnExpression: false));
+            Render("string Build(StringBuilder builder)", FluentChainReturnBody, indent: 4, bodyIsSingleExpressionBody: false));
+
+    // Issue #3084 (this slice): the fold is not return-specific either — a void
+    // member whose only statement is a multi-line expression statement (a wrapped
+    // fluent chain, no `return`) renders expression-bodied too, the whole first
+    // line trailing the arrow and each chained call re-indented one level under
+    // the member.
+    const string FluentChainStatementBody =
+        "builder\n    .Append(\"a\")\n    .Append(\"b\")\n    .Clear();";
+
+    [Fact]
+    public void Append_MultilineFluentStatement_RendersExpressionBodied_SameLineArrow()
+        => Assert.Equal(
+            "    void Build(StringBuilder builder) => builder\n"
+            + "        .Append(\"a\")\n"
+            + "        .Append(\"b\")\n"
+            + "        .Clear();\n",
+            Render("void Build(StringBuilder builder)", FluentChainStatementBody, indent: 4, bodyIsSingleExpressionBody: true));
+
+    [Fact]
+    public void Append_MultilineFluentStatement_StaysBlock_WhenSignalNotSet()
+        => Assert.Equal(
+            "    void Build(StringBuilder builder)\n"
+            + "    {\n"
+            + "        builder\n"
+            + "            .Append(\"a\")\n"
+            + "            .Append(\"b\")\n"
+            + "            .Clear();\n"
+            + "    }\n",
+            Render("void Build(StringBuilder builder)", FluentChainStatementBody, indent: 4, bodyIsSingleExpressionBody: false));
 
     [Fact]
     public void AppendIndentedBody_PreservesBlankLinesAndTrimsTrailing()

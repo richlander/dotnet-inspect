@@ -27,18 +27,19 @@ public static class CSharpMemberLayout
     /// Otherwise a brace block with the body content one level (four spaces)
     /// deeper. Blank lines in the body are preserved.
     /// </summary>
-    /// <param name="bodyIsSingleReturnExpression">
+    /// <param name="bodyIsSingleExpressionBody">
     /// When <see langword="true"/> the caller has proven, from the typed
-    /// <c>DecompilerResult.BodyIsSingleReturnExpression</c> signal, that
-    /// <paramref name="body"/> is exactly one <c>return &lt;expr&gt;;</c>
-    /// statement whose expression spans several lines (a raised switch
-    /// expression, a wrapped fluent chain, or any other wrapped single
-    /// expression). Such a body renders expression-bodied — <c>head =&gt; &lt;value&gt;</c>
-    /// with the continuation lines re-indented under the member (issues #3088 and
-    /// #3084). Only ever set for a multi-line body; single-line bodies stay on the
+    /// <c>DecompilerResult.BodyIsSingleExpressionBody</c> signal, that
+    /// <paramref name="body"/> is exactly one multi-line single-statement
+    /// expression — a <c>return &lt;expr&gt;;</c> or a void <c>&lt;expr&gt;;</c>
+    /// statement (a raised switch expression, a wrapped fluent chain, or any
+    /// other wrapped single expression). Such a body renders expression-bodied —
+    /// <c>head =&gt; &lt;value&gt;</c> with the continuation lines re-indented under
+    /// the member (issues #3088 and #3084). Only ever set for a multi-line body;
+    /// single-line bodies stay on the
     /// <see cref="CSharpExpressionBody.FromSingleStatement"/> path.
     /// </param>
-    public static void Append(StringBuilder sb, string head, string? body, int indent, bool wrapExpressionBodyArrow = false, bool bodyIsSingleReturnExpression = false)
+    public static void Append(StringBuilder sb, string head, string? body, int indent, bool wrapExpressionBodyArrow = false, bool bodyIsSingleExpressionBody = false)
     {
         ArgumentNullException.ThrowIfNull(sb);
         ArgumentNullException.ThrowIfNull(head);
@@ -49,8 +50,8 @@ public static class CSharpMemberLayout
             sb.AppendLine($"{pad}{head};");
             return;
         }
-        if (bodyIsSingleReturnExpression
-            && CSharpExpressionBody.MultilineReturnExpressionLines(body) is { } expressionLines)
+        if (bodyIsSingleExpressionBody
+            && CSharpExpressionBody.MultilineExpressionBodyLines(body) is { } expressionLines)
         {
             AppendMultilineExpressionBody(sb, head, expressionLines, indent, wrapExpressionBodyArrow);
             return;

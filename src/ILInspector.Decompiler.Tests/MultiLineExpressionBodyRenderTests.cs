@@ -44,4 +44,29 @@ public sealed class MultiLineExpressionBodyRenderTests
             "        .ToString();",
             rendered.Text!.Replace("\r\n", "\n"));
     }
+
+    [Fact]
+    public void WrappedSingleExpressionStatement_RendersStyleBExpressionBody()
+    {
+        // #3084 (this slice): a void member whose one statement is a wide
+        // expression statement (no `return`) folds to an expression-bodied member
+        // too — the whole first line trails the arrow, chained calls one level
+        // deeper. Block body and expression body are IL-identical.
+        var type = Specimen();
+        var member = Assert.Single(type.Members, m => m.Name == nameof(MultiLineExpressionBodySamples.Drain));
+
+        var rendered = MemberBodyProducer.ProduceMember(type, member, AssemblyPath, pdbPath: null);
+
+        Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
+        Assert.Equal(
+            "    public static void Drain(StringBuilder builder) => builder\n" +
+            "        .Append(\"alphabet\")\n" +
+            "        .Append(\"bravissimo\")\n" +
+            "        .Append(\"charlateral\")\n" +
+            "        .Append(\"deltatango\")\n" +
+            "        .Append(\"echolocation\")\n" +
+            "        .Append(\"foxtrotter\")\n" +
+            "        .Clear();",
+            rendered.Text!.Replace("\r\n", "\n"));
+    }
 }

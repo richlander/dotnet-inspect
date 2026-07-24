@@ -249,56 +249,69 @@ public sealed partial class CSharpPrinter
             RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
             RequiresUnsafeBodyModifier = function.Descendants.Prepend(function).Any(NeedsUnsafeContext),
             ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
-            BodyIsSingleReturnExpression = BodyIsSingleReturnExpression(function, output),
+            BodyIsSingleExpressionBody = BodyIsSingleExpressionBody(function, output),
             Metadata = new DecompilerResultMetadata(EffectiveDecompilerOptions(), [.. _decisions]),
         };
 
     /// <summary>
-    /// True when the printed body is exactly one top-level
-    /// <c>return &lt;expression&gt;;</c> statement whose expression spans several
-    /// lines — a single multi-line expression with nothing else in the body. The
-    /// member layer renders such a body as an expression-bodied member (a raised
-    /// multi-line switch return, issue #3088; a wrapped fluent chain or other
-    /// wrapped single expression, issue #3084). The single-statement shape is
-    /// structural (the emitted top-level statement list plus the lifts the printer
-    /// already tracked), never a re-parse of the rendered text: because the body
-    /// is exactly one <see cref="Return"/> with no lifted declarations, its whole
-    /// printed form is that one <c>return &lt;expr&gt;;</c> statement, so folding it
-    /// to <c>head =&gt; &lt;expr&gt;;</c> is a language-guaranteed equivalence. The
-    /// only text-derived input is whether that single return actually wrapped and
-    /// printed as a bare <c>return &lt;expr&gt;;</c>: a single-line return already
-    /// folds on the <see cref="CSharpExpressionBody.FromSingleStatement"/> path, so
-    /// this signal stays reserved for the multi-line case the flat helper cannot
-    /// recover. A rare single <see cref="Return"/> whose value the printer expands
-    /// into several statements (for example a <c>stackalloc</c>-to-pointer return
-    /// that lifts a local declaration inside an <c>unsafe</c> block) does not print
-    /// as a leading <c>return </c>, so the text guard keeps the flag off — matching
-    /// what <see cref="CSharpExpressionBody.MultilineReturnExpressionLines"/> would
-    /// accept, so the signal never claims a fold the member layer would reject.
+    /// True when the printed body is exactly one top-level statement whose whole
+    /// printed form is a single multi-line expression — a
+    /// <c>return &lt;expression&gt;;</c> (a raised multi-line switch return, issue
+    /// #3088; a wrapped fluent chain or other wrapped single expression, issue
+    /// #3084) or a single void <c>&lt;expression&gt;;</c> statement (a wrapped
+    /// fluent call chain, issue #3084). The member layer renders such a body as an
+    /// expression-bodied member (<c>head =&gt; &lt;expr&gt;;</c>) instead of a
+    /// brace block. The single-statement shape is structural (the emitted
+    /// top-level statement list plus the lifts the printer already tracked), never
+    /// a re-parse of the rendered text: because the body is exactly one statement
+    /// with no lifted declarations, its whole printed form is that one
+    /// <c>&lt;expr&gt;;</c>, so folding it to <c>head =&gt; &lt;expr&gt;;</c> is a
+    /// language-guaranteed equivalence. The only text-derived input is whether
+    /// that statement actually wrapped: a single-line body already folds on the
+    /// <see cref="CSharpExpressionBody.FromSingleStatement"/> path, so this signal
+    /// stays reserved for the multi-line case the flat helper cannot recover.
     /// </summary>
-    bool BodyIsSingleReturnExpression(IrFunction function, string output)
+    bool BodyIsSingleExpressionBody(IrFunction function, string output)
         => !_emittedDeclarations
             && !_topLevelHasLabel
             && _constructorChain is null
             && _fieldInitializers.Count == 0
             && !function.RequiresAsyncBodyModifier
             && !NeedsUnsupportedFallbackReturn(function)
-            && _topLevelStatements is [Return { Value: not null }]
-            && IsMultilineReturnExpressionText(output);
+            && IsFoldableSingleStatement(_topLevelStatements, output);
 
     /// <summary>
-    /// True when <paramref name="output"/> is a multi-line body that begins with a
-    /// bare <c>return </c> — the exact text shape
-    /// <see cref="CSharpExpressionBody.MultilineReturnExpressionLines"/> extracts.
-    /// Keeps <see cref="BodyIsSingleReturnExpression"/> aligned with the downstream
-    /// extractor so the typed flag is never set for a single return the printer
-    /// expanded into multiple statements (which would not fold anyway).
+    /// True when <paramref name="statements"/> is exactly one foldable statement
+    /// and <paramref name="output"/> is its multi-line printed form. Keeps
+    /// <see cref="BodyIsSingleExpressionBody"/> aligned with the downstream
+    /// extractor (<see cref="CSharpExpressionBody.MultilineExpressionBodyLines"/>)
+    /// so the typed flag is never set for a statement the printer expanded into
+    /// several lines that would not fold:
+    /// <list type="bullet">
+    /// <item>A lone <see cref="Return"/> whose value the printer lifts into a
+    /// leading local declaration (a <c>stackalloc</c>-to-pointer return inside an
+    /// <c>unsafe</c> block) prints a decl first, not a bare <c>return </c>, so the
+    /// keyword prefix keeps the flag off.</item>
+    /// <item>A single <see cref="ExpressionStatement"/> has no leading-decl lift
+    /// path — its whole printed form is that one statement (wrapped by the fluent
+    /// or splittable renderer, whose first line is always the expression's own
+    /// opening token) — so the multi-line guard alone is sound; no keyword prefix
+    /// exists to check.</item>
+    /// </list>
     /// </summary>
-    static bool IsMultilineReturnExpressionText(string output)
+    static bool IsFoldableSingleStatement(IReadOnlyList<IrNode> statements, string output)
     {
+        if (statements is not [var only])
+            return false;
         var trimmed = output.AsSpan().Trim();
-        return trimmed.Contains('\n')
-            && trimmed.StartsWith("return ", StringComparison.Ordinal);
+        if (!trimmed.Contains('\n'))
+            return false;
+        return only switch
+        {
+            Return { Value: not null } => trimmed.StartsWith("return ", StringComparison.Ordinal),
+            ExpressionStatement => true,
+            _ => false,
+        };
     }
 
     DecompilerOptions EffectiveDecompilerOptions()
@@ -362,8 +375,8 @@ public sealed partial class CSharpPrinter
     /// <summary>
     /// True once <see cref="PrintBody"/> has emitted at least one up-front local
     /// declaration (before the body statements). A body with declarations is not
-    /// a single-return expression, so it disqualifies the
-    /// <see cref="DecompilerResult.BodyIsSingleReturnExpression"/> signal.
+    /// a single-expression body, so it disqualifies the
+    /// <see cref="DecompilerResult.BodyIsSingleExpressionBody"/> signal.
     /// </summary>
     bool _emittedDeclarations;
 
@@ -371,8 +384,8 @@ public sealed partial class CSharpPrinter
     /// The top-level statements <see cref="AppendContainer"/> actually emitted
     /// (chain/field-initializer lifts and the trimmed trailing <c>return;</c>
     /// excluded), plus whether any top-level label was emitted. Together they let
-    /// <see cref="Result"/> recognize the single <c>return &lt;switch&gt;;</c> body
-    /// that <see cref="DecompilerResult.BodyIsSingleReturnExpression"/> reports —
+    /// <see cref="Result"/> recognize the single-statement expression body
+    /// that <see cref="DecompilerResult.BodyIsSingleExpressionBody"/> reports —
     /// a structural fact, not a re-parse of the rendered text.
     /// </summary>
     readonly List<IrNode> _topLevelStatements = [];

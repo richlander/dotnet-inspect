@@ -185,7 +185,7 @@ public class ApiOutputFormatterTests
         var result = DecompilerResult.Success(
             "return shape switch\n{\n    string s => s.Length,\n    int[] a => a.Length,\n    _ => 0,\n};") with
         {
-            BodyIsSingleReturnExpression = true
+            BodyIsSingleExpressionBody = true
         };
 
         var source = ApiOutputFormatter.FormatSourceWithDeclaration(
@@ -218,7 +218,7 @@ public class ApiOutputFormatterTests
         var result = DecompilerResult.Success(
             "return shape switch\n{\n    string s => s.Length,\n    int[] a => a.Length,\n    _ => 0,\n};") with
         {
-            BodyIsSingleReturnExpression = false
+            BodyIsSingleExpressionBody = false
         };
 
         var source = ApiOutputFormatter.FormatSourceWithDeclaration(
@@ -251,7 +251,7 @@ public class ApiOutputFormatterTests
         var result = DecompilerResult.Success(
             "return builder\n    .Append(\"a\")\n    .Append(\"b\")\n    .ToString();") with
         {
-            BodyIsSingleReturnExpression = true
+            BodyIsSingleExpressionBody = true
         };
 
         var source = ApiOutputFormatter.FormatSourceWithDeclaration(
@@ -266,6 +266,40 @@ public class ApiOutputFormatterTests
         Assert.Contains("\n    .Append(\"a\")\n    .Append(\"b\")\n    .ToString();", source);
         Assert.EndsWith(".ToString();", source.TrimEnd());
         Assert.DoesNotContain("return builder", source);
+    }
+
+    [Fact]
+    public void FormatSourceWithDeclaration_SingleVoidFluentExpressionStatement_RendersExpressionBodied()
+    {
+        // #3084 (this slice): the fold is not return-specific. A void member whose
+        // only statement is a multi-line expression statement (a wrapped fluent
+        // chain, no `return`) renders expression-bodied too — the whole first line
+        // trails the arrow and the chained calls keep their column-zero body indent
+        // under the column-zero declaration.
+        var type = new ApiType { Namespace = "Samples", Name = "Builder", Kind = "class" };
+        var member = new ApiMember
+        {
+            Name = "Build",
+            Kind = "method",
+            SignatureModel = new ApiSignature { MemberName = "Build", ReturnType = "System.Void" }
+        };
+        var result = DecompilerResult.Success(
+            "builder\n    .Append(\"a\")\n    .Append(\"b\")\n    .Clear();") with
+        {
+            BodyIsSingleExpressionBody = true
+        };
+
+        var source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            member,
+            methodGenericParameters: null,
+            result,
+            preferExpressionBodied: true)
+            .ReplaceLineEndings("\n");
+
+        Assert.EndsWith(" => builder", Declaration(source));
+        Assert.Contains("\n    .Append(\"a\")\n    .Append(\"b\")\n    .Clear();", source);
+        Assert.EndsWith(".Clear();", source.TrimEnd());
     }
 
     [Theory]

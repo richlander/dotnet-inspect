@@ -2280,16 +2280,16 @@ public static class ApiOutputFormatter
         if (!hasLeadingComments && preferExpressionBodied && CSharpExpressionBody.FromSingleStatement(body) is { } expressionBody)
             return $"{declaration} => {expressionBody};";
 
-        // A multi-line single-return expression renders expression-bodied too
-        // (a raised switch return, issue #3088; a wrapped fluent chain or other
-        // wrapped single expression, issue #3084): `head => <value>` with the
-        // continuation lines below. Those lines sit at their body-relative
-        // (column-zero) indent, so at this member's column-zero declaration they
-        // need no re-indentation. Gate strictly on the printer's typed
-        // BodyIsSingleReturnExpression signal; the extraction helper is not sound
-        // on the flat string alone.
-        if (!hasLeadingComments && preferExpressionBodied && result.BodyIsSingleReturnExpression
-            && CSharpExpressionBody.MultilineReturnExpressionLines(body) is { Count: > 0 } multilineExpression)
+        // A multi-line single-statement expression body renders expression-bodied
+        // too (a raised switch return, issue #3088; a wrapped fluent chain in
+        // return or void expression-statement position, issue #3084):
+        // `head => <value>` with the continuation lines below. Those lines sit at
+        // their body-relative (column-zero) indent, so at this member's
+        // column-zero declaration they need no re-indentation. Gate strictly on
+        // the printer's typed BodyIsSingleExpressionBody signal; the extraction
+        // helper is not sound on the flat string alone.
+        if (!hasLeadingComments && preferExpressionBodied && result.BodyIsSingleExpressionBody
+            && CSharpExpressionBody.MultilineExpressionBodyLines(body) is { Count: > 0 } multilineExpression)
         {
             var expression = new StringBuilder();
             expression.Append(declaration).Append(" => ").Append(multilineExpression[0]);
