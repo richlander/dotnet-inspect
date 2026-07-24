@@ -144,7 +144,12 @@ public class FoldGuardReturnFidelityTests
     }
 
     // === correctness declines: the wrapped forms the fold's own downstream
-    // transforms would strip back to a bare hazard (adversarial review, #3119) ===
+    // transforms would strip or invert back to a bare hazard (adversarial review,
+    // #3119). The peel is a CONSERVATIVE, negation-parity-agnostic over-approximation:
+    // it follows a hazard through any chain of logical negations and bool-constant
+    // comparisons (both directions), so it also declines the branch-preserving `!x`
+    // forms (`== false` / `!= true`). Declining an extra readable raise is sound;
+    // modeling parity exactly would re-implement FoldBoolConstantComparison + Negate. ===
 
     [Fact]
     public void NegatedTruthinessCondition_TailConstant_IsNotFolded()
@@ -155,6 +160,31 @@ public class FoldGuardReturnFidelityTests
         // which binds the user-defined `|` (typed TruthOver, not bool): non-compiling.
         // The look-through peel must see the truthiness call under the negation.
         AssertDeclined(new LogicalNot(UserTruthiness()), Computed(), Bool(true), [Int32]);
+    }
+
+    [Fact]
+    public void TruthinessUnderEqualsTrueComparison_TailConstant_IsNotFolded()
+    {
+        // `if (t == true) return computed; return false;` reduces `op_True(t) == true`
+        // to the bare `op_True(t)`, which the printer strips to `return t && computed;` —
+        // the user-defined `&` rebind, non-compiling. The peel must see the truthiness
+        // call under the identity comparison the fixpoint strips.
+        var truthEqualsTrue = new Comparison(
+            ComparisonKind.Equal, isUnsigned: false, UserTruthiness(), Bool(true));
+        AssertDeclined(truthEqualsTrue, Computed(), Bool(false), [Int32]);
+    }
+
+    [Fact]
+    public void TruthinessUnderEqualsFalseComparison_TailConstant_IsNotFolded()
+    {
+        // `if (t == false) return computed; return true;` lifts through Conditions.Negate
+        // on the `||` arm, which inverts `op_True(t) == false` to `op_True(t) != false`;
+        // the fixpoint reduces that to the bare `op_True(t)` → `t || computed`, the same
+        // rebind. Both comparison directions must be peeled because the arm decides the
+        // negation.
+        var truthEqualsFalse = new Comparison(
+            ComparisonKind.Equal, isUnsigned: false, UserTruthiness(), Bool(false));
+        AssertDeclined(truthEqualsFalse, Computed(), Bool(true), [Int32]);
     }
 
     [Fact]
@@ -170,18 +200,31 @@ public class FoldGuardReturnFidelityTests
     }
 
     [Fact]
-    public void ByRefDereferenceUnderEqualsFalseComparison_StillFolds()
+    public void ByRefDereferenceUnderDoubleNegatedComparison_IsNotFolded()
     {
-        // `if (c) return *r == false; return false;` folds to `c && (*r == false)`, which
-        // the fixpoint reduces to `c && !*r`. The negating form keeps a `!` (and, per the
-        // merged round-2 boundary, a branch), so the surviving operand is not a bare
-        // deref and the readable fold is kept — the peel declines ONLY the bare-producing
-        // identity forms (`== true` / `!= false`), not `== false` / `!= true`.
+        // `if (c) return (*r == false) == false; return false;`: the outer Negate inverts
+        // the inner comparison and the fixpoint reduces the whole chain back to the bare
+        // `*r` — a branchless eager deref. A single identity peel stops at the outer
+        // negating comparison; following the non-constant side through the full chain is
+        // what reaches the hidden by-ref deref (adversarial review, #3119).
+        var innerEqualsFalse = new Comparison(
+            ComparisonKind.Equal, isUnsigned: false, ByRefBoolDeref(), Bool(false));
+        var doubleNegated = new Comparison(
+            ComparisonKind.Equal, isUnsigned: false, innerEqualsFalse, Bool(false));
+        AssertDeclined(CondCompare(), doubleNegated, Bool(false), [Int32]);
+    }
+
+    [Fact]
+    public void ByRefDereferenceUnderEqualsFalseComparison_IsNotFolded()
+    {
+        // `if (c) return *r == false; return false;` reduces to `c && !*r`. The `!*r`
+        // keeps a branch, so folding here would be sound — but the conservative,
+        // parity-agnostic peel declines it anyway rather than re-simulate the reduction
+        // to distinguish the bare `*r` (hazard) from `!*r` (safe). An extra decline of a
+        // rare, readable by-ref raise is sound.
         var byRefEqualsFalse = new Comparison(
             ComparisonKind.Equal, isUnsigned: false, ByRefBoolDeref(), Bool(false));
-        var result = RunGuard(CondCompare(), byRefEqualsFalse, Bool(false), [Int32]);
-
-        Assert.IsType<LogicalBinary>(result);
+        AssertDeclined(CondCompare(), byRefEqualsFalse, Bool(false), [Int32]);
     }
 
     static IrExpression RunGuard(
