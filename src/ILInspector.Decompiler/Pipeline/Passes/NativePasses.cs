@@ -105,6 +105,8 @@ internal static class NativePasses
     public static FluentChainRecompositionPass FluentChainRecomposition => new();
     [Native(NativeCategory.EmitArtifact, "trailing arguments the compiler baked in for omitted C# optional parameters (a constant equal to the parameter's default) elided back to the shorter call the source wrote")]
     public static OptionalArgumentElisionPass OptionalArgumentElision => new();
+    [Native(NativeCategory.EmitArtifact, "a when-true-constant bool ternary (the slot-diamond spelling of a short-circuit && / ||, e.g. c ? false : y) re-formed into the LogicalBinary operator the compiler lowered to branches")]
+    public static ShortCircuitTernaryPass ShortCircuitTernary => new();
 
     // ───────── IlErasure — reconstruct information the IL type system dropped ─────────
     [Native(NativeCategory.IlErasure, "int constants re-typed to bool/char/enum at typed positions")]

@@ -421,6 +421,13 @@ public static class IrPasses
         // by the importer's overload-safe count. Before coercion insertion so the
         // trailing defaults are still bare constants, never wrapped sink values.
         new OptionalArgumentElisionPass(),
+        // Re-form a short-circuit && / || from a when-true-constant bool ternary
+        // (c ? false : y → !c && y; c ? true : y → c || y). Opcode-exact for these
+        // two forms only; runs last, after every ternary-consuming pass (tuple-binary
+        // and switch-expression raises) so it never starves them of the
+        // `c ? … : false` diamond shape, and before coercion insertion so the
+        // reshaped bool value is coerced at its sink.
+        new ShortCircuitTernaryPass(),
         new CoercionInsertionPass(),
     ];
 

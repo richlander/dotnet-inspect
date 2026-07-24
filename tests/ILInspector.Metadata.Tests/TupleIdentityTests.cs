@@ -1,0 +1,258 @@
+using System.Reflection.PortableExecutable;
+using ILInspector.Metadata;
+
+namespace ILInspector.Metadata.Tests;
+
+#nullable enable
+
+/// <summary>
+/// Canary tests for the tuple / member-identity separation: the C# tuple
+/// <em>display</em> spelling (<c>(int count, string name)</c>) must never leak
+/// into the <em>identity</em> spelling used by the Member Index digest,
+/// XML-doc lookup, and extension/instance correspondence, which must remain the
+/// presentation-independent <c>System.ValueTuple&lt;...&gt;</c> form with element
+/// names erased. Other facets (nullability, <c>ref readonly</c>) must survive
+/// canonicalization unchanged.
+/// </summary>
+public sealed class TupleIdentityTests
+{
+    private static readonly ApiSurface Surface;
+
+    static TupleIdentityTests()
+    {
+        var assemblyPath = typeof(TupleIdentityTests).Assembly.Location;
+        using var stream = File.OpenRead(assemblyPath);
+        using var peReader = new PEReader(stream);
+        Surface = ApiSurfaceExtractor.Extract(peReader, includeAll: true);
+    }
+
+    private static ApiType SampleType =>
+        Surface.Types.First(t => t.Name == nameof(TupleSampleClass));
+
+    private static ApiMember Method(string name) =>
+        SampleType.Members.First(m => m.Name == name && m.Kind == "method");
+
+    private static string Canonical(string methodName) =>
+        ApiMemberIdentity.GetCanonicalSignature(SampleType, Method(methodName));
+
+    // --- TypeNode.RenderCanonical: structural, name-insensitive spelling -----
+
+    private static GenericTypeNode Tuple(params TypeNode[] args) =>
+        new("System.ValueTuple", isReferenceType: false, [.. args]);
+
+    private static PrimitiveTypeNode Int() => new("int", isReferenceType: false);
+    private static PrimitiveTypeNode Str() => new("string", isReferenceType: true);
+
+    [Fact]
+    public void RenderCanonical_NamedTuple_DropsSyntaxAndNames()
+    {
+        var node = Tuple(Int(), Str());
+        node.ApplyTupleNames(["count", "name"]);
+        Assert.Equal("System.ValueTuple<int, string>", node.RenderCanonical());
+    }
+
+    [Fact]
+    public void RenderCanonical_IsElementNameInsensitive()
+    {
+        var named = Tuple(Int(), Str());
+        named.ApplyTupleNames(["count", "name"]);
+        var renamed = Tuple(Int(), Str());
+        renamed.ApplyTupleNames(["total", "label"]);
+        var unnamed = Tuple(Int(), Str());
+        unnamed.ApplyTupleNames(null);
+
+        Assert.Equal(named.RenderCanonical(), renamed.RenderCanonical());
+        Assert.Equal(named.RenderCanonical(), unnamed.RenderCanonical());
+    }
+
+    [Fact]
+    public void RenderCanonical_PreservesNullability()
+    {
+        // A canonical spelling erases tuple presentation but nothing else: the
+        // NRT annotation that distinguishes string from string? must survive.
+        var node = Str();
+        int pos = 0;
+        node.ApplyNullability([2], ref pos, 0);
+        Assert.Equal("string?", node.Render());
+        Assert.Equal("string?", node.RenderCanonical());
+    }
+
+    [Fact]
+    public void RenderCanonical_NonTuple_EqualsDisplay()
+    {
+        var node = new GenericTypeNode(
+            "System.Collections.Generic.List", isReferenceType: true, [Int()]);
+        Assert.Equal(node.Render(), node.RenderCanonical());
+    }
+
+    [Fact]
+    public void RenderCanonical_NestedTuple_FullyStructural()
+    {
+        var inner = Tuple(Int(), Int());
+        var node = Tuple(inner, Str());
+        node.ApplyTupleNames(["pair", "c", "a", "b"]);
+        Assert.Equal(
+            "System.ValueTuple<System.ValueTuple<int, int>, string>",
+            node.RenderCanonical());
+    }
+
+    // --- Member Index digest (GetCanonicalSignature) -------------------------
+
+    [Fact]
+    public void Canonical_TupleReturn_DoesNotCrash()
+    {
+        // A tuple return puts '(' at signature position 0; the identity parsers
+        // must not assume the first '(' opens the parameter list.
+        var canonical = Canonical(nameof(TupleSampleClass.NamedReturn));
+        Assert.Contains("NamedReturn", canonical);
+        Assert.DoesNotContain("count", canonical);
+    }
+
+    [Fact]
+    public void Canonical_TupleParam_ErasesNamesToValueTuple()
+    {
+        var canonical = Canonical(nameof(TupleSampleClass.NamedParam));
+        Assert.Contains("System.ValueTuple<int,int>", canonical);
+        Assert.DoesNotContain("point", canonical);
+        Assert.DoesNotContain("(int x", canonical);
+    }
+
+    [Fact]
+    public void Canonical_TupleParam_IsElementNameInsensitive()
+    {
+        // NamedParam((int x, int y)) and NamedParamAlt((int a, int b)) differ only
+        // in tuple element names; their canonical parameter lists must be identical.
+        var a = Canonical(nameof(TupleSampleClass.NamedParam));
+        var b = Canonical(nameof(TupleSampleClass.NamedParamAlt));
+        Assert.EndsWith("(System.ValueTuple<int,int>)", a);
+        Assert.EndsWith("(System.ValueTuple<int,int>)", b);
+    }
+
+    [Fact]
+    public void Canonical_PreservesNullability_DistinctDigests()
+    {
+        // string vs string? is a real API difference and must remain a distinct
+        // Member Index identity: canonicalization erases tuples, not nullability.
+        var nonNull = Canonical(nameof(TupleSampleClass.NonNullRef));
+        var nullable = Canonical(nameof(TupleSampleClass.NullRef));
+        Assert.NotEqual(nonNull, nullable);
+    }
+
+    // --- Canonical return spelling preserves ref readonly --------------------
+
+    [Fact]
+    public void CanonicalReturn_PreservesRefReadonly()
+    {
+        var member = Method(nameof(TupleSampleClass.RefReadonlyReturn));
+        Assert.Equal("ref readonly int", member.SignatureModel!.ReturnType);
+        Assert.Equal("ref readonly int", member.SignatureModel!.EffectiveCanonicalReturnType);
+    }
+
+    // --- JSON round-trip identity parity (persisted CanonicalSignature) -------
+
+    [Fact]
+    public void RoundTrip_TupleParam_CanonicalIdentityMatchesLive()
+    {
+        // SignatureModel is [JsonIgnore]; a persisted CanonicalSignature is what lets a
+        // tuple member's identity survive serialization. Without it, the fallback would
+        // parse tuple DISPLAY syntax and diverge from the live digest.
+        var member = Method(nameof(TupleSampleClass.NamedParam));
+        Assert.False(string.IsNullOrEmpty(member.CanonicalSignature));
+
+        var live = ApiMemberIdentity.GetCanonicalSignature(SampleType, member);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(Surface);
+        var roundTripped = System.Text.Json.JsonSerializer.Deserialize<ApiSurface>(json)!;
+        var rtType = roundTripped.Types.First(t => t.Name == nameof(TupleSampleClass));
+        var rtMember = rtType.Members.First(m =>
+            m.Name == nameof(TupleSampleClass.NamedParam) && m.Kind == "method");
+
+        Assert.Null(rtMember.SignatureModel);
+        Assert.Equal(live, ApiMemberIdentity.GetCanonicalSignature(rtType, rtMember));
+        Assert.Contains("System.ValueTuple<int,int>", ApiMemberIdentity.GetCanonicalSignature(rtType, rtMember));
+    }
+
+    [Fact]
+    public void RoundTrip_NonTupleMember_NoCanonicalSignaturePersisted()
+    {
+        // Churn guard: a non-tuple member's canonical spelling equals its display spelling,
+        // so no CanonicalSignature is persisted and its serialized form is unchanged.
+        var member = Method(nameof(TupleSampleClass.NoTuple));
+        Assert.Null(member.CanonicalSignature);
+    }
+
+    [Fact]
+    public void RoundTrip_TupleReturningConversionOperator_CanonicalIdentityMatchesLive()
+    {
+        // Conversion operators overload on return type, so a tuple return is part of
+        // identity. The fallback string path cannot reverse (int a, int b) back to
+        // System.ValueTuple; the persisted CanonicalSignature must carry it.
+        var op = SampleType.Members.First(m => m.Name == "op_Implicit");
+        Assert.False(string.IsNullOrEmpty(op.CanonicalSignature));
+        var live = ApiMemberIdentity.GetCanonicalSignature(SampleType, op);
+        Assert.Contains("~System.ValueTuple<int,int>", live);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(Surface);
+        var roundTripped = System.Text.Json.JsonSerializer.Deserialize<ApiSurface>(json)!;
+        var rtType = roundTripped.Types.First(t => t.Name == nameof(TupleSampleClass));
+        var rtOp = rtType.Members.First(m => m.Name == "op_Implicit");
+
+        Assert.Null(rtOp.SignatureModel);
+        Assert.Equal(live, ApiMemberIdentity.GetCanonicalSignature(rtType, rtOp));
+    }
+
+    [Theory]
+    [InlineData(nameof(TupleSampleClass.NamedReturn))]
+    [InlineData(nameof(TupleSampleClass.UnnamedReturn))]
+    [InlineData(nameof(TupleSampleClass.NestedTuple))]
+    [InlineData(nameof(TupleSampleClass.MidNested))]
+    [InlineData(nameof(TupleSampleClass.TupleInsideFunc))]
+    [InlineData(nameof(TupleSampleClass.TupleArray))]
+    public void RoundTrip_TupleReturningMethod_CanonicalIdentityMatchesLive(string name)
+    {
+        // A tuple in the RETURN type is not part of a non-conversion method's identity
+        // digest, but its '(...)' parentheses would derail the display-text fallback's
+        // first-'(' parameter-list detection after a JSON round-trip (corrupting the
+        // identity to e.g. "NamedReturn(int,string name))"). HasCanonicalDivergence must
+        // therefore persist a CanonicalSignature for these members too, so live and
+        // round-tripped surfaces produce identical digests.
+        var member = Method(name);
+        Assert.False(string.IsNullOrEmpty(member.CanonicalSignature));
+        var live = ApiMemberIdentity.GetCanonicalSignature(SampleType, member);
+        Assert.EndsWith($"{name}()", live);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(Surface);
+        var roundTripped = System.Text.Json.JsonSerializer.Deserialize<ApiSurface>(json)!;
+        var rtType = roundTripped.Types.First(t => t.Name == nameof(TupleSampleClass));
+        var rtMember = rtType.Members.First(m => m.Name == name && m.Kind == "method");
+
+        Assert.Null(rtMember.SignatureModel);
+        Assert.Equal(live, ApiMemberIdentity.GetCanonicalSignature(rtType, rtMember));
+    }
+
+    // --- Invalid ValueTuple`8 (non-tuple Rest) must not masquerade as a tuple -
+
+    [Fact]
+    public void InvalidRestValueTuple_KeepsGenericSpelling()
+    {
+        var member = Method(nameof(TupleSampleClass.InvalidRestValueTupleParam));
+        Assert.Contains("System.ValueTuple<int, int, int, int, int, int, int, int>", member.Signature);
+    }
+
+    [Fact]
+    public void InvalidRestValueTuple_DoesNotCollideWithGenuineEightTuple()
+    {
+        var genuine = Method(nameof(TupleSampleClass.GenuineEightTupleParam));
+        var invalid = Method(nameof(TupleSampleClass.InvalidRestValueTupleParam));
+
+        // Genuine eight-tuple renders as C# tuple syntax; the invalid Rest keeps generics.
+        Assert.Contains("(int, int, int, int, int, int, int, int)", genuine.Signature);
+        Assert.DoesNotContain("System.ValueTuple", genuine.Signature);
+        Assert.DoesNotContain("(int, int, int, int, int, int, int, int)", invalid.Signature);
+
+        // Their identities are distinct too.
+        Assert.NotEqual(
+            ApiMemberIdentity.GetCanonicalSignature(SampleType, genuine),
+            ApiMemberIdentity.GetCanonicalSignature(SampleType, invalid));
+    }
+}
