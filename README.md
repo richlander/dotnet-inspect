@@ -337,7 +337,7 @@ dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json --path @readme --content --frontmatter
 dotnet-inspect package Newtonsoft.Json -S "Package Info" --fields Version --value
 dotnet-inspect type Command --project ./src/App
-dotnet-inspect member Command --project ./src/App --show-index
+dotnet-inspect member Command --project ./src/App -S "Member Index"
 dotnet-inspect project ./src/App -S Skills --jsonl
 dotnet-inspect project ./src/App -S Skills --paths
 dotnet-inspect project ./src/App -S Skills --print --row 1
@@ -362,7 +362,7 @@ dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions
 dotnet-inspect type JsonSerializer --package System.Text.Json@8.0.0..8.0.5 --at '#4'
 dotnet-inspect member JsonSerializer Serialize --package System.Text.Json@8.0.0..8.0.5 --at 8.0.5
 dotnet-inspect type Command --project ./src/App
-dotnet-inspect member Command --project ./src/App --show-index
+dotnet-inspect member Command --project ./src/App -S "Member Index"
 dotnet-inspect project ./src/App -S Skills
 dotnet-inspect project ./src/App -S Skills --print --row 1
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print-all

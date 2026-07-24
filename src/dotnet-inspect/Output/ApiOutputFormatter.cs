@@ -685,11 +685,13 @@ public static class ApiOutputFormatter
                 .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         if (grouped.Count == 0) return (0, "");
 
-        // Flatten sorted for --limit application
+        // Flatten sorted for --limit application. This ordering must match the per-kind
+        // display ordering below so that -m N selects the same members that are shown.
         var allMembers = grouped
             .SelectMany(g => g.Value)
             .OrderBy(m => GetMemberSortOrder(m.Kind))
-            .ThenBy(m => m.Name)
+            .ThenBy(m => m.Name, StringComparer.Ordinal)
+            .ThenBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
             .ToList();
 
         int truncated = 0;
@@ -739,9 +741,11 @@ public static class ApiOutputFormatter
                 }
 
                 var sigDisplay = FormatMemberDeclaration(type, m, abbreviate: abbreviate);
+                var digest = ApiMemberIdentity.GetMemberAnchor(type, m).Fingerprint;
                 return new MemberRow(
                     select,
                     OperatorNames.FormatDisplayName(m.Name),
+                    MarkoutInline.Code(digest),
                     MarkoutInline.Code(sigDisplay),
                     hasDocs ? (m.Documentation.Summary ?? "") : null);
             }).ToList();
@@ -818,6 +822,7 @@ public static class ApiOutputFormatter
 
         var member = type.Members[0];
         var sigDisplay = FormatMemberDeclaration(type, member, abbreviate: false);
+        var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
 
         var docsRequested = options.ShowDocs
             || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
@@ -827,6 +832,8 @@ public static class ApiOutputFormatter
         [
             new MemberSignatureRow(
                 MarkoutInline.Code(sigDisplay),
+                MarkoutInline.Code(anchor.Fingerprint),
+                MarkoutInline.Code(anchor.CanonicalSignature),
                 SignatureDecodeMarker(member),
                 description)
         ];
@@ -1052,6 +1059,18 @@ public static class ApiOutputFormatter
                 }
             }
         }
+
+        // The compact-summary tables no longer carry a Decode column, so surface any
+        // signature-decode degradation through the stderr warning instead.
+        var degradedSignatures = allEntries
+            .SelectMany(e => e.members)
+            .Where(m => m.SignatureDecodeStatus is SignatureDecodeStatus.Degraded)
+            .Select(m => FormatMemberDeclaration(type, m, abbreviate: false))
+            .ToList();
+        if (degradedSignatures.Count > 0)
+            view.DegradedSignatureMembers = (view.DegradedSignatureMembers ?? [])
+                .Concat(degradedSignatures)
+                .ToList();
 
         return (truncated, "members");
     }

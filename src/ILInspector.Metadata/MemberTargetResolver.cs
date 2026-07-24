@@ -266,7 +266,7 @@ public static class MemberTargetResolver
             if (matches.Count == 0)
             {
                 return Failure(MemberTargetDiagnosticKind.DigestNotFound,
-                    $"Error: No overload of {selector.Name} matches digest '{digest}'. Use -S \"Member Index\" to list digests.",
+                    $"Error: No overload of {selector.Name} matches digest '{digest}'. Use one of the stable {selector.Name}~<digest> selectors.",
                     candidates);
             }
 
@@ -295,7 +295,7 @@ public static class MemberTargetResolver
             if (candidates.Count > 1)
             {
                 return Failure(MemberTargetDiagnosticKind.AmbiguousMember,
-                    $"Error: Member selector '{selector.RequestedText}' is ambiguous. Use {selector.Name}:1 through {selector.Name}:{candidates.Count}, or run -S \"Member Index\" to list stable ~digest selectors.",
+                    $"Error: Member selector '{selector.RequestedText}' is ambiguous. Use one of the stable {selector.Name}~<digest> selectors, or {selector.Name}:1 through {selector.Name}:{candidates.Count}.",
                     candidates);
             }
 

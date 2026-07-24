@@ -1545,7 +1545,12 @@ public class ApiCommand
             members = members.Where(m => m.IsUnsafe).ToList();
 
         if (options.Limit.HasValue && members.Count > options.Limit.Value)
-            members = members.Take(options.Limit.Value).ToList();
+            members = members
+                .OrderBy(m => ApiOutputFormatter.GetMemberSortOrder(m.Kind))
+                .ThenBy(m => m.Name, StringComparer.Ordinal)
+                .ThenBy(ApiOutputFormatter.GetMemberSignatureSortKey, StringComparer.Ordinal)
+                .Take(options.Limit.Value)
+                .ToList();
 
         // -S/--select scopes JSON to the requested sections, mirroring the markdown view.
         if (options.IncludeSections is { Count: > 0 } sections)
@@ -1574,6 +1579,16 @@ public class ApiCommand
             };
         }
 
+        // Project the durable identity (Digest + Canonical Signature) onto each member so
+        // JSON consumers get the same overload handle the Markdown Digest column exposes.
+        // Computed against the resolved declaring type, matching the table's anchor.
+        foreach (var member in outputType.Members)
+        {
+            var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
+            member.Digest = anchor.Fingerprint;
+            member.CanonicalSignature = anchor.CanonicalSignature;
+        }
+
         if (options.CompactJson)
             Console.WriteLine(JsonSerializer.Serialize(outputType, ApiTypeCompactJsonContext.Default.ApiType));
         else
@@ -1581,8 +1596,7 @@ public class ApiCommand
     }
 
     private static bool ShouldRenderMemberIndex(ApiOptions options)
-        => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true
-           || options is MemberOptions { ShowMemberIndex: true };
+        => options.IncludeSections?.Contains(SectionNames.MemberIndex) == true;
 
     private static bool ShouldRenderSourceLocations(ApiOptions options)
         => options.IncludeSections?.Contains(SectionNames.SourceLocations) == true;

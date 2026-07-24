@@ -160,18 +160,22 @@ public class TypeView
 
     // Compact member summary sections (Minimal verbosity, matching old QuietMemberFormatter)
     [MarkoutSection(Name = "Constructors", IgnoreProperty = nameof(ConstructorSummaryRow.Overloads))]
+    [MarkoutIgnoreColumnWhen(nameof(ConstructorSummaryDecodeIsEmpty), nameof(ConstructorSummaryRow.Decode))]
     [JsonIgnore]
     public List<ConstructorSummaryRow>? ConstructorSummaryRows { get; set; }
 
     [MarkoutSection(Name = "Constructors")]
+    [MarkoutIgnoreColumnWhen(nameof(ConstructorSummaryDecodeIsEmpty), nameof(ConstructorSummaryRow.Decode))]
     [JsonIgnore]
     public List<ConstructorSummaryRow>? ConstructorSummaryRowsWithOverloads { get; set; }
 
     [MarkoutSection(Name = "Fields")]
+    [MarkoutIgnoreColumnWhen(nameof(FieldSummaryDecodeIsEmpty), nameof(FieldSummaryRow.Decode))]
     [JsonIgnore]
     public List<FieldSummaryRow>? FieldSummaryRows { get; set; }
 
     [MarkoutSection(Name = "Properties")]
+    [MarkoutIgnoreColumnWhen(nameof(PropertySummaryDecodeIsEmpty), nameof(PropertySummaryRow.Decode))]
     [JsonIgnore]
     public List<PropertySummaryRow>? PropertySummaryRows { get; set; }
 
@@ -233,6 +237,12 @@ public class TypeView
     // The Decode column carries a signature-decode degradation marker that is null for
     // well-formed metadata (the common case). Drop the column when no member is degraded.
     public static bool SignatureDecodeIsEmpty(List<MemberSignatureRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.Decode));
+
+    // Same treatment for the compact member-summary tables: the Decode degradation
+    // marker is null for well-formed metadata, so drop the column when nothing is degraded.
+    public static bool ConstructorSummaryDecodeIsEmpty(List<ConstructorSummaryRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.Decode));
+    public static bool PropertySummaryDecodeIsEmpty(List<PropertySummaryRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.Decode));
+    public static bool FieldSummaryDecodeIsEmpty(List<FieldSummaryRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.Decode));
 
     [MarkoutSection(Name = "Source Files", EmptyText = "No SourceLink source files found for this type.")]
     [JsonIgnore]
@@ -301,13 +311,17 @@ public class EventsView
 public class MethodGroupsView
 {
     [MarkoutSection(Name = "Method Groups", IgnoreProperty = nameof(MethodSummaryRow.Overloads))]
+    [MarkoutIgnoreColumnWhen(nameof(MethodSummaryDecodeIsEmpty), nameof(MethodSummaryRow.Decode))]
     public List<MethodSummaryRow>? Rows { get; set; }
 
     [MarkoutSection(Name = "Method Groups")]
+    [MarkoutIgnoreColumnWhen(nameof(MethodSummaryDecodeIsEmpty), nameof(MethodSummaryRow.Decode))]
     public List<MethodSummaryRow>? RowsWithOverloads { get; set; }
 
     [MarkoutIgnore]
     public bool HasRows => Rows is { Count: > 0 } || RowsWithOverloads is { Count: > 0 };
+
+    public static bool MethodSummaryDecodeIsEmpty(List<MethodSummaryRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.Decode));
 }
 
 [MarkoutSerializable(AutoFields = false)]
@@ -513,14 +527,15 @@ public record ApiInspectionFailureRow(
 public record MemberRow(
     [property: MarkoutSkipNull] string? Select,
     string Name,
+    string Digest,
     string Signature,
     string? Description)
 {
     /// <summary>
     /// Creates a MemberRow without Select column.
     /// </summary>
-    public MemberRow(string name, string signature, string? description)
-        : this(null, name, signature, description) { }
+    public MemberRow(string name, string digest, string signature, string? description)
+        : this(null, name, digest, signature, description) { }
 }
 
 [MarkoutSerializable]
@@ -547,6 +562,8 @@ public record MemberSourceLocationRow(
 [MarkoutSerializable]
 public record MemberSignatureRow(
     string Signature,
+    string Digest,
+    [property: MarkoutPropertyName("Canonical Signature")] string CanonicalSignature,
     [property: MarkoutSkipNull] string? Decode,
     [property: MarkoutSkipNull] string? Description);
 

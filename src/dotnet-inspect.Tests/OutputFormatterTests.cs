@@ -969,15 +969,15 @@ public class OutputFormatterTests
         Assert.True(TypeView.SignatureDecodeIsEmpty(null));
         Assert.True(TypeView.SignatureDecodeIsEmpty(
         [
-            new MemberSignatureRow("void A()", null, null),
-            new MemberSignatureRow("void B()", "", null),
+            new MemberSignatureRow("void A()", "aaaa", "M:A", null, null),
+            new MemberSignatureRow("void B()", "bbbb", "M:B", "", null),
         ]));
 
         // A degraded member must keep the Decode column so the failure marker stays visible.
         Assert.False(TypeView.SignatureDecodeIsEmpty(
         [
-            new MemberSignatureRow("void A()", null, null),
-            new MemberSignatureRow("void B()", "degraded", null),
+            new MemberSignatureRow("void A()", "aaaa", "M:A", null, null),
+            new MemberSignatureRow("void B()", "bbbb", "M:B", "degraded", null),
         ]));
     }
 
