@@ -313,6 +313,7 @@ public static class ApiSurfaceExtractor
             // pre-scan and the per-field fold below are factored into shared helpers so
             // API-surface extraction and compile-back reconstruction agree on the fold.
             var fieldLikeEventBackingFieldNames = FieldLikeEventBackingFieldNames(reader, typeDef);
+            var autoPropertyBackingFieldNames = AutoPropertyBackingFieldNames(reader, typeDef);
 
             foreach (var fieldHandle in typeDef.GetFields())
             {
@@ -325,7 +326,7 @@ public static class ApiSurfaceExtractor
                 if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated))
                     continue; // Skip compiler-generated (<...>) fields unless opted in
 
-                if (IsAutoPropertyBackingField(reader, field, fieldName))
+                if (IsAutoPropertyBackingField(reader, field, fieldName, autoPropertyBackingFieldNames))
                     continue; // Skip a synthesized auto-property backing field (re-synthesized on reconstruction)
 
                 if (IsFieldLikeEventBackingField(reader, field, fieldName, fieldLikeEventBackingFieldNames))
@@ -914,22 +915,47 @@ public static class ApiSurfaceExtractor
                KnownAttributeNames.CompilerGeneratedAttribute);
 
     /// <summary>
-    /// A synthesized auto-property backing field, spelled <c>&lt;Prop&gt;k__BackingField</c>. The
-    /// pattern is matched precisely (leading <c>&lt;</c> plus the <c>k__BackingField</c> suffix) so
-    /// a legitimate user field whose name merely contains <c>__BackingField</c> is not dropped.
+    /// Names of a type's auto-property backing fields, derived from its declared properties. An
+    /// auto-property's backing field is spelled <c>&lt;Prop&gt;k__BackingField</c>; a candidate
+    /// field is only folded when a property with the matching name actually exists (mirroring the
+    /// field-like-event fold, which requires a matching event). Property names carrying <c>&lt;</c>
+    /// or <c>.</c> (compiler-generated or explicit-interface names) cannot name a C# auto-property
+    /// and are skipped.
     /// </summary>
-    static bool IsAutoPropertyBackingFieldName(string name)
-        => name.StartsWith('<') && name.EndsWith("k__BackingField", StringComparison.Ordinal);
+    static HashSet<string>? AutoPropertyBackingFieldNames(MetadataReader reader, TypeDefinition typeDef)
+    {
+        HashSet<string>? names = null;
+        foreach (var propertyHandle in typeDef.GetProperties())
+        {
+            string propertyName = reader.GetString(reader.GetPropertyDefinition(propertyHandle).Name);
+            if (propertyName.Contains('<', StringComparison.Ordinal)
+                || propertyName.Contains('.', StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            (names ??= new HashSet<string>(StringComparer.Ordinal))
+                .Add($"<{propertyName}>k__BackingField");
+        }
+
+        return names;
+    }
 
     /// <summary>
-    /// True when a field is a synthesized auto-property backing field: it is spelled
-    /// <c>&lt;Prop&gt;k__BackingField</c> AND carries its own <c>[CompilerGenerated]</c> marker.
-    /// Requiring the field's own marker (not the name alone) mirrors the field-like-event backing
-    /// fold: C# spelling rules do not bind arbitrary IL, so a genuine field could share the shape;
-    /// the C# compiler always marks a real auto-property backing field compiler-generated.
+    /// True when a field is a synthesized auto-property backing field: it carries its own
+    /// <c>[CompilerGenerated]</c> marker AND its name matches a declared property's backing-field
+    /// name. Requiring a matching property (not the mangled name shape alone) mirrors the
+    /// field-like-event backing fold: C# spelling rules do not bind arbitrary IL, so a
+    /// compiler-generated field that merely shares the shape but backs no declared property is
+    /// preserved (on reconstruction no property maps the body's field reference, so the raw field
+    /// must stay declared).
     /// </summary>
-    static bool IsAutoPropertyBackingField(MetadataReader reader, FieldDefinition field, string name)
-        => IsAutoPropertyBackingFieldName(name)
+    static bool IsAutoPropertyBackingField(
+        MetadataReader reader,
+        FieldDefinition field,
+        string fieldName,
+        HashSet<string>? autoPropertyBackingFieldNames)
+        => autoPropertyBackingFieldNames?.Contains(fieldName) == true
            && AttributeReader.HasAttribute(
                reader,
                field.GetCustomAttributes(),
@@ -968,6 +994,7 @@ public static class ApiSurfaceExtractor
     {
         bool isEnum = IsEnum(reader, typeDef);
         var fieldLikeEventBackingFieldNames = FieldLikeEventBackingFieldNames(reader, typeDef);
+        var autoPropertyBackingFieldNames = AutoPropertyBackingFieldNames(reader, typeDef);
         var handles = new List<FieldDefinitionHandle>();
         foreach (var fieldHandle in typeDef.GetFields())
         {
@@ -980,7 +1007,7 @@ public static class ApiSurfaceExtractor
                 continue; // An enum's storage slot is not a declarable field member
             if (!IsSurfaceableFieldName(fieldName, includeCompilerGenerated))
                 continue;
-            if (IsAutoPropertyBackingField(reader, field, fieldName))
+            if (IsAutoPropertyBackingField(reader, field, fieldName, autoPropertyBackingFieldNames))
                 continue; // Skip a synthesized auto-property backing field (re-synthesized on reconstruction)
             if (IsFieldLikeEventBackingField(reader, field, fieldName, fieldLikeEventBackingFieldNames))
                 continue;

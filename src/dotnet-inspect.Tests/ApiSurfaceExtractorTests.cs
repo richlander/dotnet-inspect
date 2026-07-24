@@ -1048,15 +1048,18 @@ public class ApiSurfaceExtractorTests
                 // A field-like event's private [CompilerGenerated] backing field is always folded.
                 Assert.DoesNotContain("Evt", set);
 
-                // A real auto-property backing field carries its own [CompilerGenerated] marker and
-                // is dropped everywhere, even under the opt-in.
+                // A genuine auto-property backing field — [CompilerGenerated] AND matched by a
+                // declared property of the same name (`Value`) — is dropped everywhere, even under
+                // the opt-in.
                 Assert.DoesNotContain("<Value>k__BackingField", set);
             }
 
-            // Positive-evidence discriminator: a hand-authored <Orphan>k__BackingField with the
-            // backing-field name but NO [CompilerGenerated] marker is not a real backing field, so
-            // it is treated as an ordinary compiler-generated (<...>) field — gated by the opt-in,
-            // not folded by name. A plain state-machine hoisted local behaves the same way.
+            // Positive-evidence discriminator: <Orphan>k__BackingField is [CompilerGenerated] and
+            // has the mangled backing-field name shape, but NO property named `Orphan` is declared,
+            // so it backs no auto-property. It is preserved (surfaced as an ordinary
+            // compiler-generated <...> field under the opt-in), matching the old RTS field surface:
+            // the compiler-generated marker and mangled name alone are not enough; a matching
+            // property is required to fold. A plain hoisted local behaves the same way.
             Assert.DoesNotContain("<Orphan>k__BackingField", off);
             Assert.Contains("<Orphan>k__BackingField", on);
             Assert.DoesNotContain("<hoisted>5__1", off);
@@ -1082,11 +1085,12 @@ public class ApiSurfaceExtractorTests
             .ToHashSet(StringComparer.Ordinal);
 
     // Emits (via Reflection.Emit) types that exercise every branch of the field-inclusion
-    // primitive: an ordinary field, a user field that merely contains "__BackingField", a real
-    // [CompilerGenerated] auto-property backing field, a same-named lookalike WITHOUT the marker,
-    // a non-enum `value__` field, a compiler-generated hoisted local, and a field-like event's
-    // private [CompilerGenerated] backing field — plus a genuine enum whose `value__` is the
-    // storage slot. Returns the saved path.
+    // primitive: an ordinary field, a user field that merely contains "__BackingField", a genuine
+    // auto-property backing field ([CompilerGenerated] AND matched by a declared `Value` property),
+    // a [CompilerGenerated] backing-name lookalike with NO backing property, a non-enum `value__`
+    // field, a compiler-generated hoisted local, and a field-like event's private
+    // [CompilerGenerated] backing field — plus a genuine enum whose `value__` is the storage slot.
+    // Returns the saved path.
     static string EmitFieldSurfaceSample()
     {
         var ab = new System.Reflection.Emit.PersistedAssemblyBuilder(
@@ -1102,13 +1106,28 @@ public class ApiSurfaceExtractorTests
         tb.DefineField("Plain", typeof(int), System.Reflection.FieldAttributes.Public);
         tb.DefineField("count__BackingField", typeof(int), System.Reflection.FieldAttributes.Public);
 
-        // A real auto-property backing field: <Prop>k__BackingField AND [CompilerGenerated].
+        // A genuine auto-property backing field: [CompilerGenerated] <Value>k__BackingField backed
+        // by a declared property `Value` of the same name.
         var realBacking = tb.DefineField(
             "<Value>k__BackingField", typeof(int), System.Reflection.FieldAttributes.Private);
         realBacking.SetCustomAttribute(cgAttr);
+        var getValue = tb.DefineMethod("get_Value",
+            System.Reflection.MethodAttributes.Public
+            | System.Reflection.MethodAttributes.SpecialName
+            | System.Reflection.MethodAttributes.HideBySig,
+            typeof(int), Type.EmptyTypes);
+        var getValueIl = getValue.GetILGenerator();
+        getValueIl.Emit(System.Reflection.Emit.OpCodes.Ldc_I4_0);
+        getValueIl.Emit(System.Reflection.Emit.OpCodes.Ret);
+        var valueProp = tb.DefineProperty(
+            "Value", System.Reflection.PropertyAttributes.None, typeof(int), null);
+        valueProp.SetGetMethod(getValue);
 
-        // A same-named lookalike without the [CompilerGenerated] marker: not a backing field.
-        tb.DefineField("<Orphan>k__BackingField", typeof(int), System.Reflection.FieldAttributes.Private);
+        // A [CompilerGenerated] field with the mangled backing-field name shape but NO declared
+        // property `Orphan`: it backs no auto-property, so it must be preserved.
+        var orphanBacking = tb.DefineField(
+            "<Orphan>k__BackingField", typeof(int), System.Reflection.FieldAttributes.Private);
+        orphanBacking.SetCustomAttribute(cgAttr);
 
         tb.DefineField("value__", typeof(int), System.Reflection.FieldAttributes.Public);
         tb.DefineField("<hoisted>5__1", typeof(int), System.Reflection.FieldAttributes.Public);
