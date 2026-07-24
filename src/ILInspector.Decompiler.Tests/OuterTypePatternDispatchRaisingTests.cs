@@ -27,8 +27,10 @@ namespace ILInspector.Decompiler.Tests;
 ///
 /// The compiler-backed positive is the witness itself. The synthetic negatives
 /// pin the new discriminators: a value-type arm whose unbox type disagrees with
-/// its isinst test, a guard whose failure diverges from the default, and a
-/// diamond whose matched arm does not reach the shared default.
+/// its isinst test, a guard whose failure diverges from the default, a diamond
+/// whose matched arm does not reach the shared default, a nullable test type
+/// (illegal as a declaration pattern), and a bound-slot type that disagrees with
+/// the pattern type (the last two from GPT review of #3124).
 /// </summary>
 [Trait("Area", "Pass")]
 public class OuterTypePatternDispatchRaisingTests
@@ -102,7 +104,9 @@ public class OuterTypePatternDispatchRaisingTests
         IrExpression noMatchDefault,
         IrExpression guardFailDefault,
         IrExpression leafValue,
-        bool elseDeadTail = false)
+        bool elseDeadTail = false,
+        TypeRef? unboxType = null,
+        TypeRef? bindType = null)
     {
         IrExpression Win() => new Call(
             new MethodRef(Node, "Win", Bool, [Int32], HasThis: false),
@@ -125,7 +129,7 @@ public class OuterTypePatternDispatchRaisingTests
 
         var then = new Block();
         then.Add(vtDispatch);
-        then.Add(new StoreLocal(1, Int32, new UnboxAny(Int32, new LoadLocal(9, Node))));
+        then.Add(new StoreLocal(1, bindType ?? Int32, new UnboxAny(unboxType ?? Int32, new LoadLocal(9, Node))));
         then.Add(guard);
         then.Add(new Return(Win()));
 
@@ -222,6 +226,48 @@ public class OuterTypePatternDispatchRaisingTests
             guardFailDefault: Default(),
             leafValue: new Constant(true, Bool),
             elseDeadTail: true);
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    [Fact]
+    public void Synthetic_NullableValueTypeTest_DoesNotRaise()
+    {
+        // GPT review (#3124): a `Nullable<int>` isinst+unbox arm is consistent —
+        // test, unbox, and bind types all agree — but `int?` is illegal as a
+        // C# declaration-pattern type (CS8116), so raising it would emit invalid
+        // C# under a `Full` label. IsValueTypeArm must decline any nullable test
+        // type; the cascade stays if/return.
+        var nullableInt = TypeRef.GenericInstance(TypeRef.CoreLib("System", "Nullable`1"), ImmutableArray.Create(Int32));
+        var function = DiamondValueTypeCascade(
+            valueTypeTest: nullableInt,
+            noMatchDefault: Default(),
+            guardFailDefault: Default(),
+            leafValue: new Constant(true, Bool),
+            unboxType: nullableInt,
+            bindType: nullableInt);
+
+        RunPass(function);
+
+        Assert.Empty(function.Descendants.OfType<PatternSwitchExpression>());
+    }
+
+    [Fact]
+    public void Synthetic_BindTypeDiffersFromTest_DoesNotRaise()
+    {
+        // GPT review (#3124): isinst+unbox both name `int`, but the bound slot is
+        // declared `bool`. Raising declares an `int` pattern var for a `bool` slot
+        // (CS0029), so the pattern type must equal the bound local's declared type.
+        // IsValueTypeArm declines when they disagree; the cascade stays if/return.
+        var function = DiamondValueTypeCascade(
+            valueTypeTest: Int32,
+            noMatchDefault: Default(),
+            guardFailDefault: Default(),
+            leafValue: new Constant(true, Bool),
+            unboxType: Int32,
+            bindType: Bool);
 
         RunPass(function);
 
