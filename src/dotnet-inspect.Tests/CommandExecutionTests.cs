@@ -5712,14 +5712,19 @@ public class CommandExecutionTests
     {
         // ".ctor" is a real metadata member name; the leading-dot sentinel must preserve it (not
         // strip it to a non-matching "ctor"), so the shortcut both enables the member lens and
-        // searches for constructors.
-        var (exit, output, error) = await RunAppAsync(
-            "find", ".ctor", "--platform", "System.Text.Json", "--count");
+        // searches for constructors. Preservation must also honor case-insensitivity and globs.
+        var ctor = await RunAppAsync("find", ".ctor", "--platform", "System.Text.Json", "--count");
+        var upper = await RunAppAsync("find", ".CTOR", "--platform", "System.Text.Json", "--count");
+        var glob = await RunAppAsync("find", ".ctor*", "--platform", "System.Text.Json", "--count");
 
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        Assert.True(int.TryParse(output.Trim(), out var count));
+        Assert.Equal(0, ctor.Item1);
+        Assert.Empty(ctor.Item3);
+        Assert.True(int.TryParse(ctor.Item2.Trim(), out var count));
         Assert.True(count >= 1, $"expected at least one constructor, got {count}");
+
+        // Case-insensitive exact and constructor glob resolve to the same constructor set.
+        Assert.Equal(ctor.Item2.Trim(), upper.Item2.Trim());
+        Assert.Equal(ctor.Item2.Trim(), glob.Item2.Trim());
     }
 
     [Fact]
