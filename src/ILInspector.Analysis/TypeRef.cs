@@ -129,6 +129,24 @@ public sealed class TypeRef : IEquatable<TypeRef>
         }
     }
 
+    /// <summary>
+    /// The bare simple type name with no namespace and no generic arguments, unwrapping
+    /// generic instances, arrays, by-ref, pointer, and pinned forms to the underlying
+    /// named type (so <c>ReadOnlyMemory&lt;byte&gt;</c> yields <c>ReadOnlyMemory</c> and
+    /// <c>JsonTypeInfo&lt;TValue&gt;</c> yields <c>JsonTypeInfo</c>). Empty for generic
+    /// parameters and unsupported types. Used for compact presentation — such as the
+    /// Mermaid compact-label projection — where only the declaring type's short name is
+    /// wanted; unlike <see cref="Name"/>, it is never empty for a constructed generic
+    /// declaring type.
+    /// </summary>
+    public string SimpleName => Kind switch
+    {
+        TypeRefKind.Definition => DisplayName(),
+        TypeRefKind.GenericInstance or TypeRefKind.SzArray or TypeRefKind.Array
+            or TypeRefKind.ByRef or TypeRefKind.Pointer or TypeRefKind.Pinned => ElementType!.SimpleName,
+        _ => "",
+    };
+
     public string ToDisplayString() => Kind switch
     {
         TypeRefKind.Definition => DisplayName(),

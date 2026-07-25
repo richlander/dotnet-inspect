@@ -244,7 +244,7 @@ public static class CallGraphMermaid
                 return member.DeclaringType.ToDisplayString();
 
             if (_options.CompactLabels)
-                return $"{member.DeclaringType.Name}.{member.Name}";
+                return $"{member.DeclaringType.SimpleName}.{member.Name}";
 
             var name = member.Name;
             if (!member.TypeArguments.IsDefaultOrEmpty)
@@ -266,7 +266,13 @@ public static class CallGraphMermaid
                 GenericMemberIdentity.OpenDeclaringType(member.DeclaringType));
             if (string.Equals(targetType, memberType, StringComparison.Ordinal))
                 return "sameType";
-            if (string.Equals(member.DeclaringType.Assembly, _target.DeclaringType.Assembly, StringComparison.Ordinal))
+            // A constructed generic declaring type (GenericInstance) carries no Assembly of
+            // its own, so compare on the open definition where the assembly identity lives;
+            // otherwise a same-assembly generic callee (e.g. JsonTypeInfo<T>) mis-colors as a
+            // different assembly.
+            var memberAssembly = GenericMemberIdentity.OpenDeclaringType(member.DeclaringType).Assembly;
+            var targetAssembly = GenericMemberIdentity.OpenDeclaringType(_target.DeclaringType).Assembly;
+            if (string.Equals(memberAssembly, targetAssembly, StringComparison.Ordinal))
                 return "differentType";
             return "differentAssembly";
         }
