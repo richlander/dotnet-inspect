@@ -1635,16 +1635,42 @@ function attachGraphPanZoom(container, viewport) {
 function resolveNodeLabel(label) {
   const dot = label.lastIndexOf(".");
   if (dot < 0) return null;
-  const typeName = label.slice(0, dot);
+  let typeName = label.slice(0, dot);
   const memberName = label.slice(dot + 1);
+  if (typeName.endsWith(".")) typeName = typeName.slice(0, -1);
+  if (!typeName) return null;
   const candidates = [state.package, ...state.packages.filter(item => item !== state.package)];
   for (const pkg of candidates) {
     if (!pkg?.types) continue;
     const type = pkg.types.find(item =>
       item.name === typeName || item.id === typeName || item.id.endsWith("." + typeName));
     if (!type) continue;
-    const group = memberGroups(type).find(item => item.name === memberName);
+    const group = findMemberGroup(memberGroups(type), memberName);
     if (group) return { pkg, type, group };
+  }
+  return null;
+}
+
+function findMemberGroup(groups, memberName) {
+  let group = groups.find(item => item.name === memberName);
+  if (group) return group;
+
+  const accessor = memberName.match(/^(get|set|add|remove)_(.+)$/);
+  if (accessor) {
+    const backing = accessor[2];
+    const kind = accessor[1] === "get" || accessor[1] === "set" ? "property" : "event";
+    group = groups.find(item => item.name === backing && item.kind === kind)
+      ?? groups.find(item => item.name === backing);
+    if (group) return group;
+    if ((backing === "Item" || backing === "Chars")) {
+      group = groups.find(item => item.kind === "property" && (item.name === "Item" || item.name === "this[]"));
+      if (group) return group;
+    }
+  }
+
+  if (memberName === "ctor" || memberName === ".ctor" || memberName === "#ctor") {
+    group = groups.find(item => item.kind === "constructor");
+    if (group) return group;
   }
   return null;
 }
