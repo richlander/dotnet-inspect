@@ -248,4 +248,152 @@ public class ExtractMethodBodyTests
         Assert.Contains("int x = ~0;", body, System.StringComparison.Ordinal);
         Assert.DoesNotContain("Preceding", body, System.StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData("~mask;")]          // bitwise complement of a local, bare
+    [InlineData("~Mask;")]          // bitwise complement of a constant/field
+    [InlineData("~Compute(x);")]    // bitwise complement of an invocation (argument-bearing)
+    public void Destructor_HiddenBodyTildeComplement_DoesNotStopAtNonEmptyParenOrBareComplement(string bodyComplementLine)
+    {
+        // Regression guard (adversarial review): "#line hidden" can push the first
+        // visible sequence point past the signature, so the backward scan begins
+        // inside the body. A tilde-identifier body statement that is NOT the
+        // parameterless "~Type()" signature — a bare complement ("~mask;"), a
+        // complemented field ("~Mask;"), or a complemented invocation
+        // ("~Compute(x);") — must NOT be mistaken for the destructor signature.
+        // The scan must walk up to the real "~C()" line and never leak the
+        // preceding member.
+        var source = Lines(
+            "class C",                          // 1
+            "{",                                // 2
+            "    internal int Preceding;",      // 3  <- must NOT be captured
+            "",                                 // 4
+            "    ~C()",                         // 5  <- real signature
+            "    {",                            // 6
+            "        int x =",                  // 7
+            "            " + bodyComplementLine,// 8  <- must NOT be treated as signature
+            "        System.GC.KeepAlive(x);",  // 9  <- StartLine (first visible seq point)
+            "    }",                            // 10
+            "}");                               // 11
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 9, endLine: 9, methodName: "Finalize", isDestructor: true);
+
+        Assert.StartsWith("~C()", body, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("Preceding", body, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Destructor_UnicodeEscapedTypeName_StopsAtTildeSignature()
+    {
+        // Regression guard (adversarial review): a destructor's type name may be
+        // spelled with a Unicode escape ("~\u0043()" for "~C()"). The signature
+        // grammar admits backslashes in the identifier run so the escaped form is
+        // still recognized and the preceding member is not leaked.
+        var source = Lines(
+            "class C",                              // 1
+            "{",                                    // 2
+            "    internal static bool s_flag;",     // 3  <- must NOT be captured
+            "",                                     // 4
+            "    ~\\u0043()",                       // 5
+            "    {",                                // 6  <- StartLine
+            "        s_flag = true;",               // 7  <- EndLine
+            "    }",                                // 8
+            "}");                                   // 9
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Finalize", isDestructor: true);
+
+        Assert.StartsWith("~\\u0043()", body, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("s_flag;", body, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Destructor_WrappedParameterList_TypeNameAnchored_NotTruncated()
+    {
+        // Regression guard (adversarial review): a destructor whose empty parameter
+        // list wraps onto following lines ("unsafe ~ Sample" / "(" / ")") has no
+        // "()" on the signature line. Anchoring on the declaring type name (rather
+        // than requiring "()" on the same line) still stops at the signature and
+        // does not leak the preceding member.
+        var source = Lines(
+            "class Sample",                         // 1
+            "{",                                    // 2
+            "    internal int Preceding;",          // 3  <- must NOT be captured
+            "",                                     // 4
+            "    unsafe ~ Sample",                  // 5  <- signature start
+            "    (",                                // 6
+            "    )",                                // 7
+            "    {",                                // 8
+            "        int x = 0;",                   // 9  <- StartLine (first visible seq point)
+            "    }",                                // 10
+            "}");                                   // 11
+
+        var body = SourceLinkResolver.ExtractMethodBody(
+            source, startLine: 9, endLine: 9, methodName: "Finalize", isDestructor: true, destructorTypeName: "Sample");
+
+        Assert.StartsWith("unsafe ~ Sample", body, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("Preceding", body, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Destructor_HiddenZeroArgInvocationComplement_TypeNameAnchored_NotStopped()
+    {
+        // Regression guard (adversarial review): a "#line hidden" body complement of
+        // a zero-argument invocation ("~Compute();") satisfies a bare "~Identifier()"
+        // grammar but is NOT the declaring type. Anchoring on the type name walks past
+        // it to the real "~C()" signature.
+        var source = Lines(
+            "class C",                          // 1
+            "{",                                // 2
+            "    internal int Preceding;",      // 3  <- must NOT be captured
+            "",                                 // 4
+            "    ~C()",                         // 5  <- real signature
+            "    {",                            // 6
+            "        int x =",                  // 7
+            "            ~Compute();",          // 8  <- must NOT be treated as signature
+            "        System.GC.KeepAlive(x);",  // 9  <- StartLine (first visible seq point)
+            "    }",                            // 10
+            "}");                               // 11
+
+        var body = SourceLinkResolver.ExtractMethodBody(
+            source, startLine: 9, endLine: 9, methodName: "Finalize", isDestructor: true, destructorTypeName: "C");
+
+        Assert.StartsWith("~C()", body, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("Preceding", body, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Destructor_UnicodeEscapedTypeName_TypeNameAnchored_Matches()
+    {
+        // Regression guard (adversarial review): a Unicode-escaped type name
+        // ("~\u0043()" for "~C()") is decoded when matched against the declaring
+        // type name "C".
+        var source = Lines(
+            "class C",                              // 1
+            "{",                                    // 2
+            "    internal static bool s_flag;",     // 3  <- must NOT be captured
+            "",                                     // 4
+            "    ~\\u0043()",                       // 5
+            "    {",                                // 6  <- StartLine
+            "        s_flag = true;",               // 7  <- EndLine
+            "    }",                                // 8
+            "}");                                   // 9
+
+        var body = SourceLinkResolver.ExtractMethodBody(
+            source, startLine: 6, endLine: 7, methodName: "Finalize", isDestructor: true, destructorTypeName: "C");
+
+        Assert.StartsWith("~\\u0043()", body, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("s_flag;", body, System.StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("C", "C")]
+    [InlineData("NS.C", "C")]
+    [InlineData("NS.Outer+Inner", "Inner")]
+    [InlineData("NS.C`1", "C")]
+    [InlineData("NS.Outer`1+Inner", "Inner")]
+    [InlineData("NS.Outer+Inner`2", "Inner")]
+    public void SimpleTypeName_StripsNamespaceNestingAndArity(string fullName, string expected)
+    {
+        Assert.Equal(expected, SourceLinkResolver.SimpleTypeName(fullName));
+    }
 }

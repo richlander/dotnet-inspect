@@ -91,22 +91,29 @@ public class SourceLinkResolver
     /// line is "~Type(...)", which carries no accessibility keyword and whose metadata name
     /// ("Finalize") does not appear in the text, so the backward scan would otherwise walk past it
     /// into the preceding member and leak unrelated declarations. When set, the scan stops at the
-    /// destructor's signature line, recognized by grammar via
-    /// <see cref="IsDestructorSignatureLine"/> (optional "extern"/"unsafe" modifiers then a
-    /// "~Identifier"), covering spellings such as "~Type()", "~ Type()", and "unsafe ~Type()". It is
-    /// deliberately keyed on caller-supplied identity rather than a "~" text shape so that a normal
-    /// method whose signature legitimately contains a leading "~" continuation (e.g. a multi-line
-    /// default parameter "int x =\n    ~Mask") is never truncated. Matching the destructor grammar
-    /// — rather than any tilde on the line — also keeps a "#line hidden" body expression such as
-    /// "int x = ~0;" (which can become the first visible sequence point) from being mistaken for
-    /// the signature.
+    /// destructor's signature line, recognized via <see cref="IsDestructorSignatureLine"/>.
+    /// <paramref name="destructorTypeName"/> — the declaring type's simple name — is the authoritative
+    /// discriminator: the signature is "~TypeName" (optionally preceded by "extern"/"unsafe"), so a
+    /// line matches only when the tilde is followed by exactly that name as a token and then either
+    /// an empty-or-open-paren "(" continuation or end-of-line (for a signature whose parameter list
+    /// wraps to a following line). This is robust where a single-line grammar is not: it rejects a
+    /// "#line hidden" body complement that can become the first visible sequence point — whether a
+    /// bare "~mask;", a field "~Preceding;", or an invocation "~Compute()"/"~Compute(x);" — because
+    /// none spell the declaring type name, while still accepting a signature whose "()" wraps onto a
+    /// later line. When <paramref name="destructorTypeName"/> is null/empty (callers that cannot
+    /// supply it), the matcher falls back to requiring the full parameterless "~Identifier()"
+    /// grammar on one line.
     /// </para>
     /// </summary>
-    public static string ExtractMethodBody(string sourceText, int startLine, int endLine, string methodName, bool isDestructor = false)
+    public static string ExtractMethodBody(string sourceText, int startLine, int endLine, string methodName, bool isDestructor = false, string? destructorTypeName = null)
     {
         var lines = sourceText.Split('\n');
         int start = startLine;
         int end = Math.Min(endLine, lines.Length);
+
+        // The declaring type name may arrive namespace-qualified/nested/generic; the source
+        // destructor spells only the simple name, so reduce it once up front.
+        string? simpleTypeName = string.IsNullOrEmpty(destructorTypeName) ? null : SimpleTypeName(destructorTypeName);
 
         // Scan backward from the first sequence point to capture the method signature.
         int sigStart = start;
@@ -128,7 +135,7 @@ public class SourceLinkResolver
             if (trimmed.StartsWith("public") || trimmed.StartsWith("private")
                 || trimmed.StartsWith("protected") || trimmed.StartsWith("internal")
                 || trimmed.StartsWith("static")
-                || (isDestructor && IsDestructorSignatureLine(trimmed))
+                || (isDestructor && IsDestructorSignatureLine(trimmed, simpleTypeName))
                 || trimmed.Contains(methodName))
                 break;
         }
@@ -168,15 +175,38 @@ public class SourceLinkResolver
     }
 
     /// <summary>
-    /// True when <paramref name="trimmed"/> (a leading-whitespace-stripped line) is the start of a
-    /// C# destructor signature: the optional legal destructor modifiers <c>extern</c>/<c>unsafe</c>,
-    /// then a tilde, then an identifier start ("~Type"). Used only to locate the signature line
-    /// within an already-identified destructor scan (see <see cref="ExtractMethodBody"/>); it
-    /// deliberately requires an identifier after the tilde so a complement expression such as
-    /// <c>~0)</c> or <c>~(x)</c> — which can appear on a "#line hidden" body line — is not mistaken
-    /// for the signature.
+    /// True when <paramref name="trimmed"/> (a leading-whitespace-stripped line) begins a C#
+    /// destructor signature. Used only to locate the signature line within an already-identified
+    /// destructor scan (see <see cref="ExtractMethodBody"/>).
+    /// <para>
+    /// When <paramref name="typeName"/> (the declaring type's simple name) is supplied it is the
+    /// authoritative discriminator: after the optional <c>extern</c>/<c>unsafe</c> modifiers and the
+    /// tilde, the line must spell exactly that name as a token, then either an opening <c>(</c> or
+    /// nothing (a signature whose parameter list wraps to a following line). This distinguishes the
+    /// signature from a <c>#line hidden</c> body complement that can become the first visible
+    /// sequence point — a bare <c>~mask;</c>, a field <c>~Preceding;</c>, or an invocation
+    /// <c>~Compute()</c>/<c>~Compute(x);</c> — because none spell the declaring type name, while
+    /// still accepting a wrapped-parenthesis signature. A Unicode-escaped type name
+    /// (<c>~\u0043()</c> for <c>~C()</c>) is decoded during the comparison.
+    /// </para>
+    /// <para>
+    /// When <paramref name="typeName"/> is null/empty, the matcher falls back to requiring the full
+    /// parameterless <c>~Identifier()</c> grammar on a single line, which still rejects the common
+    /// bitwise-complement body lines (they lack the empty <c>()</c>).
+    /// </para>
+    /// <para>
+    /// Known limitations (accepted, out of scope). This is a single-line text heuristic, not a C#
+    /// tokenizer, so two exotic valid-C# spellings are not handled: (1) a comment between the tilde
+    /// and the type name (<c>~ /*x*/ C()</c>) is not recognized; and (2) a body statement that
+    /// bitwise-complements an invocation of a local that shadows the enclosing type name
+    /// (<c>~C();</c> where a local named <c>C</c> is in scope) can be mistaken for the signature if
+    /// <c>#line hidden</c> makes it the first visible sequence point. Both require a member/local
+    /// spelled exactly as the enclosing type under a hidden-line body — combinations that do not
+    /// occur in real destructors. Fully resolving them would require multi-line tokenization, which
+    /// this Roslyn-free path deliberately avoids.
+    /// </para>
     /// </summary>
-    internal static bool IsDestructorSignatureLine(string trimmed)
+    internal static bool IsDestructorSignatureLine(string trimmed, string? typeName = null)
     {
         var span = trimmed.AsSpan();
         while (true)
@@ -187,11 +217,113 @@ public class SourceLinkResolver
             break;
         }
 
-        if (span.Length < 2 || span[0] != '~')
+        if (span.Length == 0 || span[0] != '~')
             return false;
 
-        var rest = span[1..].TrimStart();
-        return rest.Length > 0 && (char.IsLetter(rest[0]) || rest[0] == '_' || rest[0] == '@');
+        span = span[1..].TrimStart();
+
+        if (!string.IsNullOrEmpty(typeName))
+        {
+            // Authoritative match: the tilde must be followed by exactly the declaring type name as
+            // a token. A destructor is parameterless, so the remainder is either an opening paren or
+            // empty (parameter list wrapped to a later line).
+            if (!TryMatchTypeName(span, typeName, out int consumed))
+                return false;
+
+            var after = span[consumed..].TrimStart();
+            return after.Length == 0 || after[0] == '(';
+        }
+
+        // Fallback (no type name): require an identifier then an empty "()" on this line.
+        if (span.Length == 0 || !(char.IsLetter(span[0]) || span[0] == '_' || span[0] == '@' || span[0] == '\\'))
+            return false;
+
+        int i = 1;
+        while (i < span.Length && (char.IsLetterOrDigit(span[i]) || span[i] == '_' || span[i] == '\\'))
+            i++;
+
+        span = span[i..].TrimStart();
+        if (span.Length == 0 || span[0] != '(')
+            return false;
+
+        span = span[1..].TrimStart();
+        return span.Length > 0 && span[0] == ')';
+    }
+
+    /// <summary>
+    /// Matches the declaring type name at the start of <paramref name="span"/> as a complete C#
+    /// identifier token, decoding <c>\uXXXX</c>/<c>\UXXXXXXXX</c> escapes and an optional verbatim
+    /// <c>@</c> prefix. Succeeds only when the whole <paramref name="typeName"/> is consumed and the
+    /// following character is not an identifier-continuation char (so <c>~Computed()</c> does not
+    /// match the type name <c>Compute</c>). On success <paramref name="consumed"/> is the number of
+    /// source characters matched.
+    /// </summary>
+    private static bool TryMatchTypeName(ReadOnlySpan<char> span, string typeName, out int consumed)
+    {
+        consumed = 0;
+        int si = 0;
+        if (si < span.Length && span[si] == '@')
+            si++;
+
+        int ti = 0;
+        while (ti < typeName.Length)
+        {
+            if (si >= span.Length)
+                return false;
+
+            char decoded;
+            int advance;
+            if (span[si] == '\\' && si + 1 < span.Length && (span[si + 1] == 'u' || span[si + 1] == 'U'))
+            {
+                int digits = span[si + 1] == 'u' ? 4 : 8;
+                if (si + 2 + digits > span.Length)
+                    return false;
+                var hex = span.Slice(si + 2, digits);
+                if (!int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out int codePoint)
+                    || codePoint > 0xFFFF)
+                    return false;
+                decoded = (char)codePoint;
+                advance = 2 + digits;
+            }
+            else
+            {
+                decoded = span[si];
+                advance = 1;
+            }
+
+            if (decoded != typeName[ti])
+                return false;
+
+            si += advance;
+            ti++;
+        }
+
+        // Require a token boundary: the type name must not be a prefix of a longer identifier.
+        if (si < span.Length)
+        {
+            char next = span[si];
+            if (char.IsLetterOrDigit(next) || next == '_' || next == '\\')
+                return false;
+        }
+
+        consumed = si;
+        return true;
+    }
+
+    /// <summary>
+    /// The simple (unqualified, arity-stripped) name of a possibly namespace-qualified and/or nested
+    /// type full name — e.g. "NS.Outer+Inner`1" -&gt; "Inner". Used to derive the destructor type
+    /// name for <see cref="IsDestructorSignatureLine"/>.
+    /// </summary>
+    internal static string SimpleTypeName(string typeFullName)
+    {
+        if (string.IsNullOrEmpty(typeFullName))
+            return typeFullName;
+
+        int lastSep = typeFullName.LastIndexOfAny(['.', '+']);
+        var segment = lastSep >= 0 ? typeFullName[(lastSep + 1)..] : typeFullName;
+        int backtick = segment.IndexOf('`');
+        return backtick >= 0 ? segment[..backtick] : segment;
     }
 
     static bool TryStripModifier(ref ReadOnlySpan<char> span, string modifier)

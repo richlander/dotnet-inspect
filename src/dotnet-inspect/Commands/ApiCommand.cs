@@ -616,7 +616,8 @@ public class ApiCommand
                 return new ResolvedMethodSource(null, pdbPath);
 
             var sourceCode = SourceLinkResolver.ExtractMethodBody(
-                content, methodInfo.StartLine, methodInfo.EndLine, methodName, isDestructor);
+                content, methodInfo.StartLine, methodInfo.EndLine, methodName, isDestructor,
+                isDestructor ? typeName : null);
 
             return new ResolvedMethodSource(
                 new MethodSourceContext(sourceCode, methodInfo.SourceUrl ?? methodInfo.FilePath), pdbPath);

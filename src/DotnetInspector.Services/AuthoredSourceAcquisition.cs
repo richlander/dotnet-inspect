@@ -193,7 +193,8 @@ public static class AuthoredSourceAcquisition
                 mapping.StartLine,
                 mapping.EndLine,
                 methodName,
-                isDestructor);
+                isDestructor,
+                isDestructor ? mapping.Anchor.TypeFullName : null);
             var lines = TextFindings.Inspect(memberText, subject).ToImmutableArray();
             return new AuthoredMemberSourceInspection(
                 new FindingInspection<string>.Complete(lines),

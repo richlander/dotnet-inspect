@@ -194,6 +194,33 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void FinalizerMember_WithFinalizerKindAndSuppression_StaysModifierFree()
+    {
+        // Regression guard (adversarial review): with the dedicated
+        // Kind = "finalizer" (#3186), a suppressed finalizer must NOT fall through
+        // to the normal modifier path and pick up 'public virtual', which would
+        // render 'public virtual void Finalize()' — a new virtual slot (CS0465)
+        // instead of the object-finalizer override. The suppressed fallback stays
+        // modifier-free, matching the explicit-interface-kind case above.
+        var type = new ApiType { Namespace = "Samples", Name = "Handle", Kind = "class" };
+        var finalizer = new ApiMember
+        {
+            Name = "Finalize",
+            Kind = "finalizer",
+            Signature = "void Finalize()",
+            IsVirtual = true,
+            IsFinalizer = true,
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+            type, finalizer, new CSharpDeclarationOptions { SuppressFinalizerSpelling = true });
+
+        Assert.Equal("void Finalize()", declaration);
+        Assert.DoesNotContain("public", declaration);
+        Assert.DoesNotContain("virtual", declaration);
+    }
+
+    [Fact]
     public void ShortWithUsingsMemberUnit_GeneratesImportsAndShortensTypes()
     {
         var type = CreateSampleType();
