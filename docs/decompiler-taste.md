@@ -541,7 +541,7 @@ dotnet_style_prefer_conditional_expression_over_return = true
   and the ternary lens — everything the runtime `.editorconfig`/IDE oracle
   prefers) so a user need not copy each `dotnet_style_*` line. It deliberately
   excludes the non-endorsed branchless lens, so the guarded-boolean-return
-  conflict group resolves to the ternary deterministically. It applies in file
+  axis resolves to the ternary deterministically. It applies in file
   order like any other key, so a later explicit per-knob line overrides it
   (last-write-wins) — `full_taste = true` then
   `dotnet_style_qualification_for_field = false` is "full taste minus one knob".
@@ -591,44 +591,55 @@ The recognized knobs are described once, in the library, by
 `StyleOptionCatalog` (`ILInspector.Decompiler.Pipeline`). Each
 `StyleOptionDescriptor` carries a knob's stable id, human-facing title and
 summary, its tier (`Formatting`, `Spelling`, `Lens`, or `Synthesis`), whether it
-is `ByteDivergent`, whether it is `OracleEndorsed` (declared) and `CorpusEndorsed`
-(revealed), its `.dotnet-inspectconfig`
-key (`null` for API-only formatting/synthesis knobs), a `ConflictGroup` for
-mutually-exclusive knobs, and NativeAOT-safe `Get`/`With` delegates that read and
-set the knob on a `PrinterOptions` without reflection.
+is `ByteDivergent`, and the **value domain** it ranges over — its ordered list of
+`StyleOptionValue`s. Most knobs are two-state (a `false`/`true` domain); the
+guarded-boolean-return knob is a single multi-value axis
+(`flat` / `conditional-expression` / `branchless`). Each `StyleOptionValue`
+carries its stable token, optional title, whether that value is `OracleEndorsed`
+(declared) and `CorpusEndorsed` (revealed),
+its `.dotnet-inspectconfig` key (`null` for the off/default value and for API-only
+formatting/synthesis knobs), and NativeAOT-safe `IsSelected`/`SetSelected`
+delegates that read and drive that value's backing state without reflection. The
+descriptor reads and single-selects the whole axis through
+`GetValue`/`WithValue`.
 
-`OracleEndorsed` records **declared**-oracle endorsement specifically — the knob
+`OracleEndorsed` records **declared**-oracle endorsement specifically — the value
 has a `.editorconfig` rule behind it. `CorpusEndorsed` records **revealed**
 endorsement — the runtime's own source corpus reveals a dominant practice for the
-knob (typically where the declared oracle is silent, though the two facets are
-independent). The two flags are independent (a knob may be endorsed by both
+value (typically where the declared oracle is silent, though the two facets are
+independent). The two flags are independent (a value may be endorsed by both
 facets, one, or neither), and each `CorpusEndorsed = true` is a deliberate,
 documented judgment, never a silently-inferred or measured-heat claim. Today
 exactly one knob is revealed-endorsed — `wrap-splittable-expressions`, because
 runtime code wraps long boolean chains in line with its 120-column practice. The
 other formatting/synthesis knobs are left un-endorsed on both axes: wrapping the
 expression-body arrow actually *diverges* from the corpus (the runtime keeps `=>`
-on the same line, which the shipped default already does), and a synthesized
-local name is our own invention, not a corpus spelling. The catalog exposes the
-revealed subset as `CorpusEndorsedOptions`; a future "house style" aggregate would
-fold declared ∪ revealed while "full taste" stays declared-only
+on the same line, which the shipped default already does), and a synthesized local
+name is our own invention, not a corpus spelling. The catalog exposes the revealed
+subset as `CorpusEndorsedOptions`; a future "house style" aggregate would fold
+declared ∪ revealed while "full taste" stays declared-only
 ([#3179](https://github.com/richlander/dotnet-inspect/issues/3179)).
 
 This makes the option surface discoverable and drift-proof for every host, not
-just the CLI: the config resolver derives its recognized keys from the catalog,
-a Wasm UI can enumerate the knobs (grouping the mutually-exclusive lenses by
-`ConflictGroup` and toggling each through `Get`/`With`), and the "full taste"
-aggregate is exactly the `OracleEndorsed` subset. The catalog exposes that subset
-as `OracleEndorsedOptions` and applies it with `ApplyFullTaste(PrinterOptions,
-enabled)`; the CLI surfaces it as the `dotnet_inspect_style_full_taste` config
-key. Because that subset enables only the oracle-endorsed ternary, the aggregate
-never trips the `guarded-boolean-return` conflict group the two guarded-boolean
-lenses share. A picker offers at most one member of that group (the printer still
-resolves any overlap deterministically, preferring the oracle-endorsed ternary).
-Every opt-in knob is a boolean toggle — including the
-expression-body arrow wrap (`WrapExpressionBodyArrow`) — so the catalog is
-exhaustive; a future non-boolean knob would need a descriptor shape that carries
-its value domain.
+just the CLI: the config resolver derives its recognized keys from every value's
+`ConfigKey`, a Wasm UI can enumerate the knobs (presenting each axis's `Values` as
+a mutually-exclusive choice and driving it through `GetValue`/`WithValue`), and the
+"full taste" aggregate is exactly the endorsed value of each participating axis.
+The catalog exposes the participating knobs as `OracleEndorsedOptions` and applies
+the aggregate with `ApplyFullTaste(PrinterOptions, enabled)` — selecting each
+axis's `EndorsedValue`; the CLI surfaces it as the
+`dotnet_inspect_style_full_taste` config key. Because a multi-value axis is
+single-select by construction — `GetValue` reports the first selected value in
+`Values` order, so the oracle-endorsed `conditional-expression` wins over
+`branchless` when both are set, exactly as the printer resolves it — the aggregate
+selects the ternary and the axis never resolves ambiguously.
+
+Every opt-in knob's value domain is carried by the descriptor directly: the
+two-state knobs (including the expression-body arrow wrap, `WrapExpressionBodyArrow`)
+have a `false`/`true` domain, and the guarded-boolean-return family is one
+three-token axis rather than two coupled booleans. The catalog is exhaustive: a
+test-only drift guard asserts every backing `PrinterOptions` boolean is reachable
+through some descriptor value, so a new knob cannot land without a catalog entry.
 
 ## Verification and soundness
 
