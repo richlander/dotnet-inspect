@@ -304,6 +304,33 @@ public sealed class ThisQualificationSpecimen
     // Instance method call on the implicit this receiver.
     public int CallMethod() => ReadField() + 1;
 
+    // Two overloads reachable through the implicit this receiver. Qualifying both
+    // must record TWO distinct decisions: their shared display name alone must not
+    // dedup them into one row (the callee parameter types disambiguate the key).
+    public void Overloaded(int x) { }
+    public void Overloaded(string x) { }
+    public void CallOverloads()
+    {
+        this.Overloaded(1);
+        this.Overloaded("a");
+    }
+
+    // A local delegate shadows an instance method name, so the bare call binds to
+    // the delegate and reaching the method REQUIRES this.ReadField(). That this. is
+    // mandatory disambiguation, not the qualify-method knob, so it records no taste
+    // decision even when the knob is enabled.
+    public int MethodShadowedByLocal()
+    {
+        System.Func<int> ReadField = () => 3;
+        return this.ReadField() + ReadField();
+    }
+
+    // A lambda that captures only `this` is lifted to a compiler-generated instance
+    // method and referenced as a method group `this.<...>b__N`. That synthetic
+    // target is unspeakable (never user-authored), so the qualify-method knob
+    // records no taste decision for it.
+    public System.Func<int> CapturedThisOnlyLambda() => () => _value + 1;
+
     // Method group over the implicit this receiver.
     public System.Func<int> MethodGroup() => ReadField;
 
@@ -343,4 +370,15 @@ public sealed class ThisQualificationDerived : ThisQualificationBase
 public static class ThisQualificationExtensions
 {
     public static int Extend(this ThisQualificationDerived value) => 42;
+}
+
+// The extension's first parameter is spelled `@this`, so its IL parameter name is
+// "this" — the same LoadArgument{Index:0, Name:"this"} shape an instance method's
+// implicit receiver produces. But this is a STATIC method with no implicit
+// receiver: a this.-qualified member access inside it is a compile error, never a
+// taste choice, so the qualify-method knob records no decision here.
+public static class ThisQualificationSpecimenExtensions
+{
+    public static int CallThroughThisParam(this ThisQualificationSpecimen @this)
+        => @this.ReadField();
 }

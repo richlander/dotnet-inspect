@@ -140,4 +140,62 @@ public sealed class ThisQualificationDecisionTests
         Assert.Contains("this._value", result.Output);
         Assert.DoesNotContain(result.Decisions, d => d.RuleId == "qualify-field-access");
     }
+
+    // Two same-named overloads qualified in one body are distinct members, so they
+    // must record two distinct decisions — the callee parameter types keep their
+    // dedup keys apart rather than collapsing them into a single "Overloaded" row.
+    [Fact]
+    public void OverloadedMethodCalls_WhenKnobSet_RecordDistinctDecisionsPerOverload()
+    {
+        var result = Decompile(
+            nameof(ThisQualificationSpecimen.CallOverloads),
+            new PrinterOptions { QualifyMethodAccess = true });
+
+        Assert.Equal(2, result.Decisions.Count(d => d.RuleId == "qualify-method-access"));
+    }
+
+    // A local delegate shadows the instance method name, so this.ReadField() is
+    // mandatory disambiguation (bare ReadField binds to the delegate). The method
+    // sites lacked the shadow guard the field/property sites have; it must not be
+    // attributed to the qualify-method knob as an opt-in taste choice.
+    [Fact]
+    public void MethodShadowedByLocal_WithKnobEnabled_RecordsNoDecision()
+    {
+        var result = Decompile(
+            nameof(ThisQualificationSpecimen.MethodShadowedByLocal),
+            new PrinterOptions { QualifyMethodAccess = true });
+
+        Assert.DoesNotContain(result.Decisions, d => d.RuleId == "qualify-method-access");
+    }
+
+    // A captured-this lambda is lifted to a compiler-generated instance method and
+    // referenced as a this.-qualified method group over an unspeakable <...>b__N
+    // name. That target is never user-authored, so the knob records no taste
+    // decision — in particular, no decision whose subject is an unspeakable name.
+    [Fact]
+    public void SyntheticMethodGroup_WithKnobEnabled_RecordsNoDecision()
+    {
+        var result = Decompile(
+            nameof(ThisQualificationSpecimen.CapturedThisOnlyLambda),
+            new PrinterOptions { QualifyMethodAccess = true });
+
+        Assert.DoesNotContain(
+            result.Decisions,
+            d => d.RuleId == "qualify-method-access" && d.Subject.IndexOf('<') >= 0);
+    }
+
+    // Inside a static extension method whose first parameter is spelled `@this`
+    // (IL name "this"), @this.ReadField() reaches the this-receiver call site, but
+    // the enclosing method has no implicit receiver (HasThis is false), so the
+    // qualify-method knob records no taste decision.
+    [Fact]
+    public void StaticExtensionThisParam_WithKnobEnabled_RecordsNoDecision()
+    {
+        var result = Decompile(
+            typeof(ThisQualificationSpecimenExtensions).FullName!,
+            nameof(ThisQualificationSpecimenExtensions.CallThroughThisParam),
+            new PrinterOptions { QualifyMethodAccess = true });
+
+        Assert.DoesNotContain(result.Decisions, d => d.RuleId == "qualify-method-access");
+    }
 }

@@ -179,7 +179,16 @@ When a knob adds `this.`, the printer records a byte-preserving taste decision
 `qualify-field-access`) so the CLI **Applied Taste** section reports the opt-in
 spelling. Only knob-attributed qualification is recorded: a mandatory `this.`
 that disambiguates a shadow or type-name collision would appear with the knob off
-too, so it is never attributed to the knob as a taste choice.
+too, so it is never attributed to the knob as a taste choice. Recording therefore
+applies only to a genuine instance receiver — a static or extension method whose
+first parameter is spelled `@this` (IL name `this`) reaches the same site but has
+no implicit receiver, so it records nothing. Method qualification additionally
+skips a name shadowed by an in-scope local, parameter, or nested lambda binder
+(the `this.` is then mandatory) and a compiler-generated group target (an
+unspeakable `<M>b__N` lambda/local-function name, never authored); same-named
+overloads are recorded as distinct decisions. Qualifications inside a
+locals-bearing lambda body, which renders through an isolated nested printer, are
+not currently surfaced as taste rows.
 
 ### Expression-bodied members
 

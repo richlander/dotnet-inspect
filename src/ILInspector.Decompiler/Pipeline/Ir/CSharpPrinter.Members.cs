@@ -22,10 +22,20 @@ public sealed partial class CSharpPrinter
     // Taste surface can report. Only the knob-attributed path calls this (the knob
     // is enabled AND the bare name already binds); a mandatory disambiguation
     // this. — one that would appear with the knob off too — is never recorded as a
-    // taste choice. AddDecision dedups on the full row, so repeated accesses to
-    // the same member collapse to a single decision.
-    void RecordThisQualificationDecision(StyleOptionDescriptor knob, string memberName, string bareName)
-        => AddDecision(
+    // taste choice. AddDecision dedups on the full row (plus dedupDiscriminator, so
+    // two same-named overloads stay distinct), so repeated accesses to one member
+    // collapse to a single decision.
+    void RecordThisQualificationDecision(StyleOptionDescriptor knob, string memberName, string bareName, string? dedupDiscriminator = null)
+    {
+        // A this. qualifier is only a byte-preserving taste choice when there is a
+        // genuine instance receiver. A static or extension method whose first
+        // parameter is spelled `this` (its IL parameter name is "this") reaches
+        // these sites as a LoadArgument{Index:0, Name:"this"}, but that is an
+        // explicit parameter, not an implicit receiver: qualifying it with this.
+        // would be a compile error, never an opt-in spelling, so record nothing.
+        if (!_function.Signature.HasThis)
+            return;
+        AddDecision(
             knob.Id,
             DecompilerDecisionCategories.Taste,
             memberName,
@@ -33,7 +43,43 @@ public sealed partial class CSharpPrinter
                 + "Byte-preserving: the bare name already binds to the member, so the "
                 + "qualifier is an opt-in spelling choice, not disambiguation.",
             oldValue: bareName,
-            newValue: $"this.{bareName}");
+            newValue: $"this.{bareName}",
+            dedupDiscriminator: dedupDiscriminator);
+    }
+
+    // A method this. qualifier is a recordable byte-preserving taste choice only
+    // when it is a genuine, user-authored opt-in — the method analogue of the
+    // QualifyThisMember guard the field/property/event sites already apply:
+    //  * the bare name must still bind to the method. IsStaticCallNameShadowed is
+    //    the scope-aware shadow check (it counts the enclosing method's locals and
+    //    parameters plus every nested lambda / local-function binder in scope), so
+    //    when a same-named binder would capture the bare call the this. is
+    //    mandatory disambiguation, not a choice, and records nothing;
+    //  * the target must be a speakable source method. A compiler-generated lambda
+    //    or local-function group target (an unspeakable <M>b__0-style name) is
+    //    never user-authored, so its this. is never a taste choice.
+    // The genuine-instance-receiver requirement is enforced by
+    // RecordThisQualificationDecision. Overloads share a name, so the callee
+    // parameter types disambiguate the dedup key.
+    void RecordMethodQualificationIfTaste(string name, ImmutableArray<TypeRef> parameterTypes)
+    {
+        if (IsStaticCallNameShadowed(name) || IsUnspeakableName(name))
+            return;
+        RecordThisQualificationDecision(QualifyMethodOption, name, name, MethodOverloadDiscriminator(parameterTypes));
+    }
+
+    // Compiler-generated members (captured-this lambdas, local-function group
+    // targets) carry unspeakable names bracketed with angle brackets, which a
+    // source identifier can never contain.
+    static bool IsUnspeakableName(string name)
+        => name.IndexOf('<') >= 0 || name.IndexOf('>') >= 0;
+
+    // A stable, side-effect-free per-overload key: overloads share a display name,
+    // so the decision subject alone would dedup two distinct methods into one row.
+    static string MethodOverloadDiscriminator(ImmutableArray<TypeRef> parameterTypes)
+        => parameterTypes.IsDefaultOrEmpty
+            ? ""
+            : string.Join(",", parameterTypes.Select(t => $"{t.Namespace}.{t.Name}"));
 
     string FieldTarget(FieldRef field, IrExpression? instance)
     {
@@ -314,7 +360,7 @@ public sealed partial class CSharpPrinter
                 return $"base.{name}";
             if (_options.QualifyMethodAccess)
             {
-                RecordThisQualificationDecision(QualifyMethodOption, name, name);
+                RecordMethodQualificationIfTaste(name, method.ParameterTypes);
                 return $"this.{name}";
             }
             return name;
@@ -430,7 +476,7 @@ public sealed partial class CSharpPrinter
                 return $"base.{thisMethodName}{typeArguments}({rest})";
             if (_options.QualifyMethodAccess)
             {
-                RecordThisQualificationDecision(QualifyMethodOption, thisMethodName, thisMethodName);
+                RecordMethodQualificationIfTaste(thisMethodName, call.Callee.ParameterTypes);
                 return $"this.{thisMethodName}{typeArguments}({rest})";
             }
             return $"{thisMethodName}{typeArguments}({rest})";
