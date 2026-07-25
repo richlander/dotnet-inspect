@@ -75,16 +75,22 @@ public sealed partial class CSharpPrinter
         TypeRef declaringType,
         ImmutableArray<TypeRef> parameterTypes)
     {
-        // Only a same-type instance-method call is a byte-preserving `this.` taste
-        // choice. A cross-type callee reached here is either an inherited base
-        // method (the non-virtual case already rendered base.M above; the virtual
-        // case would rebind under this./bare) or an explicit interface
-        // implementation invoked through this — which does not bind via `this.` at
-        // all and is only mis-rendered as this.M by a pre-existing emit gap.
-        // Neither is a user opt-in, so record nothing. This deliberately
-        // under-records a legitimate this.BaseMethod(); a false-negative is safe, a
+        // Only a call to the enclosing type AT ITS OWN INSTANTIATION is a
+        // byte-preserving `this.` taste choice. A callee reached here that is not
+        // the exact self-type is one of:
+        //  * an inherited base method (the non-virtual case already rendered
+        //    base.M above; the virtual case would rebind under this./bare);
+        //  * an explicit interface implementation invoked through this — which
+        //    does not bind via `this.` at all (it requires a cast) and is only
+        //    mis-rendered as this.M by a pre-existing emit gap;
+        //  * a DIFFERENT instantiation of the enclosing generic type, e.g.
+        //    ((I<object>)this).M() from within I<T> — bare/`this.` M() binds to
+        //    I<T>::M, not I<object>::M, so the qualifier is not byte-preserving.
+        // Definition-only equality (IsCrossType) is too loose for the last case,
+        // so gate on the exact-instantiation test. This deliberately under-records
+        // a legitimate this.BaseMethod(); a false-negative is safe, a
         // false-positive is not.
-        if (IsCrossType(declaringType))
+        if (!IsEnclosingTypeAtOwnInstantiation(declaringType))
             return;
         if (IsStaticCallNameShadowed(displayName) || IsUnspeakableName(rawName))
             return;
@@ -126,10 +132,23 @@ public sealed partial class CSharpPrinter
         TypeRefKind.Pinned => $"pinned {TypeKey(type.ElementType!)}",
         TypeRefKind.GenericParameter => $"!{type.GenericParameterIndex}",
         TypeRefKind.MethodGenericParameter => $"!!{type.GenericParameterIndex}",
-        TypeRefKind.FunctionPointer =>
-            $"fnptr({string.Join(",", type.TypeArguments.Select(TypeKey))})",
+        TypeRefKind.FunctionPointer => FunctionPointerKey(type),
         _ => $"{type.Assembly}:{type.Namespace}.{type.Name}",
     };
+
+    // A function-pointer type's identity includes its calling convention, return
+    // type, and each parameter's ref-kind and type — all part of overload identity.
+    // Keying on parameter types alone would collapse delegate*<int, void> vs
+    // delegate*<int, int>, or a managed vs unmanaged pointer, into one row.
+    static string FunctionPointerKey(TypeRef type)
+    {
+        var refKinds = type.FunctionPointerParameterRefKinds;
+        string parameters = string.Join(
+            ",",
+            type.TypeArguments.Select((p, i) =>
+                $"{(i < refKinds.Length ? refKinds[i].ToString() : "None")} {TypeKey(p)}"));
+        return $"fnptr[{type.CallingConvention}]({parameters})->{TypeKey(type.ElementType!)}";
+    }
 
     string FieldTarget(FieldRef field, IrExpression? instance)
     {
@@ -319,15 +338,20 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
-    /// True when a static-call target is the current type at its own
-    /// instantiation: the same non-generic type, or the enclosing generic type
-    /// instantiated with its own generic parameters in order
-    /// (<c>C&lt;T0, T1, …&gt;</c>). A different instantiation (<c>C&lt;string&gt;</c>)
-    /// or a method-type-parameter instantiation (<c>C&lt;!!0&gt;</c>) is a distinct
-    /// type whose static member must stay qualified — an unqualified call would
-    /// rebind to the enclosing instantiation and change which method runs.
+    /// True when a call target is the enclosing type at its OWN instantiation: the
+    /// same non-generic type, or the enclosing generic type instantiated with its
+    /// own generic parameters in order (<c>C&lt;T0, T1, …&gt;</c>). A different
+    /// instantiation (<c>C&lt;string&gt;</c>) or a method-type-parameter
+    /// instantiation (<c>C&lt;!!0&gt;</c>) is a DISTINCT type sharing only the
+    /// definition. Two spelling paths depend on the exact-instantiation test: a
+    /// static call must stay type-qualified (an unqualified call would rebind to
+    /// the enclosing instantiation and change which method runs), and a
+    /// this-qualification taste decision must not be recorded (bare/`this.` would
+    /// rebind to the enclosing instantiation, so the qualifier is not
+    /// byte-preserving). Definition equality alone (see <see cref="IsCrossType"/>)
+    /// is too loose for both.
     /// </summary>
-    bool IsCurrentStaticScope(TypeRef calleeDeclaringType)
+    bool IsEnclosingTypeAtOwnInstantiation(TypeRef calleeDeclaringType)
     {
         var scope = _function.DeclaringType;
         var scopeDefinition = scope is { Kind: TypeRefKind.GenericInstance, ElementType: { } sd } ? sd : scope;
@@ -497,7 +521,7 @@ public sealed partial class CSharpPrinter
             string sourceName = CSharpNaming.SourceMethodName(call.Callee.Name);
             string staticName = $"{sourceName}{typeArguments}";
             string staticArgs = Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);
-            return IsCurrentStaticScope(call.Callee.DeclaringType) && !IsStaticCallNameShadowed(sourceName)
+            return IsEnclosingTypeAtOwnInstantiation(call.Callee.DeclaringType) && !IsStaticCallNameShadowed(sourceName)
                 ? $"{staticName}({staticArgs})"
                 : $"{TypeQualifierText(call.Callee.DeclaringType)}.{staticName}({staticArgs})";
         }

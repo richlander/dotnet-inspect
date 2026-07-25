@@ -429,3 +429,31 @@ public sealed class ThisQualificationExplicitFace : IThisQualificationFace
 
     public int CallExplicitInterface() => ((IThisQualificationFace)this).FaceMethod();
 }
+
+// A constructed generic self-call. From within I<T>, ((I<object>)this).M() emits
+// `callvirt I<object>::M`. I<object> shares I<T>'s DEFINITION but is a DIFFERENT
+// instantiation, so bare/`this.` M() would bind to I<T>::M, not I<object>::M — the
+// qualifier is NOT byte-preserving. Definition-only equality would wrongly treat
+// this as same-type; the exact-instantiation guard records nothing. (`out T` +
+// `class` makes the covariant cast to I<object> legal.)
+public interface IThisQualificationGeneric<out T> where T : class
+{
+    int M() => 1;
+    int CallViaObjectInstantiation() => ((IThisQualificationGeneric<object>)this).M();
+}
+
+// Two overloads whose signatures differ only by a function pointer's RETURN type
+// (delegate*<int, int> vs delegate*<int, void>). The dedup discriminator must key
+// on the function pointer's return type, calling convention, and parameter
+// ref-kinds — not parameters alone — or the two collapse into one row and hide a
+// taste application.
+public unsafe class ThisQualificationFnPtr
+{
+    public void Select(delegate*<int, int> p) { }
+    public void Select(delegate*<int, void> p) { }
+    public void CallBoth(delegate*<int, int> a, delegate*<int, void> b)
+    {
+        this.Select(a);
+        this.Select(b);
+    }
+}

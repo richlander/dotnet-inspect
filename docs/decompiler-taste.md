@@ -186,13 +186,19 @@ no implicit receiver, so it records nothing. Method qualification is the most
 guarded because a bare method name binds through more rules than a field or
 property; it records a decision only when every one of these holds:
 
-- **same-type callee.** The callee's declaring type must be the enclosing type.
-  A cross-type callee reached here is either an inherited base method (whose
-  bare/`this.` form would rebind — the non-virtual case already renders `base.M`)
-  or an **explicit interface implementation** invoked through `this`, which does
-  not bind via `this.` at all (it requires a cast). Neither is a `this.` opt-in.
-  This deliberately under-records a legitimate `this.BaseMethod()`; a
-  false-negative is safe, a false-positive is not.
+- **enclosing type at its own instantiation.** The callee's declaring type must
+  be the enclosing type at its exact instantiation, not merely the same generic
+  definition. A callee that is not the exact self-type is one of: an inherited
+  base method (whose bare/`this.` form would rebind — the non-virtual case
+  already renders `base.M`); an **explicit interface implementation** invoked
+  through `this`, which does not bind via `this.` at all (it requires a cast); or
+  a **different instantiation** of the enclosing generic type — e.g.
+  `((I<object>)this).M()` from within `I<T>`, where bare/`this.` `M()` binds to
+  `I<T>::M`, not `I<object>::M`, so the qualifier is not byte-preserving.
+  Definition-only equality is too loose for the last case, so the guard reuses
+  the exact-instantiation test the static-call qualifier uses. This deliberately
+  under-records a legitimate `this.BaseMethod()`; a false-negative is safe, a
+  false-positive is not.
 - **not shadowed.** A name shadowed by an in-scope local, parameter, or nested
   lambda binder makes the `this.` mandatory disambiguation, not a choice.
 - **speakable target.** A compiler-generated group target — an unspeakable
@@ -204,11 +210,24 @@ property; it records a decision only when every one of these holds:
 
 Same-named overloads are recorded as distinct decisions; the dedup discriminator
 is a structurally complete per-overload key (generic instantiation, array element
-type and rank, by-ref/pointer decoration, generic-parameter slot, plus the full
-assembly-qualified namespace) so `M(List<int>)` and `M(List<string>)`, or
-`M(NsA.Widget)` and `M(NsB.Widget)`, stay two rows rather than collapsing into
-one. Qualifications inside a locals-bearing lambda body, which renders through an
+type and rank, by-ref/pointer decoration, generic-parameter slot, function-pointer
+return type / calling convention / parameter ref-kinds, plus the full
+assembly-qualified namespace) so `M(List<int>)` and `M(List<string>)`,
+`M(NsA.Widget)` and `M(NsB.Widget)`, or `M(delegate*<int>)` and
+`M(delegate*<string>)`, stay two rows rather than collapsing into one.
+Qualifications inside a locals-bearing lambda body, which renders through an
 isolated nested printer, are not currently surfaced as taste rows.
+
+A method call the compiler lowered and the decompiler did **not** re-sugar — for
+example a `this.GetEnumerator()` left behind when a `foreach` over `this` is not
+raised back to `foreach` syntax — is still recorded when its qualifier is a valid,
+byte-preserving, same-member choice on the rendered lowered code. This is
+consistent with the decompiler rendering *what the IL does*: the row honestly
+annotates the `this.` the knob applied to the faithfully-rendered call, and the
+bare name binds to the same member. It is distinct from the suppressed cases
+above, where the emitted `this.M()` would not compile, would not bind bare, or
+would rebind to a different member. When the pattern *is* raised (the common
+case), no such call is printed and nothing is recorded.
 
 ### Expression-bodied members
 

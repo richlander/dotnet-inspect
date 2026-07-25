@@ -230,6 +230,38 @@ public sealed class ThisQualificationDecisionTests
         Assert.DoesNotContain(result.Decisions, d => d.RuleId == "qualify-method-access");
     }
 
+    // A constructed generic self-call ((I<object>)this).M() from within I<T> shares
+    // only the DEFINITION with the enclosing type. Bare/this. M() binds to I<T>::M,
+    // not I<object>::M, so the qualifier is not byte-preserving. Definition-only
+    // equality would wrongly record it; the exact-instantiation guard records
+    // nothing.
+    [Fact]
+    public void ConstructedGenericSelfCall_WithKnobEnabled_RecordsNoDecision()
+    {
+        var result = Decompile(
+            typeof(IThisQualificationGeneric<>).FullName!,
+            nameof(IThisQualificationGeneric<object>.CallViaObjectInstantiation),
+            new PrinterOptions { QualifyMethodAccess = true });
+
+        Assert.DoesNotContain(result.Decisions, d => d.RuleId == "qualify-method-access");
+    }
+
+    // Two overloads differing only by a function pointer's return type
+    // (delegate*<int, int> vs delegate*<int, void>) are distinct members. The
+    // discriminator must key on the function pointer's return type / calling
+    // convention / parameter ref-kinds, not parameters alone, or the two collapse
+    // into one row and hide a taste application.
+    [Fact]
+    public void FunctionPointerReturnTypeOverloads_WhenKnobSet_RecordDistinctDecisions()
+    {
+        var result = Decompile(
+            typeof(ThisQualificationFnPtr).FullName!,
+            nameof(ThisQualificationFnPtr.CallBoth),
+            new PrinterOptions { QualifyMethodAccess = true });
+
+        Assert.Equal(2, result.Decisions.Count(d => d.RuleId == "qualify-method-access"));
+    }
+
     // Inside a static extension method whose first parameter is spelled `@this`
     // (IL name "this"), @this.ReadField() reaches the this-receiver call site, but
     // the enclosing method has no implicit receiver (HasThis is false), so the
