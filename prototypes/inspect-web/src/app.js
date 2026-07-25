@@ -1,5 +1,5 @@
 import { lenses, rootCommands } from "./data.js";
-import { initializeEngine, inspectListStyleOptions, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectSearchTypes, inspectTypeMemberSource, inspectTypeSource } from "/engine.js";
+import { initializeEngine, inspectListStyleOptions, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectSearchTypes, inspectTypeMemberSource, inspectTypeSource } from "/engine.js";
 
 function loadStoredTaste() {
   try {
@@ -27,6 +27,9 @@ const state = {
   memberSource: null,
   memberSourceLoading: false,
   memberSourceError: "",
+  memberAnnotated: null,
+  memberAnnotatedLoading: false,
+  memberAnnotatedError: "",
   typeSource: null,
   typeSourceLoading: false,
   typeSourceError: "",
@@ -112,9 +115,12 @@ function applyView(view) {
   state.memberCallGraphError = "";
   state.memberFacts = null;
   state.memberFactsError = "";
+  state.memberAnnotated = null;
+  state.memberAnnotatedError = "";
   const type = selectedType();
   if (state.lens === "api" && state.selectedMemberKey && selectedMember(type)) {
     if (state.memberSection === "source") loadSelectedMemberSource();
+    else if (state.memberSection === "annotated") loadSelectedMemberAnnotatedSource();
     else if (state.memberSection === "call-graph") loadSelectedMemberCallGraph();
     else if (state.memberSection === "facts") loadSelectedMemberFacts();
     else loadSelectedMemberDocumentation();
@@ -135,7 +141,7 @@ function navForward() {
   applyView(nav.stack[nav.index].view);
 }
 
-const memberSections = ["overview", "source", "call-graph", "facts"];
+const memberSections = ["overview", "source", "annotated", "call-graph", "facts"];
 
 function parseLocation() {
   const params = new URLSearchParams(location.search);
@@ -510,7 +516,8 @@ function renderMember(type, member) {
     ["overview", "Overview"],
     ["call-graph", "Call graph"],
     ["facts", "Facts"],
-    ["source", "Source"]
+    ["source", "Source"],
+    ["annotated", "Annotated source"]
   ];
   const overloadIndex = state.selectedOverloadIndex ?? 0;
   const overload = member.overloads[overloadIndex];
@@ -597,6 +604,15 @@ function renderMember(type, member) {
         : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(state.memberCallGraphError || "No call graph result was returned.")}</p></section>`;
   } else if (state.memberSection === "facts") {
     content = renderMemberFacts(type, member, overload, overloadIndex);
+  } else if (state.memberSection === "annotated") {
+    content = state.memberAnnotatedLoading
+      ? `<section class="document-section source-progress"><span class="loader"></span><h2>Annotating member…</h2><p>Raising the selected overload to C# and interleaving the raw IL with hidden-fact comments.</p></section>`
+      : state.memberAnnotated
+        ? `<section class="document-section source-result annotated-result">
+            <div class="source-provenance"><strong>Annotated source</strong><span>${escapeHtml(state.memberAnnotated.provenance)}</span><button id="copy-annotated" type="button">copy</button></div>
+            <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.memberAnnotated.text)}</code></pre>
+          </section>`
+        : `<section class="document-section empty-member-section"><h2>Annotated source query failed</h2><p>${escapeHtml(state.memberAnnotatedError || "No annotated source result was returned.")}</p></section>`;
   } else {
     content = state.memberSourceLoading
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Resolving source…</h2><p>Trying checksum-verified SourceLink source, then dotnet-inspect decompilation.</p></section>`
@@ -788,6 +804,8 @@ function bindEvents() {
     state.memberCallGraphError = "";
     state.memberFacts = null;
     state.memberFactsError = "";
+    state.memberAnnotated = null;
+    state.memberAnnotatedError = "";
     loadSelectedMemberDocumentation();
   }));
   document.querySelectorAll("[data-overload]").forEach(button => button.addEventListener("click", () => {
@@ -799,11 +817,14 @@ function bindEvents() {
     state.memberCallGraphError = "";
     state.memberFacts = null;
     state.memberFactsError = "";
+    state.memberAnnotated = null;
+    state.memberAnnotatedError = "";
     loadSelectedMemberDocumentation();
   }));
   document.querySelectorAll("[data-member-section]").forEach(button => button.addEventListener("click", () => {
     state.memberSection = button.dataset.memberSection;
     if (state.memberSection === "source") loadSelectedMemberSource();
+    else if (state.memberSection === "annotated") loadSelectedMemberAnnotatedSource();
     else if (state.memberSection === "call-graph") loadSelectedMemberCallGraph();
     else if (state.memberSection === "facts") loadSelectedMemberFacts();
     else if (state.memberSection === "overview") loadSelectedMemberDocumentation();
@@ -846,6 +867,9 @@ function bindEvents() {
   }));
   document.querySelector("#copy-source")?.addEventListener("click", async () => {
     if (state.memberSource) await copyText(state.memberSource.text, "source copied");
+  });
+  document.querySelector("#copy-annotated")?.addEventListener("click", async () => {
+    if (state.memberAnnotated) await copyText(state.memberAnnotated.text, "annotated source copied");
   });
   document.querySelector("#copy-type-source")?.addEventListener("click", async () => {
     if (state.typeSource) await copyText(state.typeSource.text, "source copied");
@@ -1221,6 +1245,8 @@ function pickSpotlight(pkgId, typeId) {
   state.memberCallGraphError = "";
   state.memberFacts = null;
   state.memberFactsError = "";
+  state.memberAnnotated = null;
+  state.memberAnnotatedError = "";
   state.typeFilter = "";
   state.namespaceFilter = "";
   state.spotlightOpen = false;
@@ -1423,6 +1449,7 @@ function loadSelectionData() {
   if (!member) return;
   if (member.overloads.length > 1 && state.selectedOverloadIndex == null) return;
   if (state.memberSection === "source") loadSelectedMemberSource();
+  else if (state.memberSection === "annotated") loadSelectedMemberAnnotatedSource();
   else if (state.memberSection === "call-graph") loadSelectedMemberCallGraph();
   else if (state.memberSection === "facts") loadSelectedMemberFacts();
   else loadSelectedMemberDocumentation();
@@ -1534,6 +1561,42 @@ async function loadSelectedMemberSource() {
     state.memberSourceError = String(error?.message || error);
   } finally {
     state.memberSourceLoading = false;
+    render();
+  }
+}
+
+async function loadSelectedMemberAnnotatedSource() {
+  if (state.memberAnnotated) {
+    render();
+    return;
+  }
+  const type = selectedType();
+  const member = selectedMember(type);
+  const overload = member?.overloads[state.selectedOverloadIndex ?? 0];
+  if (!type || !member || !overload) {
+    state.memberAnnotatedError = "Select a concrete overload before opening Annotated source.";
+    render();
+    return;
+  }
+
+  state.memberAnnotatedLoading = true;
+  state.memberAnnotatedError = "";
+  render();
+  try {
+    state.memberAnnotated = await inspectMemberAnnotatedSource({
+      packageId: state.package.id,
+      version: state.package.version,
+      framework: state.package.activeFramework,
+      assembly: type.assembly,
+      type: type.id,
+      member: overload.name,
+      signature: overload.signature,
+      styleOptionsJson: JSON.stringify(state.taste)
+    });
+  } catch (error) {
+    state.memberAnnotatedError = String(error?.message || error);
+  } finally {
+    state.memberAnnotatedLoading = false;
     render();
   }
 }
@@ -2034,6 +2097,8 @@ function navigateToMember(pkg, type, group) {
   state.memberCallGraphError = "";
   state.memberFacts = null;
   state.memberFactsError = "";
+  state.memberAnnotated = null;
+  state.memberAnnotatedError = "";
   loadSelectedMemberDocumentation();
 }
 
@@ -2053,6 +2118,8 @@ async function loadSelectedMemberFacts() {
 
   state.memberFactsLoading = true;
   state.memberFactsError = "";
+  state.memberAnnotated = null;
+  state.memberAnnotatedError = "";
   render();
   try {
     state.memberFacts = await inspectMemberFacts({

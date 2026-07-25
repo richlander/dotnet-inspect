@@ -11,6 +11,7 @@ using ILInspector.Decompiler;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
 using Pipeline = ILInspector.Decompiler.Pipeline;
+using Research = ILInspector.Research;
 
 Console.WriteLine("dotnet-inspect browser engine ready");
 
@@ -539,6 +540,110 @@ public static partial class BrowserInspectionEngine
                     text,
                     null,
                     $"Decompiled by dotnet-inspect from lib/{targetFramework}/{assemblyName}"),
+                BrowserJsonContext.Default.BrowserMemberSource);
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); }
+            catch { }
+        }
+    }
+
+    // The one IL-inclusive member view: the Research annotated projection raises the member
+    // to C# with hidden-fact comments and interleaves the raw IL beneath each statement. This
+    // is a separate pipeline from QueryMemberSource (which renders clean decompiled or authored
+    // C#) and from QueryMemberFacts (which reads LibraryBodyIndex signals).
+    [JSExport]
+    public static async Task<string> QueryMemberAnnotatedSource(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeId,
+        string memberName,
+        string memberSignature,
+        string styleOptionsJson)
+    {
+        _ = styleOptionsJson;
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-web-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            string implementationPath;
+            using (var stream = new MemoryStream(packageBytes, writable: false))
+            using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
+            {
+                var implementation = archive.Entries.FirstOrDefault(entry =>
+                    entry.FullName.Equals($"lib/{targetFramework}/{assemblyName}", StringComparison.OrdinalIgnoreCase))
+                    ?? throw new InvalidOperationException(
+                        $"No implementation asset for {assemblyName} at {targetFramework}.");
+
+                foreach (var entry in archive.Entries.Where(entry =>
+                    entry.FullName.StartsWith($"lib/{targetFramework}/", StringComparison.OrdinalIgnoreCase)
+                    && entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
+                {
+                    await WriteEntryAsync(entry, Path.Combine(tempRoot, entry.Name));
+                }
+
+                implementationPath = Path.Combine(tempRoot, implementation.Name);
+                if (!File.Exists(implementationPath))
+                    await WriteEntryAsync(implementation, implementationPath);
+            }
+
+            var pdbPath = Path.ChangeExtension(implementationPath, ".pdb");
+            var symbolPackageUrl =
+                $"https://globalcdn.nuget.org/symbol-packages/" +
+                $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.snupkg";
+            await TryAcquirePackagePdbAsync(symbolPackageUrl, targetFramework, assemblyName, pdbPath);
+
+            using var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
+                new AssemblyReferenceIdentity(assemblyName, null, null, null),
+                implementationPath,
+                () => File.OpenRead(implementationPath),
+                Provenance: $"lib/{targetFramework}/{assemblyName}"));
+            var type = inspection.ApiSurface().Types.FirstOrDefault(candidate =>
+                candidate.FullName.Equals(typeId, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
+            var member = type.Members.FirstOrDefault(candidate =>
+                candidate.Name.Equals(memberName, StringComparison.Ordinal)
+                && string.Equals(candidate.Signature, memberSignature, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"The selected overload '{memberSignature}' was not found.");
+            if (member.MetadataToken is not int token)
+                throw new InvalidOperationException("The selected member has no method body identity.");
+
+            var resolver = Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(implementationPath);
+            using var source = Pipeline.MetadataSource.Open(
+                implementationPath,
+                File.Exists(pdbPath) ? pdbPath : null,
+                resolver);
+
+            var projection = Research.ResearchViews.ProjectMember(new Research.ResearchViews.MemberProjectionRequest(
+                source,
+                type.FullName,
+                member.Name,
+                PublicOnly: false,
+                AnnotatedSource: true,
+                MethodToken: token));
+
+            var annotated = projection.AnnotatedSource;
+            if (annotated?.Output is not { Length: > 0 } text)
+            {
+                var diagnostic = annotated?.Diagnostics is { Count: > 0 } diagnostics ? diagnostics[0] : (DecompilerDiagnostic?)null;
+                throw new InvalidOperationException(diagnostic is { } d
+                    ? $"Annotated source projection failed ({d.Id}): {d.Message}"
+                    : "Annotated source projection produced no output.");
+            }
+
+            return JsonSerializer.Serialize(
+                new BrowserMemberSource(
+                    "annotated",
+                    text,
+                    null,
+                    $"Annotated by dotnet-inspect from lib/{targetFramework}/{assemblyName}"),
                 BrowserJsonContext.Default.BrowserMemberSource);
         }
         finally
