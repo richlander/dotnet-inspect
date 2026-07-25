@@ -91,7 +91,7 @@ public sealed class InlineArrayCollectionPass : IIrPass
         RaiseSingleElementLists(function, context);
     }
 
-    const string SingleElementList = "<>z__ReadOnlySingleElementList";
+    const string SingleElementListMetadataName = "<>z__ReadOnlySingleElementList`1";
 
     /// <summary>
     /// Raises the csc single-element read-only collection-expression lowering,
@@ -103,12 +103,17 @@ public sealed class InlineArrayCollectionPass : IIrPass
     ///
     /// <para>Restored to <c>[element]</c> the expression is target-typed by the
     /// surrounding context, so the raise only fires when that context supplies a
-    /// spellable target type: a call or constructor argument slot's parameter type,
-    /// or a typed local store. A receiver slot (where <c>[element]</c> would not be a
-    /// legal C# expression) and any other context are left flat, so fidelity
-    /// degrades honestly rather than fabricating a target type. The <c>&lt;&gt;</c>
-    /// name prefix is compiler-reserved, so the match never collides with a user
-    /// type.</para>
+    /// matching read-only collection interface target — one of the three interfaces
+    /// above over the list's own element type — from a call or constructor argument
+    /// slot's parameter type, a typed local store, or the element type of an
+    /// enclosing raised collection expression (a nested <c>[[element]]</c>). An
+    /// extension-method receiver slot (where <c>[element]</c> would not be a legal C#
+    /// receiver), a wider or erased sink reached through a no-IL reference
+    /// conversion (an <c>object</c> or covariant <c>IEnumerable&lt;object&gt;</c>
+    /// parameter), and any other context are left flat, so fidelity degrades
+    /// honestly rather than fabricating a target type or emitting output the sink
+    /// cannot construct. The construction is matched on its exact reserved metadata
+    /// name, so it never collides with a user or look-alike type.</para>
     /// </summary>
     static void RaiseSingleElementLists(IrFunction function, PassContext context)
     {
@@ -121,6 +126,15 @@ public sealed class InlineArrayCollectionPass : IIrPass
             if (newObject.Arguments is not [_])
                 continue;
             if (!TryResolveCollectionTargetType(newObject, out var targetType))
+                continue;
+            // Only raise when the resolved use-site target is exactly one of the
+            // read-only collection interfaces `[element]` can construct, over the
+            // same element type. A wider or erased sink (an `object` parameter, a
+            // covariant `IEnumerable<object>`) reached through a reference
+            // conversion that emits no IL would print a collection expression the
+            // sink cannot construct (CS9174) or silently retype the elements, so
+            // leave those flat.
+            if (!IsConstructibleReadOnlyListTarget(targetType, elementType))
                 continue;
 
             var element = (IrExpression)newObject.DetachChildren()[0];
@@ -141,7 +155,7 @@ public sealed class InlineArrayCollectionPass : IIrPass
         elementType = null!;
         if (type.Kind != TypeRefKind.GenericInstance || type.ElementType is not { } definition)
             return false;
-        if (!definition.Name.StartsWith(SingleElementList, System.StringComparison.Ordinal))
+        if (!string.Equals(definition.Name, SingleElementListMetadataName, System.StringComparison.Ordinal))
             return false;
         if (type.TypeArguments is not [var argument])
             return false;
@@ -150,11 +164,33 @@ public sealed class InlineArrayCollectionPass : IIrPass
     }
 
     /// <summary>
+    /// Whether <paramref name="target"/> is a read-only collection interface a
+    /// <c>[element]</c> collection expression can construct — <c>IEnumerable&lt;T&gt;</c>,
+    /// <c>IReadOnlyCollection&lt;T&gt;</c>, or <c>IReadOnlyList&lt;T&gt;</c> — over exactly the
+    /// list's element type. Requiring the element types to match rejects covariant
+    /// or erased sinks reached through a no-IL reference conversion, which would
+    /// otherwise retype the elements or target a type the collection expression
+    /// cannot construct.
+    /// </summary>
+    static bool IsConstructibleReadOnlyListTarget(TypeRef target, TypeRef elementType)
+    {
+        if (target.Kind != TypeRefKind.GenericInstance || target.ElementType is not { } definition)
+            return false;
+        if (!string.Equals(definition.Namespace, "System.Collections.Generic", System.StringComparison.Ordinal))
+            return false;
+        if (definition.Name is not ("IEnumerable`1" or "IReadOnlyCollection`1" or "IReadOnlyList`1"))
+            return false;
+        return target.TypeArguments is [var argument] && argument.Equals(elementType);
+    }
+
+    /// <summary>
     /// The spellable target type the raised <c>[element]</c> is inferred against,
     /// read from the construction's immediate use-site: a call or constructor
-    /// argument slot's parameter type, or a typed local store. False (no raise) for
-    /// a receiver slot or any other context — the collection expression has no
-    /// natural type, so without a target the fallback keeps the flat construction.
+    /// argument slot's parameter type, a typed local store, or the element type of
+    /// an enclosing raised collection expression (a nested <c>[[element]]</c>).
+    /// False (no raise) for a receiver slot or any other context — the collection
+    /// expression has no natural type, so without a target the fallback keeps the
+    /// flat construction.
     /// </summary>
     static bool TryResolveCollectionTargetType(NewObject newObject, out TypeRef targetType)
     {
@@ -163,6 +199,13 @@ public sealed class InlineArrayCollectionPass : IIrPass
         {
             case Call call:
             {
+                // An extension method's static call renders in reduced instance
+                // form `arg0.M(rest)` (CSharpPrinter.Members), so the first argument
+                // is a member-access receiver. A collection expression has no natural
+                // type and cannot be a receiver (`[x].M()` is CS9176), so leave the
+                // receiver slot flat even though it maps to a parameter.
+                if (call.Callee.IsExtension == MetadataFactState.Yes && newObject.ChildIndex == 0)
+                    return false;
                 int parameter = call.Callee.HasThis ? newObject.ChildIndex - 1 : newObject.ChildIndex;
                 var parameters = call.Callee.ParameterTypes;
                 if (parameter < 0 || parameter >= parameters.Length)
@@ -180,6 +223,12 @@ public sealed class InlineArrayCollectionPass : IIrPass
             }
             case StoreLocal store:
                 targetType = store.Type;
+                return true;
+            // A nested single-element list is re-parented under the outer raised
+            // collection expression (`[[element]]`); each element is target-typed to
+            // the collection's element type, so the inner list raises too.
+            case CollectionExpression collection:
+                targetType = collection.ElementType;
                 return true;
             default:
                 return false;

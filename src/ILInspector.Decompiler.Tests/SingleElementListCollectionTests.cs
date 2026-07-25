@@ -130,6 +130,137 @@ public class SingleElementListCollectionTests
     }
 
     [Fact]
+    public void SingleElementList_AsExtensionMethodArgument_RaisesToCollectionExpression()
+    {
+        // The real witness: option.Aliases.Concat<string>([option.Name]). Enumerable.Concat
+        // is an extension method, so the list is the SECOND argument (arg1), not the
+        // reduced receiver (arg0). Its parameter type IEnumerable<string> is a
+        // constructible read-only target, so it raises.
+        var concat = new MethodRef(Host, "Concat", IEnumerableOf(String), [IEnumerableOf(String), IEnumerableOf(String)], HasThis: false)
+        {
+            IsExtension = MetadataFactState.Yes,
+        };
+        var call = new Call(concat, isVirtual: false,
+            [new Constant(null, IEnumerableOf(String)), SingleElementList(String, new Constant("x", String))]);
+        var function = Wrap(Container(new Return(call)));
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<NewObject>());
+        var collection = Assert.Single(function.Descendants.OfType<CollectionExpression>());
+        Assert.Equal(IEnumerableOf(String), collection.TargetType);
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains(".Concat", output);
+        Assert.Contains("[\"x\"]", output);
+        Assert.DoesNotContain("ReadOnlySingleElementList", output);
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SingleElementList_AsExtensionMethodReceiver_LeftFlat()
+    {
+        // An extension method's static call renders in reduced instance form,
+        // making arg0 a member-access receiver. `[x].Concat(...)` is not legal C#
+        // (CS9176), so the receiver slot must stay flat even though it maps to the
+        // `this` parameter.
+        var concat = new MethodRef(Host, "Concat", IEnumerableOf(String), [IEnumerableOf(String), IEnumerableOf(String)], HasThis: false)
+        {
+            IsExtension = MetadataFactState.Yes,
+        };
+        var call = new Call(concat, isVirtual: false,
+            [SingleElementList(String, new Constant("x", String)), new Constant(null, IEnumerableOf(String))]);
+        var function = Wrap(Container(new Return(call)));
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<CollectionExpression>());
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void NestedSingleElementLists_BothRaised()
+    {
+        // A nested collection expression `[[x]]` lowers to nested single-element
+        // lists. The outer raises first; the inner is re-parented under the outer
+        // collection expression and target-typed to its element type, so it raises
+        // too rather than leaking the unspellable inner construction.
+        var inner = SingleElementList(String, new Constant("x", String));
+        var outer = SingleElementList(IEnumerableOf(String), inner);
+        var store = new StoreLocal(0, IEnumerableOf(IEnumerableOf(String)), outer);
+        var function = Wrap(Container(store, new Return(null)));
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<NewObject>());
+        Assert.Equal(2, function.Descendants.OfType<CollectionExpression>().Count());
+
+        var output = CSharpPrinter.Print(function).Output;
+        Assert.Contains("[[\"x\"]]", output);
+        Assert.DoesNotContain("ReadOnlySingleElementList", output);
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SingleElementList_WithWiderSinkTarget_LeftFlat()
+    {
+        // Consume(object): the reference conversion IEnumerable<string> -> object
+        // emits no IL, so the construction's use-site is an `object` parameter.
+        // `[x]` cannot construct object (CS9174), so leave it flat.
+        var consume = new MethodRef(Host, "Consume", Void, [TypeRef.CoreLib("System", "Object")], HasThis: false);
+        var call = new Call(consume, isVirtual: false, [SingleElementList(String, new Constant("x", String))]);
+        var function = Wrap(Container(new ExpressionStatement(call), new Return(null)));
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<CollectionExpression>());
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SingleElementList_WithCovariantSinkTarget_LeftFlat()
+    {
+        // IEnumerable<object> x = (IEnumerable<string>)["x"]: the list element type
+        // is string but the sink is IEnumerable<object>. Raising to `[x]` would
+        // retype the elements to object, so leave it flat.
+        var store = new StoreLocal(0, IEnumerableOf(TypeRef.CoreLib("System", "Object")), SingleElementList(String, new Constant("x", String)));
+        var function = Wrap(Container(store, new Return(null)));
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<CollectionExpression>());
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void LookalikeSingleElementListType_NotRaised()
+    {
+        // A CLI type whose name merely starts with the reserved prefix (ILAsm can
+        // emit one) is not the compiler's single-element list; the match is on the
+        // exact metadata name, not a prefix.
+        var fakeType = TypeRef.GenericInstance(TypeRef.Definition("UserAssembly", "", "<>z__ReadOnlySingleElementListFake`1"), [String]);
+        var fakeCtor = new MethodRef(fakeType, ".ctor", Void, [String], HasThis: true);
+        var concat = new MethodRef(Host, "Concat", IEnumerableOf(String), [IEnumerableOf(String), IEnumerableOf(String)], HasThis: false);
+        var call = new Call(concat, isVirtual: false,
+            [new Constant(null, IEnumerableOf(String)), new NewObject(fakeCtor, [new Constant("x", String)])]);
+        var function = Wrap(Container(new Return(call)));
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Empty(function.Descendants.OfType<CollectionExpression>());
+        function.CheckInvariant();
+    }
+
+    [Fact]
     public void OrdinaryListType_AsCallArgument_NotRaised()
     {
         var listType = TypeRef.GenericInstance(TypeRef.CoreLib("System.Collections.Generic", "List`1"), [String]);
