@@ -490,6 +490,7 @@ public static class MemberCommand
         SectionNames.CustomAttributes,
         SectionNames.DecompiledSource,
         SectionNames.FidelityCauses,
+        SectionNames.AppliedTaste,
         SectionNames.AnnotatedSource,
         SectionNames.OriginalSource,
         SectionNames.SourceDiff,

@@ -51,12 +51,21 @@ public sealed class PreferBranchlessBooleanPass : IIrPass
 {
     public string Name => "prefer-branchless-boolean";
 
+    /// <summary>
+    /// Number of guarded returns this pass actually folded into the compact
+    /// short-circuit "bool hack". Non-zero means the byte-divergent lens changed
+    /// the render, so <see cref="CSharpPrinter"/> records an applied-lens decision
+    /// the host can surface.
+    /// </summary>
+    public int Rewrites { get; private set; }
+
     public void Run(IrFunction function, PassContext context)
     {
         // Fixpoint: folding an inner guarded return can expose an outer one whose
         // tail is now the freshly minted short-circuit return.
         while (RewriteOnce(function, context.Stepper))
         {
+            Rewrites++;
         }
     }
 

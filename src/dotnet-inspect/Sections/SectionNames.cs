@@ -84,6 +84,9 @@ public static class SectionNames
     /// <summary>Section for typed causes that prevent Full decompiler fidelity.</summary>
     public const string FidelityCauses = "Fidelity Causes";
 
+    /// <summary>Section for the configurable, opcode-neutral style choices applied while rendering this member.</summary>
+    public const string AppliedTaste = "Applied Taste";
+
     /// <summary>Section for the decompiled C# method body with hidden-fact annotations and interleaved IL.</summary>
     public const string AnnotatedSource = "Annotated Source";
 

@@ -1210,6 +1210,7 @@ public static class ApiOutputFormatter
             UnsafeOperations: requestedSections.Contains(SectionNames.UnsafeOperations),
             Facts: requestedSections.Contains(SectionNames.Facts),
             FidelityCauses: requestedSections.Contains(SectionNames.FidelityCauses),
+            AppliedTaste: requestedSections.Contains(SectionNames.AppliedTaste),
             ProjectAssetsPath: options?.ProjectAssetsPath,
             TargetFramework: options?.Tfm);
 
@@ -1428,7 +1429,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts || request.FidelityCauses)
+        if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts || request.FidelityCauses || request.AppliedTaste)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
         foreach (var (member, code) in MemberCodeProvider.Collect(type, methods, dllPath, overloadIndex, request, pdbPath, options?.IncludeAll ?? false, options?.RenderOptions))
@@ -1455,6 +1456,12 @@ public static class ApiOutputFormatter
             if (code.FidelityCauses is not null)
             {
                 memberCode.FidelityCauseRows = BuildFidelityCauseRows(code.FidelityCauses);
+                hasCode = true;
+            }
+
+            if (code.AppliedTaste is not null)
+            {
+                memberCode.AppliedTasteRows = BuildAppliedTasteRows(code.AppliedTaste);
                 hasCode = true;
             }
 
@@ -1606,6 +1613,24 @@ public static class ApiOutputFormatter
                     failed.Error.Reason)
             ],
         };
+
+    internal static List<AppliedTasteRow> BuildAppliedTasteRows(
+        IReadOnlyList<Decompiler.DecompilerDecision> decisions)
+        =>
+        [
+            .. decisions
+                // The framework-import rewrite (List<T> for the mangled metadata
+                // name) is always-on and universally expected, not a configurable
+                // taste choice -- keep it off the taste surface.
+                .Where(static d => d.RuleId != "type-name.framework-imported")
+                .Select(static d => new AppliedTasteRow(
+                    d.RuleId,
+                    d.Category == Decompiler.DecompilerDecisionCategories.StyleLens
+                        ? "byte-divergent"
+                        : "byte-preserving",
+                    d.Subject,
+                    d.Detail))
+        ];
 
     static string FormatFidelityLocation(Decompiler.DecompilerFidelityLocation location)
         => location.Kind switch
