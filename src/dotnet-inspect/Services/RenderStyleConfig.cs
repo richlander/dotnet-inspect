@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using ILInspector.Decompiler.Pipeline;
 
 namespace DotnetInspector.Services;
@@ -38,22 +41,17 @@ internal static class RenderStyleConfig
     /// <summary>The tool-owned style file name discovered by walking up from the working directory.</summary>
     public const string FileName = ".dotnet-inspectconfig";
 
-    // Recognizes the class-3 this.-qualification knobs (byte-preserving spelling
-    // choices with an exact editorconfig key) plus the opt-in style lenses. The
-    // lenses are the first BYTE-DIVERGENT keys: behavior-preserving but not
-    // opcode-faithful (#3138), so they are deliberate style lenses, not class-3
-    // spelling knobs. More keys are added here as further knobs land.
-    private const string FieldKey = "dotnet_style_qualification_for_field";
-    private const string PropertyKey = "dotnet_style_qualification_for_property";
-    private const string MethodKey = "dotnet_style_qualification_for_method";
-    private const string EventKey = "dotnet_style_qualification_for_event";
-    private const string PreferConditionalReturnKey = "dotnet_style_prefer_conditional_expression_over_return";
-
-    // The branchless "bool hack" lens (#3138) is NOT oracle-endorsed — no real
-    // .editorconfig key encourages it — so it is exposed under a tool-owned
-    // namespace rather than a dotnet_style_* key, making clear it is a
-    // dotnet-inspect compactness preference, not an editorconfig concept.
-    private const string PreferBranchlessBooleanKey = "dotnet_inspect_style_prefer_branchless_boolean";
+    // The recognized style keys and how they set PrinterOptions come from the
+    // library-owned StyleOptionCatalog — the single source of truth — so this
+    // resolver never drifts from the option surface. Every catalog knob with a
+    // config key is honored here (the four byte-preserving this.-qualification
+    // spellings, the oracle-endorsed conditional-expression lens, and the
+    // tool-owned branchless "bool hack" lens); knobs with no config key are
+    // API-only and simply do not appear in the file vocabulary.
+    private static readonly IReadOnlyDictionary<string, StyleOptionDescriptor> KnobsByKey =
+        StyleOptionCatalog.Options
+            .Where(o => o.ConfigKey is not null)
+            .ToDictionary(o => o.ConfigKey!, StringComparer.Ordinal);
 
     // The editorconfig boundary marker. Discovery is nearest-wins, so the nearest
     // file is already a hard boundary (nothing above it is read); 'root' is
@@ -127,12 +125,7 @@ internal static class RenderStyleConfig
     /// </summary>
     public static RenderStyleResolution Parse(string text, string? origin)
     {
-        bool qualifyField = false;
-        bool qualifyProperty = false;
-        bool qualifyMethod = false;
-        bool qualifyEvent = false;
-        bool preferConditionalReturn = false;
-        bool preferBranchlessBoolean = false;
+        var options = PrinterOptions.Default;
         List<string>? warnings = null;
 
         void Warn(string message) => (warnings ??= []).Add(message);
@@ -170,42 +163,6 @@ internal static class RenderStyleConfig
 
             switch (key)
             {
-                case FieldKey:
-                    if (TryParseBool(value, out var f))
-                        qualifyField = f;
-                    else
-                        Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
-                    break;
-                case PropertyKey:
-                    if (TryParseBool(value, out var p))
-                        qualifyProperty = p;
-                    else
-                        Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
-                    break;
-                case MethodKey:
-                    if (TryParseBool(value, out var m))
-                        qualifyMethod = m;
-                    else
-                        Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
-                    break;
-                case EventKey:
-                    if (TryParseBool(value, out var e))
-                        qualifyEvent = e;
-                    else
-                        Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
-                    break;
-                case PreferConditionalReturnKey:
-                    if (TryParseBool(value, out var t))
-                        preferConditionalReturn = t;
-                    else
-                        Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
-                    break;
-                case PreferBranchlessBooleanKey:
-                    if (TryParseBool(value, out var b))
-                        preferBranchlessBoolean = b;
-                    else
-                        Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
-                    break;
                 case RootKey:
                     // editorconfig boundary marker. Discovery is nearest-wins, so
                     // the nearest file is already a hard boundary; 'root' drives no
@@ -215,20 +172,21 @@ internal static class RenderStyleConfig
                         Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
                     break;
                 default:
-                    Warn($"line {i + 1}: unknown key '{key}' (ignored)");
+                    if (KnobsByKey.TryGetValue(key, out var knob))
+                    {
+                        if (TryParseBool(value, out var on))
+                            options = knob.With(options, on);
+                        else
+                            Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
+                    }
+                    else
+                    {
+                        Warn($"line {i + 1}: unknown key '{key}' (ignored)");
+                    }
+
                     break;
             }
         }
-
-        var options = PrinterOptions.Default with
-        {
-            QualifyFieldAccess = qualifyField,
-            QualifyPropertyAccess = qualifyProperty,
-            QualifyMethodAccess = qualifyMethod,
-            QualifyEventAccess = qualifyEvent,
-            PreferConditionalExpressionReturn = preferConditionalReturn,
-            PreferBranchlessBoolean = preferBranchlessBoolean,
-        };
 
         return new RenderStyleResolution(options, origin, (IReadOnlyList<string>?)warnings ?? []);
     }

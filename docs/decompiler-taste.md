@@ -445,6 +445,9 @@ dotnet_style_prefer_conditional_expression_over_return = true
   ternary [style lens](#style-lenses-behavior-faithful-byte-divergent)), and
   `dotnet_inspect_style_prefer_branchless_boolean` (the non-oracle-endorsed
   branchless lens, under a tool-owned key). The set grows as more knobs ship.
+- The recognized keys are not hand-maintained in the resolver: they come from the
+  library-owned `StyleOptionCatalog` (see [Option catalog](#option-catalog)), so
+  the CLI vocabulary and the option surface cannot drift.
 - Unknown keys, malformed lines, and non-boolean values are reported as a
   `Warning:` on stderr and skipped — the rest of the file still applies. A bad
   config never fails the run silently.
@@ -481,6 +484,28 @@ of the assembly and the options it is handed, so the config surface never change
 what the library computes for a given `PrinterOptions`. The knobs affect the
 primary decompiled-source view; the Annotated Source and IR-stage views stay on
 the shipped default so they remain aligned with the IL.
+
+### Option catalog
+
+The recognized knobs are described once, in the library, by
+`StyleOptionCatalog` (`ILInspector.Decompiler.Pipeline`). Each
+`StyleOptionDescriptor` carries a knob's stable id, human-facing title and
+summary, its tier (`Formatting`, `Spelling`, `Lens`, or `Synthesis`), whether it
+is `ByteDivergent`, whether it is `OracleEndorsed`, its `.dotnet-inspectconfig`
+key (`null` for API-only formatting/synthesis knobs), a `ConflictGroup` for
+mutually-exclusive knobs, and NativeAOT-safe `Get`/`With` delegates that read and
+set the knob on a `PrinterOptions` without reflection.
+
+This makes the option surface discoverable and drift-proof for every host, not
+just the CLI: the config resolver derives its recognized keys from the catalog,
+a Wasm UI can enumerate the knobs (grouping the mutually-exclusive lenses by
+`ConflictGroup` and toggling each through `Get`/`With`), and the future "full
+taste" aggregate is exactly the `OracleEndorsed` subset. The two guarded-boolean
+lenses share the `guarded-boolean-return` conflict group, so a picker offers at
+most one (the printer still resolves any overlap deterministically, preferring the
+oracle-endorsed ternary). The single non-boolean knob
+(`ExpressionBodyArrowPlacement`) is not yet modeled in the catalog, which
+currently describes boolean toggles.
 
 ## Verification and soundness
 
