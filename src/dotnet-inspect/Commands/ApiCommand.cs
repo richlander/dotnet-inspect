@@ -552,7 +552,7 @@ public class ApiCommand
     internal static async Task<ResolvedMethodSource> ResolveMethodSourceAsync(
         string dllPath, string typeName, string methodName, int overloadIndex,
         ApiOptions options, HttpClient httpClient, VerboseLogger logger, bool fetchSource = true,
-        bool publicOnly = true, int metadataToken = 0)
+        bool publicOnly = true, int metadataToken = 0, bool isDestructor = false)
     {
         try
         {
@@ -616,7 +616,7 @@ public class ApiCommand
                 return new ResolvedMethodSource(null, pdbPath);
 
             var sourceCode = SourceLinkResolver.ExtractMethodBody(
-                content, methodInfo.StartLine, methodInfo.EndLine, methodName);
+                content, methodInfo.StartLine, methodInfo.EndLine, methodName, isDestructor);
 
             return new ResolvedMethodSource(
                 new MethodSourceContext(sourceCode, methodInfo.SourceUrl ?? methodInfo.FilePath), pdbPath);

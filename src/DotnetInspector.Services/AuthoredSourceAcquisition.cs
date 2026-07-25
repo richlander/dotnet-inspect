@@ -180,11 +180,17 @@ public static class AuthoredSourceAcquisition
         try
         {
             string sourceText = DecodeSourceText(content);
+            // A C# destructor compiles to a method whose metadata name is
+            // "Finalize"; use that identity (not a source-text shape) to tell
+            // ExtractMethodBody to stop the backward signature scan at the
+            // "~Type()" line instead of walking into the preceding member.
+            bool isDestructor = string.Equals(mapping.Anchor.MemberName, "Finalize", StringComparison.Ordinal);
             string memberText = SourceLinkResolver.ExtractMethodBody(
                 sourceText,
                 mapping.StartLine,
                 mapping.EndLine,
-                methodName);
+                methodName,
+                isDestructor);
             var lines = TextFindings.Inspect(memberText, subject).ToImmutableArray();
             return new AuthoredMemberSourceInspection(
                 new FindingInspection<string>.Complete(lines),

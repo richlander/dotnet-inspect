@@ -85,8 +85,19 @@ public class SourceLinkResolver
     /// then dedents the block. Line numbers outside the file bounds surface as an
     /// <see cref="IndexOutOfRangeException"/>, which callers already handle by treating the source
     /// as unavailable.
+    /// <para>
+    /// <paramref name="isDestructor"/> must be set by the caller from the resolved member's
+    /// identity (its kind/metadata name), not inferred from source text. A C# destructor's source
+    /// line is "~Type(...)", which carries no accessibility keyword and whose metadata name
+    /// ("Finalize") does not appear in the text, so the backward scan would otherwise walk past it
+    /// into the preceding member and leak unrelated declarations. When set, the scan stops at the
+    /// leading-tilde signature line (covering any spelling such as "~Type()" or "~ Type()"). It is
+    /// deliberately keyed on caller-supplied identity rather than a "~" text shape so that a normal
+    /// method whose signature legitimately contains a leading "~" continuation (e.g. a multi-line
+    /// default parameter "int x =\n    ~Mask") is never truncated.
+    /// </para>
     /// </summary>
-    public static string ExtractMethodBody(string sourceText, int startLine, int endLine, string methodName)
+    public static string ExtractMethodBody(string sourceText, int startLine, int endLine, string methodName, bool isDestructor = false)
     {
         var lines = sourceText.Split('\n');
         int start = startLine;
@@ -112,7 +123,7 @@ public class SourceLinkResolver
             if (trimmed.StartsWith("public") || trimmed.StartsWith("private")
                 || trimmed.StartsWith("protected") || trimmed.StartsWith("internal")
                 || trimmed.StartsWith("static")
-                || IsDestructorSignatureStart(trimmed)
+                || (isDestructor && trimmed.StartsWith("~"))
                 || trimmed.Contains(methodName))
                 break;
         }
@@ -150,22 +161,6 @@ public class SourceLinkResolver
         var dedented = methodLines.Select(l => l.Length >= minIndent ? l[minIndent..] : l);
         return string.Join('\n', dedented).TrimEnd();
     }
-
-    /// <summary>
-    /// True when a signature-area line is a C# destructor declaration start
-    /// ("~Type(...)"). The backward signature scan must stop here — a destructor's
-    /// source line carries no accessibility keyword and its metadata name
-    /// ("Finalize") does not appear in the text, so without this it would walk
-    /// into the preceding member and leak unrelated declarations. Detection is by
-    /// shape (a '~' immediately followed by an identifier start), not by the
-    /// caller-supplied method name, so it holds regardless of how the finalizer
-    /// was selected (case-insensitive or wildcard selectors). A user-defined unary
-    /// complement operator whose split signature line is "~(value)" is excluded
-    /// because '~' is followed by '(' rather than an identifier.
-    /// </summary>
-    private static bool IsDestructorSignatureStart(string trimmed)
-        => trimmed.Length > 1 && trimmed[0] == '~'
-            && (char.IsLetter(trimmed[1]) || trimmed[1] == '_' || trimmed[1] == '@');
 
     private SourceLinkResolver(SLF.SourceLinkResolver slfResolver)
     {

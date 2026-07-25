@@ -303,7 +303,7 @@ public static class MemberCommand
                     effectiveOptions.MemberFilter.First(),
                     sourceOverloadIndex,
                     effectiveOptions, context.HttpClient, logger, fetchSource, publicOnly,
-                    sourceMetadataToken);
+                    sourceMetadataToken, selectedMember?.IsFinalizer ?? false);
 
                 effectiveOptions = effectiveOptions with
                 {
