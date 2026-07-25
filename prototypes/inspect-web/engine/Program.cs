@@ -492,6 +492,98 @@ public static partial class BrowserInspectionEngine
         }
     }
 
+    // Decompiles a member the caller only knows by declaring type and name — used by the
+    // call graph, whose compact node labels reach non-public members that never appear on
+    // the public API surface. Resolution uses the full surface (includeAll) so private,
+    // internal, and implementation-detail members of a loaded assembly are navigable, while
+    // the public type list stays public-only.
+    [JSExport]
+    public static async Task<string> QueryTypeMemberSource(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeName,
+        string memberName)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-web-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            string implementationPath;
+            using (var stream = new MemoryStream(packageBytes, writable: false))
+            using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
+            {
+                var implementation = archive.Entries.FirstOrDefault(entry =>
+                    entry.FullName.Equals($"lib/{targetFramework}/{assemblyName}", StringComparison.OrdinalIgnoreCase))
+                    ?? archive.Entries.FirstOrDefault(entry =>
+                        entry.FullName.Equals($"ref/{targetFramework}/{assemblyName}", StringComparison.OrdinalIgnoreCase))
+                    ?? throw new InvalidOperationException(
+                        $"No implementation asset for {assemblyName} at {targetFramework}.");
+
+                foreach (var entry in archive.Entries.Where(entry =>
+                    entry.FullName.StartsWith($"lib/{targetFramework}/", StringComparison.OrdinalIgnoreCase)
+                    && entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
+                {
+                    await WriteEntryAsync(entry, Path.Combine(tempRoot, entry.Name));
+                }
+
+                implementationPath = Path.Combine(tempRoot, implementation.Name);
+                if (!File.Exists(implementationPath))
+                    await WriteEntryAsync(implementation, implementationPath);
+            }
+
+            var pdbPath = Path.ChangeExtension(implementationPath, ".pdb");
+            var symbolPackageUrl =
+                $"https://globalcdn.nuget.org/symbol-packages/" +
+                $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.snupkg";
+            await TryAcquirePackagePdbAsync(symbolPackageUrl, targetFramework, assemblyName, pdbPath);
+
+            using var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
+                new AssemblyReferenceIdentity(assemblyName, null, null, null),
+                implementationPath,
+                () => File.OpenRead(implementationPath),
+                Provenance: $"lib/{targetFramework}/{assemblyName}"));
+            var surface = inspection.ApiSurface(includeAll: true);
+            var type = surface.Types.FirstOrDefault(candidate =>
+                candidate.FullName.Equals(typeName, StringComparison.Ordinal))
+                ?? surface.Types.FirstOrDefault(candidate =>
+                    candidate.Name.Equals(typeName, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"Type '{typeName}' is not in {assemblyName}.");
+            var member = type.Members.FirstOrDefault(candidate =>
+                candidate.Name.Equals(memberName, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"Member '{memberName}' was not found on '{type.FullName}'.");
+
+            if (File.Exists(pdbPath)
+                && member.MetadataToken is int token
+                && await TryGetAuthoredSourceAsync(implementationPath, type, member, token) is { } authored)
+            {
+                return JsonSerializer.Serialize(authored, BrowserJsonContext.Default.BrowserMemberSource);
+            }
+
+            var decompiled = MemberBodyProducer.ProduceMember(type, member, implementationPath, File.Exists(pdbPath) ? pdbPath : null);
+            if (decompiled.Text is not { Length: > 0 } text)
+                throw new InvalidOperationException("Decompilation did not produce source for the selected member.");
+
+            return JsonSerializer.Serialize(
+                new BrowserMemberSource(
+                    "decompiled",
+                    text,
+                    null,
+                    $"Decompiled by dotnet-inspect from lib/{targetFramework}/{assemblyName}"),
+                BrowserJsonContext.Default.BrowserMemberSource);
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); }
+            catch { }
+        }
+    }
+
     [JSExport]
     public static async Task<string> QueryTypeSource(
         string packageId,

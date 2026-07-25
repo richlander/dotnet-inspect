@@ -1,5 +1,5 @@
 import { lenses, rootCommands } from "./data.js";
-import { initializeEngine, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectSearchTypes, inspectTypeSource } from "/engine.js";
+import { initializeEngine, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectSearchTypes, inspectTypeMemberSource, inspectTypeSource } from "/engine.js";
 
 let spotlightCache = null;
 
@@ -38,6 +38,11 @@ const state = {
   spotlightOpen: false,
   spotlightQuery: "",
   spotlightIndex: 0,
+  graphSourceOpen: false,
+  graphSource: null,
+  graphSourceLoading: false,
+  graphSourceError: "",
+  graphSourceTitle: "",
   typeCursor: 0,
   history: [],
   loading: true,
@@ -376,6 +381,7 @@ function render() {
         </div>
       </section>
       ${state.spotlightOpen ? renderSpotlight() : ""}
+      ${state.graphSourceOpen ? renderGraphSource() : ""}
     </div>`;
 
   bindEvents();
@@ -841,6 +847,10 @@ function bindEvents() {
   document.querySelector("#spotlight-backdrop")?.addEventListener("mousedown", event => {
     if (event.target.id === "spotlight-backdrop") closeSpotlight();
   });
+  document.querySelector("#graph-source-backdrop")?.addEventListener("mousedown", event => {
+    if (event.target.id === "graph-source-backdrop") closeGraphSource();
+  });
+  document.querySelector("#graph-source-close")?.addEventListener("click", closeGraphSource);
   document.querySelector("#clear-filter").addEventListener("click", () => {
     state.typeFilter = "";
     state.namespaceFilter = "";
@@ -1620,12 +1630,14 @@ function attachGraphPanZoom(container, viewport) {
   svg.querySelectorAll("g.node").forEach(node => {
     const label = (node.textContent || "").replace(/\s+/g, " ").trim();
     const target = resolveNodeLabel(label);
-    if (!target) return;
+    const source = target ? null : resolveNodeForSource(label, node.classList.contains("differentAssembly"));
+    if (!target && !source) return;
     node.classList.add("nav-node");
     node.style.cursor = "pointer";
     node.addEventListener("click", () => {
       if (moved) return;
-      navigateToMember(target.pkg, target.type, target.group);
+      if (target) navigateToMember(target.pkg, target.type, target.group);
+      else openGraphSource(source.request, source.title);
     });
   });
 
@@ -1673,6 +1685,104 @@ function findMemberGroup(groups, memberName) {
     if (group) return group;
   }
   return null;
+}
+
+function resolveNodeForSource(label, external = false) {
+  const dot = label.lastIndexOf(".");
+  if (dot < 0) return null;
+  let typeName = label.slice(0, dot);
+  const memberName = label.slice(dot + 1);
+  if (typeName.endsWith(".")) typeName = typeName.slice(0, -1);
+  if (!typeName || !memberName) return null;
+  // Accessors and public members already navigate through resolveNodeLabel; compiler
+  // generated helpers (e.g. <DeepEquals>g__...) are not on the metadata surface. The
+  // decompile fallback targets ordinary non-public methods of loaded assemblies.
+  if (/^(get|set|add|remove)_/.test(memberName)) return null;
+  if (memberName.includes("<") || memberName.includes(">")) return null;
+
+  // A declaring type that is a public loaded type routes to its own package/assembly.
+  const candidates = [state.package, ...state.packages.filter(item => item !== state.package)];
+  for (const pkg of candidates) {
+    if (!pkg?.types) continue;
+    const type = pkg.types.find(item =>
+      item.name === typeName || item.id === typeName || item.id.endsWith("." + typeName));
+    if (!type) continue;
+    return {
+      title: `${type.name}.${memberName}`,
+      request: {
+        packageId: pkg.id,
+        version: pkg.version,
+        framework: pkg.activeFramework,
+        assembly: type.assembly,
+        type: type.id,
+        member: memberName
+      }
+    };
+  }
+
+  // A non-public declaring type is absent from the public type list; assume the graph
+  // target's package and assembly, where internal implementation types resolve. Nodes the
+  // graph marks as belonging to a different assembly (BCL/runtime) are not in the loaded
+  // workspace, so leave them inert rather than offering a click that cannot resolve.
+  const current = selectedType();
+  if (!external && current && state.package) {
+    return {
+      title: `${typeName}.${memberName}`,
+      request: {
+        packageId: state.package.id,
+        version: state.package.version,
+        framework: state.package.activeFramework,
+        assembly: current.assembly,
+        type: typeName,
+        member: memberName
+      }
+    };
+  }
+  return null;
+}
+
+async function openGraphSource(request, title) {
+  state.graphSourceOpen = true;
+  state.graphSourceTitle = title;
+  state.graphSource = null;
+  state.graphSourceError = "";
+  state.graphSourceLoading = true;
+  render();
+  try {
+    state.graphSource = await inspectTypeMemberSource(request);
+  } catch (error) {
+    state.graphSourceError = String(error?.message || error);
+  } finally {
+    state.graphSourceLoading = false;
+    render();
+  }
+}
+
+function closeGraphSource() {
+  state.graphSourceOpen = false;
+  state.graphSource = null;
+  state.graphSourceError = "";
+  state.graphSourceLoading = false;
+  render();
+}
+
+function renderGraphSource() {
+  const body = state.graphSourceLoading
+    ? `<div class="graph-source-status">Decompiling ${escapeHtml(state.graphSourceTitle)}…</div>`
+    : state.graphSource
+      ? `<div class="source-provenance"><strong>${state.graphSource.provider === "original" ? "Original source" : "Decompiled source"}</strong><span>${escapeHtml(state.graphSource.provenance)}</span></div>
+         <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.graphSource.text)}</code></pre>`
+      : `<div class="graph-source-status error">${escapeHtml(state.graphSourceError || "No source was returned.")}</div>`;
+  return `
+    <div class="graph-source-backdrop" id="graph-source-backdrop">
+      <div class="graph-source" role="dialog" aria-modal="true" aria-label="Decompiled member source">
+        <div class="graph-source-head">
+          <span class="graph-source-title">${escapeHtml(state.graphSourceTitle)}</span>
+          <button id="graph-source-close" type="button" aria-label="Close">esc</button>
+        </div>
+        <div class="graph-source-body">${body}</div>
+      </div>
+    </div>`;
 }
 
 function navigateToMember(pkg, type, group) {
@@ -1881,7 +1991,10 @@ function fmtBytes(bytes) {
 
 document.addEventListener("keydown", event => {
   const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName);
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+  if (event.key === "Escape" && state.graphSourceOpen) {
+    event.preventDefault();
+    closeGraphSource();
+  } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
     openCommand();
   } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {

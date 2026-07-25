@@ -864,3 +864,53 @@ kbd {
 }
 @keyframes spotlight-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes spotlight-rise { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+
+.graph-source-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 9vh;
+  background: rgba(8, 9, 7, 0.55);
+  backdrop-filter: blur(3px);
+  animation: spotlight-fade 120ms ease-out;
+}
+.graph-source {
+  width: 820px;
+  max-width: 94vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  animation: spotlight-rise 120ms ease-out;
+}
+.graph-source-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.graph-source-title { font: 13px var(--mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graph-source-head button {
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--dim);
+  font: 10px var(--mono);
+  padding: 3px 7px;
+  cursor: pointer;
+}
+.graph-source-head button:hover { color: var(--text); border-color: var(--text); }
+.graph-source-body { overflow: auto; padding: 14px; }
+.graph-source-body pre { margin: 8px 0 0; }
+.graph-source-status { padding: 20px; color: var(--dim); font: 12px var(--mono); }
+.graph-source-status.error { color: var(--red, #d97070); }

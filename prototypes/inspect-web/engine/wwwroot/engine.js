@@ -2,6 +2,7 @@ import { dotnet } from "./_framework/dotnet.js";
 
 let queryPackage;
 let queryMemberSource;
+let queryTypeMemberSource;
 let queryTypeSource;
 let queryMemberCallGraph;
 let queryMemberDocumentation;
@@ -15,6 +16,7 @@ export async function initializeEngine(onStatus = () => {}) {
   const exports = await runtime.getAssemblyExports(config.mainAssemblyName);
   queryPackage = exports.BrowserInspectionEngine.QueryPackage;
   queryMemberSource = exports.BrowserInspectionEngine.QueryMemberSource;
+  queryTypeMemberSource = exports.BrowserInspectionEngine.QueryTypeMemberSource;
   queryTypeSource = exports.BrowserInspectionEngine.QueryTypeSource;
   queryMemberCallGraph = exports.BrowserInspectionEngine.QueryMemberCallGraph;
   queryMemberDocumentation = exports.BrowserInspectionEngine.QueryMemberDocumentation;
@@ -40,6 +42,18 @@ export async function inspectMemberSource(request) {
     request.type,
     request.member,
     request.signature);
+  return JSON.parse(json);
+}
+
+export async function inspectTypeMemberSource(request) {
+  if (!queryTypeMemberSource) throw new Error("The browser inspection engine is not initialized.");
+  const json = await queryTypeMemberSource(
+    request.packageId,
+    request.version,
+    request.framework,
+    request.assembly,
+    request.type,
+    request.member);
   return JSON.parse(json);
 }
 
