@@ -256,7 +256,7 @@ body {
 .type-browser {
   min-width: 0;
   display: grid;
-  grid-template-rows: 40px 38px auto minmax(0, 1fr) 27px;
+  grid-template-rows: 40px 38px auto auto minmax(0, 1fr) 27px;
   border-right: 1px solid var(--line);
   background: var(--panel);
 }
