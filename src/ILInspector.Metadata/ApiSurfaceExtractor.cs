@@ -893,29 +893,38 @@ public static class ApiSurfaceExtractor
     }
 
     // The reference assemblies and runtime cores that define the real
-    // System.Object, paired with the strong-name public-key token each is
-    // signed with. A TypeReference to `System.Object` that resolves through
-    // any other assembly — or through an assembly that impersonates one of
-    // these names without carrying its public-key token — is an adversarial or
-    // accidental lookalike, not the runtime finalizer slot.
-    private static readonly Dictionary<string, byte[]> CoreLibraryPublicKeyTokens =
+    // System.Object, paired with the strong-name public-key token(s) each is
+    // legitimately signed with. `mscorlib` shipped under several Microsoft
+    // tokens across historical profiles (desktop .NET Framework, Silverlight/
+    // PCL/Windows Phone, and the .NET Compact Framework), so a name maps to a
+    // set of accepted tokens. A TypeReference to `System.Object` that resolves
+    // through any other assembly — or through an assembly that impersonates one
+    // of these names without carrying a matching Microsoft public-key token —
+    // is an adversarial or accidental lookalike, not the runtime finalizer slot.
+    private static readonly Dictionary<string, byte[][]> CoreLibraryPublicKeyTokens =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            ["System.Runtime"] = new byte[] { 0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a },
-            ["System.Private.CoreLib"] = new byte[] { 0x7c, 0xec, 0x85, 0xd7, 0xbe, 0xa7, 0x79, 0x8e },
-            ["mscorlib"] = new byte[] { 0xb7, 0x7a, 0x5c, 0x56, 0x19, 0x34, 0xe0, 0x89 },
-            ["netstandard"] = new byte[] { 0xcc, 0x7b, 0x13, 0xff, 0xcd, 0x2d, 0xdd, 0x51 },
+            ["System.Runtime"] = new[] { new byte[] { 0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a } },
+            ["System.Private.CoreLib"] = new[] { new byte[] { 0x7c, 0xec, 0x85, 0xd7, 0xbe, 0xa7, 0x79, 0x8e } },
+            ["mscorlib"] = new[]
+            {
+                new byte[] { 0xb7, 0x7a, 0x5c, 0x56, 0x19, 0x34, 0xe0, 0x89 }, // .NET Framework (desktop)
+                new byte[] { 0x7c, 0xec, 0x85, 0xd7, 0xbe, 0xa7, 0x79, 0x8e }, // Silverlight / PCL / Windows Phone
+                new byte[] { 0x96, 0x9d, 0xb8, 0x05, 0x3d, 0x33, 0x22, 0xac }, // .NET Compact Framework
+            },
+            ["netstandard"] = new[] { new byte[] { 0xcc, 0x7b, 0x13, 0xff, 0xcd, 0x2d, 0xdd, 0x51 } },
         };
 
     /// <summary>
     /// True when <paramref name="resolutionScope"/> is an
     /// <see cref="AssemblyReference"/> to a recognized core library — matched by
-    /// both assembly name and strong-name public-key token — the resolution
-    /// scope a real cross-assembly <c>System.Object</c> reference carries.
-    /// Nested (<see cref="TypeReference"/>), module, and nil scopes are
-    /// rejected: <c>System.Object</c> is never a nested type, and a same-module
-    /// object is a <see cref="TypeDefinition"/> handled elsewhere. An assembly
-    /// that impersonates a core-library name but lacks (or forges) its
+    /// both assembly name and one of that library's legitimate strong-name
+    /// public-key tokens — the resolution scope a real cross-assembly
+    /// <c>System.Object</c> reference carries. Nested
+    /// (<see cref="TypeReference"/>), module, and nil scopes are rejected:
+    /// <c>System.Object</c> is never a nested type, and a same-module object is
+    /// a <see cref="TypeDefinition"/> handled elsewhere. An assembly that
+    /// impersonates a core-library name but lacks (or forges) a matching
     /// public-key token is rejected.
     /// </summary>
     private static bool ResolvesThroughCoreLibrary(MetadataReader reader, EntityHandle resolutionScope)
@@ -923,37 +932,46 @@ public static class ApiSurfaceExtractor
         if (resolutionScope.Kind != HandleKind.AssemblyReference)
             return false;
         var assemblyRef = reader.GetAssemblyReference((AssemblyReferenceHandle)resolutionScope);
-        if (!CoreLibraryPublicKeyTokens.TryGetValue(reader.GetString(assemblyRef.Name), out byte[]? expectedToken))
+        if (!CoreLibraryPublicKeyTokens.TryGetValue(reader.GetString(assemblyRef.Name), out byte[][]? expectedTokens))
             return false;
-        return TokenMatches(reader, assemblyRef, expectedToken);
+        if (!TryComputeToken(reader, assemblyRef, out byte[] token))
+            return false;
+        foreach (byte[] expected in expectedTokens)
+        {
+            if (token.AsSpan().SequenceEqual(expected))
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>
-    /// True when the strong-name public-key token of <paramref name="assemblyRef"/>
-    /// equals <paramref name="expectedToken"/>. An assembly reference stores
-    /// either the full public key (when <see cref="AssemblyFlags.PublicKey"/> is
-    /// set) or the already-computed 8-byte token; the token is the low 8 bytes
-    /// of the SHA-1 hash of the public key, in reverse order.
+    /// Computes the 8-byte strong-name public-key token of
+    /// <paramref name="assemblyRef"/>. An assembly reference stores either the
+    /// full public key (when <see cref="AssemblyFlags.PublicKey"/> is set) or
+    /// the already-computed token; the token is the low 8 bytes of the SHA-1
+    /// hash of the public key, in reverse order. Returns false for a nil or
+    /// wrong-length token blob.
     /// </summary>
-    private static bool TokenMatches(MetadataReader reader, System.Reflection.Metadata.AssemblyReference assemblyRef, byte[] expectedToken)
+    private static bool TryComputeToken(MetadataReader reader, System.Reflection.Metadata.AssemblyReference assemblyRef, out byte[] token)
     {
+        token = [];
         if (assemblyRef.PublicKeyOrToken.IsNil)
             return false;
         byte[] blob = reader.GetBlobBytes(assemblyRef.PublicKeyOrToken);
-        byte[] token;
         if ((assemblyRef.Flags & AssemblyFlags.PublicKey) != 0)
         {
             byte[] hash = System.Security.Cryptography.SHA1.HashData(blob);
             token = new byte[8];
             for (int i = 0; i < 8; i++)
                 token[i] = hash[hash.Length - 1 - i];
-        }
-        else
-        {
-            token = blob;
+            return true;
         }
 
-        return token.AsSpan().SequenceEqual(expectedToken);
+        if (blob.Length != 8)
+            return false;
+        token = blob;
+        return true;
     }
 
     private static bool IsOperatorMethodName(string methodName) =>
