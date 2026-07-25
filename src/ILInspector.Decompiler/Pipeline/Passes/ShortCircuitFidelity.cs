@@ -40,6 +40,65 @@ static class ShortCircuitFidelity
            || operand is LoadIndirect { Address.ResultType.Kind: TypeRefKind.ByRef };
 
     /// <summary>
+    /// The <em>soundness</em> extension of <see cref="RendersAsBranchlessBarePlace"/>
+    /// for the case that predicate misses: a managed by-ref dereference that is not the
+    /// surviving operand itself but is buried inside a same-kind logical chain the
+    /// printer flattens into the emitted operator.
+    ///
+    /// <para>csc collapses <c>L &amp;&amp; R</c> to a branchless <c>L &amp; R</c> (and
+    /// <c>L || R</c> to <c>L | R</c>) exactly when <c>R</c> renders as a bare place — a
+    /// local/argument/field load or a managed by-ref dereference, which csc treats as
+    /// non-null and side-effect-free. A <em>compound</em> right operand (a bitwise
+    /// <c>&amp;</c>/<c>|</c>, a different-kind logical sub-expression, a comparison, or a
+    /// call) keeps the branch, so a by-ref dereference confined to one stays guarded and
+    /// is safe to fold. But the printer flattens a maximal same-kind logical chain, so
+    /// when the fold emits <c>c <paramref name="outerKind"/> OP</c> and <c>OP</c> is a
+    /// same-kind chain, every operand of that chain becomes a collapsible right operand
+    /// of the flattened chain. A by-ref dereference reachable as one of those flattened
+    /// operands is therefore dereferenced unconditionally — an observable
+    /// <see cref="System.NullReferenceException"/> divergence on a null by-ref where the
+    /// branch had guarded it (e.g. <c>c &amp;&amp; (*r &amp;&amp; Call())</c> flattens to
+    /// <c>c &amp;&amp; *r &amp;&amp; Call()</c>; the call-free <c>c &amp; *r</c> prefix
+    /// collapses branchless before the call barrier is reached).
+    /// <see cref="RendersAsBranchlessBarePlace"/> only inspects the top-level operand, so
+    /// it does not see a by-ref buried in such a chain; this predicate descends it.</para>
+    ///
+    /// <para>The reducible bool wrappers of <see cref="PeelReducibleBoolWrappers"/> are
+    /// peeled BEFORE the same-kind flatten so a by-ref hidden under a leading <c>!</c>
+    /// (<c>!(*r &amp;&amp; Call())</c>) or a bool-constant comparison
+    /// (<c>(*r &amp;&amp; Call()) == true</c>) that <c>FoldBoolConstantComparison</c> would
+    /// splice into the surrounding chain is still reached. Peeling only ignores negation
+    /// parity, so it conservatively over-declines a branch-preserving <c>!*r</c> too —
+    /// sound, because declining an extra valid readability raise never changes behavior
+    /// while folding an unfaithful one does. A raw <em>pointer</em> dereference <c>*p</c>
+    /// is excluded (its address kind is not <see cref="TypeRefKind.ByRef"/>): a pointer
+    /// read can access-violate, so csc keeps the branch and lifting it is safe.</para>
+    ///
+    /// <para>Verified against SDK-csc <c>/optimize</c> IL + a null-by-ref runtime probe:
+    /// the by-ref-before-call same-kind chain and the bare operand each diverge from
+    /// their guarded original (null-by-ref throws), while the bitwise
+    /// (<c>a &amp; *r</c>), different-kind logical (<c>*r || Call()</c> under an
+    /// <c>&amp;&amp;</c> lift), comparison (<c>*r &gt; 0</c>), by-ref field (<c>r.b</c>),
+    /// and call-argument (<c>Call(*r)</c>) folds compile to byte-identical IL and do not
+    /// throw (#3114 follow-up to #3127).</para>
+    /// </summary>
+    public static bool LiftEagerlyDerefsByRef(IrExpression operand, LogicalKind outerKind)
+    {
+        // Peel BEFORE classifying the node: a same-kind chain hidden under a reducible
+        // `== true`/`!= false` wrapper (which FoldBoolConstantComparison later strips,
+        // splicing the chain into the surrounding `outerKind` chain) must be flattened
+        // so its by-ref operands are reached. Peeling only after flattening treats such
+        // a wrapper as an opaque compound and misses the buried by-ref.
+        var peeled = PeelReducibleBoolWrappers(operand);
+        if (peeled is LogicalBinary logical && logical.Kind == outerKind)
+        {
+            return LiftEagerlyDerefsByRef(logical.Left, outerKind)
+                || LiftEagerlyDerefsByRef(logical.Right, outerKind);
+        }
+        return peeled is LoadIndirect { Address.ResultType.Kind: TypeRefKind.ByRef };
+    }
+
+    /// <summary>
     /// Whether <paramref name="condition"/> is a user-defined-truthiness evaluation
     /// — a call to <c>operator true</c>/<c>operator false</c> the compiler inserts
     /// when a user type is used in boolean context. The printer strips such a call
@@ -140,4 +199,58 @@ static class ShortCircuitFidelity
             return true;
         return TypeFamilies.Of(type) == StackFamily.O;
     }
+
+    /// <summary>
+    /// Follow the reducible operand through the wrappers <see cref="BooleanFoldingPass"/>'s
+    /// fixpoint strips or inverts <em>after</em> its guarded-return fold has lifted the
+    /// expression: leading logical negations, and bool-constant comparisons
+    /// (<c>x == true</c>/<c>x == false</c>/<c>x != true</c>/<c>x != false</c>) that
+    /// <c>FoldBoolConstantComparison</c> reduces to <c>x</c> or <c>!x</c>. It follows the
+    /// non-constant side of each comparison so a chain nested under any run of these
+    /// wrappers is still reached. Used by <see cref="LiftEagerlyDerefsByRef"/>, which peels
+    /// each operand before the same-kind flatten so a by-ref deref hidden under a
+    /// <c>== true</c>/<c>!</c> wrapper — even one wrapping a whole same-kind chain — is still
+    /// reached. This is a deliberate CONSERVATIVE over-approximation: it ignores negation
+    /// parity, so it may decline a valid branch-preserving raise; modeling parity exactly
+    /// would re-implement <c>FoldBoolConstantComparison</c>/<see cref="Conditions.Negate"/>
+    /// here — a fragile second implementation this avoids.
+    /// </summary>
+    static IrExpression PeelReducibleBoolWrappers(IrExpression expression)
+    {
+        var inner = expression;
+        while (true)
+        {
+            if (inner is LogicalNot { Operand: { } negated })
+                inner = negated;
+            else if (BoolConstantComparisonOperand(inner) is { } operand)
+                inner = operand;
+            else
+                return inner;
+        }
+    }
+
+    /// <summary>
+    /// The non-constant operand of a bool-constant comparison
+    /// <c>FoldBoolConstantComparison</c> reduces — the bool-typed left side of
+    /// <c>x == true</c>/<c>x == false</c>/<c>x != true</c>/<c>x != false</c> (a right-hand
+    /// bool <c>0</c>/<c>1</c> constant), regardless of comparison direction. Both
+    /// directions are followed because the guarded-return fold's
+    /// <see cref="Conditions.Negate"/> can invert the comparison on its arm before the
+    /// reduction runs. Returns null for any non-reducible shape.
+    /// </summary>
+    static IrExpression? BoolConstantComparisonOperand(IrExpression expression)
+    {
+        if (expression is not Comparison { Kind: ComparisonKind.Equal or ComparisonKind.NotEqual } comparison)
+            return null;
+        if (comparison.Left.ResultType is not { Namespace: "System", Name: "Boolean" })
+            return null;
+        return BoolConstantValue(comparison.Right) is not null ? comparison.Left : null;
+    }
+
+    static bool? BoolConstantValue(IrExpression expression) => expression switch
+    {
+        Constant { Value: bool value } => value,
+        Constant { Value: int value } when value is 0 or 1 => value == 1,
+        _ => null,
+    };
 }
