@@ -92,14 +92,15 @@ public class SourceLinkResolver
     /// ("Finalize") does not appear in the text, so the backward scan would otherwise walk past it
     /// into the preceding member and leak unrelated declarations. When set, the scan stops at the
     /// destructor's signature line, recognized by grammar via
-    /// <see cref="IsDestructorSignatureLine"/> (optional "extern"/"unsafe" modifiers then a
-    /// "~Identifier"), covering spellings such as "~Type()", "~ Type()", and "unsafe ~Type()". It is
-    /// deliberately keyed on caller-supplied identity rather than a "~" text shape so that a normal
-    /// method whose signature legitimately contains a leading "~" continuation (e.g. a multi-line
-    /// default parameter "int x =\n    ~Mask") is never truncated. Matching the destructor grammar
-    /// — rather than any tilde on the line — also keeps a "#line hidden" body expression such as
-    /// "int x = ~0;" (which can become the first visible sequence point) from being mistaken for
-    /// the signature.
+    /// <see cref="IsDestructorSignatureLine"/> (optional "extern"/"unsafe" modifiers, then a tilde,
+    /// an identifier, and an empty "()" parameter list), covering spellings such as "~Type()",
+    /// "~ Type()", and "unsafe ~Type()". It is deliberately keyed on caller-supplied identity rather
+    /// than a "~" text shape so that a normal method whose signature legitimately contains a leading
+    /// "~" continuation (e.g. a multi-line default parameter "int x =\n    ~Mask") is never
+    /// truncated. Requiring the full "~Identifier()" grammar — rather than any tilde on the line —
+    /// also keeps a "#line hidden" body complement such as "int x = ~0;", "~mask;", or a
+    /// "~Compute(x);" invocation (which can become the first visible sequence point) from being
+    /// mistaken for the parameterless signature.
     /// </para>
     /// </summary>
     public static string ExtractMethodBody(string sourceText, int startLine, int endLine, string methodName, bool isDestructor = false)
@@ -168,13 +169,21 @@ public class SourceLinkResolver
     }
 
     /// <summary>
-    /// True when <paramref name="trimmed"/> (a leading-whitespace-stripped line) is the start of a
-    /// C# destructor signature: the optional legal destructor modifiers <c>extern</c>/<c>unsafe</c>,
-    /// then a tilde, then an identifier start ("~Type"). Used only to locate the signature line
-    /// within an already-identified destructor scan (see <see cref="ExtractMethodBody"/>); it
-    /// deliberately requires an identifier after the tilde so a complement expression such as
-    /// <c>~0)</c> or <c>~(x)</c> — which can appear on a "#line hidden" body line — is not mistaken
-    /// for the signature.
+    /// True when <paramref name="trimmed"/> (a leading-whitespace-stripped line) is a complete C#
+    /// destructor signature start: the optional legal destructor modifiers <c>extern</c>/<c>unsafe</c>,
+    /// then a tilde, an identifier, then an <em>empty</em> parameter list — "~Type()". Used only to
+    /// locate the signature line within an already-identified destructor scan (see
+    /// <see cref="ExtractMethodBody"/>).
+    /// <para>
+    /// The full "~Identifier()" grammar — rather than a bare "~Identifier" prefix — is required
+    /// because a "#line hidden" region can push the first visible sequence point into the method
+    /// body, so the backward scan may encounter body lines. A destructor is always parameterless, so
+    /// demanding the trailing empty "()" rejects bitwise-complement statements that also begin with a
+    /// tilde-identifier, whether they are bare (<c>~mask;</c>), argument-bearing invocations
+    /// (<c>~Compute(x);</c>), or parenthesized (<c>~(x)</c>) — none of which are "~Identifier()".
+    /// The identifier run also admits backslashes so a Unicode-escaped type name (<c>~\u0043()</c>)
+    /// is still recognized.
+    /// </para>
     /// </summary>
     internal static bool IsDestructorSignatureLine(string trimmed)
     {
@@ -187,11 +196,29 @@ public class SourceLinkResolver
             break;
         }
 
-        if (span.Length < 2 || span[0] != '~')
+        if (span.Length == 0 || span[0] != '~')
             return false;
 
-        var rest = span[1..].TrimStart();
-        return rest.Length > 0 && (char.IsLetter(rest[0]) || rest[0] == '_' || rest[0] == '@');
+        span = span[1..].TrimStart();
+
+        // Require an identifier: a valid start char (letter / '_' / '@' verbatim / '\' escape) then
+        // any run of identifier continuation chars.
+        if (span.Length == 0 || !(char.IsLetter(span[0]) || span[0] == '_' || span[0] == '@' || span[0] == '\\'))
+            return false;
+
+        int i = 1;
+        while (i < span.Length && (char.IsLetterOrDigit(span[i]) || span[i] == '_' || span[i] == '\\'))
+            i++;
+
+        span = span[i..].TrimStart();
+
+        // A destructor is parameterless, so the parameter list must be an empty "()". This is what
+        // separates the signature from a tilde-identifier body expression under "#line hidden".
+        if (span.Length == 0 || span[0] != '(')
+            return false;
+
+        span = span[1..].TrimStart();
+        return span.Length > 0 && span[0] == ')';
     }
 
     static bool TryStripModifier(ref ReadOnlySpan<char> span, string modifier)

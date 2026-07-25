@@ -248,4 +248,61 @@ public class ExtractMethodBodyTests
         Assert.Contains("int x = ~0;", body, System.StringComparison.Ordinal);
         Assert.DoesNotContain("Preceding", body, System.StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData("~mask;")]          // bitwise complement of a local, bare
+    [InlineData("~Mask;")]          // bitwise complement of a constant/field
+    [InlineData("~Compute(x);")]    // bitwise complement of an invocation (argument-bearing)
+    public void Destructor_HiddenBodyTildeComplement_DoesNotStopAtNonEmptyParenOrBareComplement(string bodyComplementLine)
+    {
+        // Regression guard (adversarial review): "#line hidden" can push the first
+        // visible sequence point past the signature, so the backward scan begins
+        // inside the body. A tilde-identifier body statement that is NOT the
+        // parameterless "~Type()" signature — a bare complement ("~mask;"), a
+        // complemented field ("~Mask;"), or a complemented invocation
+        // ("~Compute(x);") — must NOT be mistaken for the destructor signature.
+        // The scan must walk up to the real "~C()" line and never leak the
+        // preceding member.
+        var source = Lines(
+            "class C",                          // 1
+            "{",                                // 2
+            "    internal int Preceding;",      // 3  <- must NOT be captured
+            "",                                 // 4
+            "    ~C()",                         // 5  <- real signature
+            "    {",                            // 6
+            "        int x =",                  // 7
+            "            " + bodyComplementLine,// 8  <- must NOT be treated as signature
+            "        System.GC.KeepAlive(x);",  // 9  <- StartLine (first visible seq point)
+            "    }",                            // 10
+            "}");                               // 11
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 9, endLine: 9, methodName: "Finalize", isDestructor: true);
+
+        Assert.StartsWith("~C()", body, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("Preceding", body, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Destructor_UnicodeEscapedTypeName_StopsAtTildeSignature()
+    {
+        // Regression guard (adversarial review): a destructor's type name may be
+        // spelled with a Unicode escape ("~\u0043()" for "~C()"). The signature
+        // grammar admits backslashes in the identifier run so the escaped form is
+        // still recognized and the preceding member is not leaked.
+        var source = Lines(
+            "class C",                              // 1
+            "{",                                    // 2
+            "    internal static bool s_flag;",     // 3  <- must NOT be captured
+            "",                                     // 4
+            "    ~\\u0043()",                       // 5
+            "    {",                                // 6  <- StartLine
+            "        s_flag = true;",               // 7  <- EndLine
+            "    }",                                // 8
+            "}");                                   // 9
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Finalize", isDestructor: true);
+
+        Assert.StartsWith("~\\u0043()", body, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("s_flag;", body, System.StringComparison.Ordinal);
+    }
 }
