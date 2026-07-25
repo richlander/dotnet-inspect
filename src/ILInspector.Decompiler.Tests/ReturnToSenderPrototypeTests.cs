@@ -1367,6 +1367,52 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_RoundTripsExplicitInterfaceOpPrefixedNonOperatorMethod()
+    {
+        // Close positive case for the operator discriminator (#3112, adversarial review):
+        // a method whose metadata name merely starts with `op_` but is NOT a recognized
+        // operator (OperatorNames.FormatDisplayName returns it unchanged, and the printer
+        // renders it as a plain `int op_Custom()` member) must still reconstruct as an
+        // explicit implementation and round-trip Exact. The operator fallback must key off
+        // recognized-operator rendering, not the bare `op_` prefix, so it does not
+        // over-trigger here.
+        var assemblyPath = CompileFixture("""
+            public sealed class ExplicitOpNameFixture : IHasOpName
+            {
+                int IHasOpName.op_Custom()
+                {
+                    return 42;
+                }
+            }
+
+            public interface IHasOpName
+            {
+                int op_Custom();
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitOpNameFixture",
+                    "IHasOpName.op_Custom",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("int IHasOpName.op_Custom()", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("IHasOpName_op_Custom", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_ExplicitInterfaceDefaultMethodFallsBackToPlainWithoutRecompileFail()
     {
         // Negative case (#3112, adversarial review): an explicit-interface implementation of a

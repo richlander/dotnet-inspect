@@ -1329,15 +1329,18 @@ public static class CompileBackSourceComposer
             // Operators and non-abstract default interface methods cannot be reconstructed
             // faithfully here, so fall back to the plain sanitized shape (main's behavior)
             // rather than emit an unbindable explicit implementation:
-            //  - Operators: the explicit target spelling uses the raw `op_*` metadata name
-            //    (via CSharpIdentifier.Sanitize) instead of C# `operator` syntax, so it does
-            //    not match the interface's `operator` member (CS0539).
+            //  - Operators: the printer renders the interface member with C#
+            //    `operator`/`implicit`/`explicit` syntax (exactly when
+            //    OperatorNames.FormatDisplayName rewrites the metadata name), which the
+            //    explicit target spelling — the raw sanitized `op_*` name — cannot match
+            //    (CS0539). A non-operator `op_*`-named method (FormatDisplayName returns it
+            //    unchanged, matching the printer) stays on the normal path and can still
+            //    reconstruct Exact.
             //  - Default interface methods (virtual, non-abstract): the interface member
             //    reconstructs bodyless (StubBody.None) while remaining `virtual`, which is
             //    invalid because a non-abstract virtual interface method requires a body
             //    (CS0501).
-            if (declaration.Attributes.HasFlag(MethodAttributes.SpecialName)
-                && declarationName.StartsWith("op_", StringComparison.Ordinal))
+            if (OperatorNames.FormatDisplayName(declarationName) != declarationName)
             {
                 return false;
             }
