@@ -182,7 +182,7 @@ public static partial class BrowserInspectionEngine
     static readonly HttpClient Http = new();
     static readonly object PackageCacheLock = new();
     static readonly Dictionary<string, PackageCacheEntry> PackageCache = new(StringComparer.Ordinal);
-    const int MaxCachedPackages = 4;
+    const int MaxCachedPackages = 6;
     const long MaxCachedPackageBytes = 64L * 1024 * 1024;
     static long _packageCacheClock;
 
@@ -390,6 +390,82 @@ public static partial class BrowserInspectionEngine
             var decompiled = MemberBodyProducer.ProduceMember(type, member, implementationPath, File.Exists(pdbPath) ? pdbPath : null);
             if (decompiled.Text is not { Length: > 0 } text)
                 throw new InvalidOperationException("Authored source was unavailable and decompilation did not produce source.");
+
+            return JsonSerializer.Serialize(
+                new BrowserMemberSource(
+                    "decompiled",
+                    text,
+                    null,
+                    $"Decompiled by dotnet-inspect from lib/{targetFramework}/{assemblyName}"),
+                BrowserJsonContext.Default.BrowserMemberSource);
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); }
+            catch { }
+        }
+    }
+
+    [JSExport]
+    public static async Task<string> QueryTypeSource(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeId)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-web-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            string? implementationPath;
+            using (var stream = new MemoryStream(packageBytes, writable: false))
+            using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
+            {
+                var implementation = archive.Entries.FirstOrDefault(entry =>
+                    entry.FullName.Equals($"lib/{targetFramework}/{assemblyName}", StringComparison.OrdinalIgnoreCase))
+                    ?? archive.Entries.FirstOrDefault(entry =>
+                        entry.FullName.Equals($"ref/{targetFramework}/{assemblyName}", StringComparison.OrdinalIgnoreCase))
+                    ?? throw new InvalidOperationException(
+                        $"No implementation asset for {assemblyName} at {targetFramework}.");
+
+                foreach (var entry in archive.Entries.Where(entry =>
+                    entry.FullName.StartsWith($"lib/{targetFramework}/", StringComparison.OrdinalIgnoreCase)
+                    && entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
+                {
+                    await WriteEntryAsync(entry, Path.Combine(tempRoot, entry.Name));
+                }
+
+                implementationPath = Path.Combine(tempRoot, implementation.Name);
+                if (!File.Exists(implementationPath))
+                    await WriteEntryAsync(implementation, implementationPath);
+            }
+
+            var pdbPath = Path.ChangeExtension(implementationPath, ".pdb");
+            var symbolPackageUrl =
+                $"https://globalcdn.nuget.org/symbol-packages/" +
+                $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.snupkg";
+            await TryAcquirePackagePdbAsync(symbolPackageUrl, targetFramework, assemblyName, pdbPath);
+
+            using var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
+                new AssemblyReferenceIdentity(assemblyName, null, null, null),
+                implementationPath,
+                () => File.OpenRead(implementationPath),
+                Provenance: $"lib/{targetFramework}/{assemblyName}"));
+            var type = inspection.ApiSurface().Types.FirstOrDefault(candidate =>
+                candidate.FullName.Equals(typeId, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
+
+            var listing = MemberBodyProducer.Project(
+                type,
+                implementationPath,
+                File.Exists(pdbPath) ? pdbPath : null);
+            if (listing.Output is not { Length: > 0 } text)
+                throw new InvalidOperationException("Whole-type decompilation did not produce source.");
 
             return JsonSerializer.Serialize(
                 new BrowserMemberSource(
@@ -743,6 +819,20 @@ public static partial class BrowserInspectionEngine
         return actual.Length > 0 && CryptographicOperations.FixedTimeEquals(actual, expected);
     }
 
+    // WASM PDB-acquisition policy: NuGet .snupkg only.
+    //
+    // This runs inside the browser, so every fetch is subject to CORS. NuGet's
+    // symbol-package endpoint (globalcdn.nuget.org/symbol-packages) is CORS-open
+    // and works for packages that publish symbols. Packages that ship no snupkg
+    // (e.g. Microsoft runtime libraries like System.Text.Json) simply 404 here and
+    // we fall back to decompiling with pdb=null — that is expected, not an error.
+    //
+    // Do NOT add the Microsoft symbol server (MSDL) as a fallback in this engine.
+    // MSDL answers with a cross-origin 302 to an Azure blob (SAS-signed, expiring,
+    // non-guessable URL) and the 302 itself carries no Access-Control-Allow-Origin
+    // header, so a browser fetch in cors mode aborts with "Failed to fetch" before
+    // it ever reaches the blob (verified). MSDL-backed PDBs must instead be
+    // precomputed at build/publish time and shipped as same-origin static assets.
     static async Task TryAcquirePackagePdbAsync(
         string symbolPackageUrl,
         string targetFramework,

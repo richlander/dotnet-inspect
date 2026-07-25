@@ -1,5 +1,5 @@
 import { lenses, rootCommands } from "./data.js";
-import { initializeEngine, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage } from "/engine.js";
+import { initializeEngine, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectTypeSource } from "/engine.js";
 
 const state = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
@@ -15,6 +15,10 @@ const state = {
   memberSource: null,
   memberSourceLoading: false,
   memberSourceError: "",
+  typeSource: null,
+  typeSourceLoading: false,
+  typeSourceError: "",
+  typeSourceKey: "",
   memberCallGraph: null,
   memberCallGraphLoading: false,
   memberCallGraphError: "",
@@ -33,8 +37,79 @@ const state = {
   history: [],
   loading: true,
   loadingMessage: "Starting browser inspection engine…",
-  error: ""
+  error: "",
+  diag: null
 };
+
+const nav = { stack: [], index: -1 };
+
+function viewSignature() {
+  return JSON.stringify({
+    p: state.package?.id ?? "",
+    l: state.lens,
+    t: state.selectedTypeId,
+    m: state.selectedMemberKey,
+    o: state.selectedOverloadIndex,
+    s: state.memberSection
+  });
+}
+
+function captureView() {
+  return {
+    package: state.package?.id ?? "",
+    lens: state.lens,
+    selectedTypeId: state.selectedTypeId,
+    selectedMemberKey: state.selectedMemberKey,
+    selectedOverloadIndex: state.selectedOverloadIndex,
+    memberSection: state.memberSection
+  };
+}
+
+function recordNav() {
+  if (!state.package) return;
+  const sig = viewSignature();
+  if (nav.index >= 0 && nav.stack[nav.index]?.sig === sig) return;
+  nav.stack = nav.stack.slice(0, nav.index + 1);
+  nav.stack.push({ sig, view: captureView() });
+  nav.index = nav.stack.length - 1;
+}
+
+function applyView(view) {
+  const pkg = state.packages.find(item => item.id === view.package);
+  if (pkg) state.package = pkg;
+  state.lens = view.lens;
+  state.selectedTypeId = view.selectedTypeId;
+  state.selectedMemberKey = view.selectedMemberKey;
+  state.selectedOverloadIndex = view.selectedOverloadIndex;
+  state.memberSection = view.memberSection;
+  state.memberSource = null;
+  state.memberSourceError = "";
+  state.memberCallGraph = null;
+  state.memberCallGraphError = "";
+  state.memberFacts = null;
+  state.memberFactsError = "";
+  const type = selectedType();
+  if (state.lens === "api" && state.selectedMemberKey && selectedMember(type)) {
+    if (state.memberSection === "source") loadSelectedMemberSource();
+    else if (state.memberSection === "call-graph") loadSelectedMemberCallGraph();
+    else if (state.memberSection === "facts") loadSelectedMemberFacts();
+    else loadSelectedMemberDocumentation();
+  } else {
+    render();
+  }
+}
+
+function navBack() {
+  if (nav.index <= 0) return;
+  nav.index -= 1;
+  applyView(nav.stack[nav.index].view);
+}
+
+function navForward() {
+  if (nav.index >= nav.stack.length - 1) return;
+  nav.index += 1;
+  applyView(nav.stack[nav.index].view);
+}
 
 const params = new URLSearchParams(location.search);
 const route = location.pathname.split("/").filter(Boolean);
@@ -163,7 +238,7 @@ function render() {
           ${state.packages.map(item => `
             <button class="package-tab ${item.id === state.package.id ? "active" : ""}" data-package="${escapeHtml(item.id)}" role="tab">
               <span class="package-cube">⬡</span>
-              <span>${escapeHtml(item.id)}</span>
+              <span class="tab-label">${escapeHtml(item.id)}</span>
               <small>${escapeHtml(item.version)}</small>
               ${item.id === state.package.id ? '<span class="tab-close">×</span>' : ""}
             </button>`).join("")}
@@ -250,6 +325,10 @@ function render() {
 
         <section class="detail-pane">
           <header class="detail-head">
+            <div class="nav-history">
+              <button id="nav-back" ${nav.index > 0 ? "" : "disabled"} title="Back (Alt+←)" aria-label="Back">‹</button>
+              <button id="nav-forward" ${nav.index < nav.stack.length - 1 ? "" : "disabled"} title="Forward (Alt+→)" aria-label="Forward">›</button>
+            </div>
             <div class="breadcrumbs">
               <span>${escapeHtml(state.package.id)}</span><b>/</b><span>${escapeHtml(current.namespace)}</span><b>/</b><strong>${escapeHtml(current.name)}</strong>
               ${state.selectedMemberKey ? `<b>/</b><strong>${escapeHtml(selectedMember(current)?.name ?? "")}</strong>` : ""}
@@ -261,6 +340,11 @@ function render() {
           </article>
           <footer class="statusbar">
             <span class="ready-dot"></span><span>browser wasm ready</span>
+            ${state.diag ? `
+            <span class="diag" title="Framework assets fetched over the wire — compressed → uncompressed, across ${state.diag.assets} files">↓ download ${fmtMs(state.diag.downloadMs)} · ${fmtBytes(state.diag.transfer)}${state.diag.decoded ? ` → ${fmtBytes(state.diag.decoded)}` : ""}</span>
+            <span class="diag" title="Runtime instantiation after assets arrived: WASM compile + module init + runMain">⚙ startup ${fmtMs(state.diag.startupMs)}</span>
+            <span class="diag" title="Initial package query precomputed during load">⚡ precompute ${fmtMs(state.diag.precomputeMs)}</span>
+            <span class="diag diag-total" title="Total time from navigation start to interactive">Σ ${fmtMs(state.diag.totalMs)}</span>` : ""}
           <span class="status-spacer"></span>
           <span>${escapeHtml(current.assembly)}</span>
           <span>${escapeHtml(state.package.activeFramework)}</span>
@@ -289,6 +373,17 @@ function render() {
     </div>`;
 
   bindEvents();
+  recordNav();
+  maybeAutoLoadTypeSource();
+}
+
+function maybeAutoLoadTypeSource() {
+  if (state.lens !== "source") return;
+  const type = selectedType();
+  if (!type) return;
+  const signature = typeSourceSignature(type);
+  if (state.typeSourceKey === signature) return;
+  loadSelectedTypeSource();
 }
 
 function renderLens(item) {
@@ -297,7 +392,7 @@ function renderLens(item) {
   if (state.lens === "source") {
     return `
       ${typeHeading(item)}
-      <section class="document-section empty-document"><span class="large-glyph">⌁</span><h2>Source not acquired</h2><p>The current query requests the public API facet only. SourceLink acquisition will be an explicit follow-up query.</p></section>`;
+      ${renderTypeSource(item)}`;
   }
   if (state.lens === "metadata") {
     return `${typeHeading(item)}
@@ -547,12 +642,38 @@ function typeHeading(item) {
       <code class="type-signature">${highlight(item.signature)}</code>
     </div>
     <div class="type-metrics"><span><strong>${item.members}</strong> members</span><span><strong>public</strong> accessibility</span></div>
-    <p>Public type exposed by <code>${escapeHtml(item.assembly)}</code> for <code>${escapeHtml(state.package.activeFramework)}</code>.</p>
+    <dl class="definition-list">
+      <div><dt>TFM:</dt><dd>${escapeHtml(state.package.activeFramework)}</dd></div>
+      <div><dt>Library:</dt><dd>${escapeHtml(item.assembly)}</dd></div>
+      <div><dt>Package:</dt><dd>${escapeHtml(state.package.id)}@${escapeHtml(state.package.version)}</dd></div>
+    </dl>
   </header>`;
 }
 
 function factRows(rows) {
   return `<dl class="fact-rows">${rows.map(([key, value]) => `<div><dt>${escapeHtml(key)}</dt><dd><code>${escapeHtml(value)}</code></dd></div>`).join("")}</dl>`;
+}
+
+function typeSourceSignature(item) {
+  return `${state.package.id}@${state.package.version}/${state.package.activeFramework}/${item.assembly}/${item.id}`;
+}
+
+function renderTypeSource(item) {
+  const current = typeSourceSignature(item);
+  const fresh = state.typeSourceKey === current;
+  if (state.typeSourceLoading && fresh) {
+    return `<section class="document-section source-progress"><span class="loader"></span><h2>Decompiling type…</h2><p>Reconstructing the whole type as C# with dotnet-inspect.</p></section>`;
+  }
+  if (fresh && state.typeSource) {
+    return `<section class="document-section source-result">
+        <div class="source-provenance"><strong>Decompiled source</strong><span>${escapeHtml(state.typeSource.provenance)}</span><button id="copy-type-source" type="button">copy</button></div>
+        <pre class="language-csharp"><code class="language-csharp">${highlightCSharp(state.typeSource.text)}</code></pre>
+      </section>`;
+  }
+  if (fresh && state.typeSourceError) {
+    return `<section class="document-section empty-document"><span class="large-glyph">⌁</span><h2>Type source failed</h2><p>${escapeHtml(state.typeSourceError)}</p></section>`;
+  }
+  return `<section class="document-section source-progress"><span class="loader"></span><h2>Decompiling type…</h2><p>Reconstructing the whole type as C# with dotnet-inspect.</p></section>`;
 }
 
 function kindIcon(kind) {
@@ -660,6 +781,9 @@ function bindEvents() {
   document.querySelector("#copy-source")?.addEventListener("click", async () => {
     if (state.memberSource) await copyText(state.memberSource.text, "source copied");
   });
+  document.querySelector("#copy-type-source")?.addEventListener("click", async () => {
+    if (state.typeSource) await copyText(state.typeSource.text, "source copied");
+  });
   document.querySelectorAll("[data-namespace]").forEach(button => button.addEventListener("click", () => {
     state.namespaceFilter = button.dataset.namespace;
     state.typeCursor = 0;
@@ -729,9 +853,11 @@ function bindEvents() {
     loadPackage(packageId, version, "");
   });
   document.querySelector("#share").addEventListener("click", share);
+  document.querySelector("#nav-back")?.addEventListener("click", navBack);
+  document.querySelector("#nav-forward")?.addEventListener("click", navForward);
   document.querySelector("#demo-call-graph").addEventListener("click", runCallGraphDemo);
   document.querySelector("#theme-toggle").addEventListener("click", toggleTheme);
-  document.querySelector("#help").addEventListener("click", () => showToast("⌘K command · ⌘F filter · 1—6 lenses · ↑↓ types"));
+  document.querySelector("#help").addEventListener("click", () => showToast("⌘K command · ⌘F filter · 1—6 lenses · ↑↓ types · Alt+←/→ back/forward · graph (focused): +/− zoom, 0 fit, arrows pan · ⌘/Ctrl+wheel zoom"));
 }
 
 function toggleTheme() {
@@ -745,16 +871,18 @@ function toggleTheme() {
 function handleTypeKeys(event) {
   const items = filteredTypes();
   if (!items.length) return;
+  let cursor = items.findIndex(item => item.id === state.selectedTypeId);
+  if (cursor < 0) cursor = Math.min(state.typeCursor, items.length - 1);
   if (event.key === "ArrowDown" || event.key === "j") {
     event.preventDefault();
-    state.typeCursor = Math.min(items.length - 1, state.typeCursor + 1);
+    cursor = Math.min(items.length - 1, cursor + 1);
   } else if (event.key === "ArrowUp" || event.key === "k") {
     event.preventDefault();
-    state.typeCursor = Math.max(0, state.typeCursor - 1);
+    cursor = Math.max(0, cursor - 1);
   } else if (event.key === "Home") {
-    state.typeCursor = 0;
+    cursor = 0;
   } else if (event.key === "End") {
-    state.typeCursor = items.length - 1;
+    cursor = items.length - 1;
   } else if (event.key === "/") {
     event.preventDefault();
     focusFilter();
@@ -762,7 +890,8 @@ function handleTypeKeys(event) {
   } else {
     return;
   }
-  state.selectedTypeId = items[state.typeCursor].id;
+  state.typeCursor = cursor;
+  state.selectedTypeId = items[cursor].id;
   state.selectedMemberKey = "";
   render();
   requestAnimationFrame(() => {
@@ -984,6 +1113,39 @@ async function loadSelectedMemberSource() {
   }
 }
 
+async function loadSelectedTypeSource() {
+  const type = selectedType();
+  if (!type) {
+    render();
+    return;
+  }
+  const signature = typeSourceSignature(type);
+  if (state.typeSourceKey === signature && (state.typeSource || state.typeSourceError)) {
+    render();
+    return;
+  }
+  state.typeSourceKey = signature;
+  state.typeSource = null;
+  state.typeSourceError = "";
+  state.typeSourceLoading = true;
+  render();
+  try {
+    const result = await inspectTypeSource({
+      packageId: state.package.id,
+      version: state.package.version,
+      framework: state.package.activeFramework,
+      assembly: type.assembly,
+      type: type.id
+    });
+    if (state.typeSourceKey === signature) state.typeSource = result;
+  } catch (error) {
+    if (state.typeSourceKey === signature) state.typeSourceError = String(error?.message || error);
+  } finally {
+    if (state.typeSourceKey === signature) state.typeSourceLoading = false;
+    render();
+  }
+}
+
 async function loadSelectedMemberCallGraph() {
   if (state.memberCallGraph) {
     render();
@@ -1035,19 +1197,180 @@ async function renderMermaidCallGraph() {
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: "strict",
-      theme: state.theme,
+      theme: state.theme === "light" ? "default" : "dark",
       themeVariables: { fontSize: "17px" },
       flowchart: { htmlLabels: false, curve: "basis" }
     });
     const id = `call-graph-${Date.now().toString(36)}`;
-    const { svg } = await mermaid.render(id, state.memberCallGraph.mermaid);
-    if (document.querySelector("#call-graph-diagram") === container)
-      container.innerHTML = svg;
+    const rootStyle = getComputedStyle(document.documentElement);
+    const definition = state.memberCallGraph.mermaid.replace(
+      /var\((--[\w-]+)\)/g,
+      (whole, name) => rootStyle.getPropertyValue(name).trim() || whole
+    );
+    const { svg } = await mermaid.render(id, definition);
+    if (document.querySelector("#call-graph-diagram") === container) {
+      container.innerHTML =
+        '<div class="graph-viewport"></div>'
+        + '<div class="graph-controls">'
+        + '<button type="button" data-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>'
+        + '<button type="button" data-zoom="out" title="Zoom out" aria-label="Zoom out">\u2212</button>'
+        + '<button type="button" class="reset" data-zoom="reset" title="Reset view" aria-label="Reset view">fit</button>'
+        + '</div>';
+      const viewport = container.querySelector(".graph-viewport");
+      viewport.innerHTML = svg;
+      attachGraphPanZoom(container, viewport);
+    }
   } catch (error) {
     if (document.querySelector("#call-graph-diagram") === container) {
       container.innerHTML = `<div class="graph-render-error"><strong>Diagram rendering failed</strong><p>${escapeHtml(String(error?.message || error))}</p></div>`;
     }
   }
+}
+
+function attachGraphPanZoom(container, viewport) {
+  const svg = viewport.querySelector("svg");
+  if (!svg) return;
+
+  const box = svg.viewBox?.baseVal;
+  const naturalWidth = box && box.width ? box.width : svg.getBoundingClientRect().width;
+  const naturalHeight = box && box.height ? box.height : svg.getBoundingClientRect().height;
+  svg.setAttribute("width", naturalWidth);
+  svg.setAttribute("height", naturalHeight);
+
+  const minScale = 0.2;
+  const maxScale = 8;
+  const view = { scale: 1, x: 0, y: 0 };
+  const clampScale = value => Math.min(maxScale, Math.max(minScale, value));
+
+  function apply() {
+    svg.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.scale})`;
+  }
+
+  function fit() {
+    const rect = viewport.getBoundingClientRect();
+    if (!naturalWidth || !naturalHeight || !rect.width) return;
+    view.scale = clampScale(Math.min(rect.width / naturalWidth, rect.height / naturalHeight) * 0.92);
+    view.x = (rect.width - naturalWidth * view.scale) / 2;
+    view.y = (rect.height - naturalHeight * view.scale) / 2;
+    apply();
+  }
+
+  function zoomAt(px, py, factor) {
+    const next = clampScale(view.scale * factor);
+    const ratio = next / view.scale;
+    view.x = px - (px - view.x) * ratio;
+    view.y = py - (py - view.y) * ratio;
+    view.scale = next;
+    apply();
+  }
+
+  viewport.addEventListener("wheel", event => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    const rect = viewport.getBoundingClientRect();
+    zoomAt(event.clientX - rect.left, event.clientY - rect.top, Math.exp(-event.deltaY * 0.0015));
+  }, { passive: false });
+
+  let pointerId = null;
+  let moved = false;
+  const start = { x: 0, y: 0, vx: 0, vy: 0 };
+  viewport.addEventListener("pointerdown", event => {
+    pointerId = event.pointerId;
+    moved = false;
+    viewport.setPointerCapture(pointerId);
+    viewport.classList.add("panning");
+    start.x = event.clientX;
+    start.y = event.clientY;
+    start.vx = view.x;
+    start.vy = view.y;
+  });
+  viewport.addEventListener("pointermove", event => {
+    if (pointerId !== event.pointerId) return;
+    if (Math.abs(event.clientX - start.x) + Math.abs(event.clientY - start.y) > 5) moved = true;
+    view.x = start.vx + (event.clientX - start.x);
+    view.y = start.vy + (event.clientY - start.y);
+    apply();
+  });
+  function endPan(event) {
+    if (pointerId !== event.pointerId) return;
+    viewport.releasePointerCapture(pointerId);
+    viewport.classList.remove("panning");
+    pointerId = null;
+  }
+  viewport.addEventListener("pointerup", endPan);
+  viewport.addEventListener("pointercancel", endPan);
+
+  container.querySelectorAll(".graph-controls button").forEach(button => {
+    button.addEventListener("click", () => {
+      const rect = viewport.getBoundingClientRect();
+      const mode = button.dataset.zoom;
+      if (mode === "in") zoomAt(rect.width / 2, rect.height / 2, 1.25);
+      else if (mode === "out") zoomAt(rect.width / 2, rect.height / 2, 0.8);
+      else fit();
+    });
+  });
+
+  viewport.tabIndex = 0;
+  viewport.addEventListener("keydown", event => {
+    const rect = viewport.getBoundingClientRect();
+    const step = 45;
+    if (event.key === "+" || event.key === "=") zoomAt(rect.width / 2, rect.height / 2, 1.25);
+    else if (event.key === "-" || event.key === "_") zoomAt(rect.width / 2, rect.height / 2, 0.8);
+    else if (event.key === "0") fit();
+    else if (event.key === "ArrowLeft") { view.x += step; apply(); }
+    else if (event.key === "ArrowRight") { view.x -= step; apply(); }
+    else if (event.key === "ArrowUp") { view.y += step; apply(); }
+    else if (event.key === "ArrowDown") { view.y -= step; apply(); }
+    else return;
+    event.preventDefault();
+  });
+
+  svg.querySelectorAll("g.node").forEach(node => {
+    const label = (node.textContent || "").replace(/\s+/g, " ").trim();
+    const target = resolveNodeLabel(label);
+    if (!target) return;
+    node.classList.add("nav-node");
+    node.style.cursor = "pointer";
+    node.addEventListener("click", () => {
+      if (moved) return;
+      navigateToMember(target.pkg, target.type, target.group);
+    });
+  });
+
+  fit();
+}
+
+function resolveNodeLabel(label) {
+  const dot = label.lastIndexOf(".");
+  if (dot < 0) return null;
+  const typeName = label.slice(0, dot);
+  const memberName = label.slice(dot + 1);
+  const candidates = [state.package, ...state.packages.filter(item => item !== state.package)];
+  for (const pkg of candidates) {
+    if (!pkg?.types) continue;
+    const type = pkg.types.find(item =>
+      item.name === typeName || item.id === typeName || item.id.endsWith("." + typeName));
+    if (!type) continue;
+    const group = memberGroups(type).find(item => item.name === memberName);
+    if (group) return { pkg, type, group };
+  }
+  return null;
+}
+
+function navigateToMember(pkg, type, group) {
+  state.package = pkg;
+  state.lens = "api";
+  state.selectedTypeId = type.id;
+  state.selectedMemberKey = group.key;
+  state.selectedOverloadIndex = null;
+  state.memberSection = "overview";
+  state.memberSource = null;
+  state.memberSourceError = "";
+  state.memberCallGraph = null;
+  state.memberCallGraphError = "";
+  state.memberFacts = null;
+  state.memberFactsError = "";
+  loadSelectedMemberDocumentation();
 }
 
 async function loadSelectedMemberFacts() {
@@ -1144,17 +1467,18 @@ async function runCallGraphDemo() {
     "Microsoft.Extensions.DependencyInjection.Abstractions",
     "10.0.0",
     "net10.0");
-  const callerPackage = await loadPackage("Microsoft.Extensions.Options", "10.0.0", "net10.0");
-  if (!targetPackage || !callerPackage) return;
+  const loggingPackage = await loadPackage("Microsoft.Extensions.Logging", "10.0.0", "net10.0");
+  const httpPackage = await loadPackage("Microsoft.Extensions.Http", "10.0.0", "net10.0");
+  if (!targetPackage || !loggingPackage || !httpPackage) return;
 
   state.package = state.packages.find(item =>
     item.id === "Microsoft.Extensions.DependencyInjection.Abstractions"
     && item.version === "10.0.0") || targetPackage;
   const type = state.package.types.find(item =>
-    item.id === "Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions");
+    item.id === "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions");
   const member = type && memberGroups(type).find(item =>
-    item.name === "AddSingleton" && item.kind === "method");
-  const overloadIndex = member?.overloads.findIndex(item => item.anchorDigest === "22bc678876") ?? -1;
+    item.name === "TryAddEnumerable" && item.kind === "method");
+  const overloadIndex = member?.overloads.findIndex(item => item.anchorDigest === "74b6b4b321") ?? -1;
   if (!type || !member || overloadIndex < 0) {
     state.loading = false;
     state.error = "The call graph demo member was not found in the selected package.";
@@ -1177,17 +1501,64 @@ async function bootstrap() {
   state.loading = true;
   state.error = "";
   render();
+  const tStart = performance.now();
   try {
     await initializeEngine(message => {
       state.loadingMessage = message;
       render();
     });
+    const tEngine = performance.now();
     await loadPackage(state.requestedPackage, state.requestedVersion, state.requestedFramework);
+    const tReady = performance.now();
+    state.diag = computeDiagnostics(tStart, tEngine, tReady);
+    render();
   } catch (error) {
     state.loading = false;
     state.error = String(error?.stack || error);
     render();
   }
+}
+
+function computeDiagnostics(tStart, tEngine, tReady) {
+  const assets = performance.getEntriesByType("resource")
+    .filter(entry => entry.name.includes("/_framework/"));
+  let firstStart = Infinity;
+  let lastEnd = 0;
+  let transfer = 0;
+  let decoded = 0;
+  for (const entry of assets) {
+    firstStart = Math.min(firstStart, entry.startTime);
+    lastEnd = Math.max(lastEnd, entry.responseEnd);
+    transfer += entry.transferSize || 0;
+    decoded += entry.decodedBodySize || 0;
+  }
+  const hasAssets = assets.length > 0 && Number.isFinite(firstStart);
+  return {
+    downloadMs: hasAssets ? lastEnd - firstStart : 0,
+    startupMs: hasAssets ? Math.max(0, tEngine - lastEnd) : tEngine - tStart,
+    precomputeMs: tReady - tEngine,
+    totalMs: tReady,
+    transfer,
+    decoded,
+    assets: assets.length
+  };
+}
+
+function fmtMs(ms) {
+  if (ms == null) return "—";
+  return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(2)} s`;
+}
+
+function fmtBytes(bytes) {
+  if (!bytes) return "—";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value.toFixed(value < 10 && unit > 0 ? 1 : 0)} ${units[unit]}`;
 }
 
 document.addEventListener("keydown", event => {
@@ -1198,6 +1569,12 @@ document.addEventListener("keydown", event => {
   } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
     event.preventDefault();
     focusFilter();
+  } else if (event.altKey && event.key === "ArrowLeft") {
+    event.preventDefault();
+    navBack();
+  } else if (event.altKey && event.key === "ArrowRight") {
+    event.preventDefault();
+    navForward();
   } else if (!typing && !event.metaKey && !event.ctrlKey && /^[1-6]$/.test(event.key)) {
     state.lens = lenses[Number(event.key) - 1][0];
     render();
