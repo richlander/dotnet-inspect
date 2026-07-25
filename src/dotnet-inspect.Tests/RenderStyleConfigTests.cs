@@ -672,6 +672,36 @@ public class RenderStyleConfigTests
         return result.Output!;
     }
 
+    // ---- catalog is the source of truth ----
+
+    [Fact]
+    public void EveryCatalogConfigKey_IsHonoredByParse()
+    {
+        // The resolver is data-driven from StyleOptionCatalog, so every catalog
+        // knob that declares a config key must round-trip through Parse with no
+        // warning and set exactly its own option.
+        foreach (var knob in StyleOptionCatalog.Options.Where(o => o.ConfigKey is not null))
+        {
+            var result = RenderStyleConfig.Parse($"{knob.ConfigKey} = true", origin: "cfg");
+
+            Assert.Empty(result.Warnings);
+            Assert.True(knob.Get(result.Options), $"'{knob.ConfigKey}' should set {knob.Id}");
+        }
+    }
+
+    [Fact]
+    public void ApiOnlyCatalogKnobs_HaveNoConfigKey()
+    {
+        // Knobs with no config key (formatting/synthesis) are API-only and must not
+        // be reachable through the file vocabulary; a made-up key still warns.
+        var apiOnly = StyleOptionCatalog.Options.Where(o => o.ConfigKey is null).ToArray();
+        Assert.Contains(apiOnly, o => o.Id == "readable-local-names");
+
+        var result = RenderStyleConfig.Parse("readable_local_names = true", origin: "cfg");
+        Assert.False(result.Options.ReadableLocalNames);
+        Assert.Contains(result.Warnings, w => w.Contains("unknown key"));
+    }
+
     private static string CreateTempDirectory()
     {
         var path = Path.Combine(Path.GetTempPath(), "dotnet-inspectconfig-tests", Path.GetRandomFileName());
