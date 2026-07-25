@@ -61,25 +61,75 @@ public sealed partial class CSharpPrinter
     // The genuine-instance-receiver requirement is enforced by
     // RecordThisQualificationDecision. Overloads share a name, so the callee
     // parameter types disambiguate the dedup key.
-    void RecordMethodQualificationIfTaste(string name, ImmutableArray<TypeRef> parameterTypes)
+    //  * displayName is the escaped C# spelling (post CSharpNaming.SourceMethodName)
+    //    used for the shadow check and the recorded row;
+    //  * rawName is the unsanitized IL metadata name, checked for unspeakability
+    //    BEFORE SourceMethodName strips its <...> decoration (otherwise a lifted
+    //    local function arrives already spelled as a plain identifier and slips
+    //    past the check);
+    //  * declaringType gates same-type membership: only a call whose callee is
+    //    declared on the enclosing type is a `this.` opt-in (see below).
+    void RecordMethodQualificationIfTaste(
+        string displayName,
+        string rawName,
+        TypeRef declaringType,
+        ImmutableArray<TypeRef> parameterTypes)
     {
-        if (IsStaticCallNameShadowed(name) || IsUnspeakableName(name))
+        // Only a same-type instance-method call is a byte-preserving `this.` taste
+        // choice. A cross-type callee reached here is either an inherited base
+        // method (the non-virtual case already rendered base.M above; the virtual
+        // case would rebind under this./bare) or an explicit interface
+        // implementation invoked through this — which does not bind via `this.` at
+        // all and is only mis-rendered as this.M by a pre-existing emit gap.
+        // Neither is a user opt-in, so record nothing. This deliberately
+        // under-records a legitimate this.BaseMethod(); a false-negative is safe, a
+        // false-positive is not.
+        if (IsCrossType(declaringType))
             return;
-        RecordThisQualificationDecision(QualifyMethodOption, name, name, MethodOverloadDiscriminator(parameterTypes));
+        if (IsStaticCallNameShadowed(displayName) || IsUnspeakableName(rawName))
+            return;
+        RecordThisQualificationDecision(
+            QualifyMethodOption, displayName, displayName, MethodOverloadDiscriminator(parameterTypes));
     }
 
     // Compiler-generated members (captured-this lambdas, local-function group
     // targets) carry unspeakable names bracketed with angle brackets, which a
-    // source identifier can never contain.
+    // source identifier can never contain. Feed this the RAW metadata name: a
+    // lifted local function's <Outer>g__Local|0_0 keeps its brackets there, but
+    // CSharpNaming.SourceMethodName has already stripped them from the display
+    // name.
     static bool IsUnspeakableName(string name)
         => name.IndexOf('<') >= 0 || name.IndexOf('>') >= 0;
 
-    // A stable, side-effect-free per-overload key: overloads share a display name,
-    // so the decision subject alone would dedup two distinct methods into one row.
+    // A stable, structurally-complete per-overload key. Overloads share a display
+    // name, so the decision subject alone would dedup two distinct methods into
+    // one row. The key must distinguish every element the runtime treats as part
+    // of an overload's signature — generic instantiation (List<int> vs
+    // List<string>), array element type and rank, by-ref/pointer decoration, and
+    // generic-parameter slot — and must keep the full namespace + assembly
+    // (ToDisplayString strips the namespace, so it would collapse NsA.Widget and
+    // NsB.Widget). Under-distinguishing would merge distinct overloads and HIDE a
+    // real taste application, so this errs toward more distinctions, never fewer.
     static string MethodOverloadDiscriminator(ImmutableArray<TypeRef> parameterTypes)
         => parameterTypes.IsDefaultOrEmpty
             ? ""
-            : string.Join(",", parameterTypes.Select(t => $"{t.Namespace}.{t.Name}"));
+            : string.Join(",", parameterTypes.Select(TypeKey));
+
+    static string TypeKey(TypeRef type) => type.Kind switch
+    {
+        TypeRefKind.GenericInstance =>
+            $"{TypeKey(type.ElementType!)}<{string.Join(",", type.TypeArguments.Select(TypeKey))}>",
+        TypeRefKind.SzArray => $"{TypeKey(type.ElementType!)}[]",
+        TypeRefKind.Array => $"{TypeKey(type.ElementType!)}[{type.Rank}]",
+        TypeRefKind.ByRef => $"ref {TypeKey(type.ElementType!)}",
+        TypeRefKind.Pointer => $"{TypeKey(type.ElementType!)}*",
+        TypeRefKind.Pinned => $"pinned {TypeKey(type.ElementType!)}",
+        TypeRefKind.GenericParameter => $"!{type.GenericParameterIndex}",
+        TypeRefKind.MethodGenericParameter => $"!!{type.GenericParameterIndex}",
+        TypeRefKind.FunctionPointer =>
+            $"fnptr({string.Join(",", type.TypeArguments.Select(TypeKey))})",
+        _ => $"{type.Assembly}:{type.Namespace}.{type.Name}",
+    };
 
     string FieldTarget(FieldRef field, IrExpression? instance)
     {
@@ -360,7 +410,7 @@ public sealed partial class CSharpPrinter
                 return $"base.{name}";
             if (_options.QualifyMethodAccess)
             {
-                RecordMethodQualificationIfTaste(name, method.ParameterTypes);
+                RecordMethodQualificationIfTaste(name, method.Name, method.DeclaringType, method.ParameterTypes);
                 return $"this.{name}";
             }
             return name;
@@ -476,7 +526,8 @@ public sealed partial class CSharpPrinter
                 return $"base.{thisMethodName}{typeArguments}({rest})";
             if (_options.QualifyMethodAccess)
             {
-                RecordMethodQualificationIfTaste(thisMethodName, call.Callee.ParameterTypes);
+                RecordMethodQualificationIfTaste(
+                    thisMethodName, call.Callee.Name, call.Callee.DeclaringType, call.Callee.ParameterTypes);
                 return $"this.{thisMethodName}{typeArguments}({rest})";
             }
             return $"{thisMethodName}{typeArguments}({rest})";

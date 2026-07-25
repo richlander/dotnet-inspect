@@ -182,13 +182,33 @@ that disambiguates a shadow or type-name collision would appear with the knob of
 too, so it is never attributed to the knob as a taste choice. Recording therefore
 applies only to a genuine instance receiver — a static or extension method whose
 first parameter is spelled `@this` (IL name `this`) reaches the same site but has
-no implicit receiver, so it records nothing. Method qualification additionally
-skips a name shadowed by an in-scope local, parameter, or nested lambda binder
-(the `this.` is then mandatory) and a compiler-generated group target (an
-unspeakable `<M>b__N` lambda/local-function name, never authored); same-named
-overloads are recorded as distinct decisions. Qualifications inside a
-locals-bearing lambda body, which renders through an isolated nested printer, are
-not currently surfaced as taste rows.
+no implicit receiver, so it records nothing. Method qualification is the most
+guarded because a bare method name binds through more rules than a field or
+property; it records a decision only when every one of these holds:
+
+- **same-type callee.** The callee's declaring type must be the enclosing type.
+  A cross-type callee reached here is either an inherited base method (whose
+  bare/`this.` form would rebind — the non-virtual case already renders `base.M`)
+  or an **explicit interface implementation** invoked through `this`, which does
+  not bind via `this.` at all (it requires a cast). Neither is a `this.` opt-in.
+  This deliberately under-records a legitimate `this.BaseMethod()`; a
+  false-negative is safe, a false-positive is not.
+- **not shadowed.** A name shadowed by an in-scope local, parameter, or nested
+  lambda binder makes the `this.` mandatory disambiguation, not a choice.
+- **speakable target.** A compiler-generated group target — an unspeakable
+  `<M>b__N` lambda or `<Outer>g__Local|N_M` local-function name — is never
+  authored. The unspeakable check runs against the **raw** IL metadata name,
+  before `CSharpNaming.SourceMethodName` strips its `<...>` decoration (a lifted
+  local function otherwise arrives spelled as a plain identifier and would slip
+  past the check).
+
+Same-named overloads are recorded as distinct decisions; the dedup discriminator
+is a structurally complete per-overload key (generic instantiation, array element
+type and rank, by-ref/pointer decoration, generic-parameter slot, plus the full
+assembly-qualified namespace) so `M(List<int>)` and `M(List<string>)`, or
+`M(NsA.Widget)` and `M(NsB.Widget)`, stay two rows rather than collapsing into
+one. Qualifications inside a locals-bearing lambda body, which renders through an
+isolated nested printer, are not currently surfaced as taste rows.
 
 ### Expression-bodied members
 

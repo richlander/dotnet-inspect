@@ -315,6 +315,33 @@ public sealed class ThisQualificationSpecimen
         this.Overloaded("a");
     }
 
+    // Two overloads whose signatures differ ONLY by generic type argument
+    // (List<int> vs List<string>). The dedup discriminator must distinguish them
+    // structurally: a name-only or {Namespace}.{Name} key renders both parameter
+    // types as the same "System.Collections.Generic.List", collapsing two genuine
+    // taste applications into one row and HIDING one. Qualifying both must record
+    // TWO distinct decisions.
+    public void GenericOverloaded(System.Collections.Generic.List<int> x) { }
+    public void GenericOverloaded(System.Collections.Generic.List<string> x) { }
+    public void CallGenericOverloads()
+    {
+        this.GenericOverloaded(new System.Collections.Generic.List<int>());
+        this.GenericOverloaded(new System.Collections.Generic.List<string>());
+    }
+
+    // A local function that captures `this` (reads _value) is lifted to a
+    // compiler-generated instance method whose RAW metadata name is
+    // <CallsCapturingLocalFunction>g__Local|N_M — unspeakable, and never a member
+    // you can write `this.` in front of. The knob must record nothing. The
+    // unspeakable check must run against the raw name: CSharpNaming.SourceMethodName
+    // strips the <...> to a bare `Local`, which would slip past a post-sanitization
+    // check.
+    public int CallsCapturingLocalFunction()
+    {
+        int Local() => _value + 1;
+        return Local();
+    }
+
     // A local delegate shadows an instance method name, so the bare call binds to
     // the delegate and reaching the method REQUIRES this.ReadField(). That this. is
     // mandatory disambiguation, not the qualify-method knob, so it records no taste
@@ -381,4 +408,24 @@ public static class ThisQualificationSpecimenExtensions
 {
     public static int CallThroughThisParam(this ThisQualificationSpecimen @this)
         => @this.ReadField();
+}
+
+// An explicit interface implementation: `int IThisQualificationFace.FaceMethod()`
+// can ONLY be reached through a cast (((IThisQualificationFace)this).FaceMethod()),
+// never through a bare `FaceMethod()` or `this.FaceMethod()` — the member does not
+// bind unqualified. csc emits `callvirt IThisQualificationFace::FaceMethod` on the
+// this receiver, whose declaring type is the interface (cross-type from the
+// implementing class). The qualify-method knob must record no taste decision: a
+// cross-type callee is never a `this.` opt-in. (The printer's pre-existing emit
+// still mis-spells this as this.FaceMethod(); only the false RECORD is suppressed.)
+public interface IThisQualificationFace
+{
+    int FaceMethod();
+}
+
+public sealed class ThisQualificationExplicitFace : IThisQualificationFace
+{
+    int IThisQualificationFace.FaceMethod() => 7;
+
+    public int CallExplicitInterface() => ((IThisQualificationFace)this).FaceMethod();
 }

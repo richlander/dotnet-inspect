@@ -184,6 +184,52 @@ public sealed class ThisQualificationDecisionTests
             d => d.RuleId == "qualify-method-access" && d.Subject.IndexOf('<') >= 0);
     }
 
+    // Two overloads whose signatures differ only by generic type argument
+    // (List<int> vs List<string>) are still distinct members. The dedup
+    // discriminator must be structurally complete: a {Namespace}.{Name} key
+    // renders both parameter types as "System.Collections.Generic.List" and
+    // collapses the two into one row, hiding a real taste application.
+    [Fact]
+    public void GenericOverloadedMethodCalls_WhenKnobSet_RecordDistinctDecisionsPerOverload()
+    {
+        var result = Decompile(
+            nameof(ThisQualificationSpecimen.CallGenericOverloads),
+            new PrinterOptions { QualifyMethodAccess = true });
+
+        Assert.Equal(2, result.Decisions.Count(d => d.RuleId == "qualify-method-access"));
+    }
+
+    // A local function capturing `this` is lifted to a compiler-generated instance
+    // method with an unspeakable RAW name (<...>g__Local|N_M). It is not a member
+    // and never carries a user `this.`; the knob records nothing. This guards the
+    // raw-name check: SourceMethodName strips the <...> to a bare `Local`, so a
+    // post-sanitization unspeakable check would wrongly record it.
+    [Fact]
+    public void CapturingLocalFunction_WithKnobEnabled_RecordsNoDecision()
+    {
+        var result = Decompile(
+            nameof(ThisQualificationSpecimen.CallsCapturingLocalFunction),
+            new PrinterOptions { QualifyMethodAccess = true });
+
+        Assert.DoesNotContain(result.Decisions, d => d.RuleId == "qualify-method-access");
+    }
+
+    // An explicit interface implementation invoked through this reaches the call
+    // site with the interface as its declaring type (cross-type from the
+    // implementing class). Bare `FaceMethod()`/`this.FaceMethod()` does not bind —
+    // the member requires a cast — so it is never a `this.` opt-in. The cross-type
+    // guard records no taste decision.
+    [Fact]
+    public void ExplicitInterfaceCall_WithKnobEnabled_RecordsNoDecision()
+    {
+        var result = Decompile(
+            typeof(ThisQualificationExplicitFace).FullName!,
+            nameof(ThisQualificationExplicitFace.CallExplicitInterface),
+            new PrinterOptions { QualifyMethodAccess = true });
+
+        Assert.DoesNotContain(result.Decisions, d => d.RuleId == "qualify-method-access");
+    }
+
     // Inside a static extension method whose first parameter is spelled `@this`
     // (IL name "this"), @this.ReadField() reaches the this-receiver call site, but
     // the enclosing method has no implicit receiver (HasThis is false), so the
