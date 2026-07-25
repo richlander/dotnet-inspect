@@ -369,7 +369,7 @@ public sealed partial class CSharpPrinter
         {
             ReadableLocalNames = _options.ReadableLocalNames,
             PreferFrameworkTypeImports = true,
-            ExpressionBodyArrowPlacement = _options.ExpressionBodyArrowPlacement,
+            WrapExpressionBodyArrow = _options.WrapExpressionBodyArrow,
             WrapSplittableExpressions = _options.WrapSplittableExpressions,
             QualifyFieldAccess = _options.QualifyFieldAccess,
             QualifyPropertyAccess = _options.QualifyPropertyAccess,

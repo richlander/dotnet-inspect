@@ -129,4 +129,21 @@ public class StyleOptionCatalogTests
         foreach (var o in Options.Where(o => o.OracleEndorsed && o.ConfigKey is not null))
             Assert.StartsWith("dotnet_style_", o.ConfigKey);
     }
+
+    [Fact]
+    public void WrapExpressionBodyArrow_IsAnApiOnlyFormattingKnob()
+    {
+        // The former ExpressionBodyArrowPlacement enum is now a boolean toggle, so
+        // it belongs in the catalog: a whitespace-only formatting choice with no
+        // config key and no oracle endorsement (the shipped default keeps the arrow
+        // on the same line; wrapping it is a user preference, not the oracle's).
+        var arrow = Options.Single(o => o.Id == "wrap-expression-body-arrow");
+        Assert.Equal(StyleOptionTier.Formatting, arrow.Tier);
+        Assert.False(arrow.ByteDivergent);
+        Assert.False(arrow.OracleEndorsed);
+        Assert.Null(arrow.ConfigKey);
+        Assert.Null(arrow.ConflictGroup);
+        Assert.False(arrow.Get(PrinterOptions.Default));
+        Assert.True(arrow.Get(arrow.With(PrinterOptions.Default, true)));
+    }
 }
