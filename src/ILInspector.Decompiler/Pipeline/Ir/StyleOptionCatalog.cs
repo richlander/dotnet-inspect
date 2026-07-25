@@ -118,9 +118,10 @@ public static class StyleOptionCatalog
 
     /// <summary>
     /// Every opt-in boolean knob, in a stable presentation order (formatting and
-    /// spelling first, then the byte-divergent lenses). The single enum knob
-    /// (<see cref="ExpressionBodyArrowPlacement"/>) is intentionally not modeled
-    /// here yet, since this catalog describes boolean toggles.
+    /// spelling first, then the byte-divergent lenses). Every opt-in
+    /// <see cref="PrinterOptions"/> knob is a boolean toggle, so this catalog is
+    /// exhaustive; a future non-boolean knob would need a descriptor shape that
+    /// carries its value domain.
     /// </summary>
     public static IReadOnlyList<StyleOptionDescriptor> Options { get; } =
     [
@@ -147,6 +148,18 @@ public static class StyleOptionCatalog
             ConfigKey = null,
             Get = static o => o.WrapSplittableExpressions,
             With = static (o, v) => o with { WrapSplittableExpressions = v },
+        },
+        new StyleOptionDescriptor
+        {
+            Id = "wrap-expression-body-arrow",
+            Title = "Wrap expression-body arrow",
+            Summary = "Wrap the => of an expression-bodied member or accessor onto the next line instead of keeping it on the declaration line (whitespace only).",
+            Tier = StyleOptionTier.Formatting,
+            ByteDivergent = false,
+            OracleEndorsed = false,
+            ConfigKey = null,
+            Get = static o => o.WrapExpressionBodyArrow,
+            With = static (o, v) => o with { WrapExpressionBodyArrow = v },
         },
         new StyleOptionDescriptor
         {

@@ -1,24 +1,6 @@
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
-/// Placement of the <c>=&gt;</c> token for an expression-bodied member or accessor.
-/// </summary>
-public enum ExpressionBodyArrowPlacement
-{
-    /// <summary>
-    /// Keep the declaration head and the expression-body arrow on one line:
-    /// <c>head =&gt; expr;</c>.
-    /// </summary>
-    SameLine,
-
-    /// <summary>
-    /// Wrap the expression-body arrow onto the next line, indented one level
-    /// deeper than the declaration head.
-    /// </summary>
-    NextLine,
-}
-
-/// <summary>
 /// Opt-in render knobs for <see cref="CSharpPrinter"/>. Every field defaults to
 /// the shipped behavior, so <see cref="Default"/> reproduces today's output
 /// byte-for-byte — the fidelity gate, <c>--skip-pdb</c> deterministic reading,
@@ -38,11 +20,13 @@ public sealed record PrinterOptions
     public bool ReadableLocalNames { get; init; }
 
     /// <summary>
-    /// Selects whether an expression-bodied member or accessor keeps
-    /// <c>head =&gt; expr;</c> on one line (the shipped default) or wraps the
-    /// arrow onto the next line.
+    /// When set, an expression-bodied member or accessor wraps the <c>=&gt;</c>
+    /// arrow onto the next line (indented one level deeper than the declaration
+    /// head) instead of keeping <c>head =&gt; expr;</c> on one line. Off by
+    /// default (same line is the shipped default); a whitespace-only formatting
+    /// choice that leaves the tokens and IL unchanged.
     /// </summary>
-    public ExpressionBodyArrowPlacement ExpressionBodyArrowPlacement { get; init; } = ExpressionBodyArrowPlacement.SameLine;
+    public bool WrapExpressionBodyArrow { get; init; }
 
     /// <summary>
     /// When set, a long, splittable expression — today a short-circuit

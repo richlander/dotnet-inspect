@@ -579,9 +579,10 @@ a Wasm UI can enumerate the knobs (grouping the mutually-exclusive lenses by
 taste" aggregate is exactly the `OracleEndorsed` subset. The two guarded-boolean
 lenses share the `guarded-boolean-return` conflict group, so a picker offers at
 most one (the printer still resolves any overlap deterministically, preferring the
-oracle-endorsed ternary). The single non-boolean knob
-(`ExpressionBodyArrowPlacement`) is not yet modeled in the catalog, which
-currently describes boolean toggles.
+oracle-endorsed ternary). Every opt-in knob is a boolean toggle — including the
+expression-body arrow wrap (`WrapExpressionBodyArrow`) — so the catalog is
+exhaustive; a future non-boolean knob would need a descriptor shape that carries
+its value domain.
 
 ## Verification and soundness
 

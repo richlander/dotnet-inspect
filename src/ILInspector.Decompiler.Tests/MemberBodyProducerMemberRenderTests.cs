@@ -93,7 +93,7 @@ public sealed class MemberBodyProducerMemberRenderTests
             increment,
             AssemblyPath,
             pdbPath: null,
-            printerOptions: new PrinterOptions { ExpressionBodyArrowPlacement = ExpressionBodyArrowPlacement.NextLine });
+            printerOptions: new PrinterOptions { WrapExpressionBodyArrow = true });
 
         Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
         Assert.Equal("    public int Increment(int n)\n        => n + 1;", rendered.Text!.Replace("\r\n", "\n"));

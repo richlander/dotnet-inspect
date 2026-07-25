@@ -1252,7 +1252,7 @@ public static class MemberBodyProducer
     }
 
     static bool WrapExpressionBodyArrow(Pipeline.PrinterOptions? printerOptions)
-        => (printerOptions ?? Pipeline.PrinterOptions.Default).ExpressionBodyArrowPlacement == Pipeline.ExpressionBodyArrowPlacement.NextLine;
+        => (printerOptions ?? Pipeline.PrinterOptions.Default).WrapExpressionBodyArrow;
 
     /// <summary>
     /// The expression of a single-statement body suitable for '=>':
