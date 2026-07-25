@@ -866,8 +866,18 @@ public static class ApiSurfaceExtractor
         {
             case HandleKind.TypeReference:
                 var typeRef = reader.GetTypeReference((TypeReferenceHandle)typeHandle);
+                // Cross-assembly reference (the normal Roslyn case): the target
+                // assembly cannot be resolved from metadata alone (SRM-only, no
+                // inspected-assembly loading), so we cannot check its object is
+                // the real root. Require the reference to resolve through a
+                // recognized core library instead — an adversarial `System.Object`
+                // defined in an arbitrary assembly is thereby rejected. A build
+                // that fully impersonates a core-library assembly name is a
+                // deeper supply-chain concern out of scope for this cosmetic
+                // spelling decision.
                 return string.Equals(reader.GetString(typeRef.Namespace), "System", StringComparison.Ordinal)
-                    && string.Equals(reader.GetString(typeRef.Name), "Object", StringComparison.Ordinal);
+                    && string.Equals(reader.GetString(typeRef.Name), "Object", StringComparison.Ordinal)
+                    && ResolvesThroughCoreLibrary(reader, typeRef.ResolutionScope);
             case HandleKind.TypeDefinition:
                 var typeDef = reader.GetTypeDefinition((TypeDefinitionHandle)typeHandle);
                 // The genuine root object is the only `System.Object` with no
@@ -881,6 +891,35 @@ public static class ApiSurfaceExtractor
             default:
                 return false;
         }
+    }
+
+    // The reference assemblies and runtime cores that define the real
+    // System.Object. A TypeReference to `System.Object` that resolves through
+    // any other assembly is an adversarial or accidental lookalike, not the
+    // runtime finalizer slot.
+    private static readonly HashSet<string> CoreLibraryAssemblyNames =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "System.Runtime",
+            "System.Private.CoreLib",
+            "mscorlib",
+            "netstandard",
+        };
+
+    /// <summary>
+    /// True when <paramref name="resolutionScope"/> is an
+    /// <see cref="AssemblyReference"/> to a recognized core library — the
+    /// resolution scope a real cross-assembly <c>System.Object</c> reference
+    /// carries. Nested (<see cref="TypeReference"/>), module, and nil scopes are
+    /// rejected: <c>System.Object</c> is never a nested type, and a same-module
+    /// object is a <see cref="TypeDefinition"/> handled elsewhere.
+    /// </summary>
+    private static bool ResolvesThroughCoreLibrary(MetadataReader reader, EntityHandle resolutionScope)
+    {
+        if (resolutionScope.Kind != HandleKind.AssemblyReference)
+            return false;
+        var assemblyRef = reader.GetAssemblyReference((AssemblyReferenceHandle)resolutionScope);
+        return CoreLibraryAssemblyNames.Contains(reader.GetString(assemblyRef.Name));
     }
 
     private static bool IsOperatorMethodName(string methodName) =>
