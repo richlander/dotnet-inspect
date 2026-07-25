@@ -180,4 +180,39 @@ public class ResearchTypeViewsTests
         Assert.Throws<InvalidOperationException>(() =>
             ResearchViews.ProjectType(new ResearchViews.TypeProjectionRequest(source, "No.Such.Type")));
     }
+
+    [Fact]
+    public void ProjectType_Request_ResolvesByExactFullNameOnly()
+    {
+        using var source = OpenSelf();
+
+        // The bare metadata name (no namespace) must NOT resolve: resolution is exact-FullName
+        // only, matching the product's canonical resolver, so an ambiguous simpler key can never
+        // silently select the wrong type.
+        Assert.Throws<InvalidOperationException>(() =>
+            ResearchViews.ProjectType(new ResearchViews.TypeProjectionRequest(source, nameof(ResearchComposite))));
+
+        // The exact FullName resolves.
+        var result = ResearchViews.ProjectType(
+            new ResearchViews.TypeProjectionRequest(source, typeof(ResearchComposite).FullName!));
+        Assert.Equal(typeof(ResearchComposite).FullName, result.Identity.FullName);
+    }
+
+    [Fact]
+    public void ProjectType_CarriesInspectionFailures_EmptyForCleanSurface()
+    {
+        using var source = OpenSelf();
+        var surface = source.ExtractApiSurface(includeAll: true);
+        var composite = FindType(surface, typeof(ResearchComposite));
+
+        // A clean self-assembly has no rejected rows, but the field is wired and non-null so a
+        // seam consumer can detect incompleteness rather than see success-shaped empty output.
+        var withSurface = ResearchViews.ProjectType(composite, surface);
+        Assert.NotNull(withSurface.InspectionFailures);
+        Assert.Empty(withSurface.InspectionFailures);
+
+        // No surface supplied (the CLI parity path) yields an empty, non-null list too.
+        var withoutSurface = ResearchViews.ProjectType(composite);
+        Assert.Empty(withoutSurface.InspectionFailures);
+    }
 }

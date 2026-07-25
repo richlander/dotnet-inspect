@@ -108,8 +108,9 @@ public static partial class ResearchViews
 
     /// <summary>
     /// A <see cref="MetadataSource"/>-backed projection request, parallel to
-    /// <see cref="MemberProjectionRequest"/>. Resolves the type from the source's whole-assembly
-    /// surface (also used for the derived-type scan) and recovers the body-gated async fact.
+    /// <see cref="MemberProjectionRequest"/>. Resolves the type by exact <c>FullName</c> from the
+    /// source's whole-assembly surface (also used for the derived-type scan) and recovers the
+    /// body-gated async fact.
     /// </summary>
     public sealed record TypeProjectionRequest(
         MetadataSource Source,
@@ -119,6 +120,13 @@ public static partial class ResearchViews
         bool RelationshipGraph = true);
 
     /// <summary>The composed, presentation-neutral type view.</summary>
+    /// <param name="InspectionFailures">
+    /// Metadata rows the surface extractor rejected and excluded from the projected relationships
+    /// (a non-empty list means the derived-type/relationship view may be incomplete). The CLI
+    /// surfaces these independently at the command layer, but a front end that consumes this seam
+    /// directly (e.g. the WASM web UI) relies on this list so incompleteness is never rendered as
+    /// success-shaped complete output. Empty when no surface was supplied or none were rejected.
+    /// </param>
     public sealed record TypeProjectionResult(
         TypeIdentityView Identity,
         string? BaseType,
@@ -128,7 +136,8 @@ public static partial class ResearchViews
         IReadOnlyList<string> Attributes,
         string? EnumUnderlyingType,
         TypeCompositionView? Composition,
-        TypeRelationshipGraph? Graph);
+        TypeRelationshipGraph? Graph,
+        IReadOnlyList<ApiSurfaceInspectionFailure> InspectionFailures);
 
     /// <summary>
     /// The C#-appropriate modifier keywords for a type, in declaration order
@@ -200,7 +209,8 @@ public static partial class ResearchViews
             type.Attributes.ToList(),
             type.EnumUnderlyingType,
             composition,
-            graph);
+            graph,
+            surface?.InspectionFailures.ToList() ?? []);
     }
 
     /// <summary>
@@ -309,16 +319,13 @@ public static partial class ResearchViews
 
     static ApiType? ResolveType(ApiSurface surface, string typeName)
     {
+        // Exact full-name match only, mirroring the product's canonical type resolver
+        // (IrImporter.ResolveMethodHandle compares against reader.GetFullTypeName). FullName is
+        // unique within a surface, so this cannot silently pick the wrong type the way a
+        // namespace-less or case-insensitive fallback could when two types collide on a simpler
+        // key. A not-found returns null; the caller turns that into a visible throw.
         foreach (var type in surface.Types)
             if (string.Equals(type.FullName, typeName, StringComparison.Ordinal))
-                return type;
-
-        foreach (var type in surface.Types)
-            if (string.Equals(type.MetadataName, typeName, StringComparison.Ordinal))
-                return type;
-
-        foreach (var type in surface.Types)
-            if (string.Equals(type.FullName, typeName, StringComparison.OrdinalIgnoreCase))
                 return type;
 
         return null;
