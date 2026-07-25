@@ -159,6 +159,49 @@ public class StyleOptionCatalogTests
     }
 
     [Fact]
+    public void OracleEndorsedOptions_AreExactlyTheFourQualificationsAndTheTernary()
+    {
+        // Pin the intended "full taste" subset to literal ids, independent of the
+        // OracleEndorsed flag the production filter reads. Without this, mismarking
+        // a knob (e.g. a formatting knob) as OracleEndorsed would silently widen the
+        // aggregate while every flag-derived test still passed.
+        var expected = new[]
+        {
+            "prefer-conditional-expression-return",
+            "qualify-event-access",
+            "qualify-field-access",
+            "qualify-method-access",
+            "qualify-property-access",
+        };
+
+        var actual = StyleOptionCatalog.OracleEndorsedOptions
+            .Select(o => o.Id)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void OracleEndorsedSubset_HasAtMostOneMemberPerConflictGroup()
+    {
+        // The "deterministic by construction" property the aggregate relies on:
+        // enabling the whole oracle-endorsed subset can never turn on two members of
+        // the same conflict group. A generic invariant (not just the current
+        // guarded-boolean-return group) so a future endorsed knob that shared a
+        // group with another endorsed knob fails here instead of silently making the
+        // aggregate ambiguous.
+        var collisions = StyleOptionCatalog.OracleEndorsedOptions
+            .Where(o => o.ConflictGroup is not null)
+            .GroupBy(o => o.ConflictGroup, StringComparer.Ordinal)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key)
+            .ToArray();
+
+        Assert.Empty(collisions);
+    }
+
+    [Fact]
     public void ApplyFullTaste_EnablesExactlyTheOracleEndorsedSubset()
     {
         var full = StyleOptionCatalog.ApplyFullTaste(PrinterOptions.Default);
