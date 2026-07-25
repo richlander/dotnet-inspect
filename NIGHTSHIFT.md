@@ -11,6 +11,31 @@ for the SDK, build/test commands, branching, the output-verbosity contract, evid
 adversarial review. This charter does not restate those — it only shapes *which issues become orders
 and how they are sliced*.
 
+## Starting the tools
+
+The `nightshift`, `turnstile`, and `octoshift` commands are **already installed as binaries on your
+PATH**. You do **not** build, rebuild, or redeploy them, and there is nothing to compile before a
+shift — ignore any instruction that tells you to.
+
+Bring up the coordination daemon **once per machine** — it holds the board, so leave it running:
+
+```bash
+turnstile serve --socket ~/.turnstile/turnstile.sock --db ~/.turnstile/turnstile.db
+```
+
+Point every `nightshift` and `turnstile` call at that socket (the default is
+`~/.turnstile/turnstile.sock`, so this only matters if you chose another path):
+
+```bash
+export TURNSTILE_SOCKET=~/.turnstile/turnstile.sock
+```
+
+With the daemon up, follow your role skill — `nightshift skill coordinator` to register the plan and
+open the ready set, `nightshift skill worker` to claim and build an order.
+
+**If any tool errors, hangs, crashes, or behaves in a way you do not expect, stop and ask the operator
+for help. Do not try to diagnose, patch, rebuild, restart, or work around the tools yourself.**
+
 ## Scope — which issues become work
 
 Candidates are **open issues in this repository** that describe a concrete change to one of the

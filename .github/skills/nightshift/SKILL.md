@@ -112,7 +112,8 @@ stalling or polling.
 
 ## Where to go next
 
-- Your role's operating skill: `nightshift skill worker` (or `planner`,
-  `coordinator`, `builder`, `reviewer`).
-- Design docs live under `docs/design/` — `nightshift-vision.md`, `nightshift-spec.md`,
-  `workflow.md`, `turnstile.md`, `octoshift.md`.
+- **Start a shift in this repo:** see [`NIGHTSHIFT.md`](../../../NIGHTSHIFT.md) at the repo root for
+  how to bring the coordination daemon up and which issues become orders here.
+- **Your role's operating skill:** `nightshift skill worker` (or `planner`, `coordinator`, `builder`,
+  `reviewer`).
+- **If any tool errors or behaves unexpectedly, stop and ask for help — do not try to fix the tools.**
