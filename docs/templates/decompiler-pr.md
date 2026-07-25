@@ -214,12 +214,12 @@ Run: PR quick corpus, hash-stable 100 methods per assembly; {coverage summary}.
 
 Corpus: {assemblies}, {methods}. Baseline drift: {none or concise drift}.
 
-| Metric (goal) | Baseline | PR | Count delta |
-| --- | ---: | ---: | ---: |
-| Detected lowering residue (-) | {count/rate} | {count/rate} | {count} |
-| Conditional-branch residue (-) | {count/rate} | {count/rate} | {count} |
-| Forward-merge stops (-) | {count/rate} | {count/rate} | {count} |
-| Fully raised (+) | {count/rate} | {count/rate} | {count} |
+| Metric (goal) | Baseline | PR |
+| --- | ---: | ---: |
+| Detected lowering residue (-) | {count/rate} | {count/rate} |
+| Conditional-branch residue (-) | {count/rate} | {count/rate} |
+| Forward-merge stops (-) | {count/rate} | {count/rate} |
+| Fully raised (+) | {count/rate} | {count/rate} |
 
 > **Conclusion:** **PASS/ADVISORY/BLOCKED** — {one-line aggregate verdict}.
 
