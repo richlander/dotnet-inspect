@@ -1096,6 +1096,189 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_RoundTripsExplicitInterfaceMethod()
+    {
+        // #3112: a class method whose metadata name is an explicit-interface spelling
+        // (`IBase.Touch`) must reconstruct as an explicit-interface implementation with the
+        // interface declaring the member, not a plain `IBase_Touch` method (which recompiles
+        // under the wrong name and fails the fidelity lookup as ContextFail/method-not-found).
+        var assemblyPath = CompileFixture("""
+            using System;
+            public sealed class ExplicitMethodFixture : IBase
+            {
+                void IBase.Touch()
+                {
+                    Console.WriteLine("touched");
+                }
+            }
+
+            public interface IBase
+            {
+                void Touch();
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitMethodFixture",
+                    "IBase.Touch",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("void IBase.Touch()", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("IBase_Touch", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsNamespacedExplicitInterfaceMethodWithParameters()
+    {
+        // The corpus family (#3112) is dominated by namespaced interfaces (System.IConvertible,
+        // System.Collections.IEnumerable, ...) with real parameters and return values. Reconstruct
+        // the qualified interface spelling and round-trip the body exactly.
+        var assemblyPath = CompileFixture("""
+            namespace Sample
+            {
+                public sealed class ExplicitComputeFixture : IComputer
+                {
+                    int IComputer.Compute(int left, int right)
+                    {
+                        return left + right;
+                    }
+                }
+
+                public interface IComputer
+                {
+                    int Compute(int left, int right);
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Sample.ExplicitComputeFixture",
+                    "Sample.IComputer.Compute",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("int Sample.IComputer.Compute(int left, int right)", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("IComputer_Compute", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsGenericExplicitInterfaceMethod()
+    {
+        // A generic method on a non-generic interface implemented explicitly keeps its method
+        // type parameters in the reconstructed `IBox.Wrap<T>(...)` header (constraints are
+        // inherited from the interface and must be omitted).
+        var assemblyPath = CompileFixture("""
+            public sealed class ExplicitGenericFixture : IBox
+            {
+                T IBox.Wrap<T>(T value)
+                {
+                    return value;
+                }
+            }
+
+            public interface IBox
+            {
+                T Wrap<T>(T value);
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitGenericFixture",
+                    "IBox.Wrap",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("IBox.Wrap<T>(T value)", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("IBox_Wrap", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_NestedExplicitInterfaceMethodFallsBackToPlainWithoutRecompileFail()
+    {
+        // Negative case for the explicit-interface method reconstruction (#3112): a nested
+        // interface (e.g. the corpus's `MutexSlim.IPendingLockToken`, `SqlMapper.ITypeHandler`)
+        // is only reached through its enclosing root and is not a standalone closure
+        // requirement, so its member declaration cannot be appended to a reconstructed
+        // interface shell. RTS must NOT emit an unbindable `Outer.IInner.Ping()` (which would
+        // turn a method-not-found ContextFail into a CS0539/CS0246 RecompileFail); it reverts
+        // to the plain sanitized shape, preserving the pre-fix ContextFail with no regression.
+        var assemblyPath = CompileFixture("""
+            namespace Sample
+            {
+                public sealed class NestedExplicitFixture : Outer.IInner
+                {
+                    void Outer.IInner.Ping()
+                    {
+                        System.Console.WriteLine("ping");
+                    }
+                }
+
+                public static class Outer
+                {
+                    public interface IInner
+                    {
+                        void Ping();
+                    }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Sample.NestedExplicitFixture",
+                    "Sample.Outer.IInner.Ping",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            // The target reverts to the plain sanitized shape rather than the explicit spelling.
+            Assert.Contains("Sample_Outer_IInner_Ping", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("void Sample.Outer.IInner.Ping(", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_RoundTripsExplicitInterfaceIndexer()
     {
         var assemblyPath = CompileFixture("""
