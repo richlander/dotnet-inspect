@@ -4204,13 +4204,37 @@ public sealed partial class CSharpPrinter
             || MultiDimArrayCreationText(creation) is not null
             || IsSystemObjectType(creation.Constructor.DeclaringType)
             || !IsTargetTypedNewEligible(target)
-            || !target.Equals(creation.Constructor.DeclaringType))
+            || !TypeIsApparent(target, creation))
         {
             return null;
         }
 
         return $"new({Arguments(creation.Arguments, creation.Constructor.ParameterTypes, creation.Constructor.ParameterRefKinds)})";
     }
+
+    /// <summary>
+    /// Whether the declared type of a declaration/creation site is <em>apparent</em>
+    /// from the initializer's syntax — the notion dotnet/runtime's editorconfig keys
+    /// <c>csharp_style_var_when_type_is_apparent</c> and
+    /// <c>csharp_style_implicit_object_creation_when_type_is_apparent</c> both hinge
+    /// on. A type is apparent when the right-hand side names it directly: object
+    /// creation of exactly that type (<c>new T(...)</c>), a single-dimension array
+    /// creation of that type (<c>new T[n]</c>), or an explicit reference cast to it
+    /// (<c>(T)x</c>). Deliberately conservative — forms whose rendered spelling need
+    /// not name the type (numeric conversions, a target-typed <c>default</c>) are not
+    /// treated as apparent here, so a future opt-in <c>var</c> lens never spells
+    /// <c>var</c> where the type would silently vanish. Pure over the typed IR
+    /// (SRM-only, Roslyn-free); the target-typed-<c>new</c> shortener
+    /// (<see cref="TargetTypedNewText"/>) consumes it today, and the planned <c>var</c>
+    /// lens will consult the same predicate so both spelling axes agree per site.
+    /// </summary>
+    internal static bool TypeIsApparent(TypeRef declaredType, IrExpression initializer) => initializer switch
+    {
+        NewObject creation => declaredType.Equals(creation.Constructor.DeclaringType),
+        NewArray array => declaredType.Equals(TypeRef.SzArray(array.ElementType)),
+        CastClass cast => declaredType.Equals(cast.Type),
+        _ => false,
+    };
 
     /// <summary>
     /// The bare <c>System.Object</c> type, by name — assembly-agnostic so a facade or
@@ -5323,6 +5347,11 @@ public sealed partial class CSharpPrinter
         => ns == "System" || ns.StartsWith("System.", StringComparison.Ordinal);
 
     string DeclarationTypeText(TypeRef type, IrExpression initializer)
+        // An anonymous type has no spellable name, so `var` is mandatory here — not a
+        // taste call. Every other declaration keeps its explicit type on the byte-stable
+        // default. Where the type is apparent (`TypeIsApparent(type, initializer)`), a
+        // future opt-in `var` lens will spell `var`; that decision routes through the
+        // same predicate the target-typed-`new` shortener uses so both axes agree.
         => initializer is AnonymousObject anonymous && type.Equals(anonymous.Type)
             ? "var"
             : TypeText(type);
