@@ -1,10 +1,9 @@
 export const lenses = [
   ["api", "API"],
-  ["source", "Source"],
   ["metadata", "Metadata"],
-  ["il", "IL"],
   ["dependencies", "Dependencies"],
-  ["findings", "Findings"]
+  ["findings", "Findings"],
+  ["source", "Source"]
 ];
 
 export const rootCommands = [

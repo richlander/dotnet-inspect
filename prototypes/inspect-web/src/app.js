@@ -463,10 +463,6 @@ function renderLens(item) {
     return `${typeHeading(item)}
       <section class="document-section empty-document"><span class="large-glyph">⌘</span><h2>Dependencies not queried</h2><p>Type relationship analysis is outside the current public API query.</p></section>`;
   }
-  if (state.lens === "il") {
-    return `${typeHeading(item)}
-      <section class="document-section empty-document"><span class="large-glyph">λ</span><h2>Select a method to inspect IL</h2><p>Choose a member from the API surface or run <code>member Deserialize show il</code>.</p></section>`;
-  }
   const groups = memberGroups(item);
   const kindOrder = ["constructor", "method", "property", "field", "event"];
   const kindLabels = { constructor: "constructors", method: "methods", property: "properties", field: "fields", event: "events" };
@@ -954,7 +950,7 @@ function bindEvents() {
   document.querySelector("#nav-forward")?.addEventListener("click", navForward);
   document.querySelector("#demo-call-graph").addEventListener("click", runCallGraphDemo);
   document.querySelector("#theme-toggle").addEventListener("click", toggleTheme);
-  document.querySelector("#help").addEventListener("click", () => showToast("⌘K command · ⌘P / type to find a type · ⌘F filter · 1—6 lenses · ↑↓ types · Alt+←/→ back/forward · graph: wheel zoom, click node to open, +/− zoom, 0 fit, arrows pan"));
+  document.querySelector("#help").addEventListener("click", () => showToast("⌘K command · ⌘P / type to find a type · ⌘F filter · 1—5 lenses · ↑↓ types · Alt+←/→ back/forward · graph: wheel zoom, click node to open, +/− zoom, 0 fit, arrows pan"));
 }
 
 function toggleTheme() {
@@ -2265,7 +2261,7 @@ document.addEventListener("keydown", event => {
   } else if (event.altKey && event.key === "ArrowRight") {
     event.preventDefault();
     navForward();
-  } else if (!typing && !event.metaKey && !event.ctrlKey && /^[1-6]$/.test(event.key)) {
+  } else if (!typing && !event.metaKey && !event.ctrlKey && /^[1-5]$/.test(event.key)) {
     state.lens = lenses[Number(event.key) - 1][0];
     render();
   } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
