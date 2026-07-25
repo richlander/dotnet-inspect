@@ -119,6 +119,31 @@ public sealed record DecompilerDecision(
     public string? NewValue { get; init; }
 }
 
+/// <summary>
+/// Stable <see cref="DecompilerDecision.Category"/> values. A category records
+/// the fidelity contract the choice was made under, so a host can tell a
+/// byte-identical spelling apart from a render that no longer recompiles to the
+/// original opcodes. Never renumber or reuse.
+/// </summary>
+public static class DecompilerDecisionCategories
+{
+    /// <summary>
+    /// A byte-preserving choice: the selected spelling/layout recompiles to the
+    /// identical IL (a class-3 no-anchor pick or a whitespace-only wrap). The
+    /// render stays opcode-faithful.
+    /// </summary>
+    public const string Taste = "taste";
+
+    /// <summary>
+    /// An opt-in, behavior-preserving but <b>byte-divergent</b> style lens
+    /// (#3138): the render computes the identical result but no longer reproduces
+    /// the original opcodes, so it must not feed the compile-back fidelity gates.
+    /// This is the signal a reader needs to know the two "valid/correct" verdicts
+    /// are not opcode-faithful (the #3127 trap).
+    /// </summary>
+    public const string StyleLens = "style-lens";
+}
+
 public sealed record DecompilerResultMetadata(
     DecompilerOptions EffectiveOptions,
     IReadOnlyList<DecompilerDecision> Decisions)

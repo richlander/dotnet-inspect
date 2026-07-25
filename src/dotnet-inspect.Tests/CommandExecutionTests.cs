@@ -4201,6 +4201,47 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SelectedOverload_SelectAppliedTaste_DefaultRenderReportsNoChoices()
+    {
+        // The byte-divergent style lenses are opt-in (off by shipped default), so a
+        // default member render applies no configurable style choice: the explicitly
+        // selected Applied Taste section renders its empty-state note, not a row.
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.BoxInt), "-S", "Applied Taste", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Applied Taste", output);
+        Assert.Contains("No recorded style choices were applied to this member.", output);
+        Assert.DoesNotContain("byte-divergent", output);
+    }
+
+    [Fact]
+    public async Task Member_SelectedOverload_DiscoverSchema_ListsAppliedTaste()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.BoxInt), "-D", "--schema");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("| Applied Taste | section (opt-in) |", output);
+    }
+
+    [Fact]
+    public async Task Member_AppliedTaste_IsExplicitOnly_NotShownAtDetailed()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(FactsTableFixture).FullName!, "--library", TestAssemblyPath,
+            nameof(FactsTableFixture.BoxInt), "-v:d", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.DoesNotContain("Applied Taste", output);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_SelectFacts_IncludesResearchHeaderFacts()
     {
         var (exit, output, error) = await RunAppAsync(

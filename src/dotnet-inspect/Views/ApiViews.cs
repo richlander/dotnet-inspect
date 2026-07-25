@@ -690,6 +690,13 @@ public sealed record FidelityCauseRow(
     string? Discriminator,
     string? Reason);
 
+[MarkoutSerializable]
+public sealed record AppliedTasteRow(
+    string Rule,
+    string Fidelity,
+    string? Subject,
+    string? Detail);
+
 /// <summary>
 /// Code sections for member command output (Decompiled Source, Annotated Source, Original Source, IL).
 /// Serialized separately after the main TypeView.
@@ -702,6 +709,9 @@ public class MemberCodeView
 
     [MarkoutSection(Name = SectionNames.FidelityCauses)]
     public List<FidelityCauseRow>? FidelityCauseRows { get; set; }
+
+    [MarkoutSection(Name = SectionNames.AppliedTaste, EmptyText = "No recorded style choices were applied to this member.")]
+    public List<AppliedTasteRow>? AppliedTasteRows { get; set; }
 
     [MarkoutSection(Name = "Annotated Source")]
     public CodeSection AnnotatedSourceCode { get; set; }
@@ -804,6 +814,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(UnsafeOperationRow))]
 [MarkoutContext(typeof(FactRow))]
 [MarkoutContext(typeof(FidelityCauseRow))]
+[MarkoutContext(typeof(AppliedTasteRow))]
 [MarkoutContext(typeof(TypeSourceFileRow))]
 [MarkoutContext(typeof(MemberSourceLocationRow))]
 [MarkoutContext(typeof(TypeSummaryRow))]

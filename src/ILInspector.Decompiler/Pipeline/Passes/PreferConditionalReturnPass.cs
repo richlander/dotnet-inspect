@@ -29,12 +29,21 @@ public sealed class PreferConditionalReturnPass : IIrPass
 {
     public string Name => "prefer-conditional-return";
 
+    /// <summary>
+    /// Number of guarded returns this pass actually rewrote into a conditional
+    /// expression. Non-zero means the byte-divergent lens changed the render, so
+    /// <see cref="CSharpPrinter.PrintRaised(IrFunction, Func{MethodRef, IrFunction?}, PrinterOptions?, Func{TypeRef, TypeRef, bool})"/>
+    /// records an applied-lens decision the host can surface.
+    /// </summary>
+    public int Rewrites { get; private set; }
+
     public void Run(IrFunction function, PassContext context)
     {
         // Fixpoint: collapsing an inner guarded return can expose an outer one
         // whose tail is now the freshly minted `return c ? A : B;`.
         while (RewriteOnce(function, context.Stepper))
         {
+            Rewrites++;
         }
     }
 

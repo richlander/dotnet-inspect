@@ -91,6 +91,7 @@ public sealed partial class CSharpPrinter
         PrinterOptions? options = null,
         Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
     {
+        var appliedLenses = new List<DecompilerDecision>();
         try
         {
             var context = RaiseContext(importMethodBody, typesProvablyDisjoint);
@@ -100,16 +101,62 @@ public sealed partial class CSharpPrinter
             // left the guarded bool return flat. The oracle-endorsed ternary runs
             // first so that, when both lenses are enabled, it wins the shared shape
             // (it consumes the guarded return, leaving the branchless pass a no-op).
+            // When a lens actually rewrites, record a byte-divergent applied-lens
+            // decision so a host can surface that the render is no longer
+            // opcode-faithful (the #3127 signal) instead of inferring it from prose.
             if (options?.PreferConditionalExpressionReturn == true)
-                new PreferConditionalReturnPass().Run(function, context);
+            {
+                var pass = new PreferConditionalReturnPass();
+                pass.Run(function, context);
+                if (pass.Rewrites > 0)
+                    appliedLenses.Add(new DecompilerDecision(
+                        "style-lens.prefer-conditional-return",
+                        DecompilerDecisionCategories.StyleLens,
+                        function.Name,
+                        "Rewrote a guarded boolean return as a conditional expression "
+                            + "(dotnet_style_prefer_conditional_expression_over_return, IDE0046). "
+                            + "Behavior-preserving but byte-divergent: the render no longer "
+                            + "reproduces the original branch opcodes.")
+                    {
+                        OldValue = "if (c) return A; return B;",
+                        NewValue = "return c ? A : B;",
+                    });
+            }
             if (options?.PreferBranchlessBoolean == true)
-                new PreferBranchlessBooleanPass().Run(function, context);
+            {
+                var pass = new PreferBranchlessBooleanPass();
+                pass.Run(function, context);
+                if (pass.Rewrites > 0)
+                    appliedLenses.Add(new DecompilerDecision(
+                        "style-lens.prefer-branchless-boolean",
+                        DecompilerDecisionCategories.StyleLens,
+                        function.Name,
+                        "Folded a guarded boolean return into the compact short-circuit "
+                            + "\"bool hack\" (dotnet_inspect_style_prefer_branchless_boolean; not "
+                            + "oracle-endorsed). Behavior-preserving but byte-divergent: the render "
+                            + "no longer reproduces the original branch opcodes.")
+                    {
+                        OldValue = "if (c) return false; return B;",
+                        NewValue = "return !c && B;",
+                    });
+            }
         }
         catch (Exception ex)
         {
             return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
-        return Print(function, options);
+        var result = Print(function, options);
+        if (appliedLenses.Count > 0 && result.Output is not null)
+        {
+            result = result with
+            {
+                Metadata = result.Metadata with
+                {
+                    Decisions = [.. result.Metadata.Decisions, .. appliedLenses],
+                },
+            };
+        }
+        return result;
     }
 
     /// <summary>
