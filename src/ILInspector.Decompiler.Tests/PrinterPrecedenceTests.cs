@@ -82,6 +82,97 @@ public class PrinterPrecedenceTests
         Assert.DoesNotContain("a ? b : c ? d", output);
     }
 
+    // ---- #3126: right-associative same-kind && / || chains keep their parens ----
+    // C# `&&`/`||` are left-associative, so a right-nested same-kind chain
+    // `a && (b && c)` must keep its parens: dropping them reparses as the
+    // left-nested `(a && b) && c`, which csc lays out with a different branch
+    // structure — the reprint would recompile to a divergent opcode stream. (Not
+    // reachable as a top-level ternary from C# source — csc folds a constant-arm
+    // ternary to `&&`/`||` at compile time — so the printer is exercised over the
+    // hand-built right-nested IR the boolean folds reconstruct.)
+
+    [Fact]
+    public void LogicalAnd_RightNestedSameKind_StaysParenthesized()
+    {
+        // a && (b && c) — right-nested `&&`.
+        var chain = new LogicalBinary(
+            LogicalKind.And,
+            new LoadArgument(0, "a", s_bool),
+            new LogicalBinary(
+                LogicalKind.And,
+                new LoadArgument(1, "b", s_bool),
+                new LoadArgument(2, "c", s_bool)));
+
+        var output = PrintReturn(
+            chain, s_bool,
+            [new Parameter("a", s_bool), new Parameter("b", s_bool), new Parameter("c", s_bool)]);
+
+        Assert.Contains("return a && (b && c);", output);
+    }
+
+    [Fact]
+    public void LogicalOr_RightNestedSameKind_StaysParenthesized()
+    {
+        // a || (b || c) — right-nested `||`.
+        var chain = new LogicalBinary(
+            LogicalKind.Or,
+            new LoadArgument(0, "a", s_bool),
+            new LogicalBinary(
+                LogicalKind.Or,
+                new LoadArgument(1, "b", s_bool),
+                new LoadArgument(2, "c", s_bool)));
+
+        var output = PrintReturn(
+            chain, s_bool,
+            [new Parameter("a", s_bool), new Parameter("b", s_bool), new Parameter("c", s_bool)]);
+
+        Assert.Contains("return a || (b || c);", output);
+    }
+
+    [Fact]
+    public void LogicalAnd_LeftNestedSameKind_StaysFlat()
+    {
+        // (a && b) && c — left-nested `&&`. C# `&&` is left-associative, so this
+        // is opcode-identical to the flat `a && b && c` and must NOT gain parens
+        // (regression guard against over-parenthesizing the common left-nested
+        // chain, which is what most compiled `&&` lowerings produce).
+        var chain = new LogicalBinary(
+            LogicalKind.And,
+            new LogicalBinary(
+                LogicalKind.And,
+                new LoadArgument(0, "a", s_bool),
+                new LoadArgument(1, "b", s_bool)),
+            new LoadArgument(2, "c", s_bool));
+
+        var output = PrintReturn(
+            chain, s_bool,
+            [new Parameter("a", s_bool), new Parameter("b", s_bool), new Parameter("c", s_bool)]);
+
+        Assert.Contains("return a && b && c;", output);
+        Assert.DoesNotContain("(a && b)", output);
+    }
+
+    [Fact]
+    public void LogicalAnd_RightNestedDifferentKind_StaysParenthesized()
+    {
+        // a && (b || c) — a different-kind chain already parenthesizes on either
+        // side (unchanged by #3126); this pins that the right-operand rule did not
+        // regress the mixed-kind case.
+        var chain = new LogicalBinary(
+            LogicalKind.And,
+            new LoadArgument(0, "a", s_bool),
+            new LogicalBinary(
+                LogicalKind.Or,
+                new LoadArgument(1, "b", s_bool),
+                new LoadArgument(2, "c", s_bool)));
+
+        var output = PrintReturn(
+            chain, s_bool,
+            [new Parameter("a", s_bool), new Parameter("b", s_bool), new Parameter("c", s_bool)]);
+
+        Assert.Contains("return a && (b || c);", output);
+    }
+
     // Issue #2916: a ref-typed conditional whose arms are both genuine
     // ref-producers renders as a ref ternary (`ref a : ref b`, see Deref's
     // Conditional case). One arm is an `Unbox` — a managed pointer into a box.

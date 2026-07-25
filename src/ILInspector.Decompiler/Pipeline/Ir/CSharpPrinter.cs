@@ -3703,8 +3703,10 @@ public sealed partial class CSharpPrinter
 
     /// <summary>
     /// Short-circuit composition prints comparisons and nots bare (they bind
-    /// tighter than &amp;&amp;/||); same-kind chains associate without parens;
-    /// mixed kinds parenthesize.
+    /// tighter than &amp;&amp;/||); a same-kind chain associates without parens on the
+    /// left but parenthesizes on the right (C# &amp;&amp;/|| are left-associative, so a
+    /// right-nested same-kind chain <c>a &amp;&amp; (b &amp;&amp; c)</c> keeps its parens to stay
+    /// opcode-exact, #3126); mixed kinds parenthesize.
     /// </summary>
     string LogicalText(LogicalBinary logical)
     {
@@ -3712,24 +3714,30 @@ public sealed partial class CSharpPrinter
             return propertyPattern;
 
         string op = logical.Kind == LogicalKind.And ? "&&" : "||";
-        return $"{LogicalOperandText(logical.Left, logical.Kind)} {op} {LogicalOperandText(logical.Right, logical.Kind)}";
+        return $"{LogicalOperandText(logical.Left, logical.Kind, rightOperand: false)} {op} {LogicalOperandText(logical.Right, logical.Kind, rightOperand: true)}";
     }
 
     // A single operand of a short-circuit chain of the given kind. Sides are
     // condition positions: Condition() owns truthiness (a string operand spells
-    // 'is not null', never '!value') and the negation folds. Same-kind chains
-    // associate bare; a mixed-kind LogicalBinary parenthesizes. Any other side
+    // 'is not null', never '!value') and the negation folds. A same-kind chain on
+    // the LEFT associates bare — C# `&&`/`||` are left-associative, so
+    // `(a && b) && c` prints `a && b && c` and recompiles to the same left-nested
+    // IL. A same-kind chain on the RIGHT (<paramref name="rightOperand"/>) must
+    // parenthesize: `a && (b && c)` is right-associative and csc lays it out with a
+    // different branch structure than the flattened `a && b && c` (= `(a && b) && c`),
+    // so dropping the parens would recompile to a divergent opcode stream (#3126).
+    // A mixed-kind LogicalBinary parenthesizes on either side. Any other side
     // renders at the operator's demand — a ternary or `??` (or one hidden behind
     // a stale Coerce/Convert, the #2345/#2376 blind spot) is looser than
     // `&&`/`||` and must parenthesize, while comparisons and unary forms out-bind
     // it and stay bare (#2376 round-2: the enum/bool truthiness compositions
     // share the one precedence rule, not just BoolToInteger).
-    string LogicalOperandText(IrExpression side, LogicalKind kind)
+    string LogicalOperandText(IrExpression side, LogicalKind kind, bool rightOperand)
     {
         var demand = kind == LogicalKind.And ? Precedence.ConditionalAnd : Precedence.ConditionalOr;
         return side switch
         {
-            LogicalBinary nested when nested.Kind == kind => LogicalText(nested),
+            LogicalBinary nested when nested.Kind == kind && !rightOperand => LogicalText(nested),
             LogicalBinary nested => $"({LogicalText(nested)})",
             _ => RenderedCondition(side).At(demand),
         };
@@ -3760,7 +3768,7 @@ public sealed partial class CSharpPrinter
         string op = root.Kind == LogicalKind.And ? "&&" : "||";
         var texts = new List<string>(operands.Count);
         foreach (var operand in operands)
-            texts.Add(LogicalOperandText(operand, root.Kind));
+            texts.Add(LogicalOperandText(operand, root.Kind, rightOperand: false));
 
         // The broken form must be a pure whitespace variant of the flat chain:
         // decline unless re-rendering the flattened operands reproduces the flat
@@ -3793,7 +3801,11 @@ public sealed partial class CSharpPrinter
     /// Flattens a same-kind short-circuit chain into its operands in
     /// left-to-right source order; a nested chain of the <em>other</em> kind (or
     /// any non-<see cref="LogicalBinary"/>) is one operand and is not descended
-    /// into — matching how <see cref="LogicalOperandText"/> parenthesizes it.
+    /// into. This descends a same-kind chain on <em>both</em> sides, so for a
+    /// right-nested chain (which <see cref="LogicalOperandText"/> now parenthesizes
+    /// to stay opcode-exact) the flattened join no longer matches the flat
+    /// <see cref="LogicalText"/>; the caller's exact-match guard then declines the
+    /// multi-line wrap and renders the parenthesized inline form (#3126).
     /// </summary>
     static void CollectLogicalChainOperands(IrExpression expression, LogicalKind kind, List<IrExpression> operands)
     {
