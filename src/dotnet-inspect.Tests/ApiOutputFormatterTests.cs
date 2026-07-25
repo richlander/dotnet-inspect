@@ -520,6 +520,35 @@ public class ApiOutputFormatterTests
         Assert.Equal("", row.ReturnType);
     }
 
+    [Fact]
+    public void ApiTypeJson_OmitsIsFinalizerOnNonFinalizers_KeepsItTrueOnFinalizer()
+    {
+        // Regression guard (adversarial review of #3168): the finalizer identity
+        // is already carried by the dedicated Kind = "finalizer". Serializing
+        // is_finalizer: false on every other member is redundant schema noise.
+        // The ApiType JSON contexts default to WhenWritingNull (not
+        // WhenWritingDefault), so without a property-level [JsonIgnore] the
+        // false bool leaks onto every member. Assert it is omitted for a plain
+        // member and still present (true) for the finalizer.
+        var type = new ApiType
+        {
+            Name = "Handle",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember { Name = "Work", Kind = "method", Signature = "void Work()" },
+                new ApiMember { Name = "Finalize", Kind = "finalizer", Signature = "void Finalize()", IsFinalizer = true },
+            ]
+        };
+
+        string json = System.Text.Json.JsonSerializer.Serialize(type, ApiTypeJsonContext.Default.ApiType);
+
+        // The non-finalizer member must not carry the redundant false bool...
+        Assert.DoesNotContain("\"is_finalizer\": false", json, System.StringComparison.Ordinal);
+        // ...while the finalizer keeps its true marker.
+        Assert.Contains("\"is_finalizer\": true", json, System.StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

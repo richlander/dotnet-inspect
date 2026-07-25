@@ -463,7 +463,11 @@ public class ApiMember
     /// rather than by name or signature shape. Lets the C# writer spell it
     /// <c>~Type()</c> instead of the bare <c>void Finalize()</c>. A metadata fact
     /// (the overridden slot), separate from the C# spelling the writer owns.
+    /// Emitted only when true: the finalizer identity is already carried by the
+    /// dedicated <c>Kind = "finalizer"</c>, so serializing <c>is_finalizer: false</c>
+    /// on every other member would be redundant schema noise.
     /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool IsFinalizer { get; set; }
 
     public bool IsReadOnly { get; set; }
