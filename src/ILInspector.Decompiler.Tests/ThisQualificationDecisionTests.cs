@@ -346,6 +346,22 @@ public sealed class ThisQualificationDecisionTests
         Assert.Single(result.Decisions, d => d.RuleId == "qualify-method-access");
     }
 
+    // Two instantiations of a generic method whose PARAMETER mentions T
+    // (Echo<int>(1) and Echo<string>("s") of Echo<T>(T)) are still one source
+    // member. Their callee ParameterTypes are substituted (int vs string), so a
+    // key built from them would split into two rows; keying on the DEFINITION
+    // signature (T as !!0) collapses them into one.
+    [Fact]
+    public void GenericMethodInstantiationsWithTypeParamArg_WhenKnobSet_RecordSingleDedupedDecision()
+    {
+        var result = Decompile(
+            typeof(ThisQualificationGenericParam).FullName!,
+            nameof(ThisQualificationGenericParam.CallTwoInstantiations),
+            new PrinterOptions { QualifyMethodAccess = true });
+
+        Assert.Single(result.Decisions, d => d.RuleId == "qualify-method-access");
+    }
+
     // A method GROUP over a generic instance method (this.Make<int>) drops the type
     // argument in the emitted spelling (a pre-existing MethodGroupText gap). The
     // emitted this.Make fails delegate return-type inference (CS0411), so it is not

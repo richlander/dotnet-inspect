@@ -74,7 +74,8 @@ public sealed partial class CSharpPrinter
         string rawName,
         TypeRef declaringType,
         int genericArity,
-        ImmutableArray<TypeRef> parameterTypes)
+        ImmutableArray<TypeRef> parameterTypes,
+        ImmutableArray<TypeRef> definitionParameterTypes = default)
     {
         // Only a call to the enclosing type AT ITS OWN INSTANTIATION is a
         // byte-preserving `this.` taste choice. A callee reached here that is not
@@ -95,8 +96,17 @@ public sealed partial class CSharpPrinter
             return;
         if (IsStaticCallNameShadowed(displayName) || IsUnspeakableName(rawName))
             return;
+        // A generic method call's ParameterTypes are already substituted against
+        // its MethodSpec (T -> int), so this.G<int>(x) and this.G<string>(x) of one
+        // G<T>(T) would key apart and record TWO rows for a single source member.
+        // Key on the DEFINITION signature (T left as !!0) so all instantiations of
+        // one method collapse into one row, while distinct non-generic overloads
+        // M(List<int>)/M(List<string>) still key apart on their concrete types.
+        var keyParameterTypes = genericArity > 0 && !definitionParameterTypes.IsDefaultOrEmpty
+            ? definitionParameterTypes
+            : parameterTypes;
         RecordThisQualificationDecision(
-            QualifyMethodOption, displayName, displayName, MethodOverloadDiscriminator(genericArity, parameterTypes));
+            QualifyMethodOption, displayName, displayName, MethodOverloadDiscriminator(genericArity, keyParameterTypes));
     }
 
     // Compiler-generated members (captured-this lambdas, local-function group
@@ -118,9 +128,10 @@ public sealed partial class CSharpPrinter
     // assembly (ToDisplayString strips the namespace, so it would collapse
     // NsA.Widget and NsB.Widget). Under-distinguishing would merge distinct
     // overloads and HIDE a real taste application, so this errs toward more
-    // distinctions, never fewer. Arity (not the specific type arguments) keeps two
-    // instantiations of one generic method — this.M<int>() and this.M<string>() —
-    // in a single row, which is one member.
+    // distinctions, never fewer. For a generic method the caller passes the
+    // DEFINITION parameter types (T as !!0), so the two instantiations
+    // this.M<int>() and this.M<string>() key identically and stay one row (one
+    // source member) even when a parameter mentions T.
     static string MethodOverloadDiscriminator(int genericArity, ImmutableArray<TypeRef> parameterTypes)
         => $"`{genericArity}`:"
             + (parameterTypes.IsDefaultOrEmpty ? "" : string.Join(",", parameterTypes.Select(TypeKey)));
@@ -577,7 +588,7 @@ public sealed partial class CSharpPrinter
             if (_options.QualifyMethodAccess)
             {
                 RecordMethodQualificationIfTaste(
-                    thisMethodName, call.Callee.Name, call.Callee.DeclaringType, call.Callee.TypeArguments.Length, call.Callee.ParameterTypes);
+                    thisMethodName, call.Callee.Name, call.Callee.DeclaringType, call.Callee.TypeArguments.Length, call.Callee.ParameterTypes, call.Callee.DefinitionParameterTypes);
                 return $"this.{thisMethodName}{typeArguments}({rest})";
             }
             return $"{thisMethodName}{typeArguments}({rest})";

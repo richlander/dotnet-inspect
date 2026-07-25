@@ -230,10 +230,12 @@ array element type and rank, by-ref/pointer decoration, generic-parameter slot,
 function-pointer return type / calling convention / parameter ref-kinds, plus the
 full assembly-qualified namespace) so `M(List<int>)` and `M(List<string>)`,
 `M(NsA.Widget)` and `M(NsB.Widget)`, or `M(delegate*<int>)` and
-`M(delegate*<string>)`, stay two rows rather than collapsing into one. The key
-uses generic *arity*, not the specific type arguments, so two instantiations of
-one generic method — `this.G<int>()` and `this.G<string>()` — collapse into a
-single row (they are one source member).
+`M(delegate*<string>)`, stay two rows rather than collapsing into one. For a
+generic method the key uses the DEFINITION signature (its type parameter left as
+`!!0`) plus arity, not the MethodSpec-substituted parameters, so two
+instantiations of one generic method — `this.Echo<int>(1)` and
+`this.Echo<string>("s")` of `Echo<T>(T)` — collapse into a single row (they are
+one source member) even when a parameter mentions the type parameter.
 Qualifications inside a locals-bearing lambda body, which renders through an
 isolated nested printer, are not currently surfaced as taste rows.
 

@@ -507,6 +507,22 @@ public sealed class ThisQualificationArity
     }
 }
 
+// A generic method whose PARAMETER mentions its type parameter: Echo<T>(T). The
+// callee's ParameterTypes are substituted per MethodSpec (T -> int, T -> string),
+// so a key built from them would split this.Echo<int>(1) and this.Echo<string>("s")
+// into two rows for ONE source member. Keying on the DEFINITION signature (T left
+// as !!0) collapses them into a single row.
+public sealed class ThisQualificationGenericParam
+{
+    public T Echo<T>(T value) => value;
+
+    public void CallTwoInstantiations()
+    {
+        this.Echo<int>(1);
+        this.Echo<string>("s");
+    }
+}
+
 // A method GROUP over a generic instance method (this.Make<int> as a Func<int>).
 // MethodGroupText renders only the bare name, dropping the <int> (a pre-existing
 // emit gap; the group path never appends type arguments the way call and &-of
