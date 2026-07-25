@@ -276,4 +276,89 @@ public sealed class ThisQualificationDecisionTests
 
         Assert.DoesNotContain(result.Decisions, d => d.RuleId == "qualify-method-access");
     }
+    // A derived type's OWN field (declared on the enclosing type at its own
+    // instantiation) qualified with this. is a genuine byte-preserving opt-in and
+    // records one decision.
+    [Fact]
+    public void OwnField_WithKnobEnabled_RecordsDecision()
+    {
+        var result = Decompile(
+            typeof(ThisQualificationFieldDerived).FullName!,
+            nameof(ThisQualificationFieldDerived.ReadOwnField),
+            new PrinterOptions { QualifyFieldAccess = true });
+
+        Assert.Single(result.Decisions, d => d.RuleId == "qualify-field-access");
+    }
+
+    // A HIDDEN base field read via base.X targets the BASE field, but a pre-existing
+    // emit gap mis-spells it this.X. this.X binds to the DERIVED field, so it is not
+    // byte-preserving. The exact-instantiation guard records nothing.
+    [Fact]
+    public void HiddenBaseField_WithKnobEnabled_RecordsNoDecision()
+    {
+        var result = Decompile(
+            typeof(ThisQualificationFieldDerived).FullName!,
+            nameof(ThisQualificationFieldDerived.ReadBaseField),
+            new PrinterOptions { QualifyFieldAccess = true });
+
+        Assert.DoesNotContain(result.Decisions, d => d.RuleId == "qualify-field-access");
+    }
+
+    // A merely-inherited (unhidden) base field is safe to record, but the
+    // exact-instantiation guard uniformly under-records cross-type members. A
+    // false-negative is safe; the important guarantee is no false positive.
+    [Fact]
+    public void InheritedBaseField_WithKnobEnabled_RecordsNoDecision()
+    {
+        var result = Decompile(
+            typeof(ThisQualificationFieldDerived).FullName!,
+            nameof(ThisQualificationFieldDerived.ReadInheritedField),
+            new PrinterOptions { QualifyFieldAccess = true });
+
+        Assert.DoesNotContain(result.Decisions, d => d.RuleId == "qualify-field-access");
+    }
+
+    // M() and M<T>() differ only by arity and share an empty parameter list. The
+    // dedup discriminator must fold generic arity in, or the two collapse into one
+    // row and hide a taste application. Qualifying both must record two decisions.
+    [Fact]
+    public void ArityOverloadedMethodCalls_WhenKnobSet_RecordDistinctDecisions()
+    {
+        var result = Decompile(
+            typeof(ThisQualificationArity).FullName!,
+            nameof(ThisQualificationArity.CallBothArities),
+            new PrinterOptions { QualifyMethodAccess = true });
+
+        Assert.Equal(2, result.Decisions.Count(d => d.RuleId == "qualify-method-access"));
+    }
+
+    // Two instantiations of the SAME generic method (G<int>, G<string>) are one
+    // source member. The discriminator keys on arity, not the specific type
+    // arguments, so both collapse into a single row.
+    [Fact]
+    public void GenericMethodInstantiations_WhenKnobSet_RecordSingleDedupedDecision()
+    {
+        var result = Decompile(
+            typeof(ThisQualificationArity).FullName!,
+            nameof(ThisQualificationArity.CallTwoInstantiations),
+            new PrinterOptions { QualifyMethodAccess = true });
+
+        Assert.Single(result.Decisions, d => d.RuleId == "qualify-method-access");
+    }
+
+    // A method GROUP over a generic instance method (this.Make<int>) drops the type
+    // argument in the emitted spelling (a pre-existing MethodGroupText gap). The
+    // emitted this.Make fails delegate return-type inference (CS0411), so it is not
+    // byte-preserving; recording is suppressed for generic method groups.
+    [Fact]
+    public void GenericMethodGroup_WithKnobEnabled_RecordsNoDecision()
+    {
+        var result = Decompile(
+            typeof(ThisQualificationGenericGroup).FullName!,
+            nameof(ThisQualificationGenericGroup.Build),
+            new PrinterOptions { QualifyMethodAccess = true });
+
+        Assert.DoesNotContain(result.Decisions, d => d.RuleId == "qualify-method-access");
+    }
 }
+

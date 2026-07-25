@@ -182,9 +182,18 @@ that disambiguates a shadow or type-name collision would appear with the knob of
 too, so it is never attributed to the knob as a taste choice. Recording therefore
 applies only to a genuine instance receiver — a static or extension method whose
 first parameter is spelled `@this` (IL name `this`) reaches the same site but has
-no implicit receiver, so it records nothing. Method qualification is the most
-guarded because a bare method name binds through more rules than a field or
-property; it records a decision only when every one of these holds:
+no implicit receiver, so it records nothing.
+
+All four knobs also require the member to be declared on the **enclosing type at
+its own instantiation** before recording. A base-declared member reached through
+`this` — a field hidden by a `new` field of the same name (whose `base.X` load a
+pre-existing emit gap mis-spells `this.X`, but `this.X` binds to the *derived*
+field), or a merely-inherited field/property/event — is not a byte-preserving
+self-type opt-in, so it records nothing. This uniformly under-records a legitimate
+`this.` on an inherited member; a false-negative is safe, a false-positive is not.
+Method qualification is the most guarded because a bare method name binds through
+more rules than a field or property; it records a decision only when every one of
+these holds:
 
 - **enclosing type at its own instantiation.** The callee's declaring type must
   be the enclosing type at its exact instantiation, not merely the same generic
@@ -207,14 +216,24 @@ property; it records a decision only when every one of these holds:
   before `CSharpNaming.SourceMethodName` strips its `<...>` decoration (a lifted
   local function otherwise arrives spelled as a plain identifier and would slip
   past the check).
+- **not a generic method group.** A method *group* over a generic instance method
+  (`this.Make<int>` bound to a `Func<int>`) is not recorded: `MethodGroupText`
+  renders only the bare name, dropping the type arguments (a pre-existing emit gap
+  the call and `&`-of paths avoid), so the emitted `this.Make` fails delegate
+  return-type inference (CS0411) and does not round-trip. A generic method *call*
+  (`this.Make<int>()`) still records normally.
 
 Same-named overloads are recorded as distinct decisions; the dedup discriminator
-is a structurally complete per-overload key (generic instantiation, array element
-type and rank, by-ref/pointer decoration, generic-parameter slot, function-pointer
-return type / calling convention / parameter ref-kinds, plus the full
-assembly-qualified namespace) so `M(List<int>)` and `M(List<string>)`,
+is a structurally complete per-overload key (generic arity — so `M()` and `M<T>()`
+stay two rows despite sharing an empty parameter list — generic instantiation,
+array element type and rank, by-ref/pointer decoration, generic-parameter slot,
+function-pointer return type / calling convention / parameter ref-kinds, plus the
+full assembly-qualified namespace) so `M(List<int>)` and `M(List<string>)`,
 `M(NsA.Widget)` and `M(NsB.Widget)`, or `M(delegate*<int>)` and
-`M(delegate*<string>)`, stay two rows rather than collapsing into one.
+`M(delegate*<string>)`, stay two rows rather than collapsing into one. The key
+uses generic *arity*, not the specific type arguments, so two instantiations of
+one generic method — `this.G<int>()` and `this.G<string>()` — collapse into a
+single row (they are one source member).
 Qualifications inside a locals-bearing lambda body, which renders through an
 isolated nested printer, are not currently surfaced as taste rows.
 

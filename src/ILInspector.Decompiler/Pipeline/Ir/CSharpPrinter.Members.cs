@@ -73,6 +73,7 @@ public sealed partial class CSharpPrinter
         string displayName,
         string rawName,
         TypeRef declaringType,
+        int genericArity,
         ImmutableArray<TypeRef> parameterTypes)
     {
         // Only a call to the enclosing type AT ITS OWN INSTANTIATION is a
@@ -95,7 +96,7 @@ public sealed partial class CSharpPrinter
         if (IsStaticCallNameShadowed(displayName) || IsUnspeakableName(rawName))
             return;
         RecordThisQualificationDecision(
-            QualifyMethodOption, displayName, displayName, MethodOverloadDiscriminator(parameterTypes));
+            QualifyMethodOption, displayName, displayName, MethodOverloadDiscriminator(genericArity, parameterTypes));
     }
 
     // Compiler-generated members (captured-this lambdas, local-function group
@@ -110,16 +111,19 @@ public sealed partial class CSharpPrinter
     // A stable, structurally-complete per-overload key. Overloads share a display
     // name, so the decision subject alone would dedup two distinct methods into
     // one row. The key must distinguish every element the runtime treats as part
-    // of an overload's signature — generic instantiation (List<int> vs
-    // List<string>), array element type and rank, by-ref/pointer decoration, and
-    // generic-parameter slot — and must keep the full namespace + assembly
-    // (ToDisplayString strips the namespace, so it would collapse NsA.Widget and
-    // NsB.Widget). Under-distinguishing would merge distinct overloads and HIDE a
-    // real taste application, so this errs toward more distinctions, never fewer.
-    static string MethodOverloadDiscriminator(ImmutableArray<TypeRef> parameterTypes)
-        => parameterTypes.IsDefaultOrEmpty
-            ? ""
-            : string.Join(",", parameterTypes.Select(TypeKey));
+    // of an overload's signature — generic ARITY (M() vs M<T>() are distinct
+    // overloads with identical empty parameter lists), generic instantiation
+    // (List<int> vs List<string>), array element type and rank, by-ref/pointer
+    // decoration, and generic-parameter slot — and must keep the full namespace +
+    // assembly (ToDisplayString strips the namespace, so it would collapse
+    // NsA.Widget and NsB.Widget). Under-distinguishing would merge distinct
+    // overloads and HIDE a real taste application, so this errs toward more
+    // distinctions, never fewer. Arity (not the specific type arguments) keeps two
+    // instantiations of one generic method — this.M<int>() and this.M<string>() —
+    // in a single row, which is one member.
+    static string MethodOverloadDiscriminator(int genericArity, ImmutableArray<TypeRef> parameterTypes)
+        => $"`{genericArity}`:"
+            + (parameterTypes.IsDefaultOrEmpty ? "" : string.Join(",", parameterTypes.Select(TypeKey)));
 
     static string TypeKey(TypeRef type) => type.Kind switch
     {
@@ -207,7 +211,14 @@ public sealed partial class CSharpPrinter
         bool mandatory = QualifyThisMember(field.Name, field.Type);
         if (!_options.QualifyFieldAccess && !mandatory)
             return fieldName;
-        if (_options.QualifyFieldAccess && !mandatory)
+        // Record only a byte-preserving opt-in: the field must be declared on the
+        // enclosing type at its own instantiation. A base-declared field that is
+        // hidden by a `new` field of the same name reaches here spelled this.X (a
+        // pre-existing emit gap — the load targets base.X), but this.X binds to the
+        // DERIVED field, so recording it as byte-preserving would be a false
+        // positive. Gating on the exact-instantiation test also under-records a
+        // legitimate this. on a merely-inherited field; a false-negative is safe.
+        if (_options.QualifyFieldAccess && !mandatory && IsEnclosingTypeAtOwnInstantiation(field.DeclaringType))
             RecordThisQualificationDecision(QualifyFieldOption, field.Name, fieldName);
         return $"this.{fieldName}";
     }
@@ -272,7 +283,13 @@ public sealed partial class CSharpPrinter
         if (instance is not null && indexArguments.Count > 0)
             return $"{(receiver.Length == 0 ? "this" : receiver)}[{Arguments(indexArguments)}]";
         string escapedName = CSharpNaming.EscapeIdentifier(name);
-        if (thisQualifiedByKnob)
+        // Same byte-preserving gate as the field and method sites: a property or
+        // event declared on a base type (hidden or inherited) reached through this.
+        // is not a self-type opt-in, so it must not record. A virtual inherited
+        // accessor binds identically under this./bare and would be safe, but the
+        // exact-instantiation test uniformly under-records the cross-type cases; a
+        // false-negative is safe, a false-positive is not.
+        if (thisQualifiedByKnob && IsEnclosingTypeAtOwnInstantiation(accessor.DeclaringType))
             RecordThisQualificationDecision(isEvent ? QualifyEventOption : QualifyPropertyOption, name, escapedName);
         string dotted = receiver.Length == 0 ? escapedName : $"{receiver}.{escapedName}";
         return indexArguments.Count == 0 ? dotted : $"{dotted}[{Arguments(indexArguments)}]";
@@ -434,7 +451,16 @@ public sealed partial class CSharpPrinter
                 return $"base.{name}";
             if (_options.QualifyMethodAccess)
             {
-                RecordMethodQualificationIfTaste(name, method.Name, method.DeclaringType, method.ParameterTypes);
+                // A generic method GROUP (this.Make<int>) is deliberately not
+                // recorded: MethodGroupText renders only the bare name, dropping
+                // the type arguments (a pre-existing emit gap; AddressOfMethodText
+                // and CallText append them, this path does not). The emitted
+                // this.Make does not round-trip — delegate return-type inference
+                // cannot recover the type argument (CS0411) — so recording it as a
+                // byte-preserving opt-in would be a false positive. Suppressing is
+                // a safe under-record; fixing the emit is out of scope here.
+                if (method.TypeArguments.IsDefaultOrEmpty)
+                    RecordMethodQualificationIfTaste(name, method.Name, method.DeclaringType, 0, method.ParameterTypes);
                 return $"this.{name}";
             }
             return name;
@@ -551,7 +577,7 @@ public sealed partial class CSharpPrinter
             if (_options.QualifyMethodAccess)
             {
                 RecordMethodQualificationIfTaste(
-                    thisMethodName, call.Callee.Name, call.Callee.DeclaringType, call.Callee.ParameterTypes);
+                    thisMethodName, call.Callee.Name, call.Callee.DeclaringType, call.Callee.TypeArguments.Length, call.Callee.ParameterTypes);
                 return $"this.{thisMethodName}{typeArguments}({rest})";
             }
             return $"{thisMethodName}{typeArguments}({rest})";

@@ -457,3 +457,64 @@ public unsafe class ThisQualificationFnPtr
         this.Select(b);
     }
 }
+
+// A derived type that HIDES a base field with a `new` field of the same name, so
+// the class holds two distinct `X` fields. ReadOwnField reads the derived field
+// (declaring type == the enclosing type) and is a genuine this. opt-in. But
+// ReadBaseField reads base.X — the load targets the BASE field
+// (ldarg.0; ldfld Base::X). A pre-existing emit gap mis-spells that as this.X,
+// yet this.X binds to the DERIVED field, not base.X, so it is NOT byte-preserving
+// and must record nothing. ReadInheritedField reads a merely-inherited (unhidden)
+// base field; its this. is safe but the exact-instantiation guard under-records it
+// (a false-negative is safe).
+public class ThisQualificationFieldBase
+{
+    public int Hidden;
+    public int Inherited;
+}
+
+public sealed class ThisQualificationFieldDerived : ThisQualificationFieldBase
+{
+    public new int Hidden;
+
+    public int ReadOwnField() => Hidden;
+    public int ReadBaseField() => base.Hidden;
+    public int ReadInheritedField() => Inherited;
+}
+
+// Two overloads that differ only by ARITY: M() and M<T>() share an empty parameter
+// list, so a parameter-types-only dedup key collapses them into one row and hides
+// a taste application. Qualifying both must record TWO decisions. CallTwoInstantiations
+// qualifies the SAME generic method at two different instantiations (G<int>, G<string>);
+// those are one source member and must collapse into ONE row (arity, not the specific
+// type arguments, is the key).
+public sealed class ThisQualificationArity
+{
+    public void M() { }
+    public void M<T>() { }
+    public void G<T>() { }
+
+    public void CallBothArities()
+    {
+        this.M();
+        this.M<int>();
+    }
+
+    public void CallTwoInstantiations()
+    {
+        this.G<int>();
+        this.G<string>();
+    }
+}
+
+// A method GROUP over a generic instance method (this.Make<int> as a Func<int>).
+// MethodGroupText renders only the bare name, dropping the <int> (a pre-existing
+// emit gap; the group path never appends type arguments the way call and &-of
+// paths do). The emitted this.Make does not round-trip — delegate return-type
+// inference cannot recover T (CS0411) — so it must record nothing.
+public sealed class ThisQualificationGenericGroup
+{
+    public T Make<T>() => default!;
+
+    public System.Func<int> Build() => this.Make<int>;
+}
