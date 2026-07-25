@@ -291,6 +291,16 @@ public static class StyleOptionCatalog
             with: static (o, v) => o with { WrapSplittableExpressions = v },
             corpusEndorsed: true),
         Boolean(
+            id: "disable-one-liner-wrapping",
+            title: "Keep one-liners on one line",
+            summary: "Suppress the always-on width wrappers (long fluent chains and long member signatures) so a wide construct stays on a single physical line instead of wrapping (whitespace only).",
+            tier: StyleOptionTier.Formatting,
+            byteDivergent: false,
+            oracleEndorsed: false,
+            configKey: null,
+            get: static o => o.DisableOneLinerWrapping,
+            with: static (o, v) => o with { DisableOneLinerWrapping = v }),
+        Boolean(
             id: "wrap-expression-body-arrow",
             title: "Wrap expression-body arrow",
             summary: "Wrap the => of an expression-bodied member or accessor onto the next line instead of keeping it on the declaration line (whitespace only).",

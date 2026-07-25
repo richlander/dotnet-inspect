@@ -371,6 +371,7 @@ public sealed partial class CSharpPrinter
             PreferFrameworkTypeImports = true,
             WrapExpressionBodyArrow = _options.WrapExpressionBodyArrow,
             WrapSplittableExpressions = _options.WrapSplittableExpressions,
+            DisableOneLinerWrapping = _options.DisableOneLinerWrapping,
             QualifyFieldAccess = _options.QualifyFieldAccess,
             QualifyPropertyAccess = _options.QualifyPropertyAccess,
             QualifyMethodAccess = _options.QualifyMethodAccess,
@@ -2264,6 +2265,8 @@ public sealed partial class CSharpPrinter
     /// </summary>
     bool TryAppendFluentChain(StringBuilder sb, IrNode node, string line, int indent)
     {
+        if (_options.DisableOneLinerWrapping)
+            return false;
         if (!TryFluentChainStatement(node, out var root, out var prefix))
             return false;
         if (line != prefix + CallText(root) + ";")
