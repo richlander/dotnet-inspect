@@ -90,6 +90,9 @@ public class PdbStoreTests
     [InlineData("pkg/../../escape.pdb")]
     [InlineData("pkg/./escape.pdb")]
     [InlineData("pkg/sub\\escape.pdb")]
+    [InlineData("C:/escape.pdb")]
+    [InlineData("C:..")]
+    [InlineData("servers/C:../x.pdb")]
     public async Task FileSystemPdbStore_TraversalKey_Throws(string key)
     {
         var ct = TestContext.Current.CancellationToken;

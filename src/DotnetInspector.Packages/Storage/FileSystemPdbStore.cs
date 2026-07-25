@@ -25,35 +25,7 @@ public sealed class FileSystemPdbStore : IPdbStore
         => new(Path.Combine(NuGetCache.GetAppCachePath(), "symbols"));
 
     private string ResolvePath(string key)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(key);
-
-        var segments = key.Split('/');
-        foreach (var segment in segments)
-            ValidateSegment(segment);
-
-        return Path.Combine([_root, .. segments]);
-    }
-
-    /// <summary>
-    /// Rejects a key segment that could escape the store root. Unlike
-    /// <see cref="NuGetCache.ValidatePathComponent"/> this permits interior dots
-    /// (a PDB file name such as <c>System.Text.Json.pdb</c>) while still
-    /// rejecting the traversal segments <c>.</c> and <c>..</c>, separators, and
-    /// null characters.
-    /// </summary>
-    private static void ValidateSegment(string segment)
-    {
-        if (segment.Length == 0
-            || segment == "."
-            || segment == ".."
-            || segment.Contains('/')
-            || segment.Contains('\\')
-            || segment.Contains('\0'))
-        {
-            throw new ArgumentException($"Invalid PDB cache key segment: '{segment}'");
-        }
-    }
+        => StorePath.ResolveUnderRoot(_root, key);
 
     /// <inheritdoc />
     public ValueTask<Stream?> TryOpenAsync(string key, CancellationToken cancellationToken = default)

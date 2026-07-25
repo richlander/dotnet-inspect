@@ -40,7 +40,12 @@ public sealed class InMemoryPackageContent : IPackageContent
 
         using var archive = OpenArchive();
         // Zip entries are stored with '/' separators; match by full name.
-        var entry = archive.GetEntry(relativePath);
+        // Prefer an exact match, then fall back to a case-insensitive one so a
+        // WASM host mirrors the case-insensitive filesystem lookup on Windows
+        // and macOS rather than the strict-ordinal ZipArchive.GetEntry default.
+        var entry = archive.GetEntry(relativePath)
+            ?? archive.Entries.FirstOrDefault(e =>
+                string.Equals(e.FullName, relativePath, StringComparison.OrdinalIgnoreCase));
         if (entry is null)
         {
             stream = null;

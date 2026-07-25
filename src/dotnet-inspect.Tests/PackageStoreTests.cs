@@ -107,6 +107,55 @@ public sealed class PackageStoreTests : IDisposable
         Assert.Equal("1.0.0", store.TryGetLatestCachedVersion("example.package"));
     }
 
+    [Theory]
+    [InlineData("../victim", "1.0.0")]
+    [InlineData("Foo.Bar", "../1.0.0")]
+    [InlineData("Foo/Bar", "1.0.0")]
+    public async Task FileSystemPackageStore_CommitAsync_RejectsUnsafeCoordinates(
+        string packageName, string version)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = new FileSystemPackageStore();
+
+        await Assert.ThrowsAsync<ArgumentException>(async () =>
+        {
+            using var stream = new MemoryStream(MakeNupkg("example.package"));
+            await store.CommitAsync(packageName, version, stream, ct);
+        });
+    }
+
+    [Fact]
+    public async Task InMemoryPackageContent_TryOpenEntry_IsCaseInsensitive()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = new InMemoryPackageStore();
+
+        IPackageContent content;
+        using (var stream = new MemoryStream(MakeNupkg("Example")))
+            content = await store.CommitAsync("Foo.Bar", "1.0.0", stream, ct);
+
+        // Entry stored as lib/net8.0/Example.dll; a differently-cased request
+        // must still resolve, mirroring the desktop filesystem.
+        Assert.True(content.TryOpenEntry("LIB/NET8.0/example.DLL", out var dll));
+        dll.Dispose();
+    }
+
+    [Fact]
+    public async Task FileSystemPackageContent_TryOpenEntry_TraversalPath_Throws()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = new FileSystemPackageStore();
+
+        IPackageContent content;
+        using (var stream = new MemoryStream(MakeNupkg("example.package")))
+            content = await store.CommitAsync("example.package", "1.0.0", stream, ct);
+
+        Assert.Throws<ArgumentException>(() =>
+            content.TryOpenEntry("../escape.dll", out _));
+        Assert.Throws<ArgumentException>(() =>
+            content.TryOpenEntry("C:/escape.dll", out _));
+    }
+
     private static byte[] MakeNupkg(string assemblyName)
         => SnupkgPdbReaderTests.MakeSnupkg(
             ($"{assemblyName}.nuspec", "<package />"u8.ToArray()),

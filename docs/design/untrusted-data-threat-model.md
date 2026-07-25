@@ -75,11 +75,17 @@ bytes are then persisted through `IPdbStore`; the filesystem implementation
 disk, so no archive-entry name is ever used as an output path.
 
 Package identifiers and versions used as cache path components pass
-`NuGetCache.ValidatePathComponent`. PDB cache key segments pass
-`FileSystemPdbStore`'s per-segment guard, which rejects empty, `.`, `..`,
-separator, and null-character segments while permitting the interior dots of a
-real PDB file name. General cache entries use SHA-256-derived keys through
-`CoreCache`.
+`NuGetCache.ValidatePathComponent`. Store keys (PDB cache keys and package entry
+paths) resolve through the shared `StorePath.ResolveUnderRoot` guard: it splits
+on `/`, rejects any segment that is empty, `.`, `..`, separator-bearing,
+volume-qualified (`:`), null-character-bearing, or otherwise rooted, then
+verifies the composed absolute path stays under the store root with a final
+`Path.GetFullPath` containment check. This closes the Windows volume-reset
+vector where `Path.Combine(root, "C:..", ...)` would discard the root, while
+still permitting the interior dots of a real PDB or assembly file name. A PDB
+file name recovered from untrusted PE debug metadata that is not a usable single
+segment yields a graceful "no symbols" miss rather than an output path. General
+cache entries use SHA-256-derived keys through `CoreCache`.
 
 Archive containment does not itself bound expanded bytes, entry count, or disk
 consumption. Resource budgets remain an open requirement below.

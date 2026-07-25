@@ -42,6 +42,26 @@ public class SymbolPackageDownloaderTests : IDisposable
         Assert.Equal(firstCount, handler.RequestCount);
     }
 
+    [Theory]
+    [InlineData("/")]
+    [InlineData("some/dir/")]
+    public async Task DownloadPdbAsync_UnusablePdbFileName_MissesWithoutNetwork(string pdbFileName)
+    {
+        var handler = new CountingHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound));
+        using var client = new HttpClient(handler);
+        var downloader = new SymbolPackageDownloader(client);
+        var guid = Guid.Parse("00112233-4455-6677-8899-aabbccddeeff");
+
+        var result = await downloader.DownloadPdbAsync(
+            guid, pdbAge: 1, pdbFileName: pdbFileName, isPortable: true,
+            assemblyPath: "/tmp/Missing.dll",
+            packageName: "Example.Package",
+            packageVersion: "1.0.0");
+
+        Assert.Null(result.PdbFilePath);
+        Assert.Equal(0, handler.RequestCount);
+    }
+
     [Fact]
     public async Task DownloadPdbAsync_NormalizesCodeViewPathForSymbolServerUrl()
     {

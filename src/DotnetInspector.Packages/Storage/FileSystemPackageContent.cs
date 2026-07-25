@@ -57,22 +57,5 @@ public sealed class FileSystemPackageContent : IPackageContent
     }
 
     private string ResolveEntryPath(string relativePath)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(relativePath);
-
-        var segments = relativePath.Split('/');
-        foreach (var segment in segments)
-        {
-            if (segment.Length == 0
-                || segment == "."
-                || segment == ".."
-                || segment.Contains('\\')
-                || segment.Contains('\0'))
-            {
-                throw new ArgumentException($"Invalid package entry path: '{relativePath}'");
-            }
-        }
-
-        return Path.Combine([_root, .. segments]);
-    }
+        => StorePath.ResolveUnderRoot(_root, relativePath);
 }

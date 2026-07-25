@@ -51,6 +51,14 @@ public class SymbolPackageDownloader
     /// Creates a downloader with an explicit <see cref="IPdbStore"/> for PDB
     /// persistence (in-memory for browser/WASM hosts and tests).
     /// </summary>
+    /// <remarks>
+    /// <see cref="DownloadPdbAsync"/> reports success as an on-disk
+    /// <see cref="PdbDownloadResult.PdbFilePath"/>, so it is meaningful only with a
+    /// filesystem-backed store. A store whose <c>TryGetLocalPath</c> always returns
+    /// null (for example <see cref="InMemoryPdbStore"/>) is for host-neutral
+    /// persistence; such a host reads PDB bytes through <see cref="SnupkgPdbReader"/>
+    /// and the store directly rather than through this on-disk path orchestration.
+    /// </remarks>
     public SymbolPackageDownloader(HttpClient client, IPdbStore pdbStore)
     {
         ArgumentNullException.ThrowIfNull(client);
@@ -74,6 +82,17 @@ public class SymbolPackageDownloader
         bool windowsPdbDetected = false;
 
         pdbFileName = GetSymbolFileName(pdbFileName);
+        // The PDB file name comes from untrusted PE debug metadata. If it is not
+        // a usable single path segment (empty, traversal, volume-qualified, or
+        // separator-bearing) it cannot form a valid cache key or symbol-server
+        // path, so treat it as "no symbols available" rather than letting an
+        // invalid store key throw later.
+        if (!StorePath.IsSafeSegment(pdbFileName))
+        {
+            log?.Invoke("No usable PDB file name; treating as no symbols available");
+            return new PdbDownloadResult(null, windowsPdbDetected);
+        }
+
         var guid = pdbGuid.ToString("N").ToUpperInvariant();
         var symbolKey = isPortable
             ? $"{guid}FFFFFFFF"
@@ -341,7 +360,18 @@ public class SymbolPackageDownloader
 
     private async Task<(bool Portable, bool Windows)> ClassifyStoredPdbAsync(string cacheKey)
     {
-        var stream = await _pdbStore.TryOpenAsync(cacheKey).ConfigureAwait(false);
+        Stream? stream;
+        try
+        {
+            stream = await _pdbStore.TryOpenAsync(cacheKey).ConfigureAwait(false);
+        }
+        catch (ArgumentException)
+        {
+            // An untrusted assembly/PDB name can produce a key the store rejects;
+            // that simply means nothing is (or can be) cached under it.
+            return (false, false);
+        }
+
         if (stream == null)
             return (false, false);
 

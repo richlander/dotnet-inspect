@@ -41,10 +41,18 @@ public sealed class FileSystemPackageStore : IPackageStore
     {
         ArgumentNullException.ThrowIfNull(nupkg);
 
+        // Validate coordinates before building any path from them, so an
+        // absolute or traversal-containing name cannot direct the temp write
+        // outside the workspace (NuGetCache.CommitPackage validates again).
+        NuGetCache.ValidatePathComponent(packageName, "package name");
+        NuGetCache.ValidatePathComponent(version, "version");
+
         string tempDir = Directory.CreateTempSubdirectory("inspect-pkg-commit").FullName;
         try
         {
-            string nupkgPath = Path.Combine(tempDir, $"{packageName}.{version}.nupkg");
+            // Fixed temp file name; the committed nupkg name is derived by
+            // NuGetCache.CommitPackage from the validated coordinates.
+            string nupkgPath = Path.Combine(tempDir, "package.nupkg");
             await using (var file = File.Create(nupkgPath))
             {
                 await nupkg.CopyToAsync(file, cancellationToken).ConfigureAwait(false);

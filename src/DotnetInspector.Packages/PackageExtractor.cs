@@ -56,6 +56,11 @@ public static class PackageExtractor
     private static readonly AsyncCache<PackageAcquisitionRequest, PackageExtractionOutcome>
         s_packageRequests = new();
 
+    // PackageExtractor is the desktop acquisition path: its outputs are on-disk
+    // extracted directories (IPackageContent.RootPath) that the CLI's existing
+    // consumers open by path, so it is intentionally bound to the filesystem
+    // store. A host-neutral consumer reuses IPackageStore/IPackageContent
+    // directly rather than this extractor.
     private static readonly IPackageStore s_packageStore = new FileSystemPackageStore();
 
     /// <summary>
