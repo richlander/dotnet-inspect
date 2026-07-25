@@ -357,7 +357,7 @@ function render() {
               <span>${escapeHtml(state.package.id)}</span><b>/</b><span>${escapeHtml(current.namespace)}</span><b>/</b><strong>${escapeHtml(current.name)}</strong>
               ${state.selectedMemberKey ? `<b>/</b><strong>${escapeHtml(selectedMember(current)?.name ?? "")}</strong>` : ""}
             </div>
-            <div class="detail-actions"><button>copy name</button><button id="taste-btn" class="${state.taste.length ? "active" : ""}" title="Decompiler style (taste)">taste${state.taste.length ? ` · ${state.taste.length}` : ""}</button></div>
+            <div class="detail-actions"><button id="copy-name" type="button">copy name</button><button id="taste-btn" class="${state.taste.length ? "active" : ""}" title="Decompiler style (taste)">taste${state.taste.length ? ` · ${state.taste.length}` : ""}</button></div>
           </header>
           <article class="detail-scroll">
             ${renderLens(current)}
@@ -801,6 +801,14 @@ function bindEvents() {
       state.selectedMemberKey = "";
     }
     render();
+  });
+  document.querySelector("#copy-name")?.addEventListener("click", async () => {
+    const type = selectedType();
+    if (!type) return;
+    const typeName = `${type.namespace ? `${type.namespace}.` : ""}${type.name}`;
+    const member = selectedMember(type);
+    const fullName = member ? `${typeName}.${member.name}` : typeName;
+    await copyText(fullName, "name copied");
   });
   document.querySelector("#copy-signature")?.addEventListener("click", async () => {
     const type = selectedType();
