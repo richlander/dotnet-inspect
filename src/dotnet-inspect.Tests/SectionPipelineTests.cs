@@ -427,6 +427,31 @@ public class SectionPipelineTests
     }
 
     [Fact]
+    public void MemberOverloadPipeline_WithFinalizer_DiscoversFinalizerSection()
+    {
+        // Regression guard (adversarial review): an unindexed finalizer query
+        // (`member ... -m Finalize`) resolves the member but rendered nothing
+        // because the overload-inventory pipeline never registered the Finalizer
+        // section (it was only in the type pipeline). Selecting `-S Finalizer`
+        // reported "not found".
+        var pipeline = ApiMemberOverloadSectionDescriptors.CreatePipeline();
+        var type = new ApiType
+        {
+            Namespace = "N",
+            Name = "T",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember { Kind = "finalizer", Name = "Finalize", IsFinalizer = true }
+            ]
+        };
+
+        var discoverable = pipeline.GetDiscoverableSections(type);
+
+        Assert.Contains(SectionNames.Finalizer, discoverable);
+    }
+
+    [Fact]
     public void MemberPipeline_NoMemberType_DoesNotDiscoverMethodBodySections()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
@@ -1729,6 +1754,7 @@ public class SectionPipelineTests
             [
                 new ApiMember { Name = "Value", Kind = "field", EnumValue = 1 },
                 new ApiMember { Name = ".ctor", Kind = "constructor" },
+                new ApiMember { Name = "Finalize", Kind = "finalizer" },
                 new ApiMember { Name = "Field", Kind = "field" },
                 new ApiMember { Name = "Property", Kind = "property" },
                 new ApiMember { Name = "Method", Kind = "method" },
@@ -1839,7 +1865,7 @@ public class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(29, pipeline.AllSectionNames.Length);
+        Assert.Equal(30, pipeline.AllSectionNames.Length);
     }
 
     [Fact]

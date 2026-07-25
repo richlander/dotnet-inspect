@@ -412,6 +412,7 @@ public static class ApiOutputFormatter
             SamplesInfo = topFieldsOnly ? samplesInfo : null,
             // Member stats for quiet verbosity
             Constructors = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "constructor")) : null,
+            Finalizer = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "finalizer")) : null,
             Fields = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "field" && !m.EnumValue.HasValue)) : null,
             Properties = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "property")) : null,
             Methods = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "method")) : null,
@@ -486,7 +487,7 @@ public static class ApiOutputFormatter
             foreach (var group in membersByKind)
             {
                 var membersInGroup = group.ToList();
-                var children = BuildShapeMemberNodes(group.Key, membersInGroup, expandOverloads);
+                var children = BuildShapeMemberNodes(group.Key, membersInGroup, expandOverloads, type.Name);
                 var logicalCount = IsOverloadGroupedKind(group.Key)
                     ? membersInGroup.Select(m => m.Name).Distinct(StringComparer.Ordinal).Count()
                     : membersInGroup.Count;
@@ -495,7 +496,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        static List<TreeNode> BuildShapeMemberNodes(string kind, IEnumerable<ApiMember> members, bool expandOverloads)
+        static List<TreeNode> BuildShapeMemberNodes(string kind, IEnumerable<ApiMember> members, bool expandOverloads, string declaringTypeName)
         {
             if (IsOverloadGroupedKind(kind))
             {
@@ -529,8 +530,32 @@ public static class ApiOutputFormatter
 
             return members
                 .OrderBy(m => m.Name, StringComparer.Ordinal)
-                .Select(m => new TreeNode(m.Signature ?? OperatorNames.FormatDisplayName(m.Name)))
+                .Select(m => new TreeNode(
+                    m.IsFinalizer
+                        ? ShapeDestructorSpelling(declaringTypeName)
+                        : m.Signature ?? OperatorNames.FormatDisplayName(m.Name)))
                 .ToList();
+        }
+
+        // A finalizer renders as the C# destructor `~Type()` rather than its raw
+        // metadata signature (`void Finalize()`).
+        static string ShapeDestructorSpelling(string typeName)
+        {
+            var name = typeName;
+            // Isolate the innermost nested-type segment BEFORE stripping generic
+            // arity, so a finalizer on a type nested inside a generic outer
+            // (e.g. "Outer`1.Nested" or "Outer`1+Nested") spells "~Nested()"
+            // rather than "~Outer()".
+            int sep = name.LastIndexOfAny(['.', '+']);
+            if (sep >= 0)
+                name = name[(sep + 1)..];
+            int angle = name.IndexOf('<');
+            if (angle >= 0)
+                name = name[..angle];
+            int tick = name.IndexOf('`');
+            if (tick >= 0)
+                name = name[..tick];
+            return $"~{name}()";
         }
 
         static bool IsOverloadGroupedKind(string kind)
@@ -757,6 +782,12 @@ public static class ApiOutputFormatter
                     { if (hasDocs) view.ConstructorSelectRowsWithDocs = rows; else view.ConstructorSelectRows = rows; }
                     else
                     { if (hasDocs) view.ConstructorRowsWithDocs = rows; else view.ConstructorRows = rows; }
+                    break;
+                case "finalizer":
+                    if (showSelect)
+                    { if (hasDocs) view.FinalizerSelectRowsWithDocs = rows; else view.FinalizerSelectRows = rows; }
+                    else
+                    { if (hasDocs) view.FinalizerRowsWithDocs = rows; else view.FinalizerRows = rows; }
                     break;
                 case "field":
                     if (showSelect)
@@ -1007,6 +1038,16 @@ public static class ApiOutputFormatter
                         view.ConstructorSummaryRowsWithOverloads = rows;
                     else
                         view.ConstructorSummaryRows = rows;
+                    break;
+                }
+                case "finalizer":
+                {
+                    var rows = byName.Select(e =>
+                        new ConstructorSummaryRow(
+                            OperatorNames.FormatDisplayName(e.members[0].Name),
+                            e.members.Count.ToString(),
+                            SignatureDecodeMarker(e.members))).ToList();
+                    view.FinalizerSummaryRows = rows;
                     break;
                 }
                 case "method":
@@ -2420,6 +2461,7 @@ public static class ApiOutputFormatter
         "field" => "Fields",
         "event" => "Events",
         "constructor" => "Constructors",
+        "finalizer" => "Finalizer",
         _ => char.ToUpper(kind[0]) + kind[1..] + "s"
     };
 
@@ -2428,6 +2470,7 @@ public static class ApiOutputFormatter
     private static readonly string[] MemberKinds =
     [
         "constructor",
+        "finalizer",
         "field",
         "property",
         "method",
@@ -2481,7 +2524,7 @@ public static class ApiOutputFormatter
             var m = e.members[0];
             var returnType = e.kind switch
             {
-                "constructor" => "",
+                "constructor" or "finalizer" => "",
                 "event" => m.ReturnType ?? m.Signature ?? "",
                 _ => MemberReturnType(m)
             };
@@ -2577,14 +2620,15 @@ public static class ApiOutputFormatter
     private static int GetTreeKindOrder(string kind) => kind switch
     {
         "constructor" => 0,
-        "field" => 1,
-        "property" => 2,
-        "method" => 3,
-        "operator" => 4,
-        "explicit-interface-implementation" => 5,
-        "extension-method" => 6,
-        "event" => 7,
-        _ => 8
+        "finalizer" => 1,
+        "field" => 2,
+        "property" => 3,
+        "method" => 4,
+        "operator" => 5,
+        "explicit-interface-implementation" => 6,
+        "extension-method" => 7,
+        "event" => 8,
+        _ => 9
     };
 
     private static string GetTreeKindLabel(string kind, int count)
@@ -2597,6 +2641,7 @@ public static class ApiOutputFormatter
             "explicit-interface-implementation" => "Explicit Interface Implementations",
             "extension-method" => "Extension Methods",
             "constructor" => "Constructors",
+            "finalizer" => "Finalizer",
             "event" => "Events",
             "field" => "Fields",
             _ => kind + "s"
@@ -2616,6 +2661,9 @@ public static class ApiOutputFormatter
             {
                 case "Constructors":
                     kinds.Add("constructor");
+                    break;
+                case "Finalizer":
+                    kinds.Add("finalizer");
                     break;
                 case "Fields":
                     kinds.Add("field");

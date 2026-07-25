@@ -190,6 +190,91 @@ public class AuthoredSourceAcquisitionTests
         }
     }
 
+    [Fact]
+    public void FromContent_FinalizerMapping_ExtractsDestructorNotPrecedingMember()
+    {
+        const string source = """
+            class Sample
+            {
+                internal int Preceding;
+
+                ~Sample()
+                {
+                    System.GC.KeepAlive(this);
+                }
+            }
+            """;
+        byte[] content = Encoding.UTF8.GetBytes(source);
+        var result = AuthoredSourceAcquisition.FromContent(
+            DestructorMapping(memberName: "Finalize", startLine: 6, endLine: 7, isFinalizer: true),
+            Document(content),
+            content,
+            "Finalize",
+            Subject);
+
+        var complete = Assert.IsType<FindingInspection<string>.Complete>(result.Lines.Value);
+        Assert.Contains(
+            complete.Findings,
+            finding => finding.Payload.Contains("~Sample()", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            complete.Findings,
+            finding => finding.Payload.Contains("Preceding", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void FromContent_OrdinaryMethodNamedFinalize_NotTreatedAsDestructor()
+    {
+        // A non-destructor method may legally be named "Finalize". Its identity
+        // (IsFinalizer == false) must govern the scan; a stray "~" continuation in
+        // a multi-line default parameter must NOT truncate the signature.
+        const string source = """
+            class Sample
+            {
+                internal int Preceding;
+
+                public int Finalize(int mask =
+                    ~0)
+                {
+                    return mask;
+                }
+            }
+            """;
+        byte[] content = Encoding.UTF8.GetBytes(source);
+        var result = AuthoredSourceAcquisition.FromContent(
+            DestructorMapping(memberName: "Finalize", startLine: 7, endLine: 8, isFinalizer: false),
+            Document(content),
+            content,
+            "Finalize",
+            Subject);
+
+        var complete = Assert.IsType<FindingInspection<string>.Complete>(result.Lines.Value);
+        Assert.Contains(
+            complete.Findings,
+            finding => finding.Payload.Contains("public int Finalize(int mask =", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            complete.Findings,
+            finding => finding.Payload.Contains("Preceding", StringComparison.Ordinal));
+    }
+
+    static MemberSourceObservation DestructorMapping(
+        string memberName, int startLine, int endLine, bool isFinalizer)
+        => new(
+            new MemberAnchor(
+                $"{memberName}~1234567890",
+                $"M:Sample.{memberName}",
+                "1234567890",
+                "Sample",
+                memberName),
+            MetadataToken: 0x06000001,
+            DocumentRowId: 1,
+            CanonicalPath: "Sample.cs",
+            OriginalPath: "/_/Sample.cs",
+            ResolvedUrl: "https://example.test/Sample.cs",
+            StartLine: startLine,
+            EndLine: endLine,
+            IsPrimaryDocument: true,
+            IsFinalizer: isFinalizer);
+
     static MemberSourceObservation Mapping()
         => new(
             new MemberAnchor(

@@ -552,7 +552,7 @@ public class ApiCommand
     internal static async Task<ResolvedMethodSource> ResolveMethodSourceAsync(
         string dllPath, string typeName, string methodName, int overloadIndex,
         ApiOptions options, HttpClient httpClient, VerboseLogger logger, bool fetchSource = true,
-        bool publicOnly = true)
+        bool publicOnly = true, int metadataToken = 0, bool isDestructor = false)
     {
         try
         {
@@ -578,7 +578,7 @@ public class ApiCommand
             if (!fetchSource || !service.HasPdb || !service.HasSourceLink)
                 return new ResolvedMethodSource(null, pdbPath);
 
-            var methodInfo = service.ResolveMethodSource(typeName, methodName, overloadIndex, publicOnly);
+            var methodInfo = service.ResolveMethodSource(typeName, methodName, overloadIndex, publicOnly, metadataToken);
             if (methodInfo == null)
                 return new ResolvedMethodSource(null, pdbPath);
 
@@ -616,7 +616,8 @@ public class ApiCommand
                 return new ResolvedMethodSource(null, pdbPath);
 
             var sourceCode = SourceLinkResolver.ExtractMethodBody(
-                content, methodInfo.StartLine, methodInfo.EndLine, methodName);
+                content, methodInfo.StartLine, methodInfo.EndLine, methodName, isDestructor,
+                isDestructor ? typeName : null);
 
             return new ResolvedMethodSource(
                 new MethodSourceContext(sourceCode, methodInfo.SourceUrl ?? methodInfo.FilePath), pdbPath);
@@ -720,7 +721,7 @@ public class ApiCommand
             {
                 var requestedSections = GetRequestedMemberSections(type, mo4);
                 var methods = type.Members
-                    .Where(m => m.Kind is "method" or "constructor" or "operator" or "explicit-interface-implementation" or "extension-method"
+                    .Where(m => m.Kind is "method" or "constructor" or "finalizer" or "operator" or "explicit-interface-implementation" or "extension-method"
                         && (!m.IsAbstract || requestedSections.Contains(SectionNames.UnsafeOperations)))
                     .ToList();
                 if (methods.Count > 0)
@@ -1405,7 +1406,7 @@ public class ApiCommand
             {
                 var requestedSections = GetRequestedMemberSections(type, memberOptions);
                 var methods = type.Members
-                    .Where(m => m.Kind is "method" or "constructor" or "operator" or "explicit-interface-implementation" or "extension-method"
+                    .Where(m => m.Kind is "method" or "constructor" or "finalizer" or "operator" or "explicit-interface-implementation" or "extension-method"
                         && (!m.IsAbstract || requestedSections.Contains(SectionNames.UnsafeOperations)))
                     .ToList();
                 if (methods.Count > 0)
@@ -1623,6 +1624,7 @@ public class ApiCommand
             [SectionNames.ExplicitInterfaceImplementations] = m => m.Kind == "explicit-interface-implementation",
             [SectionNames.ExtensionMethods] = m => m.Kind == "extension-method",
             [SectionNames.Constructors] = m => m.Kind == "constructor",
+            [SectionNames.Finalizer] = m => m.Kind == "finalizer",
             [SectionNames.Events] = m => m.Kind == "event",
             [SectionNames.SourceLocations] = ApiMemberSectionDescriptors.IsMethodLike,
         };

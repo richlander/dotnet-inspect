@@ -285,12 +285,25 @@ public static class MemberCommand
                 // keep the public-only default. Explicit interface implementations stay resolvable.
                 var directRequest = selectedMember != null && effectiveOptions.IncludeAll;
                 var publicOnly = !directRequest
-                    && selectedMember?.Kind != "explicit-interface-implementation";
+                    && selectedMember?.Kind is not ("explicit-interface-implementation" or "finalizer");
+                // The selected member's metadata token indexes the assembly it
+                // was extracted from — apiType.SourceAssemblyPath (the target
+                // assembly for a forwarded type, otherwise the extraction dll).
+                // Only resolve source by token when the assembly opened for
+                // lookup (pdbLookupPath) IS that same assembly; otherwise the
+                // token's row would not align (forwarded facade, or a reference
+                // assembly for the surface vs an implementation assembly for
+                // bodies), so fall back to name/overload resolution.
+                var tokenOriginAssembly = apiType.SourceAssemblyPath ?? apiDllPath;
+                var sourceMetadataToken = string.Equals(pdbLookupPath, tokenOriginAssembly, StringComparison.Ordinal)
+                    ? (selectedMember?.MetadataToken ?? 0)
+                    : 0;
                 var resolved = await ApiCommand.ResolveMethodSourceAsync(
                     pdbLookupPath, sourceTypeName,
                     effectiveOptions.MemberFilter.First(),
                     sourceOverloadIndex,
-                    effectiveOptions, context.HttpClient, logger, fetchSource, publicOnly);
+                    effectiveOptions, context.HttpClient, logger, fetchSource, publicOnly,
+                    sourceMetadataToken, selectedMember?.IsFinalizer ?? false);
 
                 effectiveOptions = effectiveOptions with
                 {
@@ -528,6 +541,7 @@ public static class MemberCommand
     private static string GetMemberSectionName(string kind) => kind switch
     {
         "constructor" => SectionNames.Constructors,
+        "finalizer" => SectionNames.Finalizer,
         "field" => SectionNames.Fields,
         "property" => SectionNames.Properties,
         "method" => SectionNames.Methods,

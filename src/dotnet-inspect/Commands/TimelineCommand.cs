@@ -546,6 +546,7 @@ public static class TimelineCommand
 
         var (assemblyPath, target) = targets[0];
         if (target.Kind is not (MemberTargetKind.Constructor
+            or MemberTargetKind.Finalizer
             or MemberTargetKind.Method
             or MemberTargetKind.Operator
             or MemberTargetKind.ExplicitInterfaceImplementation

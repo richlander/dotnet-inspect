@@ -40,7 +40,8 @@ public sealed record MemberSourceInfo(
     string? ResolvedUrl,
     int StartLine,
     int EndLine,
-    bool IsPrimaryDocument = false);
+    bool IsPrimaryDocument = false,
+    bool IsFinalizer = false);
 
 public record ILOffsetMemberContextInfo(
     string? Assembly,
@@ -502,12 +503,26 @@ public class PdbContext : IDisposable
     /// <summary>
     /// Resolves source file and line range for a specific method overload.
     /// </summary>
-    public SourceLinkResolver.MethodSourceInfo? ResolveMethodSource(string typeName, string methodName, int overloadIndex, bool publicOnly = false)
+    public SourceLinkResolver.MethodSourceInfo? ResolveMethodSource(string typeName, string methodName, int overloadIndex, bool publicOnly = false, int metadataToken = 0)
     {
         if (_resolver == null || _pdbReader == null || !_peReader.HasMetadata)
             return null;
 
         var reader = _peReader.GetMetadataReader();
+
+        // When the caller already resolved the exact member, resolve source by its
+        // metadata token rather than name + overload index. Name/index resolution
+        // counts methods in raw metadata order and can drift from the extractor's
+        // visibility-filtered overload numbering (e.g. a finalizer preceded in
+        // metadata by an unrelated private method also named "Finalize"), which
+        // would otherwise return the wrong member's source.
+        if (metadataToken != 0)
+        {
+            var tokenHandle = MetadataTokens.Handle(metadataToken);
+            if (tokenHandle.Kind != HandleKind.MethodDefinition)
+                return null;
+            return _resolver.ResolveMethodSourceRange(_pdbReader, (MethodDefinitionHandle)tokenHandle);
+        }
 
         foreach (var typeDefHandle in reader.TypeDefinitions)
         {
@@ -783,6 +798,7 @@ public class PdbContext : IDisposable
                 metadata,
                 method.GetDeclaringType(),
                 method);
+            bool isFinalizer = ApiSurfaceExtractor.IsFinalizerMethod(metadata, methodHandle);
 
             foreach (var (documentHandle, range) in ranges
                 .OrderBy(static item => MetadataTokens.GetRowNumber(item.Key)))
@@ -799,7 +815,8 @@ public class PdbContext : IDisposable
                     sourceLink.ResolvedUrl,
                     range.StartLine,
                     range.EndLine,
-                    IsPrimaryDocument: documentHandle == primaryDocument);
+                    IsPrimaryDocument: documentHandle == primaryDocument,
+                    IsFinalizer: isFinalizer);
             }
         }
     }

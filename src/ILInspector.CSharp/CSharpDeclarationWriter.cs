@@ -390,10 +390,15 @@ internal static class CSharpDeclarationWriter
             if (member.IsUnsafe || options.ForceUnsafe)
                 modifiers.Add("unsafe");
         }
-        else if (member.IsFinalizer && !options.SuppressFinalizerSpelling)
+        else if (member.IsFinalizer)
         {
-            // A finalizer (`~Type()`) carries no accessibility or override
-            // modifiers — only `unsafe` is legal on it.
+            // A finalizer carries no accessibility or override modifiers. In the
+            // destructor spelling (`~Type()`) only `unsafe` is legal. In the
+            // suppressed fallback (literal `void Finalize()`, used when the
+            // recovered body did not reconstruct the destructor scaffold), adding
+            // `public`/`virtual` would misrepresent it as a new virtual slot
+            // (CS0465) rather than the object-finalizer override it is, so keep
+            // the fallback modifier-free too.
             if (member.IsUnsafe || options.ForceUnsafe)
                 modifiers.Add("unsafe");
         }
@@ -1217,6 +1222,12 @@ internal static class CSharpDeclarationWriter
 
     static string FormatConstructorTypeName(string name)
     {
+        // Isolate the innermost nested-type segment before stripping generic arity,
+        // so a constructor/finalizer on a type nested inside a generic outer
+        // (name "Outer`1.Nested" or "Outer`1+Nested") spells "Nested", not "Outer".
+        int sep = name.LastIndexOfAny(['.', '+']);
+        if (sep >= 0)
+            name = name[(sep + 1)..];
         var arityIndex = name.IndexOf('`');
         var typeName = arityIndex < 0 ? name : name[..arityIndex];
         return EscapeIdentifier(typeName);

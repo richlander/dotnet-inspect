@@ -427,6 +427,99 @@ public class ApiOutputFormatterTests
         Assert.Contains(" unsafe ", Declaration(sections.SemanticsOverlayCode.Content));
     }
 
+    [Fact]
+    public void MinimalSummary_Finalizer_PopulatesFinalizerSummarySection()
+    {
+        // Regression guard: in the compact (Minimal) view the finalizer must land
+        // in its own Finalizer summary section, not be silently dropped like it
+        // was before it had a dedicated kind/section.
+        var type = new ApiType
+        {
+            Name = "Handle",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember { Name = ".ctor", Kind = "constructor", Signature = "void .ctor()" },
+                new ApiMember { Name = "Finalize", Kind = "finalizer", Signature = "void Finalize()", IsFinalizer = true },
+            ]
+        };
+        var view = new TypeView();
+
+        ApiOutputFormatter.PopulateMemberSummarySections(
+            view, new MethodGroupsView(), new EventsView(), type, new ApiOptions());
+
+        Assert.NotNull(view.FinalizerSummaryRows);
+        var row = Assert.Single(view.FinalizerSummaryRows!);
+        Assert.Equal("Finalize", row.Name);
+    }
+
+    [Fact]
+    public void ShapeView_Finalizer_RendersDestructorSpellingInFinalizerGroup()
+    {
+        var type = new ApiType
+        {
+            Name = "Handle",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember { Name = ".ctor", Kind = "constructor", Signature = "void .ctor()" },
+                new ApiMember { Name = "Finalize", Kind = "finalizer", Signature = "void Finalize()", IsFinalizer = true },
+            ]
+        };
+
+        var view = ApiOutputFormatter.BuildShapeView(type, foundIn: null, packageName: null, packageVersion: null, memberFilter: []);
+        var finalizerNode = Assert.Single(view.Members, n => n.Text.StartsWith("Finalizer", System.StringComparison.Ordinal));
+        var child = Assert.Single(finalizerNode.Children!);
+        Assert.Equal("~Handle()", child.Text);
+        // The raw metadata signature must never leak into the shape.
+        Assert.DoesNotContain(view.Members, n => n.Children?.Any(c => c.Text.Contains("Finalize", System.StringComparison.Ordinal)) == true);
+    }
+
+    [Fact]
+    public void ShapeView_FinalizerOnTypeNestedInGeneric_SpellsInnermostSegment()
+    {
+        // Regression guard (adversarial review): the destructor spelling must
+        // isolate the innermost nested-type segment before stripping generic
+        // arity. A finalizer on a type nested inside a generic outer carries a
+        // dotted metadata name like "Outer`1.Nested"; stripping the backtick
+        // first would truncate to "~Outer()".
+        var type = new ApiType
+        {
+            Name = "GenericOuter`1.Nested",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember { Name = "Finalize", Kind = "finalizer", Signature = "void Finalize()", IsFinalizer = true },
+            ]
+        };
+
+        var view = ApiOutputFormatter.BuildShapeView(type, foundIn: null, packageName: null, packageVersion: null, memberFilter: []);
+        var finalizerNode = Assert.Single(view.Members, n => n.Text.StartsWith("Finalizer", System.StringComparison.Ordinal));
+        var child = Assert.Single(finalizerNode.Children!);
+        Assert.Equal("~Nested()", child.Text);
+    }
+
+    [Fact]
+    public void TableView_Finalizer_BlanksReturnTypeSoVoidFinalizeNeverReconstructs()
+    {
+        // Regression guard (adversarial review): the table must blank the
+        // finalizer return type (symmetric with constructors), otherwise the
+        // Kind/Name/ReturnType columns visually reconstruct "void Finalize()".
+        var type = new ApiType
+        {
+            Name = "Handle",
+            Kind = "class",
+            Members =
+            [
+                new ApiMember { Name = "Finalize", Kind = "finalizer", Signature = "void Finalize()", ReturnType = "void", IsFinalizer = true },
+            ]
+        };
+
+        var (view, _) = ApiOutputFormatter.BuildTypeTableView(type, new ApiOptions());
+        var row = Assert.Single(view.Rows!, r => r.Kind.Contains("finalizer", System.StringComparison.Ordinal));
+        Assert.Equal("", row.ReturnType);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
