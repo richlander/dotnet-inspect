@@ -64,4 +64,11 @@ public class TypeApparencyTests
         // `default(T)` names the type, but a target-typed `default` renders bare; the
         // v1 predicate declines it rather than risk a `var x = default;` that loses T.
         => Assert.False(CSharpPrinter.TypeIsApparent(IntType, new DefaultValue(IntType)));
+
+    [Fact]
+    public void ValueTypeCast_ViaUnboxAny_IsNotApparent_DocumentedV1Boundary()
+        // A value-type cast (`(int)obj`) is genuinely apparent in C# but is modeled by
+        // UnboxAny, not CastClass. v1 declines it — a documented extension point for the
+        // `var` slice, not a defect (declining is output-safe). This locks the boundary.
+        => Assert.False(CSharpPrinter.TypeIsApparent(IntType, new UnboxAny(IntType, new LoadArgument(0, "obj", OtherType))));
 }

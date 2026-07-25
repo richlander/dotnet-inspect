@@ -4220,13 +4220,25 @@ public sealed partial class CSharpPrinter
     /// on. A type is apparent when the right-hand side names it directly: object
     /// creation of exactly that type (<c>new T(...)</c>), a single-dimension array
     /// creation of that type (<c>new T[n]</c>), or an explicit reference cast to it
-    /// (<c>(T)x</c>). Deliberately conservative — forms whose rendered spelling need
-    /// not name the type (numeric conversions, a target-typed <c>default</c>) are not
-    /// treated as apparent here, so a future opt-in <c>var</c> lens never spells
-    /// <c>var</c> where the type would silently vanish. Pure over the typed IR
-    /// (SRM-only, Roslyn-free); the target-typed-<c>new</c> shortener
-    /// (<see cref="TargetTypedNewText"/>) consumes it today, and the planned <c>var</c>
-    /// lens will consult the same predicate so both spelling axes agree per site.
+    /// (<c>(T)x</c>). Deliberately conservative — a form is treated as apparent only
+    /// when its <em>rendered</em> spelling is guaranteed to name the type, so a future
+    /// opt-in <c>var</c> lens never spells <c>var</c> where the type would silently
+    /// vanish. That is why numeric conversions and a target-typed <c>default</c> are
+    /// declined here.
+    /// <para>
+    /// Several further shapes are genuinely apparent in C# but are declined by this v1
+    /// because they are modeled by other IR nodes whose rendered form still needs
+    /// confirming before a consumer relies on them: a value-type cast
+    /// (<see cref="UnboxAny"/>, e.g. <c>(int)obj</c>), an object/collection initializer
+    /// (<see cref="ObjectInitializerExpression"/> wrapping the creation), and an
+    /// array/span literal (<see cref="ArrayLiteral"/>/<see cref="SpanLiteral"/>, e.g.
+    /// <c>new int[] { 1, 2 }</c>). They are extension points for the <c>var</c> slice,
+    /// not defects — declining is always output-safe.
+    /// </para>
+    /// Pure over the typed IR (SRM-only, Roslyn-free); the target-typed-<c>new</c>
+    /// shortener (<see cref="TargetTypedNewText"/>) consumes it today, and the planned
+    /// <c>var</c> lens will consult the same predicate so the two axes share one
+    /// apparency judgment.
     /// </summary>
     internal static bool TypeIsApparent(TypeRef declaredType, IrExpression initializer) => initializer switch
     {
@@ -5349,9 +5361,14 @@ public sealed partial class CSharpPrinter
     string DeclarationTypeText(TypeRef type, IrExpression initializer)
         // An anonymous type has no spellable name, so `var` is mandatory here — not a
         // taste call. Every other declaration keeps its explicit type on the byte-stable
-        // default. Where the type is apparent (`TypeIsApparent(type, initializer)`), a
-        // future opt-in `var` lens will spell `var`; that decision routes through the
-        // same predicate the target-typed-`new` shortener uses so both axes agree.
+        // default. A future opt-in `var` lens will consult `TypeIsApparent(type,
+        // initializer)` to decide whether to spell `var`. Note that `var` and the
+        // target-typed-`new` shortener are *mutually exclusive* spellings of the same
+        // apparent site, not simultaneous: dropping both ends of `List<int> x = new
+        // List<int>()` at once yields `var x = new()`, which is CS8754 (no target type
+        // for `new()`). The shared predicate is only the apparency input; that lens must
+        // own the either/or decision (keep the RHS type when spelling `var`, or keep the
+        // LHS type when shortening to `new()`).
         => initializer is AnonymousObject anonymous && type.Equals(anonymous.Type)
             ? "var"
             : TypeText(type);
