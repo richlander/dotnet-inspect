@@ -75,8 +75,10 @@ bytes are then persisted through `IPdbStore`; the filesystem implementation
 disk, so no archive-entry name is ever used as an output path.
 
 Package identifiers and versions used as cache path components pass
-`NuGetCache.ValidatePathComponent`. Store keys (PDB cache keys and package entry
-paths) resolve through the shared `StorePath.ResolveUnderRoot` guard: it splits
+`NuGetCache.ValidatePathComponent`, which rejects empty or whitespace values,
+traversal (`..`), separators, volume qualifiers (`:`), null characters, and
+otherwise rooted values before any cache path is built. Store keys (PDB cache
+keys and package entry paths) resolve through the shared `StorePath.ResolveUnderRoot` guard: it splits
 on `/`, rejects any segment that is empty, `.`, `..`, separator-bearing,
 volume-qualified (`:`), null-character-bearing, or otherwise rooted, then
 verifies the composed absolute path stays under the store root with a final

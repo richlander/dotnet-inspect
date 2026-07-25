@@ -33,6 +33,8 @@ public sealed class InMemoryPackageStore : IPackageStore
         Stream nupkg,
         CancellationToken cancellationToken = default)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(version);
         ArgumentNullException.ThrowIfNull(nupkg);
 
         using var buffer = new MemoryStream();

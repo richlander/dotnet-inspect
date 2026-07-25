@@ -45,7 +45,7 @@ public class SymbolPackageDownloaderTests : IDisposable
     [Theory]
     [InlineData("/")]
     [InlineData("some/dir/")]
-    public async Task DownloadPdbAsync_UnusablePdbFileName_MissesWithoutNetwork(string pdbFileName)
+    public async Task DownloadPdbAsync_UnusablePdbFileName_SkipsSymbolServersButStillAttemptsSnupkg(string pdbFileName)
     {
         var handler = new CountingHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound));
         using var client = new HttpClient(handler);
@@ -59,7 +59,12 @@ public class SymbolPackageDownloaderTests : IDisposable
             packageVersion: "1.0.0");
 
         Assert.Null(result.PdbFilePath);
-        Assert.Equal(0, handler.RequestCount);
+        // snupkg acquisition is keyed off assembly name + GUID, so an unusable
+        // PDB file name must not suppress it.
+        Assert.Contains(handler.RequestUris, u => u.Contains(".snupkg", StringComparison.Ordinal));
+        // But no symbol-server request is ever built from the unusable name.
+        Assert.DoesNotContain(handler.RequestUris, u => u.Contains("msdl.microsoft.com", StringComparison.Ordinal));
+        Assert.DoesNotContain(handler.RequestUris, u => u.Contains("symbols.nuget.org", StringComparison.Ordinal));
     }
 
     [Fact]

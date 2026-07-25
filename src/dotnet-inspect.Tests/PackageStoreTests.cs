@@ -111,11 +111,31 @@ public sealed class PackageStoreTests : IDisposable
     [InlineData("../victim", "1.0.0")]
     [InlineData("Foo.Bar", "../1.0.0")]
     [InlineData("Foo/Bar", "1.0.0")]
+    [InlineData("", "1.0.0")]
+    [InlineData("Foo.Bar", "")]
+    [InlineData("   ", "1.0.0")]
+    [InlineData("C:Foo", "1.0.0")]
     public async Task FileSystemPackageStore_CommitAsync_RejectsUnsafeCoordinates(
         string packageName, string version)
     {
         var ct = TestContext.Current.CancellationToken;
         var store = new FileSystemPackageStore();
+
+        await Assert.ThrowsAsync<ArgumentException>(async () =>
+        {
+            using var stream = new MemoryStream(MakeNupkg("example.package"));
+            await store.CommitAsync(packageName, version, stream, ct);
+        });
+    }
+
+    [Theory]
+    [InlineData("", "1.0.0")]
+    [InlineData("Foo.Bar", "  ")]
+    public async Task InMemoryPackageStore_CommitAsync_RejectsEmptyCoordinates(
+        string packageName, string version)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = new InMemoryPackageStore();
 
         await Assert.ThrowsAsync<ArgumentException>(async () =>
         {

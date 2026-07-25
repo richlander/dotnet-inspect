@@ -82,16 +82,15 @@ public class SymbolPackageDownloader
         bool windowsPdbDetected = false;
 
         pdbFileName = GetSymbolFileName(pdbFileName);
-        // The PDB file name comes from untrusted PE debug metadata. If it is not
-        // a usable single path segment (empty, traversal, volume-qualified, or
-        // separator-bearing) it cannot form a valid cache key or symbol-server
-        // path, so treat it as "no symbols available" rather than letting an
-        // invalid store key throw later.
-        if (!StorePath.IsSafeSegment(pdbFileName))
-        {
-            log?.Invoke("No usable PDB file name; treating as no symbols available");
-            return new PdbDownloadResult(null, windowsPdbDetected);
-        }
+        // The PDB file name comes from untrusted PE debug metadata. Only the
+        // symbol-server paths (MSDL and the NuGet symbol server) use it to build
+        // a cache key and request URL; snupkg acquisition is keyed off the
+        // assembly name and debug GUID instead. If the name is not a usable
+        // single path segment, skip only those symbol-server paths rather than
+        // abandoning snupkg recovery, and never let an invalid store key throw.
+        bool pdbFileNameUsable = StorePath.IsSafeSegment(pdbFileName);
+        if (!pdbFileNameUsable)
+            log?.Invoke("Unusable PDB file name; skipping symbol-server paths");
 
         var guid = pdbGuid.ToString("N").ToUpperInvariant();
         var symbolKey = isPortable
@@ -100,7 +99,7 @@ public class SymbolPackageDownloader
 
         // For Microsoft packages or platform assemblies, try MSDL first
         bool isMicrosoftPackage = isPlatformAssembly || IsMicrosoftPackage(packageName);
-        if (isMicrosoftPackage)
+        if (isMicrosoftPackage && pdbFileNameUsable)
         {
             log?.Invoke(isPlatformAssembly ? "Platform library, trying MSDL symbol server" : "Microsoft package detected, trying MSDL symbol server first");
             var msdlResult = await TryLocateFromMsdlAsync(pdbFileName, symbolKey, log).ConfigureAwait(false);
@@ -122,7 +121,7 @@ public class SymbolPackageDownloader
         }
 
         // Try NuGet symbol server, then MSDL as fallback (for non-Microsoft packages)
-        if (!isMicrosoftPackage)
+        if (!isMicrosoftPackage && pdbFileNameUsable)
         {
             var symbolResult = await TryLocateFromSymbolServerAsync(pdbFileName, symbolKey, log).ConfigureAwait(false);
             if (symbolResult.PdbFilePath != null)
