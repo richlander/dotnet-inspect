@@ -286,11 +286,21 @@ public static class MemberCommand
                 var directRequest = selectedMember != null && effectiveOptions.IncludeAll;
                 var publicOnly = !directRequest
                     && selectedMember?.Kind is not ("explicit-interface-implementation" or "finalizer");
+                // The metadata token indexes the extraction assembly (apiDllPath).
+                // Only resolve source by token when the lookup assembly IS that
+                // same assembly; when a distinct runtime assembly is used (e.g. a
+                // reference assembly for the surface but an implementation assembly
+                // for bodies), the token's row would not align, so fall back to
+                // name/overload resolution against that assembly.
+                var sourceMetadataToken = string.Equals(pdbLookupPath, apiDllPath, StringComparison.Ordinal)
+                    ? (selectedMember?.MetadataToken ?? 0)
+                    : 0;
                 var resolved = await ApiCommand.ResolveMethodSourceAsync(
                     pdbLookupPath, sourceTypeName,
                     effectiveOptions.MemberFilter.First(),
                     sourceOverloadIndex,
-                    effectiveOptions, context.HttpClient, logger, fetchSource, publicOnly);
+                    effectiveOptions, context.HttpClient, logger, fetchSource, publicOnly,
+                    sourceMetadataToken);
 
                 effectiveOptions = effectiveOptions with
                 {

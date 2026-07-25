@@ -1217,6 +1217,12 @@ internal static class CSharpDeclarationWriter
 
     static string FormatConstructorTypeName(string name)
     {
+        // Isolate the innermost nested-type segment before stripping generic arity,
+        // so a constructor/finalizer on a type nested inside a generic outer
+        // (name "Outer`1.Nested" or "Outer`1+Nested") spells "Nested", not "Outer".
+        int sep = name.LastIndexOfAny(['.', '+']);
+        if (sep >= 0)
+            name = name[(sep + 1)..];
         var arityIndex = name.IndexOf('`');
         var typeName = arityIndex < 0 ? name : name[..arityIndex];
         return EscapeIdentifier(typeName);

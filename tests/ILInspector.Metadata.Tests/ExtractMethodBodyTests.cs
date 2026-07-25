@@ -91,4 +91,30 @@ public class ExtractMethodBodyTests
 
         Assert.Equal("public int Add(int a, int b)\n{\n    return a + b;\n}", body);
     }
+
+    [Fact]
+    public void Destructor_StopsAtTildeSignature_NotPrecedingMember()
+    {
+        // Regression guard (adversarial review): a finalizer's metadata name is
+        // "Finalize", but its C# source line is "~Type()". The backward scan must
+        // stop at the "~" declaration line; otherwise it walks past into the
+        // preceding member (e.g. an accessibility-prefixed field), leaking
+        // unrelated declarations into Original Source / Source Diff.
+        var source = Lines(
+            "class C",                              // 1
+            "{",                                    // 2
+            "    internal static bool s_flag;",     // 3  <- must NOT be captured
+            "",                                     // 4
+            "    // destructor comment",            // 5
+            "    ~C()",                             // 6
+            "    {",                                // 7  <- StartLine
+            "        s_flag = true;",               // 8  <- EndLine
+            "    }",                                // 9
+            "}");                                   // 10
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 7, endLine: 8, methodName: "Finalize");
+
+        Assert.Equal("~C()\n{\n    s_flag = true;\n}", body);
+        Assert.DoesNotContain("s_flag;", body, System.StringComparison.Ordinal);
+    }
 }

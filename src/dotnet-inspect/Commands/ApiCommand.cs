@@ -552,7 +552,7 @@ public class ApiCommand
     internal static async Task<ResolvedMethodSource> ResolveMethodSourceAsync(
         string dllPath, string typeName, string methodName, int overloadIndex,
         ApiOptions options, HttpClient httpClient, VerboseLogger logger, bool fetchSource = true,
-        bool publicOnly = true)
+        bool publicOnly = true, int metadataToken = 0)
     {
         try
         {
@@ -578,7 +578,7 @@ public class ApiCommand
             if (!fetchSource || !service.HasPdb || !service.HasSourceLink)
                 return new ResolvedMethodSource(null, pdbPath);
 
-            var methodInfo = service.ResolveMethodSource(typeName, methodName, overloadIndex, publicOnly);
+            var methodInfo = service.ResolveMethodSource(typeName, methodName, overloadIndex, publicOnly, metadataToken);
             if (methodInfo == null)
                 return new ResolvedMethodSource(null, pdbPath);
 
