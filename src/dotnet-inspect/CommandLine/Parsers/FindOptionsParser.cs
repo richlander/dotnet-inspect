@@ -128,6 +128,12 @@ public static class FindOptionsParser
     /// </summary>
     public static List<Tip> BuildTips(FindOptions options, string? pattern)
     {
+        // In member mode, canonicalize the displayed pattern (strip the leading '.' sentinel per
+        // segment, preserving .ctor/.cctor) and append --members so following a tip stays in the
+        // member lens and the explicit-flag and leading-dot forms yield identical tips.
+        var tipPattern = options.Members ? MemberTipPattern(pattern) : pattern;
+        var memberFlag = options.Members ? " --members" : "";
+
         var pkg = options.Packages.Length > 0 ? options.Packages[0] : null;
         if (pkg != null)
         {
@@ -139,16 +145,34 @@ public static class FindOptionsParser
             return
             [
                 new(MemberCommand.Name, $"<TypeName> {pinnedSourceFlag} --library <LibraryName>", "inspect the type you found"),
-                new(FindCommand.Name, $"{pattern} {sourceFlag} --table", "compact output"),
-                new(FindCommand.Name, $"{pattern} {sourceFlag} -v:d", "detailed results")
+                new(FindCommand.Name, $"{tipPattern} {sourceFlag}{memberFlag} --table", "compact output"),
+                new(FindCommand.Name, $"{tipPattern} {sourceFlag}{memberFlag} -v:d", "detailed results")
             ];
         }
 
         return
         [
             new(MemberCommand.Name, "<TypeName> --platform <LibraryName>", "inspect the type you found"),
-            new(FindCommand.Name, $"{pattern} --platform --table", "compact output"),
-            new(FindCommand.Name, $"{pattern} --platform -v:d", "detailed results")
+            new(FindCommand.Name, $"{tipPattern} --platform{memberFlag} --table", "compact output"),
+            new(FindCommand.Name, $"{tipPattern} --platform{memberFlag} -v:d", "detailed results")
         ];
+    }
+
+    /// <summary>
+    /// Canonicalizes a member-lens pattern for tip display: strips the leading '.' sentinel from each
+    /// comma segment (preserving .ctor/.cctor) so tips match the search actually performed.
+    /// </summary>
+    private static string? MemberTipPattern(string? pattern)
+    {
+        if (string.IsNullOrEmpty(pattern))
+            return pattern;
+
+        var segments = pattern
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(MemberPatternSentinel.Strip)
+            .Where(p => p.Length > 0)
+            .ToArray();
+
+        return segments.Length == 0 ? pattern : string.Join(",", segments);
     }
 }

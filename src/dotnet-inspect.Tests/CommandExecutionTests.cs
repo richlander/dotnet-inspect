@@ -5708,6 +5708,21 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Find_Members_LeadingDotCtor_FindsConstructors()
+    {
+        // ".ctor" is a real metadata member name; the leading-dot sentinel must preserve it (not
+        // strip it to a non-matching "ctor"), so the shortcut both enables the member lens and
+        // searches for constructors.
+        var (exit, output, error) = await RunAppAsync(
+            "find", ".ctor", "--platform", "System.Text.Json", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.True(int.TryParse(output.Trim(), out var count));
+        Assert.True(count >= 1, $"expected at least one constructor, got {count}");
+    }
+
+    [Fact]
     public async Task Member_PackageLibrarySelector_ResolvesBareLibraryName()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime", "System.Text.RegularExpressions");

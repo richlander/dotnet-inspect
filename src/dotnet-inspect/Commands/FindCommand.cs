@@ -87,9 +87,9 @@ public class FindCommand
         HttpClient httpClient)
     {
         // Strip the leading '.' sentinel from each segment so ".Serialize" and "Serialize" both search
-        // the member named "Serialize" (no valid member name starts with a dot).
+        // the member named "Serialize". ".ctor"/".cctor" are preserved (they are real member names).
         var memberPatterns = patterns
-            .Select(p => p.StartsWith('.') ? p[1..] : p)
+            .Select(MemberPatternSentinel.Strip)
             .Where(p => p.Length > 0)
             .ToArray();
 
