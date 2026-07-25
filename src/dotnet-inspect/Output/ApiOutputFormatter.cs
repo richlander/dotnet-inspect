@@ -332,12 +332,17 @@ public static class ApiOutputFormatter
             ? $" ({packageName} {packageVersion})"
             : packageName != null ? $" ({packageName})" : "";
 
-        var modifiers = BuildTypeModifiers(type);
+        // One source of truth for type-level modifiers, base type, and interface ordering: the
+        // presentation-neutral projection in ILInspector.Research. C# constraint spelling for
+        // type parameters stays in this layer (ConstraintSummary) because Research is Roslyn-free
+        // and does not own C# rendering.
+        var projection = ILInspector.Research.ResearchViews.ProjectType(
+            type,
+            surface: null,
+            new ILInspector.Research.ResearchViews.TypeProjectionOptions(Composition: false, RelationshipGraph: false));
 
-        // Base type (filter out trivial bases)
-        string? baseType = null;
-        if (!string.IsNullOrEmpty(type.BaseType) && type.BaseType != "System.Object" && type.BaseType != "System.ValueType" && type.BaseType != "System.Enum")
-            baseType = type.BaseType;
+        var modifiers = projection.Identity.Modifiers;
+        string? baseType = projection.BaseType;
 
         // Type parameters inline (Quiet only — at Minimal+ the section replaces this)
         string? typeParamsInline = null;
@@ -373,7 +378,7 @@ public static class ApiOutputFormatter
         List<InterfaceRow>? interfaceRows = null;
         if (!memberFilterActive && type.Interfaces.Count > 0)
         {
-            interfaceRows = type.Interfaces.Order()
+            interfaceRows = projection.Interfaces
                 .Select(i => new InterfaceRow { Interface = i })
                 .ToList();
         }
@@ -585,7 +590,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        var modifiers = BuildTypeModifiers(type);
+        var modifiers = ILInspector.Research.ResearchViews.TypeModifiers(type);
 
         var packageInfo = packageName != null && packageVersion != null
             ? $" ({packageName} {packageVersion})"
@@ -610,24 +615,6 @@ public static class ApiOutputFormatter
     // unavailable (see CSharpDeclarationWriter.FormatConstraintList).
     private static string ConstraintSummary(IReadOnlyList<TypeParameter> typeParameters, TypeParameter typeParameter)
         => CSharpFormatter.FormatTypeParameterConstraints(typeParameter, typeParameters.Select(p => p.Name));
-
-    private static List<string> BuildTypeModifiers(ApiType type)
-    {
-        List<string> modifiers = [];
-        if (type.IsStatic)
-        {
-            modifiers.Add("static");
-        }
-        else
-        {
-            if (type.IsAbstract && type.Kind == "class") modifiers.Add("abstract");
-            if (type.IsSealed && type.Kind == "class") modifiers.Add("sealed");
-        }
-
-        if (type.IsReadOnly && type.Kind == "struct") modifiers.Add("readonly");
-        if (type.IsByRefLike && type.Kind == "struct") modifiers.Add("ref");
-        return modifiers;
-    }
 
     // ===== Internal Rendering Methods =====
 
