@@ -28,6 +28,16 @@ namespace ILInspector.Metadata.Tests
         }
 
         [Fact]
+        public void Members_is_a_read_only_view_that_cannot_be_downcast_and_mutated()
+        {
+            var corpus = SelfCorpus();
+
+            Assert.IsNotType<List<CorpusMember>>(corpus.Members);
+            Assert.Throws<NotSupportedException>(() => ((IList<CorpusMember>)corpus.Members).Clear());
+            Assert.Equal(1, corpus.Count);
+        }
+
+        [Fact]
         public void SearchTypes_exact_name_finds_type_with_kind_and_provenance()
         {
             var outcome = SelfCorpus().SearchTypes(["CorpusProbeTypeAlpha"]);

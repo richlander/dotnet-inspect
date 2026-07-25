@@ -1,3 +1,5 @@
+using System.Collections.ObjectModel;
+
 namespace ILInspector.Metadata;
 
 /// <summary>
@@ -116,10 +118,15 @@ public sealed class Corpus
     {
         ArgumentNullException.ThrowIfNull(members);
         _members = [.. members];
+        Members = new ReadOnlyCollection<CorpusMember>(_members);
     }
 
-    /// <summary>The assemblies in this corpus, in the order supplied.</summary>
-    public IReadOnlyList<CorpusMember> Members => _members;
+    /// <summary>
+    /// The assemblies in this corpus, in the order supplied. Exposed as a genuine read-only view
+    /// (a <see cref="ReadOnlyCollection{T}"/>) so a consumer cannot downcast it back to the backing
+    /// list and mutate the closed set out from under the corpus.
+    /// </summary>
+    public IReadOnlyList<CorpusMember> Members { get; }
 
     /// <summary>Number of assemblies in the corpus.</summary>
     public int Count => _members.Count;
