@@ -509,6 +509,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.TypeInterfaces>()
             .Add<ApiMemberSectionDescriptors.Baseclass>()
             .Add<ApiMemberSectionDescriptors.Constructors>()
+            .Add<ApiMemberSectionDescriptors.Finalizer>()
             .Add<ApiMemberSectionDescriptors.Fields>()
             .Add<ApiMemberSectionDescriptors.Properties>()
             .Add<ApiMemberDetailSectionDescriptors.Signature>()
