@@ -221,4 +221,31 @@ public class ExtractMethodBodyTests
         Assert.StartsWith(destructorLine, body, System.StringComparison.Ordinal);
         Assert.DoesNotContain("s_flag;", body, System.StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Destructor_FirstSequencePointInsideBody_DoesNotStopAtBodyComplement()
+    {
+        // Regression guard (adversarial review): "#line hidden" can push the first
+        // visible sequence point past the signature and initial statements, so the
+        // backward scan begins inside the body. A body complement expression such as
+        // "int x = ~0;" must NOT be mistaken for the destructor signature; the scan
+        // must walk up to the real "~C()" line and never leak the preceding member.
+        var source = Lines(
+            "class C",                          // 1
+            "{",                                // 2
+            "    internal int Preceding;",      // 3  <- must NOT be captured
+            "",                                 // 4
+            "    ~C()",                         // 5  <- real signature
+            "    {",                            // 6
+            "        int x = ~0;",              // 7  <- must NOT be treated as signature
+            "        System.GC.KeepAlive(x);",  // 8  <- StartLine (first visible seq point)
+            "    }",                            // 9
+            "}");                               // 10
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 8, endLine: 8, methodName: "Finalize", isDestructor: true);
+
+        Assert.StartsWith("~C()", body, System.StringComparison.Ordinal);
+        Assert.Contains("int x = ~0;", body, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("Preceding", body, System.StringComparison.Ordinal);
+    }
 }

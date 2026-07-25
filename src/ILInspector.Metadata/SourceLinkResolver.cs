@@ -91,13 +91,15 @@ public class SourceLinkResolver
     /// line is "~Type(...)", which carries no accessibility keyword and whose metadata name
     /// ("Finalize") does not appear in the text, so the backward scan would otherwise walk past it
     /// into the preceding member and leak unrelated declarations. When set, the scan stops at the
-    /// leading-tilde signature line (covering any spelling such as "~Type()" or "~ Type()"). It is
+    /// destructor's signature line, recognized by grammar via
+    /// <see cref="IsDestructorSignatureLine"/> (optional "extern"/"unsafe" modifiers then a
+    /// "~Identifier"), covering spellings such as "~Type()", "~ Type()", and "unsafe ~Type()". It is
     /// deliberately keyed on caller-supplied identity rather than a "~" text shape so that a normal
     /// method whose signature legitimately contains a leading "~" continuation (e.g. a multi-line
-    /// default parameter "int x =\n    ~Mask") is never truncated. Because a genuine destructor
-    /// is parameterless, its signature-scan zone never holds a stray "~" line, so the stop matches
-    /// a tilde anywhere on the line — covering modifier-prefixed spellings such as "unsafe ~Type()"
-    /// or "extern ~Type()".
+    /// default parameter "int x =\n    ~Mask") is never truncated. Matching the destructor grammar
+    /// — rather than any tilde on the line — also keeps a "#line hidden" body expression such as
+    /// "int x = ~0;" (which can become the first visible sequence point) from being mistaken for
+    /// the signature.
     /// </para>
     /// </summary>
     public static string ExtractMethodBody(string sourceText, int startLine, int endLine, string methodName, bool isDestructor = false)
@@ -126,7 +128,7 @@ public class SourceLinkResolver
             if (trimmed.StartsWith("public") || trimmed.StartsWith("private")
                 || trimmed.StartsWith("protected") || trimmed.StartsWith("internal")
                 || trimmed.StartsWith("static")
-                || (isDestructor && trimmed.Contains('~'))
+                || (isDestructor && IsDestructorSignatureLine(trimmed))
                 || trimmed.Contains(methodName))
                 break;
         }
@@ -163,6 +165,49 @@ public class SourceLinkResolver
 
         var dedented = methodLines.Select(l => l.Length >= minIndent ? l[minIndent..] : l);
         return string.Join('\n', dedented).TrimEnd();
+    }
+
+    /// <summary>
+    /// True when <paramref name="trimmed"/> (a leading-whitespace-stripped line) is the start of a
+    /// C# destructor signature: the optional legal destructor modifiers <c>extern</c>/<c>unsafe</c>,
+    /// then a tilde, then an identifier start ("~Type"). Used only to locate the signature line
+    /// within an already-identified destructor scan (see <see cref="ExtractMethodBody"/>); it
+    /// deliberately requires an identifier after the tilde so a complement expression such as
+    /// <c>~0)</c> or <c>~(x)</c> — which can appear on a "#line hidden" body line — is not mistaken
+    /// for the signature.
+    /// </summary>
+    internal static bool IsDestructorSignatureLine(string trimmed)
+    {
+        var span = trimmed.AsSpan();
+        while (true)
+        {
+            span = span.TrimStart();
+            if (TryStripModifier(ref span, "unsafe") || TryStripModifier(ref span, "extern"))
+                continue;
+            break;
+        }
+
+        if (span.Length < 2 || span[0] != '~')
+            return false;
+
+        var rest = span[1..].TrimStart();
+        return rest.Length > 0 && (char.IsLetter(rest[0]) || rest[0] == '_' || rest[0] == '@');
+    }
+
+    static bool TryStripModifier(ref ReadOnlySpan<char> span, string modifier)
+    {
+        if (!span.StartsWith(modifier))
+            return false;
+        // Require a token boundary so an identifier like "unsafeThing" is not stripped.
+        if (span.Length > modifier.Length)
+        {
+            char next = span[modifier.Length];
+            if (char.IsLetterOrDigit(next) || next == '_')
+                return false;
+        }
+
+        span = span[modifier.Length..];
+        return true;
     }
 
     private SourceLinkResolver(SLF.SourceLinkResolver slfResolver)
