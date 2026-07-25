@@ -591,19 +591,28 @@ The recognized knobs are described once, in the library, by
 `StyleOptionCatalog` (`ILInspector.Decompiler.Pipeline`). Each
 `StyleOptionDescriptor` carries a knob's stable id, human-facing title and
 summary, its tier (`Formatting`, `Spelling`, `Lens`, or `Synthesis`), whether it
-is `ByteDivergent`, whether it is `OracleEndorsed`, its `.dotnet-inspectconfig`
+is `ByteDivergent`, whether it is `OracleEndorsed` (declared) and `CorpusEndorsed`
+(revealed), its `.dotnet-inspectconfig`
 key (`null` for API-only formatting/synthesis knobs), a `ConflictGroup` for
 mutually-exclusive knobs, and NativeAOT-safe `Get`/`With` delegates that read and
 set the knob on a `PrinterOptions` without reflection.
 
 `OracleEndorsed` records **declared**-oracle endorsement specifically — the knob
-has a `.editorconfig` rule behind it. A knob being non-endorsed (the `Formatting`
-and `Synthesis` knobs) therefore means the *declared* oracle is silent, not that
-the runtime corpus is: runtime code visibly wraps long boolean chains, has
-expression-body arrow habits, and uses readable local names. Capturing that
-*revealed* endorsement as a distinct axis — so a future "house style" aggregate
-could enable declared ∪ revealed while "full taste" stays declared-only — is
-tracked in [#3179](https://github.com/richlander/dotnet-inspect/issues/3179).
+has a `.editorconfig` rule behind it. `CorpusEndorsed` records **revealed**
+endorsement — a knob the declared oracle is silent on but the runtime's own
+source corpus reveals a dominant practice for. The two flags are independent (a
+knob may be endorsed by both facets, one, or neither), and each
+`CorpusEndorsed = true` is a deliberate, documented judgment, never a
+silently-inferred or measured-heat claim. Today exactly one knob is
+revealed-endorsed — `wrap-splittable-expressions`, because runtime code wraps
+long boolean chains in line with its 120-column practice. The other
+formatting/synthesis knobs are left un-endorsed on both axes: wrapping the
+expression-body arrow actually *diverges* from the corpus (the runtime keeps `=>`
+on the same line, which the shipped default already does), and a synthesized
+local name is our own invention, not a corpus spelling. The catalog exposes the
+revealed subset as `CorpusEndorsedOptions`; a future "house style" aggregate would
+fold declared ∪ revealed while "full taste" stays declared-only
+([#3179](https://github.com/richlander/dotnet-inspect/issues/3179)).
 
 This makes the option surface discoverable and drift-proof for every host, not
 just the CLI: the config resolver derives its recognized keys from the catalog,
