@@ -878,7 +878,7 @@ function bindEvents() {
   document.querySelector("#nav-forward")?.addEventListener("click", navForward);
   document.querySelector("#demo-call-graph").addEventListener("click", runCallGraphDemo);
   document.querySelector("#theme-toggle").addEventListener("click", toggleTheme);
-  document.querySelector("#help").addEventListener("click", () => showToast("⌘K command · ⌘P / type to find a type · ⌘F filter · 1—6 lenses · ↑↓ types · Alt+←/→ back/forward · graph (focused): +/− zoom, 0 fit, arrows pan · ⌘/Ctrl+wheel zoom"));
+  document.querySelector("#help").addEventListener("click", () => showToast("⌘K command · ⌘P / type to find a type · ⌘F filter · 1—6 lenses · ↑↓ types · Alt+←/→ back/forward · graph: wheel zoom, click node to open, +/− zoom, 0 fit, arrows pan"));
 }
 
 function toggleTheme() {
@@ -1545,7 +1545,6 @@ function attachGraphPanZoom(container, viewport) {
   }
 
   viewport.addEventListener("wheel", event => {
-    if (!event.ctrlKey && !event.metaKey) return;
     event.preventDefault();
     const rect = viewport.getBoundingClientRect();
     zoomAt(event.clientX - rect.left, event.clientY - rect.top, Math.exp(-event.deltaY * 0.0015));
@@ -1553,12 +1552,14 @@ function attachGraphPanZoom(container, viewport) {
 
   let pointerId = null;
   let moved = false;
+  let capturing = false;
+  const panThreshold = 5;
   const start = { x: 0, y: 0, vx: 0, vy: 0 };
   viewport.addEventListener("pointerdown", event => {
+    if (event.button !== 0) return;
     pointerId = event.pointerId;
     moved = false;
-    viewport.setPointerCapture(pointerId);
-    viewport.classList.add("panning");
+    capturing = false;
     start.x = event.clientX;
     start.y = event.clientY;
     start.vx = view.x;
@@ -1566,15 +1567,26 @@ function attachGraphPanZoom(container, viewport) {
   });
   viewport.addEventListener("pointermove", event => {
     if (pointerId !== event.pointerId) return;
-    if (Math.abs(event.clientX - start.x) + Math.abs(event.clientY - start.y) > 5) moved = true;
-    view.x = start.vx + (event.clientX - start.x);
-    view.y = start.vy + (event.clientY - start.y);
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    if (!capturing) {
+      if (Math.abs(dx) + Math.abs(dy) <= panThreshold) return;
+      capturing = true;
+      moved = true;
+      viewport.setPointerCapture(pointerId);
+      viewport.classList.add("panning");
+    }
+    view.x = start.vx + dx;
+    view.y = start.vy + dy;
     apply();
   });
   function endPan(event) {
     if (pointerId !== event.pointerId) return;
-    viewport.releasePointerCapture(pointerId);
-    viewport.classList.remove("panning");
+    if (capturing) {
+      viewport.releasePointerCapture(pointerId);
+      viewport.classList.remove("panning");
+    }
+    capturing = false;
     pointerId = null;
   }
   viewport.addEventListener("pointerup", endPan);
