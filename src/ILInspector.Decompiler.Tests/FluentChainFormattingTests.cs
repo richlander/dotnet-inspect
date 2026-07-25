@@ -46,6 +46,32 @@ public sealed class FluentChainFormattingTests
         return CSharpPrinter.Print(function).Output!;
     }
 
+    static string RenderWithOptions(IrExpression rootValue, PrinterOptions options)
+    {
+        var block = new Block(0);
+        block.Add(new ExpressionStatement(rootValue));
+        block.Add(new Return(null));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(Void, ImmutableArray<Parameter>.Empty, HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", Holder, signature, [], container);
+        return CSharpPrinter.Print(function, options).Output!;
+    }
+
+    // Issue #3185: the general one-liner opt-out (DisableOneLinerWrapping) suppresses
+    // the always-on fluent-chain wrapper, so an over-width chain stays on one line.
+    [Fact]
+    public void LongChain_DisableOneLinerWrapping_StaysInline()
+    {
+        string body = RenderWithOptions(LongChain(), PrinterOptions.Default with { DisableOneLinerWrapping = true });
+
+        Assert.Contains(
+            "Create().AppendFirstMeasuredValue(1).AppendSecondMeasuredValue(2)"
+                + ".AppendThirdMeasuredValue(3).AppendFourthMeasuredValue(4);",
+            string.Concat(body.Split('\n').Select(line => line.Trim())));
+        Assert.DoesNotContain("\n    .Append", body);
+    }
+
     [Fact]
     public void LongChain_BreaksOneCallPerLine()
     {

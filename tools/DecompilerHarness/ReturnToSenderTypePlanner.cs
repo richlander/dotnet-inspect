@@ -1292,6 +1292,116 @@ public static class CompileBackSourceComposer
         }
     }
 
+    // The explicit-interface method analog of AddExplicitInterfacePropertyDeclaration:
+    // a class method target whose metadata name is an explicit-interface spelling
+    // (e.g. `System.Collections.IEnumerable.GetEnumerator`) is reconstructed as
+    // `IType.Member() { ... }`. That declaration only binds when the reconstructed
+    // interface shell actually declares the interface member, so append the interface's
+    // own method declaration (`void GetEnumerator();`) to the interface requirement.
+    // Without it Roslyn reports CS0539 (no member to implement) and, when RTS instead
+    // sanitizes the dotted name to a plain method, the recompiled method carries the
+    // wrong name and the fidelity lookup fails as ContextFail/method-not-found (#3112).
+    // Returns true when the interface's own method declaration is present on the
+    // reconstructed interface shell (either appended here or already required), so the
+    // caller can keep the target's explicit-interface spelling. Returns false when the
+    // declaration cannot be supplied — an unsupported interface-member signature, or an
+    // interface that is not a standalone requirement in the closure (e.g. a nested
+    // interface reached only through its enclosing root) — so the caller reverts the
+    // target to the plain sanitized shape instead of emitting an unbindable `IType.Member()`.
+    static bool AddExplicitInterfaceMethodDeclaration(
+        List<CompileBackTypeRequirement> requirements,
+        MetadataReader reader,
+        TypeDefinition targetType,
+        MethodDefinitionHandle targetMethod)
+    {
+        foreach (var implementationHandle in targetType.GetMethodImplementations())
+        {
+            var implementation = reader.GetMethodImplementation(implementationHandle);
+            if (implementation.MethodBody != targetMethod
+                || implementation.MethodDeclaration.Kind != HandleKind.MethodDefinition)
+            {
+                continue;
+            }
+
+            var declarationHandle = (MethodDefinitionHandle)implementation.MethodDeclaration;
+            var declaration = reader.GetMethodDefinition(declarationHandle);
+            string declarationName = reader.GetString(declaration.Name);
+            // Operators and non-abstract default interface methods cannot be reconstructed
+            // faithfully here, so fall back to the plain sanitized shape (main's behavior)
+            // rather than emit an unbindable explicit implementation:
+            //  - Operators: the printer renders the interface member with C#
+            //    `operator`/`implicit`/`explicit` syntax (exactly when
+            //    OperatorNames.FormatDisplayName rewrites the metadata name), which the
+            //    explicit target spelling — the raw sanitized `op_*` name — cannot match
+            //    (CS0539). A non-operator `op_*`-named method (FormatDisplayName returns it
+            //    unchanged, matching the printer) stays on the normal path and can still
+            //    reconstruct Exact.
+            //  - Default interface methods (virtual, non-abstract): the interface member
+            //    reconstructs bodyless (StubBody.None) while remaining non-abstract, which is
+            //    invalid because a non-abstract interface method requires a body (CS0501).
+            //    Key off the declaration's Abstract flag directly rather than IsVirtualMethod:
+            //    a C# 11 `static virtual` interface method carries Virtual without NewSlot, so
+            //    IsVirtualMethod (which requires NewSlot) would miss it. Any non-abstract
+            //    interface declaration (default method, `static virtual`, or `sealed`) has a
+            //    body and cannot be reconstructed as a bodyless declaration here; only an
+            //    abstract declaration (including `static abstract`) can, so it stays on the
+            //    normal path and can still reconstruct Exact.
+            if (OperatorNames.FormatDisplayName(declarationName) != declarationName)
+            {
+                return false;
+            }
+            if ((declaration.Attributes & MethodAttributes.Abstract) == 0)
+            {
+                return false;
+            }
+            var interfaceHandle = declaration.GetDeclaringType();
+            var interfaceDef = reader.GetTypeDefinition(interfaceHandle);
+            var interfaceIdentity = CompileBackTypeIdentity.FromDefinition(reader, interfaceDef);
+            var member = TypeProducer.MethodRequirement(
+                reader,
+                interfaceDef,
+                interfaceIdentity,
+                declarationHandle,
+                "explicit-interface-target-method");
+            if (member is null)
+                return false;
+
+            int requirementIndex = requirements.FindIndex(
+                requirement => requirement.Type.MetadataFullName == interfaceIdentity.MetadataFullName);
+            if (requirementIndex < 0)
+                return false;
+
+            var requirement = requirements[requirementIndex];
+            if (!requirement.RequiredMembers.Any(existing => TypeProducer.SameMemberShape(existing, member)))
+            {
+                requirements[requirementIndex] = requirement with
+                {
+                    RequiredMembers = requirement.RequiredMembers.Append(member).ToArray()
+                };
+            }
+            return true;
+        }
+        return false;
+    }
+
+    // Compatibility declaration text for an explicit-interface method target. The C#
+    // printer keeps method-shaped explicit-interface implementations on compatibility
+    // text (TryRenderSignatureModel only models plain methods), so RTS supplies the
+    // `<return> <IType.Member><type-params>(<params>)` spelling the printer escapes and
+    // emits. Parameter names/types mirror the reconstructed body's references.
+    static string ExplicitInterfaceMethodDeclarationSignature(
+        string explicitInterfaceMemberName,
+        CompileBackTypeSignature returnType,
+        IReadOnlyList<CompileBackTypeParameter> typeParameters,
+        IReadOnlyList<CompileBackParameter> parameters)
+    {
+        string typeParametersText = typeParameters.Count == 0
+            ? ""
+            : $"<{string.Join(", ", typeParameters.Select(parameter => parameter.Name))}>";
+        string parametersText = string.Join(", ", parameters.Select(RenderParameter));
+        return $"{returnType.DisplayName} {explicitInterfaceMemberName}{typeParametersText}({parametersText})";
+    }
+
     static ExplicitInterfaceEventInfo? ExplicitInterfaceEvent(
         MetadataReader reader,
         TypeDefinition targetType,
@@ -1649,6 +1759,28 @@ public static class CompileBackSourceComposer
                 ? constructorChain
                 : null;
 
+        var targetReturnType = isConstructor
+            ? null
+            : CompileBackTypeSignature.Display(MethodReturnType(reader, targetTypeDef, method));
+        var targetParameters = MethodParameters(reader, method, signature);
+        var targetTypeParameters = MethodTypeParameters(reader, method);
+        // A class method whose metadata name is an explicit-interface spelling
+        // (`IType.Member`) must be reconstructed as an explicit-interface implementation,
+        // not a plain method with the dotted name sanitized to `IType_Member`. The latter
+        // compiles but carries the wrong metadata name, so the fidelity lookup fails as
+        // ContextFail/method-not-found (#3112). Only supported non-generic interface
+        // targets resolve here; anything else keeps the pre-existing plain shape.
+        string? explicitInterfaceMemberName = isConstructor
+            ? null
+            : ExplicitInterfaceMemberName(reader, methodName);
+        string? explicitInterfaceDeclarationSignature = explicitInterfaceMemberName is null
+            ? null
+            : ExplicitInterfaceMethodDeclarationSignature(
+                explicitInterfaceMemberName,
+                targetReturnType!,
+                targetTypeParameters,
+                targetParameters);
+
         var targetMembers = isConstructor && primaryConstructor is not null
             ? primaryConstructor.FieldInitializers.ToList()
             :
@@ -1657,9 +1789,9 @@ public static class CompileBackSourceComposer
                 new CompileBackMethodIdentity(targetIdentity.FullName, targetMethodName, overload, signatureText),
                 isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method,
                 method.Attributes.HasFlag(MethodAttributes.Static),
-                MethodParameters(reader, method, signature),
-                isConstructor ? null : CompileBackTypeSignature.Display(MethodReturnType(reader, targetTypeDef, method)),
-                MethodTypeParameters(reader, method),
+                targetParameters,
+                targetReturnType,
+                targetTypeParameters,
                 CompileBackStubBodyKind.TargetBody,
                 targetBody,
                 [new CompileBackFact("metadata", isConstructor ? "target-constructor" : "target-method", reader.GetString(method.Name))],
@@ -1673,6 +1805,8 @@ public static class CompileBackSourceComposer
                     && (function.RequiresAsyncBodyModifier
                         || function.IsRuntimeAsync == MetadataFactState.Yes),
                 ConstructorInitializer: targetConstructorInitializer,
+                ExplicitInterfaceMemberName: explicitInterfaceMemberName,
+                DeclarationSignature: explicitInterfaceDeclarationSignature,
                 RequiresUnsafeModifier: ContainsFixedBufferElementAccess(function))
         ];
         bool includeRecordSurface = false;
@@ -1787,6 +1921,31 @@ public static class CompileBackSourceComposer
             AddClosureTypeRequirements(requirements, reader, dependency, closureFacts, closureMemberRequirements);
         }
 
+        if (explicitInterfaceMemberName is not null
+            && !AddExplicitInterfaceMethodDeclaration(requirements, reader, targetTypeDef, targetMethod))
+        {
+            // The interface member declaration could not be supplied (unsupported
+            // interface-member signature, or the interface is not a standalone closure
+            // requirement — e.g. a nested interface reached only through its enclosing
+            // root). Revert the target to the plain sanitized shape rather than emit
+            // `IType.Member()` against an interface that cannot declare it, which would
+            // turn a method-not-found ContextFail into a CS0539 RecompileFail.
+            // requirements[0].RequiredMembers wraps the still-mutable targetMembers list,
+            // so clearing the explicit-interface fields here reverts the rendered shape.
+            int targetIndex = targetMembers.FindIndex(member =>
+                member.Kind == CompileBackMemberKind.Method
+                && member.StubBody == CompileBackStubBodyKind.TargetBody
+                && member.ExplicitInterfaceMemberName == explicitInterfaceMemberName);
+            if (targetIndex >= 0)
+            {
+                targetMembers[targetIndex] = targetMembers[targetIndex] with
+                {
+                    ExplicitInterfaceMemberName = null,
+                    DeclarationSignature = null,
+                };
+            }
+        }
+
         var production = TypeProducer.Produce(reader, requirements, diagnostics);
         var declarations = production.Requests;
         var module = new CompileBackModuleRequirement(
@@ -1822,10 +1981,12 @@ public static class CompileBackSourceComposer
             && member.Kind is CompileBackMemberKind.PropertyGet or CompileBackMemberKind.PropertySet;
         bool isEvent = member.Kind is CompileBackMemberKind.EventAdd or CompileBackMemberKind.EventRemove;
         bool isExplicitInterfaceEvent = member.ExplicitInterfaceMemberName is not null && isEvent;
+        bool isExplicitInterfaceMethod = member.ExplicitInterfaceMemberName is not null
+            && member.Kind is CompileBackMemberKind.Method;
         var apiMember = new ApiMember
         {
             Name = member.ExplicitInterfaceMemberName ?? member.Identity.Method,
-            Kind = isExplicitInterfaceProperty || isExplicitInterfaceEvent
+            Kind = isExplicitInterfaceProperty || isExplicitInterfaceEvent || isExplicitInterfaceMethod
                 ? "explicit-interface-implementation"
                 : member.Kind switch
                 {
@@ -3458,11 +3619,12 @@ public static class CompileBackSourceComposer
                 IsVirtual: IsVirtualMethod(accessor));
         }
 
-        static CompileBackMemberRequirement? MethodRequirement(
+        internal static CompileBackMemberRequirement? MethodRequirement(
             MetadataReader reader,
             TypeDefinition typeDef,
             CompileBackTypeIdentity typeIdentity,
-            MethodDefinitionHandle methodHandle)
+            MethodDefinitionHandle methodHandle,
+            string factId = "typed-closure-method")
         {
             var method = reader.GetMethodDefinition(methodHandle);
             string name = reader.GetString(method.Name);
@@ -3519,7 +3681,7 @@ public static class CompileBackSourceComposer
                     ? CompileBackStubBodyKind.None
                     : CompileBackStubBodyKind.Throw,
                 null,
-                [new CompileBackFact("metadata", isConstructor ? "typed-closure-constructor" : "typed-closure-method", name)],
+                [new CompileBackFact("metadata", isConstructor ? "typed-closure-constructor" : factId, name)],
                 isConstructor ? null : methodDeclaration?.Attributes,
                 isConstructor ? null : methodDeclaration?.Signature.ReturnAttributes,
                 IsAbstract: !isConstructor && IsAbstractMethod(method),

@@ -336,8 +336,8 @@ representative is unchanged, only its layout differs. Wrapping therefore sits be
 brace style, with a single input from the oracle: `dotnet/runtime`'s 120-column
 maximum line width decides *when* a single-line rendering is too wide to keep.
 
-Two chain shapes wrap one element per continuation line when the flat form would
-exceed that width and the chain has at least two elements:
+Three constructs wrap one element per continuation line when the flat form would
+exceed that width:
 
 - **Fluent method chains — always on.** The runtime routinely breaks a long
   fluent chain one `.Member(args)` call per line, and the transform is
@@ -352,6 +352,27 @@ exceed that width and the chain has at least two elements:
       .Select(projection)
       .OrderBy(key)
       .ToList();
+  ```
+
+- **Member signatures — always on (issue #3185).** When a member declaration's
+  first physical line — its head plus whatever trails the closing `)` on that
+  line (`=> expr;`, `{`, or `;`) — would exceed the width, the parameter list
+  breaks one parameter per line under a four-space continuation indent, with the
+  closing `)` (and any trailing `where`/base-`: this(...)` clause) kept on the
+  last parameter's line and the `=>`/`{`/`;` staying on that line. This mirrors
+  the corpus, which wraps a wide signature's parameters rather than the arrow.
+  The rewrite is whitespace-only and token-identical, so it is applied
+  unconditionally like the fluent wrapper. The parameter list is located
+  conservatively — a signature whose parameter group cannot be unambiguously
+  identified (e.g. a symbolic `operator +(...)`, or an indexer's `[...]` list)
+  stays on today's single line rather than risk a mangled declaration.
+
+  ```csharp
+  public static JsonElement Parse([StringSyntax("Json")] ReadOnlySpan<byte> utf8Json, JsonDocumentOptions options = default) => JsonDocument.ParseValue(utf8Json, options).RootElement;
+  // wraps to:
+  public static JsonElement Parse(
+      [StringSyntax("Json")] ReadOnlySpan<byte> utf8Json,
+      JsonDocumentOptions options = default) => JsonDocument.ParseValue(utf8Json, options).RootElement;
   ```
 
 - **Short-circuit `&&` / `||` chains — opt-in.** The boolean analog breaks each
@@ -379,8 +400,18 @@ The asymmetry is deliberate and matches how this doc treats every cosmetic lens
 that isn't yet a default: like readable name synthesis under [Names](#names), the
 boolean-chain wrapper changes only layout, so it is introduced opt-in to keep
 default output byte-for-byte stable until the choice proves out, rather than
-churning every wide boolean `return` in the corpus. The always-on fluent wrapper
-predates it and stays on.
+churning every wide boolean `return` in the corpus. The always-on fluent and
+signature wrappers reproduce the corpus and stay on.
+
+**General one-liner opt-out.** A single knob,
+`PrinterOptions.DisableOneLinerWrapping` (catalog id `disable-one-liner-wrapping`,
+off by default), suppresses *all* always-on width wrapping — both the fluent-chain
+and the member-signature wrappers — so a caller who wants wide constructs to stay
+on one physical line gets true one-liners. It deliberately does **not** touch the
+opt-in `WrapSplittableExpressions` wrappers, which are already off unless
+explicitly enabled. Keeping a wide construct inline diverges from the corpus
+(which wraps), so this knob is a user compactness preference endorsed by neither
+the oracle nor the corpus — classified like the branchless-boolean lens.
 
 ### Range indexer
 
@@ -614,10 +645,12 @@ exactly one knob is revealed-endorsed — `wrap-splittable-expressions`, because
 runtime code wraps long boolean chains in line with its 120-column practice. The
 other formatting/synthesis knobs are left un-endorsed on both axes: wrapping the
 expression-body arrow actually *diverges* from the corpus (the runtime keeps `=>`
-on the same line, which the shipped default already does), and a synthesized local
-name is our own invention, not a corpus spelling. The catalog exposes the revealed
-subset as `CorpusEndorsedOptions`; a future "house style" aggregate would fold
-declared ∪ revealed while "full taste" stays declared-only
+on the same line, which the shipped default already does), suppressing the
+always-on width wrappers (`disable-one-liner-wrapping`) diverges too (the runtime
+wraps wide constructs, which the shipped default also does), and a synthesized
+local name is our own invention, not a corpus spelling. The catalog exposes the
+revealed subset as `CorpusEndorsedOptions`; a future "house style" aggregate would
+fold declared ∪ revealed while "full taste" stays declared-only
 ([#3179](https://github.com/richlander/dotnet-inspect/issues/3179)).
 
 This makes the option surface discoverable and drift-proof for every host, not
@@ -640,6 +673,23 @@ have a `false`/`true` domain, and the guarded-boolean-return family is one
 three-token axis rather than two coupled booleans. The catalog is exhaustive: a
 test-only drift guard asserts every backing `PrinterOptions` boolean is reachable
 through some descriptor value, so a new knob cannot land without a catalog entry.
+
+The `var`-spelling family is a second multi-value axis, modeled as one
+`var-spelling-style` descriptor with four tokens — `explicit` (the default) plus
+the three site categories `var-for-built-in-types`, `var-when-type-apparent`, and
+`var-elsewhere`, one per editorconfig key (`csharp_style_var_for_built_in_types`,
+`csharp_style_var_when_type_is_apparent`, `csharp_style_var_elsewhere`). Because a
+declaration site falls into exactly one category, the three category values back
+*independent* booleans (a host may enable any subset), while the axis stays
+single-select for display: `GetValue` reports the coarse first-enabled category
+and `WithValue` selects one exclusively. `var` is byte-neutral — it erases the
+declared type spelling but never changes the IL — so the family sits in the
+`Spelling` tier with `ByteDivergent = false`. Every category value is
+`OracleEndorsed = false` and `CorpusEndorsed = false`: dotnet/runtime's
+`.editorconfig` sets all three `csharp_style_var_*` keys to `false` (prefer
+explicit types), so no `var` value is endorsed by either facet. The family is
+therefore **opt-in only** and never part of the "full taste" aggregate — the
+shipped default spells explicit types everywhere, matching the runtime.
 
 ## Verification and soundness
 

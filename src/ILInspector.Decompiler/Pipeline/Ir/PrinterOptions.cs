@@ -41,6 +41,25 @@ public sealed record PrinterOptions
     public bool WrapSplittableExpressions { get; init; }
 
     /// <summary>
+    /// When set, the always-on <b>width-based</b> wrappers are suppressed, so a
+    /// construct that would otherwise break across continuation lines because its
+    /// single-line form exceeds the wrap width stays on one physical line no matter
+    /// how wide. This covers the long fluent-call chain wrapper and the long
+    /// member-signature (parameter-list) wrapper — the "one-liner pretty printing"
+    /// the renderer applies by default. Off by default (wrapping is the shipped
+    /// house style, matching the runtime corpus, which wraps long lines).
+    ///
+    /// This is a user compactness preference: keeping a wide construct inline
+    /// <b>diverges</b> from the corpus, so it is neither declared- nor
+    /// revealed-endorsed. It governs only the <em>always-on</em> width wrappers; the
+    /// opt-in <see cref="WrapSplittableExpressions"/> boolean/bitwise chain wrapping
+    /// is independent (a user who opts into that has explicitly asked for it).
+    /// Whitespace-only: it never changes which tokens are emitted, so the IL is
+    /// unchanged.
+    /// </summary>
+    public bool DisableOneLinerWrapping { get; init; }
+
+    /// <summary>
     /// When set, an instance field accessed through <c>this</c> renders the explicit
     /// <c>this.</c> qualifier even where the bare name is unambiguous (the shipped
     /// default qualifies only to escape a local/parameter shadow or a member/type
@@ -78,6 +97,44 @@ public sealed record PrinterOptions
     /// <c>dotnet_style_qualification_for_event</c>.
     /// </summary>
     public bool QualifyEventAccess { get; init; }
+
+    /// <summary>
+    /// When set, a local declaration whose declared type is a C# built-in
+    /// (predefined) type — <c>int</c>, <c>string</c>, <c>bool</c>, <c>double</c>,
+    /// and the rest of the keyword types — is spelled <c>var</c> instead of the
+    /// explicit type, provided <c>var</c> is faithful there (the initializer's type
+    /// is exactly the declared type and it is not a target-typed form such as
+    /// <c>default</c>/<c>null</c>/<c>new()</c>). Byte-neutral: <c>var</c> is a
+    /// compile-time inference with no IL consequence, so this is a spelling choice,
+    /// not a lens. Off by default — the shipped output keeps the explicit type,
+    /// matching dotnet/runtime's <c>csharp_style_var_for_built_in_types = false</c>.
+    /// Mirrors <c>csharp_style_var_for_built_in_types</c>.
+    /// </summary>
+    public bool PreferVarForBuiltInTypes { get; init; }
+
+    /// <summary>
+    /// When set, a local declaration whose type is <em>apparent</em> from the
+    /// initializer (see <see cref="CSharpPrinter"/>'s apparency predicate — object
+    /// creation of the exact type, an array creation, or an explicit cast) is
+    /// spelled <c>var</c> instead of the explicit type. Applies to the apparent,
+    /// non-built-in bucket (the built-in bucket is governed by
+    /// <see cref="PreferVarForBuiltInTypes"/>). Byte-neutral (a spelling choice, no
+    /// IL consequence). Off by default, matching dotnet/runtime's
+    /// <c>csharp_style_var_when_type_is_apparent = false</c>. Mirrors
+    /// <c>csharp_style_var_when_type_is_apparent</c>.
+    /// </summary>
+    public bool PreferVarWhenTypeApparent { get; init; }
+
+    /// <summary>
+    /// When set, a local declaration that is neither a built-in-type nor an
+    /// apparent-type site is spelled <c>var</c> instead of the explicit type,
+    /// provided <c>var</c> is faithful there (the initializer's type is exactly the
+    /// declared type and it is not a target-typed form). Byte-neutral (a spelling
+    /// choice, no IL consequence). Off by default, matching dotnet/runtime's
+    /// <c>csharp_style_var_elsewhere = false</c>. Mirrors
+    /// <c>csharp_style_var_elsewhere</c>.
+    /// </summary>
+    public bool PreferVarElsewhere { get; init; }
 
     /// <summary>
     /// When set, a guarded boolean return the default view must render as a flat

@@ -875,7 +875,6 @@ public static class ApiSurfaceExtractor
     }
 
     /// <summary>
-    /// True when <paramref name="methodDeclaration"/> (the target of a
     /// <c>.override</c> MethodImpl) names <c>Finalize</c> on <c>System.Object</c>.
     /// The target is a <see cref="MemberReferenceHandle"/> in the common case
     /// (object lives in another assembly) and a <see cref="MethodDefinitionHandle"/>

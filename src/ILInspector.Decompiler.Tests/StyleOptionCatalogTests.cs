@@ -356,4 +356,93 @@ public class StyleOptionCatalogTests
         Assert.False(arrow.OracleEndorsed);
         Assert.False(arrow.CorpusEndorsed);
     }
+
+    [Fact]
+    public void DisableOneLinerWrapping_IsEndorsedByNeitherFacet()
+    {
+        // Suppressing the always-on width wrappers is a user compactness preference,
+        // not the corpus's practice: the runtime wraps wide constructs (the shipped
+        // default keeps wrapping), so keeping a one-liner on one line diverges from
+        // the corpus, and no .editorconfig rule declares it. Neither facet endorses it.
+        var disable = Options.Single(o => o.Id == "disable-one-liner-wrapping");
+        Assert.False(disable.OracleEndorsed);
+        Assert.False(disable.CorpusEndorsed);
+    }
+
+    // ---- var-spelling family (#3169) ----
+
+    private const string VarStyleId = "var-spelling-style";
+
+    [Fact]
+    public void VarSpelling_IsAByteNeutralFourValueSpellingAxis()
+    {
+        var varStyle = Options.Single(o => o.Id == VarStyleId);
+
+        // A spelling choice (IL-identical), never a byte-divergent lens.
+        Assert.Equal(StyleOptionTier.Spelling, varStyle.Tier);
+        Assert.False(varStyle.ByteDivergent);
+
+        var tokens = varStyle.Values.Select(v => v.Token).ToArray();
+        Assert.Equal(
+            new[] { "explicit", "var-for-built-in-types", "var-when-type-apparent", "var-elsewhere" },
+            tokens);
+        // Explicit is the shipped default (every csharp_style_var_* key off).
+        Assert.Equal("explicit", varStyle.DefaultValue);
+        Assert.Equal("explicit", varStyle.GetValue(PrinterOptions.Default));
+    }
+
+    [Fact]
+    public void VarSpelling_ThreeCategories_MapToTheEditorconfigKeys()
+    {
+        var varStyle = Options.Single(o => o.Id == VarStyleId);
+
+        Assert.Equal(
+            "csharp_style_var_for_built_in_types",
+            varStyle.Values.Single(v => v.Token == "var-for-built-in-types").ConfigKey);
+        Assert.Equal(
+            "csharp_style_var_when_type_is_apparent",
+            varStyle.Values.Single(v => v.Token == "var-when-type-apparent").ConfigKey);
+        Assert.Equal(
+            "csharp_style_var_elsewhere",
+            varStyle.Values.Single(v => v.Token == "var-elsewhere").ConfigKey);
+        // The explicit default is not config-selectable (it is the absence of any key).
+        Assert.Null(varStyle.Values.Single(v => v.Token == "explicit").ConfigKey);
+    }
+
+    [Fact]
+    public void VarSpelling_CategoriesAreIndependent_EachKeySetsOnlyItsOwnBool()
+    {
+        var varStyle = Options.Single(o => o.Id == VarStyleId);
+        var builtIn = varStyle.Values.Single(v => v.Token == "var-for-built-in-types");
+        var elsewhere = varStyle.Values.Single(v => v.Token == "var-elsewhere");
+
+        // Enabling two categories independently leaves both selected — they are not
+        // mutually exclusive (a site falls into exactly one bucket, so both can be on).
+        var both = elsewhere.SetSelected(builtIn.SetSelected(PrinterOptions.Default, true), true);
+        Assert.True(both.PreferVarForBuiltInTypes);
+        Assert.True(both.PreferVarElsewhere);
+        Assert.False(both.PreferVarWhenTypeApparent);
+
+        // Clearing one leaves the other set.
+        var onlyElsewhere = builtIn.SetSelected(both, false);
+        Assert.False(onlyElsewhere.PreferVarForBuiltInTypes);
+        Assert.True(onlyElsewhere.PreferVarElsewhere);
+    }
+
+    [Fact]
+    public void VarSpelling_IsEndorsedByNeitherFacet_SoItStaysOptInOnly()
+    {
+        // dotnet/runtime's .editorconfig sets every csharp_style_var_* key false
+        // (prefer explicit), so no var value is oracle- or corpus-endorsed and the
+        // family never joins the "full taste" aggregate.
+        var varStyle = Options.Single(o => o.Id == VarStyleId);
+        Assert.False(varStyle.OracleEndorsed);
+        Assert.False(varStyle.CorpusEndorsed);
+        Assert.DoesNotContain(StyleOptionCatalog.OracleEndorsedOptions, o => o.Id == VarStyleId);
+        Assert.DoesNotContain(StyleOptionCatalog.CorpusEndorsedOptions, o => o.Id == VarStyleId);
+
+        // Full taste leaves the axis on its explicit default.
+        var full = StyleOptionCatalog.ApplyFullTaste(PrinterOptions.Default);
+        Assert.Equal("explicit", varStyle.GetValue(full));
+    }
 }
