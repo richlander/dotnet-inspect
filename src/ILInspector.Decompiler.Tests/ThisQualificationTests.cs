@@ -289,6 +289,16 @@ public sealed class ThisQualificationSpecimen
 
     public int ReadField() => _value;
 
+    // Reads the field twice: with the qualify-field knob on, both accesses emit
+    // this._value, but AddDecision dedups them into a single recorded decision.
+    public int SumFieldTwice() => _value + _value;
+
+    // A parameter shadows the field, so the bare name binds to the parameter and
+    // reaching the field REQUIRES this._value. That this. is mandatory
+    // disambiguation, not the qualify-field knob, so it records no taste decision
+    // even when the knob is enabled.
+    public int ReadShadowedField(int _value) => this._value + _value;
+
     public int ReadProperty() => Count;
 
     // Instance method call on the implicit this receiver.

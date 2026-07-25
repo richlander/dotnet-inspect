@@ -5,6 +5,36 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <summary>Rendering helpers for member access, calls, and call arguments.</summary>
 public sealed partial class CSharpPrinter
 {
+    // The library-owned catalog descriptors for the four this.-qualification
+    // knobs. Sourcing identity and config key from StyleOptionCatalog (#3160)
+    // keeps the recorded decision's RuleId and prose in lockstep with the single
+    // source of truth: a knob rename fails here at type init rather than drifting.
+    static readonly StyleOptionDescriptor QualifyFieldOption = QualificationKnob("qualify-field-access");
+    static readonly StyleOptionDescriptor QualifyPropertyOption = QualificationKnob("qualify-property-access");
+    static readonly StyleOptionDescriptor QualifyMethodOption = QualificationKnob("qualify-method-access");
+    static readonly StyleOptionDescriptor QualifyEventOption = QualificationKnob("qualify-event-access");
+
+    static StyleOptionDescriptor QualificationKnob(string id)
+        => StyleOptionCatalog.Options.Single(o => o.Id == id);
+
+    // A this.-qualification KNOB (not mandatory shadow disambiguation) added the
+    // this. qualifier, so record a byte-preserving taste decision the Applied
+    // Taste surface can report. Only the knob-attributed path calls this (the knob
+    // is enabled AND the bare name already binds); a mandatory disambiguation
+    // this. — one that would appear with the knob off too — is never recorded as a
+    // taste choice. AddDecision dedups on the full row, so repeated accesses to
+    // the same member collapse to a single decision.
+    void RecordThisQualificationDecision(StyleOptionDescriptor knob, string memberName, string bareName)
+        => AddDecision(
+            knob.Id,
+            DecompilerDecisionCategories.Taste,
+            memberName,
+            $"Qualified instance member '{memberName}' with 'this.' ({knob.ConfigKey}). "
+                + "Byte-preserving: the bare name already binds to the member, so the "
+                + "qualifier is an opt-in spelling choice, not disambiguation.",
+            oldValue: bareName,
+            newValue: $"this.{bareName}");
+
     string FieldTarget(FieldRef field, IrExpression? instance)
     {
         if (PointerMemberReceiver(instance) is { } pointerReceiver)
@@ -48,9 +78,23 @@ public sealed partial class CSharpPrinter
             // bare name binds to it, not the field (e.g. int Foo(int _x) =>
             // this._x + _x). Qualify with this. to reach the field; an
             // unshadowed instance field stays bare per the taste convention.
-            LoadArgument { Index: 0, Name: "this" } => _options.QualifyFieldAccess || QualifyThisMember(field.Name, field.Type) ? $"this.{fieldName}" : fieldName,
+            LoadArgument { Index: 0, Name: "this" } => FieldThisTarget(field, fieldName),
             _ => $"{ReceiverText(instance)}.{fieldName}",
         };
+    }
+
+    // The this-receiver plain-field branch of FieldTarget. Emits this. when the
+    // qualify-field knob is set OR a local shadows the field (mandatory), matching
+    // the prior inline predicate exactly, and records a decision only on the
+    // knob-attributed path (knob set AND no shadow forcing it).
+    string FieldThisTarget(FieldRef field, string fieldName)
+    {
+        bool mandatory = QualifyThisMember(field.Name, field.Type);
+        if (!_options.QualifyFieldAccess && !mandatory)
+            return fieldName;
+        if (_options.QualifyFieldAccess && !mandatory)
+            RecordThisQualificationDecision(QualifyFieldOption, field.Name, fieldName);
+        return $"this.{fieldName}";
     }
 
     string? PointerMemberReceiver(IrExpression? instance)
@@ -88,6 +132,7 @@ public sealed partial class CSharpPrinter
             return $"{pointerReceiver}->{CSharpNaming.EscapeIdentifier(name)}";
         }
 
+        bool thisQualifiedByKnob = false;
         string receiver = instance switch
         {
             // A NON-virtual this-receiver access to a base-declared member is
@@ -101,16 +146,34 @@ public sealed partial class CSharpPrinter
             // bare per the taste convention, matching FieldTarget. An event
             // subscription routes through here too, so it honors the separate
             // event qualification knob rather than the property one.
-            LoadArgument { Index: 0, Name: "this" } => (isEvent ? _options.QualifyEventAccess : _options.QualifyPropertyAccess) || QualifyThisMember(name, AccessorValueType(accessor)) ? "this" : "",
+            LoadArgument { Index: 0, Name: "this" } => ThisPropertyReceiver(name, accessor, isEvent, out thisQualifiedByKnob),
             _ => ReceiverText(instance),
         };
         // An instance property accessor with index arguments IS an indexer,
-        // whatever its metadata name (String's is Chars, not Item).
+        // whatever its metadata name (String's is Chars, not Item). An indexer
+        // always renders this[...] (never this.Item), so the qualify knob makes no
+        // textual difference there; this early return precedes the knob-attributed
+        // decision so an indexer never records one.
         if (instance is not null && indexArguments.Count > 0)
             return $"{(receiver.Length == 0 ? "this" : receiver)}[{Arguments(indexArguments)}]";
         string escapedName = CSharpNaming.EscapeIdentifier(name);
+        if (thisQualifiedByKnob)
+            RecordThisQualificationDecision(isEvent ? QualifyEventOption : QualifyPropertyOption, name, escapedName);
         string dotted = receiver.Length == 0 ? escapedName : $"{receiver}.{escapedName}";
         return indexArguments.Count == 0 ? dotted : $"{dotted}[{Arguments(indexArguments)}]";
+    }
+
+    // The this-receiver property/event branch of PropertyTarget: returns the
+    // receiver text ("this" when qualified, "" when bare) and reports through
+    // <paramref name="qualifiedByKnob"/> whether the qualify KNOB (not mandatory
+    // shadow disambiguation) selected the qualifier — the only case that is an
+    // opt-in taste choice worth recording.
+    string ThisPropertyReceiver(string name, MethodRef accessor, bool isEvent, out bool qualifiedByKnob)
+    {
+        bool knob = isEvent ? _options.QualifyEventAccess : _options.QualifyPropertyAccess;
+        bool mandatory = QualifyThisMember(name, AccessorValueType(accessor));
+        qualifiedByKnob = knob && !mandatory;
+        return knob || mandatory ? "this" : "";
     }
 
     bool QualifyThisMember(string memberName, TypeRef? valueType)
@@ -249,7 +312,12 @@ public sealed partial class CSharpPrinter
             // stay this.Ext (or bare) like any other extension group.
             if (method.HasThis && !isVirtual && IsCrossType(method.DeclaringType))
                 return $"base.{name}";
-            return _options.QualifyMethodAccess ? $"this.{name}" : name;
+            if (_options.QualifyMethodAccess)
+            {
+                RecordThisQualificationDecision(QualifyMethodOption, name, name);
+                return $"this.{name}";
+            }
+            return name;
         }
         if (PointerMethodReceiver(target) is { } pointerReceiver)
             return $"{pointerReceiver}->{name}";
@@ -360,8 +428,12 @@ public sealed partial class CSharpPrinter
             // re-enable virtual dispatch and change behavior).
             if (!call.IsVirtual && IsCrossType(call.Callee.DeclaringType))
                 return $"base.{thisMethodName}{typeArguments}({rest})";
-            string thisMethodQualifier = _options.QualifyMethodAccess ? "this." : "";
-            return $"{thisMethodQualifier}{thisMethodName}{typeArguments}({rest})";
+            if (_options.QualifyMethodAccess)
+            {
+                RecordThisQualificationDecision(QualifyMethodOption, thisMethodName, thisMethodName);
+                return $"this.{thisMethodName}{typeArguments}({rest})";
+            }
+            return $"{thisMethodName}{typeArguments}({rest})";
         }
         if (PointerMethodReceiver(receiver) is { } pointerReceiver)
             return $"{pointerReceiver}->{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";

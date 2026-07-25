@@ -174,6 +174,13 @@ public int Compute() => _count + Extra;          // shipped default: bare
 public int Compute() => this._count + this.Extra; // both knobs on
 ```
 
+When a knob adds `this.`, the printer records a byte-preserving taste decision
+(category `taste`, keyed by the knob's `StyleOptionCatalog` id, e.g.
+`qualify-field-access`) so the CLI **Applied Taste** section reports the opt-in
+spelling. Only knob-attributed qualification is recorded: a mandatory `this.`
+that disambiguates a shadow or type-name collision would appear with the knob off
+too, so it is never attributed to the knob as a taste choice.
+
 ### Expression-bodied members
 
 Rendering a value-returning member as `head => <expr>;` instead of a brace block
