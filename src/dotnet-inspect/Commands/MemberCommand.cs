@@ -286,13 +286,16 @@ public static class MemberCommand
                 var directRequest = selectedMember != null && effectiveOptions.IncludeAll;
                 var publicOnly = !directRequest
                     && selectedMember?.Kind is not ("explicit-interface-implementation" or "finalizer");
-                // The metadata token indexes the extraction assembly (apiDllPath).
-                // Only resolve source by token when the lookup assembly IS that
-                // same assembly; when a distinct runtime assembly is used (e.g. a
-                // reference assembly for the surface but an implementation assembly
-                // for bodies), the token's row would not align, so fall back to
-                // name/overload resolution against that assembly.
-                var sourceMetadataToken = string.Equals(pdbLookupPath, apiDllPath, StringComparison.Ordinal)
+                // The selected member's metadata token indexes the assembly it
+                // was extracted from — apiType.SourceAssemblyPath (the target
+                // assembly for a forwarded type, otherwise the extraction dll).
+                // Only resolve source by token when the assembly opened for
+                // lookup (pdbLookupPath) IS that same assembly; otherwise the
+                // token's row would not align (forwarded facade, or a reference
+                // assembly for the surface vs an implementation assembly for
+                // bodies), so fall back to name/overload resolution.
+                var tokenOriginAssembly = apiType.SourceAssemblyPath ?? apiDllPath;
+                var sourceMetadataToken = string.Equals(pdbLookupPath, tokenOriginAssembly, StringComparison.Ordinal)
                     ? (selectedMember?.MetadataToken ?? 0)
                     : 0;
                 var resolved = await ApiCommand.ResolveMethodSourceAsync(

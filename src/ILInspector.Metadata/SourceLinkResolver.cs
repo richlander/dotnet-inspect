@@ -111,7 +111,8 @@ public class SourceLinkResolver
             sigStart = i + 1;
             if (trimmed.StartsWith("public") || trimmed.StartsWith("private")
                 || trimmed.StartsWith("protected") || trimmed.StartsWith("internal")
-                || trimmed.StartsWith("static") || trimmed.StartsWith("~")
+                || trimmed.StartsWith("static")
+                || (methodName == "Finalize" && trimmed.StartsWith("~"))
                 || trimmed.Contains(methodName))
                 break;
         }

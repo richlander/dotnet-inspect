@@ -117,4 +117,28 @@ public class ExtractMethodBodyTests
         Assert.Equal("~C()\n{\n    s_flag = true;\n}", body);
         Assert.DoesNotContain("s_flag;", body, System.StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void OnesComplementOperator_SplitSignature_NotTruncatedByTildeStop()
+    {
+        // Regression guard (adversarial review): the "~" stop is scoped to the
+        // finalizer (metadata name "Finalize"). A user-defined unary complement
+        // operator whose signature is split so the second line begins with "~"
+        // (e.g. "public static C operator" / "~(C value)") must still capture the
+        // full signature; the "~" line must not be mistaken for a signature start.
+        var source = Lines(
+            "class C",                              // 1
+            "{",                                    // 2
+            "    public static C operator",         // 3  <- must be captured
+            "        ~(C value)",                   // 4
+            "    {",                                // 5  <- StartLine
+            "        return value;",                // 6  <- EndLine
+            "    }",                                // 7
+            "}");                                   // 8
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 6, methodName: "op_OnesComplement");
+
+        Assert.Contains("public static C operator", body, System.StringComparison.Ordinal);
+        Assert.Contains("~(C value)", body, System.StringComparison.Ordinal);
+    }
 }
