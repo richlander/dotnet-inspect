@@ -23,19 +23,25 @@ Existing DecompilerHarness corpus snapshots are also accepted directly.
 Use `--format tsv` or `--format jsonl` for structured rows. Add
 `--fail-on-regression` to exit 1 when a comparable metric moves opposite its
 declared goal. Invalid input or incompatible report kinds/schemas exit 2.
-TSV and JSONL use one flat row shape with a `section` discriminator; values
-remain strings so a count delta and a count-plus-rate delta do not change type.
+TSV and JSONL use one flat row shape with a `section` discriminator; every row
+carries a typed `goal` (`Higher`/`Lower`/`Hold`/`Context`) and `verdict`
+(`Improved`/`Neutral`/`Regressed`/`Incomparable`) column, and values remain
+strings so a count delta and a count-plus-rate delta do not change type.
 
-The default Markdown card uses `Metric (goal)` labels:
+The default Markdown card renders each metric through Markout's native change
+cell, so the direction and outcome are glyphs rather than words:
 
-- `(+)` means higher is better;
-- `(−)` means lower is better;
-- `(=)` means the value should remain fixed;
-- `(context)` means movement is informational.
+- the label carries a goal glyph — `↑` when higher is better, `↓` when lower is
+  better, and no glyph when the value should hold or is context-only;
+- the change cell shows `before → after` with a `✓` (improvement) or `✗`
+  (regression) polarity glyph derived from the goal;
+- the `Delta` column shows the signed count and, when a total is present, the
+  percentage-point rate change.
 
 Counts from different sampled method populations are marked `Incomparable`
-even when the sample sizes happen to match. Corpus snapshots supply their
-per-method identities for this check. Snapshots without method identities
+even when the sample sizes happen to match: their change cell renders the two
+values without a polarity glyph and the delta is `n/a`. Corpus snapshots supply
+their per-method identities for this check. Snapshots without method identities
 cannot establish either sample or aggregate comparability, even when their
 assembly names and method counts happen to match.
 
