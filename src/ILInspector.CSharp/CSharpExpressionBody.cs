@@ -30,24 +30,34 @@ public static class CSharpExpressionBody
     }
 
     /// <summary>
-    /// The expression of a <em>multi-line</em> single-<c>return</c> body — a raised
-    /// switch-expression return (issue #3088), a wrapped fluent chain, or any other
-    /// wrapped single expression (issue #3084) — as its lines, with the leading
-    /// <c>return </c> and trailing <c>;</c> removed and every line's trailing
-    /// whitespace trimmed. The first entry is the value/arrow line (the token that
-    /// opens the expression, such as <c>&lt;value&gt; switch</c> or the chain's
-    /// receiver); the rest are the continuation lines at their body-relative
-    /// (column-zero) indent, which the layout re-indents under the member. Returns
-    /// <see langword="null"/> for a single-line body (that is
-    /// <see cref="FromSingleStatement"/>'s job) or anything not shaped as
-    /// <c>return &lt;expr&gt;;</c>.
+    /// The expression of a <em>multi-line</em> single-statement body — a raised
+    /// switch-expression return (issue #3088), a wrapped fluent chain in
+    /// <c>return</c> or void expression-statement position, or any other wrapped
+    /// single expression (issue #3084) — as its lines, with the leading
+    /// <c>return </c> (when present) and trailing <c>;</c> removed and every
+    /// line's trailing whitespace trimmed. The first entry is the value/arrow line
+    /// (the token that opens the expression, such as <c>&lt;value&gt; switch</c>,
+    /// the chain's receiver, or a leading <c>throw</c>); the rest are the
+    /// continuation lines at their body-relative (column-zero) indent, which the
+    /// layout re-indents under the member. Returns <see langword="null"/> for a
+    /// single-line body (that is <see cref="FromSingleStatement"/>'s job) or
+    /// anything not shaped as a single <c>&lt;expr&gt;;</c> statement.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// The helper is deliberately shape-agnostic about the statement keyword: it
+    /// strips a leading <c>return </c> when present and otherwise keeps the whole
+    /// first line as the arrow value, so a void expression statement folds to
+    /// <c>=&gt; &lt;expr&gt;;</c> and a wrapped <c>throw &lt;expr&gt;;</c> (should
+    /// one ever print multi-line) folds to <c>=&gt; throw &lt;expr&gt;;</c>.
+    /// </para>
+    /// <para>
     /// This never asserts, on its own, that the body is a single statement — a
     /// flat string cannot prove that soundly. Callers must gate it on the typed
-    /// <c>BodyIsSingleReturnExpression</c> signal the printer proves structurally.
+    /// <c>BodyIsSingleExpressionBody</c> signal the printer proves structurally.
+    /// </para>
     /// </remarks>
-    public static IReadOnlyList<string>? MultilineReturnExpressionLines(string body)
+    public static IReadOnlyList<string>? MultilineExpressionBodyLines(string body)
     {
         var trimmed = body.Trim();
         if (!trimmed.EndsWith(';'))
@@ -57,9 +67,9 @@ public static class CSharpExpressionBody
             return null;   // single line — FromSingleStatement owns it
 
         var firstLine = trimmed[..newline].TrimStart();
-        if (!firstLine.StartsWith("return ", StringComparison.Ordinal))
-            return null;
-        var valueLine = firstLine["return ".Length..].Trim();
+        var valueLine = firstLine.StartsWith("return ", StringComparison.Ordinal)
+            ? firstLine["return ".Length..].Trim()
+            : firstLine;
         if (valueLine.Length == 0)
             return null;
 

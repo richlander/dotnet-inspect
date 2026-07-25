@@ -168,12 +168,14 @@ shipped default.
 
 A body that is exactly one statement folds on the simple single-line path (a
 lone `return <expr>;`, a `throw`, or a statement-expression). A body that is one
-*multi-line* single expression folds too: a wrapped switch return (issue #3088)
-or any other wrapped single `return <expr>;`, such as a fluent chain
-(issue #3084). The arrow trails the signature line with the expression's opening
-token after it, and the continuation lines re-indent one level under the
-member — the natural multi-line extension of the single-line `head => expr;`
-form.
+*multi-line* single statement folds too: a wrapped switch return (issue #3088),
+any other wrapped single `return <expr>;` such as a fluent chain (issue #3084),
+or a void member whose one statement is a wrapped expression statement — a fluent
+call chain with the result discarded (issue #3084). The arrow trails the
+signature line with the statement's opening token after it (the value after a
+stripped `return`, or the whole first line otherwise), and the continuation
+lines re-indent one level under the member — the natural multi-line extension of
+the single-line `head => expr;` form.
 
 ```csharp
 public static string Pipeline(StringBuilder builder)
@@ -188,13 +190,33 @@ public static string Pipeline(StringBuilder builder) => builder
     .Append("alphabet")
     .Append("bravissimo")
     .ToString();
+
+public static void Drain(StringBuilder builder)
+{
+    builder
+        .Append("alphabet")
+        .Append("bravissimo")
+        .Clear();
+}
+// folds to (no `return` to strip — the whole first line trails the arrow):
+public static void Drain(StringBuilder builder) => builder
+    .Append("alphabet")
+    .Append("bravissimo")
+    .Clear();
 ```
 
 The fold is gated on a typed structural signal the printer proves from the
-emitted statement tree — the body is exactly one top-level `return` with no
-lifted declarations, label, constructor chain, field initializer, async
-modifier, or unsupported fallback — never a re-parse of the rendered text. A
-member with any statement preceding the return keeps its brace block.
+emitted statement tree — the body is exactly one top-level statement (a `return`
+with a value, or an expression statement) with no lifted declarations, label,
+constructor chain, field initializer, async modifier, or unsupported fallback —
+never a re-parse of the rendered text. A `return` branch additionally requires
+its printed form to begin with a bare `return` so a value the printer lifted
+into a leading declaration (a `stackalloc`-to-pointer return) is not mistaken for
+a foldable expression. A member with any statement preceding the folded one keeps
+its brace block. (The extractor is shape-agnostic about the leading keyword, so a
+wrapped `throw <expr>;` would fold identically should one ever print multi-line;
+the printer does not currently produce multi-line throws, so that path is latent,
+not reachable.)
 
 ### Line wrapping
 
