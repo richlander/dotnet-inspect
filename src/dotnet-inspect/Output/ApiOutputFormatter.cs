@@ -1443,14 +1443,14 @@ public static class ApiOutputFormatter
 
             hasCode |= PopulateCSharpSections(memberCode, type, member, code);
 
-            // The resolved config is consumed only when styled C# is actually
-            // printed. Collect returns a decompiled result only for a selected
-            // overload (never callers-only aggregation or a fidelity-only
-            // projection), and even then its Output is null when the method has no
-            // IL body (e.g. a P/Invoke) -- the printer never ran, so no styling
-            // occurred. Key the warning latch off a produced Output so a member
-            // run that requests but does not render styled source stays silent.
-            if (code.DecompiledResult?.Output is not null)
+            // The resolved config is consumed whenever a styled projection prints a
+            // body -- Decompiled Source or Applied Taste (both render with the
+            // config), but never a callers-only aggregation, a fidelity-only
+            // projection (style-invariant), or a bodyless method whose printer never
+            // ran. Key the warning latch off that produced styled projection so an
+            // Applied-Taste-only run still surfaces a bad .dotnet-inspectconfig,
+            // while a run that consumes no config stays silent.
+            if (code.StyledProjectionProduced)
                 options?.RenderConfigWarnings?.EmitOnce();
 
             if (code.FidelityCauses is not null)

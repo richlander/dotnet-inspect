@@ -38,7 +38,13 @@ internal static class MemberCodeProvider
         IReadOnlyList<ILInspector.Research.ResearchViews.FactRow>? Facts = null,
         FindingInspection<Decompiler.DecompilerFidelityCause>? FidelityCauses = null,
         IReadOnlyList<Decompiler.DecompilerDecision>? AppliedTaste = null,
-        bool RequiresAsyncBodyModifier = false);
+        bool RequiresAsyncBodyModifier = false,
+        // True when a config-consuming styled projection (Decompiled Source or
+        // Applied Taste, never the style-invariant fidelity-only read) actually
+        // printed a body. The resolved-config warnings should surface whenever
+        // this holds, even for an Applied-Taste-only run that renders no Decompiled
+        // Source section, so a bad .dotnet-inspectconfig never fails silently.
+        bool StyledProjectionProduced = false);
 
     internal static List<(ApiMember Member, Item Code)> Collect(
         ApiType type, List<ApiMember> methods, string dllPath, int? overloadIndex,
@@ -120,6 +126,7 @@ internal static class MemberCodeProvider
             Decompiler.DecompilerResult? decompiledResult = null;
             Decompiler.DecompilerResult? projectionResult = null;
             IrFunction? raisedFunction = null;
+            bool styledProjectionProduced = false;
             if ((request.DecompiledSource || request.FidelityCauses || request.AppliedTaste) && pipelineSource is not null)
             {
                 // The style options (renderOptions) affect the printed C# string
@@ -129,10 +136,10 @@ internal static class MemberCodeProvider
                 // runs with those options. Both consume the config. A fidelity-only
                 // projection reads the raised IR and recompile diagnostics (both
                 // style-invariant) and discards the printed string, so it must not
-                // consume the config -- pass the shipped defaults there. The
-                // config-warning latch still keys off a surfaced Decompiled Source
-                // Output (below), so an Applied-Taste-only run that renders no
-                // styled source stays silent.
+                // consume the config -- pass the shipped defaults there.
+                // styledProjectionProduced (below) drives the config-warning latch,
+                // so an Applied-Taste-only run that consumes the config surfaces its
+                // warnings even without a Decompiled Source section.
                 var projectionRenderOptions = request.DecompiledSource || request.AppliedTaste ? renderOptions : null;
                 projectionResult = TrimOutput(RenderDecompiledSource(
                     pipelineSource,
@@ -150,6 +157,14 @@ internal static class MemberCodeProvider
                         pipelineSource.Symbols,
                         projectionResult.Diagnostics)
                 };
+                // Both Decompiled Source and Applied Taste render with the resolved
+                // style options (config consumed); a fidelity-only projection passes
+                // the shipped defaults and does not. Record that a config-consuming
+                // projection printed a body so the warning latch (below) fires for
+                // an Applied-Taste-only run too, not just Decompiled Source.
+                styledProjectionProduced =
+                    (request.DecompiledSource || request.AppliedTaste)
+                    && projectionResult.Output is not null;
             }
 
             if (request.DecompiledSource)
@@ -278,7 +293,8 @@ internal static class MemberCodeProvider
                 facts,
                 fidelityCauses,
                 appliedTaste,
-                requiresAsyncBodyModifier)));
+                requiresAsyncBodyModifier,
+                styledProjectionProduced)));
         }
 
         return results;

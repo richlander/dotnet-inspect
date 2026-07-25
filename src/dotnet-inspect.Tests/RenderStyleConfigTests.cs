@@ -491,6 +491,10 @@ public class RenderStyleConfigTests
         Assert.Null(withDefault.DecompiledResult);
         Assert.NotNull(withConfig.FidelityCauses);
         Assert.NotNull(withDefault.FidelityCauses);
+        // A fidelity-only projection consumes no config, so it never marks the
+        // warning latch regardless of whether a config was resolved.
+        Assert.False(withConfig.StyledProjectionProduced);
+        Assert.False(withDefault.StyledProjectionProduced);
     }
 
     [Fact]
@@ -506,6 +510,28 @@ public class RenderStyleConfigTests
 
         Assert.NotNull(code.DecompiledResult?.Output);
         Assert.Contains("this._count", code.DecompiledResult!.Output);
+        Assert.True(code.StyledProjectionProduced);
+    }
+
+    // The Applied-Taste-only path (#3158): `member <M> -S "Applied Taste"` without
+    // Decompiled Source still renders the styled projection to extract the applied
+    // decisions, so the config IS consumed -- but DecompiledResult stays null. The
+    // old latch keyed off DecompiledResult and silently swallowed a bad config
+    // here; StyledProjectionProduced is the independent signal that fixes it.
+    [Fact]
+    public void AppliedTasteOnlyRequest_MarksStyledProjectionProduced_ThoughNoDecompiledResult()
+    {
+        var appliedTasteOnly = new MemberCodeProvider.Request(
+            DecompiledSource: false, AnnotatedSource: false, CostOverlay: false,
+            SemanticsOverlay: false, IL: false, Attributes: false, Calls: false,
+            Callers: false, CallGraph: false, UnsafeOperations: false,
+            AppliedTaste: true);
+
+        var code = CollectSpecimenCompute(
+            appliedTasteOnly, PrinterOptions.Default with { QualifyFieldAccess = true });
+
+        Assert.Null(code.DecompiledResult);
+        Assert.True(code.StyledProjectionProduced);
     }
 
     // MAI review finding (head a25e01d9): `member <Type> --directory <dir>
@@ -580,6 +606,36 @@ public class RenderStyleConfigTests
         var (_, code) = Assert.Single(results);
         Assert.NotNull(code.DecompiledResult);
         Assert.Null(code.DecompiledResult!.Output);
+        // The printer never ran (no IL body), so no config was consumed: the latch
+        // stays unmarked even though Decompiled Source was requested.
+        Assert.False(code.StyledProjectionProduced);
+    }
+
+    // The bodyless-method invariant must also hold for an Applied-Taste-only run:
+    // no printed body means no config consumption, so no warning, matching the
+    // Decompiled Source behavior above.
+    [Fact]
+    public void AppliedTasteOnly_NoBodyMethod_DoesNotMarkStyledProjection()
+    {
+        var appliedTasteOnly = new MemberCodeProvider.Request(
+            DecompiledSource: false, AnnotatedSource: false, CostOverlay: false,
+            SemanticsOverlay: false, IL: false, Attributes: false, Calls: false,
+            Callers: false, CallGraph: false, UnsafeOperations: false,
+            AppliedTaste: true);
+
+        string assemblyPath = typeof(SamplePInvokeClass).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var surface = ApiSurfaceExtractor.Extract(pe, includeAll: false);
+        var type = surface.Types.Single(t => t.FullName == typeof(SamplePInvokeClass).FullName);
+        var methods = type.Members
+            .Where(m => m.Name == nameof(SamplePInvokeClass.GetCurrentProcessId)).ToList();
+
+        var results = MemberCodeProvider.Collect(
+            type, methods, assemblyPath, overloadIndex: 0, appliedTasteOnly,
+            renderOptions: PrinterOptions.Default with { QualifyFieldAccess = true });
+
+        var (_, code) = Assert.Single(results);
+        Assert.False(code.StyledProjectionProduced);
     }
 
     private static MemberCodeProvider.Item CollectSpecimenCompute(
