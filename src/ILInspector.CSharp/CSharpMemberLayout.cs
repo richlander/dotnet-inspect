@@ -153,6 +153,8 @@ public static class CSharpMemberLayout
 
     static string? WrapParameterList(string pad, string head, string renderTail)
     {
+        if (ContainsUnsupportedLiteral(head))
+            return null;
         if (!TryLocateParameterList(head, out int open, out int close))
             return null;
         var parameters = SplitTopLevelCommas(head, open + 1, close);
@@ -332,9 +334,47 @@ public static class CSharpMemberLayout
     }
 
     /// <summary>
-    /// Given <paramref name="start"/> at a string or char literal's opening quote,
-    /// returns the index of its closing quote (respecting <c>\</c> escapes), or the
-    /// last index when unterminated.
+    /// True when <paramref name="head"/> contains a string-literal form this layout
+    /// does not parse well enough to split around safely: a verbatim (<c>@"…"</c>,
+    /// whose escape is a doubled <c>""</c>), an interpolated (<c>$"…"</c>, whose
+    /// <c>{…}</c> holes contain arbitrary nested quotes and commas), or a raw
+    /// (<c>"""…"""</c>) string. <see cref="SkipLiteral"/> models only the
+    /// conventional <c>\</c>-escaped literal, so a comma or quote inside one of
+    /// these forms could be misread as a top-level separator. When any is present
+    /// the caller declines to wrap and keeps the signature on one line — the safe
+    /// fallback — rather than risk splitting inside a literal. Conventional
+    /// literals are skipped correctly during the scan so their contents never
+    /// trigger a false positive.
+    /// </summary>
+    static bool ContainsUnsupportedLiteral(string head)
+    {
+        for (int i = 0; i < head.Length; i++)
+        {
+            char c = head[i];
+            if (c == '\'')
+            {
+                i = SkipLiteral(head, i);
+                continue;
+            }
+            if (c == '"')
+            {
+                char prev = i > 0 ? head[i - 1] : '\0';
+                if (prev is '@' or '$')
+                    return true; // verbatim / interpolated (incl. $@" and @$")
+                if (i + 2 < head.Length && head[i + 1] == '"' && head[i + 2] == '"')
+                    return true; // raw string literal ("""…""")
+                i = SkipLiteral(head, i);
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Given <paramref name="start"/> at a conventional string or char literal's
+    /// opening quote, returns the index of its closing quote (respecting <c>\</c>
+    /// escapes), or the last index when unterminated. Verbatim, interpolated, and
+    /// raw literals are not modeled here; <see cref="ContainsUnsupportedLiteral"/>
+    /// makes the caller decline to wrap before this runs on one.
     /// </summary>
     static int SkipLiteral(string head, int start)
     {

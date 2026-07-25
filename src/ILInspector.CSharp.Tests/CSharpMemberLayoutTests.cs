@@ -284,4 +284,40 @@ public sealed class CSharpMemberLayoutTests
                 "public static void ConfigureLongServiceRegistrationPipeline(IServiceCollection services, IConfiguration configuration, ILoggerFactory loggerFactory)",
                 "DoWork();\nDoMore();",
                 indent: 4));
+
+    // Issue #3185: SplitTopLevelCommas only models conventional `\`-escaped string
+    // and char literals. A signature carrying a verbatim/interpolated/raw string
+    // (whose quotes and commas it cannot parse) must decline to wrap and stay on
+    // one line rather than risk splitting inside the literal.
+    const string OverBudgetPrefix =
+        "public static void MethodWithAnExtremelyLongNameToForceWrappingOfTheParametersDefinitelyOverBudget";
+
+    [Fact]
+    public void Append_LongSignature_InterpolatedStringDefault_StaysInline()
+    {
+        string head = OverBudgetPrefix + "(string s = $\"{\",\"}\", int x = 0)";
+        Assert.Equal("    " + head + ";\n", Render(head, body: null, indent: 4));
+    }
+
+    [Fact]
+    public void Append_LongSignature_VerbatimStringDefault_StaysInline()
+    {
+        string head = OverBudgetPrefix + "(string s = @\"a\"\"b, c\", int x = 0)";
+        Assert.Equal("    " + head + ";\n", Render(head, body: null, indent: 4));
+    }
+
+    [Fact]
+    public void Append_LongSignature_RawStringDefault_StaysInline()
+    {
+        string head = OverBudgetPrefix + "(string s = \"\"\"a,b\"\"\", int x = 0)";
+        Assert.Equal("    " + head + ";\n", Render(head, body: null, indent: 4));
+    }
+
+    [Fact]
+    public void Append_LongSignature_ConventionalStringWithComma_WrapsWithoutSplittingLiteral()
+        => Assert.Equal(
+            "    " + OverBudgetPrefix + "(\n"
+            + "        string s = \"a,b,c\",\n"
+            + "        int x = 0);\n",
+            Render(OverBudgetPrefix + "(string s = \"a,b,c\", int x = 0)", body: null, indent: 4));
 }
