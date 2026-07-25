@@ -11,15 +11,54 @@ namespace ILInspector.Decompiler.Tests;
 // to 'FlagCaps64' and 'long').
 public class FlagsEnumAccumulatorTests
 {
-    static string Render(string methodName)
+    static string Render(string methodName, PrinterOptions? options = null)
     {
         using var source = MetadataSource.Open(typeof(FlagsEnumAccumulatorSamples).Assembly.Location);
         var function = IrImporter.Import(source, typeof(FlagsEnumAccumulatorSamples).FullName!, methodName);
         Assert.NotNull(function);
         IrPasses.Run(function!);
         function!.CheckInvariant();
-        return CSharpPrinter.Print(function).Output!;
+        return CSharpPrinter.Print(function, options).Output!;
     }
+
+    // #3009 sub-part 3: with WrapSplittableExpressions on, the long fully-raised OR
+    // chain — here inside the `(int)` return cast — breaks one operand per line with
+    // the operator LEADING each continuation line. Off by default (covered by the
+    // sub-part 1/2 tests above, which render inline).
+    [Fact]
+    public void FlagsEnumAccumulator_WrapOption_BreaksOrChainWithLeadingOperator()
+    {
+        var output = Render(
+            nameof(FlagsEnumAccumulatorSamples.Accumulate),
+            new PrinterOptions { WrapSplittableExpressions = true });
+
+        Assert.Contains(
+            "return (int)(FlagCaps64.Protocol\n"
+                + "    | (interactive ? (server & FlagCaps64.Interactive) : FlagCaps64.None)\n"
+                + "    | server & FlagCaps64.LoadLocal\n"
+                + "    | FlagCaps64.Secure\n"
+                + "    | server & FlagCaps64.MultiStatements\n"
+                + "    | FlagCaps64.MultiResults);",
+            output);
+    }
+
+    // Default options keep the whole accumulation on one line: the wrapping is a
+    // pure opt-in whitespace choice, token-identical to the inline form.
+    [Fact]
+    public void FlagsEnumAccumulator_DefaultOptions_StaysInline()
+    {
+        var inline = Render(nameof(FlagsEnumAccumulatorSamples.Accumulate));
+        var wrapped = Render(
+            nameof(FlagsEnumAccumulatorSamples.Accumulate),
+            new PrinterOptions { WrapSplittableExpressions = true });
+
+        Assert.DoesNotContain("\n    |", inline);
+        Assert.Contains("\n    |", wrapped);
+        Assert.Equal(Tokens(inline), Tokens(wrapped));
+    }
+
+    static string[] Tokens(string text)
+        => text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
 
     [Fact]
     public void FlagsEnumAccumulator_KeepsEnumTyping_NoBareLongOrEnum()

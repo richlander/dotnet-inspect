@@ -1976,7 +1976,8 @@ public sealed partial class CSharpPrinter
         if (Statement(node) is { } line)
         {
             if (!TryAppendFluentChain(sb, node, line, indent)
-                && !TryAppendSplittableExpression(sb, node, line, indent))
+                && !TryAppendSplittableExpression(sb, node, line, indent)
+                && !TryAppendBitwiseChain(sb, node, line, indent))
                 sb.Append(pad).AppendLine(line);
         }
     }
@@ -2340,6 +2341,60 @@ public sealed partial class CSharpPrinter
             $"Wrapped a long short-circuit {(root.Kind == LogicalKind.And ? "&&" : "||")} chain across continuation lines.");
         sb.AppendLine(broken);
         return true;
+    }
+
+    /// <summary>
+    /// The bitwise analog of <see cref="TryAppendSplittableExpression"/>: breaks a
+    /// long top-level <c>|</c>/<c>&amp;</c>/<c>^</c> chain one operand per line, the
+    /// operator <em>leading</em> each continuation line (the flags-accumulation
+    /// house style), when the opt-in <see cref="PrinterOptions.WrapSplittableExpressions"/>
+    /// taste is on. Unlike the short-circuit wrapper it splices the broken chain into
+    /// the already-rendered statement <paramref name="line"/> in place, so it handles
+    /// a bare chain (<c>return a | b | …</c>), an assignment, and a chain inside a
+    /// value-preserving cast (<c>return (int)(a | b | …)</c>) uniformly — the flat
+    /// chain text is located verbatim in the line and only its interior separators
+    /// are broken, so the wrapped form is a pure whitespace variant of the inline
+    /// form (same tokens, unchanged IL).
+    /// </summary>
+    bool TryAppendBitwiseChain(StringBuilder sb, IrNode node, string line, int indent)
+    {
+        if (!_options.WrapSplittableExpressions)
+            return false;
+        if (FindBitwiseChainRoot(node) is not { } root)
+            return false;
+        if (BitwiseChainLines(root, line, indent) is not { } broken)
+            return false;
+        AddDecision(
+            "expression.wrap-splittable-chain",
+            "taste",
+            _function.Name,
+            $"Wrapped a long bitwise {BinaryOperator(root)} chain across continuation lines.");
+        sb.AppendLine(broken);
+        return true;
+    }
+
+    /// <summary>
+    /// Yields the top-level associative bitwise <c>|</c>/<c>&amp;</c>/<c>^</c> chain
+    /// root of a statement whose value is such a chain — a <c>return</c> or a
+    /// (non-ref) local or stack-slot store — seeing through any value-preserving cast
+    /// wrappers (<c>return (int)(a | b | …)</c>, common when a fully-raised flags-enum
+    /// accumulation is returned as its underlying integer). Arithmetic
+    /// <c>+</c>/<c>-</c>/… are excluded: they are not the flags-accumulation idiom
+    /// this wraps, and subtraction is not associative for a one-operand-per-line
+    /// display. Returns null otherwise.
+    /// </summary>
+    Binary? FindBitwiseChainRoot(IrNode node)
+    {
+        IrExpression? value = node switch
+        {
+            Return { Value: { } returned } => returned,
+            StoreLocal { Type.Kind: not TypeRefKind.ByRef, Value: { } stored } => stored,
+            StoreStackSlot store when StackSlotTargetType(store) is { Kind: not TypeRefKind.ByRef } => store.Value,
+            _ => null,
+        };
+        while (value is Convert convert)
+            value = convert.Operand;
+        return value is Binary { Kind: BinaryKind.Or or BinaryKind.And or BinaryKind.Xor } binary ? binary : null;
     }
 
     /// <summary>
@@ -3695,8 +3750,10 @@ public sealed partial class CSharpPrinter
 
     /// <summary>
     /// Short-circuit composition prints comparisons and nots bare (they bind
-    /// tighter than &amp;&amp;/||); same-kind chains associate without parens;
-    /// mixed kinds parenthesize.
+    /// tighter than &amp;&amp;/||); a same-kind chain associates without parens on the
+    /// left but parenthesizes on the right (C# &amp;&amp;/|| are left-associative, so a
+    /// right-nested same-kind chain <c>a &amp;&amp; (b &amp;&amp; c)</c> keeps its parens to stay
+    /// opcode-exact, #3126); mixed kinds parenthesize.
     /// </summary>
     string LogicalText(LogicalBinary logical)
     {
@@ -3704,24 +3761,30 @@ public sealed partial class CSharpPrinter
             return propertyPattern;
 
         string op = logical.Kind == LogicalKind.And ? "&&" : "||";
-        return $"{LogicalOperandText(logical.Left, logical.Kind)} {op} {LogicalOperandText(logical.Right, logical.Kind)}";
+        return $"{LogicalOperandText(logical.Left, logical.Kind, rightOperand: false)} {op} {LogicalOperandText(logical.Right, logical.Kind, rightOperand: true)}";
     }
 
     // A single operand of a short-circuit chain of the given kind. Sides are
     // condition positions: Condition() owns truthiness (a string operand spells
-    // 'is not null', never '!value') and the negation folds. Same-kind chains
-    // associate bare; a mixed-kind LogicalBinary parenthesizes. Any other side
+    // 'is not null', never '!value') and the negation folds. A same-kind chain on
+    // the LEFT associates bare — C# `&&`/`||` are left-associative, so
+    // `(a && b) && c` prints `a && b && c` and recompiles to the same left-nested
+    // IL. A same-kind chain on the RIGHT (<paramref name="rightOperand"/>) must
+    // parenthesize: `a && (b && c)` is right-associative and csc lays it out with a
+    // different branch structure than the flattened `a && b && c` (= `(a && b) && c`),
+    // so dropping the parens would recompile to a divergent opcode stream (#3126).
+    // A mixed-kind LogicalBinary parenthesizes on either side. Any other side
     // renders at the operator's demand — a ternary or `??` (or one hidden behind
     // a stale Coerce/Convert, the #2345/#2376 blind spot) is looser than
     // `&&`/`||` and must parenthesize, while comparisons and unary forms out-bind
     // it and stay bare (#2376 round-2: the enum/bool truthiness compositions
     // share the one precedence rule, not just BoolToInteger).
-    string LogicalOperandText(IrExpression side, LogicalKind kind)
+    string LogicalOperandText(IrExpression side, LogicalKind kind, bool rightOperand)
     {
         var demand = kind == LogicalKind.And ? Precedence.ConditionalAnd : Precedence.ConditionalOr;
         return side switch
         {
-            LogicalBinary nested when nested.Kind == kind => LogicalText(nested),
+            LogicalBinary nested when nested.Kind == kind && !rightOperand => LogicalText(nested),
             LogicalBinary nested => $"({LogicalText(nested)})",
             _ => RenderedCondition(side).At(demand),
         };
@@ -3752,7 +3815,7 @@ public sealed partial class CSharpPrinter
         string op = root.Kind == LogicalKind.And ? "&&" : "||";
         var texts = new List<string>(operands.Count);
         foreach (var operand in operands)
-            texts.Add(LogicalOperandText(operand, root.Kind));
+            texts.Add(LogicalOperandText(operand, root.Kind, rightOperand: false));
 
         // The broken form must be a pure whitespace variant of the flat chain:
         // decline unless re-rendering the flattened operands reproduces the flat
@@ -3785,7 +3848,11 @@ public sealed partial class CSharpPrinter
     /// Flattens a same-kind short-circuit chain into its operands in
     /// left-to-right source order; a nested chain of the <em>other</em> kind (or
     /// any non-<see cref="LogicalBinary"/>) is one operand and is not descended
-    /// into — matching how <see cref="LogicalOperandText"/> parenthesizes it.
+    /// into. This descends a same-kind chain on <em>both</em> sides, so for a
+    /// right-nested chain (which <see cref="LogicalOperandText"/> now parenthesizes
+    /// to stay opcode-exact) the flattened join no longer matches the flat
+    /// <see cref="LogicalText"/>; the caller's exact-match guard then declines the
+    /// multi-line wrap and renders the parenthesized inline form (#3126).
     /// </summary>
     static void CollectLogicalChainOperands(IrExpression expression, LogicalKind kind, List<IrExpression> operands)
     {
@@ -3793,6 +3860,88 @@ public sealed partial class CSharpPrinter
         {
             CollectLogicalChainOperands(logical.Left, kind, operands);
             CollectLogicalChainOperands(logical.Right, kind, operands);
+            return;
+        }
+        operands.Add(expression);
+    }
+
+    /// <summary>
+    /// Splices an associative bitwise <c>|</c>/<c>&amp;</c>/<c>^</c> chain rooted at
+    /// <paramref name="root"/> into the already-rendered statement
+    /// <paramref name="line"/> broken one operand per line — the first operand kept
+    /// where it sits, each later operand on its own continuation-indented line with
+    /// the operator <em>leading</em> the broken line (the flags-accumulation house
+    /// style, the opposite placement from the short-circuit <see cref="LogicalChainLines"/>
+    /// wrapper) — when the chain has at least <see cref="FluentChainMinSegments"/>
+    /// operands and the whole statement would exceed <see cref="FluentChainWrapWidth"/>.
+    /// Returns null (render inline) otherwise. Each operand's text is exactly the
+    /// <see cref="BinaryOperand"/> the flat <see cref="BinaryText"/> emits at the
+    /// chain's precedence, and the routine declines unless the per-operand join
+    /// reproduces that flat chain text and that text occurs exactly once in the line
+    /// — so any chain whose flat spelling is reshaped by the enum-coercion,
+    /// mixed-sign, or unchecked-constant special cases (all sibling-context
+    /// dependent) stays inline, and the splice is unambiguous. Only the interior
+    /// separators of the located chain are broken, so the wrapped form is
+    /// token-identical to the inline line — only whitespace differs and the IL is
+    /// unchanged. Gated on <see cref="PrinterOptions.WrapSplittableExpressions"/> by
+    /// the caller.
+    /// </summary>
+    string? BitwiseChainLines(Binary root, string line, int indent)
+    {
+        var operands = new List<IrExpression>();
+        CollectBitwiseChainOperands(root, root.Kind, operands);
+        if (operands.Count < FluentChainMinSegments)
+            return null;
+
+        string op = BinaryOperator(root);
+        var precedence = CSharpPrecedence.Of(root);
+        var texts = new List<string>(operands.Count);
+        for (int i = 0; i < operands.Count; i++)
+            texts.Add(BinaryOperand(operands[i], precedence, rightSide: i > 0));
+
+        // The broken form must be a pure whitespace variant of the flat chain:
+        // decline unless re-rendering the flattened operands reproduces the flat
+        // BinaryText exactly (guards the enum-coercion / mixed-sign / unchecked
+        // reshaping the flat renderer applies from sibling context).
+        string chainFlat = BinaryText(root);
+        if (string.Join($" {op} ", texts) != chainFlat)
+            return null;
+
+        // The flat chain must appear exactly once in the rendered statement so the
+        // in-place splice is unambiguous (it may sit inside a `return`, an
+        // assignment, or a value-preserving cast — all carried verbatim in the
+        // surrounding head/tail).
+        int idx = line.IndexOf(chainFlat, StringComparison.Ordinal);
+        if (idx < 0 || idx != line.LastIndexOf(chainFlat, StringComparison.Ordinal))
+            return null;
+
+        if (indent * 4 + line.Length <= FluentChainWrapWidth)
+            return null;
+
+        string pad = new(' ', indent * 4);
+        string continuation = pad + "    ";
+        string head = line[..idx];
+        string tail = line[(idx + chainFlat.Length)..];
+        var sb = new System.Text.StringBuilder();
+        sb.Append(pad).Append(head).Append(texts[0]);
+        for (int i = 1; i < texts.Count; i++)
+            sb.Append('\n').Append(continuation).Append(op).Append(' ').Append(texts[i]);
+        sb.Append(tail);
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Flattens a same-kind associative bitwise chain into its operands in
+    /// left-to-right source order; a nested chain of a <em>different</em> bitwise
+    /// kind (or any non-<see cref="Binary"/>) is one operand and is not descended
+    /// into — matching how <see cref="BinaryOperand"/> parenthesizes it.
+    /// </summary>
+    static void CollectBitwiseChainOperands(IrExpression expression, BinaryKind kind, List<IrExpression> operands)
+    {
+        if (expression is Binary binary && binary.Kind == kind)
+        {
+            CollectBitwiseChainOperands(binary.Left, kind, operands);
+            CollectBitwiseChainOperands(binary.Right, kind, operands);
             return;
         }
         operands.Add(expression);

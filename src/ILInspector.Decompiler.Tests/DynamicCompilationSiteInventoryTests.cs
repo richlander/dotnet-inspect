@@ -35,6 +35,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["FinallyDisposePrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced finally/dispose source."),
             ["FluentChainFormattingTests.cs"] = (1, "Product-output validity: compiles printer-produced broken fluent-chain source."),
             ["SplittableExpressionWrapTests.cs"] = (1, "Product-output validity: compiles printer-produced wrapped &&/|| chain source."),
+            ["BitwiseChainWrapTests.cs"] = (1, "Product-output validity: compiles printer-produced wrapped bitwise |/&/^ chain source."),
             ["MemberNameCollisionRenderingTests.cs"] = (1, "Product-output validity: compiles rendered colliding-member source."),
             ["MixedSignComparisonTests.cs"] = (1, "Product-output validity: compiles synthesized mixed-sign comparison source."),
             ["MultiDimensionalArrayPrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced multidim-array source."),
@@ -90,9 +91,11 @@ public sealed class DynamicCompilationSiteInventoryTests
     //   #3088 adds MemberBodyProducerExpressionBodyTests.cs (1 site): decompiles
     //     a compiled single-switch-return member and asserts the expression-bodied
     //     rendering.
-    //   Combined: 34 files, 42 sites.
-    const int ExpectedDynamicFiles = 34;
-    const int ExpectedDynamicSites = 42;
+    //   #3009 sub-part 3 adds BitwiseChainWrapTests.cs (1 site): recompiles the
+    //     printer's wrapped bitwise |/&/^ chain output.
+    //   Combined: 35 files, 43 sites.
+    const int ExpectedDynamicFiles = 35;
+    const int ExpectedDynamicSites = 43;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];
