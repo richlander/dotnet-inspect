@@ -166,6 +166,55 @@ public sealed class ThisQualificationTests
         Assert.Contains("this.ReadField", text);
     }
 
+    // A default-interface-member call reached through `this` must render the
+    // erased `((I)this)` cast (#3128): the DIM is not a member of the implementing
+    // class, so bare `Value()` / `this.Value()` is CS1061. The default (knob-off)
+    // render was already invalid before this fix; it is now the faithful spelling
+    // that recompiles to `ldarg.0; callvirt IDimFace::Value()`.
+    [Fact]
+    public void DefaultInterfaceMemberCall_RendersInterfaceCast_ByDefault()
+    {
+        var text = RenderMember(typeof(DimConsumer), nameof(DimConsumer.DimCall));
+        Assert.Contains("((IDimFace)this).Value()", text);
+        Assert.DoesNotContain("this.Value()", text);
+    }
+
+    // The `((I)this)` cast is a validity fix, not a `this.`-qualification opt-in:
+    // it is present with the qualify-method knob off and unchanged with it on (the
+    // knob's `this.` arm never runs for an interface-declared callee).
+    [Fact]
+    public void DefaultInterfaceMemberCall_RendersInterfaceCast_UnderMethodQualification()
+    {
+        var text = RenderMember(typeof(DimConsumer), nameof(DimConsumer.DimCall),
+            new PrinterOptions { QualifyMethodAccess = true });
+        Assert.Contains("((IDimFace)this).Value()", text);
+        Assert.DoesNotContain("this.Value()", text);
+    }
+
+    // A DIM method group over `this` must likewise cast: `((IDimFace)this).Value`
+    // recompiles to `ldarg.0; dup; ldvirtftn IDimFace::Value; newobj Func`, where
+    // bare `Value` (CS1061) or `this.Value` would not bind.
+    [Fact]
+    public void DefaultInterfaceMemberGroup_RendersInterfaceCast_ByDefault()
+    {
+        var text = RenderMember(typeof(DimConsumer), nameof(DimConsumer.DimGroup));
+        Assert.Contains("((IDimFace)this).Value", text);
+        Assert.DoesNotContain("(Value)", text);
+    }
+
+    // An explicit interface implementation invoked through `this` reaches the call
+    // site with the interface as declaring type; the member does not bind on the
+    // implementing class, so it must render `((I)this).FaceMethod()` — the faithful
+    // spelling of the fixture's own source (#3128).
+    [Fact]
+    public void ExplicitInterfaceCall_RendersInterfaceCast()
+    {
+        var text = RenderMember(typeof(ThisQualificationExplicitFace),
+            nameof(ThisQualificationExplicitFace.CallExplicitInterface));
+        Assert.Contains("((IThisQualificationFace)this).FaceMethod()", text);
+        Assert.DoesNotContain("this.FaceMethod()", text);
+    }
+
     [Fact]
     public void EventSubscription_DefaultsToBareName()
     {
@@ -415,9 +464,9 @@ public static class ThisQualificationSpecimenExtensions
 // never through a bare `FaceMethod()` or `this.FaceMethod()` — the member does not
 // bind unqualified. csc emits `callvirt IThisQualificationFace::FaceMethod` on the
 // this receiver, whose declaring type is the interface (cross-type from the
-// implementing class). The qualify-method knob must record no taste decision: a
-// cross-type callee is never a `this.` opt-in. (The printer's pre-existing emit
-// still mis-spells this as this.FaceMethod(); only the false RECORD is suppressed.)
+// implementing class). The qualify-method knob records no taste decision: a
+// cross-type callee is never a `this.` opt-in. The printer re-inserts the erased
+// cast (#3128), so the emit is the faithful ((IThisQualificationFace)this).FaceMethod().
 public interface IThisQualificationFace
 {
     int FaceMethod();
@@ -533,4 +582,24 @@ public sealed class ThisQualificationGenericGroup
     public T Make<T>() => default!;
 
     public System.Func<int> Build() => this.Make<int>;
+}
+
+// A default interface member (DIM) reached from an implementing class. The DIM is
+// NOT a member of DimConsumer, so the source must write the ((IDimFace)this) cast;
+// a class→interface upcast emits no IL, so csc lowers ((IDimFace)this).Value() to
+// `ldarg.0; callvirt IDimFace::Value()` and the method group ((IDimFace)this).Value
+// to `ldarg.0; dup; ldvirtftn IDimFace::Value; newobj Func`. Both leave the IR
+// target a bare LoadArgument{0,"this"} with the callee declared on the interface,
+// so the printer must re-insert the erased cast — bare Value()/this.Value() is
+// CS1061 (#3128).
+public interface IDimFace
+{
+    int Value() => 7;
+}
+
+public sealed class DimConsumer : IDimFace
+{
+    public int DimCall() => ((IDimFace)this).Value();
+
+    public System.Func<int> DimGroup() => ((IDimFace)this).Value;
 }

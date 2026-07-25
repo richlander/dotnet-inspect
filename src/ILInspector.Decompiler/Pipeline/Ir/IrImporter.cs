@@ -623,6 +623,7 @@ public static class IrImporter
         var collectionInitializerTypes = ImmutableHashSet.CreateBuilder<TypeRef>();
         var unionTypes = ImmutableHashSet.CreateBuilder<TypeRef>();
         var byRefLikeTypes = ImmutableHashSet.CreateBuilder<TypeRef>();
+        var interfaceTypes = ImmutableHashSet.CreateBuilder<TypeRef>();
 
         void Consider(TypeRef? type)
         {
@@ -643,7 +644,8 @@ public static class IrImporter
                 type = type.ElementType;
             if (type is not { Kind: TypeRefKind.Definition } || !shapes.TryAdd(type, default))
                 return;
-            var shape = source.ClassifyResolvedType(type) switch
+            var kind = source.ClassifyResolvedType(type);
+            var shape = kind switch
             {
                 TypeShapeKind.Enum => TypeShape.Enum,
                 TypeShapeKind.Struct => TypeShape.ValueType,
@@ -651,6 +653,12 @@ public static class IrImporter
                 _ => TypeShape.Unknown,
             };
             shapes[type] = shape;
+            // Interface-ness is folded into TypeShape.Reference above, but the
+            // printer needs it apart from a class to re-insert the ((I)this) cast
+            // an implicit class→interface upcast erases. Record the confirmed
+            // definition only; an unresolved (Unknown) type is left absent.
+            if (kind == TypeShapeKind.Interface)
+                interfaceTypes.Add(type);
             if (source.IsUnionType(type))
                 unionTypes.Add(type);
             // Only a value type can be a ref struct; skip the cross-assembly
@@ -709,6 +717,8 @@ public static class IrImporter
             function.UnionTypes = unionTypes.ToImmutable();
         if (byRefLikeTypes.Count > 0)
             function.ByRefLikeTypes = byRefLikeTypes.ToImmutable();
+        if (interfaceTypes.Count > 0)
+            function.InterfaceTypes = interfaceTypes.ToImmutable();
     }
 
     /// <summary>Block leaders: entry, branch and leave targets, instructions following a terminator, and every exception-region boundary.</summary>

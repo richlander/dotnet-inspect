@@ -397,6 +397,27 @@ public sealed partial class CSharpPrinter
         return true;
     }
 
+    /// <summary>
+    /// True when a <c>this</c>-receiver access to a member of
+    /// <paramref name="declaringType"/> is reached through an implicit
+    /// class→interface (or variant interface) upcast that emits no IL, so the
+    /// printer must re-insert the erased <c>((I)this)</c> cast. A default
+    /// interface member — and an explicit interface implementation — is not a
+    /// member of the implementing class, so bare <c>Member</c>/<c>this.Member</c>
+    /// fails to bind (CS1061); the callee's declaring interface is the only
+    /// receiver type that binds it. Requires a CONFIRMED interface declaring type
+    /// (absent from <see cref="IrFunction.InterfaceTypes"/> — e.g. a
+    /// cross-assembly type whose interface-ness cannot be proven — declines,
+    /// never guesses) that is not the enclosing type at its own instantiation: an
+    /// interface's own default member reached from inside that same interface
+    /// instantiation stays bare, while a different instantiation
+    /// (<c>I&lt;object&gt;</c> from within <c>I&lt;T&gt;</c>) still needs the cast
+    /// so the call does not rebind to the enclosing instantiation.
+    /// </summary>
+    bool IsInterfaceCastThisReceiver(TypeRef declaringType)
+        => _function.InterfaceTypes.Contains(NamedDefinition(declaringType))
+            && !IsEnclosingTypeAtOwnInstantiation(declaringType);
+
     /// <summary>Member-access receivers: value-type receivers arrive by address in IL; C# spells the place itself, not its address.</summary>
     string ReceiverText(IrExpression receiver) => receiver switch
     {
@@ -449,6 +470,14 @@ public sealed partial class CSharpPrinter
             return $"{TypeQualifierText(method.DeclaringType)}.{name}";
         if (target is LoadArgument { Index: 0, Name: "this" })
         {
+            // A default-interface-member (or explicit interface impl) method group
+            // over this: the callee is declared on an interface `this` was
+            // implicitly upcast to (no IL), so the member is not a member of the
+            // implementing class. Re-insert the erased ((I)this) cast — bare/this.
+            // would be CS1061. Takes precedence over the base arm below (a virtual
+            // ldvirtftn over this would otherwise mis-read as base).
+            if (IsInterfaceCastThisReceiver(method.DeclaringType))
+                return $"(({TypeText(method.DeclaringType)})this).{name}";
             // A non-virtual (ldftn) instance method group over this to a
             // base-declared method is C#'s base.M — the ldftn deliberately
             // captures the base slot. Bare M or this.M would rebind to the derived
@@ -579,6 +608,13 @@ public sealed partial class CSharpPrinter
         if (receiver is LoadArgument { Index: 0, Name: "this" })
         {
             string thisMethodName = CSharpNaming.SourceMethodName(call.Callee.Name);
+            // A default-interface-member (or explicit interface impl) call over
+            // this: the callee is declared on an interface `this` was implicitly
+            // upcast to (no IL), so the member is not a member of the implementing
+            // class. Re-insert the erased ((I)this) cast — bare/this. would be
+            // CS1061. Takes precedence over the base arm below.
+            if (IsInterfaceCastThisReceiver(call.Callee.DeclaringType))
+                return $"(({TypeText(call.Callee.DeclaringType)})this).{thisMethodName}{typeArguments}({rest})";
             // Non-virtual this-receiver call to a base-declared method is
             // C#'s base.M() — the call opcode deliberately skips dispatch, so it
             // stays base. even under the qualify-method knob (this.M() would

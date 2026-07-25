@@ -217,8 +217,9 @@ public sealed class ThisQualificationDecisionTests
     // An explicit interface implementation invoked through this reaches the call
     // site with the interface as its declaring type (cross-type from the
     // implementing class). Bare `FaceMethod()`/`this.FaceMethod()` does not bind —
-    // the member requires a cast — so it is never a `this.` opt-in. The cross-type
-    // guard records no taste decision.
+    // the member requires a cast — so it is never a `this.` opt-in. The #3128
+    // interface-cast arm renders `((I)this).FaceMethod()` before the knob arm, so
+    // no taste decision is recorded.
     [Fact]
     public void ExplicitInterfaceCall_WithKnobEnabled_RecordsNoDecision()
     {
@@ -234,7 +235,8 @@ public sealed class ThisQualificationDecisionTests
     // only the DEFINITION with the enclosing type. Bare/this. M() binds to I<T>::M,
     // not I<object>::M, so the qualifier is not byte-preserving. Definition-only
     // equality would wrongly record it; the exact-instantiation guard records
-    // nothing.
+    // nothing. The #3128 interface-cast arm renders it before the knob arm, so no
+    // taste decision is recorded either way.
     [Fact]
     public void ConstructedGenericSelfCall_WithKnobEnabled_RecordsNoDecision()
     {
@@ -244,6 +246,20 @@ public sealed class ThisQualificationDecisionTests
             new PrinterOptions { QualifyMethodAccess = true });
 
         Assert.DoesNotContain(result.Decisions, d => d.RuleId == "qualify-method-access");
+    }
+
+    // The #3128 emit: the call to a DIM at a DIFFERENT instantiation of the
+    // enclosing interface must keep the ((I<object>)this) cast — bare M() would
+    // rebind to I<T>::M. The cast is a validity/fidelity fix, present with the
+    // qualify-method knob off.
+    [Fact]
+    public void ConstructedGenericSelfCall_RendersInstantiationCast()
+    {
+        var result = Decompile(
+            typeof(IThisQualificationGeneric<>).FullName!,
+            nameof(IThisQualificationGeneric<object>.CallViaObjectInstantiation));
+
+        Assert.Contains("((IThisQualificationGeneric<object>)this).M()", result.Output);
     }
 
     // Two overloads differing only by a function pointer's return type
