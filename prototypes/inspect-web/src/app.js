@@ -890,14 +890,27 @@ function handleTypeKeys(event) {
   } else {
     return;
   }
+  selectTypeByCursor(cursor, items, true);
+}
+
+function selectTypeByCursor(cursor, items, focusList) {
   state.typeCursor = cursor;
   state.selectedTypeId = items[cursor].id;
   state.selectedMemberKey = "";
   render();
   requestAnimationFrame(() => {
-    document.querySelector("#type-list").focus();
+    if (focusList) document.querySelector("#type-list")?.focus();
     document.querySelector(`[data-type="${CSS.escape(state.selectedTypeId)}"]`)?.scrollIntoView({ block: "nearest" });
   });
+}
+
+function stepTypeSelection(delta) {
+  const items = filteredTypes();
+  if (!items.length) return;
+  let cursor = items.findIndex(item => item.id === state.selectedTypeId);
+  if (cursor < 0) cursor = Math.min(state.typeCursor, items.length - 1);
+  cursor = Math.max(0, Math.min(items.length - 1, cursor + delta));
+  selectTypeByCursor(cursor, items, false);
 }
 
 function handleCommandKeys(event) {
@@ -1578,6 +1591,10 @@ document.addEventListener("keydown", event => {
   } else if (!typing && !event.metaKey && !event.ctrlKey && /^[1-6]$/.test(event.key)) {
     state.lens = lenses[Number(event.key) - 1][0];
     render();
+  } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
+      && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+    event.preventDefault();
+    stepTypeSelection(event.key === "ArrowDown" ? 1 : -1);
   } else if (!typing && event.key === "/") {
     event.preventDefault();
     focusFilter();
