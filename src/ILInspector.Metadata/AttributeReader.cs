@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -605,9 +606,14 @@ public static class AttributeReader
         _ => null,
     };
 
+    // A type name containing a backtick (arity), '[' (array/generic), or ','
+    // (assembly-qualified) cannot be spelled as a plain typeof(); cached to
+    // avoid allocating the delimiter array on every render.
+    static readonly SearchValues<char> s_typeArgumentDelimiters = SearchValues.Create("`[,");
+
     static string? RenderTypeArgument(string typeName)
     {
-        if (typeName.IndexOfAny(['`', '[', ',']) >= 0)
+        if (typeName.AsSpan().ContainsAny(s_typeArgumentDelimiters))
             return null;
         string escapedType = MetadataDeclarationQuery.EscapeCompatibilityTypeKeywords(
             typeName.Replace('+', '.'));
