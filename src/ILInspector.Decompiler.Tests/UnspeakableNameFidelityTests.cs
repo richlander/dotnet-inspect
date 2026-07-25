@@ -110,6 +110,30 @@ public class UnspeakableNameFidelityTests
     }
 
     [Fact]
+    public void ConstructorDelegateTarget_DegradesToPartial()
+    {
+        // A delegate over an instance constructor (ldftn .ctor) has no C#
+        // method-group spelling. The name sanitizer renders a legal __ctor
+        // fallback identifier, so fidelity must still degrade to Partial —
+        // otherwise the fabricated name is presented as Full and, if a real
+        // __ctor member exists, silently binds an unrelated method. The shared
+        // spellability check exempts .ctor for the constructor-CALL position
+        // (base(...)/this(...)); a method-group target must not inherit that
+        // exemption (#3129 adversarial-review finding).
+        var ctor = new MethodRef(Target, ".ctor", Void, [], HasThis: true);
+        var body = Container(
+            new ExpressionStatement(new DelegateCreation(Action, ctor, isVirtual: false, new LoadLocal(0, Target))),
+            new Return(null));
+
+        var function = Function([Target], body);
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.DoesNotContain(".ctor", output);
+        Assert.Contains("__ctor", output);
+    }
+
+    [Fact]
     public void AutoPropertyBackingField_StaysFull()
     {
         var declaringType = TypeRef.Definition("Synthetic", "Samples", "C");
