@@ -1279,6 +1279,49 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_RoundTripsStaticAbstractExplicitInterfaceMethod()
+    {
+        // Close positive case for the operator/DIM discriminators (#3112, adversarial review):
+        // an explicit implementation of a NON-operator static-abstract interface method must
+        // still reconstruct as an explicit implementation and round-trip Exact — the `op_`
+        // and default-interface-method fallbacks must not over-trigger on it.
+        var assemblyPath = CompileFixture("""
+            public sealed class ExplicitStaticFixture : IParseable
+            {
+                static int IParseable.Parse(string text)
+                {
+                    return text.Length;
+                }
+            }
+
+            public interface IParseable
+            {
+                static abstract int Parse(string text);
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitStaticFixture",
+                    "IParseable.Parse",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("static int IParseable.Parse(string text)", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("IParseable_Parse", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_ExplicitInterfaceOperatorFallsBackToPlainWithoutRecompileFail()
     {
         // Negative case (#3112, adversarial review): an explicit-interface implementation of a
