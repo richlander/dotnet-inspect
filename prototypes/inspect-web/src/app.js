@@ -135,22 +135,41 @@ function navForward() {
   applyView(nav.stack[nav.index].view);
 }
 
-const params = new URLSearchParams(location.search);
-const route = location.pathname.split("/").filter(Boolean);
-const packageAt = route.findIndex(part => part.toLowerCase() === "packages");
-const linkedPackage = packageAt >= 0 ? decodeURIComponent(route[packageAt + 1] || "") : params.get("package");
-const linkedVersion = packageAt >= 0 ? decodeURIComponent(route[packageAt + 2] || "") : params.get("version");
-const linkedType = params.get("type");
-const linkedFramework = params.get("framework");
+const memberSections = ["overview", "source", "call-graph", "facts"];
 
-if (linkedPackage) {
-  state.requestedPackage = linkedPackage;
-  state.requestedVersion = linkedVersion || "latest";
+function parseLocation() {
+  const params = new URLSearchParams(location.search);
+  const route = location.pathname.split("/").filter(Boolean);
+  const packageAt = route.findIndex(part => part.toLowerCase() === "packages");
+  const hashLens = location.hash.slice(1);
+  return {
+    package: packageAt >= 0 ? decodeURIComponent(route[packageAt + 1] || "") : params.get("package"),
+    version: packageAt >= 0 ? decodeURIComponent(route[packageAt + 2] || "") : params.get("version"),
+    framework: params.get("framework"),
+    type: params.get("type"),
+    member: params.get("member"),
+    overload: params.get("overload"),
+    section: params.get("section"),
+    lens: lenses.some(([id]) => id === hashLens) ? hashLens : null
+  };
 }
-if (linkedFramework) state.requestedFramework = linkedFramework;
-if (location.hash && lenses.some(([id]) => id === location.hash.slice(1))) {
-  state.lens = location.hash.slice(1);
+
+const initialLocation = parseLocation();
+if (initialLocation.package) {
+  state.requestedPackage = initialLocation.package;
+  state.requestedVersion = initialLocation.version || "latest";
 }
+if (initialLocation.framework) state.requestedFramework = initialLocation.framework;
+if (initialLocation.lens) state.lens = initialLocation.lens;
+
+// Deep-link selection to restore once the first package model is available. Consumed
+// (and cleared) by the first loadPackage so later package switches start fresh.
+let pendingDeepLink = {
+  type: initialLocation.type,
+  member: initialLocation.member,
+  overload: initialLocation.overload,
+  section: initialLocation.section
+};
 
 const app = document.querySelector("#app");
 let mermaidModule;
@@ -401,6 +420,7 @@ function render() {
 
   bindEvents();
   recordNav();
+  syncUrl();
   maybeAutoLoadTypeSource();
 }
 
@@ -1334,15 +1354,86 @@ function focusFilter() {
   });
 }
 
+function buildStateUrl(base = location.href) {
+  const url = new URL(base);
+  if (!state.package) return url;
+  // Keep the deep link entirely in the query string on the root path. The end
+  // deployment is a pure static file server with no SPA fallback, so a refresh or
+  // shared link must resolve to a real file (index.html at "/"); path segments
+  // like /packages/{id} would 404. The client restores selection from the query.
+  url.pathname = "/";
+  const params = new URLSearchParams();
+  params.set("package", state.package.id);
+  params.set("version", state.package.version);
+  if (state.package.activeFramework) params.set("framework", state.package.activeFramework);
+  if (state.selectedTypeId) params.set("type", state.selectedTypeId);
+  if (state.selectedMemberKey) params.set("member", state.selectedMemberKey);
+  if (state.selectedOverloadIndex != null) params.set("overload", String(state.selectedOverloadIndex));
+  if (state.memberSection && state.memberSection !== "overview") params.set("section", state.memberSection);
+  url.search = params.toString();
+  url.hash = state.lens && state.lens !== "api" ? state.lens : "";
+  return url;
+}
+
+// Rewrite the address bar to reflect the current selection so a refresh restores it and
+// the URL is always shareable. replaceState (not pushState) keeps the app's own
+// back/forward buttons authoritative and avoids flooding browser history on every render.
+function syncUrl() {
+  if (!state.package || state.loading) return;
+  try {
+    history.replaceState(null, "", buildStateUrl().toString());
+  } catch {
+    // Ignore environments that disallow history rewriting (e.g. sandboxed frames).
+  }
+}
+
+// Apply a parsed URL selection onto the currently loaded package, validating that the
+// type/member/overload/section still exist.
+function applyDeepLink(deep) {
+  const pkg = state.package;
+  if (!pkg) return;
+  const restoreType = deep?.type && pkg.types.some(item => item.id === deep.type);
+  state.selectedTypeId = restoreType ? deep.type : (pkg.types[0]?.id || "");
+  state.selectedMemberKey = "";
+  state.selectedOverloadIndex = null;
+  state.memberSection = "overview";
+  if (restoreType && deep) {
+    const type = pkg.types.find(item => item.id === deep.type);
+    const groups = memberGroups(type);
+    const group = deep.member ? groups.find(item => item.key === deep.member) : null;
+    if (group) {
+      state.selectedMemberKey = deep.member;
+      const overloadIndex = Number(deep.overload);
+      if (deep.overload != null && deep.overload !== ""
+        && Number.isInteger(overloadIndex) && overloadIndex >= 0
+        && overloadIndex < group.overloads.length) {
+        state.selectedOverloadIndex = overloadIndex;
+      }
+      if (deep.section && memberSections.includes(deep.section)) state.memberSection = deep.section;
+    }
+  }
+  state.typeCursor = Math.max(0, filteredTypes().findIndex(item => item.id === state.selectedTypeId));
+}
+
+// Kick off the async data load implied by the current lens/section so a restored or
+// history-navigated view fills in its content.
+function loadSelectionData() {
+  if (state.lens === "source") {
+    loadSelectedTypeSource();
+    return;
+  }
+  if (state.lens !== "api" || !state.selectedMemberKey) return;
+  const member = selectedMember(selectedType());
+  if (!member) return;
+  if (member.overloads.length > 1 && state.selectedOverloadIndex == null) return;
+  if (state.memberSection === "source") loadSelectedMemberSource();
+  else if (state.memberSection === "call-graph") loadSelectedMemberCallGraph();
+  else if (state.memberSection === "facts") loadSelectedMemberFacts();
+  else loadSelectedMemberDocumentation();
+}
+
 async function share() {
-  const url = new URL(location.href);
-  url.pathname = `/packages/${encodeURIComponent(state.package.id)}/${encodeURIComponent(state.package.version)}`;
-  url.search = new URLSearchParams({
-    framework: state.package.activeFramework,
-    type: selectedType().id
-  });
-  url.hash = state.lens;
-  await navigator.clipboard?.writeText(url.toString());
+  await navigator.clipboard?.writeText(buildStateUrl().toString());
   showToast("selection link copied");
 }
 
@@ -2017,14 +2108,21 @@ async function loadPackage(packageId, version, framework) {
     if (existing >= 0) state.packages[existing] = packageModel;
     else state.packages.push(packageModel);
     state.package = packageModel;
-    state.selectedTypeId = linkedType && packageModel.types.some(item => item.id === linkedType)
-      ? linkedType
-      : packageModel.types[0]?.id || "";
-    state.selectedMemberKey = "";
     state.typeFilter = "";
     state.namespaceFilter = "";
+    const deep = pendingDeepLink;
+    pendingDeepLink = null;
+    if (deep && (deep.type || deep.member)) {
+      applyDeepLink(deep);
+    } else {
+      state.selectedTypeId = packageModel.types[0]?.id || "";
+      state.selectedMemberKey = "";
+      state.selectedOverloadIndex = null;
+      state.memberSection = "overview";
+    }
     state.loading = false;
     render();
+    loadSelectionData();
     return packageModel;
   } catch (error) {
     state.loading = false;
@@ -2189,6 +2287,26 @@ document.addEventListener("mousedown", event => {
   if (event.target.closest("#taste-popover") || event.target.closest("#taste-btn")) return;
   state.tasteOpen = false;
   render();
+});
+
+// Re-apply state when the address bar changes underneath us (browser back/forward, or a
+// hand-edited URL). Within the loaded package we mutate selection directly; a different
+// package is (re)loaded with the URL selection queued as a deep link.
+window.addEventListener("popstate", () => {
+  if (!state.package) return;
+  const loc = parseLocation();
+  state.lens = loc.lens || "api";
+  const samePackage = loc.package
+    && loc.package.toLowerCase() === state.package.id.toLowerCase()
+    && (!loc.version || loc.version.toLowerCase() === state.package.version.toLowerCase());
+  if (samePackage || !loc.package) {
+    applyDeepLink(loc);
+    render();
+    loadSelectionData();
+  } else {
+    pendingDeepLink = { type: loc.type, member: loc.member, overload: loc.overload, section: loc.section };
+    loadPackage(loc.package, loc.version || "latest", loc.framework || "");
+  }
 });
 
 bootstrap();
