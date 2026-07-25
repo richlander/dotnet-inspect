@@ -61,23 +61,38 @@ public class CorpusManifestTests
     }
 
     [Fact]
-    public void FromJson_EmptyEntries_Throws()
+    public void FromJson_EmptyEntries_ParsesAsEmptyManifest()
     {
+        // An empty entry list is valid data and must round-trip; refusing to *operate* on an empty
+        // corpus is enforced at the population boundary, not during parsing.
         const string json = """
         { "schemaVersion": 1, "entries": [] }
         """;
 
-        Assert.Throws<System.Text.Json.JsonException>(() => CorpusManifest.FromJson(json));
+        var manifest = CorpusManifest.FromJson(json);
+
+        Assert.Empty(manifest.Entries);
     }
 
     [Fact]
-    public void FromJson_MissingEntries_Throws()
+    public void FromJson_MissingEntries_ParsesAsEmptyManifest()
     {
         const string json = """
         { "schemaVersion": 1 }
         """;
 
-        Assert.Throws<System.Text.Json.JsonException>(() => CorpusManifest.FromJson(json));
+        var manifest = CorpusManifest.FromJson(json);
+
+        Assert.Empty(manifest.Entries);
+    }
+
+    [Fact]
+    public void EmptyManifest_JsonRoundTripsSymmetrically()
+    {
+        var roundTripped = CorpusManifest.FromJson(new CorpusManifest().ToJson());
+
+        Assert.Empty(roundTripped.Entries);
+        Assert.Equal(CorpusManifest.CurrentSchemaVersion, roundTripped.SchemaVersion);
     }
 
     [Fact]

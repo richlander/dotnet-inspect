@@ -120,7 +120,9 @@ public static class CorpusProducer
     /// <summary>
     /// Resolves a request into a live corpus. The single explicit network/extraction step for a corpus:
     /// the returned <see cref="PopulatedCorpus"/> owns the extraction directories and, once returned,
-    /// searches over it are offline.
+    /// searches over it are offline. Throws <see cref="InvalidOperationException"/> (surfacing any
+    /// diagnostics) when the request resolves no assemblies, so an all-failed acquisition cannot return a
+    /// success-shaped empty corpus.
     /// </summary>
     public static async Task<PopulatedCorpus> PopulateAsync(
         HttpClient httpClient,
@@ -133,6 +135,9 @@ public static class CorpusProducer
         var set = await AssemblySetResolver.CollectAsync(httpClient, request, log).ConfigureAwait(false);
         try
         {
+            if (set.Assemblies.Count == 0)
+                throw new InvalidOperationException(DescribeEmptyResolution(set.Diagnostics));
+
             return new PopulatedCorpus([set], ToCorpus(set), ToManifest(set), set.Diagnostics);
         }
         catch
@@ -146,7 +151,8 @@ public static class CorpusProducer
     /// Repopulates a live corpus from a previously serialized manifest, resolving each entry with its own
     /// pinned TFM. The returned <see cref="PopulatedCorpus.Manifest"/> is rebuilt from what actually
     /// resolved, so it always describes the returned corpus. Aggregated diagnostics surface any entry
-    /// that could not be resolved rather than silently shrinking the set.
+    /// that could not be resolved rather than silently shrinking the set; if nothing resolves at all the
+    /// method throws <see cref="InvalidOperationException"/> rather than returning an empty corpus.
     /// </summary>
     public static async Task<PopulatedCorpus> PopulateFromManifestAsync(
         HttpClient httpClient,
@@ -180,6 +186,9 @@ public static class CorpusProducer
                 diagnostics.AddRange(set.Diagnostics);
             }
 
+            if (entries.Count == 0)
+                throw new InvalidOperationException(DescribeEmptyResolution(diagnostics));
+
             return new PopulatedCorpus(sets, ToCorpus(entries), ToManifest(entries), diagnostics);
         }
         catch
@@ -190,6 +199,15 @@ public static class CorpusProducer
             }
             throw;
         }
+    }
+
+    private static string DescribeEmptyResolution(IReadOnlyList<AssemblySetDiagnostic> diagnostics)
+    {
+        var message = "Populating the corpus resolved no assemblies.";
+        if (diagnostics.Count == 0)
+            return message;
+
+        return message + " " + string.Join("; ", diagnostics.Select(static d => $"{d.Severity}: {d.Message}"));
     }
 
     private static bool IsLogicalOrigin(AssemblySetSourceKind kind) => kind switch

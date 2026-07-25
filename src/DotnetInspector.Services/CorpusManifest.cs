@@ -63,8 +63,9 @@ public sealed record CorpusManifest
 
     /// <summary>
     /// Deserializes a manifest from JSON produced by <see cref="ToJson"/>. Throws when the payload is
-    /// null/empty JSON, carries an unsupported <see cref="SchemaVersion"/>, or contains no entries, so a
-    /// malformed or empty document cannot silently reload as an empty corpus.
+    /// null/empty JSON string, or carries an unsupported <see cref="SchemaVersion"/>. An empty entry list
+    /// is preserved as valid data so serialization round-trips symmetrically; refusing to operate on an
+    /// empty corpus is enforced at the population boundary (<see cref="CorpusProducer"/>), not here.
     /// </summary>
     public static CorpusManifest FromJson(string json)
     {
@@ -77,12 +78,6 @@ public sealed record CorpusManifest
         {
             throw new NotSupportedException(
                 $"Unsupported corpus manifest schema version {manifest.SchemaVersion}; expected {CurrentSchemaVersion}.");
-        }
-
-        if (manifest.Entries.Count == 0)
-        {
-            throw new JsonException(
-                "Corpus manifest contains no entries; a manifest that describes no assemblies cannot be loaded.");
         }
 
         return manifest;

@@ -258,4 +258,18 @@ public class CorpusProducerTests
         await Assert.ThrowsAsync<ArgumentException>(() =>
             CorpusProducer.PopulateFromManifestAsync(httpClient, new CorpusManifest()));
     }
+
+    [Fact]
+    public async Task PopulateAsync_ResolvesNoAssemblies_ThrowsRatherThanReturningEmptyCorpus()
+    {
+        var missingDirectory = Path.Combine(Path.GetTempPath(), $"corpus-missing-{Guid.NewGuid():N}");
+        using var httpClient = new HttpClient();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            CorpusProducer.PopulateAsync(
+                httpClient,
+                new AssemblySetRequest { Directories = [missingDirectory] }));
+
+        Assert.Contains("resolved no assemblies", ex.Message);
+    }
 }
