@@ -641,6 +641,23 @@ three-token axis rather than two coupled booleans. The catalog is exhaustive: a
 test-only drift guard asserts every backing `PrinterOptions` boolean is reachable
 through some descriptor value, so a new knob cannot land without a catalog entry.
 
+The `var`-spelling family is a second multi-value axis, modeled as one
+`var-spelling-style` descriptor with four tokens — `explicit` (the default) plus
+the three site categories `var-for-built-in-types`, `var-when-type-apparent`, and
+`var-elsewhere`, one per editorconfig key (`csharp_style_var_for_built_in_types`,
+`csharp_style_var_when_type_is_apparent`, `csharp_style_var_elsewhere`). Because a
+declaration site falls into exactly one category, the three category values back
+*independent* booleans (a host may enable any subset), while the axis stays
+single-select for display: `GetValue` reports the coarse first-enabled category
+and `WithValue` selects one exclusively. `var` is byte-neutral — it erases the
+declared type spelling but never changes the IL — so the family sits in the
+`Spelling` tier with `ByteDivergent = false`. Every category value is
+`OracleEndorsed = false` and `CorpusEndorsed = false`: dotnet/runtime's
+`.editorconfig` sets all three `csharp_style_var_*` keys to `false` (prefer
+explicit types), so no `var` value is endorsed by either facet. The family is
+therefore **opt-in only** and never part of the "full taste" aggregate — the
+shipped default spells explicit types everywhere, matching the runtime.
+
 ## Verification and soundness
 
 How these rendering choices are held correct — the verification checks and floors, the

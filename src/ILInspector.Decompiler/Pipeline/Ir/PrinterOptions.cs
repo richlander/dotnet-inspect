@@ -80,6 +80,44 @@ public sealed record PrinterOptions
     public bool QualifyEventAccess { get; init; }
 
     /// <summary>
+    /// When set, a local declaration whose declared type is a C# built-in
+    /// (predefined) type — <c>int</c>, <c>string</c>, <c>bool</c>, <c>double</c>,
+    /// and the rest of the keyword types — is spelled <c>var</c> instead of the
+    /// explicit type, provided <c>var</c> is faithful there (the initializer's type
+    /// is exactly the declared type and it is not a target-typed form such as
+    /// <c>default</c>/<c>null</c>/<c>new()</c>). Byte-neutral: <c>var</c> is a
+    /// compile-time inference with no IL consequence, so this is a spelling choice,
+    /// not a lens. Off by default — the shipped output keeps the explicit type,
+    /// matching dotnet/runtime's <c>csharp_style_var_for_built_in_types = false</c>.
+    /// Mirrors <c>csharp_style_var_for_built_in_types</c>.
+    /// </summary>
+    public bool PreferVarForBuiltInTypes { get; init; }
+
+    /// <summary>
+    /// When set, a local declaration whose type is <em>apparent</em> from the
+    /// initializer (see <see cref="CSharpPrinter"/>'s apparency predicate — object
+    /// creation of the exact type, an array creation, or an explicit cast) is
+    /// spelled <c>var</c> instead of the explicit type. Applies to the apparent,
+    /// non-built-in bucket (the built-in bucket is governed by
+    /// <see cref="PreferVarForBuiltInTypes"/>). Byte-neutral (a spelling choice, no
+    /// IL consequence). Off by default, matching dotnet/runtime's
+    /// <c>csharp_style_var_when_type_is_apparent = false</c>. Mirrors
+    /// <c>csharp_style_var_when_type_is_apparent</c>.
+    /// </summary>
+    public bool PreferVarWhenTypeApparent { get; init; }
+
+    /// <summary>
+    /// When set, a local declaration that is neither a built-in-type nor an
+    /// apparent-type site is spelled <c>var</c> instead of the explicit type,
+    /// provided <c>var</c> is faithful there (the initializer's type is exactly the
+    /// declared type and it is not a target-typed form). Byte-neutral (a spelling
+    /// choice, no IL consequence). Off by default, matching dotnet/runtime's
+    /// <c>csharp_style_var_elsewhere = false</c>. Mirrors
+    /// <c>csharp_style_var_elsewhere</c>.
+    /// </summary>
+    public bool PreferVarElsewhere { get; init; }
+
+    /// <summary>
     /// When set, a guarded boolean return the default view must render as a flat
     /// <c>if (c) return A; return B;</c> — because no short-circuit fold is
     /// opcode-faithful for that shape (see <c>ShortCircuitFidelity</c> / #3114) —
