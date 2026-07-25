@@ -28,6 +28,21 @@ Two reasons:
 
 Two clarifications on scope. First, the oracle is a **default**, not a reconstruction of the input's own style: real assemblies — runtime included — are stylistically mixed, and an `.editorconfig` is *directional* (it names where a codebase is converging over time, not what its current text says), so "match the source style" is not a well-defined target. Picking a published, versioned community default is the honest substitute. Second, the oracle settles only **class-3 no-anchor cosmetics** (below); it never overrides a class-1 or class-2 IL distinction. Where a no-anchor choice is not yet a stable default it is exposed opt-in rather than imposed — see [Line wrapping](#line-wrapping) and [Names](#names).
 
+The oracle has two facets, and it matters which one a given decision rests on.
+Its primary voice is **declared** — the rules `dotnet/runtime`'s `.editorconfig`
+and the enabled IDE fixers write down explicitly (the `dotnet_style_*` /
+`csharp_style_*` keys). Where the declared oracle is *silent* — it has no rule for
+the shape in question — the **revealed** oracle breaks the tie: the dominant style
+of the runtime's own source. Both are the same authority (the runtime's taste);
+they differ only in whether that taste is written down as a config rule or merely
+practiced in the code. Several class-3 tiebreaks already rest on the revealed
+facet precisely because `.editorconfig` says nothing about them — pointer member
+access renders `p->Member`, and query syntax comes back as a fluent chain, because
+that is what runtime code writes. So "the oracle is silent" always means the
+*declared* oracle; the revealed oracle is silent only when the corpus itself shows
+no dominant form. A shape can be declared-silent yet revealed-endorsed — which is
+exactly the status of the fidelity-neutral formatting/synthesis knobs below.
+
 ## The three-class rule
 
 Every proposed rendering falls into one of three classes, and the class decides the answer:
@@ -580,6 +595,15 @@ is `ByteDivergent`, whether it is `OracleEndorsed`, its `.dotnet-inspectconfig`
 key (`null` for API-only formatting/synthesis knobs), a `ConflictGroup` for
 mutually-exclusive knobs, and NativeAOT-safe `Get`/`With` delegates that read and
 set the knob on a `PrinterOptions` without reflection.
+
+`OracleEndorsed` records **declared**-oracle endorsement specifically — the knob
+has a `.editorconfig` rule behind it. A knob being non-endorsed (the `Formatting`
+and `Synthesis` knobs) therefore means the *declared* oracle is silent, not that
+the runtime corpus is: runtime code visibly wraps long boolean chains, has
+expression-body arrow habits, and uses readable local names. Capturing that
+*revealed* endorsement as a distinct axis — so a future "house style" aggregate
+could enable declared ∪ revealed while "full taste" stays declared-only — is
+tracked in [#3179](https://github.com/richlander/dotnet-inspect/issues/3179).
 
 This makes the option surface discoverable and drift-proof for every host, not
 just the CLI: the config resolver derives its recognized keys from the catalog,
