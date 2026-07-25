@@ -1337,14 +1337,20 @@ public static class CompileBackSourceComposer
             //    unchanged, matching the printer) stays on the normal path and can still
             //    reconstruct Exact.
             //  - Default interface methods (virtual, non-abstract): the interface member
-            //    reconstructs bodyless (StubBody.None) while remaining `virtual`, which is
-            //    invalid because a non-abstract virtual interface method requires a body
-            //    (CS0501).
+            //    reconstructs bodyless (StubBody.None) while remaining non-abstract, which is
+            //    invalid because a non-abstract interface method requires a body (CS0501).
+            //    Key off the declaration's Abstract flag directly rather than IsVirtualMethod:
+            //    a C# 11 `static virtual` interface method carries Virtual without NewSlot, so
+            //    IsVirtualMethod (which requires NewSlot) would miss it. Any non-abstract
+            //    interface declaration (default method, `static virtual`, or `sealed`) has a
+            //    body and cannot be reconstructed as a bodyless declaration here; only an
+            //    abstract declaration (including `static abstract`) can, so it stays on the
+            //    normal path and can still reconstruct Exact.
             if (OperatorNames.FormatDisplayName(declarationName) != declarationName)
             {
                 return false;
             }
-            if (IsVirtualMethod(declaration) && !IsAbstractMethod(declaration))
+            if ((declaration.Attributes & MethodAttributes.Abstract) == 0)
             {
                 return false;
             }

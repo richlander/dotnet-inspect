@@ -1458,6 +1458,55 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_ExplicitStaticVirtualInterfaceMethodFallsBackToPlainWithoutRecompileFail()
+    {
+        // Negative case (#3112, adversarial review): an explicit-interface implementation of a
+        // C# 11 `static virtual` interface method (has a body, non-abstract) cannot be
+        // reconstructed by the explicit-method path — the interface member reconstructs bodyless
+        // and non-abstract, which is invalid because a non-abstract interface method requires a
+        // body (CS0501). The body/abstract discriminator must key off the declaration's Abstract
+        // flag directly: `static virtual` methods carry Virtual without NewSlot, so the narrower
+        // IsVirtualMethod helper (which requires NewSlot) would miss them and let them through.
+        // RTS must fall back to the plain sanitized shape (main's behavior) rather than regress
+        // the method-not-found ContextFail into a RecompileFail.
+        var assemblyPath = CompileFixture("""
+            public sealed class ExplicitStaticVirtualFixture : IStaticVirtual
+            {
+                static void IStaticVirtual.Test()
+                {
+                    System.Console.WriteLine("test");
+                }
+            }
+
+            public interface IStaticVirtual
+            {
+                static virtual void Test()
+                {
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitStaticVirtualFixture",
+                    "IStaticVirtual.Test",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("IStaticVirtual_Test", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("void IStaticVirtual.Test(", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_RoundTripsExplicitInterfaceIndexer()
     {
         var assemblyPath = CompileFixture("""
