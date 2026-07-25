@@ -43,6 +43,89 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void FinalizerMember_RendersDestructorSyntaxWithoutModifiers()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Handle", Kind = "class" };
+        var finalizer = new ApiMember
+        {
+            Name = "Finalize",
+            // Roslyn emits the finalizer with an explicit .override MethodImpl, so
+            // it surfaces as an explicit-interface-implementation kind; IsFinalizer
+            // is the metadata fact that drives the ~Type() spelling.
+            Kind = "explicit-interface-implementation",
+            Signature = "void Finalize()",
+            IsVirtual = true,
+            IsFinalizer = true,
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, finalizer);
+
+        Assert.Equal("~Handle()", declaration);
+    }
+
+    [Fact]
+    public void UnsafeFinalizerMember_KeepsUnsafeModifierOnly()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Handle", Kind = "class" };
+        var finalizer = new ApiMember
+        {
+            Name = "Finalize",
+            Kind = "explicit-interface-implementation",
+            Signature = "void Finalize()",
+            IsVirtual = true,
+            IsFinalizer = true,
+            IsUnsafe = true,
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, finalizer);
+
+        Assert.Equal("unsafe ~Handle()", declaration);
+    }
+
+    [Fact]
+    public void FinalizerMember_OnGenericType_DropsTypeArity()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Box`1", Kind = "class" };
+        var finalizer = new ApiMember
+        {
+            Name = "Finalize",
+            Kind = "explicit-interface-implementation",
+            Signature = "void Finalize()",
+            IsVirtual = true,
+            IsFinalizer = true,
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, finalizer);
+
+        Assert.Equal("~Box()", declaration);
+    }
+
+    [Fact]
+    public void FinalizerMember_WithSuppressFinalizerSpelling_KeepsLiteralFinalize()
+    {
+        // Issue #3157 (fidelity hardening): the '~Type()' spelling assumes the
+        // recompiled destructor re-emits the mandatory 'base.Finalize()'. When the
+        // decompiled body did NOT recover the canonical destructor scaffold, the
+        // full-body path suppresses the destructor spelling so recompiling keeps
+        // the observed body instead of silently re-injecting the base call.
+        var type = new ApiType { Namespace = "Samples", Name = "Handle", Kind = "class" };
+        var finalizer = new ApiMember
+        {
+            Name = "Finalize",
+            Kind = "explicit-interface-implementation",
+            Signature = "void Finalize()",
+            IsVirtual = true,
+            IsFinalizer = true,
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+            type, finalizer, new CSharpDeclarationOptions { SuppressFinalizerSpelling = true });
+
+        Assert.Equal("void Finalize()", declaration);
+        Assert.DoesNotContain("~Handle", declaration);
+    }
+
+    [Fact]
     public void ShortWithUsingsMemberUnit_GeneratesImportsAndShortensTypes()
     {
         var type = CreateSampleType();

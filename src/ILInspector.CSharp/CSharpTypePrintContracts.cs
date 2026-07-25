@@ -23,6 +23,17 @@ public abstract record CSharpMemberBody
     /// unsafe signature already represented by <see cref="ApiMember.IsUnsafe"/>.
     /// </summary>
     public bool RequiresUnsafeModifier { get; init; }
+
+    /// <summary>
+    /// True when a finalizer member (<see cref="ApiMember.IsFinalizer"/>) must
+    /// be rendered as the literal <c>void Finalize()</c> method rather than the
+    /// <c>~Type()</c> destructor syntax, because the body was <em>not</em>
+    /// recovered as a canonical destructor (<c>IrFunction.IsDestructor</c>).
+    /// A body-only fact: recompiling <c>~Type() { … }</c> re-injects the
+    /// mandatory <c>base.Finalize()</c> the compiler forbids writing, so the
+    /// destructor spelling is only faithful when that scaffold was recovered.
+    /// </summary>
+    public bool SuppressDestructorSyntax { get; init; }
 }
 
 public enum CSharpConstructorInitializerKind

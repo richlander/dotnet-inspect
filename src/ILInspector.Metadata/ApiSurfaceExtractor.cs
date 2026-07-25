@@ -147,6 +147,11 @@ public static class ApiSurfaceExtractor
 
             var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
 
+            // Methods whose explicit `.override` MethodImpl targets
+            // `System.Object::Finalize` — i.e. genuine class finalizers, the
+            // slot the C# `~Type()` destructor compiles to.
+            var objectFinalizeOverrides = GetObjectFinalizeOverrides(reader, typeDef);
+
             // Methods
             foreach (var methodHandle in typeDef.GetMethods())
             {
@@ -181,6 +186,29 @@ public static class ApiSurfaceExtractor
                 var isVirtual = (methodAttributes & MethodAttributes.Virtual) != 0;
                 var isNewSlot = (methodAttributes & MethodAttributes.NewSlot) != 0;
                 var isOverride = isVirtual && !isNewSlot && !isExplicitInterfaceImplementation;
+
+                // A class finalizer is the `object.Finalize` override the C#
+                // `~Type()` destructor compiles to. Roslyn emits it with an
+                // explicit `.override` MethodImpl targeting
+                // `System.Object::Finalize`, so we detect it by that target
+                // rather than by name/signature shape. Keying on the overridden
+                // slot (not the name `Finalize`, the reused virtual slot, or the
+                // decoded signature) excludes the false positives a shape
+                // heuristic admits: an implicit generic `Finalize<T>()`, an
+                // override of an unrelated base/interface `Finalize()` slot, and
+                // an explicit `IFoo.Finalize()` implementation (whose MethodImpl
+                // targets the interface, not object). A method whose signature
+                // failed to decode is likewise judged by its MethodImpl target
+                // alone, so a degraded decode cannot masquerade as a finalizer.
+                // A finalizer is never generic, so we still reject a method that
+                // explicitly `.override`s object.Finalize while declaring its own
+                // type parameters — rendering it `~Type()` would erase `<T>`.
+                // VB-style implicit `object.Finalize` overrides carry no
+                // MethodImpl and fall back to the literal `void Finalize()`.
+                var isFinalizer = apiType.Kind == "class"
+                    && method.GetGenericParameters().Count == 0
+                    && objectFinalizeOverrides.Contains(methodHandle);
+
                 var member = new ApiMember
                 {
                     Name = methodName,
@@ -196,6 +224,7 @@ public static class ApiSurfaceExtractor
                     IsAbstract = (methodAttributes & MethodAttributes.Abstract) != 0,
                     IsOverride = isOverride,
                     IsSealed = isOverride && (methodAttributes & MethodAttributes.Final) != 0,
+                    IsFinalizer = isFinalizer,
                     Signature = signature.Text,
                     SignatureModel = signature.Model,
                     SignatureDecodeStatus = signature.IsDegraded
@@ -779,6 +808,170 @@ public static class ApiSurfaceExtractor
         }
 
         return handles;
+    }
+
+    /// <summary>
+    /// The set of methods on <paramref name="typeDef"/> whose explicit
+    /// <c>.override</c> MethodImpl targets <c>System.Object::Finalize</c> — the
+    /// slot a C# <c>~Type()</c> destructor compiles to. Keying on the overridden
+    /// declaration (not the method's own name/slot/signature) is what lets the
+    /// C# writer spell <c>~Type()</c> for real finalizers while excluding a
+    /// same-named override of an unrelated <c>Finalize</c> slot or an explicit
+    /// interface implementation.
+    /// </summary>
+    private static HashSet<MethodDefinitionHandle> GetObjectFinalizeOverrides(
+        MetadataReader reader, TypeDefinition typeDef)
+    {
+        HashSet<MethodDefinitionHandle> handles = [];
+        foreach (var implementationHandle in typeDef.GetMethodImplementations())
+        {
+            var implementation = reader.GetMethodImplementation(implementationHandle);
+            if (implementation.MethodBody.Kind != HandleKind.MethodDefinition)
+                continue;
+            if (ReferencesObjectFinalize(reader, implementation.MethodDeclaration))
+                handles.Add((MethodDefinitionHandle)implementation.MethodBody);
+        }
+
+        return handles;
+    }
+
+    /// <summary>
+    /// True when <paramref name="methodDeclaration"/> (the target of a
+    /// <c>.override</c> MethodImpl) names <c>Finalize</c> on <c>System.Object</c>.
+    /// The target is a <see cref="MemberReferenceHandle"/> in the common case
+    /// (object lives in another assembly) and a <see cref="MethodDefinitionHandle"/>
+    /// only when inspecting the assembly that defines <c>System.Object</c>.
+    /// </summary>
+    private static bool ReferencesObjectFinalize(MetadataReader reader, EntityHandle methodDeclaration)
+    {
+        switch (methodDeclaration.Kind)
+        {
+            case HandleKind.MemberReference:
+                var memberRef = reader.GetMemberReference((MemberReferenceHandle)methodDeclaration);
+                return string.Equals(reader.GetString(memberRef.Name), "Finalize", StringComparison.Ordinal)
+                    && IsSystemObjectType(reader, memberRef.Parent);
+            case HandleKind.MethodDefinition:
+                var methodDef = reader.GetMethodDefinition((MethodDefinitionHandle)methodDeclaration);
+                return string.Equals(reader.GetString(methodDef.Name), "Finalize", StringComparison.Ordinal)
+                    && IsSystemObjectType(reader, methodDef.GetDeclaringType());
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>True when <paramref name="typeHandle"/> resolves to <c>System.Object</c>.</summary>
+    private static bool IsSystemObjectType(MetadataReader reader, EntityHandle typeHandle)
+    {
+        switch (typeHandle.Kind)
+        {
+            case HandleKind.TypeReference:
+                var typeRef = reader.GetTypeReference((TypeReferenceHandle)typeHandle);
+                // Cross-assembly reference (the normal Roslyn case): the target
+                // assembly cannot be resolved from metadata alone (SRM-only, no
+                // inspected-assembly loading), so we cannot check its object is
+                // the real root. Require the reference to resolve through a
+                // recognized core library — matched by both assembly name and
+                // its strong-name public-key token — so that an adversarial
+                // `System.Object` defined in an arbitrary or name-impersonating
+                // assembly is rejected.
+                return string.Equals(reader.GetString(typeRef.Namespace), "System", StringComparison.Ordinal)
+                    && string.Equals(reader.GetString(typeRef.Name), "Object", StringComparison.Ordinal)
+                    && ResolvesThroughCoreLibrary(reader, typeRef.ResolutionScope);
+            case HandleKind.TypeDefinition:
+                var typeDef = reader.GetTypeDefinition((TypeDefinitionHandle)typeHandle);
+                // The genuine root object is the only `System.Object` with no
+                // base type. An adversarial assembly can define its own
+                // `System.Object` that extends the real one (a non-root fake);
+                // requiring a nil base type rejects it while still accepting the
+                // real object when inspecting the assembly that defines it.
+                return typeDef.BaseType.IsNil
+                    && string.Equals(reader.GetString(typeDef.Namespace), "System", StringComparison.Ordinal)
+                    && string.Equals(reader.GetString(typeDef.Name), "Object", StringComparison.Ordinal);
+            default:
+                return false;
+        }
+    }
+
+    // The reference assemblies and runtime cores that define the real
+    // System.Object, paired with the strong-name public-key token(s) each is
+    // legitimately signed with. `mscorlib` shipped under several Microsoft
+    // tokens across historical profiles (desktop .NET Framework, Silverlight/
+    // PCL/Windows Phone, and the .NET Compact Framework), so a name maps to a
+    // set of accepted tokens. A TypeReference to `System.Object` that resolves
+    // through any other assembly — or through an assembly that impersonates one
+    // of these names without carrying a matching Microsoft public-key token —
+    // is an adversarial or accidental lookalike, not the runtime finalizer slot.
+    private static readonly Dictionary<string, byte[][]> CoreLibraryPublicKeyTokens =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["System.Runtime"] = new[] { new byte[] { 0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a } },
+            ["System.Private.CoreLib"] = new[] { new byte[] { 0x7c, 0xec, 0x85, 0xd7, 0xbe, 0xa7, 0x79, 0x8e } },
+            ["mscorlib"] = new[]
+            {
+                new byte[] { 0xb7, 0x7a, 0x5c, 0x56, 0x19, 0x34, 0xe0, 0x89 }, // .NET Framework (desktop)
+                new byte[] { 0x7c, 0xec, 0x85, 0xd7, 0xbe, 0xa7, 0x79, 0x8e }, // Silverlight / PCL / Windows Phone
+                new byte[] { 0x96, 0x9d, 0xb8, 0x05, 0x3d, 0x33, 0x22, 0xac }, // .NET Compact Framework
+            },
+            ["netstandard"] = new[] { new byte[] { 0xcc, 0x7b, 0x13, 0xff, 0xcd, 0x2d, 0xdd, 0x51 } },
+        };
+
+    /// <summary>
+    /// True when <paramref name="resolutionScope"/> is an
+    /// <see cref="AssemblyReference"/> to a recognized core library — matched by
+    /// both assembly name and one of that library's legitimate strong-name
+    /// public-key tokens — the resolution scope a real cross-assembly
+    /// <c>System.Object</c> reference carries. Nested
+    /// (<see cref="TypeReference"/>), module, and nil scopes are rejected:
+    /// <c>System.Object</c> is never a nested type, and a same-module object is
+    /// a <see cref="TypeDefinition"/> handled elsewhere. An assembly that
+    /// impersonates a core-library name but lacks (or forges) a matching
+    /// public-key token is rejected.
+    /// </summary>
+    private static bool ResolvesThroughCoreLibrary(MetadataReader reader, EntityHandle resolutionScope)
+    {
+        if (resolutionScope.Kind != HandleKind.AssemblyReference)
+            return false;
+        var assemblyRef = reader.GetAssemblyReference((AssemblyReferenceHandle)resolutionScope);
+        if (!CoreLibraryPublicKeyTokens.TryGetValue(reader.GetString(assemblyRef.Name), out byte[][]? expectedTokens))
+            return false;
+        if (!TryComputeToken(reader, assemblyRef, out byte[] token))
+            return false;
+        foreach (byte[] expected in expectedTokens)
+        {
+            if (token.AsSpan().SequenceEqual(expected))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Computes the 8-byte strong-name public-key token of
+    /// <paramref name="assemblyRef"/>. An assembly reference stores either the
+    /// full public key (when <see cref="AssemblyFlags.PublicKey"/> is set) or
+    /// the already-computed token; the token is the low 8 bytes of the SHA-1
+    /// hash of the public key, in reverse order. Returns false for a nil or
+    /// wrong-length token blob.
+    /// </summary>
+    private static bool TryComputeToken(MetadataReader reader, System.Reflection.Metadata.AssemblyReference assemblyRef, out byte[] token)
+    {
+        token = [];
+        if (assemblyRef.PublicKeyOrToken.IsNil)
+            return false;
+        byte[] blob = reader.GetBlobBytes(assemblyRef.PublicKeyOrToken);
+        if ((assemblyRef.Flags & AssemblyFlags.PublicKey) != 0)
+        {
+            byte[] hash = System.Security.Cryptography.SHA1.HashData(blob);
+            token = new byte[8];
+            for (int i = 0; i < 8; i++)
+                token[i] = hash[hash.Length - 1 - i];
+            return true;
+        }
+
+        if (blob.Length != 8)
+            return false;
+        token = blob;
+        return true;
     }
 
     private static bool IsOperatorMethodName(string methodName) =>

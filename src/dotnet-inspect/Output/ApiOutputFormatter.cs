@@ -2288,7 +2288,13 @@ public static class ApiOutputFormatter
         var bodyShape = new CSharpBlockBody(lowered)
         {
             RequiresAsyncModifier = requiresAsyncBodyModifier,
-            RequiresUnsafeModifier = result.RequiresUnsafeBodyModifier
+            RequiresUnsafeModifier = result.RequiresUnsafeBodyModifier,
+            // Only spell '~Type()' when the destructor pass recovered the
+            // canonical try/finally { base.Finalize(); } scaffold (issue #3157).
+            // A Finalize override whose body did not match keeps the literal
+            // 'void Finalize()' so recompiling this selected-member source does
+            // not silently re-inject the compiler's mandatory base.Finalize().
+            SuppressDestructorSyntax = member.IsFinalizer && !result.BodyIsDestructor
         };
         var formatter = includeCustomAttributes ? AnnotatedCSharpFormatter : DefaultCSharpFormatter;
         var declaration = formatter.FormatMemberWithBody(
