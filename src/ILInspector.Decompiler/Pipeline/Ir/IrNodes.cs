@@ -435,6 +435,18 @@ public sealed class IrFunction : IrNode
     public IReadOnlySet<TypeRef> ByRefLikeTypes { get; set; }
         = ImmutableHashSet<TypeRef>.Empty;
 
+    /// <summary>
+    /// Definition-keyed types this function references that resolved to a C#
+    /// <c>interface</c>, materialized at import (the printer is metadata-free).
+    /// Definition-backed and cross-assembly-aware, but a type whose interface-ness
+    /// cannot be proven is <em>absent</em>, never guessed. Lets the printer
+    /// re-insert the <c>((I)this)</c> cast an implicit class→interface (or
+    /// variant) upcast erases from the IL, so a default-interface-member access
+    /// through <c>this</c> spells back to valid, opcode-faithful C#.
+    /// </summary>
+    public IReadOnlySet<TypeRef> InterfaceTypes { get; set; }
+        = ImmutableHashSet<TypeRef>.Empty;
+
     public override IEnumerable<TypeRef> DirectTypes
         => Signature.Parameters.Select(p => p.Type)
             .Append(Signature.ReturnType)
