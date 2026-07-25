@@ -870,11 +870,10 @@ public static class ApiSurfaceExtractor
                 // assembly cannot be resolved from metadata alone (SRM-only, no
                 // inspected-assembly loading), so we cannot check its object is
                 // the real root. Require the reference to resolve through a
-                // recognized core library instead — an adversarial `System.Object`
-                // defined in an arbitrary assembly is thereby rejected. A build
-                // that fully impersonates a core-library assembly name is a
-                // deeper supply-chain concern out of scope for this cosmetic
-                // spelling decision.
+                // recognized core library — matched by both assembly name and
+                // its strong-name public-key token — so that an adversarial
+                // `System.Object` defined in an arbitrary or name-impersonating
+                // assembly is rejected.
                 return string.Equals(reader.GetString(typeRef.Namespace), "System", StringComparison.Ordinal)
                     && string.Equals(reader.GetString(typeRef.Name), "Object", StringComparison.Ordinal)
                     && ResolvesThroughCoreLibrary(reader, typeRef.ResolutionScope);
@@ -894,32 +893,67 @@ public static class ApiSurfaceExtractor
     }
 
     // The reference assemblies and runtime cores that define the real
-    // System.Object. A TypeReference to `System.Object` that resolves through
-    // any other assembly is an adversarial or accidental lookalike, not the
-    // runtime finalizer slot.
-    private static readonly HashSet<string> CoreLibraryAssemblyNames =
+    // System.Object, paired with the strong-name public-key token each is
+    // signed with. A TypeReference to `System.Object` that resolves through
+    // any other assembly — or through an assembly that impersonates one of
+    // these names without carrying its public-key token — is an adversarial or
+    // accidental lookalike, not the runtime finalizer slot.
+    private static readonly Dictionary<string, byte[]> CoreLibraryPublicKeyTokens =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            "System.Runtime",
-            "System.Private.CoreLib",
-            "mscorlib",
-            "netstandard",
+            ["System.Runtime"] = new byte[] { 0xb0, 0x3f, 0x5f, 0x7f, 0x11, 0xd5, 0x0a, 0x3a },
+            ["System.Private.CoreLib"] = new byte[] { 0x7c, 0xec, 0x85, 0xd7, 0xbe, 0xa7, 0x79, 0x8e },
+            ["mscorlib"] = new byte[] { 0xb7, 0x7a, 0x5c, 0x56, 0x19, 0x34, 0xe0, 0x89 },
+            ["netstandard"] = new byte[] { 0xcc, 0x7b, 0x13, 0xff, 0xcd, 0x2d, 0xdd, 0x51 },
         };
 
     /// <summary>
     /// True when <paramref name="resolutionScope"/> is an
-    /// <see cref="AssemblyReference"/> to a recognized core library — the
-    /// resolution scope a real cross-assembly <c>System.Object</c> reference
-    /// carries. Nested (<see cref="TypeReference"/>), module, and nil scopes are
+    /// <see cref="AssemblyReference"/> to a recognized core library — matched by
+    /// both assembly name and strong-name public-key token — the resolution
+    /// scope a real cross-assembly <c>System.Object</c> reference carries.
+    /// Nested (<see cref="TypeReference"/>), module, and nil scopes are
     /// rejected: <c>System.Object</c> is never a nested type, and a same-module
-    /// object is a <see cref="TypeDefinition"/> handled elsewhere.
+    /// object is a <see cref="TypeDefinition"/> handled elsewhere. An assembly
+    /// that impersonates a core-library name but lacks (or forges) its
+    /// public-key token is rejected.
     /// </summary>
     private static bool ResolvesThroughCoreLibrary(MetadataReader reader, EntityHandle resolutionScope)
     {
         if (resolutionScope.Kind != HandleKind.AssemblyReference)
             return false;
         var assemblyRef = reader.GetAssemblyReference((AssemblyReferenceHandle)resolutionScope);
-        return CoreLibraryAssemblyNames.Contains(reader.GetString(assemblyRef.Name));
+        if (!CoreLibraryPublicKeyTokens.TryGetValue(reader.GetString(assemblyRef.Name), out byte[]? expectedToken))
+            return false;
+        return TokenMatches(reader, assemblyRef, expectedToken);
+    }
+
+    /// <summary>
+    /// True when the strong-name public-key token of <paramref name="assemblyRef"/>
+    /// equals <paramref name="expectedToken"/>. An assembly reference stores
+    /// either the full public key (when <see cref="AssemblyFlags.PublicKey"/> is
+    /// set) or the already-computed 8-byte token; the token is the low 8 bytes
+    /// of the SHA-1 hash of the public key, in reverse order.
+    /// </summary>
+    private static bool TokenMatches(MetadataReader reader, System.Reflection.Metadata.AssemblyReference assemblyRef, byte[] expectedToken)
+    {
+        if (assemblyRef.PublicKeyOrToken.IsNil)
+            return false;
+        byte[] blob = reader.GetBlobBytes(assemblyRef.PublicKeyOrToken);
+        byte[] token;
+        if ((assemblyRef.Flags & AssemblyFlags.PublicKey) != 0)
+        {
+            byte[] hash = System.Security.Cryptography.SHA1.HashData(blob);
+            token = new byte[8];
+            for (int i = 0; i < 8; i++)
+                token[i] = hash[hash.Length - 1 - i];
+        }
+        else
+        {
+            token = blob;
+        }
+
+        return token.AsSpan().SequenceEqual(expectedToken);
     }
 
     private static bool IsOperatorMethodName(string methodName) =>
