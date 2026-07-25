@@ -70,6 +70,46 @@ public class UnspeakableNameFidelityTests
     }
 
     [Fact]
+    public void ResidualLambdaMethodName_RendersSanitizedNotRaw()
+    {
+        // The delegate target is an un-raised lambda body method group. The body
+        // must degrade honestly (Partial) AND render a parseable fallback spelling
+        // rather than leaking the raw <M>b__0_0 into the method group (#3129).
+        var holder = TypeRef.Definition("Synthetic", "Samples", "ClosureHolder");
+        var lambda = new MethodRef(holder, "<M>b__0_0", Void, [], HasThis: false);
+        var body = Container(
+            new ExpressionStatement(new DelegateCreation(Action, lambda, isVirtual: false, new Constant(null, Object))),
+            new Return(null));
+
+        var function = Function([], body);
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.DoesNotContain("<M>b__0_0", output);
+        Assert.DoesNotContain('<', output);
+        Assert.Contains("__M_b__0_0", output);
+    }
+
+    [Fact]
+    public void RaisedObjectInitializerUnspellableMember_RendersSanitizedNotRaw()
+    {
+        // A residual state-machine hoisted-parameter field (<>3__first) used as an
+        // object-initializer member must render a parseable fallback spelling, not
+        // leak the raw <>3__first (which parses as CS1001) (#3129).
+        var initializer = new ObjectInitializerExpression(
+            NewTarget(),
+            isCollection: false,
+            [new InitializerEntry("<>3__first", [new Constant(1, Int32)])]);
+        var function = Function(Target, [], [], Container(new Return(initializer)));
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        Assert.DoesNotContain("<>3__first", output);
+        Assert.DoesNotContain('<', output);
+        Assert.Contains("___3__first = 1", output);
+    }
+
+    [Fact]
     public void AutoPropertyBackingField_StaysFull()
     {
         var declaringType = TypeRef.Definition("Synthetic", "Samples", "C");
