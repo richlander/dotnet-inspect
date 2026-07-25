@@ -141,4 +141,33 @@ public class ExtractMethodBodyTests
         Assert.Contains("public static C operator", body, System.StringComparison.Ordinal);
         Assert.Contains("~(C value)", body, System.StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData("Finalize")]
+    [InlineData("finalize")]
+    [InlineData("FINALIZE")]
+    [InlineData("Fina*")]
+    public void Destructor_StopsAtTildeSignature_RegardlessOfSelectorSpelling(string methodName)
+    {
+        // Regression guard (adversarial review): member selection is case-
+        // insensitive and can be a wildcard, so the destructor's body may be
+        // extracted with a methodName that is not exactly "Finalize". The "~"
+        // stop is shape-based (not name-based), so the destructor line still
+        // terminates the scan and the preceding member is never leaked.
+        var source = Lines(
+            "class C",                              // 1
+            "{",                                    // 2
+            "    internal static bool s_flag;",     // 3  <- must NOT be captured
+            "",                                     // 4
+            "    ~C()",                             // 5
+            "    {",                                // 6  <- StartLine
+            "        s_flag = true;",               // 7  <- EndLine
+            "    }",                                // 8
+            "}");                                   // 9
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: methodName);
+
+        Assert.Equal("~C()\n{\n    s_flag = true;\n}", body);
+        Assert.DoesNotContain("s_flag;", body, System.StringComparison.Ordinal);
+    }
 }

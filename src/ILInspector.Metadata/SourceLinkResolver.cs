@@ -112,7 +112,7 @@ public class SourceLinkResolver
             if (trimmed.StartsWith("public") || trimmed.StartsWith("private")
                 || trimmed.StartsWith("protected") || trimmed.StartsWith("internal")
                 || trimmed.StartsWith("static")
-                || (methodName == "Finalize" && trimmed.StartsWith("~"))
+                || IsDestructorSignatureStart(trimmed)
                 || trimmed.Contains(methodName))
                 break;
         }
@@ -150,6 +150,22 @@ public class SourceLinkResolver
         var dedented = methodLines.Select(l => l.Length >= minIndent ? l[minIndent..] : l);
         return string.Join('\n', dedented).TrimEnd();
     }
+
+    /// <summary>
+    /// True when a signature-area line is a C# destructor declaration start
+    /// ("~Type(...)"). The backward signature scan must stop here — a destructor's
+    /// source line carries no accessibility keyword and its metadata name
+    /// ("Finalize") does not appear in the text, so without this it would walk
+    /// into the preceding member and leak unrelated declarations. Detection is by
+    /// shape (a '~' immediately followed by an identifier start), not by the
+    /// caller-supplied method name, so it holds regardless of how the finalizer
+    /// was selected (case-insensitive or wildcard selectors). A user-defined unary
+    /// complement operator whose split signature line is "~(value)" is excluded
+    /// because '~' is followed by '(' rather than an identifier.
+    /// </summary>
+    private static bool IsDestructorSignatureStart(string trimmed)
+        => trimmed.Length > 1 && trimmed[0] == '~'
+            && (char.IsLetter(trimmed[1]) || trimmed[1] == '_' || trimmed[1] == '@');
 
     private SourceLinkResolver(SLF.SourceLinkResolver slfResolver)
     {
