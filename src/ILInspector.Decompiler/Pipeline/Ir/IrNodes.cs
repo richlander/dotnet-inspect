@@ -41,6 +41,17 @@ public sealed record MethodRef(
     public ImmutableArray<TypeRef> TypeArguments { get; init; } = [];
 
     /// <summary>
+    /// The generic method DEFINITION's parameter types, with its own type
+    /// parameters left as <c>!!N</c> placeholders (before the MethodSpec
+    /// substitution that produces <see cref="ParameterTypes"/>). Populated only
+    /// for a generic method instantiation; empty otherwise. Lets a consumer
+    /// identify the source member independent of the instantiation — two calls to
+    /// <c>G&lt;int&gt;</c> and <c>G&lt;string&gt;</c> of one <c>G&lt;T&gt;(T)</c>
+    /// share this signature though their <see cref="ParameterTypes"/> differ.
+    /// </summary>
+    public ImmutableArray<TypeRef> DefinitionParameterTypes { get; init; } = [];
+
+    /// <summary>
     /// Per-parameter call-site ref-kind (ref/out/in), aligned 1:1 with
     /// <see cref="ParameterTypes"/>. Populated for callees resolved as a
     /// MethodDef, from the parameter rows (IsReadOnlyAttribute / the Out flag),

@@ -2184,6 +2184,7 @@ public static class IrImporter
                 return generic with
                 {
                     TypeArguments = methodArguments,
+                    DefinitionParameterTypes = generic.ParameterTypes,
                     ReturnType = generic.ReturnType.Instantiate([], methodArguments),
                     ParameterTypes = [.. generic.ParameterTypes.Select(p => p.Instantiate([], methodArguments))],
                 };

@@ -1619,11 +1619,10 @@ public static class ApiOutputFormatter
         =>
         [
             // Projects the configurable choices the decompiler RECORDED as
-            // decisions -- currently the byte-divergent style lenses and the
-            // opt-in chain-wrap. Some byte-preserving knobs (this.-qualification)
-            // do not yet record a decision, so they will not appear here until
-            // issue #3156 lands; the empty-state wording is scoped to "recorded"
-            // choices to avoid over-claiming completeness.
+            // decisions -- the byte-divergent style lenses, the opt-in chain-wrap,
+            // and the byte-preserving this.-qualification knobs (#3156). Only
+            // knob-attributed qualification is recorded; a mandatory shadow
+            // disambiguation this. never appears here.
             .. decisions
                 // The framework-import rewrite (List<T> for the mangled metadata
                 // name) is always-on and universally expected, not a configurable
