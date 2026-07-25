@@ -59,6 +59,14 @@ internal static class RenderStyleConfig
     // is the conventional way to declare that boundary explicitly.
     private const string RootKey = "root";
 
+    // The tool-owned aggregate key. It maps to no single catalog descriptor;
+    // instead it enables (or, when false, disables) the whole oracle-endorsed
+    // subset at once via StyleOptionCatalog.ApplyFullTaste. It uses the
+    // tool-owned dotnet_inspect_style_* vocabulary because it is a convenience
+    // aggregate with no editorconfig equivalent. Applied in file order like every
+    // other key, so a later explicit per-knob line overrides it (last write wins).
+    private const string FullTasteKey = "dotnet_inspect_style_full_taste";
+
     /// <summary>
     /// Walks up from <paramref name="startDirectory"/> to the filesystem root and
     /// returns the path of the nearest <see cref="FileName"/>, or null if none is
@@ -169,6 +177,15 @@ internal static class RenderStyleConfig
                     // knob but is recognized (not an "unknown key") and its value is
                     // still validated so a typo surfaces.
                     if (!TryParseBool(value, out _))
+                        Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
+                    break;
+                case FullTasteKey:
+                    // The "full taste" aggregate: enable (or disable) the whole
+                    // oracle-endorsed subset at once. Deterministic — the enabled
+                    // subset shares no conflict group.
+                    if (TryParseBool(value, out var fullTaste))
+                        options = StyleOptionCatalog.ApplyFullTaste(options, fullTaste);
+                    else
                         Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
                     break;
                 default:

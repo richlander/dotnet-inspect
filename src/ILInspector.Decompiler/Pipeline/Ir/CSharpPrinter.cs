@@ -369,7 +369,7 @@ public sealed partial class CSharpPrinter
         {
             ReadableLocalNames = _options.ReadableLocalNames,
             PreferFrameworkTypeImports = true,
-            ExpressionBodyArrowPlacement = _options.ExpressionBodyArrowPlacement,
+            WrapExpressionBodyArrow = _options.WrapExpressionBodyArrow,
             WrapSplittableExpressions = _options.WrapSplittableExpressions,
             QualifyFieldAccess = _options.QualifyFieldAccess,
             QualifyPropertyAccess = _options.QualifyPropertyAccess,
@@ -377,9 +377,9 @@ public sealed partial class CSharpPrinter
             QualifyEventAccess = _options.QualifyEventAccess,
         };
 
-    void AddDecision(string ruleId, string category, string subject, string detail, string? oldValue = null, string? newValue = null)
+    void AddDecision(string ruleId, string category, string subject, string detail, string? oldValue = null, string? newValue = null, string? dedupDiscriminator = null)
     {
-        string key = $"{ruleId}\0{category}\0{subject}\0{detail}\0{oldValue}\0{newValue}";
+        string key = $"{ruleId}\0{category}\0{subject}\0{detail}\0{oldValue}\0{newValue}\0{dedupDiscriminator}";
         if (_decisionKeys.Add(key))
         {
             _decisions.Add(new DecompilerDecision(ruleId, category, subject, detail)

@@ -1443,14 +1443,14 @@ public static class ApiOutputFormatter
 
             hasCode |= PopulateCSharpSections(memberCode, type, member, code);
 
-            // The resolved config is consumed only when styled C# is actually
-            // printed. Collect returns a decompiled result only for a selected
-            // overload (never callers-only aggregation or a fidelity-only
-            // projection), and even then its Output is null when the method has no
-            // IL body (e.g. a P/Invoke) -- the printer never ran, so no styling
-            // occurred. Key the warning latch off a produced Output so a member
-            // run that requests but does not render styled source stays silent.
-            if (code.DecompiledResult?.Output is not null)
+            // The resolved config is consumed whenever a styled projection prints a
+            // body -- Decompiled Source or Applied Taste (both render with the
+            // config), but never a callers-only aggregation, a fidelity-only
+            // projection (style-invariant), or a bodyless method whose printer never
+            // ran. Key the warning latch off that produced styled projection so an
+            // Applied-Taste-only run still surfaces a bad .dotnet-inspectconfig,
+            // while a run that consumes no config stays silent.
+            if (code.StyledProjectionProduced)
                 options?.RenderConfigWarnings?.EmitOnce();
 
             if (code.FidelityCauses is not null)
@@ -1619,11 +1619,10 @@ public static class ApiOutputFormatter
         =>
         [
             // Projects the configurable choices the decompiler RECORDED as
-            // decisions -- currently the byte-divergent style lenses and the
-            // opt-in chain-wrap. Some byte-preserving knobs (this.-qualification)
-            // do not yet record a decision, so they will not appear here until
-            // issue #3156 lands; the empty-state wording is scoped to "recorded"
-            // choices to avoid over-claiming completeness.
+            // decisions -- the byte-divergent style lenses, the opt-in chain-wrap,
+            // and the byte-preserving this.-qualification knobs (#3156). Only
+            // knob-attributed qualification is recorded; a mandatory shadow
+            // disambiguation this. never appears here.
             .. decisions
                 // The framework-import rewrite (List<T> for the mangled metadata
                 // name) is always-on and universally expected, not a configurable

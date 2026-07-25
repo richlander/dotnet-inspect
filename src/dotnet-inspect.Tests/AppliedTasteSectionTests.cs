@@ -37,6 +37,29 @@ public class AppliedTasteSectionTests
     }
 
     [Fact]
+    public void BuildRows_ThisQualificationDecision_IsBytePreserving()
+    {
+        // The opt-in this.-qualification knobs (#3156) record byte-preserving
+        // taste decisions keyed by their StyleOptionCatalog id; they surface as
+        // ordinary byte-preserving rows, not filtered like the framework import.
+        var decision = new DecompilerDecision(
+            "qualify-field-access",
+            DecompilerDecisionCategories.Taste,
+            "ReadField",
+            "Qualified instance member 'ReadField' with 'this.'.")
+        {
+            OldValue = "_value",
+            NewValue = "this._value",
+        };
+
+        var row = Assert.Single(ApiOutputFormatter.BuildAppliedTasteRows([decision]));
+
+        Assert.Equal("qualify-field-access", row.Rule);
+        Assert.Equal("byte-preserving", row.Fidelity);
+        Assert.Equal("ReadField", row.Subject);
+    }
+
+    [Fact]
     public void BuildRows_ExcludesAlwaysOnFrameworkImport()
     {
         // The framework-import rewrite is always-on and universally expected, not

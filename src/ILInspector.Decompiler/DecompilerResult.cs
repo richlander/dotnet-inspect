@@ -60,7 +60,7 @@ public sealed record DecompilerOptions
     /// Expression-bodied members keep the arrow on the declaration line by
     /// default; callers may opt into wrapping it onto the next line.
     /// </summary>
-    public ExpressionBodyArrowPlacement ExpressionBodyArrowPlacement { get; init; } = ExpressionBodyArrowPlacement.SameLine;
+    public bool WrapExpressionBodyArrow { get; init; }
 
     /// <summary>
     /// Long splittable expressions (short-circuit <c>&amp;&amp;</c>/<c>||</c>

@@ -5,6 +5,166 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <summary>Rendering helpers for member access, calls, and call arguments.</summary>
 public sealed partial class CSharpPrinter
 {
+    // The library-owned catalog descriptors for the four this.-qualification
+    // knobs. Sourcing identity and config key from StyleOptionCatalog (#3160)
+    // keeps the recorded decision's RuleId and prose in lockstep with the single
+    // source of truth: a knob rename fails here at type init rather than drifting.
+    static readonly StyleOptionDescriptor QualifyFieldOption = QualificationKnob("qualify-field-access");
+    static readonly StyleOptionDescriptor QualifyPropertyOption = QualificationKnob("qualify-property-access");
+    static readonly StyleOptionDescriptor QualifyMethodOption = QualificationKnob("qualify-method-access");
+    static readonly StyleOptionDescriptor QualifyEventOption = QualificationKnob("qualify-event-access");
+
+    static StyleOptionDescriptor QualificationKnob(string id)
+        => StyleOptionCatalog.Options.Single(o => o.Id == id);
+
+    // A this.-qualification KNOB (not mandatory shadow disambiguation) added the
+    // this. qualifier, so record a byte-preserving taste decision the Applied
+    // Taste surface can report. Only the knob-attributed path calls this (the knob
+    // is enabled AND the bare name already binds); a mandatory disambiguation
+    // this. — one that would appear with the knob off too — is never recorded as a
+    // taste choice. AddDecision dedups on the full row (plus dedupDiscriminator, so
+    // two same-named overloads stay distinct), so repeated accesses to one member
+    // collapse to a single decision.
+    void RecordThisQualificationDecision(StyleOptionDescriptor knob, string memberName, string bareName, string? dedupDiscriminator = null)
+    {
+        // A this. qualifier is only a byte-preserving taste choice when there is a
+        // genuine instance receiver. A static or extension method whose first
+        // parameter is spelled `this` (its IL parameter name is "this") reaches
+        // these sites as a LoadArgument{Index:0, Name:"this"}, but that is an
+        // explicit parameter, not an implicit receiver: qualifying it with this.
+        // would be a compile error, never an opt-in spelling, so record nothing.
+        if (!_function.Signature.HasThis)
+            return;
+        AddDecision(
+            knob.Id,
+            DecompilerDecisionCategories.Taste,
+            memberName,
+            $"Qualified instance member '{memberName}' with 'this.' ({knob.ConfigKey}). "
+                + "Byte-preserving: the bare name already binds to the member, so the "
+                + "qualifier is an opt-in spelling choice, not disambiguation.",
+            oldValue: bareName,
+            newValue: $"this.{bareName}",
+            dedupDiscriminator: dedupDiscriminator);
+    }
+
+    // A method this. qualifier is a recordable byte-preserving taste choice only
+    // when it is a genuine, user-authored opt-in — the method analogue of the
+    // QualifyThisMember guard the field/property/event sites already apply:
+    //  * the bare name must still bind to the method. IsStaticCallNameShadowed is
+    //    the scope-aware shadow check (it counts the enclosing method's locals and
+    //    parameters plus every nested lambda / local-function binder in scope), so
+    //    when a same-named binder would capture the bare call the this. is
+    //    mandatory disambiguation, not a choice, and records nothing;
+    //  * the target must be a speakable source method. A compiler-generated lambda
+    //    or local-function group target (an unspeakable <M>b__0-style name) is
+    //    never user-authored, so its this. is never a taste choice.
+    // The genuine-instance-receiver requirement is enforced by
+    // RecordThisQualificationDecision. Overloads share a name, so the callee
+    // parameter types disambiguate the dedup key.
+    //  * displayName is the escaped C# spelling (post CSharpNaming.SourceMethodName)
+    //    used for the shadow check and the recorded row;
+    //  * rawName is the unsanitized IL metadata name, checked for unspeakability
+    //    BEFORE SourceMethodName strips its <...> decoration (otherwise a lifted
+    //    local function arrives already spelled as a plain identifier and slips
+    //    past the check);
+    //  * declaringType gates same-type membership: only a call whose callee is
+    //    declared on the enclosing type is a `this.` opt-in (see below).
+    void RecordMethodQualificationIfTaste(
+        string displayName,
+        string rawName,
+        TypeRef declaringType,
+        int genericArity,
+        ImmutableArray<TypeRef> parameterTypes,
+        ImmutableArray<TypeRef> definitionParameterTypes = default)
+    {
+        // Only a call to the enclosing type AT ITS OWN INSTANTIATION is a
+        // byte-preserving `this.` taste choice. A callee reached here that is not
+        // the exact self-type is one of:
+        //  * an inherited base method (the non-virtual case already rendered
+        //    base.M above; the virtual case would rebind under this./bare);
+        //  * an explicit interface implementation invoked through this — which
+        //    does not bind via `this.` at all (it requires a cast) and is only
+        //    mis-rendered as this.M by a pre-existing emit gap;
+        //  * a DIFFERENT instantiation of the enclosing generic type, e.g.
+        //    ((I<object>)this).M() from within I<T> — bare/`this.` M() binds to
+        //    I<T>::M, not I<object>::M, so the qualifier is not byte-preserving.
+        // Definition-only equality (IsCrossType) is too loose for the last case,
+        // so gate on the exact-instantiation test. This deliberately under-records
+        // a legitimate this.BaseMethod(); a false-negative is safe, a
+        // false-positive is not.
+        if (!IsEnclosingTypeAtOwnInstantiation(declaringType))
+            return;
+        if (IsStaticCallNameShadowed(displayName) || IsUnspeakableName(rawName))
+            return;
+        // A generic method call's ParameterTypes are already substituted against
+        // its MethodSpec (T -> int), so this.G<int>(x) and this.G<string>(x) of one
+        // G<T>(T) would key apart and record TWO rows for a single source member.
+        // Key on the DEFINITION signature (T left as !!0) so all instantiations of
+        // one method collapse into one row, while distinct non-generic overloads
+        // M(List<int>)/M(List<string>) still key apart on their concrete types.
+        var keyParameterTypes = genericArity > 0 && !definitionParameterTypes.IsDefaultOrEmpty
+            ? definitionParameterTypes
+            : parameterTypes;
+        RecordThisQualificationDecision(
+            QualifyMethodOption, displayName, displayName, MethodOverloadDiscriminator(genericArity, keyParameterTypes));
+    }
+
+    // Compiler-generated members (captured-this lambdas, local-function group
+    // targets) carry unspeakable names bracketed with angle brackets, which a
+    // source identifier can never contain. Feed this the RAW metadata name: a
+    // lifted local function's <Outer>g__Local|0_0 keeps its brackets there, but
+    // CSharpNaming.SourceMethodName has already stripped them from the display
+    // name.
+    static bool IsUnspeakableName(string name)
+        => name.IndexOf('<') >= 0 || name.IndexOf('>') >= 0;
+
+    // A stable, structurally-complete per-overload key. Overloads share a display
+    // name, so the decision subject alone would dedup two distinct methods into
+    // one row. The key must distinguish every element the runtime treats as part
+    // of an overload's signature — generic ARITY (M() vs M<T>() are distinct
+    // overloads with identical empty parameter lists), generic instantiation
+    // (List<int> vs List<string>), array element type and rank, by-ref/pointer
+    // decoration, and generic-parameter slot — and must keep the full namespace +
+    // assembly (ToDisplayString strips the namespace, so it would collapse
+    // NsA.Widget and NsB.Widget). Under-distinguishing would merge distinct
+    // overloads and HIDE a real taste application, so this errs toward more
+    // distinctions, never fewer. For a generic method the caller passes the
+    // DEFINITION parameter types (T as !!0), so the two instantiations
+    // this.M<int>() and this.M<string>() key identically and stay one row (one
+    // source member) even when a parameter mentions T.
+    static string MethodOverloadDiscriminator(int genericArity, ImmutableArray<TypeRef> parameterTypes)
+        => $"`{genericArity}`:"
+            + (parameterTypes.IsDefaultOrEmpty ? "" : string.Join(",", parameterTypes.Select(TypeKey)));
+
+    static string TypeKey(TypeRef type) => type.Kind switch
+    {
+        TypeRefKind.GenericInstance =>
+            $"{TypeKey(type.ElementType!)}<{string.Join(",", type.TypeArguments.Select(TypeKey))}>",
+        TypeRefKind.SzArray => $"{TypeKey(type.ElementType!)}[]",
+        TypeRefKind.Array => $"{TypeKey(type.ElementType!)}[{type.Rank}]",
+        TypeRefKind.ByRef => $"ref {TypeKey(type.ElementType!)}",
+        TypeRefKind.Pointer => $"{TypeKey(type.ElementType!)}*",
+        TypeRefKind.Pinned => $"pinned {TypeKey(type.ElementType!)}",
+        TypeRefKind.GenericParameter => $"!{type.GenericParameterIndex}",
+        TypeRefKind.MethodGenericParameter => $"!!{type.GenericParameterIndex}",
+        TypeRefKind.FunctionPointer => FunctionPointerKey(type),
+        _ => $"{type.Assembly}:{type.Namespace}.{type.Name}",
+    };
+
+    // A function-pointer type's identity includes its calling convention, return
+    // type, and each parameter's ref-kind and type — all part of overload identity.
+    // Keying on parameter types alone would collapse delegate*<int, void> vs
+    // delegate*<int, int>, or a managed vs unmanaged pointer, into one row.
+    static string FunctionPointerKey(TypeRef type)
+    {
+        var refKinds = type.FunctionPointerParameterRefKinds;
+        string parameters = string.Join(
+            ",",
+            type.TypeArguments.Select((p, i) =>
+                $"{(i < refKinds.Length ? refKinds[i].ToString() : "None")} {TypeKey(p)}"));
+        return $"fnptr[{type.CallingConvention}]({parameters})->{TypeKey(type.ElementType!)}";
+    }
+
     string FieldTarget(FieldRef field, IrExpression? instance)
     {
         if (PointerMemberReceiver(instance) is { } pointerReceiver)
@@ -48,9 +208,30 @@ public sealed partial class CSharpPrinter
             // bare name binds to it, not the field (e.g. int Foo(int _x) =>
             // this._x + _x). Qualify with this. to reach the field; an
             // unshadowed instance field stays bare per the taste convention.
-            LoadArgument { Index: 0, Name: "this" } => _options.QualifyFieldAccess || QualifyThisMember(field.Name, field.Type) ? $"this.{fieldName}" : fieldName,
+            LoadArgument { Index: 0, Name: "this" } => FieldThisTarget(field, fieldName),
             _ => $"{ReceiverText(instance)}.{fieldName}",
         };
+    }
+
+    // The this-receiver plain-field branch of FieldTarget. Emits this. when the
+    // qualify-field knob is set OR a local shadows the field (mandatory), matching
+    // the prior inline predicate exactly, and records a decision only on the
+    // knob-attributed path (knob set AND no shadow forcing it).
+    string FieldThisTarget(FieldRef field, string fieldName)
+    {
+        bool mandatory = QualifyThisMember(field.Name, field.Type);
+        if (!_options.QualifyFieldAccess && !mandatory)
+            return fieldName;
+        // Record only a byte-preserving opt-in: the field must be declared on the
+        // enclosing type at its own instantiation. A base-declared field that is
+        // hidden by a `new` field of the same name reaches here spelled this.X (a
+        // pre-existing emit gap — the load targets base.X), but this.X binds to the
+        // DERIVED field, so recording it as byte-preserving would be a false
+        // positive. Gating on the exact-instantiation test also under-records a
+        // legitimate this. on a merely-inherited field; a false-negative is safe.
+        if (_options.QualifyFieldAccess && !mandatory && IsEnclosingTypeAtOwnInstantiation(field.DeclaringType))
+            RecordThisQualificationDecision(QualifyFieldOption, field.Name, fieldName);
+        return $"this.{fieldName}";
     }
 
     string? PointerMemberReceiver(IrExpression? instance)
@@ -88,6 +269,7 @@ public sealed partial class CSharpPrinter
             return $"{pointerReceiver}->{CSharpNaming.EscapeIdentifier(name)}";
         }
 
+        bool thisQualifiedByKnob = false;
         string receiver = instance switch
         {
             // A NON-virtual this-receiver access to a base-declared member is
@@ -101,16 +283,40 @@ public sealed partial class CSharpPrinter
             // bare per the taste convention, matching FieldTarget. An event
             // subscription routes through here too, so it honors the separate
             // event qualification knob rather than the property one.
-            LoadArgument { Index: 0, Name: "this" } => (isEvent ? _options.QualifyEventAccess : _options.QualifyPropertyAccess) || QualifyThisMember(name, AccessorValueType(accessor)) ? "this" : "",
+            LoadArgument { Index: 0, Name: "this" } => ThisPropertyReceiver(name, accessor, isEvent, out thisQualifiedByKnob),
             _ => ReceiverText(instance),
         };
         // An instance property accessor with index arguments IS an indexer,
-        // whatever its metadata name (String's is Chars, not Item).
+        // whatever its metadata name (String's is Chars, not Item). An indexer
+        // always renders this[...] (never this.Item), so the qualify knob makes no
+        // textual difference there; this early return precedes the knob-attributed
+        // decision so an indexer never records one.
         if (instance is not null && indexArguments.Count > 0)
             return $"{(receiver.Length == 0 ? "this" : receiver)}[{Arguments(indexArguments)}]";
         string escapedName = CSharpNaming.EscapeIdentifier(name);
+        // Same byte-preserving gate as the field and method sites: a property or
+        // event declared on a base type (hidden or inherited) reached through this.
+        // is not a self-type opt-in, so it must not record. A virtual inherited
+        // accessor binds identically under this./bare and would be safe, but the
+        // exact-instantiation test uniformly under-records the cross-type cases; a
+        // false-negative is safe, a false-positive is not.
+        if (thisQualifiedByKnob && IsEnclosingTypeAtOwnInstantiation(accessor.DeclaringType))
+            RecordThisQualificationDecision(isEvent ? QualifyEventOption : QualifyPropertyOption, name, escapedName);
         string dotted = receiver.Length == 0 ? escapedName : $"{receiver}.{escapedName}";
         return indexArguments.Count == 0 ? dotted : $"{dotted}[{Arguments(indexArguments)}]";
+    }
+
+    // The this-receiver property/event branch of PropertyTarget: returns the
+    // receiver text ("this" when qualified, "" when bare) and reports through
+    // <paramref name="qualifiedByKnob"/> whether the qualify KNOB (not mandatory
+    // shadow disambiguation) selected the qualifier — the only case that is an
+    // opt-in taste choice worth recording.
+    string ThisPropertyReceiver(string name, MethodRef accessor, bool isEvent, out bool qualifiedByKnob)
+    {
+        bool knob = isEvent ? _options.QualifyEventAccess : _options.QualifyPropertyAccess;
+        bool mandatory = QualifyThisMember(name, AccessorValueType(accessor));
+        qualifiedByKnob = knob && !mandatory;
+        return knob || mandatory ? "this" : "";
     }
 
     bool QualifyThisMember(string memberName, TypeRef? valueType)
@@ -160,15 +366,20 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
-    /// True when a static-call target is the current type at its own
-    /// instantiation: the same non-generic type, or the enclosing generic type
-    /// instantiated with its own generic parameters in order
-    /// (<c>C&lt;T0, T1, …&gt;</c>). A different instantiation (<c>C&lt;string&gt;</c>)
-    /// or a method-type-parameter instantiation (<c>C&lt;!!0&gt;</c>) is a distinct
-    /// type whose static member must stay qualified — an unqualified call would
-    /// rebind to the enclosing instantiation and change which method runs.
+    /// True when a call target is the enclosing type at its OWN instantiation: the
+    /// same non-generic type, or the enclosing generic type instantiated with its
+    /// own generic parameters in order (<c>C&lt;T0, T1, …&gt;</c>). A different
+    /// instantiation (<c>C&lt;string&gt;</c>) or a method-type-parameter
+    /// instantiation (<c>C&lt;!!0&gt;</c>) is a DISTINCT type sharing only the
+    /// definition. Two spelling paths depend on the exact-instantiation test: a
+    /// static call must stay type-qualified (an unqualified call would rebind to
+    /// the enclosing instantiation and change which method runs), and a
+    /// this-qualification taste decision must not be recorded (bare/`this.` would
+    /// rebind to the enclosing instantiation, so the qualifier is not
+    /// byte-preserving). Definition equality alone (see <see cref="IsCrossType"/>)
+    /// is too loose for both.
     /// </summary>
-    bool IsCurrentStaticScope(TypeRef calleeDeclaringType)
+    bool IsEnclosingTypeAtOwnInstantiation(TypeRef calleeDeclaringType)
     {
         var scope = _function.DeclaringType;
         var scopeDefinition = scope is { Kind: TypeRefKind.GenericInstance, ElementType: { } sd } ? sd : scope;
@@ -249,7 +460,21 @@ public sealed partial class CSharpPrinter
             // stay this.Ext (or bare) like any other extension group.
             if (method.HasThis && !isVirtual && IsCrossType(method.DeclaringType))
                 return $"base.{name}";
-            return _options.QualifyMethodAccess ? $"this.{name}" : name;
+            if (_options.QualifyMethodAccess)
+            {
+                // A generic method GROUP (this.Make<int>) is deliberately not
+                // recorded: MethodGroupText renders only the bare name, dropping
+                // the type arguments (a pre-existing emit gap; AddressOfMethodText
+                // and CallText append them, this path does not). The emitted
+                // this.Make does not round-trip — delegate return-type inference
+                // cannot recover the type argument (CS0411) — so recording it as a
+                // byte-preserving opt-in would be a false positive. Suppressing is
+                // a safe under-record; fixing the emit is out of scope here.
+                if (method.TypeArguments.IsDefaultOrEmpty)
+                    RecordMethodQualificationIfTaste(name, method.Name, method.DeclaringType, 0, method.ParameterTypes);
+                return $"this.{name}";
+            }
+            return name;
         }
         if (PointerMethodReceiver(target) is { } pointerReceiver)
             return $"{pointerReceiver}->{name}";
@@ -333,7 +558,7 @@ public sealed partial class CSharpPrinter
             string sourceName = CSharpNaming.SourceMethodName(call.Callee.Name);
             string staticName = $"{sourceName}{typeArguments}";
             string staticArgs = Arguments(arguments, call.Callee.ParameterTypes, call.Callee.ParameterRefKinds);
-            return IsCurrentStaticScope(call.Callee.DeclaringType) && !IsStaticCallNameShadowed(sourceName)
+            return IsEnclosingTypeAtOwnInstantiation(call.Callee.DeclaringType) && !IsStaticCallNameShadowed(sourceName)
                 ? $"{staticName}({staticArgs})"
                 : $"{TypeQualifierText(call.Callee.DeclaringType)}.{staticName}({staticArgs})";
         }
@@ -360,8 +585,13 @@ public sealed partial class CSharpPrinter
             // re-enable virtual dispatch and change behavior).
             if (!call.IsVirtual && IsCrossType(call.Callee.DeclaringType))
                 return $"base.{thisMethodName}{typeArguments}({rest})";
-            string thisMethodQualifier = _options.QualifyMethodAccess ? "this." : "";
-            return $"{thisMethodQualifier}{thisMethodName}{typeArguments}({rest})";
+            if (_options.QualifyMethodAccess)
+            {
+                RecordMethodQualificationIfTaste(
+                    thisMethodName, call.Callee.Name, call.Callee.DeclaringType, call.Callee.TypeArguments.Length, call.Callee.ParameterTypes, call.Callee.DefinitionParameterTypes);
+                return $"this.{thisMethodName}{typeArguments}({rest})";
+            }
+            return $"{thisMethodName}{typeArguments}({rest})";
         }
         if (PointerMethodReceiver(receiver) is { } pointerReceiver)
             return $"{pointerReceiver}->{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
