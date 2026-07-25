@@ -6,6 +6,7 @@ let queryTypeSource;
 let queryMemberCallGraph;
 let queryMemberDocumentation;
 let queryMemberFacts;
+let searchTypes;
 
 export async function initializeEngine(onStatus = () => {}) {
   onStatus("Loading .NET 11 WebAssembly…");
@@ -18,6 +19,7 @@ export async function initializeEngine(onStatus = () => {}) {
   queryMemberCallGraph = exports.BrowserInspectionEngine.QueryMemberCallGraph;
   queryMemberDocumentation = exports.BrowserInspectionEngine.QueryMemberDocumentation;
   queryMemberFacts = exports.BrowserInspectionEngine.QueryMemberFacts;
+  searchTypes = exports.BrowserInspectionEngine.SearchTypes;
   await runtime.runMain();
   onStatus("Querying package compile assets…");
 }
@@ -88,4 +90,13 @@ export async function inspectMemberFacts(request) {
     request.member,
     request.signature);
   return JSON.parse(json);
+}
+
+export function isEngineReady() {
+  return Boolean(searchTypes);
+}
+
+export function inspectSearchTypes(query, candidatesJson) {
+  if (!searchTypes) return null;
+  return JSON.parse(searchTypes(query ?? "", candidatesJson));
 }

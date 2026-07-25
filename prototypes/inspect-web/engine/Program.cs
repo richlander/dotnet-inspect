@@ -102,6 +102,15 @@ public sealed record BrowserWorkspacePackage(
     string Version,
     string Framework);
 
+public sealed record BrowserTypeCandidate(
+    string Key,
+    string Name,
+    string Full);
+
+public sealed record BrowserTypeSearchHit(
+    string Key,
+    string Kind);
+
 public sealed record BrowserMemberFacts(
     BrowserMethodSignals Signals,
     BrowserAllocationFact[] Allocations,
@@ -174,6 +183,8 @@ public sealed record BrowserPerformanceOpportunity(
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
 [JsonSerializable(typeof(BrowserMemberFacts))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
+[JsonSerializable(typeof(BrowserTypeCandidate[]))]
+[JsonSerializable(typeof(BrowserTypeSearchHit[]))]
 internal sealed partial class BrowserJsonContext : JsonSerializerContext;
 
 [SupportedOSPlatform("browser")]
@@ -287,6 +298,81 @@ public static partial class BrowserInspectionEngine
             identifiedTypes.Sum(type => type.Members));
 
         return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageSurface);
+    }
+
+    /// <summary>
+    /// Ranks loaded type candidates against an incremental query, mirroring the CLI
+    /// <c>TypeSearchService</c> find pipeline: exact/namespace-suffix (<see cref="TypeMatcher.Matches"/>),
+    /// then prefix and substring globs (<see cref="TypeMatcher.MatchesTypeFilter"/>), then a
+    /// Levenshtein "did you mean" fallback (<see cref="TypeMatcher.FindClosest"/>). Highlight spans are
+    /// intentionally left to the caller; this method owns ranking only.
+    /// </summary>
+    [JSExport]
+    public static string SearchTypes(string query, string candidatesJson)
+    {
+        var candidates = JsonSerializer.Deserialize(
+                candidatesJson,
+                BrowserJsonContext.Default.BrowserTypeCandidateArray)
+            ?? [];
+        query = query?.Trim() ?? string.Empty;
+
+        if (query.Length == 0)
+        {
+            var alphabetical = candidates
+                .OrderBy(candidate => candidate.Name.Length)
+                .ThenBy(candidate => candidate.Name, StringComparer.OrdinalIgnoreCase)
+                .Take(30)
+                .Select(candidate => new BrowserTypeSearchHit(candidate.Key, "all"))
+                .ToArray();
+            return JsonSerializer.Serialize(alphabetical, BrowserJsonContext.Default.BrowserTypeSearchHitArray);
+        }
+
+        var hits = new List<BrowserTypeSearchHit>();
+        var used = new HashSet<string>(StringComparer.Ordinal);
+
+        void AddTier(string kind, Func<BrowserTypeCandidate, bool> predicate)
+        {
+            var matched = candidates
+                .Where(candidate => !used.Contains(candidate.Key) && predicate(candidate))
+                .OrderBy(candidate => candidate.Name.Length)
+                .ThenBy(candidate => candidate.Name, StringComparer.OrdinalIgnoreCase);
+            foreach (var candidate in matched)
+            {
+                if (used.Add(candidate.Key))
+                    hits.Add(new BrowserTypeSearchHit(candidate.Key, kind));
+            }
+        }
+
+        AddTier("exact", candidate => TypeMatcher.Matches(candidate.Full, query));
+        AddTier("prefix", candidate => TypeMatcher.MatchesTypeFilter(candidate.Name, query + "*"));
+        AddTier("substring", candidate => TypeMatcher.MatchesTypeFilter(candidate.Name, "*" + query + "*"));
+        AddTier("path", candidate => TypeMatcher.MatchesTypeFilter(candidate.Full, "*" + query + "*"));
+
+        var remaining = candidates.Where(candidate => !used.Contains(candidate.Key)).ToList();
+        if (remaining.Count > 0)
+        {
+            var namesToKeys = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            foreach (var candidate in remaining)
+            {
+                if (!namesToKeys.TryGetValue(candidate.Full, out var keys))
+                    namesToKeys[candidate.Full] = keys = new List<string>();
+                keys.Add(candidate.Key);
+            }
+
+            foreach (var (name, _) in TypeMatcher.FindClosest(namesToKeys.Keys, query, minSimilarity: 0.5, maxResults: 8))
+            {
+                if (!namesToKeys.TryGetValue(name, out var keys))
+                    continue;
+                foreach (var key in keys)
+                {
+                    if (used.Add(key))
+                        hits.Add(new BrowserTypeSearchHit(key, "fuzzy"));
+                }
+            }
+        }
+
+        var limited = hits.Take(40).ToArray();
+        return JsonSerializer.Serialize(limited, BrowserJsonContext.Default.BrowserTypeSearchHitArray);
     }
 
     static async Task<string> ResolvePackageVersionAsync(string normalizedId, string? requestedVersion)

@@ -1,5 +1,7 @@
 import { lenses, rootCommands } from "./data.js";
-import { initializeEngine, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectTypeSource } from "/engine.js";
+import { initializeEngine, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectSearchTypes, inspectTypeSource } from "/engine.js";
+
+let spotlightCache = null;
 
 const state = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
@@ -33,6 +35,9 @@ const state = {
   command: "",
   completionIndex: 0,
   promptOpen: false,
+  spotlightOpen: false,
+  spotlightQuery: "",
+  spotlightIndex: 0,
   typeCursor: 0,
   history: [],
   loading: true,
@@ -370,6 +375,7 @@ function render() {
           </div>
         </div>
       </section>
+      ${state.spotlightOpen ? renderSpotlight() : ""}
     </div>`;
 
   bindEvents();
@@ -820,6 +826,21 @@ function bindEvents() {
     }
   });
   document.querySelector("#type-list").addEventListener("keydown", handleTypeKeys);
+  const spotlightInput = document.querySelector("#spotlight-input");
+  if (spotlightInput) {
+    spotlightInput.addEventListener("input", event => {
+      state.spotlightQuery = event.target.value;
+      state.spotlightIndex = 0;
+      updateSpotlightResults();
+    });
+    spotlightInput.addEventListener("keydown", handleSpotlightKeys);
+  }
+  document.querySelectorAll("[data-sl-type]").forEach(button => button.addEventListener("click", () => {
+    pickSpotlight(button.dataset.slPkg, button.dataset.slType);
+  }));
+  document.querySelector("#spotlight-backdrop")?.addEventListener("mousedown", event => {
+    if (event.target.id === "spotlight-backdrop") closeSpotlight();
+  });
   document.querySelector("#clear-filter").addEventListener("click", () => {
     state.typeFilter = "";
     state.namespaceFilter = "";
@@ -857,7 +878,7 @@ function bindEvents() {
   document.querySelector("#nav-forward")?.addEventListener("click", navForward);
   document.querySelector("#demo-call-graph").addEventListener("click", runCallGraphDemo);
   document.querySelector("#theme-toggle").addEventListener("click", toggleTheme);
-  document.querySelector("#help").addEventListener("click", () => showToast("⌘K command · ⌘F filter · 1—6 lenses · ↑↓ types · Alt+←/→ back/forward · graph (focused): +/− zoom, 0 fit, arrows pan · ⌘/Ctrl+wheel zoom"));
+  document.querySelector("#help").addEventListener("click", () => showToast("⌘K command · ⌘P / type to find a type · ⌘F filter · 1—6 lenses · ↑↓ types · Alt+←/→ back/forward · graph (focused): +/− zoom, 0 fit, arrows pan · ⌘/Ctrl+wheel zoom"));
 }
 
 function toggleTheme() {
@@ -911,6 +932,252 @@ function stepTypeSelection(delta) {
   if (cursor < 0) cursor = Math.min(state.typeCursor, items.length - 1);
   cursor = Math.max(0, Math.min(items.length - 1, cursor + delta));
   selectTypeByCursor(cursor, items, false);
+}
+
+function spotlightPool() {
+  const pool = [];
+  const seen = new Set();
+  const pkgs = [state.package, ...state.packages.filter(item => item !== state.package)];
+  for (const pkg of pkgs) {
+    if (!pkg?.types) continue;
+    for (const type of pkg.types) {
+      const key = `${pkg.id}\u0000${type.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      pool.push({ pkg, type });
+    }
+  }
+  return pool;
+}
+
+function spotlightCandidates() {
+  const signature = `${state.package?.id ?? ""}#${state.packages
+    .map(pkg => `${pkg.id}:${pkg.types?.length ?? 0}`)
+    .join("|")}`;
+  if (spotlightCache && spotlightCache.signature === signature) return spotlightCache;
+
+  const pool = spotlightPool();
+  const keyMap = new Map();
+  const candidates = pool.map(item => {
+    const key = `${item.pkg.id}\u0000${item.type.id}`;
+    keyMap.set(key, item);
+    const full = `${item.type.namespace ? `${item.type.namespace}.` : ""}${item.type.name}`;
+    return { key, name: item.type.name, full };
+  });
+  spotlightCache = {
+    signature,
+    pool,
+    keyMap,
+    candidatesJson: JSON.stringify(candidates),
+  };
+  return spotlightCache;
+}
+
+// Highlight is presentation only; ranking is owned by the engine's SearchTypes.
+// Recompute visible spans against the simple type name (exact → prefix → substring → subsequence).
+function computeHighlightRanges(name, lowerQuery) {
+  if (!lowerQuery) return [];
+  const lower = name.toLowerCase();
+  if (lower === lowerQuery) return [[0, name.length]];
+  if (lower.startsWith(lowerQuery)) return [[0, lowerQuery.length]];
+  const index = lower.indexOf(lowerQuery);
+  if (index >= 0) return [[index, index + lowerQuery.length]];
+  const sub = subsequenceRanges(lower, lowerQuery);
+  return sub ? sub.ranges : [];
+}
+
+function subsequenceRanges(text, query) {
+  let ti = 0;
+  let qi = 0;
+  let contig = 0;
+  let last = -2;
+  const ranges = [];
+  while (ti < text.length && qi < query.length) {
+    if (text[ti] === query[qi]) {
+      if (ti === last + 1) contig++;
+      const tail = ranges[ranges.length - 1];
+      if (tail && tail[1] === ti) tail[1] = ti + 1;
+      else ranges.push([ti, ti + 1]);
+      last = ti;
+      qi++;
+    }
+    ti++;
+  }
+  return qi === query.length ? { ranges, contig } : null;
+}
+
+function highlightRanges(name, ranges) {
+  if (!ranges || !ranges.length) return escapeHtml(name);
+  let out = "";
+  let pos = 0;
+  for (const [start, end] of ranges) {
+    out += escapeHtml(name.slice(pos, start));
+    out += `<mark>${escapeHtml(name.slice(start, end))}</mark>`;
+    pos = end;
+  }
+  return out + escapeHtml(name.slice(pos));
+}
+
+function spotlightFallbackMatches(query, pool) {
+  const lowerQuery = query.toLowerCase();
+  const scored = [];
+  for (const item of pool) {
+    const lower = item.type.name.toLowerCase();
+    let rank;
+    if (lower === lowerQuery) rank = 0;
+    else if (lower.startsWith(lowerQuery)) rank = 1;
+    else if (lower.includes(lowerQuery)) rank = 2;
+    else continue;
+    scored.push({ item, rank });
+  }
+  scored.sort((a, b) =>
+    a.rank - b.rank
+    || a.item.type.name.length - b.item.type.name.length
+    || a.item.type.name.localeCompare(b.item.type.name));
+  return scored
+    .slice(0, 30)
+    .map(entry => ({ ...entry.item, ranges: computeHighlightRanges(entry.item.type.name, lowerQuery) }));
+}
+
+function spotlightMatches() {
+  const query = state.spotlightQuery.trim();
+  const cache = spotlightCandidates();
+  if (!query) {
+    return cache.pool
+      .filter(item => item.pkg === state.package)
+      .sort((a, b) => a.type.name.localeCompare(b.type.name))
+      .slice(0, 20)
+      .map(item => ({ ...item, ranges: [] }));
+  }
+
+  const hits = inspectSearchTypes(query, cache.candidatesJson);
+  if (!hits) return spotlightFallbackMatches(query, cache.pool);
+
+  const lowerQuery = query.toLowerCase();
+  const matches = [];
+  for (const hit of hits) {
+    const item = cache.keyMap.get(hit.key);
+    if (!item) continue;
+    matches.push({ ...item, ranges: computeHighlightRanges(item.type.name, lowerQuery) });
+  }
+  return matches;
+}
+
+function spotlightResultsHtml(matches, multiPkg) {
+  if (!matches.length) {
+    return `<div class="spotlight-empty">No types match “${escapeHtml(state.spotlightQuery.trim())}”.</div>`;
+  }
+  return matches.map((match, index) => `
+    <button class="spotlight-item ${index === state.spotlightIndex ? "selected" : ""}" role="option" aria-selected="${index === state.spotlightIndex}" data-sl-pkg="${escapeHtml(match.pkg.id)}" data-sl-type="${escapeHtml(match.type.id)}">
+      <span class="kind-icon">${kindIcon(match.type.kind)}</span>
+      <span class="spotlight-item-name">${highlightRanges(match.type.name, match.ranges)}</span>
+      <span class="spotlight-item-ns">${escapeHtml(match.type.namespace || "")}</span>
+      ${multiPkg ? `<small class="spotlight-item-pkg">${escapeHtml(match.pkg.id)}</small>` : ""}
+    </button>`).join("");
+}
+
+function renderSpotlight() {
+  const matches = spotlightMatches();
+  state.spotlightIndex = Math.min(state.spotlightIndex, Math.max(matches.length - 1, 0));
+  const multiPkg = state.packages.length > 1;
+  return `
+    <div class="spotlight-backdrop" id="spotlight-backdrop">
+      <div class="spotlight" role="dialog" aria-modal="true" aria-label="Go to type">
+        <div class="spotlight-search">
+          <span class="spotlight-glyph">⌕</span>
+          <input id="spotlight-input" value="${escapeHtml(state.spotlightQuery)}" placeholder="Go to type…  start typing a name" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="spotlight-results" />
+          <kbd>esc</kbd>
+        </div>
+        <div class="spotlight-results" id="spotlight-results" role="listbox">${spotlightResultsHtml(matches, multiPkg)}</div>
+        <div class="spotlight-foot"><span>↑↓ select</span><span>↵ open</span><span>esc close</span>${multiPkg ? "<span>all loaded packages</span>" : ""}</div>
+      </div>
+    </div>`;
+}
+
+function updateSpotlightResults() {
+  const container = document.querySelector("#spotlight-results");
+  if (!container) return;
+  const matches = spotlightMatches();
+  state.spotlightIndex = Math.min(state.spotlightIndex, Math.max(matches.length - 1, 0));
+  container.innerHTML = spotlightResultsHtml(matches, state.packages.length > 1);
+  container.querySelectorAll("[data-sl-type]").forEach(button => button.addEventListener("click", () => {
+    pickSpotlight(button.dataset.slPkg, button.dataset.slType);
+  }));
+  container.querySelector(".spotlight-item.selected")?.scrollIntoView({ block: "nearest" });
+}
+
+function openSpotlight(seed = "") {
+  state.spotlightOpen = true;
+  state.spotlightQuery = seed;
+  state.spotlightIndex = 0;
+  render();
+  focusSpotlight();
+}
+
+function closeSpotlight() {
+  state.spotlightOpen = false;
+  state.spotlightQuery = "";
+  state.spotlightIndex = 0;
+  render();
+}
+
+function focusSpotlight() {
+  requestAnimationFrame(() => {
+    const input = document.querySelector("#spotlight-input");
+    if (!input) return;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  });
+}
+
+function pickSpotlight(pkgId, typeId) {
+  const pkg = state.packages.find(item => item.id === pkgId) || state.package;
+  const type = pkg?.types?.find(item => item.id === typeId);
+  if (!type) {
+    closeSpotlight();
+    return;
+  }
+  state.package = pkg;
+  state.selectedTypeId = type.id;
+  state.selectedMemberKey = "";
+  state.selectedOverloadIndex = null;
+  state.memberSection = "overview";
+  state.memberSource = null;
+  state.memberSourceError = "";
+  state.memberCallGraph = null;
+  state.memberCallGraphError = "";
+  state.memberFacts = null;
+  state.memberFactsError = "";
+  state.typeFilter = "";
+  state.namespaceFilter = "";
+  state.spotlightOpen = false;
+  state.spotlightQuery = "";
+  state.spotlightIndex = 0;
+  state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
+  render();
+  requestAnimationFrame(() => {
+    document.querySelector(`[data-type="${CSS.escape(state.selectedTypeId)}"]`)?.scrollIntoView({ block: "nearest" });
+  });
+}
+
+function handleSpotlightKeys(event) {
+  const matches = spotlightMatches();
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    state.spotlightIndex = matches.length ? (state.spotlightIndex + 1) % matches.length : 0;
+    updateSpotlightResults();
+  } else if (event.key === "ArrowUp") {
+    event.preventDefault();
+    state.spotlightIndex = matches.length ? (state.spotlightIndex - 1 + matches.length) % matches.length : 0;
+    updateSpotlightResults();
+  } else if (event.key === "Enter") {
+    event.preventDefault();
+    const match = matches[state.spotlightIndex];
+    if (match) pickSpotlight(match.pkg.id, match.type.id);
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    closeSpotlight();
+  }
 }
 
 function handleCommandKeys(event) {
@@ -1579,6 +1846,9 @@ document.addEventListener("keydown", event => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
     openCommand();
+  } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "p") {
+    event.preventDefault();
+    openSpotlight();
   } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
     event.preventDefault();
     focusFilter();
@@ -1598,6 +1868,10 @@ document.addEventListener("keydown", event => {
   } else if (!typing && event.key === "/") {
     event.preventDefault();
     focusFilter();
+  } else if (!typing && !state.spotlightOpen && !event.metaKey && !event.ctrlKey && !event.altKey
+      && !event.defaultPrevented && event.key.length === 1 && /[a-zA-Z]/.test(event.key)) {
+    event.preventDefault();
+    openSpotlight(event.key);
   }
 });
 
