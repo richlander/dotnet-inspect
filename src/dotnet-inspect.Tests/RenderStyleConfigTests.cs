@@ -105,6 +105,61 @@ public class RenderStyleConfigTests
     }
 
     [Fact]
+    public void Parse_VarKeys_MapToTheirIndependentBackingBools()
+    {
+        // Each csharp_style_var_* key selects only its own bucket; the three are
+        // independent (a site falls into exactly one, so any subset can be on).
+        var builtIn = RenderStyleConfig.Parse("csharp_style_var_for_built_in_types = true", origin: null);
+        Assert.True(builtIn.Options.PreferVarForBuiltInTypes);
+        Assert.False(builtIn.Options.PreferVarWhenTypeApparent);
+        Assert.False(builtIn.Options.PreferVarElsewhere);
+        Assert.Empty(builtIn.Warnings);
+
+        var apparent = RenderStyleConfig.Parse("csharp_style_var_when_type_is_apparent = true", origin: null);
+        Assert.True(apparent.Options.PreferVarWhenTypeApparent);
+        Assert.False(apparent.Options.PreferVarForBuiltInTypes);
+
+        var elsewhere = RenderStyleConfig.Parse("csharp_style_var_elsewhere = true", origin: null);
+        Assert.True(elsewhere.Options.PreferVarElsewhere);
+    }
+
+    [Fact]
+    public void Parse_VarKeys_DefaultOff_TolerateSeverity_AndClearWithFalse()
+    {
+        // Shipped default: explicit everywhere (matches dotnet/runtime).
+        var empty = RenderStyleConfig.Parse("", origin: null).Options;
+        Assert.False(empty.PreferVarForBuiltInTypes);
+        Assert.False(empty.PreferVarWhenTypeApparent);
+        Assert.False(empty.PreferVarElsewhere);
+
+        // The editorconfig value:severity form copied straight from a real file parses.
+        var withSeverity = RenderStyleConfig.Parse("csharp_style_var_elsewhere = true:suggestion", origin: null);
+        Assert.True(withSeverity.Options.PreferVarElsewhere);
+        Assert.Empty(withSeverity.Warnings);
+
+        // = false clears its own bucket only.
+        var mixed = RenderStyleConfig.Parse(
+            "csharp_style_var_for_built_in_types = true\n" +
+            "csharp_style_var_elsewhere = true\n" +
+            "csharp_style_var_for_built_in_types = false\n",
+            origin: null);
+        Assert.False(mixed.Options.PreferVarForBuiltInTypes);
+        Assert.True(mixed.Options.PreferVarElsewhere);
+        Assert.Empty(mixed.Warnings);
+    }
+
+    [Fact]
+    public void Parse_FullTaste_DoesNotEnableVar()
+    {
+        // var is opt-in only (the runtime endorses explicit), so the "full taste"
+        // aggregate must never turn it on.
+        var result = RenderStyleConfig.Parse("dotnet_inspect_style_full_taste = true", origin: null);
+        Assert.False(result.Options.PreferVarForBuiltInTypes);
+        Assert.False(result.Options.PreferVarWhenTypeApparent);
+        Assert.False(result.Options.PreferVarElsewhere);
+    }
+
+    [Fact]
     public void Parse_FullTasteKey_EnablesTheOracleEndorsedSubset()
     {
         // The "full taste" aggregate turns on the whole oracle-endorsed subset with
@@ -206,14 +261,14 @@ public class RenderStyleConfigTests
     public void Parse_UnknownKey_WarnsButKeepsRecognizedKeys()
     {
         var result = RenderStyleConfig.Parse(
-            "csharp_style_var_when_type_is_apparent = true\n" +
+            "csharp_style_expression_bodied_methods = true\n" +
             "dotnet_style_qualification_for_field = true\n",
             origin: null);
 
         Assert.True(result.Options.QualifyFieldAccess);
         var warning = Assert.Single(result.Warnings);
         Assert.Contains("unknown key", warning);
-        Assert.Contains("csharp_style_var_when_type_is_apparent", warning);
+        Assert.Contains("csharp_style_expression_bodied_methods", warning);
     }
 
     [Fact]

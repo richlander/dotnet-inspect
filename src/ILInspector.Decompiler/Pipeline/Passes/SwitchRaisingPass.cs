@@ -966,6 +966,12 @@ public sealed class SwitchRaisingPass : IIrPass
         region = [];
         exits = [];
         var members = new SortedSet<int> { head };
+        // Same-SCC membership answers "is t reachable from its own predecessor p"
+        // for the back-edge test below. Reachability is a static property of the
+        // CFG, so the strongly-connected components of the post-switch subgraph
+        // are computed once here and reused for every predecessor test, instead
+        // of re-running a per-predecessor forward DFS on each growth iteration.
+        int[] sccId = ComputeSectionSccIds(blocks, s, offsetToIndex);
 
         bool changed = true;
         while (changed)
@@ -981,7 +987,26 @@ public sealed class SwitchRaisingPass : IIrPass
                         continue;
                     if (t <= s)
                         return false;   // backward into / before the switch — a loop
-                    bool interior = preds.TryGetValue(t, out var ps) && ps.All(members.Contains);
+                    // A block joins the single-entry region when every predecessor
+                    // is already inside — or is a back-edge source, i.e. reachable
+                    // from t itself. A section-internal loop's header has such a
+                    // downstream predecessor (the back-edge); ignoring it lets the
+                    // header — and then the loop body, whose predecessors become
+                    // members — interiorize, so the switch owns a section that
+                    // still holds an unraised loop (StructuringPass raises it once
+                    // the section is a container). This relaxation admits some
+                    // foreign entries (OnlyReachedByTable does not screen
+                    // fall-through edges), but any such region is rejected later by
+                    // the OwnsTiledRegion contiguous-span check, which requires the
+                    // owned blocks to exactly tile the case span.
+                    //
+                    // p is already a predecessor of t (edge p -> t exists), so t
+                    // reaches p — the back-edge condition — exactly when t and p
+                    // lie in the same strongly-connected component. A predecessor
+                    // at or before the switch (p <= s) is outside the subgraph and
+                    // has scc id -1, so it never matches the case-target t (t > s).
+                    bool interior = preds.TryGetValue(t, out var ps)
+                        && ps.All(p => members.Contains(p) || sccId[t] == sccId[p]);
                     if (interior)
                     {
                         members.Add(t);
@@ -1000,6 +1025,106 @@ public sealed class SwitchRaisingPass : IIrPass
         }
         region = members.ToList();
         return true;
+    }
+
+    /// <summary>
+    /// Labels each block with the strongly-connected component it belongs to
+    /// within the post-switch subgraph — the blocks with index &gt; <paramref
+    /// name="s"/> (the switch block), with edges taken from <see
+    /// cref="TrySuccessors"/> and restricted to that same index range. Blocks at
+    /// or before the switch, and any block whose successors cannot be analyzed,
+    /// are outside the subgraph and receive id -1. Two blocks share a component
+    /// exactly when each is forward-reachable from the other over section-internal
+    /// edges, which <see cref="GrowRegion"/> uses to recognize a back-edge
+    /// predecessor (a loop body block only reachable through its own header) so
+    /// the header interiorizes into the single-entry region instead of becoming a
+    /// false exit. The traversal is iterative (an explicit work stack) so deep
+    /// control-flow graphs from untrusted assemblies cannot overflow the runtime
+    /// stack, and runs in O(V + E).
+    /// </summary>
+    static int[] ComputeSectionSccIds(IReadOnlyList<Block> blocks, int s, Dictionary<int, int> offsetToIndex)
+    {
+        int n = blocks.Count;
+        var sccId = new int[n];
+        var index = new int[n];
+        var low = new int[n];
+        var onStack = new bool[n];
+        for (int i = 0; i < n; i++)
+        {
+            sccId[i] = -1;
+            index[i] = -1;
+        }
+
+        List<int> SectionSuccs(int u)
+        {
+            var result = new List<int>();
+            if (!TrySuccessors(blocks, u, offsetToIndex, out var succs))
+                return result;
+            foreach (int t in succs)
+                if (t > s)
+                    result.Add(t);
+            return result;
+        }
+
+        var component = new Stack<int>();
+        var work = new Stack<(int Node, int Next, List<int> Succs)>();
+        int nextIndex = 0;
+        int nextScc = 0;
+
+        for (int root = s + 1; root < n; root++)
+        {
+            if (index[root] != -1)
+                continue;
+
+            index[root] = low[root] = nextIndex++;
+            component.Push(root);
+            onStack[root] = true;
+            work.Push((root, 0, SectionSuccs(root)));
+
+            while (work.Count > 0)
+            {
+                var (v, next, succs) = work.Pop();
+                if (next < succs.Count)
+                {
+                    work.Push((v, next + 1, succs));
+                    int w = succs[next];
+                    if (index[w] == -1)
+                    {
+                        index[w] = low[w] = nextIndex++;
+                        component.Push(w);
+                        onStack[w] = true;
+                        work.Push((w, 0, SectionSuccs(w)));
+                    }
+                    else if (onStack[w] && index[w] < low[v])
+                    {
+                        low[v] = index[w];
+                    }
+                }
+                else
+                {
+                    if (low[v] == index[v])
+                    {
+                        while (true)
+                        {
+                            int u = component.Pop();
+                            onStack[u] = false;
+                            sccId[u] = nextScc;
+                            if (u == v)
+                                break;
+                        }
+                        nextScc++;
+                    }
+                    if (work.Count > 0)
+                    {
+                        var parent = work.Peek();
+                        if (low[v] < low[parent.Node])
+                            low[parent.Node] = low[v];
+                    }
+                }
+            }
+        }
+
+        return sccId;
     }
 
     static bool SectionTerminates(IReadOnlyList<Block> blocks, List<int> region, Dictionary<int, int> offsetToIndex)

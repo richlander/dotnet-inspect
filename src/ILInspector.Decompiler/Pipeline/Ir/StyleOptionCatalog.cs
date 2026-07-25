@@ -252,6 +252,12 @@ public static class StyleOptionCatalog
     private const string GuardedReturnConditional = "conditional-expression";
     private const string GuardedReturnBranchless = "branchless";
 
+    // Value tokens for the var-spelling family axis.
+    private const string VarStyleExplicit = "explicit";
+    private const string VarStyleBuiltInTypes = "var-for-built-in-types";
+    private const string VarStyleWhenApparent = "var-when-type-apparent";
+    private const string VarStyleElsewhere = "var-elsewhere";
+
     /// <summary>
     /// Every opt-in knob, in a stable presentation order (formatting and spelling
     /// first, then the byte-divergent lens). Two-state knobs carry a
@@ -284,6 +290,16 @@ public static class StyleOptionCatalog
             get: static o => o.WrapSplittableExpressions,
             with: static (o, v) => o with { WrapSplittableExpressions = v },
             corpusEndorsed: true),
+        Boolean(
+            id: "disable-one-liner-wrapping",
+            title: "Keep one-liners on one line",
+            summary: "Suppress the always-on width wrappers (long fluent chains and long member signatures) so a wide construct stays on a single physical line instead of wrapping (whitespace only).",
+            tier: StyleOptionTier.Formatting,
+            byteDivergent: false,
+            oracleEndorsed: false,
+            configKey: null,
+            get: static o => o.DisableOneLinerWrapping,
+            with: static (o, v) => o with { DisableOneLinerWrapping = v }),
         Boolean(
             id: "wrap-expression-body-arrow",
             title: "Wrap expression-body arrow",
@@ -335,6 +351,7 @@ public static class StyleOptionCatalog
             get: static o => o.QualifyEventAccess,
             with: static (o, v) => o with { QualifyEventAccess = v }),
         GuardedBooleanReturnStyle(),
+        VarSpellingStyle(),
     ];
 
     /// <summary>
@@ -476,6 +493,75 @@ public static class StyleOptionCatalog
                     ConfigKey = "dotnet_inspect_style_prefer_branchless_boolean",
                     IsSelected = static o => o.PreferBranchlessBoolean,
                     SetSelected = static (o, on) => o with { PreferBranchlessBoolean = on },
+                },
+            ],
+        };
+
+    // The var-spelling family as one value-domain axis. Its value domain is the
+    // C# `var` decision as dotnet/runtime's editorconfig models it: an `explicit`
+    // default (every csharp_style_var_* key false — the shipped, byte-stable
+    // spelling the runtime prefers) plus three independent site-category values
+    // mapping 1:1 onto the three csharp_style_var_* keys and their backing bools.
+    //
+    // The three categories partition declaration sites (built-in type, else
+    // type-apparent, else elsewhere), so at most one governs any given site — the
+    // printer classifies each site into one bucket and reads that bucket's bool.
+    // Because they are independent keys (a user may enable any subset), each value's
+    // SetSelected sets only its own bool and the `explicit` default's SetSelected
+    // clears all three; GetValue reports the first enabled category in Values order
+    // as a coarse summary (WithValue single-select is a picker affordance — the
+    // authoritative state is the three independent bools set via config). None is
+    // oracle-endorsed: dotnet/runtime's .editorconfig sets every csharp_style_var_*
+    // key false (prefer explicit), so `var` never joins the "full taste" aggregate.
+    // Byte-neutral (Spelling tier): `var` is compile-time inference with no IL
+    // consequence, so the axis is IL-identical to the explicit spelling.
+    private static StyleOptionDescriptor VarSpellingStyle()
+        => new()
+        {
+            Id = "var-spelling-style",
+            Title = "var vs. explicit type",
+            Summary = "When to spell a local declaration with var instead of its explicit type: never (explicit, the default), for built-in types, when the type is apparent from the initializer, and/or elsewhere. Byte-neutral; the three var categories are independent, matching the csharp_style_var_* editorconfig keys.",
+            Tier = StyleOptionTier.Spelling,
+            ByteDivergent = false,
+            DefaultValue = VarStyleExplicit,
+            Values =
+            [
+                new StyleOptionValue
+                {
+                    Token = VarStyleExplicit,
+                    Title = "Explicit type (byte-stable default)",
+                    IsSelected = static o => !o.PreferVarForBuiltInTypes && !o.PreferVarWhenTypeApparent && !o.PreferVarElsewhere,
+                    // Selecting the explicit default clears the whole axis; deselecting
+                    // it is a no-op (a sibling selection clears it instead).
+                    SetSelected = static (o, on) =>
+                        on ? o with { PreferVarForBuiltInTypes = false, PreferVarWhenTypeApparent = false, PreferVarElsewhere = false } : o,
+                },
+                new StyleOptionValue
+                {
+                    Token = VarStyleBuiltInTypes,
+                    Title = "var for built-in types",
+                    OracleEndorsed = false,
+                    ConfigKey = "csharp_style_var_for_built_in_types",
+                    IsSelected = static o => o.PreferVarForBuiltInTypes,
+                    SetSelected = static (o, on) => o with { PreferVarForBuiltInTypes = on },
+                },
+                new StyleOptionValue
+                {
+                    Token = VarStyleWhenApparent,
+                    Title = "var when the type is apparent",
+                    OracleEndorsed = false,
+                    ConfigKey = "csharp_style_var_when_type_is_apparent",
+                    IsSelected = static o => o.PreferVarWhenTypeApparent,
+                    SetSelected = static (o, on) => o with { PreferVarWhenTypeApparent = on },
+                },
+                new StyleOptionValue
+                {
+                    Token = VarStyleElsewhere,
+                    Title = "var elsewhere",
+                    OracleEndorsed = false,
+                    ConfigKey = "csharp_style_var_elsewhere",
+                    IsSelected = static o => o.PreferVarElsewhere,
+                    SetSelected = static (o, on) => o with { PreferVarElsewhere = on },
                 },
             ],
         };

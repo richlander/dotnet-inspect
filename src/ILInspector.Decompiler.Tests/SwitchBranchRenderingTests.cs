@@ -30,6 +30,40 @@ static class SwitchTableFixture
     }
 }
 
+/// <summary>
+/// Real-IL fixture for
+/// <see cref="SwitchBranchRenderingTests.FullPipeline_RaisesSwitchWhoseCaseContainsLoop"/>:
+/// a <c>switch</c> one of whose case sections carries a loop. csc lowers the loop
+/// to a bottom-tested back-edge, so the section is not a straight-line
+/// single-entry region — the shape that used to keep the whole switch flat
+/// (issue #3161) until <c>SwitchRaisingPass</c> learned to own a section that
+/// contains a natural loop.
+/// </summary>
+static class SwitchLoopingCaseFixture
+{
+    public static int Reduce(int kind, int[] values)
+    {
+        switch (kind)
+        {
+            case 0:
+                int total = 0;
+                foreach (int value in values)
+                {
+                    total += value;
+                }
+                return total;
+            case 1:
+                return values.Length;
+            case 2:
+                return -values.Length;
+            case 3:
+                return 42;
+            default:
+                return -1;
+        }
+    }
+}
+
 // An IL `switch` opcode the switch-raising pass could not lift into a structured
 // `switch` stays in the tree as a SwitchBranch jump table. The printer must
 // render it as valid lowered C# — a single-evaluated temp plus one `if`/`goto`
@@ -386,8 +420,37 @@ public class SwitchBranchRenderingTests
     }
 
     [Fact]
-    public void FullPipeline_PreservesEveryResidualSwitchTargetLabel()
+    public void FullPipeline_RaisesSwitchWhoseCaseContainsLoop()
     {
+        // A compiled `switch` whose `case 0` carries a `foreach` loop. csc lowers
+        // the loop to a back-edge, so the section is not a straight-line
+        // single-entry region. Before #3161 this kept the whole switch flat (its
+        // `default`/looping section could not be owned); now SwitchRaisingPass
+        // owns the loop-bearing section and StructuringPass raises the loop.
+        using var source = MetadataSource.Open(typeof(SwitchLoopingCaseFixture).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(SwitchLoopingCaseFixture).FullName!,
+            nameof(SwitchLoopingCaseFixture.Reduce));
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function);
+        string output = result.Output ?? "";
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains("switch (", output);
+        Assert.DoesNotContain("__switchValue", output);
+        AssertGotoTargetsHaveLabels(output);
+    }
+
+    [Fact]
+    public void FullPipeline_RaisesRealSwitchWithLoopingSections()
+    {
+        // Regression witness for #3161 on a real compiler-produced method:
+        // `CSharpSpellability.TypeIssue` is a `switch (type.Kind)` whose sections
+        // carry `foreach`/`for` loops. It used to stay a flat residual dispatch
+        // (`if (__switchValue…) goto …`); now it raises into a structured switch
+        // with Full fidelity and no residual dispatch temp.
         using var source = MetadataSource.Open(typeof(CSharpSpellability).Assembly.Location);
         var function = IrImporter.Import(
             source,
@@ -399,7 +462,110 @@ public class SwitchBranchRenderingTests
         string output = result.Output ?? "";
 
         Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
-        Assert.Contains("if (__switchValue", output);
+        Assert.Contains("switch (", output);
+        Assert.DoesNotContain("__switchValue", output);
         AssertGotoTargetsHaveLabels(output);
+    }
+
+    [Fact]
+    public void FullPipeline_RaisesGuardsBeforeLoopingSwitch()
+    {
+        // Regression witness for #3162 (part of #3159), the DeepEquals prologue:
+        // a guard-throw (`if (!c) throw;`) and a guard-return
+        // (`if (a != b) return false;`) standing in front of a `switch` whose
+        // sections carry EH-entangled `foreach` loops. csc lowers each guard to a
+        // forward branch over a throw/return island (`if (c) goto L; …; L:`).
+        // Before #3161 the unraised switch kept the whole container flat, so those
+        // guards survived as residual `IL_xxxx:` labels and `goto`s; now
+        // SwitchRaisingPass owns the loop-bearing sections, StructuringPass
+        // structures the container, and the guards fold into inverted `if` clauses
+        // with no residual labels or gotos.
+        using var source = MetadataSource.Open(typeof(GuardsBeforeLoopingSwitchFixture).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(GuardsBeforeLoopingSwitchFixture).FullName!,
+            nameof(GuardsBeforeLoopingSwitchFixture.Compare));
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function);
+        string output = result.Output ?? "";
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+
+        // The switch raised and both loops structured.
+        Assert.Contains("switch (", output);
+        Assert.DoesNotContain("__switchValue", output);
+
+        // The two prologue guards folded into inverted `if` clauses — the #3162
+        // outcome: guard-throw negated, guard-return negated, no `goto`/labels.
+        Assert.Contains("if (!RuntimeHelpers.TryEnsureSufficientExecutionStack())", output);
+        Assert.Contains("throw new InsufficientExecutionStackException();", output);
+        Assert.Contains("if (kind != right.Count)", output);
+
+        // No residual forward-branch scaffolding survives anywhere in the body.
+        Assert.DoesNotContain("goto ", output);
+        Assert.DoesNotMatch(new Regex(@"(?m)^\s*IL_[0-9A-Fa-f]+:\s*$"), output);
+    }
+}
+
+/// <summary>
+/// Real-IL fixture for
+/// <see cref="SwitchBranchRenderingTests.FullPipeline_RaisesGuardsBeforeLoopingSwitch"/>:
+/// mirrors the distinctive prologue of
+/// <c>System.Text.Json.JsonElement.DeepEquals</c> — a guard-throw
+/// (<c>if (!c) throw;</c>) and a guard-return (<c>if (a != b) return false;</c>)
+/// standing in front of a <c>switch</c> whose case sections carry EH-entangled
+/// <c>foreach</c> loops (a <see cref="System.Collections.Generic.List{T}"/>
+/// enumerator lowers to a <c>try/finally</c> with a surviving <c>Leave</c>). csc
+/// lowers each guard to a forward branch over a throw/return island
+/// (<c>if (c) goto L; …; L:</c>). Before #3161 the unraised switch kept the whole
+/// container flat, so those guards survived as residual <c>IL_xxxx:</c> labels and
+/// <c>goto</c>s (issue #3162); once <c>SwitchRaisingPass</c> owns the loop-bearing
+/// sections, <c>StructuringPass</c> structures the container and folds the guards
+/// into inverted <c>if</c> clauses.
+/// </summary>
+static class GuardsBeforeLoopingSwitchFixture
+{
+    public static bool Compare(int kind, System.Collections.Generic.List<int> left, System.Collections.Generic.List<int> right)
+    {
+        if (!System.Runtime.CompilerServices.RuntimeHelpers.TryEnsureSufficientExecutionStack())
+        {
+            throw new System.InsufficientExecutionStackException();
+        }
+        if (kind != right.Count)
+        {
+            return false;
+        }
+        switch (kind)
+        {
+            case 0:
+                if (left.Count != right.Count)
+                {
+                    return false;
+                }
+                foreach (int value in left)
+                {
+                    if (value < 0)
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            case 1:
+                return left.Count == right.Count;
+            case 2:
+                return true;
+            default:
+                int index = 0;
+                foreach (int value in right)
+                {
+                    if (value != left[index])
+                    {
+                        return false;
+                    }
+                    index++;
+                }
+                return true;
+        }
     }
 }

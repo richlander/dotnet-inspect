@@ -90,8 +90,11 @@ jobs:
           echo "$ILASM_DIR" >> "$GITHUB_PATH"
           echo "$ILDASM_DIR" >> "$GITHUB_PATH"
 
-      - name: Run decompiler tests (including slow)
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release
+      - name: Run decompiler tests (including slow, excluding corpus sweep)
+        # The multi-hour corpus sweep runs in the decompiler-corpus job so it
+        # gets its own timeout budget; everything else (incl. slow round-trip /
+        # compile-back gates that need ilasm/ildasm above) runs here.
+        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
 
       - name: Run analysis tests (including slow)
         run: dotnet run --project src/ILInspector.Analysis.Tests -c Release
@@ -102,8 +105,40 @@ jobs:
       - name: Run IL round-trip tests (including slow sweep)
         run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
 
+  # The decompiler corpus sweep is multi-hour; give it its own 6h job budget
+  # instead of sharing deep-inspect-test's budget with the CLI, analysis, and
+  # round-trip suites (the combined job risked exceeding the timeout). Mirrors
+  # the deep-inspect.yml corpus split. It needs no ilasm/ildasm (the corpus
+  # oracle is Roslyn compile-back). build-native/build-portable/publish gate on
+  # this job too, so a corpus regression still blocks the release.
+  decompiler-corpus:
+    needs: resolve
+    runs-on: ubuntu-26.04
+    if: github.event.inputs.confirm == 'publish'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Run decompiler corpus sweep
+        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate corpus
+
   build-native:
-    needs: [resolve, deep-inspect-test]
+    needs: [resolve, deep-inspect-test, decompiler-corpus]
     strategy:
       fail-fast: false
       matrix:
@@ -144,7 +179,7 @@ jobs:
   # TFM-agnostic pointer. These used to come from CI's pack job; they are now
   # built here at publish time so CI never produces release artifacts.
   build-portable:
-    needs: [resolve, deep-inspect-test]
+    needs: [resolve, deep-inspect-test, decompiler-corpus]
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6
@@ -183,7 +218,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: [resolve, deep-inspect-test, build-native, build-portable]
+    needs: [resolve, deep-inspect-test, decompiler-corpus, build-native, build-portable]
     runs-on: ubuntu-26.04
     if: github.event.inputs.confirm == 'publish'
     environment: nuget

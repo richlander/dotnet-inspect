@@ -84,7 +84,9 @@ jobs:
 
   test:
     name: Test lane
-    if: inputs.lane == 'test' || inputs.lane == 'all'
+    # Runs on the weekly schedule (automated slow-gate coverage) and on manual
+    # dispatch (lane test/all).
+    if: github.event_name == 'schedule' || inputs.lane == 'test' || inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6
@@ -150,7 +152,8 @@ jobs:
     # Split out of the test lane so the multi-hour corpus sweep gets its own
     # 6h job budget instead of sharing the test job's budget with the other
     # slow gates (which previously pushed the combined job past its timeout).
-    if: inputs.lane == 'test' || inputs.lane == 'all'
+    # Runs alongside the test lane on the weekly schedule and on dispatch.
+    if: github.event_name == 'schedule' || inputs.lane == 'test' || inputs.lane == 'all'
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6
@@ -483,3 +486,32 @@ jobs:
           name: deep-inspect-opt-in-corpus
           path: artifacts/opt-in-corpus/
           if-no-files-found: warn
+
+  report-scheduled-failure:
+    name: Report scheduled failure
+    # Deep Inspect has no interactive watcher, so a failed *scheduled* run would
+    # otherwise go unnoticed. Open (or comment on) a tracking issue when any
+    # scheduled slow lane fails. Manual dispatches are watched by the dispatcher
+    # and are intentionally excluded.
+    needs: [package-sweep, test, decompiler-corpus]
+    if: ${{ github.event_name == 'schedule' && failure() }}
+    runs-on: ubuntu-26.04
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          title="Deep Inspect scheduled run failed"
+          num=$(gh issue list --state open --search "$title in:title" \
+            --json number,title \
+            --jq "map(select(.title == \"$title\")) | .[0].number // empty")
+          if [ -n "$num" ]; then
+            gh issue comment "$num" --body "Another scheduled Deep Inspect run failed: $RUN_URL"
+          else
+            gh issue create --title "$title" --body $'The weekly Deep Inspect scheduled run failed.\n\nRun: '"$RUN_URL"$'\n\nThe failed lane(s) are visible on the run. This issue was opened automatically; it will not auto-close, so close it once the failure is triaged.'
+          fi

@@ -1096,6 +1096,417 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_RoundTripsExplicitInterfaceMethod()
+    {
+        // #3112: a class method whose metadata name is an explicit-interface spelling
+        // (`IBase.Touch`) must reconstruct as an explicit-interface implementation with the
+        // interface declaring the member, not a plain `IBase_Touch` method (which recompiles
+        // under the wrong name and fails the fidelity lookup as ContextFail/method-not-found).
+        var assemblyPath = CompileFixture("""
+            using System;
+            public sealed class ExplicitMethodFixture : IBase
+            {
+                void IBase.Touch()
+                {
+                    Console.WriteLine("touched");
+                }
+            }
+
+            public interface IBase
+            {
+                void Touch();
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitMethodFixture",
+                    "IBase.Touch",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("void IBase.Touch()", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("IBase_Touch", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsNamespacedExplicitInterfaceMethodWithParameters()
+    {
+        // The corpus family (#3112) is dominated by namespaced interfaces (System.IConvertible,
+        // System.Collections.IEnumerable, ...) with real parameters and return values. Reconstruct
+        // the qualified interface spelling and round-trip the body exactly.
+        var assemblyPath = CompileFixture("""
+            namespace Sample
+            {
+                public sealed class ExplicitComputeFixture : IComputer
+                {
+                    int IComputer.Compute(int left, int right)
+                    {
+                        return left + right;
+                    }
+                }
+
+                public interface IComputer
+                {
+                    int Compute(int left, int right);
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Sample.ExplicitComputeFixture",
+                    "Sample.IComputer.Compute",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("int Sample.IComputer.Compute(int left, int right)", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("IComputer_Compute", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsGenericExplicitInterfaceMethod()
+    {
+        // A generic method on a non-generic interface implemented explicitly keeps its method
+        // type parameters in the reconstructed `IBox.Wrap<T>(...)` header (constraints are
+        // inherited from the interface and must be omitted).
+        var assemblyPath = CompileFixture("""
+            public sealed class ExplicitGenericFixture : IBox
+            {
+                T IBox.Wrap<T>(T value)
+                {
+                    return value;
+                }
+            }
+
+            public interface IBox
+            {
+                T Wrap<T>(T value);
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitGenericFixture",
+                    "IBox.Wrap",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("IBox.Wrap<T>(T value)", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("IBox_Wrap", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_NestedExplicitInterfaceMethodFallsBackToPlainWithoutRecompileFail()
+    {
+        // Negative case for the explicit-interface method reconstruction (#3112): a nested
+        // interface (e.g. the corpus's `MutexSlim.IPendingLockToken`, `SqlMapper.ITypeHandler`)
+        // is only reached through its enclosing root and is not a standalone closure
+        // requirement, so its member declaration cannot be appended to a reconstructed
+        // interface shell. RTS must NOT emit an unbindable `Outer.IInner.Ping()` (which would
+        // turn a method-not-found ContextFail into a CS0539/CS0246 RecompileFail); it reverts
+        // to the plain sanitized shape, preserving the pre-fix ContextFail with no regression.
+        var assemblyPath = CompileFixture("""
+            namespace Sample
+            {
+                public sealed class NestedExplicitFixture : Outer.IInner
+                {
+                    void Outer.IInner.Ping()
+                    {
+                        System.Console.WriteLine("ping");
+                    }
+                }
+
+                public static class Outer
+                {
+                    public interface IInner
+                    {
+                        void Ping();
+                    }
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Sample.NestedExplicitFixture",
+                    "Sample.Outer.IInner.Ping",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            // The target reverts to the plain sanitized shape rather than the explicit spelling.
+            Assert.Contains("Sample_Outer_IInner_Ping", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("void Sample.Outer.IInner.Ping(", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsStaticAbstractExplicitInterfaceMethod()
+    {
+        // Close positive case for the operator/DIM discriminators (#3112, adversarial review):
+        // an explicit implementation of a NON-operator static-abstract interface method must
+        // still reconstruct as an explicit implementation and round-trip Exact — the `op_`
+        // and default-interface-method fallbacks must not over-trigger on it.
+        var assemblyPath = CompileFixture("""
+            public sealed class ExplicitStaticFixture : IParseable
+            {
+                static int IParseable.Parse(string text)
+                {
+                    return text.Length;
+                }
+            }
+
+            public interface IParseable
+            {
+                static abstract int Parse(string text);
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitStaticFixture",
+                    "IParseable.Parse",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("static int IParseable.Parse(string text)", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("IParseable_Parse", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExplicitInterfaceOperatorFallsBackToPlainWithoutRecompileFail()
+    {
+        // Negative case (#3112, adversarial review): an explicit-interface implementation of a
+        // static-abstract operator cannot be reconstructed by the explicit-method path — the
+        // explicit target spelling would carry the raw `op_Addition` metadata name (via
+        // CSharpIdentifier.Sanitize) instead of C# `operator +` syntax, so it would not match
+        // the interface's `operator` member (CS0539). RTS must fall back to the plain sanitized
+        // shape (main's behavior) rather than regress the method-not-found ContextFail into a
+        // RecompileFail.
+        var assemblyPath = CompileFixture("""
+            public sealed class ExplicitOperatorFixture : INonGenericAdd
+            {
+                static INonGenericAdd INonGenericAdd.operator +(INonGenericAdd left, INonGenericAdd right)
+                {
+                    return left;
+                }
+            }
+
+            public interface INonGenericAdd
+            {
+                static abstract INonGenericAdd operator +(INonGenericAdd left, INonGenericAdd right);
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitOperatorFixture",
+                    "INonGenericAdd.op_Addition",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("INonGenericAdd_op_Addition", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("INonGenericAdd.op_Addition(", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_RoundTripsExplicitInterfaceOpPrefixedNonOperatorMethod()
+    {
+        // Close positive case for the operator discriminator (#3112, adversarial review):
+        // a method whose metadata name merely starts with `op_` but is NOT a recognized
+        // operator (OperatorNames.FormatDisplayName returns it unchanged, and the printer
+        // renders it as a plain `int op_Custom()` member) must still reconstruct as an
+        // explicit implementation and round-trip Exact. The operator fallback must key off
+        // recognized-operator rendering, not the bare `op_` prefix, so it does not
+        // over-trigger here.
+        var assemblyPath = CompileFixture("""
+            public sealed class ExplicitOpNameFixture : IHasOpName
+            {
+                int IHasOpName.op_Custom()
+                {
+                    return 42;
+                }
+            }
+
+            public interface IHasOpName
+            {
+                int op_Custom();
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitOpNameFixture",
+                    "IHasOpName.op_Custom",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains("int IHasOpName.op_Custom()", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("IHasOpName_op_Custom", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExplicitInterfaceDefaultMethodFallsBackToPlainWithoutRecompileFail()
+    {
+        // Negative case (#3112, adversarial review): an explicit-interface implementation of a
+        // default interface method (virtual, non-abstract, has a body) cannot be reconstructed
+        // by the explicit-method path — the interface member reconstructs bodyless
+        // (StubBody.None) while remaining `virtual`, which is invalid because a non-abstract
+        // virtual interface method requires a body (CS0501). RTS must fall back to the plain
+        // sanitized shape (main's behavior) rather than regress the method-not-found ContextFail
+        // into a RecompileFail.
+        var assemblyPath = CompileFixture("""
+            public sealed class ExplicitDimFixture : IDefaultMethod
+            {
+                int IDefaultMethod.Compute()
+                {
+                    return 1;
+                }
+            }
+
+            public interface IDefaultMethod
+            {
+                int Compute() => 0;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitDimFixture",
+                    "IDefaultMethod.Compute",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("IDefaultMethod_Compute", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("int IDefaultMethod.Compute(", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExplicitStaticVirtualInterfaceMethodFallsBackToPlainWithoutRecompileFail()
+    {
+        // Negative case (#3112, adversarial review): an explicit-interface implementation of a
+        // C# 11 `static virtual` interface method (has a body, non-abstract) cannot be
+        // reconstructed by the explicit-method path — the interface member reconstructs bodyless
+        // and non-abstract, which is invalid because a non-abstract interface method requires a
+        // body (CS0501). The body/abstract discriminator must key off the declaration's Abstract
+        // flag directly: `static virtual` methods carry Virtual without NewSlot, so the narrower
+        // IsVirtualMethod helper (which requires NewSlot) would miss them and let them through.
+        // RTS must fall back to the plain sanitized shape (main's behavior) rather than regress
+        // the method-not-found ContextFail into a RecompileFail.
+        var assemblyPath = CompileFixture("""
+            public sealed class ExplicitStaticVirtualFixture : IStaticVirtual
+            {
+                static void IStaticVirtual.Test()
+                {
+                    System.Console.WriteLine("test");
+                }
+            }
+
+            public interface IStaticVirtual
+            {
+                static virtual void Test()
+                {
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitStaticVirtualFixture",
+                    "IStaticVirtual.Test",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("IStaticVirtual_Test", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("void IStaticVirtual.Test(", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_RoundTripsExplicitInterfaceIndexer()
     {
         var assemblyPath = CompileFixture("""
