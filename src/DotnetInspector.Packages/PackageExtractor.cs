@@ -56,6 +56,8 @@ public static class PackageExtractor
     private static readonly AsyncCache<PackageAcquisitionRequest, PackageExtractionOutcome>
         s_packageRequests = new();
 
+    private static readonly IPackageStore s_packageStore = new FileSystemPackageStore();
+
     /// <summary>
     /// Extracts a package from a local .nupkg file or downloads from NuGet sources.
     /// </summary>
@@ -260,24 +262,20 @@ public static class PackageExtractor
         string tempDirPrefix)
     {
         // Check NuGet cache first
-        string? cachedPath;
-        using (NetworkTelemetry.Scope(NetworkTrafficKind.PackageLoad))
+        IPackageContent? cached = s_packageStore.TryGetCached(
+            normalizedName,
+            normalizedVersion,
+            log);
+        if (cached != null)
         {
-            cachedPath = NuGetCache.TryGetCachedPackage(normalizedName, normalizedVersion);
-        }
-        if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
-        {
-            log?.Invoke($"Using cached package: {cachedPath}");
-            // Try to find .nupkg in cache directory
-            var cachedNupkg = FindNupkgInDirectory(cachedPath, normalizedName, normalizedVersion);
-            return new PackageExtractionResult(cachedPath, null, packageName, version, cachedNupkg, FromCache: true);
+            var cachedNupkg = cached.NupkgPath;
+            return new PackageExtractionResult(cached.RootPath!, null, packageName, version, cachedNupkg, FromCache: true);
         }
 
         if (HttpClientFactory.IsOffline)
             return PackageExtractionOutcome.Error($"Package '{packageName}' version '{version}' is not available offline; no cached package was found.");
 
         string tempDir = Directory.CreateTempSubdirectory(tempDirPrefix).FullName;
-        string extractPath = Path.Combine(tempDir, "extracted");
 
         try
         {
@@ -344,22 +342,28 @@ public static class PackageExtractor
                     $"Version '{version}' of package '{packageName}' not found. Use --versions to see available versions.");
             }
 
-            ZipFile.ExtractToDirectory(nupkgPath, extractPath);
             log?.Invoke($"Package downloaded successfully from {successfulSource}.");
 
-            CommittedPackage committed = NuGetCache.CommitPackage(
-                extractPath,
-                nupkgPath,
-                packageName,
-                version);
-            log?.Invoke($"Cached to: {committed.ExtractPath}");
+            // Persist the downloaded nupkg through the package store. The
+            // filesystem store extracts and transactionally commits it to the
+            // cache; the stream is a plain FileStream, so nothing is buffered
+            // in memory beyond the store's own copy loop.
+            IPackageContent content;
+            await using (var nupkgStream = File.OpenRead(nupkgPath))
+            {
+                content = await s_packageStore.CommitAsync(
+                    packageName,
+                    version,
+                    nupkgStream).ConfigureAwait(false);
+            }
+            log?.Invoke($"Cached to: {content.RootPath}");
 
             return new PackageExtractionResult(
-                committed.ExtractPath,
+                content.RootPath!,
                 TempDir: null,
                 packageName,
                 version,
-                committed.NupkgPath,
+                content.NupkgPath,
                 FromCache: true);
         }
         catch (IOException ex)
@@ -571,29 +575,6 @@ public static class PackageExtractor
         return null;
     }
 
-    /// <summary>
-    /// Finds the .nupkg file in a cache directory.
-    /// </summary>
-    private static string? FindNupkgInDirectory(string cacheDir, string packageName, string version)
-    {
-        // Standard NuGet cache layout: {package}/{version}/{package}.{version}.nupkg
-        var expectedPath = Path.Combine(cacheDir, $"{packageName}.{version}.nupkg");
-        if (File.Exists(expectedPath))
-            return expectedPath;
-
-        // Try to find any .nupkg file
-        try
-        {
-            var nupkgFiles = Directory.GetFiles(cacheDir, "*.nupkg");
-            return nupkgFiles.Length > 0 ? nupkgFiles[0] : null;
-        }
-        catch (Exception ex)
-        {
-            // Error scanning for nupkg in cache directory; non-fatal
-            System.Diagnostics.Debug.WriteLine($"Error scanning for nupkg: {ex.Message}");
-            return null;
-        }
-    }
     /// Parses a package reference string into name and optional version.
     /// Handles formats: "PackageName", "PackageName@1.0.0", "Package.Name.1.0.0.nupkg"
     /// </summary>

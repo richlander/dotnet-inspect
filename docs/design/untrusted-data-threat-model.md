@@ -61,14 +61,25 @@ layers.
 
 ### Package archives use traversal-aware extraction
 
-NuGet package and symbol-package extraction uses
-`ZipFile.ExtractToDirectory`, which rejects archive entries that escape the
-destination directory. Extraction occurs under process-created temporary
-directories before selected content is copied into product caches.
+NuGet package extraction uses `ZipFile.ExtractToDirectory`, which rejects
+archive entries that escape the destination directory. Extraction occurs under
+process-created temporary directories before the validated content is committed
+into product caches (`FileSystemPackageStore.CommitAsync`).
+
+Symbol-package (`.snupkg`) PDB acquisition does not extract the archive to disk.
+`SnupkgPdbReader` opens the archive in memory, matches candidate entries by file
+name only (never by attacker-controlled directory paths), validates each
+candidate's PDB header and debug GUID, and returns the matching bytes. Those
+bytes are then persisted through `IPdbStore`; the filesystem implementation
+(`FileSystemPdbStore`) maps only store-composed, per-segment-validated keys onto
+disk, so no archive-entry name is ever used as an output path.
 
 Package identifiers and versions used as cache path components pass
-`NuGetCache.ValidatePathComponent`. General cache entries use SHA-256-derived
-keys through `CoreCache`.
+`NuGetCache.ValidatePathComponent`. PDB cache key segments pass
+`FileSystemPdbStore`'s per-segment guard, which rejects empty, `.`, `..`,
+separator, and null-character segments while permitting the interior dots of a
+real PDB file name. General cache entries use SHA-256-derived keys through
+`CoreCache`.
 
 Archive containment does not itself bound expanded bytes, entry count, or disk
 consumption. Resource budgets remain an open requirement below.
