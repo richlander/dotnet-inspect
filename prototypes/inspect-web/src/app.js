@@ -231,6 +231,150 @@ function selectedMember(type) {
   return memberGroups(type).find(group => group.key === state.selectedMemberKey);
 }
 
+// The nav pane reacts to context: types at the top level, or the current type's
+// members (with the active member's overloads nested) once a member is open under
+// the API lens. Both modes render into #type-list so keyboard/scroll logic is shared.
+function navMode() {
+  return state.lens === "api" && state.selectedMemberKey ? "member" : "type";
+}
+
+function resetMemberSectionState() {
+  state.memberSection = "overview";
+  state.memberSource = null;
+  state.memberSourceError = "";
+  state.memberCallGraph = null;
+  state.memberCallGraphError = "";
+  state.memberFacts = null;
+  state.memberFactsError = "";
+  state.memberAnnotated = null;
+  state.memberAnnotatedError = "";
+}
+
+function openMemberGroup(key) {
+  state.selectedMemberKey = key;
+  state.selectedOverloadIndex = null;
+  resetMemberSectionState();
+  loadSelectedMemberDocumentation();
+}
+
+function openOverload(index) {
+  state.selectedOverloadIndex = index;
+  resetMemberSectionState();
+  loadSelectedMemberDocumentation();
+}
+
+// Flattened, ordered nav rows for member mode: every member group, with the active
+// group's overloads nested immediately beneath it. This is the exact list ↑/↓ walks.
+function memberNavEntries(type) {
+  const entries = [];
+  for (const group of memberGroups(type)) {
+    entries.push({ kind: "member", group });
+    if (group.key === state.selectedMemberKey && group.overloads.length > 1) {
+      group.overloads.forEach((_, index) => entries.push({ kind: "overload", group, index }));
+    }
+  }
+  return entries;
+}
+
+function memberNavCursor(entries) {
+  const index = entries.findIndex(entry => {
+    if (entry.kind === "overload") {
+      return entry.group.key === state.selectedMemberKey && state.selectedOverloadIndex === entry.index;
+    }
+    const isMulti = entry.group.overloads.length > 1;
+    return entry.group.key === state.selectedMemberKey && (isMulti ? state.selectedOverloadIndex == null : true);
+  });
+  return index < 0 ? 0 : index;
+}
+
+function selectMemberNavEntry(entry, focusList) {
+  if (entry.kind === "member") {
+    if (entry.group.key === state.selectedMemberKey && entry.group.overloads.length === 1) {
+      render();
+    } else {
+      openMemberGroup(entry.group.key);
+    }
+  } else {
+    if (entry.group.key !== state.selectedMemberKey) state.selectedMemberKey = entry.group.key;
+    openOverload(entry.index);
+  }
+  requestAnimationFrame(() => {
+    if (focusList) document.querySelector("#type-list")?.focus();
+    document.querySelector("#type-list .selected")?.scrollIntoView({ block: "nearest" });
+  });
+}
+
+function stepMemberNav(delta, focusList) {
+  const type = selectedType();
+  const entries = memberNavEntries(type);
+  if (!entries.length) return;
+  let cursor = memberNavCursor(entries);
+  cursor = Math.max(0, Math.min(entries.length - 1, cursor + delta));
+  selectMemberNavEntry(entries[cursor], focusList);
+}
+
+// ↑/↓ always act on the visible nav list, whatever depth you are at.
+function stepNav(delta) {
+  if (navMode() === "member") stepMemberNav(delta, false);
+  else stepTypeSelection(delta);
+}
+
+// ←/→ act on the horizontal tab strip at your depth: sections when a concrete
+// overload is open, otherwise the lens strip.
+function stepHorizontal(delta) {
+  const type = selectedType();
+  const member = state.lens === "api" ? selectedMember(type) : null;
+  const overloadOpen = member && !(member.overloads.length > 1 && state.selectedOverloadIndex == null);
+  if (overloadOpen) {
+    const order = ["overview", "call-graph", "facts", "source", "annotated"];
+    let index = order.indexOf(state.memberSection);
+    if (index < 0) index = 0;
+    state.memberSection = order[(index + delta + order.length) % order.length];
+    if (state.memberSection === "source") loadSelectedMemberSource();
+    else if (state.memberSection === "annotated") loadSelectedMemberAnnotatedSource();
+    else if (state.memberSection === "call-graph") loadSelectedMemberCallGraph();
+    else if (state.memberSection === "facts") loadSelectedMemberFacts();
+    else loadSelectedMemberDocumentation();
+  } else {
+    const index = lenses.findIndex(([id]) => id === state.lens);
+    state.lens = lenses[(index + delta + lenses.length) % lenses.length][0];
+    render();
+  }
+}
+
+// Enter drills one level deeper; Escape/Backspace pops back out.
+function drillIn() {
+  const type = selectedType();
+  if (!type) return;
+  if (navMode() === "type") {
+    if (state.lens !== "api") state.lens = "api";
+    const groups = memberGroups(type);
+    if (groups.length) openMemberGroup(groups[0].key);
+    else render();
+  } else {
+    const member = selectedMember(type);
+    if (member && member.overloads.length > 1 && state.selectedOverloadIndex == null) {
+      openOverload(0);
+    } else {
+      document.querySelector(".detail-scroll")?.focus?.();
+    }
+  }
+}
+
+function drillOut() {
+  if (navMode() !== "member") return false;
+  const member = selectedMember(selectedType());
+  if (member && member.overloads.length > 1 && state.selectedOverloadIndex != null) {
+    state.selectedOverloadIndex = null;
+  } else {
+    state.selectedMemberKey = "";
+    state.selectedOverloadIndex = null;
+  }
+  render();
+  return true;
+}
+
+
 function parameterTitle(parameters) {
   if (!parameters.length) return "()";
   return `(${parameters.map(parameter => parameter.type.split(".").at(-1)).join(", ")})`;
@@ -334,43 +478,7 @@ function render() {
       </nav>
 
       <main class="workspace">
-        <aside class="type-browser" aria-label="Public types">
-          <div class="browser-head">
-            <div>
-              <span class="pane-label">PUBLIC TYPES</span>
-              <span class="result-count">${visible.length} shown</span>
-            </div>
-            <button class="tiny-button" id="clear-filter" title="Clear filter">×</button>
-          </div>
-          <label class="type-search">
-            <span>/</span>
-            <input id="type-filter" value="${escapeHtml(state.typeFilter)}" placeholder="Filter types" autocomplete="off" spellcheck="false" />
-            <kbd>⌘F</kbd>
-          </label>
-          <div class="namespace-chips" aria-label="Namespace filters">
-            <button class="${!state.namespaceFilter ? "active" : ""}" data-namespace="">all</button>
-            ${namespaces().map(item => `<button class="${state.namespaceFilter === item ? "active" : ""}" data-namespace="${escapeHtml(item)}" title="${escapeHtml(item)}">${escapeHtml(item.split(".").at(-1))}</button>`).join("")}
-          </div>
-          <div class="type-list" role="listbox" tabindex="0" id="type-list">
-            ${[...typeGroups()].map(([namespace, types]) => `
-              <section class="type-group">
-                <button class="namespace-row" data-namespace="${escapeHtml(namespace)}">
-                  <span class="chevron">⌄</span>
-                  <span>${escapeHtml(namespace)}</span>
-                  <small>${types.length}</small>
-                </button>
-                ${types.map(item => {
-                  const selected = item.id === current.id;
-                  return `<button class="type-row ${selected ? "selected" : ""}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
-                    <span class="kind-icon">${kindIcon(item.kind)}</span>
-                    <span class="type-name">${escapeHtml(item.name)}</span>
-                    <small>${escapeHtml(shortKind(item.kind))}</small>
-                  </button>`;
-                }).join("")}
-              </section>`).join("") || '<div class="empty-list">No public types match this filter.</div>'}
-          </div>
-          <footer class="pane-footer"><span>↑↓ navigate</span><span>enter open</span><span>/ filter</span></footer>
-        </aside>
+        ${renderNavPane(current, visible)}
 
         <section class="detail-pane">
           <header class="detail-head">
@@ -437,6 +545,90 @@ function maybeAutoLoadTypeSource() {
   const signature = typeSourceSignature(type);
   if (state.typeSourceKey === signature) return;
   loadSelectedTypeSource();
+}
+
+function renderNavPane(current, visible) {
+  return navMode() === "member" ? renderMemberNav(current) : renderTypeNav(current, visible);
+}
+
+function renderTypeNav(current, visible) {
+  return `
+    <aside class="type-browser" aria-label="Public types">
+      <div class="browser-head">
+        <div>
+          <span class="pane-label">PUBLIC TYPES</span>
+          <span class="result-count">${visible.length} shown</span>
+        </div>
+        <button class="tiny-button" id="clear-filter" title="Clear filter">×</button>
+      </div>
+      <label class="type-search">
+        <span>/</span>
+        <input id="type-filter" value="${escapeHtml(state.typeFilter)}" placeholder="Filter types" autocomplete="off" spellcheck="false" />
+        <kbd>⌘F</kbd>
+      </label>
+      <div class="namespace-chips" aria-label="Namespace filters">
+        <button class="${!state.namespaceFilter ? "active" : ""}" data-namespace="">all</button>
+        ${namespaces().map(item => `<button class="${state.namespaceFilter === item ? "active" : ""}" data-namespace="${escapeHtml(item)}" title="${escapeHtml(item)}">${escapeHtml(item.split(".").at(-1))}</button>`).join("")}
+      </div>
+      <div class="type-list" role="listbox" tabindex="0" id="type-list">
+        ${[...typeGroups()].map(([namespace, types]) => `
+          <section class="type-group">
+            <button class="namespace-row" data-namespace="${escapeHtml(namespace)}">
+              <span class="chevron">⌄</span>
+              <span>${escapeHtml(namespace)}</span>
+              <small>${types.length}</small>
+            </button>
+            ${types.map(item => {
+              const selected = item.id === current.id;
+              return `<button class="type-row ${selected ? "selected" : ""}" data-type="${escapeHtml(item.id)}" role="option" aria-selected="${selected}">
+                <span class="kind-icon">${kindIcon(item.kind)}</span>
+                <span class="type-name">${escapeHtml(item.name)}</span>
+                <small>${escapeHtml(shortKind(item.kind))}</small>
+              </button>`;
+            }).join("")}
+          </section>`).join("") || '<div class="empty-list">No public types match this filter.</div>'}
+      </div>
+      <footer class="pane-footer"><span>↑↓ types</span><span>←→ lens</span><span>↵ open</span></footer>
+    </aside>`;
+}
+
+function renderMemberNav(type) {
+  const entries = memberNavEntries(type);
+  return `
+    <aside class="type-browser member-nav" aria-label="Members of ${escapeHtml(type.name)}">
+      <div class="browser-head">
+        <div>
+          <span class="pane-label">MEMBERS</span>
+          <span class="result-count">${memberGroups(type).length} members</span>
+        </div>
+      </div>
+      <button class="nav-back-row" id="nav-to-types" title="Back to types (Esc)">
+        <span class="chevron">‹</span>
+        <span class="type-name">${escapeHtml(type.name)}</span>
+        <small>types</small>
+      </button>
+      <div class="type-list member-list" role="listbox" tabindex="0" id="type-list">
+        ${entries.map(entry => {
+          if (entry.kind === "member") {
+            const group = entry.group;
+            const isMulti = group.overloads.length > 1;
+            const active = group.key === state.selectedMemberKey;
+            const selected = active && (isMulti ? state.selectedOverloadIndex == null : true);
+            return `<button class="type-row member-row ${active ? "active-group" : ""} ${selected ? "selected" : ""}" data-nav-member="${escapeHtml(group.key)}" role="option" aria-selected="${selected}">
+              <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
+              <span class="type-name">${escapeHtml(group.name)}</span>
+              <small>${isMulti ? `${group.overloads.length}×` : escapeHtml(shortKind(group.kind))}</small>
+            </button>`;
+          }
+          const selected = entry.group.key === state.selectedMemberKey && state.selectedOverloadIndex === entry.index;
+          return `<button class="type-row overload-nav-row ${selected ? "selected" : ""}" data-nav-overload="${entry.index}" role="option" aria-selected="${selected}">
+            <span class="overload-branch">↳</span>
+            <code>${highlight(entry.group.overloads[entry.index].signature)}</code>
+          </button>`;
+        }).join("")}
+      </div>
+      <footer class="pane-footer"><span>↑↓ members</span><span>←→ sections</span><span>esc types</span></footer>
+    </aside>`;
 }
 
 function renderLens(item) {
@@ -795,32 +987,22 @@ function bindEvents() {
     render();
   }));
   document.querySelectorAll("[data-member]").forEach(button => button.addEventListener("click", () => {
-    state.selectedMemberKey = button.dataset.member;
-    state.selectedOverloadIndex = null;
-    state.memberSection = "overview";
-    state.memberSource = null;
-    state.memberSourceError = "";
-    state.memberCallGraph = null;
-    state.memberCallGraphError = "";
-    state.memberFacts = null;
-    state.memberFactsError = "";
-    state.memberAnnotated = null;
-    state.memberAnnotatedError = "";
-    loadSelectedMemberDocumentation();
+    openMemberGroup(button.dataset.member);
   }));
   document.querySelectorAll("[data-overload]").forEach(button => button.addEventListener("click", () => {
-    state.selectedOverloadIndex = Number(button.dataset.overload);
-    state.memberSection = "overview";
-    state.memberSource = null;
-    state.memberSourceError = "";
-    state.memberCallGraph = null;
-    state.memberCallGraphError = "";
-    state.memberFacts = null;
-    state.memberFactsError = "";
-    state.memberAnnotated = null;
-    state.memberAnnotatedError = "";
-    loadSelectedMemberDocumentation();
+    openOverload(Number(button.dataset.overload));
   }));
+  document.querySelectorAll("[data-nav-member]").forEach(button => button.addEventListener("click", () => {
+    const group = memberGroups(selectedType()).find(item => item.key === button.dataset.navMember);
+    if (group) selectMemberNavEntry({ kind: "member", group }, false);
+  }));
+  document.querySelectorAll("[data-nav-overload]").forEach(button => button.addEventListener("click", () => {
+    const group = selectedMember(selectedType());
+    if (group) selectMemberNavEntry({ kind: "overload", group, index: Number(button.dataset.navOverload) }, false);
+  }));
+  document.querySelector("#nav-to-types")?.addEventListener("click", () => {
+    drillOut();
+  });
   document.querySelectorAll("[data-member-section]").forEach(button => button.addEventListener("click", () => {
     state.memberSection = button.dataset.memberSection;
     if (state.memberSection === "source") loadSelectedMemberSource();
@@ -831,13 +1013,7 @@ function bindEvents() {
     else render();
   }));
   document.querySelector("#member-back")?.addEventListener("click", () => {
-    const member = selectedMember(selectedType());
-    if (member?.overloads.length > 1 && state.selectedOverloadIndex != null) {
-      state.selectedOverloadIndex = null;
-    } else {
-      state.selectedMemberKey = "";
-    }
-    render();
+    drillOut();
   });
   document.querySelector("#copy-name")?.addEventListener("click", async () => {
     const type = selectedType();
@@ -891,7 +1067,7 @@ function bindEvents() {
     loadPackage(state.package.id, state.package.version, event.target.value);
   });
   const filter = document.querySelector("#type-filter");
-  filter.addEventListener("input", event => {
+  filter?.addEventListener("input", event => {
     state.typeFilter = event.target.value;
     state.typeCursor = 0;
     const first = filteredTypes()[0];
@@ -900,7 +1076,7 @@ function bindEvents() {
     render();
     focusFilter();
   });
-  filter.addEventListener("keydown", event => {
+  filter?.addEventListener("keydown", event => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
       document.querySelector("#type-list").focus();
@@ -909,7 +1085,7 @@ function bindEvents() {
       render();
     }
   });
-  document.querySelector("#type-list").addEventListener("keydown", handleTypeKeys);
+  document.querySelector("#type-list")?.addEventListener("keydown", handleTypeKeys);
   const spotlightInput = document.querySelector("#spotlight-input");
   if (spotlightInput) {
     spotlightInput.addEventListener("input", event => {
@@ -937,7 +1113,7 @@ function bindEvents() {
   document.querySelectorAll("#taste-popover [data-taste]").forEach(checkbox =>
     checkbox.addEventListener("change", () => toggleTaste(checkbox.dataset.taste)));
   document.querySelector("#taste-clear")?.addEventListener("click", clearTaste);
-  document.querySelector("#clear-filter").addEventListener("click", () => {
+  document.querySelector("#clear-filter")?.addEventListener("click", () => {
     state.typeFilter = "";
     state.namespaceFilter = "";
     render();
@@ -986,6 +1162,22 @@ function toggleTheme() {
 }
 
 function handleTypeKeys(event) {
+  if (navMode() === "member") {
+    if (event.key === "ArrowDown" || event.key === "j") {
+      event.preventDefault();
+      stepMemberNav(1, true);
+    } else if (event.key === "ArrowUp" || event.key === "k") {
+      event.preventDefault();
+      stepMemberNav(-1, true);
+    } else if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      stepHorizontal(-1);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      stepHorizontal(1);
+    }
+    return;
+  }
   const items = filteredTypes();
   if (!items.length) return;
   let cursor = items.findIndex(item => item.id === state.selectedTypeId);
@@ -2313,6 +2505,9 @@ document.addEventListener("keydown", event => {
   } else if (event.key === "Escape" && state.graphSourceOpen) {
     event.preventDefault();
     closeGraphSource();
+  } else if (event.key === "Escape" && !typing && navMode() === "member") {
+    event.preventDefault();
+    drillOut();
   } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
     openCommand();
@@ -2334,7 +2529,19 @@ document.addEventListener("keydown", event => {
   } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
       && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
     event.preventDefault();
-    stepTypeSelection(event.key === "ArrowDown" ? 1 : -1);
+    stepNav(event.key === "ArrowDown" ? 1 : -1);
+  } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
+      && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+    event.preventDefault();
+    stepHorizontal(event.key === "ArrowRight" ? 1 : -1);
+  } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
+      && !state.spotlightOpen && !state.promptOpen && event.key === "Enter") {
+    event.preventDefault();
+    drillIn();
+  } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
+      && event.key === "Backspace" && navMode() === "member") {
+    event.preventDefault();
+    drillOut();
   } else if (!typing && event.key === "/") {
     event.preventDefault();
     focusFilter();

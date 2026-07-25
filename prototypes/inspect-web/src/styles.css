@@ -360,6 +360,39 @@ kbd {
 }
 .type-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 13px var(--mono); }
 .type-row small { color: var(--dim); font: 10px var(--mono); }
+.nav-back-row {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  height: 30px;
+  width: 100%;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255,255,255,.015);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+.nav-back-row:hover { background: rgba(255,255,255,.03); }
+.nav-back-row .chevron { color: var(--dim); font-size: 15px; }
+.nav-back-row small { color: var(--dim); font: 10px var(--mono); }
+.member-list .member-row { padding-left: 14px; }
+.member-list .member-row.active-group { background: rgba(255,255,255,.022); }
+.member-list .overload-nav-row {
+  grid-template-columns: 16px minmax(0, 1fr);
+  height: 28px;
+  padding: 0 12px 0 26px;
+}
+.member-list .overload-nav-row .overload-branch { color: var(--dim); font: 11px var(--mono); }
+.member-list .overload-nav-row code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 11px var(--mono);
+  color: var(--text);
+}
 .empty-list { padding: 30px 18px; color: var(--dim); font: 11px/1.6 var(--mono); text-align: center; }
 .pane-footer {
   display: flex;
