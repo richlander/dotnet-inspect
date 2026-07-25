@@ -88,6 +88,102 @@ public sealed class InlineArrayCollectionPass : IIrPass
         RaisePlaceConversions(function, context);
         RaiseElementRefs(function, context);
         RaiseArraySpreadWithTail(function, context);
+        RaiseSingleElementLists(function, context);
+    }
+
+    const string SingleElementList = "<>z__ReadOnlySingleElementList";
+
+    /// <summary>
+    /// Raises the csc single-element read-only collection-expression lowering,
+    /// <c>new &lt;&gt;z__ReadOnlySingleElementList&lt;T&gt;(element)</c> — emitted for
+    /// a one-element collection expression targeting a read-only collection
+    /// interface (<c>IEnumerable&lt;T&gt;</c>, <c>IReadOnlyCollection&lt;T&gt;</c>,
+    /// or <c>IReadOnlyList&lt;T&gt;</c>) — back into <c>[element]</c>. The angle-
+    /// bracketed synthesized type name never parses left flat.
+    ///
+    /// <para>Restored to <c>[element]</c> the expression is target-typed by the
+    /// surrounding context, so the raise only fires when that context supplies a
+    /// spellable target type: a call or constructor argument slot's parameter type,
+    /// or a typed local store. A receiver slot (where <c>[element]</c> would not be a
+    /// legal C# expression) and any other context are left flat, so fidelity
+    /// degrades honestly rather than fabricating a target type. The <c>&lt;&gt;</c>
+    /// name prefix is compiler-reserved, so the match never collides with a user
+    /// type.</para>
+    /// </summary>
+    static void RaiseSingleElementLists(IrFunction function, PassContext context)
+    {
+        foreach (var newObject in function.Descendants.OfType<NewObject>().ToList())
+        {
+            if (newObject.Parent is null)
+                continue; // already rewritten in this pass
+            if (!TryGetSingleElementListElement(newObject.Constructor.DeclaringType, out var elementType))
+                continue;
+            if (newObject.Arguments is not [_])
+                continue;
+            if (!TryResolveCollectionTargetType(newObject, out var targetType))
+                continue;
+
+            var element = (IrExpression)newObject.DetachChildren()[0];
+            var collection = new CollectionExpression(elementType, targetType, [element]);
+            context.Stepper.StepOver("raise single-element read-only list to collection expression", newObject);
+            newObject.ReplaceWith(collection);
+        }
+    }
+
+    /// <summary>
+    /// The element type <c>T</c> of a
+    /// <c>&lt;&gt;z__ReadOnlySingleElementList&lt;T&gt;</c> construction; false for any
+    /// other type. The construction is a generic instance whose definition name
+    /// carries the reserved <c>&lt;&gt;</c> prefix and an arity backtick.
+    /// </summary>
+    static bool TryGetSingleElementListElement(TypeRef type, out TypeRef elementType)
+    {
+        elementType = null!;
+        if (type.Kind != TypeRefKind.GenericInstance || type.ElementType is not { } definition)
+            return false;
+        if (!definition.Name.StartsWith(SingleElementList, System.StringComparison.Ordinal))
+            return false;
+        if (type.TypeArguments is not [var argument])
+            return false;
+        elementType = argument;
+        return true;
+    }
+
+    /// <summary>
+    /// The spellable target type the raised <c>[element]</c> is inferred against,
+    /// read from the construction's immediate use-site: a call or constructor
+    /// argument slot's parameter type, or a typed local store. False (no raise) for
+    /// a receiver slot or any other context — the collection expression has no
+    /// natural type, so without a target the fallback keeps the flat construction.
+    /// </summary>
+    static bool TryResolveCollectionTargetType(NewObject newObject, out TypeRef targetType)
+    {
+        targetType = null!;
+        switch (newObject.Parent)
+        {
+            case Call call:
+            {
+                int parameter = call.Callee.HasThis ? newObject.ChildIndex - 1 : newObject.ChildIndex;
+                var parameters = call.Callee.ParameterTypes;
+                if (parameter < 0 || parameter >= parameters.Length)
+                    return false;
+                targetType = parameters[parameter];
+                return true;
+            }
+            case NewObject construction:
+            {
+                var parameters = construction.Constructor.ParameterTypes;
+                if (newObject.ChildIndex < 0 || newObject.ChildIndex >= parameters.Length)
+                    return false;
+                targetType = parameters[newObject.ChildIndex];
+                return true;
+            }
+            case StoreLocal store:
+                targetType = store.Type;
+                return true;
+            default:
+                return false;
+        }
     }
 
     static void RaiseArraySpreadWithTail(IrFunction function, PassContext context)
