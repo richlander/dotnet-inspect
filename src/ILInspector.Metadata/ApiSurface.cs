@@ -457,11 +457,12 @@ public class ApiMember
 
     /// <summary>
     /// True when this method is a class finalizer — the <c>object.Finalize</c>
-    /// override the C# <c>~Type()</c> destructor syntax compiles to. Roslyn emits
-    /// it with an explicit <c>.override</c> MethodImpl, so it otherwise surfaces
-    /// as a modifier-less <c>void Finalize()</c>; this flag lets the C# writer
-    /// spell it <c>~Type()</c> instead. A metadata fact (the overridden slot),
-    /// separate from the C# spelling the writer owns.
+    /// override the C# <c>~Type()</c> destructor syntax compiles to. Detected
+    /// from the method's explicit <c>.override</c> MethodImpl targeting
+    /// <c>System.Object::Finalize</c>, so it is judged by the overridden slot
+    /// rather than by name or signature shape. Lets the C# writer spell it
+    /// <c>~Type()</c> instead of the bare <c>void Finalize()</c>. A metadata fact
+    /// (the overridden slot), separate from the C# spelling the writer owns.
     /// </summary>
     public bool IsFinalizer { get; set; }
 

@@ -101,6 +101,31 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void FinalizerMember_WithSuppressFinalizerSpelling_KeepsLiteralFinalize()
+    {
+        // Issue #3157 (fidelity hardening): the '~Type()' spelling assumes the
+        // recompiled destructor re-emits the mandatory 'base.Finalize()'. When the
+        // decompiled body did NOT recover the canonical destructor scaffold, the
+        // full-body path suppresses the destructor spelling so recompiling keeps
+        // the observed body instead of silently re-injecting the base call.
+        var type = new ApiType { Namespace = "Samples", Name = "Handle", Kind = "class" };
+        var finalizer = new ApiMember
+        {
+            Name = "Finalize",
+            Kind = "explicit-interface-implementation",
+            Signature = "void Finalize()",
+            IsVirtual = true,
+            IsFinalizer = true,
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+            type, finalizer, new CSharpDeclarationOptions { SuppressFinalizerSpelling = true });
+
+        Assert.Equal("void Finalize()", declaration);
+        Assert.DoesNotContain("~Handle", declaration);
+    }
+
+    [Fact]
     public void ShortWithUsingsMemberUnit_GeneratesImportsAndShortensTypes()
     {
         var type = CreateSampleType();

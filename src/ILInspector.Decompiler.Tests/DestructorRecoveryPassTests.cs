@@ -54,6 +54,10 @@ public class DestructorRecoveryPassTests
         Assert.DoesNotContain(
             function.Descendants.OfType<Call>(),
             call => call.Callee.Name == "Finalize");
+
+        // The destructor fact surfaces on the printed result so full-body
+        // consumers can gate the '~Type()' spelling on it (issue #3157).
+        Assert.True(CSharpPrinter.Print(function).BodyIsDestructor);
     }
 
     [Fact]
@@ -72,6 +76,11 @@ public class DestructorRecoveryPassTests
         Assert.Contains(
             function.Descendants.OfType<Call>(),
             call => call.Callee.Name == "Finalize");
+
+        // A non-canonical Finalize override reports BodyIsDestructor=false, so the
+        // full-body consumer keeps the literal 'void Finalize()' rather than the
+        // '~Type()' spelling that would re-inject base.Finalize() on recompile.
+        Assert.False(CSharpPrinter.Print(function).BodyIsDestructor);
     }
 
     static IrFunction BuildManualFinalize(bool includeExecutableTrailingStatement)

@@ -147,6 +147,11 @@ public static class ApiSurfaceExtractor
 
             var explicitImplementationBodies = GetExplicitImplementationBodies(reader, typeDef);
 
+            // Methods whose explicit `.override` MethodImpl targets
+            // `System.Object::Finalize` — i.e. genuine class finalizers, the
+            // slot the C# `~Type()` destructor compiles to.
+            var objectFinalizeOverrides = GetObjectFinalizeOverrides(reader, typeDef);
+
             // Methods
             foreach (var methodHandle in typeDef.GetMethods())
             {
@@ -182,20 +187,23 @@ public static class ApiSurfaceExtractor
                 var isNewSlot = (methodAttributes & MethodAttributes.NewSlot) != 0;
                 var isOverride = isVirtual && !isNewSlot && !isExplicitInterfaceImplementation;
 
-                // A class finalizer is the `object.Finalize` override — a
-                // parameterless void `Finalize` that reuses (does not new-slot)
-                // the base virtual slot. Roslyn emits it with an explicit
-                // `.override` MethodImpl, so it lands in explicitImplementationBodies
-                // above; detect it by shape so the C# writer can spell `~Type()`.
-                // The exact name `Finalize` (no dot-qualified interface prefix)
-                // and the reused slot exclude an explicit `IFoo.Finalize()` impl.
+                // A class finalizer is the `object.Finalize` override the C#
+                // `~Type()` destructor compiles to. Roslyn emits it with an
+                // explicit `.override` MethodImpl targeting
+                // `System.Object::Finalize`, so we detect it by that target
+                // rather than by name/signature shape. Keying on the overridden
+                // slot (not the name `Finalize`, the reused virtual slot, or the
+                // decoded signature) is what excludes the false positives a
+                // shape heuristic admits: a generic `Finalize<T>()` override, an
+                // override of an unrelated base/interface `Finalize()` slot, and
+                // an explicit `IFoo.Finalize()` implementation (whose MethodImpl
+                // targets the interface, not object). A method whose signature
+                // failed to decode is likewise judged by its MethodImpl target
+                // alone, so a degraded decode cannot masquerade as a finalizer.
+                // VB-style implicit `object.Finalize` overrides carry no
+                // MethodImpl and fall back to the literal `void Finalize()`.
                 var isFinalizer = apiType.Kind == "class"
-                    && methodName == "Finalize"
-                    && (methodAttributes & MethodAttributes.Static) == 0
-                    && isVirtual
-                    && !isNewSlot
-                    && (signature.Model?.Parameters is null or { Count: 0 })
-                    && signature.Model?.ReturnType is null or "void";
+                    && objectFinalizeOverrides.Contains(methodHandle);
 
                 var member = new ApiMember
                 {
@@ -796,6 +804,73 @@ public static class ApiSurfaceExtractor
         }
 
         return handles;
+    }
+
+    /// <summary>
+    /// The set of methods on <paramref name="typeDef"/> whose explicit
+    /// <c>.override</c> MethodImpl targets <c>System.Object::Finalize</c> — the
+    /// slot a C# <c>~Type()</c> destructor compiles to. Keying on the overridden
+    /// declaration (not the method's own name/slot/signature) is what lets the
+    /// C# writer spell <c>~Type()</c> for real finalizers while excluding a
+    /// same-named override of an unrelated <c>Finalize</c> slot or an explicit
+    /// interface implementation.
+    /// </summary>
+    private static HashSet<MethodDefinitionHandle> GetObjectFinalizeOverrides(
+        MetadataReader reader, TypeDefinition typeDef)
+    {
+        HashSet<MethodDefinitionHandle> handles = [];
+        foreach (var implementationHandle in typeDef.GetMethodImplementations())
+        {
+            var implementation = reader.GetMethodImplementation(implementationHandle);
+            if (implementation.MethodBody.Kind != HandleKind.MethodDefinition)
+                continue;
+            if (ReferencesObjectFinalize(reader, implementation.MethodDeclaration))
+                handles.Add((MethodDefinitionHandle)implementation.MethodBody);
+        }
+
+        return handles;
+    }
+
+    /// <summary>
+    /// True when <paramref name="methodDeclaration"/> (the target of a
+    /// <c>.override</c> MethodImpl) names <c>Finalize</c> on <c>System.Object</c>.
+    /// The target is a <see cref="MemberReferenceHandle"/> in the common case
+    /// (object lives in another assembly) and a <see cref="MethodDefinitionHandle"/>
+    /// only when inspecting the assembly that defines <c>System.Object</c>.
+    /// </summary>
+    private static bool ReferencesObjectFinalize(MetadataReader reader, EntityHandle methodDeclaration)
+    {
+        switch (methodDeclaration.Kind)
+        {
+            case HandleKind.MemberReference:
+                var memberRef = reader.GetMemberReference((MemberReferenceHandle)methodDeclaration);
+                return string.Equals(reader.GetString(memberRef.Name), "Finalize", StringComparison.Ordinal)
+                    && IsSystemObjectType(reader, memberRef.Parent);
+            case HandleKind.MethodDefinition:
+                var methodDef = reader.GetMethodDefinition((MethodDefinitionHandle)methodDeclaration);
+                return string.Equals(reader.GetString(methodDef.Name), "Finalize", StringComparison.Ordinal)
+                    && IsSystemObjectType(reader, methodDef.GetDeclaringType());
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>True when <paramref name="typeHandle"/> resolves to <c>System.Object</c>.</summary>
+    private static bool IsSystemObjectType(MetadataReader reader, EntityHandle typeHandle)
+    {
+        switch (typeHandle.Kind)
+        {
+            case HandleKind.TypeReference:
+                var typeRef = reader.GetTypeReference((TypeReferenceHandle)typeHandle);
+                return string.Equals(reader.GetString(typeRef.Namespace), "System", StringComparison.Ordinal)
+                    && string.Equals(reader.GetString(typeRef.Name), "Object", StringComparison.Ordinal);
+            case HandleKind.TypeDefinition:
+                var typeDef = reader.GetTypeDefinition((TypeDefinitionHandle)typeHandle);
+                return string.Equals(reader.GetString(typeDef.Namespace), "System", StringComparison.Ordinal)
+                    && string.Equals(reader.GetString(typeDef.Name), "Object", StringComparison.Ordinal);
+            default:
+                return false;
+        }
     }
 
     private static bool IsOperatorMethodName(string methodName) =>

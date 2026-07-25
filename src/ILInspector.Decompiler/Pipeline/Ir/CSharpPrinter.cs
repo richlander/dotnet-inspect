@@ -297,6 +297,7 @@ public sealed partial class CSharpPrinter
             RequiresUnsafeBodyModifier = function.Descendants.Prepend(function).Any(NeedsUnsafeContext),
             ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
             BodyIsSingleExpressionBody = BodyIsSingleExpressionBody(function, output),
+            BodyIsDestructor = function.IsDestructor,
             Metadata = new DecompilerResultMetadata(EffectiveDecompilerOptions(), [.. _decisions]),
         };
 

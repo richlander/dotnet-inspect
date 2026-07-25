@@ -30,6 +30,15 @@ internal sealed record CSharpDeclarationOptions
     public bool IncludeObsoleteAttribute { get; init; } = true;
     public bool OmitInterfaceMemberModifiers { get; init; }
     public bool OmitPropertyAccessors { get; init; }
+
+    /// <summary>
+    /// When true, a finalizer member (<see cref="ApiMember.IsFinalizer"/>) is
+    /// rendered as the literal <c>void Finalize()</c> method rather than the
+    /// <c>~Type()</c> destructor syntax. Set on body-bearing renders whose body
+    /// was not recovered as a canonical destructor, so the emitted source does
+    /// not silently re-inject the compiler's mandatory <c>base.Finalize()</c>.
+    /// </summary>
+    public bool SuppressFinalizerSpelling { get; init; }
 }
 
 internal sealed record CSharpRenderedDeclaration(
@@ -324,7 +333,7 @@ internal static class CSharpDeclarationWriter
         {
             signature = $"{FormatConstructorTypeName(type.Name)}()";
         }
-        else if (member.IsFinalizer)
+        else if (member.IsFinalizer && !options.SuppressFinalizerSpelling)
         {
             signature = $"~{FormatConstructorTypeName(type.Name)}()";
         }
@@ -381,7 +390,7 @@ internal static class CSharpDeclarationWriter
             if (member.IsUnsafe || options.ForceUnsafe)
                 modifiers.Add("unsafe");
         }
-        else if (member.IsFinalizer)
+        else if (member.IsFinalizer && !options.SuppressFinalizerSpelling)
         {
             // A finalizer (`~Type()`) carries no accessibility or override
             // modifiers — only `unsafe` is legal on it.

@@ -841,9 +841,10 @@ public static class MemberBodyProducer
                     string? constructorChain = null;
                     bool requiresUnsafeContext = false;
                     bool bodyIsSingleExpressionBody = false;
+                    bool bodyIsDestructor = false;
                     string? body = member.IsAbstract
                         ? null
-                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, printerOptions);
+                        : DecompileBody(pipelineSource, memberHandle, type.FullName, member, index, bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions);
 
                     // An explicit interface property implementation surfaces
                     // as its accessor method (Iface.get_X). Render the
@@ -887,7 +888,13 @@ public static class MemberBodyProducer
                         {
                             RequiresAsyncModifier = memberHandle is { } asyncHandle
                                 && TypeShellProducer.RequiresAsyncBodyModifier(reader, asyncHandle),
-                            RequiresUnsafeModifier = requiresUnsafeContext
+                            RequiresUnsafeModifier = requiresUnsafeContext,
+                            // Only spell '~Type()' when the destructor pass actually
+                            // recovered the canonical try/finally { base.Finalize(); }
+                            // scaffold. A Finalize override whose body did not match
+                            // keeps the literal 'void Finalize()' so recompiling does
+                            // not silently re-inject the mandatory base call.
+                            SuppressDestructorSyntax = member.IsFinalizer && !bodyIsDestructor
                         };
                     var declaration = bodyShape is null
                         ? DefaultDeclarationFormatter.FormatMember(type, member)
@@ -1303,7 +1310,7 @@ public static class MemberBodyProducer
         Pipeline.MetadataSource pipelineSource, MethodDefinitionHandle? memberHandle,
         string typeFullName, ApiMember member, int overloadIndex,
         SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
-        out bool bodyIsSingleExpressionBody, Pipeline.PrinterOptions? printerOptions)
+        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions)
     {
         // Prefer the member's own metadata handle — the canonical same-reader
         // addressing (see docs/design/member-body-substrate.md). The caller has
@@ -1314,7 +1321,7 @@ public static class MemberBodyProducer
         if (memberHandle is { } methodHandle)
             return DecompileFunction(pipelineSource,
                 Pipeline.IrImporter.Import(pipelineSource, methodHandle),
-                bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, printerOptions);
+                bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions);
 
         // Public-only overload counting, except explicit interface
         // implementations (non-public by nature) — matching the API surface
@@ -1323,7 +1330,7 @@ public static class MemberBodyProducer
             publicOnly: member.Kind != "explicit-interface-implementation"
                 && !(member.Kind == "constructor" && member.DeclaringOverloadIndex is not null)
                 && member.Accessibility is null,
-            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, printerOptions);
+            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions);
     }
 
     /// <summary>
@@ -1403,9 +1410,9 @@ public static class MemberBodyProducer
         => accessorHandle is { } handle
             ? DecompileFunction(pipelineSource,
                 Pipeline.IrImporter.Import(pipelineSource, handle),
-                bodyNamespaces, out _, out requiresUnsafeContext, out bodyIsSingleExpressionBody, printerOptions)
+                bodyNamespaces, out _, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out _, printerOptions)
             : DecompileMethod(pipelineSource, typeFullName, accessorName, overloadIndex: 0,
-            publicOnly: false, bodyNamespaces, out _, out requiresUnsafeContext, out bodyIsSingleExpressionBody, printerOptions);
+            publicOnly: false, bodyNamespaces, out _, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out _, printerOptions);
 
     /// <summary>
     /// Imports one method to typed IR, runs the raising passes, and prints the
@@ -1418,10 +1425,10 @@ public static class MemberBodyProducer
     static string? DecompileMethod(
         Pipeline.MetadataSource pipelineSource, string typeFullName, string methodName, int overloadIndex,
         bool publicOnly, SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
-        out bool bodyIsSingleExpressionBody, Pipeline.PrinterOptions? printerOptions)
+        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions)
         => DecompileFunction(pipelineSource,
             Pipeline.IrImporter.Import(pipelineSource, typeFullName, methodName, overloadIndex, publicOnly),
-            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, printerOptions);
+            bodyNamespaces, out constructorChain, out requiresUnsafeContext, out bodyIsSingleExpressionBody, out bodyIsDestructor, printerOptions);
 
     /// <summary>
     /// Runs the raising passes and prints an already-imported function. A null
@@ -1432,11 +1439,12 @@ public static class MemberBodyProducer
     static string? DecompileFunction(
         Pipeline.MetadataSource pipelineSource, Pipeline.IrFunction? function,
         SortedSet<string> bodyNamespaces, out string? constructorChain, out bool requiresUnsafeContext,
-        out bool bodyIsSingleExpressionBody, Pipeline.PrinterOptions? printerOptions)
+        out bool bodyIsSingleExpressionBody, out bool bodyIsDestructor, Pipeline.PrinterOptions? printerOptions)
     {
         constructorChain = null;
         requiresUnsafeContext = false;
         bodyIsSingleExpressionBody = false;
+        bodyIsDestructor = false;
         if (function is null)
             return null;
         CollectNamespaces(function, bodyNamespaces);
@@ -1446,6 +1454,7 @@ public static class MemberBodyProducer
         constructorChain = result.ConstructorChain;
         requiresUnsafeContext = result.RequiresUnsafeBodyModifier;
         bodyIsSingleExpressionBody = result.BodyIsSingleExpressionBody;
+        bodyIsDestructor = result.BodyIsDestructor;
         return result.Output?.TrimEnd() ?? DiagnosticComment(result);
     }
 

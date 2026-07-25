@@ -580,6 +580,7 @@ public sealed class CSharpTypePrinter
             IsAbstract = member.IsAbstract,
             IsOverride = member.IsOverride,
             IsSealed = member.IsSealed,
+            IsFinalizer = member.IsFinalizer,
             IsReadOnly = member.IsReadOnly,
             IsConst = member.IsConst,
             IsUnsafe = member.IsUnsafe,
