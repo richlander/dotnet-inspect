@@ -1,5 +1,14 @@
 import { lenses, rootCommands } from "./data.js";
-import { initializeEngine, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectSearchTypes, inspectTypeMemberSource, inspectTypeSource } from "/engine.js";
+import { initializeEngine, inspectListStyleOptions, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectSearchTypes, inspectTypeMemberSource, inspectTypeSource } from "/engine.js";
+
+function loadStoredTaste() {
+  try {
+    const value = JSON.parse(localStorage.getItem("inspect-taste") || "[]");
+    return Array.isArray(value) ? value.filter(item => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 let spotlightCache = null;
 
@@ -44,6 +53,10 @@ const state = {
   graphSourceLoading: false,
   graphSourceError: "",
   graphSourceTitle: "",
+  graphSourceRequest: null,
+  styleOptions: null,
+  taste: loadStoredTaste(),
+  tasteOpen: false,
   typeCursor: 0,
   history: [],
   loading: true,
@@ -344,7 +357,7 @@ function render() {
               <span>${escapeHtml(state.package.id)}</span><b>/</b><span>${escapeHtml(current.namespace)}</span><b>/</b><strong>${escapeHtml(current.name)}</strong>
               ${state.selectedMemberKey ? `<b>/</b><strong>${escapeHtml(selectedMember(current)?.name ?? "")}</strong>` : ""}
             </div>
-            <div class="detail-actions"><button>copy name</button><button>⋯</button></div>
+            <div class="detail-actions"><button>copy name</button><button id="taste-btn" class="${state.taste.length ? "active" : ""}" title="Decompiler style (taste)">taste${state.taste.length ? ` · ${state.taste.length}` : ""}</button></div>
           </header>
           <article class="detail-scroll">
             ${renderLens(current)}
@@ -383,6 +396,7 @@ function render() {
       </section>
       ${state.spotlightOpen ? renderSpotlight() : ""}
       ${state.graphSourceOpen ? renderGraphSource() : ""}
+      ${state.tasteOpen ? renderTastePopover() : ""}
     </div>`;
 
   bindEvents();
@@ -867,6 +881,14 @@ function bindEvents() {
     if (event.target.id === "graph-source-backdrop") closeGraphSource();
   });
   document.querySelector("#graph-source-close")?.addEventListener("click", closeGraphSource);
+  document.querySelector("#taste-btn")?.addEventListener("click", event => {
+    event.stopPropagation();
+    state.tasteOpen = !state.tasteOpen;
+    render();
+  });
+  document.querySelectorAll("#taste-popover [data-taste]").forEach(checkbox =>
+    checkbox.addEventListener("change", () => toggleTaste(checkbox.dataset.taste)));
+  document.querySelector("#taste-clear")?.addEventListener("click", clearTaste);
   document.querySelector("#clear-filter").addEventListener("click", () => {
     state.typeFilter = "";
     state.namespaceFilter = "";
@@ -1410,7 +1432,8 @@ async function loadSelectedMemberSource() {
       assembly: type.assembly,
       type: type.id,
       member: overload.name,
-      signature: overload.signature
+      signature: overload.signature,
+      styleOptionsJson: JSON.stringify(state.taste)
     });
   } catch (error) {
     state.memberSourceError = String(error?.message || error);
@@ -1442,7 +1465,8 @@ async function loadSelectedTypeSource() {
       version: state.package.version,
       framework: state.package.activeFramework,
       assembly: type.assembly,
-      type: type.id
+      type: type.id,
+      styleOptionsJson: JSON.stringify(state.taste)
     });
     if (state.typeSourceKey === signature) state.typeSource = result;
   } catch (error) {
@@ -1761,12 +1785,13 @@ function resolveNodeForSource(label, external = false) {
 async function openGraphSource(request, title) {
   state.graphSourceOpen = true;
   state.graphSourceTitle = title;
+  state.graphSourceRequest = { request, title };
   state.graphSource = null;
   state.graphSourceError = "";
   state.graphSourceLoading = true;
   render();
   try {
-    state.graphSource = await inspectTypeMemberSource(request);
+    state.graphSource = await inspectTypeMemberSource({ ...request, styleOptionsJson: JSON.stringify(state.taste) });
   } catch (error) {
     state.graphSourceError = String(error?.message || error);
   } finally {
@@ -1780,6 +1805,83 @@ function closeGraphSource() {
   state.graphSource = null;
   state.graphSourceError = "";
   state.graphSourceLoading = false;
+  state.graphSourceRequest = null;
+  render();
+}
+
+const TASTE_TIERS = [
+  ["Formatting", "Formatting"],
+  ["Spelling", "Spelling (this.)"],
+  ["Lens", "Lenses · byte-divergent"],
+  ["Synthesis", "Name synthesis"]
+];
+
+function renderTastePopover() {
+  const options = state.styleOptions || [];
+  const body = options.length
+    ? TASTE_TIERS
+        .filter(([tier]) => options.some(option => option.tier === tier))
+        .map(([tier, label]) => `
+          <div class="taste-group">
+            <div class="taste-group-title">${escapeHtml(label)}</div>
+            ${options.filter(option => option.tier === tier).map(option => `
+              <label class="taste-item">
+                <input type="checkbox" data-taste="${escapeHtml(option.id)}" ${state.taste.includes(option.id) ? "checked" : ""} />
+                <span class="taste-item-text">
+                  <span class="taste-item-title">${escapeHtml(option.title)}${option.byteDivergent ? '<em class="taste-badge divergent">byte-divergent</em>' : ""}${option.oracleEndorsed ? '<em class="taste-badge oracle">oracle</em>' : ""}</span>
+                  <span class="taste-item-summary">${escapeHtml(option.summary)}</span>
+                </span>
+              </label>`).join("")}
+          </div>`).join("")
+    : '<div class="taste-empty">Style catalog unavailable.</div>';
+  return `
+    <div class="taste-popover" id="taste-popover" role="dialog" aria-label="Decompiler taste">
+      <div class="taste-head"><strong>Taste</strong><span>decompiler style knobs</span></div>
+      <div class="taste-body">${body}</div>
+      <div class="taste-foot">${state.taste.length ? '<button id="taste-clear" type="button">reset to default</button>' : '<span>default · opcode-faithful</span>'}</div>
+    </div>`;
+}
+
+function invalidateSourceCaches() {
+  state.memberSource = null;
+  state.memberSourceError = "";
+  state.typeSource = null;
+  state.typeSourceKey = "";
+  state.typeSourceError = "";
+}
+
+function reloadVisibleSource() {
+  if (state.graphSourceOpen && state.graphSourceRequest) {
+    openGraphSource(state.graphSourceRequest.request, state.graphSourceRequest.title);
+  }
+  if (state.lens === "source") loadSelectedTypeSource();
+  else if (state.selectedMemberKey && state.memberSection === "source") loadSelectedMemberSource();
+}
+
+function toggleTaste(id) {
+  const option = (state.styleOptions || []).find(item => item.id === id);
+  if (state.taste.includes(id)) {
+    state.taste = state.taste.filter(item => item !== id);
+  } else {
+    if (option?.conflictGroup) {
+      const groupIds = (state.styleOptions || [])
+        .filter(item => item.conflictGroup === option.conflictGroup)
+        .map(item => item.id);
+      state.taste = state.taste.filter(item => !groupIds.includes(item));
+    }
+    state.taste = [...state.taste, id];
+  }
+  localStorage.setItem("inspect-taste", JSON.stringify(state.taste));
+  invalidateSourceCaches();
+  reloadVisibleSource();
+  render();
+}
+
+function clearTaste() {
+  state.taste = [];
+  localStorage.setItem("inspect-taste", "[]");
+  invalidateSourceCaches();
+  reloadVisibleSource();
   render();
 }
 
@@ -1953,6 +2055,11 @@ async function bootstrap() {
       render();
     });
     const tEngine = performance.now();
+    try {
+      state.styleOptions = await inspectListStyleOptions();
+    } catch {
+      state.styleOptions = [];
+    }
     await loadPackage(state.requestedPackage, state.requestedVersion, state.requestedFramework);
     const tReady = performance.now();
     state.diag = computeDiagnostics(tStart, tEngine, tReady);
@@ -2008,7 +2115,11 @@ function fmtBytes(bytes) {
 
 document.addEventListener("keydown", event => {
   const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName);
-  if (event.key === "Escape" && state.graphSourceOpen) {
+  if (event.key === "Escape" && state.tasteOpen) {
+    event.preventDefault();
+    state.tasteOpen = false;
+    render();
+  } else if (event.key === "Escape" && state.graphSourceOpen) {
     event.preventDefault();
     closeGraphSource();
   } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -2041,6 +2152,13 @@ document.addEventListener("keydown", event => {
     event.preventDefault();
     openSpotlight(event.key);
   }
+});
+
+document.addEventListener("mousedown", event => {
+  if (!state.tasteOpen) return;
+  if (event.target.closest("#taste-popover") || event.target.closest("#taste-btn")) return;
+  state.tasteOpen = false;
+  render();
 });
 
 bootstrap();

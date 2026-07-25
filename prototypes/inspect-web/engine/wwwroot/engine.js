@@ -8,6 +8,7 @@ let queryMemberCallGraph;
 let queryMemberDocumentation;
 let queryMemberFacts;
 let searchTypes;
+let listStyleOptions;
 
 export async function initializeEngine(onStatus = () => {}) {
   onStatus("Loading .NET 11 WebAssembly…");
@@ -22,6 +23,7 @@ export async function initializeEngine(onStatus = () => {}) {
   queryMemberDocumentation = exports.BrowserInspectionEngine.QueryMemberDocumentation;
   queryMemberFacts = exports.BrowserInspectionEngine.QueryMemberFacts;
   searchTypes = exports.BrowserInspectionEngine.SearchTypes;
+  listStyleOptions = exports.BrowserInspectionEngine.ListStyleOptions;
   await runtime.runMain();
   onStatus("Querying package compile assets…");
 }
@@ -41,7 +43,8 @@ export async function inspectMemberSource(request) {
     request.assembly,
     request.type,
     request.member,
-    request.signature);
+    request.signature,
+    request.styleOptionsJson ?? "[]");
   return JSON.parse(json);
 }
 
@@ -53,7 +56,8 @@ export async function inspectTypeMemberSource(request) {
     request.framework,
     request.assembly,
     request.type,
-    request.member);
+    request.member,
+    request.styleOptionsJson ?? "[]");
   return JSON.parse(json);
 }
 
@@ -64,8 +68,14 @@ export async function inspectTypeSource(request) {
     request.version,
     request.framework,
     request.assembly,
-    request.type);
+    request.type,
+    request.styleOptionsJson ?? "[]");
   return JSON.parse(json);
+}
+
+export async function inspectListStyleOptions() {
+  if (!listStyleOptions) throw new Error("The browser inspection engine is not initialized.");
+  return JSON.parse(await listStyleOptions());
 }
 
 export async function inspectMemberCallGraph(request) {

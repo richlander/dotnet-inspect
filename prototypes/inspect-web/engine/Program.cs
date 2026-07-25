@@ -10,6 +10,7 @@ using ILInspector.CallGraph;
 using ILInspector.Decompiler;
 using ILInspector.Metadata;
 using Analysis = ILInspector.Analysis;
+using Pipeline = ILInspector.Decompiler.Pipeline;
 
 Console.WriteLine("dotnet-inspect browser engine ready");
 
@@ -176,6 +177,15 @@ public sealed record BrowserPerformanceOpportunity(
     string? Finding,
     string Provenance);
 
+public sealed record BrowserStyleOption(
+    string Id,
+    string Title,
+    string Summary,
+    string Tier,
+    bool ByteDivergent,
+    bool OracleEndorsed,
+    string? ConflictGroup);
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserMemberSource))]
@@ -185,6 +195,8 @@ public sealed record BrowserPerformanceOpportunity(
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(typeof(BrowserTypeCandidate[]))]
 [JsonSerializable(typeof(BrowserTypeSearchHit[]))]
+[JsonSerializable(typeof(BrowserStyleOption[]))]
+[JsonSerializable(typeof(string[]))]
 internal sealed partial class BrowserJsonContext : JsonSerializerContext;
 
 [SupportedOSPlatform("browser")]
@@ -398,6 +410,49 @@ public static partial class BrowserInspectionEngine
                 $"Package '{normalizedId}' has no stable published version. Specify a prerelease version explicitly.");
     }
 
+    // The library-owned StyleOptionCatalog is the single source of truth for the decompiler
+    // style knobs ("taste"). Projecting it verbatim keeps the UI data-driven: options added
+    // to the catalog surface in the browser without any change here.
+    [JSExport]
+    public static string ListStyleOptions()
+    {
+        var options = Pipeline.StyleOptionCatalog.Options
+            .Select(descriptor => new BrowserStyleOption(
+                descriptor.Id,
+                descriptor.Title,
+                descriptor.Summary,
+                descriptor.Tier.ToString(),
+                descriptor.ByteDivergent,
+                descriptor.OracleEndorsed,
+                descriptor.ConflictGroup))
+            .ToArray();
+        return JsonSerializer.Serialize(options, BrowserJsonContext.Default.BrowserStyleOptionArray);
+    }
+
+    // Builds PrinterOptions from a JSON array of enabled catalog ids by applying each
+    // descriptor's own With delegate — no knob-specific code, so new taste options flow
+    // through automatically.
+    static Pipeline.PrinterOptions BuildPrinterOptions(string? styleOptionsJson)
+    {
+        var options = Pipeline.PrinterOptions.Default;
+        if (string.IsNullOrWhiteSpace(styleOptionsJson))
+            return options;
+
+        string[]? ids;
+        try { ids = JsonSerializer.Deserialize(styleOptionsJson, BrowserJsonContext.Default.StringArray); }
+        catch (JsonException) { return options; }
+        if (ids is not { Length: > 0 })
+            return options;
+
+        var enabled = new HashSet<string>(ids, StringComparer.Ordinal);
+        foreach (var descriptor in Pipeline.StyleOptionCatalog.Options)
+        {
+            if (enabled.Contains(descriptor.Id))
+                options = descriptor.With(options, true);
+        }
+        return options;
+    }
+
     [JSExport]
     public static async Task<string> QueryMemberSource(
         string packageId,
@@ -406,7 +461,8 @@ public static partial class BrowserInspectionEngine
         string assemblyName,
         string typeId,
         string memberName,
-        string memberSignature)
+        string memberSignature,
+        string styleOptionsJson)
     {
         var normalizedId = packageId.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
@@ -473,7 +529,7 @@ public static partial class BrowserInspectionEngine
                 return JsonSerializer.Serialize(authored, BrowserJsonContext.Default.BrowserMemberSource);
             }
 
-            var decompiled = MemberBodyProducer.ProduceMember(type, member, implementationPath, File.Exists(pdbPath) ? pdbPath : null);
+            var decompiled = MemberBodyProducer.ProduceMember(type, member, implementationPath, File.Exists(pdbPath) ? pdbPath : null, printerOptions: BuildPrinterOptions(styleOptionsJson));
             if (decompiled.Text is not { Length: > 0 } text)
                 throw new InvalidOperationException("Authored source was unavailable and decompilation did not produce source.");
 
@@ -504,7 +560,8 @@ public static partial class BrowserInspectionEngine
         string targetFramework,
         string assemblyName,
         string typeName,
-        string memberName)
+        string memberName,
+        string styleOptionsJson)
     {
         var normalizedId = packageId.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
@@ -565,7 +622,7 @@ public static partial class BrowserInspectionEngine
                 return JsonSerializer.Serialize(authored, BrowserJsonContext.Default.BrowserMemberSource);
             }
 
-            var decompiled = MemberBodyProducer.ProduceMember(type, member, implementationPath, File.Exists(pdbPath) ? pdbPath : null);
+            var decompiled = MemberBodyProducer.ProduceMember(type, member, implementationPath, File.Exists(pdbPath) ? pdbPath : null, printerOptions: BuildPrinterOptions(styleOptionsJson));
             if (decompiled.Text is not { Length: > 0 } text)
                 throw new InvalidOperationException("Decompilation did not produce source for the selected member.");
 
@@ -590,7 +647,8 @@ public static partial class BrowserInspectionEngine
         string version,
         string targetFramework,
         string assemblyName,
-        string typeId)
+        string typeId,
+        string styleOptionsJson)
     {
         var normalizedId = packageId.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
@@ -641,7 +699,8 @@ public static partial class BrowserInspectionEngine
             var listing = MemberBodyProducer.Project(
                 type,
                 implementationPath,
-                File.Exists(pdbPath) ? pdbPath : null);
+                File.Exists(pdbPath) ? pdbPath : null,
+                printerOptions: BuildPrinterOptions(styleOptionsJson));
             if (listing.Output is not { Length: > 0 } text)
                 throw new InvalidOperationException("Whole-type decompilation did not produce source.");
 
