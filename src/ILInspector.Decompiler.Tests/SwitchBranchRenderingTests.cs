@@ -30,6 +30,40 @@ static class SwitchTableFixture
     }
 }
 
+/// <summary>
+/// Real-IL fixture for
+/// <see cref="SwitchBranchRenderingTests.FullPipeline_RaisesSwitchWhoseCaseContainsLoop"/>:
+/// a <c>switch</c> one of whose case sections carries a loop. csc lowers the loop
+/// to a bottom-tested back-edge, so the section is not a straight-line
+/// single-entry region — the shape that used to keep the whole switch flat
+/// (issue #3161) until <c>SwitchRaisingPass</c> learned to own a section that
+/// contains a natural loop.
+/// </summary>
+static class SwitchLoopingCaseFixture
+{
+    public static int Reduce(int kind, int[] values)
+    {
+        switch (kind)
+        {
+            case 0:
+                int total = 0;
+                foreach (int value in values)
+                {
+                    total += value;
+                }
+                return total;
+            case 1:
+                return values.Length;
+            case 2:
+                return -values.Length;
+            case 3:
+                return 42;
+            default:
+                return -1;
+        }
+    }
+}
+
 // An IL `switch` opcode the switch-raising pass could not lift into a structured
 // `switch` stays in the tree as a SwitchBranch jump table. The printer must
 // render it as valid lowered C# — a single-evaluated temp plus one `if`/`goto`
@@ -386,8 +420,37 @@ public class SwitchBranchRenderingTests
     }
 
     [Fact]
-    public void FullPipeline_PreservesEveryResidualSwitchTargetLabel()
+    public void FullPipeline_RaisesSwitchWhoseCaseContainsLoop()
     {
+        // A compiled `switch` whose `case 0` carries a `foreach` loop. csc lowers
+        // the loop to a back-edge, so the section is not a straight-line
+        // single-entry region. Before #3161 this kept the whole switch flat (its
+        // `default`/looping section could not be owned); now SwitchRaisingPass
+        // owns the loop-bearing section and StructuringPass raises the loop.
+        using var source = MetadataSource.Open(typeof(SwitchLoopingCaseFixture).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(SwitchLoopingCaseFixture).FullName!,
+            nameof(SwitchLoopingCaseFixture.Reduce));
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function);
+        string output = result.Output ?? "";
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+        Assert.Contains("switch (", output);
+        Assert.DoesNotContain("__switchValue", output);
+        AssertGotoTargetsHaveLabels(output);
+    }
+
+    [Fact]
+    public void FullPipeline_RaisesRealSwitchWithLoopingSections()
+    {
+        // Regression witness for #3161 on a real compiler-produced method:
+        // `CSharpSpellability.TypeIssue` is a `switch (type.Kind)` whose sections
+        // carry `foreach`/`for` loops. It used to stay a flat residual dispatch
+        // (`if (__switchValue…) goto …`); now it raises into a structured switch
+        // with Full fidelity and no residual dispatch temp.
         using var source = MetadataSource.Open(typeof(CSharpSpellability).Assembly.Location);
         var function = IrImporter.Import(
             source,
@@ -399,7 +462,8 @@ public class SwitchBranchRenderingTests
         string output = result.Output ?? "";
 
         Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
-        Assert.Contains("if (__switchValue", output);
+        Assert.Contains("switch (", output);
+        Assert.DoesNotContain("__switchValue", output);
         AssertGotoTargetsHaveLabels(output);
     }
 }

@@ -981,7 +981,18 @@ public sealed class SwitchRaisingPass : IIrPass
                         continue;
                     if (t <= s)
                         return false;   // backward into / before the switch — a loop
-                    bool interior = preds.TryGetValue(t, out var ps) && ps.All(members.Contains);
+                    // A block joins the single-entry region when every predecessor
+                    // is already inside — or is a back-edge source, i.e. reachable
+                    // from t itself. A section-internal loop's header has such a
+                    // downstream predecessor (the back-edge); ignoring it lets the
+                    // header — and then the loop body, whose predecessors become
+                    // members — interiorize, so the switch owns a section that
+                    // still holds an unraised loop (StructuringPass raises it once
+                    // the section is a container). Any foreign entry into t or the
+                    // back-edge source is still rejected by OnlyReachedByTable.
+                    bool interior = preds.TryGetValue(t, out var ps)
+                        && ps.All(p => members.Contains(p)
+                            || ReachesForward(blocks, t, p, s, offsetToIndex));
                     if (interior)
                     {
                         members.Add(t);
@@ -1000,6 +1011,36 @@ public sealed class SwitchRaisingPass : IIrPass
         }
         region = members.ToList();
         return true;
+    }
+
+    /// <summary>
+    /// True if <paramref name="target"/> is forward-reachable from
+    /// <paramref name="from"/> over section-internal edges (blocks past the
+    /// switch, walked through <see cref="TrySuccessors"/>). Used by
+    /// <see cref="GrowRegion"/> to recognize a back-edge predecessor — a loop
+    /// body block that is only reachable through its own header — so the header
+    /// interiorizes into the single-entry region instead of becoming a false
+    /// exit.
+    /// </summary>
+    static bool ReachesForward(IReadOnlyList<Block> blocks, int from, int target, int s, Dictionary<int, int> offsetToIndex)
+    {
+        var visited = new HashSet<int>();
+        var stack = new Stack<int>();
+        stack.Push(from);
+        while (stack.Count > 0)
+        {
+            int cur = stack.Pop();
+            if (cur == target)
+                return true;
+            if (!visited.Add(cur))
+                continue;
+            if (!TrySuccessors(blocks, cur, offsetToIndex, out var succs))
+                continue;
+            foreach (int t in succs)
+                if (t > s && !visited.Contains(t))
+                    stack.Push(t);
+        }
+        return false;
     }
 
     static bool SectionTerminates(IReadOnlyList<Block> blocks, List<int> region, Dictionary<int, int> offsetToIndex)
