@@ -454,6 +454,17 @@ public class ApiMember
     public bool IsAbstract { get; set; }
     public bool IsOverride { get; set; }
     public bool IsSealed { get; set; }
+
+    /// <summary>
+    /// True when this method is a class finalizer — the <c>object.Finalize</c>
+    /// override the C# <c>~Type()</c> destructor syntax compiles to. Roslyn emits
+    /// it with an explicit <c>.override</c> MethodImpl, so it otherwise surfaces
+    /// as a modifier-less <c>void Finalize()</c>; this flag lets the C# writer
+    /// spell it <c>~Type()</c> instead. A metadata fact (the overridden slot),
+    /// separate from the C# spelling the writer owns.
+    /// </summary>
+    public bool IsFinalizer { get; set; }
+
     public bool IsReadOnly { get; set; }
     public bool IsConst { get; set; }
     public bool IsUnsafe { get; set; }

@@ -222,6 +222,67 @@ public class MemberBodyProducerExpressionBodyTests
         Assert.Contains("return (int*)__stackalloc;", source);
     }
 
+    [Fact]
+    public void Finalizer_RendersDestructorSyntaxExpressionBodied()
+    {
+        // Issue #3157: a C# finalizer (`~Type()`) lowers to an `object.Finalize`
+        // override that Roslyn emits with an explicit `.override` MethodImpl, so it
+        // otherwise surfaces as a modifier-less `void Finalize()`. The metadata
+        // `IsFinalizer` fact drives the destructor spelling, and the single-statement
+        // body folds to an expression-bodied destructor.
+        using var assembly = Compile("""
+            public class Handle
+            {
+                private int _n;
+                ~Handle() { _n = 0; }
+            }
+            """);
+
+        string source = ComposeType(assembly.Path, "Handle");
+
+        Assert.Contains("~Handle() => _n = 0;", source);
+        Assert.DoesNotContain("void Finalize", source);
+        Assert.DoesNotContain("Finalize()", source);
+    }
+
+    [Fact]
+    public void Finalizer_WithBlockBody_RendersDestructorBraceBlock()
+    {
+        using var assembly = Compile("""
+            public class Handle
+            {
+                private int _n;
+                ~Handle() { _n = 0; _n = 1; }
+            }
+            """);
+
+        string source = ComposeType(assembly.Path, "Handle");
+
+        Assert.Contains("~Handle()\n    {", source);
+        Assert.DoesNotContain("void Finalize", source);
+    }
+
+    [Fact]
+    public void ExplicitInterfaceFinalize_IsNotTreatedAsDestructor()
+    {
+        // Close negative: an explicit interface implementation of a method that
+        // happens to be named `Finalize` is NOT the object.Finalize override. Its
+        // metadata name is dot-qualified (`IThing.Finalize`), so it must keep the
+        // `void IThing.Finalize()` spelling and never fold to `~Impl()`.
+        using var assembly = Compile("""
+            public interface IThing { void Finalize(); }
+            public class Impl : IThing
+            {
+                void IThing.Finalize() { }
+            }
+            """);
+
+        string source = ComposeType(assembly.Path, "Impl");
+
+        Assert.Contains("void IThing.Finalize()", source);
+        Assert.DoesNotContain("~Impl", source);
+    }
+
     static string ComposeType(string path, string fullName)
     {
         using var pe = new PEReader(File.OpenRead(path));

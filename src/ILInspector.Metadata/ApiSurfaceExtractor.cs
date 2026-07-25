@@ -181,6 +181,22 @@ public static class ApiSurfaceExtractor
                 var isVirtual = (methodAttributes & MethodAttributes.Virtual) != 0;
                 var isNewSlot = (methodAttributes & MethodAttributes.NewSlot) != 0;
                 var isOverride = isVirtual && !isNewSlot && !isExplicitInterfaceImplementation;
+
+                // A class finalizer is the `object.Finalize` override — a
+                // parameterless void `Finalize` that reuses (does not new-slot)
+                // the base virtual slot. Roslyn emits it with an explicit
+                // `.override` MethodImpl, so it lands in explicitImplementationBodies
+                // above; detect it by shape so the C# writer can spell `~Type()`.
+                // The exact name `Finalize` (no dot-qualified interface prefix)
+                // and the reused slot exclude an explicit `IFoo.Finalize()` impl.
+                var isFinalizer = apiType.Kind == "class"
+                    && methodName == "Finalize"
+                    && (methodAttributes & MethodAttributes.Static) == 0
+                    && isVirtual
+                    && !isNewSlot
+                    && (signature.Model?.Parameters is null or { Count: 0 })
+                    && signature.Model?.ReturnType is null or "void";
+
                 var member = new ApiMember
                 {
                     Name = methodName,
@@ -196,6 +212,7 @@ public static class ApiSurfaceExtractor
                     IsAbstract = (methodAttributes & MethodAttributes.Abstract) != 0,
                     IsOverride = isOverride,
                     IsSealed = isOverride && (methodAttributes & MethodAttributes.Final) != 0,
+                    IsFinalizer = isFinalizer,
                     Signature = signature.Text,
                     SignatureModel = signature.Model,
                     SignatureDecodeStatus = signature.IsDegraded

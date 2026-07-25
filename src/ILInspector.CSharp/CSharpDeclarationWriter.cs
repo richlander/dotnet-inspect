@@ -324,6 +324,10 @@ internal static class CSharpDeclarationWriter
         {
             signature = $"{FormatConstructorTypeName(type.Name)}()";
         }
+        else if (member.IsFinalizer)
+        {
+            signature = $"~{FormatConstructorTypeName(type.Name)}()";
+        }
         else if (member.Kind == "constructor")
         {
             var typeName = FormatConstructorTypeName(type.Name);
@@ -374,6 +378,13 @@ internal static class CSharpDeclarationWriter
         if (member.Name == ".cctor")
         {
             modifiers.Add("static");
+            if (member.IsUnsafe || options.ForceUnsafe)
+                modifiers.Add("unsafe");
+        }
+        else if (member.IsFinalizer)
+        {
+            // A finalizer (`~Type()`) carries no accessibility or override
+            // modifiers — only `unsafe` is legal on it.
             if (member.IsUnsafe || options.ForceUnsafe)
                 modifiers.Add("unsafe");
         }
