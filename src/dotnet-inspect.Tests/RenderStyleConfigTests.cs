@@ -36,13 +36,63 @@ public class RenderStyleConfigTests
     {
         var result = RenderStyleConfig.Parse(
             "dotnet_style_qualification_for_field = true\n" +
-            "dotnet_style_qualification_for_property = true\n",
+            "dotnet_style_qualification_for_property = true\n" +
+            "dotnet_style_qualification_for_method = true\n" +
+            "dotnet_style_qualification_for_event = true\n",
             origin: "cfg");
 
         Assert.True(result.Options.QualifyFieldAccess);
         Assert.True(result.Options.QualifyPropertyAccess);
+        Assert.True(result.Options.QualifyMethodAccess);
+        Assert.True(result.Options.QualifyEventAccess);
         Assert.Empty(result.Warnings);
         Assert.Equal("cfg", result.Origin);
+    }
+
+    [Fact]
+    public void Parse_PreferConditionalReturnKey_MapsToLensKnob()
+    {
+        var result = RenderStyleConfig.Parse(
+            "dotnet_style_prefer_conditional_expression_over_return = true",
+            origin: "cfg");
+
+        Assert.True(result.Options.PreferConditionalExpressionReturn);
+        Assert.Empty(result.Warnings);
+    }
+
+    [Fact]
+    public void Parse_PreferConditionalReturn_DefaultsOffAndToleratesSeverity()
+    {
+        Assert.False(RenderStyleConfig.Parse("", origin: null).Options.PreferConditionalExpressionReturn);
+
+        var withSeverity = RenderStyleConfig.Parse(
+            "dotnet_style_prefer_conditional_expression_over_return = true:suggestion",
+            origin: null);
+        Assert.True(withSeverity.Options.PreferConditionalExpressionReturn);
+        Assert.Empty(withSeverity.Warnings);
+    }
+
+    [Fact]
+    public void Parse_PreferBranchlessBooleanKey_MapsToLensKnob()
+    {
+        var result = RenderStyleConfig.Parse(
+            "dotnet_inspect_style_prefer_branchless_boolean = true",
+            origin: "cfg");
+
+        Assert.True(result.Options.PreferBranchlessBoolean);
+        Assert.Empty(result.Warnings);
+    }
+
+    [Fact]
+    public void Parse_PreferBranchlessBoolean_DefaultsOffAndToleratesSeverity()
+    {
+        Assert.False(RenderStyleConfig.Parse("", origin: null).Options.PreferBranchlessBoolean);
+
+        var withSeverity = RenderStyleConfig.Parse(
+            "dotnet_inspect_style_prefer_branchless_boolean = true:suggestion",
+            origin: null);
+        Assert.True(withSeverity.Options.PreferBranchlessBoolean);
+        Assert.Empty(withSeverity.Warnings);
     }
 
     [Fact]
@@ -327,6 +377,74 @@ public class RenderStyleConfigTests
         Assert.False(result.EffectiveOptions.QualifyFieldAccess);
     }
 
+    [Fact]
+    public void Collect_WithQualifyMethodAccess_QualifiesInstanceCallAndRecordsEvidence()
+    {
+        var (code, result) = RenderSpecimenMember(
+            nameof(ThisQualificationConfigSpecimen.Doubled),
+            PrinterOptions.Default with { QualifyMethodAccess = true });
+
+        Assert.Contains("this.Compute()", code);
+        Assert.True(result.EffectiveOptions.QualifyMethodAccess);
+        Assert.False(result.EffectiveOptions.QualifyEventAccess);
+    }
+
+    [Fact]
+    public void Collect_WithoutRenderOptions_RendersBareInstanceCall()
+    {
+        var (code, _) = RenderSpecimenMember(
+            nameof(ThisQualificationConfigSpecimen.Doubled), renderOptions: null);
+
+        Assert.Contains("Compute()", code);
+        Assert.DoesNotContain("this.Compute()", code);
+    }
+
+    [Fact]
+    public void Collect_WithQualifyMethodAccess_QualifiesThisMethodGroup()
+    {
+        var (code, _) = RenderSpecimenMember(
+            nameof(ThisQualificationConfigSpecimen.ComputeGetter),
+            PrinterOptions.Default with { QualifyMethodAccess = true });
+
+        Assert.Contains("this.Compute", code);
+    }
+
+    [Fact]
+    public void Collect_WithQualifyEventAccess_QualifiesEventAndRecordsEvidence()
+    {
+        var (code, result) = RenderSpecimenMember(
+            nameof(ThisQualificationConfigSpecimen.Subscribe),
+            PrinterOptions.Default with { QualifyEventAccess = true });
+
+        Assert.Contains("this.Pinged +=", code);
+        Assert.True(result.EffectiveOptions.QualifyEventAccess);
+        Assert.False(result.EffectiveOptions.QualifyMethodAccess);
+    }
+
+    [Fact]
+    public void Collect_WithoutRenderOptions_RendersBareEventSubscription()
+    {
+        var (code, _) = RenderSpecimenMember(
+            nameof(ThisQualificationConfigSpecimen.Subscribe), renderOptions: null);
+
+        Assert.Contains("Pinged +=", code);
+        Assert.DoesNotContain("this.Pinged", code);
+    }
+
+    // An event subscription and a property access both route through the printer's
+    // PropertyTarget helper, but they are governed by separate knobs: enabling
+    // property qualification must NOT qualify an event subscription (and the
+    // event knob, tested above, does).
+    [Fact]
+    public void Collect_WithQualifyPropertyAccess_DoesNotQualifyEventSubscription()
+    {
+        var (code, _) = RenderSpecimenMember(
+            nameof(ThisQualificationConfigSpecimen.Subscribe),
+            PrinterOptions.Default with { QualifyPropertyAccess = true });
+
+        Assert.DoesNotContain("this.Pinged", code);
+    }
+
     // Whole-type decompilation (the `type -S "Decompiled Source"` path) routes
     // through MemberBodyProducer.Project rather than Collect, so it needs the
     // resolved options threaded separately.
@@ -510,6 +628,36 @@ public class RenderStyleConfigTests
         return (decompiled!.Output, decompiled);
     }
 
+    private static (string Code, ILInspector.Decompiler.DecompilerResult Result) RenderSpecimenMember(
+        string memberName, PrinterOptions? renderOptions)
+    {
+        string assemblyPath = typeof(ThisQualificationConfigSpecimen).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var surface = ApiSurfaceExtractor.Extract(pe, includeAll: false);
+        var type = surface.Types.Single(t => t.FullName == typeof(ThisQualificationConfigSpecimen).FullName);
+        var methods = type.Members.Where(m => m.Name == memberName).ToList();
+
+        var request = new MemberCodeProvider.Request(
+            DecompiledSource: true,
+            AnnotatedSource: false,
+            CostOverlay: false,
+            SemanticsOverlay: false,
+            IL: false,
+            Attributes: false,
+            Calls: false,
+            Callers: false,
+            CallGraph: false,
+            UnsafeOperations: false);
+
+        var results = MemberCodeProvider.Collect(
+            type, methods, assemblyPath, overloadIndex: 0, request, renderOptions: renderOptions);
+
+        var (_, code) = Assert.Single(results);
+        var decompiled = code.DecompiledResult;
+        Assert.NotNull(decompiled?.Output);
+        return (decompiled!.Output, decompiled);
+    }
+
     private static string RenderSpecimenWholeType(PrinterOptions? renderOptions)
     {
         string assemblyPath = typeof(ThisQualificationConfigSpecimen).Assembly.Location;
@@ -522,6 +670,36 @@ public class RenderStyleConfigTests
 
         Assert.NotNull(result.Output);
         return result.Output!;
+    }
+
+    // ---- catalog is the source of truth ----
+
+    [Fact]
+    public void EveryCatalogConfigKey_IsHonoredByParse()
+    {
+        // The resolver is data-driven from StyleOptionCatalog, so every catalog
+        // knob that declares a config key must round-trip through Parse with no
+        // warning and set exactly its own option.
+        foreach (var knob in StyleOptionCatalog.Options.Where(o => o.ConfigKey is not null))
+        {
+            var result = RenderStyleConfig.Parse($"{knob.ConfigKey} = true", origin: "cfg");
+
+            Assert.Empty(result.Warnings);
+            Assert.True(knob.Get(result.Options), $"'{knob.ConfigKey}' should set {knob.Id}");
+        }
+    }
+
+    [Fact]
+    public void ApiOnlyCatalogKnobs_HaveNoConfigKey()
+    {
+        // Knobs with no config key (formatting/synthesis) are API-only and must not
+        // be reachable through the file vocabulary; a made-up key still warns.
+        var apiOnly = StyleOptionCatalog.Options.Where(o => o.ConfigKey is null).ToArray();
+        Assert.Contains(apiOnly, o => o.Id == "readable-local-names");
+
+        var result = RenderStyleConfig.Parse("readable_local_names = true", origin: "cfg");
+        Assert.False(result.Options.ReadableLocalNames);
+        Assert.Contains(result.Warnings, w => w.Contains("unknown key"));
     }
 
     private static string CreateTempDirectory()
@@ -546,6 +724,19 @@ public class ThisQualificationConfigSpecimen
     public int Extra { get; set; }
 
     public int Compute() => _count + Extra;
+
+    // Instance method call on the implicit this receiver.
+    public int Doubled() => Compute() * 2;
+
+    // Method group over the implicit this receiver.
+    public System.Func<int> ComputeGetter() => Compute;
+
+#pragma warning disable CS0067 // Pinged is subscribed to via Subscribe; the fixture never raises it.
+    public event System.EventHandler? Pinged;
+#pragma warning restore CS0067
+
+    // Event subscription (+=) on the implicit this receiver.
+    public void Subscribe(System.EventHandler handler) => Pinged += handler;
 }
 
 /// <summary>

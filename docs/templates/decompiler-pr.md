@@ -9,11 +9,21 @@ Every raise PR must keep Before, After, and Fully raised. Before and After must
 each show a concrete C# example. After records this PR's output; Fully raised
 records the intended endpoint.
 
-Under Before and After, record two independent verdicts on the shown C# so the
+Under Before and After, record independent verdicts on the shown C# so the
 assessment sits next to the code it judges:
 
 - Valid: does it compile and bind (True/False)?
 - Correct: does it preserve the original observable behavior (True/False)?
+- IL fidelity: does it recompile to the original opcodes (True/False), or is it
+  not currently checkable? This is the camp the #3127 trap hides in: a render
+  can be Valid and Correct yet no longer opcode-faithful. It is judged by the
+  compile-back harness or the `diff` command, never by `member`.
+- Taste applied: which configurable, opcode-neutral style choices the render
+  applied, from `-S "Applied Taste"`. A byte-divergent style lens listed there
+  is exactly why IL fidelity can be False while Valid/Correct are True — surface
+  it here instead of leaving the reader to infer it from prose.
+- Commit: the exact digest the render was acquired at (base for Before, head for
+  After), so each block is reproducible.
 
 Add optional prose only to explain a verdict. Keeping both Before and After
 makes this a before→after comparison, not a snapshot of only the raised output:
@@ -30,6 +40,8 @@ same `{Type} {MethodSelector} {scope}`:
   lower-level, authoritative anchor.
 - Before: `-S "Decompiled Source"` at the base commit (the pre-change output).
 - After: `-S "Decompiled Source"` at this PR's head (the post-change output).
+- Applied Taste: `-S "Applied Taste"` at the same commit as each render, to
+  populate the "Taste applied" verdict (lists any byte-divergent style lenses).
 
 Only Fully raised is authored by hand — it is the intended endpoint, not a
 current render.
@@ -57,6 +69,28 @@ For focused invalid-Full / burndown row fixes, prefer
 > Should we accept this change?
 
 **Conclusion:** **PASS/REVIEW/BLOCKED** — {one sentence with the decisive reason}.
+
+### Benchmark target
+
+<!--
+State the exact inspected artifact and the full dotnet-inspect command once, so
+the Before/After renders below are unambiguous and reproducible. The build of
+dotnet-inspect itself is implied by Before (base) vs After (head), so it is not
+restated here.
+
+- Benchmark target: the corpus library and its version (package `{lib}@{ver}`)
+  or repo + commit digest (`{owner}/{repo}@{sha}`).
+- dotnet-inspect command: the exact member invocation used for the renders
+  below (the same selector for Before and After).
+-->
+
+Benchmark target: `{lib}@{ver}`
+
+dotnet-inspect command:
+
+```bash
+dotnet-inspect member {Type} {MethodSelector} {scope} -S "Decompiled Source"
+```
 
 ### Original source
 
@@ -87,6 +121,9 @@ Original source.
 
 - Valid: {True/False}
 - Correct: {True/False}
+- IL fidelity: {True/False/not currently checkable}
+- Taste applied: {None / list the byte-divergent style lenses from `-S "Applied Taste"`}
+- Commit: {base commit digest}
 
 {optional prose to elaborate on the verdict}
 
@@ -103,6 +140,9 @@ the method signature line here too, for the same reason.
 
 - Valid: {True/False}
 - Correct: {True/False}
+- IL fidelity: {True/False/not currently checkable}
+- Taste applied: {None / list the byte-divergent style lenses from `-S "Applied Taste"`}
+- Commit: {head commit digest}
 
 {optional prose to elaborate on the verdict}
 
@@ -174,12 +214,12 @@ Run: PR quick corpus, hash-stable 100 methods per assembly; {coverage summary}.
 
 Corpus: {assemblies}, {methods}. Baseline drift: {none or concise drift}.
 
-| Metric (goal) | Baseline | PR | Count delta |
-| --- | ---: | ---: | ---: |
-| Detected lowering residue (-) | {count/rate} | {count/rate} | {count} |
-| Conditional-branch residue (-) | {count/rate} | {count/rate} | {count} |
-| Forward-merge stops (-) | {count/rate} | {count/rate} | {count} |
-| Fully raised (+) | {count/rate} | {count/rate} | {count} |
+| Metric (goal) | Baseline | PR |
+| --- | ---: | ---: |
+| Detected lowering residue (-) | {count/rate} | {count/rate} |
+| Conditional-branch residue (-) | {count/rate} | {count/rate} |
+| Forward-merge stops (-) | {count/rate} | {count/rate} |
+| Fully raised (+) | {count/rate} | {count/rate} |
 
 > **Conclusion:** **PASS/ADVISORY/BLOCKED** — {one-line aggregate verdict}.
 

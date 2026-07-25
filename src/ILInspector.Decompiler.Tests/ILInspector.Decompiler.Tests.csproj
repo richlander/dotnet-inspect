@@ -59,6 +59,8 @@
     <Compile Include="..\..\tools\DecompilerHarness\InverseLedger.cs" Link="InverseArchitecture\InverseLedger.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\HarnessLog.cs"
              Link="HarnessLog.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\ManagedReferenceFilter.cs"
+             Link="ManagedReferenceFilter.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\DecompilerHarnessReportViews.cs"
              Link="DecompilerHarnessReportViews.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\CorpusMetadata.cs"
@@ -141,6 +143,8 @@
              Link="TypeSourceCheck.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\TypeBindCheck.cs"
              Link="TypeBindCheck.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\AuthoredCorpusHistoryCard.cs"
+             Link="AuthoredCorpusHistoryCard.cs" />
   </ItemGroup>
 
 </Project>

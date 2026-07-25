@@ -86,6 +86,22 @@ public sealed record DecompilerOptions
     /// </summary>
     public bool QualifyPropertyAccess { get; init; }
 
+    /// <summary>
+    /// Instance methods invoked through <c>this</c> may render the explicit
+    /// <c>this.</c> qualifier even where the bare name is unambiguous. Off by
+    /// default; an IL-identical spelling choice. Mirrors
+    /// <c>dotnet_style_qualification_for_method</c>.
+    /// </summary>
+    public bool QualifyMethodAccess { get; init; }
+
+    /// <summary>
+    /// Instance events subscribed through <c>this</c> may render the explicit
+    /// <c>this.</c> qualifier even where the bare name is unambiguous. Off by
+    /// default; an IL-identical spelling choice. Mirrors
+    /// <c>dotnet_style_qualification_for_event</c>.
+    /// </summary>
+    public bool QualifyEventAccess { get; init; }
+
     public static DecompilerOptions Default { get; } = new();
 }
 
@@ -101,6 +117,31 @@ public sealed record DecompilerDecision(
 {
     public string? OldValue { get; init; }
     public string? NewValue { get; init; }
+}
+
+/// <summary>
+/// Stable <see cref="DecompilerDecision.Category"/> values. A category records
+/// the fidelity contract the choice was made under, so a host can tell a
+/// byte-identical spelling apart from a render that no longer recompiles to the
+/// original opcodes. Never renumber or reuse.
+/// </summary>
+public static class DecompilerDecisionCategories
+{
+    /// <summary>
+    /// A byte-preserving choice: the selected spelling/layout recompiles to the
+    /// identical IL (a class-3 no-anchor pick or a whitespace-only wrap). The
+    /// render stays opcode-faithful.
+    /// </summary>
+    public const string Taste = "taste";
+
+    /// <summary>
+    /// An opt-in, behavior-preserving but <b>byte-divergent</b> style lens
+    /// (#3138): the render computes the identical result but no longer reproduces
+    /// the original opcodes, so it must not feed the compile-back fidelity gates.
+    /// This is the signal a reader needs to know the two "valid/correct" verdicts
+    /// are not opcode-faithful (the #3127 trap).
+    /// </summary>
+    public const string StyleLens = "style-lens";
 }
 
 public sealed record DecompilerResultMetadata(
@@ -265,6 +306,22 @@ public sealed record DecompilerResult(
     public bool ContainsAwaitExpression { get; init; }
 
     /// <summary>
+    /// True when the whole body is exactly one multi-line single-statement
+    /// expression — a <c>return &lt;expression&gt;;</c> or a single void
+    /// <c>&lt;expression&gt;;</c> statement — a single wrapped expression with
+    /// nothing else in the body. The member layer
+    /// (<see cref="ILInspector.CSharp.CSharpMemberLayout"/>) consumes this typed
+    /// structural fact to render the member expression-bodied
+    /// (<c>head =&gt; &lt;expr&gt;;</c>) instead of a brace block wrapping the lone
+    /// statement — a raised multi-line switch return (issue #3088) or any other
+    /// wrapped single expression such as a fluent chain in return or void
+    /// expression-statement position (issue #3084). It is a body-shape fact the
+    /// printer proves from the emitted statement tree, so consumers never re-parse
+    /// the rendered text to recover it.
+    /// </summary>
+    public bool BodyIsSingleExpressionBody { get; init; }
+
+    /// <summary>
     /// A telemetry-free record of what the decompilation observed — its fidelity
     /// outcome, the symbol source it used, and its diagnostics — for a host to
     /// convert into its own diagnostics. Null for projections that do not build
@@ -301,6 +358,7 @@ public sealed record DecompilerResult(
             && RequiresAsyncBodyModifier == other.RequiresAsyncBodyModifier
             && RequiresUnsafeBodyModifier == other.RequiresUnsafeBodyModifier
             && ContainsAwaitExpression == other.ContainsAwaitExpression
+            && BodyIsSingleExpressionBody == other.BodyIsSingleExpressionBody
             && EqualityComparer<DecompilerTrace?>.Default.Equals(Trace, other.Trace);
 
     public override int GetHashCode()
@@ -314,6 +372,7 @@ public sealed record DecompilerResult(
         hash.Add(RequiresAsyncBodyModifier);
         hash.Add(RequiresUnsafeBodyModifier);
         hash.Add(ContainsAwaitExpression);
+        hash.Add(BodyIsSingleExpressionBody);
         hash.Add(Trace);
         return hash.ToHashCode();
     }

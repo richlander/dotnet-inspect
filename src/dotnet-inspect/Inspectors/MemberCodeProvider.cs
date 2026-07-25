@@ -18,7 +18,7 @@ namespace DotnetInspector.Inspectors;
 /// </summary>
 internal static class MemberCodeProvider
 {
-    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, bool FidelityCauses = false, string? ProjectAssetsPath = null, string? TargetFramework = null);
+    internal sealed record Request(bool DecompiledSource, bool AnnotatedSource, bool CostOverlay, bool SemanticsOverlay, bool IL, bool Attributes, bool Calls, bool Callers, bool CallGraph, bool UnsafeOperations, bool Facts = false, bool FidelityCauses = false, bool AppliedTaste = false, string? ProjectAssetsPath = null, string? TargetFramework = null);
 
     /// <summary>
     /// Code content for one member. C# sections retain the complete decompiler
@@ -37,6 +37,7 @@ internal static class MemberCodeProvider
         IReadOnlyList<(string Name, string? Value)>? Attributes,
         IReadOnlyList<ILInspector.Research.ResearchViews.FactRow>? Facts = null,
         FindingInspection<Decompiler.DecompilerFidelityCause>? FidelityCauses = null,
+        IReadOnlyList<Decompiler.DecompilerDecision>? AppliedTaste = null,
         bool RequiresAsyncBodyModifier = false);
 
     internal static List<(ApiMember Member, Item Code)> Collect(
@@ -119,18 +120,20 @@ internal static class MemberCodeProvider
             Decompiler.DecompilerResult? decompiledResult = null;
             Decompiler.DecompilerResult? projectionResult = null;
             IrFunction? raisedFunction = null;
-            if ((request.DecompiledSource || request.FidelityCauses) && pipelineSource is not null)
+            if ((request.DecompiledSource || request.FidelityCauses || request.AppliedTaste) && pipelineSource is not null)
             {
-                // The style options (renderOptions) affect only the printed C#
-                // string, which is surfaced solely by the Decompiled Source
-                // section. A fidelity-only projection reads the raised IR and
-                // recompile diagnostics (both style-invariant) and discards the
-                // printed string, so it must not consume the config -- pass the
-                // shipped defaults there. This keeps "config consumed" exactly
-                // equal to "styled source produced", which is the signal the
-                // config-warning latch keys off (a non-null DecompiledResult
-                // Output) at the formatter emit site.
-                var projectionRenderOptions = request.DecompiledSource ? renderOptions : null;
+                // The style options (renderOptions) affect the printed C# string
+                // (Decompiled Source) and the set of configurable render choices
+                // that fire (Applied Taste) -- notably the opt-in byte-divergent
+                // lenses, whose applied-lens decisions only exist when the render
+                // runs with those options. Both consume the config. A fidelity-only
+                // projection reads the raised IR and recompile diagnostics (both
+                // style-invariant) and discards the printed string, so it must not
+                // consume the config -- pass the shipped defaults there. The
+                // config-warning latch still keys off a surfaced Decompiled Source
+                // Output (below), so an Applied-Taste-only run that renders no
+                // styled source stays silent.
+                var projectionRenderOptions = request.DecompiledSource || request.AppliedTaste ? renderOptions : null;
                 projectionResult = TrimOutput(RenderDecompiledSource(
                     pipelineSource,
                     lookupType,
@@ -151,6 +154,10 @@ internal static class MemberCodeProvider
 
             if (request.DecompiledSource)
                 decompiledResult = projectionResult;
+
+            IReadOnlyList<Decompiler.DecompilerDecision>? appliedTaste = null;
+            if (request.AppliedTaste)
+                appliedTaste = projectionResult?.Decisions ?? [];
 
             FindingInspection<Decompiler.DecompilerFidelityCause>? fidelityCauses = null;
             if (request.FidelityCauses)
@@ -270,6 +277,7 @@ internal static class MemberCodeProvider
                 attributes,
                 facts,
                 fidelityCauses,
+                appliedTaste,
                 requiresAsyncBodyModifier)));
         }
 
@@ -314,7 +322,7 @@ internal static class MemberCodeProvider
     /// </summary>
     static Decompiler.Pipeline.MetadataSource? OpenPipelineSource(Request request, string dllPath, string? pdbPath)
     {
-        if (!request.DecompiledSource && !request.AnnotatedSource && !request.CostOverlay && !request.SemanticsOverlay && !request.Facts && !request.FidelityCauses)
+        if (!request.DecompiledSource && !request.AnnotatedSource && !request.CostOverlay && !request.SemanticsOverlay && !request.Facts && !request.FidelityCauses && !request.AppliedTaste)
             return null;
         try
         {

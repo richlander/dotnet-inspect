@@ -91,15 +91,72 @@ public sealed partial class CSharpPrinter
         PrinterOptions? options = null,
         Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
     {
+        var appliedLenses = new List<DecompilerDecision>();
         try
         {
-            IrPasses.Run(function, IrPasses.Default, RaiseContext(importMethodBody, typesProvablyDisjoint));
+            var context = RaiseContext(importMethodBody, typesProvablyDisjoint);
+            IrPasses.Run(function, IrPasses.Default, context);
+            // Opt-in tier-3 style lens (#3138), byte-divergent by design: runs
+            // only when requested, after the byte-faithful default pipeline has
+            // left the guarded bool return flat. The oracle-endorsed ternary runs
+            // first so that, when both lenses are enabled, it wins the shared shape
+            // (it consumes the guarded return, leaving the branchless pass a no-op).
+            // When a lens actually rewrites, record a byte-divergent applied-lens
+            // decision so a host can surface that the render is no longer
+            // opcode-faithful (the #3127 signal) instead of inferring it from prose.
+            if (options?.PreferConditionalExpressionReturn == true)
+            {
+                var pass = new PreferConditionalReturnPass();
+                pass.Run(function, context);
+                if (pass.Rewrites > 0)
+                    appliedLenses.Add(new DecompilerDecision(
+                        "style-lens.prefer-conditional-return",
+                        DecompilerDecisionCategories.StyleLens,
+                        function.Name,
+                        "Rewrote a guarded boolean return as a conditional expression "
+                            + "(dotnet_style_prefer_conditional_expression_over_return, IDE0046). "
+                            + "Behavior-preserving but byte-divergent: the render no longer "
+                            + "reproduces the original branch opcodes.")
+                    {
+                        OldValue = "if (c) return A; return B;",
+                        NewValue = "return c ? A : B;",
+                    });
+            }
+            if (options?.PreferBranchlessBoolean == true)
+            {
+                var pass = new PreferBranchlessBooleanPass();
+                pass.Run(function, context);
+                if (pass.Rewrites > 0)
+                    appliedLenses.Add(new DecompilerDecision(
+                        "style-lens.prefer-branchless-boolean",
+                        DecompilerDecisionCategories.StyleLens,
+                        function.Name,
+                        "Folded a guarded boolean return into the compact short-circuit "
+                            + "\"bool hack\" (dotnet_inspect_style_prefer_branchless_boolean; not "
+                            + "oracle-endorsed). Behavior-preserving but byte-divergent: the render "
+                            + "no longer reproduces the original branch opcodes.")
+                    {
+                        OldValue = "if (c) return false; return B;",
+                        NewValue = "return !c && B;",
+                    });
+            }
         }
         catch (Exception ex)
         {
             return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
-        return Print(function, options);
+        var result = Print(function, options);
+        if (appliedLenses.Count > 0 && result.Output is not null)
+        {
+            result = result with
+            {
+                Metadata = result.Metadata with
+                {
+                    Decisions = [.. result.Metadata.Decisions, .. appliedLenses],
+                },
+            };
+        }
+        return result;
     }
 
     /// <summary>
@@ -239,8 +296,73 @@ public sealed partial class CSharpPrinter
             RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
             RequiresUnsafeBodyModifier = function.Descendants.Prepend(function).Any(NeedsUnsafeContext),
             ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
+            BodyIsSingleExpressionBody = BodyIsSingleExpressionBody(function, output),
             Metadata = new DecompilerResultMetadata(EffectiveDecompilerOptions(), [.. _decisions]),
         };
+
+    /// <summary>
+    /// True when the printed body is exactly one top-level statement whose whole
+    /// printed form is a single multi-line expression — a
+    /// <c>return &lt;expression&gt;;</c> (a raised multi-line switch return, issue
+    /// #3088; a wrapped fluent chain or other wrapped single expression, issue
+    /// #3084) or a single void <c>&lt;expression&gt;;</c> statement (a wrapped
+    /// fluent call chain, issue #3084). The member layer renders such a body as an
+    /// expression-bodied member (<c>head =&gt; &lt;expr&gt;;</c>) instead of a
+    /// brace block. The single-statement shape is structural (the emitted
+    /// top-level statement list plus the lifts the printer already tracked), never
+    /// a re-parse of the rendered text: because the body is exactly one statement
+    /// with no lifted declarations, its whole printed form is that one
+    /// <c>&lt;expr&gt;;</c>, so folding it to <c>head =&gt; &lt;expr&gt;;</c> is a
+    /// language-guaranteed equivalence. The only text-derived input is whether
+    /// that statement actually wrapped: a single-line body already folds on the
+    /// <see cref="CSharpExpressionBody.FromSingleStatement"/> path, so this signal
+    /// stays reserved for the multi-line case the flat helper cannot recover.
+    /// </summary>
+    bool BodyIsSingleExpressionBody(IrFunction function, string output)
+        => !_emittedDeclarations
+            && !_topLevelHasLabel
+            && _constructorChain is null
+            && _fieldInitializers.Count == 0
+            && !function.RequiresAsyncBodyModifier
+            && !NeedsUnsupportedFallbackReturn(function)
+            && IsFoldableSingleStatement(_topLevelStatements, output);
+
+    /// <summary>
+    /// True when <paramref name="statements"/> is exactly one foldable statement
+    /// and <paramref name="output"/> is its multi-line printed form. Keeps
+    /// <see cref="BodyIsSingleExpressionBody"/> aligned with the downstream
+    /// extractor (<see cref="CSharpExpressionBody.MultilineExpressionBodyLines"/>)
+    /// so the typed flag is never set for a statement the printer expanded into
+    /// several lines that would not fold. The shared guards require a multi-line
+    /// body that terminates in <c>;</c> — the exact shape the extractor accepts:
+    /// <list type="bullet">
+    /// <item>A lone <see cref="Return"/> whose value the printer lifts into a
+    /// leading local declaration (a <c>stackalloc</c>-to-pointer return inside an
+    /// <c>unsafe</c> block) prints a decl first, not a bare <c>return </c>, so the
+    /// keyword prefix keeps the flag off.</item>
+    /// <item>A single <see cref="ExpressionStatement"/> has no leading-decl lift
+    /// path, so its whole printed form is that one statement — but under the new
+    /// memory-safety rules the printer may wrap a lone unsafe statement as
+    /// <c>unsafe { &lt;stmt&gt;; }</c>, whose printed form ends in <c>}</c>, not
+    /// <c>;</c>. The trailing-<c>;</c> guard keeps the flag off for that wrapper
+    /// (the extractor rejects it too), so no keyword prefix is needed to
+    /// discriminate the un-wrapped case.</item>
+    /// </list>
+    /// </summary>
+    static bool IsFoldableSingleStatement(IReadOnlyList<IrNode> statements, string output)
+    {
+        if (statements is not [var only])
+            return false;
+        var trimmed = output.AsSpan().Trim();
+        if (!trimmed.Contains('\n') || trimmed[^1] != ';')
+            return false;
+        return only switch
+        {
+            Return { Value: not null } => trimmed.StartsWith("return ", StringComparison.Ordinal),
+            ExpressionStatement => true,
+            _ => false,
+        };
+    }
 
     DecompilerOptions EffectiveDecompilerOptions()
         => new()
@@ -251,6 +373,8 @@ public sealed partial class CSharpPrinter
             WrapSplittableExpressions = _options.WrapSplittableExpressions,
             QualifyFieldAccess = _options.QualifyFieldAccess,
             QualifyPropertyAccess = _options.QualifyPropertyAccess,
+            QualifyMethodAccess = _options.QualifyMethodAccess,
+            QualifyEventAccess = _options.QualifyEventAccess,
         };
 
     void AddDecision(string ruleId, string category, string subject, string detail, string? oldValue = null, string? newValue = null)
@@ -299,6 +423,25 @@ public sealed partial class CSharpPrinter
     /// <summary>Field initializers (<c>this.f = value</c> stores preceding the base call) lifted out of a constructor body to the field declarations, keyed in source order.</summary>
     readonly List<(string Field, string Value)> _fieldInitializers = [];
     readonly HashSet<IrNode> _fieldInitStores = [];
+
+    /// <summary>
+    /// True once <see cref="PrintBody"/> has emitted at least one up-front local
+    /// declaration (before the body statements). A body with declarations is not
+    /// a single-expression body, so it disqualifies the
+    /// <see cref="DecompilerResult.BodyIsSingleExpressionBody"/> signal.
+    /// </summary>
+    bool _emittedDeclarations;
+
+    /// <summary>
+    /// The top-level statements <see cref="AppendContainer"/> actually emitted
+    /// (chain/field-initializer lifts and the trimmed trailing <c>return;</c>
+    /// excluded), plus whether any top-level label was emitted. Together they let
+    /// <see cref="Result"/> recognize the single-statement expression body
+    /// that <see cref="DecompilerResult.BodyIsSingleExpressionBody"/> reports —
+    /// a structural fact, not a re-parse of the rendered text.
+    /// </summary>
+    readonly List<IrNode> _topLevelStatements = [];
+    bool _topLevelHasLabel;
 
     /// <summary>Pinned local slots a <see cref="Fixed"/> statement owns: declared by the fixed header (skipped up front) and read as a pointer of the fixed's element type.</summary>
     readonly HashSet<int> _fixedLocals = [];
@@ -422,7 +565,10 @@ public sealed partial class CSharpPrinter
         foreach (var declaration in CollectDeclarations(function))
             sb.AppendLine(declaration);
         if (sb.Length > 0)
+        {
+            _emittedDeclarations = true;
             sb.AppendLine();
+        }
 
         AppendContainer(sb, function.Body, 0, topLevel: true);
         if (NeedsUnsupportedFallbackReturn(function))
@@ -475,6 +621,8 @@ public sealed partial class CSharpPrinter
             {
                 AppendLabel(sb, pad, block.StartOffset);
                 labelPendingStatement = true;
+                if (topLevel)
+                    _topLevelHasLabel = true;
             }
             // The trailing 'return;' trims, current-style — unless it is a
             // labeled block's only statement, where trimming would strand
@@ -491,6 +639,8 @@ public sealed partial class CSharpPrinter
                 emit.Add(statement);
             }
 
+            if (topLevel)
+                _topLevelStatements.AddRange(emit);
             if (emit.Any(n => !RendersAsCommentOnly(n)))
                 labelPendingStatement = false;
             AppendStatements(sb, emit, indent);
@@ -1826,7 +1976,8 @@ public sealed partial class CSharpPrinter
         if (Statement(node) is { } line)
         {
             if (!TryAppendFluentChain(sb, node, line, indent)
-                && !TryAppendSplittableExpression(sb, node, line, indent))
+                && !TryAppendSplittableExpression(sb, node, line, indent)
+                && !TryAppendBitwiseChain(sb, node, line, indent))
                 sb.Append(pad).AppendLine(line);
         }
     }
@@ -2193,6 +2344,60 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
+    /// The bitwise analog of <see cref="TryAppendSplittableExpression"/>: breaks a
+    /// long top-level <c>|</c>/<c>&amp;</c>/<c>^</c> chain one operand per line, the
+    /// operator <em>leading</em> each continuation line (the flags-accumulation
+    /// house style), when the opt-in <see cref="PrinterOptions.WrapSplittableExpressions"/>
+    /// taste is on. Unlike the short-circuit wrapper it splices the broken chain into
+    /// the already-rendered statement <paramref name="line"/> in place, so it handles
+    /// a bare chain (<c>return a | b | …</c>), an assignment, and a chain inside a
+    /// value-preserving cast (<c>return (int)(a | b | …)</c>) uniformly — the flat
+    /// chain text is located verbatim in the line and only its interior separators
+    /// are broken, so the wrapped form is a pure whitespace variant of the inline
+    /// form (same tokens, unchanged IL).
+    /// </summary>
+    bool TryAppendBitwiseChain(StringBuilder sb, IrNode node, string line, int indent)
+    {
+        if (!_options.WrapSplittableExpressions)
+            return false;
+        if (FindBitwiseChainRoot(node) is not { } root)
+            return false;
+        if (BitwiseChainLines(root, line, indent) is not { } broken)
+            return false;
+        AddDecision(
+            "expression.wrap-splittable-chain",
+            "taste",
+            _function.Name,
+            $"Wrapped a long bitwise {BinaryOperator(root)} chain across continuation lines.");
+        sb.AppendLine(broken);
+        return true;
+    }
+
+    /// <summary>
+    /// Yields the top-level associative bitwise <c>|</c>/<c>&amp;</c>/<c>^</c> chain
+    /// root of a statement whose value is such a chain — a <c>return</c> or a
+    /// (non-ref) local or stack-slot store — seeing through any value-preserving cast
+    /// wrappers (<c>return (int)(a | b | …)</c>, common when a fully-raised flags-enum
+    /// accumulation is returned as its underlying integer). Arithmetic
+    /// <c>+</c>/<c>-</c>/… are excluded: they are not the flags-accumulation idiom
+    /// this wraps, and subtraction is not associative for a one-operand-per-line
+    /// display. Returns null otherwise.
+    /// </summary>
+    Binary? FindBitwiseChainRoot(IrNode node)
+    {
+        IrExpression? value = node switch
+        {
+            Return { Value: { } returned } => returned,
+            StoreLocal { Type.Kind: not TypeRefKind.ByRef, Value: { } stored } => stored,
+            StoreStackSlot store when StackSlotTargetType(store) is { Kind: not TypeRefKind.ByRef } => store.Value,
+            _ => null,
+        };
+        while (value is Convert convert)
+            value = convert.Operand;
+        return value is Binary { Kind: BinaryKind.Or or BinaryKind.And or BinaryKind.Xor } binary ? binary : null;
+    }
+
+    /// <summary>
     /// Recognizes the statement positions whose value is a top-level short-circuit
     /// <c>&amp;&amp;</c>/<c>||</c> chain — a <c>return</c> or a (non-ref) local or
     /// stack-slot store — and yields the chain root plus the exact statement prefix
@@ -2290,7 +2495,7 @@ public sealed partial class CSharpPrinter
                 && SameLValue(load.Instance, s.Instance)
                 && PlaceIdentity.SameOperands(load.IndexArguments, s.IndexArguments),
             StorePropertyTargetType(s)),
-        EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual)} {(e.IsAdd ? "+=" : "-=")} {CoerceText(e.Value, e.Accessor.ParameterTypes[0])};",
+        EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual, isEvent: true)} {(e.IsAdd ? "+=" : "-=")} {CoerceText(e.Value, e.Accessor.ParameterTypes[0])};",
         StoreElement s when InlineReceiverTempStoreValue(s) is { } value => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {value};",
         StoreElement s => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {InitializerText(s.Value, StoreElementTargetType(s), StoreElementNewTarget(s))};",
         StoreIndirect s => AssignmentText(
@@ -2664,7 +2869,7 @@ public sealed partial class CSharpPrinter
         Call c when MultiDimArrayAccessText(c) is { } text => text,
         Call c => CallText(c),
         CallIndirect ci => $"{FunctionPointerOperand(ci.Pointer)}({Arguments(ci.Arguments, ci.ParameterTypes, CallIndirectRefKinds(ci), explicitIn: true)})",
-        DelegateCreation d => $"new {TypeText(d.DelegateType)}({MethodGroupText(d.Method, d.Target)})",
+        DelegateCreation d => $"new {TypeText(d.DelegateType)}({MethodGroupText(d.Method, d.Target, d.IsVirtual)})",
         InterpolatedStringExpression i => InterpolatedStringText(i),
         Lambda lam => LambdaText(lam),
         LocalFunctionInvocation inv => $"{CSharpNaming.EscapeIdentifier(inv.Name)}({Arguments(inv.Arguments)})",
@@ -3545,8 +3750,10 @@ public sealed partial class CSharpPrinter
 
     /// <summary>
     /// Short-circuit composition prints comparisons and nots bare (they bind
-    /// tighter than &amp;&amp;/||); same-kind chains associate without parens;
-    /// mixed kinds parenthesize.
+    /// tighter than &amp;&amp;/||); a same-kind chain associates without parens on the
+    /// left but parenthesizes on the right (C# &amp;&amp;/|| are left-associative, so a
+    /// right-nested same-kind chain <c>a &amp;&amp; (b &amp;&amp; c)</c> keeps its parens to stay
+    /// opcode-exact, #3126); mixed kinds parenthesize.
     /// </summary>
     string LogicalText(LogicalBinary logical)
     {
@@ -3554,24 +3761,30 @@ public sealed partial class CSharpPrinter
             return propertyPattern;
 
         string op = logical.Kind == LogicalKind.And ? "&&" : "||";
-        return $"{LogicalOperandText(logical.Left, logical.Kind)} {op} {LogicalOperandText(logical.Right, logical.Kind)}";
+        return $"{LogicalOperandText(logical.Left, logical.Kind, rightOperand: false)} {op} {LogicalOperandText(logical.Right, logical.Kind, rightOperand: true)}";
     }
 
     // A single operand of a short-circuit chain of the given kind. Sides are
     // condition positions: Condition() owns truthiness (a string operand spells
-    // 'is not null', never '!value') and the negation folds. Same-kind chains
-    // associate bare; a mixed-kind LogicalBinary parenthesizes. Any other side
+    // 'is not null', never '!value') and the negation folds. A same-kind chain on
+    // the LEFT associates bare — C# `&&`/`||` are left-associative, so
+    // `(a && b) && c` prints `a && b && c` and recompiles to the same left-nested
+    // IL. A same-kind chain on the RIGHT (<paramref name="rightOperand"/>) must
+    // parenthesize: `a && (b && c)` is right-associative and csc lays it out with a
+    // different branch structure than the flattened `a && b && c` (= `(a && b) && c`),
+    // so dropping the parens would recompile to a divergent opcode stream (#3126).
+    // A mixed-kind LogicalBinary parenthesizes on either side. Any other side
     // renders at the operator's demand — a ternary or `??` (or one hidden behind
     // a stale Coerce/Convert, the #2345/#2376 blind spot) is looser than
     // `&&`/`||` and must parenthesize, while comparisons and unary forms out-bind
     // it and stay bare (#2376 round-2: the enum/bool truthiness compositions
     // share the one precedence rule, not just BoolToInteger).
-    string LogicalOperandText(IrExpression side, LogicalKind kind)
+    string LogicalOperandText(IrExpression side, LogicalKind kind, bool rightOperand)
     {
         var demand = kind == LogicalKind.And ? Precedence.ConditionalAnd : Precedence.ConditionalOr;
         return side switch
         {
-            LogicalBinary nested when nested.Kind == kind => LogicalText(nested),
+            LogicalBinary nested when nested.Kind == kind && !rightOperand => LogicalText(nested),
             LogicalBinary nested => $"({LogicalText(nested)})",
             _ => RenderedCondition(side).At(demand),
         };
@@ -3602,7 +3815,7 @@ public sealed partial class CSharpPrinter
         string op = root.Kind == LogicalKind.And ? "&&" : "||";
         var texts = new List<string>(operands.Count);
         foreach (var operand in operands)
-            texts.Add(LogicalOperandText(operand, root.Kind));
+            texts.Add(LogicalOperandText(operand, root.Kind, rightOperand: false));
 
         // The broken form must be a pure whitespace variant of the flat chain:
         // decline unless re-rendering the flattened operands reproduces the flat
@@ -3635,7 +3848,11 @@ public sealed partial class CSharpPrinter
     /// Flattens a same-kind short-circuit chain into its operands in
     /// left-to-right source order; a nested chain of the <em>other</em> kind (or
     /// any non-<see cref="LogicalBinary"/>) is one operand and is not descended
-    /// into — matching how <see cref="LogicalOperandText"/> parenthesizes it.
+    /// into. This descends a same-kind chain on <em>both</em> sides, so for a
+    /// right-nested chain (which <see cref="LogicalOperandText"/> now parenthesizes
+    /// to stay opcode-exact) the flattened join no longer matches the flat
+    /// <see cref="LogicalText"/>; the caller's exact-match guard then declines the
+    /// multi-line wrap and renders the parenthesized inline form (#3126).
     /// </summary>
     static void CollectLogicalChainOperands(IrExpression expression, LogicalKind kind, List<IrExpression> operands)
     {
@@ -3643,6 +3860,88 @@ public sealed partial class CSharpPrinter
         {
             CollectLogicalChainOperands(logical.Left, kind, operands);
             CollectLogicalChainOperands(logical.Right, kind, operands);
+            return;
+        }
+        operands.Add(expression);
+    }
+
+    /// <summary>
+    /// Splices an associative bitwise <c>|</c>/<c>&amp;</c>/<c>^</c> chain rooted at
+    /// <paramref name="root"/> into the already-rendered statement
+    /// <paramref name="line"/> broken one operand per line — the first operand kept
+    /// where it sits, each later operand on its own continuation-indented line with
+    /// the operator <em>leading</em> the broken line (the flags-accumulation house
+    /// style, the opposite placement from the short-circuit <see cref="LogicalChainLines"/>
+    /// wrapper) — when the chain has at least <see cref="FluentChainMinSegments"/>
+    /// operands and the whole statement would exceed <see cref="FluentChainWrapWidth"/>.
+    /// Returns null (render inline) otherwise. Each operand's text is exactly the
+    /// <see cref="BinaryOperand"/> the flat <see cref="BinaryText"/> emits at the
+    /// chain's precedence, and the routine declines unless the per-operand join
+    /// reproduces that flat chain text and that text occurs exactly once in the line
+    /// — so any chain whose flat spelling is reshaped by the enum-coercion,
+    /// mixed-sign, or unchecked-constant special cases (all sibling-context
+    /// dependent) stays inline, and the splice is unambiguous. Only the interior
+    /// separators of the located chain are broken, so the wrapped form is
+    /// token-identical to the inline line — only whitespace differs and the IL is
+    /// unchanged. Gated on <see cref="PrinterOptions.WrapSplittableExpressions"/> by
+    /// the caller.
+    /// </summary>
+    string? BitwiseChainLines(Binary root, string line, int indent)
+    {
+        var operands = new List<IrExpression>();
+        CollectBitwiseChainOperands(root, root.Kind, operands);
+        if (operands.Count < FluentChainMinSegments)
+            return null;
+
+        string op = BinaryOperator(root);
+        var precedence = CSharpPrecedence.Of(root);
+        var texts = new List<string>(operands.Count);
+        for (int i = 0; i < operands.Count; i++)
+            texts.Add(BinaryOperand(operands[i], precedence, rightSide: i > 0));
+
+        // The broken form must be a pure whitespace variant of the flat chain:
+        // decline unless re-rendering the flattened operands reproduces the flat
+        // BinaryText exactly (guards the enum-coercion / mixed-sign / unchecked
+        // reshaping the flat renderer applies from sibling context).
+        string chainFlat = BinaryText(root);
+        if (string.Join($" {op} ", texts) != chainFlat)
+            return null;
+
+        // The flat chain must appear exactly once in the rendered statement so the
+        // in-place splice is unambiguous (it may sit inside a `return`, an
+        // assignment, or a value-preserving cast — all carried verbatim in the
+        // surrounding head/tail).
+        int idx = line.IndexOf(chainFlat, StringComparison.Ordinal);
+        if (idx < 0 || idx != line.LastIndexOf(chainFlat, StringComparison.Ordinal))
+            return null;
+
+        if (indent * 4 + line.Length <= FluentChainWrapWidth)
+            return null;
+
+        string pad = new(' ', indent * 4);
+        string continuation = pad + "    ";
+        string head = line[..idx];
+        string tail = line[(idx + chainFlat.Length)..];
+        var sb = new System.Text.StringBuilder();
+        sb.Append(pad).Append(head).Append(texts[0]);
+        for (int i = 1; i < texts.Count; i++)
+            sb.Append('\n').Append(continuation).Append(op).Append(' ').Append(texts[i]);
+        sb.Append(tail);
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Flattens a same-kind associative bitwise chain into its operands in
+    /// left-to-right source order; a nested chain of a <em>different</em> bitwise
+    /// kind (or any non-<see cref="Binary"/>) is one operand and is not descended
+    /// into — matching how <see cref="BinaryOperand"/> parenthesizes it.
+    /// </summary>
+    static void CollectBitwiseChainOperands(IrExpression expression, BinaryKind kind, List<IrExpression> operands)
+    {
+        if (expression is Binary binary && binary.Kind == kind)
+        {
+            CollectBitwiseChainOperands(binary.Left, kind, operands);
+            CollectBitwiseChainOperands(binary.Right, kind, operands);
             return;
         }
         operands.Add(expression);

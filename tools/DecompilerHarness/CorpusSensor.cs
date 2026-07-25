@@ -2507,8 +2507,10 @@ internal static class CorpusSensor
         bool countDeltaKnown = true)
         => new(
             MetricLabel(metric, goal),
-            new Source("Change", new Change<int>(baseline, current), new MarkoutCellFormat { Goal = goal }),
-            new Source("Count delta", new QualityText(countDeltaKnown ? Delta(current - baseline) : "n/a")));
+            new Source(
+                "Change",
+                new Change<int>(baseline, current),
+                new MarkoutCellFormat { Goal = goal, Delta = countDeltaKnown ? Markout.Delta.Absolute : Markout.Delta.None }));
 
     static MultiSourceRow ShareChangeRow(
         string metric,
@@ -2520,8 +2522,10 @@ internal static class CorpusSensor
         bool countDeltaKnown = true)
         => new(
             MetricLabel(metric, goal),
-            new Source("Change", new Change<QualityRate>(new QualityRate(baseline, baselineTotal), new QualityRate(current, currentTotal)), new MarkoutCellFormat { Goal = goal }),
-            new Source("Count delta", new QualityText(countDeltaKnown ? Delta(current - baseline) : "n/a")));
+            new Source(
+                "Change",
+                new Change<QualityRate>(new QualityRate(baseline, baselineTotal), new QualityRate(current, currentTotal)),
+                new MarkoutCellFormat { Goal = goal, DeltaNoun = countDeltaKnown ? "methods" : null }));
 
     static bool HaveSameMethodSample(
         IReadOnlyList<CorpusMethodSnapshot>? baselineMethods,
@@ -2625,9 +2629,11 @@ internal static class CorpusSensor
     static string Delta(int value)
         => value > 0 ? $"+{Number(value)}" : Number(value);
 
-    readonly record struct QualityRate(int Count, int Total) : IMarkoutCell, IGoalMagnitude
+    readonly record struct QualityRate(int Count, int Total) : IMarkoutCell, IGoalMagnitude, IDeltaCountable
     {
         double IGoalMagnitude.GoalMagnitude => Total <= 0 ? double.NaN : RateBasisPoints(Count, Total) / 10_000.0;
+
+        double IDeltaCountable.DeltaCount => Count;
 
         public void FormatInline(TextWriter writer, in MarkoutCellFormat format)
             => writer.Write(Total <= 0
@@ -2644,15 +2650,6 @@ internal static class CorpusSensor
 
         static string SideKey(string? side, string key)
             => side is null ? key : side + "_" + key;
-    }
-
-    readonly record struct QualityText(string Text) : IMarkoutCell
-    {
-        public void FormatInline(TextWriter writer, in MarkoutCellFormat format)
-            => writer.Write(Text);
-
-        public void Decompose(ICollection<MarkoutField> fields, string? side, in MarkoutCellFormat format)
-            => fields.Add(new MarkoutField(side ?? "value", Text));
     }
 
     static string DeltaPercentagePoints(int basisPoints)

@@ -524,8 +524,9 @@ instead so the PR records the targeted checked population and RTS/current A/B
 evidence.
 
 Rate deltas in card prose use **percentage points** (`pp`): `+0.49 pp` means
-the rate increased from, for example, `82.17%` to `82.66%`. Counts still use raw
-signed count deltas in `Count delta`.
+the rate increased from, for example, `82.17%` to `82.66%`. The metric-change
+table folds the signed count delta into each `Change` cell — `(+3)` for count
+metrics and `(+3 methods)` for share metrics.
 
 For behaviour-preserving refactors, the existing #1174/#1166 real-world corpus
 sensor values are enough when you need the broader Deep Inspect signal:
@@ -559,15 +560,15 @@ The tool emits a block like:
 Corpus: #1166 real-world decompiler corpus sensor: #1150 pinned NuGet assemblies plus dotnet-inspect managed assemblies. 14 assemblies, 87,907 methods
 Correctness coverage: validity sampled 350 / 87,907 (0.40%); fidelity sampled 6 / 87,907 (0.01%)
 
-| Metric (desired direction) | Baseline | PR | Count delta |
-| --- | ---: | ---: | ---: |
-| Fully raised (+) | 77,376 (88.02%) | 77,376 (88.02%) | 0 |
-| Conditional-branch residual (-) | 2,298 (2.61%) | 2,298 (2.61%) | 0 |
-| Forward-merge stops (-) | 2,290 (2.61%) | 2,290 (2.61%) | 0 |
-| Full malformed (-) | 165 | 165 | 0 |
-| Semantic defects (-) | 4/350 — sampled 350 / 87,907 (0.40%) | 4/350 — sampled 350 / 87,907 (0.40%) | 0 |
-| Fidelity diffs (-) | opcode-diff 1/6, operand-diff 0/6, unavailable 0/6, exact 5, recompile-failed 0, context-failed 0; sampled 6 / 87,907 (0.01%) | opcode-diff 1/6, operand-diff 0/6, unavailable 0/6, exact 5, recompile-failed 0, context-failed 0; sampled 6 / 87,907 (0.01%) | 0 |
-| Pass bugs (-) | 0 | 0 | 0 |
+| Metric (desired direction) | Baseline | PR |
+| --- | ---: | ---: |
+| Fully raised (+) | 77,376 (88.02%) | 77,376 (88.02%) |
+| Conditional-branch residual (-) | 2,298 (2.61%) | 2,298 (2.61%) |
+| Forward-merge stops (-) | 2,290 (2.61%) | 2,290 (2.61%) |
+| Full malformed (-) | 165 | 165 |
+| Semantic defects (-) | 4/350 — sampled 350 / 87,907 (0.40%) | 4/350 — sampled 350 / 87,907 (0.40%) |
+| Fidelity diffs (-) | opcode-diff 1/6, operand-diff 0/6, unavailable 0/6, exact 5, recompile-failed 0, context-failed 0; sampled 6 / 87,907 (0.01%) | opcode-diff 1/6, operand-diff 0/6, unavailable 0/6, exact 5, recompile-failed 0, context-failed 0; sampled 6 / 87,907 (0.01%) |
+| Pass bugs (-) | 0 | 0 |
 
 Verdict: corpus sensor matched baseline tolerances.
 ```

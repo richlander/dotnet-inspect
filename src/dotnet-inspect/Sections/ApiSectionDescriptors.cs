@@ -511,6 +511,7 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.MethodAttributes>(HasSingleMethodLikeMember)
             .Add<ApiMemberSectionDescriptors.DecompiledSource>(HasSingleMethodLikeMember)
             .Add<ApiMemberDetailSectionDescriptors.FidelityCauses>(HasSingleMethodLikeMember)
+            .Add<ApiMemberDetailSectionDescriptors.AppliedTaste>(HasSingleMethodLikeMember)
             .Add<ApiMemberDetailSectionDescriptors.AnnotatedSource>(HasSingleMethodLikeMember)
             .Add<ApiMemberSectionDescriptors.OriginalSource>(HasSingleMethodLikeMember)
             .Add<ApiMemberDetailSectionDescriptors.SourceDiff>(HasSingleMethodLikeMember)
@@ -564,6 +565,7 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<MethodAttributes>()
             .Add<DecompiledSource>()
             .Add<FidelityCauses>()
+            .Add<AppliedTaste>()
             .Add<AnnotatedSource>()
             .Add<CostOverlay>()
             .Add<SemanticsOverlay>()
@@ -644,6 +646,17 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class FidelityCauses : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.FidelityCauses;
+        public static bool IsExpensive => false;
+        public static bool ExplicitOnly => true;
+        public static bool ProbeEffectiveness => false;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+    }
+
+    public sealed class AppliedTaste : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.AppliedTaste;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;

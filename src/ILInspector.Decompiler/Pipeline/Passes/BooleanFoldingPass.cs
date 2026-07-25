@@ -485,6 +485,59 @@ public sealed class BooleanFoldingPass : IIrPass
         if (tailConstant is null && thenConstant is null)
             return false;  // general ternary returns are a separate decision
 
+        // Cases 2 and 3 (exactly one arm is a bool constant) re-form a short-circuit
+        // &&/|| that lifts the condition into the operator's LEFT operand — optionally
+        // negated — and keeps the other arm as the surviving right operand. That is the
+        // same lift ShortCircuitTernaryPass performs for the nested constant-arm ternary
+        // (#3107), so it needs the same opcode-fidelity guards or it can emit C# whose
+        // recompilation diverges in branch opcodes, operator tokens, or runtime behavior
+        // (#3114). The both-opposite-constant case below (`return c;`/`return !c;`) is a
+        // separate branch-materialization readability raise — no operator lift, no
+        // surviving operand — and is intentionally not gated here.
+        bool bothOppositeConstants =
+            thenConstant is { } t && tailConstant is { } t2 && t != t2;
+        if (!bothOppositeConstants)
+        {
+            // negate/operand map (mirrors the fold shapes chosen below):
+            //   tailConstant == true : Or(!c, thenValue)   negates; operand = thenValue
+            //   tailConstant == false: And(c, thenValue)              operand = thenValue
+            //   thenConstant == true : Or(c, tailValue)               operand = tailValue
+            //   thenConstant == false: And(!c, tailValue)  negates; operand = tailValue
+            bool negatesCondition;
+            IrExpression survivingOperand;
+            // The branchless-collapse hazard depends on the OUTER logical kind the fold
+            // emits: the printer flattens only a same-kind chain, so a by-ref buried under
+            // a `||` operand of an `&&` lift (or vice versa) stays a guarded compound and
+            // folds faithfully. tailConstant lifts thenValue under `tailFlag ? Or : And`;
+            // thenConstant lifts tailValue under `thenConstant ? Or : And`.
+            LogicalKind outerKind;
+            if (tailConstant is { } tailFlag)
+            {
+                negatesCondition = tailFlag;
+                survivingOperand = thenValue;
+                outerKind = tailFlag ? LogicalKind.Or : LogicalKind.And;
+            }
+            else
+            {
+                negatesCondition = thenConstant == false;
+                survivingOperand = tailValue;
+                outerKind = thenConstant == true ? LogicalKind.Or : LogicalKind.And;
+            }
+
+            if (ShortCircuitFidelity.IsUserDefinedTruthiness(guard.Condition)
+                || (negatesCondition && !ShortCircuitFidelity.NegationIsOpcodeExact(guard.Condition))
+                || ShortCircuitFidelity.RendersAsBranchlessBarePlace(survivingOperand)
+                // RendersAsBranchlessBarePlace only inspects the top-level operand; a by-ref
+                // deref buried in a same-kind logical chain (or under a reducible bool
+                // wrapper) becomes a collapsible operand of the flattened chain and would be
+                // dereferenced eagerly — a NullReferenceException divergence (#3114 follow-up
+                // to #3127, which missed this chain-buried case).
+                || ShortCircuitFidelity.LiftEagerlyDerefsByRef(survivingOperand, outerKind))
+            {
+                return false;
+            }
+        }
+
         var condition = guard.Condition;
         condition.Detach();
         IrExpression folded;
@@ -732,7 +785,7 @@ public sealed class BooleanFoldingPass : IIrPass
         return true;
     }
 
-    static bool ConsumesBranchTarget(
+    internal static bool ConsumesBranchTarget(
         IrFunction function,
         IrNode anchor,
         IrNode firstConsumed,

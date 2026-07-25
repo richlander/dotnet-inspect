@@ -18,9 +18,6 @@ public static class MemberCommand
 
     public static async Task<int> ExecuteAsync(MemberOptions options)
     {
-        if (options.ShowMemberIndex)
-            options = options with { Select = [.. options.Select ?? [], SectionNames.MemberIndex] };
-
         // Validate that member command has a type argument
         if (string.IsNullOrEmpty(options.TypeName))
         {
@@ -217,7 +214,7 @@ public static class MemberCommand
                         ? $"section '{singleOverloadSections[0]}' requires"
                         : $"sections {string.Join(", ", singleOverloadSections.Select(section => $"'{section}'"))} require";
                     Console.Error.WriteLine($"Error: {sectionLabel} a single selected overload for member '{memberName}'.");
-                    Console.Error.WriteLine($"Use {memberName}:1 through {memberName}:{overloads.Count}, or run -S \"Member Index\" to list stable ~digest selectors.");
+                    Console.Error.WriteLine($"Select one overload with {memberName}~<digest> (shown in the Digest column of the member listing), or positionally with {memberName}:1 through {memberName}:{overloads.Count}.");
                     return 1;
                 }
             }
@@ -387,7 +384,7 @@ public static class MemberCommand
                 }
 
                 if (overloadGroups.Any(g => g.Count() > 1))
-                    tips.Add(new(Name, $"{simpleName} {sourceFlag} --show-index", "show member selectors"));
+                    tips.Add(new(Name, $"{simpleName} {sourceFlag} -S \"Member Index\"", "full selector/identity table"));
 
                 tips.Add(new(TypeCommand.Name, $"{simpleName} {sourceFlag} --shape", "view type shape"));
                 tips.Add(new(Name, $"-m {simpleName}.{(exampleGroup?.Key ?? "Method")} {sourceFlag}", "dotted member syntax"));
@@ -493,6 +490,7 @@ public static class MemberCommand
         SectionNames.CustomAttributes,
         SectionNames.DecompiledSource,
         SectionNames.FidelityCauses,
+        SectionNames.AppliedTaste,
         SectionNames.AnnotatedSource,
         SectionNames.OriginalSource,
         SectionNames.SourceDiff,

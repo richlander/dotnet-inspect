@@ -40,6 +40,7 @@ internal sealed class CrossAssemblyTypeResolver
     readonly MetadataContext _context;
     readonly ConcurrentDictionary<TypeRef, ValueTypeHint> _valueTypeCache = new();
     readonly ConcurrentDictionary<TypeRef, MetadataFactState> _inlineArrayCache = new();
+    readonly ConcurrentDictionary<TypeRef, MetadataFactState> _byRefLikeCache = new();
     readonly ConcurrentDictionary<MethodRef, ResolvedMethodFacts?> _methodFactCache = new();
     readonly ConcurrentDictionary<(TypeRef Type, TypeRef Interface), MetadataFactState> _interfaceCache = new();
 
@@ -560,6 +561,35 @@ internal sealed class CrossAssemblyTypeResolver
         return fact;
     }
 
+    /// <summary>
+    /// Whether a cross-assembly type carries <c>[IsByRefLike]</c> — a
+    /// <c>ref struct</c> in a referenced assembly. Same-assembly ref structs are
+    /// resolved directly from the inspected assembly's type definitions; this
+    /// resolves the referenced-assembly case. <see cref="MetadataFactState.Unknown"/>
+    /// when the defining assembly is outside the reference closure.
+    /// </summary>
+    public MetadataFactState IsByRefLike(TypeRef type)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        if (definition is null)
+            return MetadataFactState.Unknown;
+        if (_byRefLikeCache.TryGetValue(definition, out var cached))
+            return cached;
+
+        var fact = MetadataFactState.Unknown;
+        try
+        {
+            if (Locate(definition) is { } location)
+                fact = ReadByRefLikeFact(location);
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+        {
+        }
+
+        _byRefLikeCache[definition] = fact;
+        return fact;
+    }
+
     TypeLocation? Locate(TypeRef type)
     {
         string name = type.Name.Replace('+', '.');
@@ -641,6 +671,19 @@ internal sealed class CrossAssemblyTypeResolver
 
         var typeDef = assembly.Reader.GetTypeDefinition(handle);
         return MethodDefinitionFacts.HasInlineArrayAttribute(assembly.Reader, typeDef)
+            ? MetadataFactState.Yes
+            : MetadataFactState.No;
+    }
+
+    MetadataFactState ReadByRefLikeFact(TypeLocation location)
+    {
+        if (_context.Open(location) is not { } assembly)
+            return MetadataFactState.Unknown;
+        if (!assembly.TryGetType(location.FullTypeName, out var handle))
+            return MetadataFactState.Unknown;
+
+        var typeDef = assembly.Reader.GetTypeDefinition(handle);
+        return MethodDefinitionFacts.HasByRefLikeAttribute(assembly.Reader, typeDef)
             ? MetadataFactState.Yes
             : MetadataFactState.No;
     }

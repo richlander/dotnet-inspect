@@ -160,18 +160,22 @@ public class TypeView
 
     // Compact member summary sections (Minimal verbosity, matching old QuietMemberFormatter)
     [MarkoutSection(Name = "Constructors", IgnoreProperty = nameof(ConstructorSummaryRow.Overloads))]
+    [MarkoutIgnoreColumnWhen(nameof(ConstructorSummaryDecodeIsEmpty), nameof(ConstructorSummaryRow.Decode))]
     [JsonIgnore]
     public List<ConstructorSummaryRow>? ConstructorSummaryRows { get; set; }
 
     [MarkoutSection(Name = "Constructors")]
+    [MarkoutIgnoreColumnWhen(nameof(ConstructorSummaryDecodeIsEmpty), nameof(ConstructorSummaryRow.Decode))]
     [JsonIgnore]
     public List<ConstructorSummaryRow>? ConstructorSummaryRowsWithOverloads { get; set; }
 
     [MarkoutSection(Name = "Fields")]
+    [MarkoutIgnoreColumnWhen(nameof(FieldSummaryDecodeIsEmpty), nameof(FieldSummaryRow.Decode))]
     [JsonIgnore]
     public List<FieldSummaryRow>? FieldSummaryRows { get; set; }
 
     [MarkoutSection(Name = "Properties")]
+    [MarkoutIgnoreColumnWhen(nameof(PropertySummaryDecodeIsEmpty), nameof(PropertySummaryRow.Decode))]
     [JsonIgnore]
     public List<PropertySummaryRow>? PropertySummaryRows { get; set; }
 
@@ -234,6 +238,12 @@ public class TypeView
     // well-formed metadata (the common case). Drop the column when no member is degraded.
     public static bool SignatureDecodeIsEmpty(List<MemberSignatureRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.Decode));
 
+    // Same treatment for the compact member-summary tables: the Decode degradation
+    // marker is null for well-formed metadata, so drop the column when nothing is degraded.
+    public static bool ConstructorSummaryDecodeIsEmpty(List<ConstructorSummaryRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.Decode));
+    public static bool PropertySummaryDecodeIsEmpty(List<PropertySummaryRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.Decode));
+    public static bool FieldSummaryDecodeIsEmpty(List<FieldSummaryRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.Decode));
+
     [MarkoutSection(Name = "Source Files", EmptyText = "No SourceLink source files found for this type.")]
     [JsonIgnore]
     public List<TypeSourceFileRow>? SourceFileRows => TypeSourceFiles();
@@ -250,6 +260,13 @@ public class TypeView
     [MarkoutIgnore]
     [JsonIgnore]
     public MemberCodeView? MemberCode { get; set; }
+
+    // Signatures of rendered members whose metadata signature blob could not be fully
+    // decoded. Never rendered as a column; surfaced as a stderr warning after the table
+    // so degradation stays visible without polluting the default output with an empty column.
+    [MarkoutIgnore]
+    [JsonIgnore]
+    public List<string>? DegradedSignatureMembers { get; set; }
 
     private List<TypeSourceFileRow>? TypeSourceFiles()
     {
@@ -294,13 +311,17 @@ public class EventsView
 public class MethodGroupsView
 {
     [MarkoutSection(Name = "Method Groups", IgnoreProperty = nameof(MethodSummaryRow.Overloads))]
+    [MarkoutIgnoreColumnWhen(nameof(MethodSummaryDecodeIsEmpty), nameof(MethodSummaryRow.Decode))]
     public List<MethodSummaryRow>? Rows { get; set; }
 
     [MarkoutSection(Name = "Method Groups")]
+    [MarkoutIgnoreColumnWhen(nameof(MethodSummaryDecodeIsEmpty), nameof(MethodSummaryRow.Decode))]
     public List<MethodSummaryRow>? RowsWithOverloads { get; set; }
 
     [MarkoutIgnore]
     public bool HasRows => Rows is { Count: > 0 } || RowsWithOverloads is { Count: > 0 };
+
+    public static bool MethodSummaryDecodeIsEmpty(List<MethodSummaryRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.Decode));
 }
 
 [MarkoutSerializable(AutoFields = false)]
@@ -506,15 +527,15 @@ public record ApiInspectionFailureRow(
 public record MemberRow(
     [property: MarkoutSkipNull] string? Select,
     string Name,
+    string Digest,
     string Signature,
-    [property: MarkoutSkipNull] string? Decode,
     string? Description)
 {
     /// <summary>
     /// Creates a MemberRow without Select column.
     /// </summary>
-    public MemberRow(string name, string signature, string? decode, string? description)
-        : this(null, name, signature, decode, description) { }
+    public MemberRow(string name, string digest, string signature, string? description)
+        : this(null, name, digest, signature, description) { }
 }
 
 [MarkoutSerializable]
@@ -541,6 +562,8 @@ public record MemberSourceLocationRow(
 [MarkoutSerializable]
 public record MemberSignatureRow(
     string Signature,
+    string Digest,
+    [property: MarkoutPropertyName("Canonical Signature")] string CanonicalSignature,
     [property: MarkoutSkipNull] string? Decode,
     [property: MarkoutSkipNull] string? Description);
 
@@ -667,6 +690,13 @@ public sealed record FidelityCauseRow(
     string? Discriminator,
     string? Reason);
 
+[MarkoutSerializable]
+public sealed record AppliedTasteRow(
+    string Rule,
+    string Fidelity,
+    string? Subject,
+    string? Detail);
+
 /// <summary>
 /// Code sections for member command output (Decompiled Source, Annotated Source, Original Source, IL).
 /// Serialized separately after the main TypeView.
@@ -679,6 +709,9 @@ public class MemberCodeView
 
     [MarkoutSection(Name = SectionNames.FidelityCauses)]
     public List<FidelityCauseRow>? FidelityCauseRows { get; set; }
+
+    [MarkoutSection(Name = SectionNames.AppliedTaste, EmptyText = "No recorded style choices were applied to this member.")]
+    public List<AppliedTasteRow>? AppliedTasteRows { get; set; }
 
     [MarkoutSection(Name = "Annotated Source")]
     public CodeSection AnnotatedSourceCode { get; set; }
@@ -781,6 +814,7 @@ public partial class TypeViewContext : MarkoutSerializerContext
 [MarkoutContext(typeof(UnsafeOperationRow))]
 [MarkoutContext(typeof(FactRow))]
 [MarkoutContext(typeof(FidelityCauseRow))]
+[MarkoutContext(typeof(AppliedTasteRow))]
 [MarkoutContext(typeof(TypeSourceFileRow))]
 [MarkoutContext(typeof(MemberSourceLocationRow))]
 [MarkoutContext(typeof(TypeSummaryRow))]

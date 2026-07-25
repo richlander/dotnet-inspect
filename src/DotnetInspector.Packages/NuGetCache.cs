@@ -47,12 +47,24 @@ public static class NuGetCache
         ?? throw new InvalidOperationException("NuGetCache.Initialize(appName) must be called before using app cache methods.");
 
     /// <summary>
-    /// Validates that a value is safe to use as a path component (no traversal or separators).
+    /// Validates that a value is safe to use as a path component. Rejects empty
+    /// or whitespace values, traversal (<c>..</c>), separators, volume
+    /// qualifiers (<c>:</c>), null characters, and otherwise rooted values, so an
+    /// attacker-influenced package coordinate cannot escape or reset the cache
+    /// root (a legitimate package id or version contains none of these).
     /// </summary>
     internal static void ValidatePathComponent(string value, string name)
     {
-        if (value.Contains("..") || value.Contains('/') || value.Contains('\\') || value.Contains('\0'))
+        if (string.IsNullOrWhiteSpace(value)
+            || value.Contains("..")
+            || value.Contains('/')
+            || value.Contains('\\')
+            || value.Contains(':')
+            || value.Contains('\0')
+            || Path.IsPathRooted(value))
+        {
             throw new ArgumentException($"Invalid {name}: '{value}'");
+        }
     }
 
     /// <summary>

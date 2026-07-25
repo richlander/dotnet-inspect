@@ -75,6 +75,9 @@ static class Program
         string? harvestOutputPath = null;
         bool benchmarkAuthoredCorpus = false;
         string? benchmarkCorpusPath = null;
+        bool historyCard = false;
+        string? historyCardPath = null;
+        int historyCardWindow = 3;
         bool verifyAuthoredCorpus = false;
         string? verifyCorpusPath = null;
         bool failOnDrift = false;
@@ -209,6 +212,9 @@ static class Program
                         benchmarkAuthoredCorpus = true;
                         benchmarkCorpusPath = NextArg(args, ref i, flag);
                         break;
+                    case "--history-card": historyCard = true; break;
+                    case "--history-path": historyCardPath = NextArg(args, ref i, flag); break;
+                    case "--history-window": historyCardWindow = NextIntArg(args, ref i, flag); break;
                     case "--verify-authored-corpus":
                         verifyAuthoredCorpus = true;
                         verifyCorpusPath = NextArg(args, ref i, flag);
@@ -342,6 +348,13 @@ static class Program
             if (inputs.Count > 0)
                 return Fail("--fixture-source-inventory reports the registered Built and Generated catalogs; do not pass assembly paths.");
             return FixtureSourceInventory(json);
+        }
+
+        if (historyCard)
+        {
+            if (inputs.Count > 0)
+                return Fail("--history-card renders the committed EVIL run-history trend store; do not pass assembly paths.");
+            return AuthoredCorpusHistoryCard.Run(historyCardPath, historyCardWindow);
         }
 
         if (generatedFixtures)
@@ -1735,19 +1748,7 @@ static class Program
         return new PackageAssemblyInputs(assemblies, tempDirs);
     }
 
-    static bool IsManaged(string path)
-    {
-        try
-        {
-            using var stream = File.OpenRead(path);
-            using var pe = new PEReader(stream);
-            return pe.HasMetadata;
-        }
-        catch
-        {
-            return false;
-        }
-    }
+    static bool IsManaged(string path) => ManagedReferenceFilter.IsManagedAssembly(path);
 
     static string TypeDisplayName(MetadataReader reader, TypeDefinition td)
     {
@@ -1775,6 +1776,14 @@ static class Program
         => i + 1 < args.Length
             ? args[++i]
             : throw new MissingArgumentException(flag);
+
+    static int NextIntArg(string[] args, ref int i, string flag)
+    {
+        string value = NextArg(args, ref i, flag);
+        return int.TryParse(value, out int result)
+            ? result
+            : throw new ArgumentException($"{flag} requires an integer value (got '{value}').");
+    }
 
     sealed class MissingArgumentException(string flag) : Exception
     {
@@ -2025,6 +2034,19 @@ static class Program
           --fail-on-drift        with --verify-authored-corpus: fail-closed gate —
                                 exit non-zero unless every evaluated row is
                                 Verified (any Drifted or Unavailable row fails).
+          --history-card         render a Markout progress card over the committed
+                                EVIL run-history trend store: every run as a trend
+                                table plus a pivoted movement table over the last N
+                                runs with per-metric goal/step glyphs. Headline
+                                metric is product defects (#3079), not raw invalid
+                                (~92% harness noise). Reads no assemblies and runs
+                                no decompiler.
+          --history-path <file>  with --history-card: read a specific history.jsonl
+                                instead of the committed default
+                                (tools/DecompilerHarness/corpus/evil-runs/history.jsonl).
+          --history-window <n>   with --history-card: bound the movement pivot to the
+                                last n runs (default 3; <= 0 uses every run). The
+                                Runs trend table always lists every run.
           --fidelity-timings      with --fidelity-check: print phase timings for collect/render,
                                 skeleton emit, parse, compilation create, emit, and opcode compare
           --fidelity-zero-signal-guard <n>

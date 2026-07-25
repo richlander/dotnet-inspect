@@ -1047,10 +1047,10 @@ public class CorpusSensorComparisonTests
         string malformedRow = report.Split('\n').Single(line => line.Contains("Full malformed", StringComparison.Ordinal));
 
         Assert.Contains("Semantic defects (sampling differs)", semanticRow);
-        Assert.DoesNotContain("(good)", semanticRow);
-        Assert.EndsWith("| n/a |", semanticRow.TrimEnd());
+        Assert.DoesNotContain("✓", semanticRow);
+        Assert.EndsWith("| 1 (50.00%) → 0 (0.00%) |", semanticRow.TrimEnd());
         Assert.Contains("Full malformed (sampling differs)", malformedRow);
-        Assert.EndsWith("| n/a |", malformedRow.TrimEnd());
+        Assert.EndsWith("| 0 → 0 |", malformedRow.TrimEnd());
     }
 
     [Fact]
@@ -1077,8 +1077,8 @@ public class CorpusSensorComparisonTests
         string semanticRow = report.Split('\n').Single(line => line.Contains("Semantic defects", StringComparison.Ordinal));
 
         Assert.Contains("Semantic defects (-)", semanticRow);
-        Assert.Contains("(good)", semanticRow);
-        Assert.EndsWith("| -1 |", semanticRow.TrimEnd());
+        Assert.Contains("✓", semanticRow);
+        Assert.EndsWith("| 1 (50.00%) → 0 (0.00%) (-1 methods) ✓ |", semanticRow.TrimEnd());
         Assert.DoesNotContain("sampling differs", report);
     }
 
@@ -1162,7 +1162,7 @@ public class CorpusSensorComparisonTests
         Assert.Contains("Fidelity unavailable comparisons (sampling differs)", report);
         Assert.Contains("Fidelity exact (sampling differs)", report);
         Assert.DoesNotContain("Fidelity opcode diffs (-)", report);
-        Assert.DoesNotContain("(bad)", report);
+        Assert.DoesNotContain("✗", report);
     }
 
     [Fact]
@@ -1230,9 +1230,9 @@ public class CorpusSensorComparisonTests
         string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
 
         Assert.Contains("Fully raised (+)", report);
-        Assert.Contains("1 (50.00%) → 2 (100.00%) (good)", report);
+        Assert.Contains("1 (50.00%) → 2 (100.00%) (+1 methods) ✓", report);
         Assert.Contains("Detected lowering residue (-)", report);
-        Assert.Contains("0 (0.00%) → 0 (0.00%) (neutral)", report);
+        Assert.Contains("0 (0.00%) → 0 (0.00%) (0 methods) |", report);
         Assert.True(
             report.IndexOf("| Fully raised", StringComparison.Ordinal)
             > report.IndexOf("| Detected lowering residue", StringComparison.Ordinal));
@@ -1280,8 +1280,8 @@ public class CorpusSensorComparisonTests
             line => line.Contains("Detected lowering residue", StringComparison.Ordinal));
 
         Assert.Contains("Detected lowering residue (population differs)", residue);
-        Assert.DoesNotContain("(good)", residue);
-        Assert.EndsWith("| n/a |", residue.TrimEnd());
+        Assert.DoesNotContain("✓", residue);
+        Assert.EndsWith("| 1 (50.00%) → 0 (0.00%) |", residue.TrimEnd());
     }
 
     [Fact]
@@ -1302,7 +1302,7 @@ public class CorpusSensorComparisonTests
         string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
 
         Assert.Contains("Detected lowering residue (-)", report);
-        Assert.Contains("6 (6.45%) → 6 (6.45%) (neutral)", report);
+        Assert.Contains("6 (6.45%) → 6 (6.45%) (0 methods) |", report);
     }
 
     [Fact]

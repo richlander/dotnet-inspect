@@ -4074,6 +4074,8 @@ static class FidelityCheck
                 return;
             if (!File.Exists(path))
                 return;
+            if (!ManagedReferenceFilter.IsManagedAssembly(path))
+                return;
             string simple = Path.GetFileNameWithoutExtension(path);
             if (seen.Contains(simple))
                 return; // first definition wins (prefer TPA over a dir copy)

@@ -30,7 +30,6 @@ public static class MemberOptionsParser
         Option<bool> NoHeaderOption,
         Option<bool> UnsafeOption,
         Option<int?> IndexOption,
-        Option<bool> SelectOption,
         Option<string[]> KindOption,
         Option<string[]> BinOption,
         Option<string[]> ProjectOption,
@@ -244,11 +243,8 @@ public static class MemberOptionsParser
         var kindFilter = SharedParsers.ParseKindFilter(kindValues);
         kindFilter.UnionWith(memberKindFilter);
 
-        var showMemberIndex = parseResult.GetValue(args.SelectOption);
         var select = opts.ParseSelect(parseResult);
         bool hasExplicitSelect = select is { Length: > 0 };
-        if (showMemberIndex)
-            select = [.. select ?? [], SectionNames.MemberIndex];
         var performanceTriage = opts.ParsePerformanceTriageOptions(parseResult);
         if (!PerformanceTriageOptions.TryValidate(performanceTriage, out var triageShapeError))
             return new VersionError(triageShapeError);
@@ -297,7 +293,6 @@ public static class MemberOptionsParser
             OverloadIndex = parseResult.GetValue(args.IndexOption) ?? shorthandIndex,
             MemberDigest = memberDigest,
             MemberGenericArity = memberGenericArity,
-            ShowMemberIndex = showMemberIndex,
             CallerScopeDirectories = parseResult.GetValue(args.BinOption) ?? [],
             CallerScopeProjects = projectSourcePath is null
                 ? projectValues

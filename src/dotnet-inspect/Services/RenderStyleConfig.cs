@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using ILInspector.Decompiler.Pipeline;
 
 namespace DotnetInspector.Services;
@@ -38,11 +41,17 @@ internal static class RenderStyleConfig
     /// <summary>The tool-owned style file name discovered by walking up from the working directory.</summary>
     public const string FileName = ".dotnet-inspectconfig";
 
-    // v1 recognizes exactly the two class-3 this.-qualification knobs, which are
-    // the only shipped spelling knobs with an exact editorconfig key. More keys
-    // are added here as further class-3 knobs land.
-    private const string FieldKey = "dotnet_style_qualification_for_field";
-    private const string PropertyKey = "dotnet_style_qualification_for_property";
+    // The recognized style keys and how they set PrinterOptions come from the
+    // library-owned StyleOptionCatalog — the single source of truth — so this
+    // resolver never drifts from the option surface. Every catalog knob with a
+    // config key is honored here (the four byte-preserving this.-qualification
+    // spellings, the oracle-endorsed conditional-expression lens, and the
+    // tool-owned branchless "bool hack" lens); knobs with no config key are
+    // API-only and simply do not appear in the file vocabulary.
+    private static readonly IReadOnlyDictionary<string, StyleOptionDescriptor> KnobsByKey =
+        StyleOptionCatalog.Options
+            .Where(o => o.ConfigKey is not null)
+            .ToDictionary(o => o.ConfigKey!, StringComparer.Ordinal);
 
     // The editorconfig boundary marker. Discovery is nearest-wins, so the nearest
     // file is already a hard boundary (nothing above it is read); 'root' is
@@ -116,8 +125,7 @@ internal static class RenderStyleConfig
     /// </summary>
     public static RenderStyleResolution Parse(string text, string? origin)
     {
-        bool qualifyField = false;
-        bool qualifyProperty = false;
+        var options = PrinterOptions.Default;
         List<string>? warnings = null;
 
         void Warn(string message) => (warnings ??= []).Add(message);
@@ -155,18 +163,6 @@ internal static class RenderStyleConfig
 
             switch (key)
             {
-                case FieldKey:
-                    if (TryParseBool(value, out var f))
-                        qualifyField = f;
-                    else
-                        Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
-                    break;
-                case PropertyKey:
-                    if (TryParseBool(value, out var p))
-                        qualifyProperty = p;
-                    else
-                        Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
-                    break;
                 case RootKey:
                     // editorconfig boundary marker. Discovery is nearest-wins, so
                     // the nearest file is already a hard boundary; 'root' drives no
@@ -176,16 +172,21 @@ internal static class RenderStyleConfig
                         Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
                     break;
                 default:
-                    Warn($"line {i + 1}: unknown key '{key}' (ignored)");
+                    if (KnobsByKey.TryGetValue(key, out var knob))
+                    {
+                        if (TryParseBool(value, out var on))
+                            options = knob.With(options, on);
+                        else
+                            Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
+                    }
+                    else
+                    {
+                        Warn($"line {i + 1}: unknown key '{key}' (ignored)");
+                    }
+
                     break;
             }
         }
-
-        var options = PrinterOptions.Default with
-        {
-            QualifyFieldAccess = qualifyField,
-            QualifyPropertyAccess = qualifyProperty,
-        };
 
         return new RenderStyleResolution(options, origin, (IReadOnlyList<string>?)warnings ?? []);
     }

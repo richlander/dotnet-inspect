@@ -61,14 +61,33 @@ layers.
 
 ### Package archives use traversal-aware extraction
 
-NuGet package and symbol-package extraction uses
-`ZipFile.ExtractToDirectory`, which rejects archive entries that escape the
-destination directory. Extraction occurs under process-created temporary
-directories before selected content is copied into product caches.
+NuGet package extraction uses `ZipFile.ExtractToDirectory`, which rejects
+archive entries that escape the destination directory. Extraction occurs under
+process-created temporary directories before the validated content is committed
+into product caches (`FileSystemPackageStore.CommitAsync`).
+
+Symbol-package (`.snupkg`) PDB acquisition does not extract the archive to disk.
+`SnupkgPdbReader` opens the archive in memory, matches candidate entries by file
+name only (never by attacker-controlled directory paths), validates each
+candidate's PDB header and debug GUID, and returns the matching bytes. Those
+bytes are then persisted through `IPdbStore`; the filesystem implementation
+(`FileSystemPdbStore`) maps only store-composed, per-segment-validated keys onto
+disk, so no archive-entry name is ever used as an output path.
 
 Package identifiers and versions used as cache path components pass
-`NuGetCache.ValidatePathComponent`. General cache entries use SHA-256-derived
-keys through `CoreCache`.
+`NuGetCache.ValidatePathComponent`, which rejects empty or whitespace values,
+traversal (`..`), separators, volume qualifiers (`:`), null characters, and
+otherwise rooted values before any cache path is built. Store keys (PDB cache
+keys and package entry paths) resolve through the shared `StorePath.ResolveUnderRoot` guard: it splits
+on `/`, rejects any segment that is empty, `.`, `..`, separator-bearing,
+volume-qualified (`:`), null-character-bearing, or otherwise rooted, then
+verifies the composed absolute path stays under the store root with a final
+`Path.GetFullPath` containment check. This closes the Windows volume-reset
+vector where `Path.Combine(root, "C:..", ...)` would discard the root, while
+still permitting the interior dots of a real PDB or assembly file name. A PDB
+file name recovered from untrusted PE debug metadata that is not a usable single
+segment yields a graceful "no symbols" miss rather than an output path. General
+cache entries use SHA-256-derived keys through `CoreCache`.
 
 Archive containment does not itself bound expanded bytes, entry count, or disk
 consumption. Resource budgets remain an open requirement below.

@@ -62,3 +62,34 @@ Each row contains these fields:
 5. Record the UTC date, short SHA, and sweep-manifest SHA-256.
 6. Append one compact JSON object to `history.jsonl`.
 7. Validate every line parses before committing.
+
+## Progress card
+
+Render a Markout progress card over this trend store — every recorded run as a
+trend table plus a pivoted movement table over the most recent runs — with:
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release -- --history-card
+```
+
+Options:
+
+- `--history-window <n>`: bound the movement pivot to the last `n` runs
+  (default 3; `<= 0` uses every run). The Runs trend table always lists every
+  run.
+- `--history-path <file>`: read a specific `history.jsonl` instead of the
+  committed default.
+
+The card reads no assemblies and runs no decompiler. Its headline metric is
+`invalidBreakdown.productBodyDefect` (genuine target-body decompiler defects),
+not raw `invalid`: per #3079 the raw invalid population is dominated by harness
+shell-reconstruction noise that does not move on decompiler fixes.
+
+The **Movement** table is the transpose (pivot) of **Runs**: each metric is a
+row and each recent run a column. Every metric row declares its optimization
+goal, so Markout renders the goal glyph (`↑` higher-is-better / `↓`
+lower-is-better) on the label and a per-step polarity glyph (`✓`/`✗`) on each
+column compared to the previous populated one — no hand-computed delta or trend
+word. Runs that predate PR #3096 have no `invalidBreakdown`, so their
+product/harness columns render as `—` and the product-defect pivot cell is
+absent (`-`) with no fabricated step, keeping the missing signal honest.

@@ -138,23 +138,103 @@ Anything the count cannot prove safe stays explicit.
 
 `this.field` and `field`, and `this.Prop` and `Prop`, compile to the identical
 IL — a `this`-rooted instance member load is `ldarg.0; ldfld` / `ldarg.0; call
-get_Prop` either way, so the `this.` prefix has no IL consequence. This is a
-class-3 no-anchor spelling with **no binding hazard** (unlike target-typed
-`new()` or argument elision): the prefix cannot rebind the member, it can only be
-redundant. The shipped default renders the bare name, qualifying only where the
-bare name would not bind to the member — a local/parameter shadow or a
-member/type-name collision — matching how the runtime writes member access.
+get_Prop` either way, so the `this.` prefix has no IL consequence. The same holds
+for an instance method call (`this.M()` and `M()` both emit `ldarg.0;
+call/callvirt`), a method group over `this` (`this.M` and `M` both emit `ldarg.0;
+ldftn`), and an event subscription (`this.E += h` and `E += h` both emit
+`ldarg.0; ... call add_E`). This is a class-3 no-anchor spelling with **no binding
+hazard** (unlike target-typed `new()` or argument elision): the prefix cannot
+rebind the member, it can only be redundant. The shipped default renders the bare
+name, qualifying only where the bare name would not bind to the member — a
+local/parameter shadow or a member/type-name collision — matching how the runtime
+writes member access.
 
 The always-qualified spelling is available as an opt-in, off by default so
 default output stays byte-for-byte stable:
 
 - `PrinterOptions.QualifyFieldAccess` mirrors `dotnet_style_qualification_for_field`.
 - `PrinterOptions.QualifyPropertyAccess` mirrors `dotnet_style_qualification_for_property`.
+- `PrinterOptions.QualifyMethodAccess` mirrors `dotnet_style_qualification_for_method`
+  (instance method calls and method groups over `this`).
+- `PrinterOptions.QualifyEventAccess` mirrors `dotnet_style_qualification_for_event`
+  (event `+=`/`-=` subscriptions).
+
+The four knobs are independent — each qualifies only the member kind it governs.
+Two consequences are worth calling out:
+
+- A genuine non-virtual `base.M()` call is **never** rewritten to `this.M()`, even
+  with method qualification on: the `base` call deliberately skips virtual
+  dispatch, so `this.M()` would re-enable it and change behavior.
+- Event subscriptions are governed by `QualifyEventAccess`, not
+  `QualifyPropertyAccess` (they share a printer helper internally but are decoupled
+  at the knob), matching the separate `_event`/`_property` editorconfig keys.
 
 ```csharp
 public int Compute() => _count + Extra;          // shipped default: bare
 public int Compute() => this._count + this.Extra; // both knobs on
 ```
+
+### Expression-bodied members
+
+Rendering a value-returning member as `head => <expr>;` instead of a brace block
+wrapping a lone `return <expr>;` is an IL-identical framing choice — the two
+forms are a language-guaranteed equivalence — so it sits below the three-class
+rule, alongside brace style and line wrapping. The oracle is `dotnet/runtime`'s
+`.editorconfig` (`csharp_style_expression_bodied_methods` /
+`_properties` / `_accessors = true`), so the expression-bodied form is the
+shipped default.
+
+A body that is exactly one statement folds on the simple single-line path (a
+lone `return <expr>;`, a `throw`, or a statement-expression). A body that is one
+*multi-line* single statement folds too: a wrapped switch return (issue #3088),
+any other wrapped single `return <expr>;` such as a fluent chain (issue #3084),
+or a void member whose one statement is a wrapped expression statement — a fluent
+call chain with the result discarded (issue #3084). The arrow trails the
+signature line with the statement's opening token after it (the value after a
+stripped `return`, or the whole first line otherwise), and the continuation
+lines re-indent one level under the member — the natural multi-line extension of
+the single-line `head => expr;` form.
+
+```csharp
+public static string Pipeline(StringBuilder builder)
+{
+    return builder
+        .Append("alphabet")
+        .Append("bravissimo")
+        .ToString();
+}
+// folds to:
+public static string Pipeline(StringBuilder builder) => builder
+    .Append("alphabet")
+    .Append("bravissimo")
+    .ToString();
+
+public static void Drain(StringBuilder builder)
+{
+    builder
+        .Append("alphabet")
+        .Append("bravissimo")
+        .Clear();
+}
+// folds to (no `return` to strip — the whole first line trails the arrow):
+public static void Drain(StringBuilder builder) => builder
+    .Append("alphabet")
+    .Append("bravissimo")
+    .Clear();
+```
+
+The fold is gated on a typed structural signal the printer proves from the
+emitted statement tree — the body is exactly one top-level statement (a `return`
+with a value, or an expression statement) with no lifted declarations, label,
+constructor chain, field initializer, async modifier, or unsupported fallback —
+never a re-parse of the rendered text. A `return` branch additionally requires
+its printed form to begin with a bare `return` so a value the printer lifted
+into a leading declaration (a `stackalloc`-to-pointer return) is not mistaken for
+a foldable expression. A member with any statement preceding the folded one keeps
+its brace block. (The extractor is shape-agnostic about the leading keyword, so a
+wrapped `throw <expr>;` would fold identically should one ever print multi-line;
+the printer does not currently produce multi-line throws, so that path is latent,
+not reachable.)
 
 ### Line wrapping
 
@@ -251,6 +331,74 @@ and declines otherwise:
   fidelity concern. The from-end open form (`s[^n..]`), which the compiler spills
   distinctly, is recovered.
 
+## Style lenses (behavior-faithful, byte-divergent)
+
+The knobs above are all **byte-preserving**: every one selects a spelling that
+recompiles to the identical IL (a class-3 no-anchor choice) or changes only
+whitespace, so the default and the knob-on output are members of the same
+compile-back equivalence class. A **style lens** is a different, explicitly
+opt-in contract (#3138): it trades byte fidelity for a source-style preference
+the oracle endorses but the fidelity-first default cannot take. A lens is
+**behavior-preserving** — its output computes the identical result for every
+input — but **not** opcode-faithful, so its output must never feed the
+compile-back fidelity gates, and it is off by default.
+
+The first lens is `PrinterOptions.PreferConditionalExpressionReturn`
+(`dotnet_style_prefer_conditional_expression_over_return`, IDE0046). A guarded
+boolean return the default leaves flat because no short-circuit fold of it is
+opcode-faithful (see the short-circuit fidelity guard, #3114) is re-rendered as
+the conditional expression:
+
+```csharp
+// shipped default (byte-faithful — the flat guard is what recompiles exactly):
+if (a & b) { return false; }
+return c;
+// with PreferConditionalExpressionReturn (behavior-faithful, byte-divergent):
+return a & b ? false : c;
+```
+
+The ternary is the *canonical* desugaring of the guard — same condition, same
+arms, same evaluation order — so the rewrite is unconditionally
+behavior-preserving; that is what lets the lens re-offer a fold the default had
+to decline. It deliberately stops at IDE0046: the further `c ? true : d` → `c ||
+d` collapse (IDE0075) is a separate future knob, so a literal-arm ternary such as
+`a ? true : b` is kept as written rather than simplified. The lens runs only on
+the opt-in raised path, after the default pipeline, and the IL-anchored Annotated
+view never applies it (it must stay byte-faithful for line/IL alignment).
+
+The second lens is `PrinterOptions.PreferBranchlessBoolean`
+(`dotnet_inspect_style_prefer_branchless_boolean`). It targets the *same* declined
+guarded return, but renders the compact short-circuit "bool hack" — the exact form
+the default's short-circuit fold produced before #3114 guarded it — instead of the
+ternary:
+
+```csharp
+// shipped default (byte-faithful — the flat guard is what recompiles exactly):
+if (a) { return false; }
+return b;
+// with PreferBranchlessBoolean (behavior-faithful, byte-divergent):
+return !a && b;
+```
+
+The four constant-arm shapes fold to `a && b`, `!a || b`, `a || b`, and `!a && b`
+respectively. Unlike the ternary, this form is **not oracle-endorsed** —
+dotnet/runtime's `.editorconfig` would never recommend it — so it is a user
+*compactness/branchless* preference, opt-in only, and it is **never** part of a
+"full taste" aggregate. It is exposed under a tool-owned
+`dotnet_inspect_style_*` key rather than a `dotnet_style_*` key to make that
+distinction explicit. Two hazards stay declined because they are about *behavior*,
+not just bytes: a user-defined-truthiness condition and a managed by-ref surviving
+operand (csc's branchless lowering would eagerly dereference a location the branch
+had guarded). The lens declines *every* user-defined-truthiness condition
+wholesale — anywhere in the condition subtree, including one wrapped in a negation.
+Such a condition never yields the compact bool-hack this lens targets: lifting it
+is either invalid (the printer strips `op_True`/`op_False` to a bare user-typed
+receiver, so `t && b` fails to compile), behavior-divergent (were a user `&`/`|`
+present, it would rebind to that operator's semantics), or valid but not branchless
+(a negation spelled as the ternary `(t ? false : true)` re-embeds a branch).
+Over-declining is always valid and faithful. When both lenses are enabled the
+oracle-endorsed ternary wins the shared shape.
+
 ## Names
 
 Without a PDB, locals are slot names (`V_0`, `S_0`) shared with the Annotated IL view — the two views stay name-aligned by construction. With a PDB, source names are used. Synthesizing readable names (`size`, `array`, `item`) where no PDB exists is an open design question: it is the largest remaining cosmetic gap against source, but it would break view alignment unless opt-in.
@@ -260,8 +408,9 @@ Without a PDB, locals are slot names (`V_0`, `S_0`) shared with the Annotated IL
 The oracle settles a single shipped default per equivalence class, but a few
 class-3 no-anchor spellings are also exposed as opt-in knobs (see
 [`this` member qualification](#this-member-qualification) and
-[Line wrapping](#line-wrapping)). A tool-owned config file selects them without a
-per-run flag.
+[Line wrapping](#line-wrapping)), as are the byte-divergent
+[style lenses](#style-lenses-behavior-faithful-byte-divergent). A tool-owned config
+file selects them without a per-run flag.
 
 `dotnet-inspect` discovers a `.dotnet-inspectconfig` file by walking up from the
 current working directory to the filesystem root; the **nearest** file wins (no
@@ -278,6 +427,9 @@ The file is flat `key = value`, using the same key and value vocabulary as an
 root = true
 dotnet_style_qualification_for_field = true
 dotnet_style_qualification_for_property = true
+dotnet_style_qualification_for_method = true
+dotnet_style_qualification_for_event = true
+dotnet_style_prefer_conditional_expression_over_return = true
 ```
 
 - `#` and `;` comment lines and `[section]` headers are ignored.
@@ -287,8 +439,15 @@ dotnet_style_qualification_for_property = true
   `.editorconfig` does not warn). Discovery already stops at the nearest file, so
   `root = true` drives no behavior on its own; it is the conventional, explicit
   way to mark a repository-root config as the boundary.
-- Recognized keys map to `PrinterOptions`; today the two `this`-qualification
-  keys above are recognized, and the set grows as more class-3 knobs ship.
+- Recognized keys map to `PrinterOptions`: the four `this`-qualification keys
+  above (field, property, method, event — byte-preserving class-3 spellings),
+  `dotnet_style_prefer_conditional_expression_over_return` (the oracle-endorsed
+  ternary [style lens](#style-lenses-behavior-faithful-byte-divergent)), and
+  `dotnet_inspect_style_prefer_branchless_boolean` (the non-oracle-endorsed
+  branchless lens, under a tool-owned key). The set grows as more knobs ship.
+- The recognized keys are not hand-maintained in the resolver: they come from the
+  library-owned `StyleOptionCatalog` (see [Option catalog](#option-catalog)), so
+  the CLI vocabulary and the option surface cannot drift.
 - Unknown keys, malformed lines, and non-boolean values are reported as a
   `Warning:` on stderr and skipped — the rest of the file still applies. A bad
   config never fails the run silently.
@@ -325,6 +484,28 @@ of the assembly and the options it is handed, so the config surface never change
 what the library computes for a given `PrinterOptions`. The knobs affect the
 primary decompiled-source view; the Annotated Source and IR-stage views stay on
 the shipped default so they remain aligned with the IL.
+
+### Option catalog
+
+The recognized knobs are described once, in the library, by
+`StyleOptionCatalog` (`ILInspector.Decompiler.Pipeline`). Each
+`StyleOptionDescriptor` carries a knob's stable id, human-facing title and
+summary, its tier (`Formatting`, `Spelling`, `Lens`, or `Synthesis`), whether it
+is `ByteDivergent`, whether it is `OracleEndorsed`, its `.dotnet-inspectconfig`
+key (`null` for API-only formatting/synthesis knobs), a `ConflictGroup` for
+mutually-exclusive knobs, and NativeAOT-safe `Get`/`With` delegates that read and
+set the knob on a `PrinterOptions` without reflection.
+
+This makes the option surface discoverable and drift-proof for every host, not
+just the CLI: the config resolver derives its recognized keys from the catalog,
+a Wasm UI can enumerate the knobs (grouping the mutually-exclusive lenses by
+`ConflictGroup` and toggling each through `Get`/`With`), and the future "full
+taste" aggregate is exactly the `OracleEndorsed` subset. The two guarded-boolean
+lenses share the `guarded-boolean-return` conflict group, so a picker offers at
+most one (the printer still resolves any overlap deterministically, preferring the
+oracle-endorsed ternary). The single non-boolean knob
+(`ExpressionBodyArrowPlacement`) is not yet modeled in the catalog, which
+currently describes boolean toggles.
 
 ## Verification and soundness
 

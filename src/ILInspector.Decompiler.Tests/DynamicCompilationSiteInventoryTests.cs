@@ -35,6 +35,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["FinallyDisposePrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced finally/dispose source."),
             ["FluentChainFormattingTests.cs"] = (1, "Product-output validity: compiles printer-produced broken fluent-chain source."),
             ["SplittableExpressionWrapTests.cs"] = (1, "Product-output validity: compiles printer-produced wrapped &&/|| chain source."),
+            ["BitwiseChainWrapTests.cs"] = (1, "Product-output validity: compiles printer-produced wrapped bitwise |/&/^ chain source."),
             ["MemberNameCollisionRenderingTests.cs"] = (1, "Product-output validity: compiles rendered colliding-member source."),
             ["MixedSignComparisonTests.cs"] = (1, "Product-output validity: compiles synthesized mixed-sign comparison source."),
             ["MultiDimensionalArrayPrinterTests.cs"] = (1, "Product-output validity: compiles printer-produced multidim-array source."),
@@ -44,6 +45,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["UnboxValueReadPassTests.cs"] = (1, "Product-output validity: compiles the normalized unbox value-read source (cast vs Unsafe.Unbox) per case."),
             ["IrImporterTests.cs"] = (1, "Product-output validity: compiles synthesized source feeding the IR importer."),
             ["MemberBodyProducerUnionTests.cs"] = (1, "Product-output validity: recompiles member-body producer output per rule set."),
+            ["MemberBodyProducerExpressionBodyTests.cs"] = (1, "Product-output validity: decompiles a compiled single-switch-return member and asserts the expression-bodied rendering (#3088)."),
             ["LadderRung6GateTests.cs"] = (1, "Product-output validity: compiles synthesized rung-6 gate source."),
             ["LadderRung9GateTests.cs"] = (1, "Product-output validity: compiles synthesized rung-9 gate source with feature parse options."),
 
@@ -86,9 +88,14 @@ public sealed class DynamicCompilationSiteInventoryTests
     //     comparison lambdas to assert their expression-tree node identity.
     //   #3067 adds SplittableExpressionWrapTests.cs (1 site): recompiles the
     //     printer's wrapped &&/|| chain output.
-    //   Combined: 33 files, 41 sites.
-    const int ExpectedDynamicFiles = 33;
-    const int ExpectedDynamicSites = 41;
+    //   #3088 adds MemberBodyProducerExpressionBodyTests.cs (1 site): decompiles
+    //     a compiled single-switch-return member and asserts the expression-bodied
+    //     rendering.
+    //   #3009 sub-part 3 adds BitwiseChainWrapTests.cs (1 site): recompiles the
+    //     printer's wrapped bitwise |/&/^ chain output.
+    //   Combined: 35 files, 43 sites.
+    const int ExpectedDynamicFiles = 35;
+    const int ExpectedDynamicSites = 43;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];
