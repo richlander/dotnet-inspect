@@ -397,15 +397,24 @@ public class ApiMember
     public string? Signature { get; set; }
 
     /// <summary>
+    /// Durable 10-char digest for this overload — the same value shown in the Markdown
+    /// Digest column and the <c>Name~digest</c> stable selector. Lets JSON consumers
+    /// address the exact overload without parsing the display table. Populated for the
+    /// type/member JSON output; null (and omitted) when identity was not projected.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Digest { get; set; }
+
+    /// <summary>
     /// The persisted, presentation-independent canonical member identity — the Member Index
     /// digest input (e.g. <c>M:N.C.Parse(System.ValueTuple&lt;int,string&gt;)</c>). Populated
-    /// at extraction only when it diverges from what parsing the display
+    /// at extraction when it diverges from what parsing the display
     /// <see cref="Signature"/> would yield — i.e. for members whose signature contains C#
     /// tuple syntax, whose element names and <c>(...)</c> spelling must not leak into
     /// identity and cannot be recovered from the display text after a JSON round-trip
-    /// (<see cref="SignatureModel"/> is <see cref="JsonIgnoreAttribute"/>). Null in the
-    /// common case, where the canonical spelling equals the display-derived one, so
-    /// serialized surfaces for non-tuple members are unchanged.
+    /// (<see cref="SignatureModel"/> is <see cref="JsonIgnoreAttribute"/>) — and also filled
+    /// in for the type/member JSON output so consumers get durable identity without a side
+    /// call. Omitted when null.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? CanonicalSignature { get; set; }

@@ -122,6 +122,28 @@ public class UnsafeEmitterTests
     }
 
     [Fact]
+    public void NewRulesModule_SingleUnsafeExpressionStatement_NotFlaggedExpressionBody()
+    {
+        // GPT review of #3146: a void member whose one statement needs an unsafe
+        // context wraps as `unsafe { <stmt>; }` under the new rules — a multi-line
+        // body ending in `}`, not `;`. The multi-line expression-body extractor
+        // rejects it (it requires a trailing `;`), so the typed
+        // BodyIsSingleExpressionBody signal must agree and stay false; otherwise a
+        // consumer trusting the flag without re-running the extractor would fold a
+        // body the extractor cannot supply. Output is a brace block either way;
+        // this locks the flag/extractor agreement (co-gating invariant).
+        var result = DecompileResult(
+            typeof(NewFixtures).Assembly.Location,
+            typeof(NewFixtures).FullName!,
+            nameof(NewFixtures.FreePointer));
+
+        Assert.NotNull(result.Output);
+        Assert.Contains("unsafe", result.Output);
+        Assert.EndsWith("}", result.Output!.TrimEnd());
+        Assert.False(result.BodyIsSingleExpressionBody);
+    }
+
+    [Fact]
     public void NewRulesModule_UnsafeCatchFilter_WrapsWholeTryCatch()
     {
         var int32 = TypeRef.CoreLib("System", "Int32");

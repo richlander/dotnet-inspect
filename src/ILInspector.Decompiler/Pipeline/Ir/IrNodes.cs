@@ -414,6 +414,16 @@ public sealed class IrFunction : IrNode
     public IReadOnlySet<TypeRef> UnionTypes { get; set; }
         = ImmutableHashSet<TypeRef>.Empty;
 
+    /// <summary>
+    /// Same-assembly types proven to carry <c>IsByRefLikeAttribute</c> — that is,
+    /// user-defined <c>ref struct</c>s. Consumed where a value-type declaration
+    /// pattern would otherwise be raised: a ref struct cannot be boxed, so an
+    /// <c>isinst</c>/<c>unbox.any</c> arm over one is never compiler-produced and
+    /// a <c>T t</c> pattern over it is illegal (CS8121).
+    /// </summary>
+    public IReadOnlySet<TypeRef> ByRefLikeTypes { get; set; }
+        = ImmutableHashSet<TypeRef>.Empty;
+
     public override IEnumerable<TypeRef> DirectTypes
         => Signature.Parameters.Select(p => p.Type)
             .Append(Signature.ReturnType)

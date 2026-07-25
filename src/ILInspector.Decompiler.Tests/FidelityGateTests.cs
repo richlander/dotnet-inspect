@@ -23,13 +23,15 @@ public class FidelityGateTests
     /// decompiler docket. Each is a tracked defect or a benign over-render; the gate
     /// tolerates these but fails if a NEW method joins the set. Shrink this list as
     /// fixes land. Tracked defects include StaleFieldRead (issue #605) and
-    /// benign codegen choices (BothPositive, NeitherOr).
+    /// benign codegen choices (BothPositive). NeitherOr left the docket when
+    /// #3114 taught FoldGuardReturn to decline the negated `a && b` guard fold
+    /// (`if (a && b) return false; return c;`) whose recompile diverged.
     /// GotoCommonExit is the step-2 common-exit fold: the decompiler inlines the
     /// shared return tail into each arm, recompiling to cleaner direct-return IL
     /// than the original goto-and-merge shape — a benign equivalent restructuring.
     /// SelectBoolReturn is a benign branch-polarity inversion in a bool-select
     /// ternary (orig <c>bgt</c> vs recmp <c>ble</c>), the same class as
-    /// BothPositive/NeitherOr; it was previously hidden in the recompile-fail
+    /// BothPositive; it was previously hidden in the recompile-fail
     /// bucket because its <c>System.GC.KeepAlive</c> call recompiled the short
     /// <c>GC</c> name with no <c>using System;</c> in the skeleton, and the
     /// harness now emits that using.
@@ -58,7 +60,6 @@ public class FidelityGateTests
         // hidden index temp for the same `return [a, b, 42];` source idiom.
         "CollectionListLiteral",
         "GotoCommonExit",
-        "NeitherOr",
         // This hand-written await-enumerator loop recompiles through the same
         // runtime-async shape but schedules the receiver load after the
         // enumerator-local initialization rather than before it.

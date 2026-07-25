@@ -44,17 +44,19 @@ public class ScatteredReturnDispatchStructuringTests
     {
         string output = Print(nameof(ScatteredReturnDispatchSample.Dispatch));
 
-        // The failing int arm (i <= 0) now returns the duplicated default instead
-        // of falling off the end — the CS0177 fix.
-        int guard = output.IndexOf("if (i <= 0)", StringComparison.Ordinal);
-        Assert.True(guard >= 0, output);
-        Assert.Contains("return Fail(out x);", output[guard..]);
+        // Issue #3113: the scattered dispatch is now fully raised past the
+        // statement form into the original nested switch expression. The #2978
+        // CS0177 guarantee (every path returns, out x assigned on the failing
+        // i <= 0 case) is subsumed: the shared default is the `_ => Fail(out x)`
+        // arm, so no path falls off the end. StructuringPass still duplicates the
+        // scattered default as a prerequisite for this raise.
+        Assert.Contains("int i when i > 0 => Win(i, out x)", output);
+        Assert.Contains("_ => Fail(out x)", output);
 
-        // Every path returns: the method body ends with an unconditional return.
-        Assert.EndsWith("return Win(i, out x);", output);
-
-        // The default is duplicated into each guard rather than dropped: no goto
-        // label survives and the raised body has no fall-through terminator.
+        // The whole body is a single switch-expression return: every arm produces
+        // a value, so no fall-through terminator and no goto survive.
+        Assert.StartsWith("return o switch", output);
+        Assert.EndsWith("};", output);
         Assert.DoesNotContain("goto", output);
     }
 

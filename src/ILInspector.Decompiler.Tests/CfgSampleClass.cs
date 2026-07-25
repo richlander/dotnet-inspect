@@ -269,6 +269,17 @@ public class CfgSampleClass
     // bool op — neither operand is an integer, so no `? 1 : 0` materialization.
     public static bool AndTwoBools(bool a, bool b) => a & b;
 
+    static int IncrementReorderSink(int a, bool b) => b ? 1 : 2;
+
+    // Named arguments evaluate in source order (`b: x > 0` first, then `a: x++`),
+    // so csc spills the comparison across the post-increment before the call.
+    // The comparison `x > 0` is a pure composite ExpressionInliningPass may now
+    // defer (issue #3009), but deferring it past the reconstructed `x++` would
+    // read the *incremented* value and change the result. The pass tracks the
+    // increment target as a mutation, so `x > 0` stays put and still evaluates
+    // before `x++` (issue #3133 adversarial review).
+    public static int IncrementReorderGuard(int x) => IncrementReorderSink(b: x > 0, a: x++);
+
     // Adversarial: the bool operand mixes with a `uint` sibling. The materialized
     // `(b ? 1 : 0)` is a signed int, so `int | uint` would be CS0266 (widens to
     // long) unless the mixed-sign reconciliation casts it: `(uint)(... ? 1 : 0) | c`.

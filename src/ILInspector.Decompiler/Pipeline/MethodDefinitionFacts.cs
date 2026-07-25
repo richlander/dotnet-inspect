@@ -49,6 +49,12 @@ internal static class MethodDefinitionFacts
     internal static bool HasUnionAttribute(MetadataReader reader, TypeDefinition type)
         => HasAttribute(reader, type.GetCustomAttributes(), "System.Runtime.CompilerServices", "UnionAttribute");
 
+    // The compiler stamps [IsByRefLike] on every `ref struct`. A ref struct cannot
+    // be boxed, so an `isinst`/`unbox.any` value-type arm over one is never
+    // compiler-produced and a `T t` declaration pattern over it is illegal (CS8121).
+    internal static bool HasByRefLikeAttribute(MetadataReader reader, TypeDefinition type)
+        => HasAttribute(reader, type.GetCustomAttributes(), "System.Runtime.CompilerServices", "IsByRefLikeAttribute");
+
     // The compiler stamps ExtensionAttribute on an extension method (and on its
     // declaring class and module). The method-level mark is the precise signal.
     internal static bool HasExtensionAttribute(MetadataReader reader, MethodDefinition method)

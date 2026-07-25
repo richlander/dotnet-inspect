@@ -50,6 +50,52 @@ public class RenderStyleConfigTests
     }
 
     [Fact]
+    public void Parse_PreferConditionalReturnKey_MapsToLensKnob()
+    {
+        var result = RenderStyleConfig.Parse(
+            "dotnet_style_prefer_conditional_expression_over_return = true",
+            origin: "cfg");
+
+        Assert.True(result.Options.PreferConditionalExpressionReturn);
+        Assert.Empty(result.Warnings);
+    }
+
+    [Fact]
+    public void Parse_PreferConditionalReturn_DefaultsOffAndToleratesSeverity()
+    {
+        Assert.False(RenderStyleConfig.Parse("", origin: null).Options.PreferConditionalExpressionReturn);
+
+        var withSeverity = RenderStyleConfig.Parse(
+            "dotnet_style_prefer_conditional_expression_over_return = true:suggestion",
+            origin: null);
+        Assert.True(withSeverity.Options.PreferConditionalExpressionReturn);
+        Assert.Empty(withSeverity.Warnings);
+    }
+
+    [Fact]
+    public void Parse_PreferBranchlessBooleanKey_MapsToLensKnob()
+    {
+        var result = RenderStyleConfig.Parse(
+            "dotnet_inspect_style_prefer_branchless_boolean = true",
+            origin: "cfg");
+
+        Assert.True(result.Options.PreferBranchlessBoolean);
+        Assert.Empty(result.Warnings);
+    }
+
+    [Fact]
+    public void Parse_PreferBranchlessBoolean_DefaultsOffAndToleratesSeverity()
+    {
+        Assert.False(RenderStyleConfig.Parse("", origin: null).Options.PreferBranchlessBoolean);
+
+        var withSeverity = RenderStyleConfig.Parse(
+            "dotnet_inspect_style_prefer_branchless_boolean = true:suggestion",
+            origin: null);
+        Assert.True(withSeverity.Options.PreferBranchlessBoolean);
+        Assert.Empty(withSeverity.Warnings);
+    }
+
+    [Fact]
     public void Parse_FalseValue_LeavesKnobOff()
     {
         var result = RenderStyleConfig.Parse("dotnet_style_qualification_for_field = false", origin: null);

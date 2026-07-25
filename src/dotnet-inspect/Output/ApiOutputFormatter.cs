@@ -685,11 +685,13 @@ public static class ApiOutputFormatter
                 .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
         if (grouped.Count == 0) return (0, "");
 
-        // Flatten sorted for --limit application
+        // Flatten sorted for --limit application. This ordering must match the per-kind
+        // display ordering below so that -m N selects the same members that are shown.
         var allMembers = grouped
             .SelectMany(g => g.Value)
             .OrderBy(m => GetMemberSortOrder(m.Kind))
-            .ThenBy(m => m.Name)
+            .ThenBy(m => m.Name, StringComparer.Ordinal)
+            .ThenBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
             .ToList();
 
         int truncated = 0;
@@ -739,11 +741,12 @@ public static class ApiOutputFormatter
                 }
 
                 var sigDisplay = FormatMemberDeclaration(type, m, abbreviate: abbreviate);
+                var digest = ApiMemberIdentity.GetMemberAnchor(type, m).Fingerprint;
                 return new MemberRow(
                     select,
                     OperatorNames.FormatDisplayName(m.Name),
+                    MarkoutInline.Code(digest),
                     MarkoutInline.Code(sigDisplay),
-                    SignatureDecodeMarker(m),
                     hasDocs ? (m.Documentation.Summary ?? "") : null);
             }).ToList();
 
@@ -800,6 +803,15 @@ public static class ApiOutputFormatter
             }
         }
 
+        var degradedSignatures = allMembers
+            .Where(m => m.SignatureDecodeStatus is SignatureDecodeStatus.Degraded)
+            .Select(m => FormatMemberDeclaration(type, m, abbreviate: abbreviate))
+            .ToList();
+        if (degradedSignatures.Count > 0)
+            view.DegradedSignatureMembers = (view.DegradedSignatureMembers ?? [])
+                .Concat(degradedSignatures)
+                .ToList();
+
         return (truncated, "members");
     }
 
@@ -810,6 +822,7 @@ public static class ApiOutputFormatter
 
         var member = type.Members[0];
         var sigDisplay = FormatMemberDeclaration(type, member, abbreviate: false);
+        var anchor = ApiMemberIdentity.GetMemberAnchor(type, member);
 
         var docsRequested = options.ShowDocs
             || options.Columns?.Any(c => c.Equals("Description", StringComparison.OrdinalIgnoreCase)) == true;
@@ -819,6 +832,8 @@ public static class ApiOutputFormatter
         [
             new MemberSignatureRow(
                 MarkoutInline.Code(sigDisplay),
+                MarkoutInline.Code(anchor.Fingerprint),
+                MarkoutInline.Code(anchor.CanonicalSignature),
                 SignatureDecodeMarker(member),
                 description)
         ];
@@ -1045,7 +1060,36 @@ public static class ApiOutputFormatter
             }
         }
 
+        // The compact-summary tables no longer carry a Decode column, so surface any
+        // signature-decode degradation through the stderr warning instead.
+        var degradedSignatures = allEntries
+            .SelectMany(e => e.members)
+            .Where(m => m.SignatureDecodeStatus is SignatureDecodeStatus.Degraded)
+            .Select(m => FormatMemberDeclaration(type, m, abbreviate: false))
+            .ToList();
+        if (degradedSignatures.Count > 0)
+            view.DegradedSignatureMembers = (view.DegradedSignatureMembers ?? [])
+                .Concat(degradedSignatures)
+                .ToList();
+
         return (truncated, "members");
+    }
+
+    /// <summary>
+    /// Emits a stderr warning listing rendered members whose metadata signature blob could
+    /// not be fully decoded. The default member tables no longer carry a Decode column, so
+    /// this keeps signature-decode failures visible without cluttering successful output.
+    /// </summary>
+    internal static void WriteSignatureDecodeWarning(TypeView view, TextWriter error)
+    {
+        if (view.DegradedSignatureMembers is not { Count: > 0 } degraded)
+            return;
+
+        error.WriteLine(
+            $"Warning: {degraded.Count} member signature(s) could not be fully decoded from " +
+            "metadata; the displayed signature(s) may be incomplete or approximate:");
+        foreach (var signature in degraded)
+            error.WriteLine($"  - {signature}");
     }
 
     private static string? SignatureDecodeMarker(ApiMember member)
@@ -2235,6 +2279,29 @@ public static class ApiOutputFormatter
         bool hasLeadingComments = leadingBodyComments is { Count: > 0 };
         if (!hasLeadingComments && preferExpressionBodied && CSharpExpressionBody.FromSingleStatement(body) is { } expressionBody)
             return $"{declaration} => {expressionBody};";
+
+        // A multi-line single-statement expression body renders expression-bodied
+        // too (a raised switch return, issue #3088; a wrapped fluent chain in
+        // return or void expression-statement position, issue #3084):
+        // `head => <value>` with the continuation lines below. Those lines sit at
+        // their body-relative (column-zero) indent, so at this member's
+        // column-zero declaration they need no re-indentation. Gate strictly on
+        // the printer's typed BodyIsSingleExpressionBody signal; the extraction
+        // helper is not sound on the flat string alone.
+        if (!hasLeadingComments && preferExpressionBodied && result.BodyIsSingleExpressionBody
+            && CSharpExpressionBody.MultilineExpressionBodyLines(body) is { Count: > 0 } multilineExpression)
+        {
+            var expression = new StringBuilder();
+            expression.Append(declaration).Append(" => ").Append(multilineExpression[0]);
+            for (int i = 1; i < multilineExpression.Count; i++)
+            {
+                expression.Append(Environment.NewLine);
+                expression.Append(multilineExpression[i]);
+                if (i == multilineExpression.Count - 1)
+                    expression.Append(';');
+            }
+            return expression.ToString();
+        }
 
         var formattedBodyLines = body.ReplaceLineEndings("\n").Split('\n');
         var lines = hasLeadingComments

@@ -93,7 +93,17 @@ public sealed partial class CSharpPrinter
     {
         try
         {
-            IrPasses.Run(function, IrPasses.Default, RaiseContext(importMethodBody, typesProvablyDisjoint));
+            var context = RaiseContext(importMethodBody, typesProvablyDisjoint);
+            IrPasses.Run(function, IrPasses.Default, context);
+            // Opt-in tier-3 style lens (#3138), byte-divergent by design: runs
+            // only when requested, after the byte-faithful default pipeline has
+            // left the guarded bool return flat. The oracle-endorsed ternary runs
+            // first so that, when both lenses are enabled, it wins the shared shape
+            // (it consumes the guarded return, leaving the branchless pass a no-op).
+            if (options?.PreferConditionalExpressionReturn == true)
+                new PreferConditionalReturnPass().Run(function, context);
+            if (options?.PreferBranchlessBoolean == true)
+                new PreferBranchlessBooleanPass().Run(function, context);
         }
         catch (Exception ex)
         {
@@ -239,8 +249,73 @@ public sealed partial class CSharpPrinter
             RequiresAsyncBodyModifier = function.RequiresAsyncBodyModifier,
             RequiresUnsafeBodyModifier = function.Descendants.Prepend(function).Any(NeedsUnsafeContext),
             ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
+            BodyIsSingleExpressionBody = BodyIsSingleExpressionBody(function, output),
             Metadata = new DecompilerResultMetadata(EffectiveDecompilerOptions(), [.. _decisions]),
         };
+
+    /// <summary>
+    /// True when the printed body is exactly one top-level statement whose whole
+    /// printed form is a single multi-line expression — a
+    /// <c>return &lt;expression&gt;;</c> (a raised multi-line switch return, issue
+    /// #3088; a wrapped fluent chain or other wrapped single expression, issue
+    /// #3084) or a single void <c>&lt;expression&gt;;</c> statement (a wrapped
+    /// fluent call chain, issue #3084). The member layer renders such a body as an
+    /// expression-bodied member (<c>head =&gt; &lt;expr&gt;;</c>) instead of a
+    /// brace block. The single-statement shape is structural (the emitted
+    /// top-level statement list plus the lifts the printer already tracked), never
+    /// a re-parse of the rendered text: because the body is exactly one statement
+    /// with no lifted declarations, its whole printed form is that one
+    /// <c>&lt;expr&gt;;</c>, so folding it to <c>head =&gt; &lt;expr&gt;;</c> is a
+    /// language-guaranteed equivalence. The only text-derived input is whether
+    /// that statement actually wrapped: a single-line body already folds on the
+    /// <see cref="CSharpExpressionBody.FromSingleStatement"/> path, so this signal
+    /// stays reserved for the multi-line case the flat helper cannot recover.
+    /// </summary>
+    bool BodyIsSingleExpressionBody(IrFunction function, string output)
+        => !_emittedDeclarations
+            && !_topLevelHasLabel
+            && _constructorChain is null
+            && _fieldInitializers.Count == 0
+            && !function.RequiresAsyncBodyModifier
+            && !NeedsUnsupportedFallbackReturn(function)
+            && IsFoldableSingleStatement(_topLevelStatements, output);
+
+    /// <summary>
+    /// True when <paramref name="statements"/> is exactly one foldable statement
+    /// and <paramref name="output"/> is its multi-line printed form. Keeps
+    /// <see cref="BodyIsSingleExpressionBody"/> aligned with the downstream
+    /// extractor (<see cref="CSharpExpressionBody.MultilineExpressionBodyLines"/>)
+    /// so the typed flag is never set for a statement the printer expanded into
+    /// several lines that would not fold. The shared guards require a multi-line
+    /// body that terminates in <c>;</c> — the exact shape the extractor accepts:
+    /// <list type="bullet">
+    /// <item>A lone <see cref="Return"/> whose value the printer lifts into a
+    /// leading local declaration (a <c>stackalloc</c>-to-pointer return inside an
+    /// <c>unsafe</c> block) prints a decl first, not a bare <c>return </c>, so the
+    /// keyword prefix keeps the flag off.</item>
+    /// <item>A single <see cref="ExpressionStatement"/> has no leading-decl lift
+    /// path, so its whole printed form is that one statement — but under the new
+    /// memory-safety rules the printer may wrap a lone unsafe statement as
+    /// <c>unsafe { &lt;stmt&gt;; }</c>, whose printed form ends in <c>}</c>, not
+    /// <c>;</c>. The trailing-<c>;</c> guard keeps the flag off for that wrapper
+    /// (the extractor rejects it too), so no keyword prefix is needed to
+    /// discriminate the un-wrapped case.</item>
+    /// </list>
+    /// </summary>
+    static bool IsFoldableSingleStatement(IReadOnlyList<IrNode> statements, string output)
+    {
+        if (statements is not [var only])
+            return false;
+        var trimmed = output.AsSpan().Trim();
+        if (!trimmed.Contains('\n') || trimmed[^1] != ';')
+            return false;
+        return only switch
+        {
+            Return { Value: not null } => trimmed.StartsWith("return ", StringComparison.Ordinal),
+            ExpressionStatement => true,
+            _ => false,
+        };
+    }
 
     DecompilerOptions EffectiveDecompilerOptions()
         => new()
@@ -301,6 +376,25 @@ public sealed partial class CSharpPrinter
     /// <summary>Field initializers (<c>this.f = value</c> stores preceding the base call) lifted out of a constructor body to the field declarations, keyed in source order.</summary>
     readonly List<(string Field, string Value)> _fieldInitializers = [];
     readonly HashSet<IrNode> _fieldInitStores = [];
+
+    /// <summary>
+    /// True once <see cref="PrintBody"/> has emitted at least one up-front local
+    /// declaration (before the body statements). A body with declarations is not
+    /// a single-expression body, so it disqualifies the
+    /// <see cref="DecompilerResult.BodyIsSingleExpressionBody"/> signal.
+    /// </summary>
+    bool _emittedDeclarations;
+
+    /// <summary>
+    /// The top-level statements <see cref="AppendContainer"/> actually emitted
+    /// (chain/field-initializer lifts and the trimmed trailing <c>return;</c>
+    /// excluded), plus whether any top-level label was emitted. Together they let
+    /// <see cref="Result"/> recognize the single-statement expression body
+    /// that <see cref="DecompilerResult.BodyIsSingleExpressionBody"/> reports —
+    /// a structural fact, not a re-parse of the rendered text.
+    /// </summary>
+    readonly List<IrNode> _topLevelStatements = [];
+    bool _topLevelHasLabel;
 
     /// <summary>Pinned local slots a <see cref="Fixed"/> statement owns: declared by the fixed header (skipped up front) and read as a pointer of the fixed's element type.</summary>
     readonly HashSet<int> _fixedLocals = [];
@@ -424,7 +518,10 @@ public sealed partial class CSharpPrinter
         foreach (var declaration in CollectDeclarations(function))
             sb.AppendLine(declaration);
         if (sb.Length > 0)
+        {
+            _emittedDeclarations = true;
             sb.AppendLine();
+        }
 
         AppendContainer(sb, function.Body, 0, topLevel: true);
         if (NeedsUnsupportedFallbackReturn(function))
@@ -477,6 +574,8 @@ public sealed partial class CSharpPrinter
             {
                 AppendLabel(sb, pad, block.StartOffset);
                 labelPendingStatement = true;
+                if (topLevel)
+                    _topLevelHasLabel = true;
             }
             // The trailing 'return;' trims, current-style — unless it is a
             // labeled block's only statement, where trimming would strand
@@ -493,6 +592,8 @@ public sealed partial class CSharpPrinter
                 emit.Add(statement);
             }
 
+            if (topLevel)
+                _topLevelStatements.AddRange(emit);
             if (emit.Any(n => !RendersAsCommentOnly(n)))
                 labelPendingStatement = false;
             AppendStatements(sb, emit, indent);
