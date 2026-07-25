@@ -94,7 +94,10 @@ public class SourceLinkResolver
     /// leading-tilde signature line (covering any spelling such as "~Type()" or "~ Type()"). It is
     /// deliberately keyed on caller-supplied identity rather than a "~" text shape so that a normal
     /// method whose signature legitimately contains a leading "~" continuation (e.g. a multi-line
-    /// default parameter "int x =\n    ~Mask") is never truncated.
+    /// default parameter "int x =\n    ~Mask") is never truncated. Because a genuine destructor
+    /// is parameterless, its signature-scan zone never holds a stray "~" line, so the stop matches
+    /// a tilde anywhere on the line — covering modifier-prefixed spellings such as "unsafe ~Type()"
+    /// or "extern ~Type()".
     /// </para>
     /// </summary>
     public static string ExtractMethodBody(string sourceText, int startLine, int endLine, string methodName, bool isDestructor = false)
@@ -123,7 +126,7 @@ public class SourceLinkResolver
             if (trimmed.StartsWith("public") || trimmed.StartsWith("private")
                 || trimmed.StartsWith("protected") || trimmed.StartsWith("internal")
                 || trimmed.StartsWith("static")
-                || (isDestructor && trimmed.StartsWith("~"))
+                || (isDestructor && trimmed.Contains('~'))
                 || trimmed.Contains(methodName))
                 break;
         }

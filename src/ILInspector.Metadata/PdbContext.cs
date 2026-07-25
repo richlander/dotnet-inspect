@@ -40,7 +40,8 @@ public sealed record MemberSourceInfo(
     string? ResolvedUrl,
     int StartLine,
     int EndLine,
-    bool IsPrimaryDocument = false);
+    bool IsPrimaryDocument = false,
+    bool IsFinalizer = false);
 
 public record ILOffsetMemberContextInfo(
     string? Assembly,
@@ -797,6 +798,7 @@ public class PdbContext : IDisposable
                 metadata,
                 method.GetDeclaringType(),
                 method);
+            bool isFinalizer = ApiSurfaceExtractor.IsFinalizerMethod(metadata, methodHandle);
 
             foreach (var (documentHandle, range) in ranges
                 .OrderBy(static item => MetadataTokens.GetRowNumber(item.Key)))
@@ -813,7 +815,8 @@ public class PdbContext : IDisposable
                     sourceLink.ResolvedUrl,
                     range.StartLine,
                     range.EndLine,
-                    IsPrimaryDocument: documentHandle == primaryDocument);
+                    IsPrimaryDocument: documentHandle == primaryDocument,
+                    IsFinalizer: isFinalizer);
             }
         }
     }

@@ -843,6 +843,38 @@ public static class ApiSurfaceExtractor
     }
 
     /// <summary>
+    /// True when <paramref name="methodHandle"/> is a C# destructor: a non-generic method named
+    /// <c>Finalize</c> that <c>.override</c>s <c>System.Object::Finalize</c> via a MethodImpl. This
+    /// mirrors the <see cref="ApiMember.IsFinalizer"/> object.Finalize-override signal and is shared
+    /// with the source-mapping producer (<see cref="PdbContext.EnumerateMemberSources"/>) so a
+    /// destructor's <c>~Type()</c> source line is anchored from metadata identity rather than
+    /// inferred from source text. The <c>Finalize</c> name gate keeps the MethodImpl enumeration off
+    /// the hot path for every other method.
+    /// </summary>
+    internal static bool IsFinalizerMethod(MetadataReader reader, MethodDefinitionHandle methodHandle)
+    {
+        var method = reader.GetMethodDefinition(methodHandle);
+        if (!string.Equals(reader.GetString(method.Name), "Finalize", StringComparison.Ordinal))
+            return false;
+        if (method.GetGenericParameters().Count != 0)
+            return false;
+
+        var typeDef = reader.GetTypeDefinition(method.GetDeclaringType());
+        foreach (var implementationHandle in typeDef.GetMethodImplementations())
+        {
+            var implementation = reader.GetMethodImplementation(implementationHandle);
+            if (implementation.MethodBody.Kind == HandleKind.MethodDefinition
+                && (MethodDefinitionHandle)implementation.MethodBody == methodHandle
+                && ReferencesObjectFinalize(reader, implementation.MethodDeclaration))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// True when <paramref name="methodDeclaration"/> (the target of a
     /// <c>.override</c> MethodImpl) names <c>Finalize</c> on <c>System.Object</c>.
     /// The target is a <see cref="MemberReferenceHandle"/> in the common case

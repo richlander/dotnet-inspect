@@ -193,4 +193,32 @@ public class ExtractMethodBodyTests
         Assert.StartsWith("~", body, System.StringComparison.Ordinal);
         Assert.DoesNotContain("s_flag;", body, System.StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData("unsafe ~C()")]
+    [InlineData("extern ~C()")]
+    public void Destructor_WithLeadingModifier_StopsAtTildeSignature(string destructorLine)
+    {
+        // Regression guard (adversarial review): a destructor may carry the legal
+        // `unsafe`/`extern` modifiers, so its signature line begins with a keyword
+        // rather than "~". Because a genuine destructor is parameterless (identity
+        // supplied by the caller), the scan may stop at a tilde ANYWHERE on the
+        // line and still captures the full modifier-prefixed signature without
+        // leaking the preceding member.
+        var source = Lines(
+            "class C",                              // 1
+            "{",                                    // 2
+            "    internal static bool s_flag;",     // 3  <- must NOT be captured
+            "",                                     // 4
+            "    " + destructorLine,                // 5
+            "    {",                                // 6  <- StartLine
+            "        s_flag = true;",               // 7  <- EndLine
+            "    }",                                // 8
+            "}");                                   // 9
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Finalize", isDestructor: true);
+
+        Assert.StartsWith(destructorLine, body, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("s_flag;", body, System.StringComparison.Ordinal);
+    }
 }

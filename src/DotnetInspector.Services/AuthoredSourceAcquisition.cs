@@ -180,11 +180,14 @@ public static class AuthoredSourceAcquisition
         try
         {
             string sourceText = DecodeSourceText(content);
-            // A C# destructor compiles to a method whose metadata name is
-            // "Finalize"; use that identity (not a source-text shape) to tell
-            // ExtractMethodBody to stop the backward signature scan at the
-            // "~Type()" line instead of walking into the preceding member.
-            bool isDestructor = string.Equals(mapping.Anchor.MemberName, "Finalize", StringComparison.Ordinal);
+            // A C# destructor's source line is "~Type()", which carries no
+            // accessibility keyword and whose metadata name ("Finalize") does not
+            // appear in the text; without an explicit signal the backward signature
+            // scan would walk past it into the preceding member. Use the mapping's
+            // authoritative object.Finalize-override identity (computed from metadata
+            // by the source-mapping producer), NOT a "Finalize" name match, so an
+            // ordinary parameterized method named "Finalize" is never truncated.
+            bool isDestructor = mapping.IsFinalizer;
             string memberText = SourceLinkResolver.ExtractMethodBody(
                 sourceText,
                 mapping.StartLine,
