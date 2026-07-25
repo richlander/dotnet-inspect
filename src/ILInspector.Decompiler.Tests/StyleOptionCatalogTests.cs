@@ -146,4 +146,96 @@ public class StyleOptionCatalogTests
         Assert.False(arrow.Get(PrinterOptions.Default));
         Assert.True(arrow.Get(arrow.With(PrinterOptions.Default, true)));
     }
+
+    [Fact]
+    public void OracleEndorsedOptions_IsExactlyTheOracleEndorsedDescriptors()
+    {
+        // The "full taste" member list is precisely the oracle-endorsed filter over
+        // Options — same instances, same order — and nothing else.
+        Assert.Equal(
+            Options.Where(o => o.OracleEndorsed).ToArray(),
+            StyleOptionCatalog.OracleEndorsedOptions.ToArray());
+        Assert.All(StyleOptionCatalog.OracleEndorsedOptions, o => Assert.True(o.OracleEndorsed));
+    }
+
+    [Fact]
+    public void OracleEndorsedOptions_AreExactlyTheFourQualificationsAndTheTernary()
+    {
+        // Pin the intended "full taste" subset to literal ids, independent of the
+        // OracleEndorsed flag the production filter reads. Without this, mismarking
+        // a knob (e.g. a formatting knob) as OracleEndorsed would silently widen the
+        // aggregate while every flag-derived test still passed.
+        var expected = new[]
+        {
+            "prefer-conditional-expression-return",
+            "qualify-event-access",
+            "qualify-field-access",
+            "qualify-method-access",
+            "qualify-property-access",
+        };
+
+        var actual = StyleOptionCatalog.OracleEndorsedOptions
+            .Select(o => o.Id)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void OracleEndorsedSubset_HasAtMostOneMemberPerConflictGroup()
+    {
+        // The "deterministic by construction" property the aggregate relies on:
+        // enabling the whole oracle-endorsed subset can never turn on two members of
+        // the same conflict group. A generic invariant (not just the current
+        // guarded-boolean-return group) so a future endorsed knob that shared a
+        // group with another endorsed knob fails here instead of silently making the
+        // aggregate ambiguous.
+        var collisions = StyleOptionCatalog.OracleEndorsedOptions
+            .Where(o => o.ConflictGroup is not null)
+            .GroupBy(o => o.ConflictGroup, StringComparer.Ordinal)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key)
+            .ToArray();
+
+        Assert.Empty(collisions);
+    }
+
+    [Fact]
+    public void ApplyFullTaste_EnablesExactlyTheOracleEndorsedSubset()
+    {
+        var full = StyleOptionCatalog.ApplyFullTaste(PrinterOptions.Default);
+
+        foreach (var o in Options)
+            Assert.Equal(o.OracleEndorsed, o.Get(full));
+    }
+
+    [Fact]
+    public void ApplyFullTaste_ResolvesGuardedBooleanReturnGroup_ToTheTernary()
+    {
+        // The aggregate picks the oracle-endorsed ternary and never the branchless
+        // "bool hack", so the conflict group resolves deterministically by
+        // construction — the two are never both on.
+        var full = StyleOptionCatalog.ApplyFullTaste(PrinterOptions.Default);
+
+        var ternary = Options.Single(o => o.Id == "prefer-conditional-expression-return");
+        var branchless = Options.Single(o => o.Id == "prefer-branchless-boolean");
+        Assert.True(ternary.Get(full));
+        Assert.False(branchless.Get(full));
+    }
+
+    [Fact]
+    public void ApplyFullTaste_False_DisablesExactlyTheOracleEndorsedSubset()
+    {
+        // Turn every knob on, then apply the aggregate with enabled: false — only
+        // the oracle-endorsed subset is turned back off; non-endorsed knobs stay on.
+        var allOn = PrinterOptions.Default;
+        foreach (var o in Options)
+            allOn = o.With(allOn, true);
+
+        var result = StyleOptionCatalog.ApplyFullTaste(allOn, enabled: false);
+
+        foreach (var o in Options)
+            Assert.Equal(!o.OracleEndorsed, o.Get(result));
+    }
 }

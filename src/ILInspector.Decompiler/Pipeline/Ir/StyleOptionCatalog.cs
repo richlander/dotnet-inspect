@@ -236,4 +236,39 @@ public static class StyleOptionCatalog
             With = static (o, v) => o with { PreferBranchlessBoolean = v },
         },
     ];
+
+    /// <summary>
+    /// The oracle-endorsed subset of <see cref="Options"/> — the knobs whose
+    /// spelling the runtime <c>.editorconfig</c>/IDE oracle prefers — that the
+    /// "full taste" aggregate enables together. A host lists these as the members
+    /// a single "full taste" toggle turns on. Excludes idiosyncratic user
+    /// preferences (e.g. the branchless "bool hack" lens) and the fidelity-neutral
+    /// formatting/synthesis knobs the oracle takes no position on.
+    ///
+    /// <para>Declared after <see cref="Options"/> so its initializer reads the
+    /// fully-built list. Because only oracle-endorsed knobs are included, at most
+    /// one member of any <see cref="StyleOptionDescriptor.ConflictGroup"/> is
+    /// present (the ternary lens, never the branchless one), so the subset carries
+    /// no internal conflict.</para>
+    /// </summary>
+    public static IReadOnlyList<StyleOptionDescriptor> OracleEndorsedOptions { get; } =
+        [.. Options.Where(o => o.OracleEndorsed)];
+
+    /// <summary>
+    /// Returns a copy of <paramref name="options"/> with every
+    /// <see cref="OracleEndorsedOptions"/> knob set to <paramref name="enabled"/> —
+    /// the "full taste" aggregate. When <paramref name="enabled"/> is
+    /// <see langword="true"/> (the default) it turns the oracle-endorsed subset on;
+    /// <see langword="false"/> turns exactly that subset off. Non-endorsed knobs are
+    /// left untouched, and because the enabled subset shares no conflict group the
+    /// result is deterministic. Reflection-free and NativeAOT-safe: it only folds
+    /// the descriptors' explicit <see cref="StyleOptionDescriptor.With"/> delegates.
+    /// </summary>
+    public static PrinterOptions ApplyFullTaste(PrinterOptions options, bool enabled = true)
+    {
+        foreach (var knob in OracleEndorsedOptions)
+            options = knob.With(options, enabled);
+
+        return options;
+    }
 }
