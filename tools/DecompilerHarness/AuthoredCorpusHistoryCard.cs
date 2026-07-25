@@ -61,8 +61,9 @@ static class AuthoredCorpusHistoryCard
         {
             if (string.IsNullOrWhiteSpace(line))
                 continue;
-            if (JsonSerializer.Deserialize<HistoryRun>(line, options) is { } run)
-                runs.Add(run);
+            var run = JsonSerializer.Deserialize<HistoryRun>(line, options)
+                ?? throw new JsonException($"History row is null (not a run object): {line.Trim()}");
+            runs.Add(run);
         }
 
         return runs;

@@ -128,6 +128,17 @@ public class AuthoredCorpusHistoryCardTests
     }
 
     [Fact]
+    public void ParseHistory_RejectsNullRowInsteadOfSilentlyDroppingIt()
+    {
+        // A literal `null` line is well-formed JSON that deserializes to null;
+        // it must fail loudly rather than vanish (which would hide a row and
+        // silently corrupt the trend), unlike blank/whitespace lines.
+        Assert.Throws<JsonException>(
+            () => AuthoredCorpusHistoryCard.ParseHistory(
+                ["""{"date":"2026-08-01","validPct":57.0,"correct":1610,"invalid":5170,"invalidBreakdown":null}""", "null"]));
+    }
+
+    [Fact]
     public void ParseHistory_AcceptsAbsentBreakdownAsNotMeasured()
     {
         // Regression guard: a null breakdown remains a legitimate pre-#3096
