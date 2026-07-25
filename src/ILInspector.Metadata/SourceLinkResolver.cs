@@ -194,6 +194,17 @@ public class SourceLinkResolver
     /// parameterless <c>~Identifier()</c> grammar on a single line, which still rejects the common
     /// bitwise-complement body lines (they lack the empty <c>()</c>).
     /// </para>
+    /// <para>
+    /// Known limitations (accepted, out of scope). This is a single-line text heuristic, not a C#
+    /// tokenizer, so two exotic valid-C# spellings are not handled: (1) a comment between the tilde
+    /// and the type name (<c>~ /*x*/ C()</c>) is not recognized; and (2) a body statement that
+    /// bitwise-complements an invocation of a local that shadows the enclosing type name
+    /// (<c>~C();</c> where a local named <c>C</c> is in scope) can be mistaken for the signature if
+    /// <c>#line hidden</c> makes it the first visible sequence point. Both require a member/local
+    /// spelled exactly as the enclosing type under a hidden-line body — combinations that do not
+    /// occur in real destructors. Fully resolving them would require multi-line tokenization, which
+    /// this Roslyn-free path deliberately avoids.
+    /// </para>
     /// </summary>
     internal static bool IsDestructorSignatureLine(string trimmed, string? typeName = null)
     {
