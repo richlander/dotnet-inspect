@@ -85,15 +85,15 @@ public sealed record StyleOptionDescriptor
 
     /// <summary>
     /// <see langword="true"/> when the runtime's own <b>source corpus</b> reveals a
-    /// dominant practice endorsing this knob even where <see cref="OracleEndorsed"/>
-    /// is <see langword="false"/> — a declared-silent but revealed-endorsed shape
-    /// (see <c>docs/decompiler-taste.md</c>, the two oracle facets). Each
-    /// <see langword="true"/> is a deliberate, documented judgment, never a
-    /// silently-inferred or measured-heat claim. Independent of
-    /// <see cref="OracleEndorsed"/>: a knob may be endorsed by neither facet (an
-    /// idiosyncratic preference like the branchless "bool hack" or wrapping the
-    /// expression-body arrow, which the corpus does not do), by the declared facet,
-    /// or by the revealed facet.
+    /// dominant practice endorsing this knob — typically where
+    /// <see cref="OracleEndorsed"/> is <see langword="false"/> (the declared oracle
+    /// is silent), though the two facets are independent and a knob could in
+    /// principle be endorsed by both (see <c>docs/decompiler-taste.md</c>, the two
+    /// oracle facets). Each <see langword="true"/> is a deliberate, documented
+    /// judgment, never a silently-inferred or measured-heat claim. A knob may be
+    /// endorsed by neither facet (an idiosyncratic preference like the branchless
+    /// "bool hack", or wrapping the expression-body arrow, which the corpus does
+    /// not do), by the declared facet, by the revealed facet, or by both.
     /// </summary>
     public required bool CorpusEndorsed { get; init; }
 
@@ -299,14 +299,13 @@ public static class StyleOptionCatalog
     }
 
     /// <summary>
-    /// The revealed-endorsed subset of <see cref="Options"/> — knobs the declared
-    /// oracle is silent on (<see cref="StyleOptionDescriptor.OracleEndorsed"/> is
-    /// <see langword="false"/>) but the runtime's own source corpus reveals a
-    /// dominant practice for (<see cref="StyleOptionDescriptor.CorpusEndorsed"/> is
-    /// <see langword="true"/>). This is the material a future "house style"
-    /// aggregate would fold in on top of "full taste". The two flags are
-    /// independent by contract (a knob could in principle be endorsed by both
-    /// facets); in today's catalog no knob is, so this subset and
+    /// The revealed-endorsed subset of <see cref="Options"/> — knobs whose
+    /// <see cref="StyleOptionDescriptor.CorpusEndorsed"/> is <see langword="true"/>
+    /// because the runtime's own source corpus reveals a dominant practice for them.
+    /// This is the material a future "house style" aggregate would fold in on top of
+    /// "full taste". The two flags are independent by contract (a knob could in
+    /// principle be endorsed by both facets); in today's catalog every
+    /// revealed-endorsed knob happens to be declared-silent, so this subset and
     /// <see cref="OracleEndorsedOptions"/> happen to be disjoint. A host should not
     /// rely on that disjointness — treat the two accessors as independent.
     ///

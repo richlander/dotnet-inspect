@@ -599,14 +599,14 @@ set the knob on a `PrinterOptions` without reflection.
 
 `OracleEndorsed` records **declared**-oracle endorsement specifically — the knob
 has a `.editorconfig` rule behind it. `CorpusEndorsed` records **revealed**
-endorsement — a knob the declared oracle is silent on but the runtime's own
-source corpus reveals a dominant practice for. The two flags are independent (a
-knob may be endorsed by both facets, one, or neither), and each
-`CorpusEndorsed = true` is a deliberate, documented judgment, never a
-silently-inferred or measured-heat claim. Today exactly one knob is
-revealed-endorsed — `wrap-splittable-expressions`, because runtime code wraps
-long boolean chains in line with its 120-column practice. The other
-formatting/synthesis knobs are left un-endorsed on both axes: wrapping the
+endorsement — the runtime's own source corpus reveals a dominant practice for the
+knob (typically where the declared oracle is silent, though the two facets are
+independent). The two flags are independent (a knob may be endorsed by both
+facets, one, or neither), and each `CorpusEndorsed = true` is a deliberate,
+documented judgment, never a silently-inferred or measured-heat claim. Today
+exactly one knob is revealed-endorsed — `wrap-splittable-expressions`, because
+runtime code wraps long boolean chains in line with its 120-column practice. The
+other formatting/synthesis knobs are left un-endorsed on both axes: wrapping the
 expression-body arrow actually *diverges* from the corpus (the runtime keeps `=>`
 on the same line, which the shipped default already does), and a synthesized
 local name is our own invention, not a corpus spelling. The catalog exposes the
