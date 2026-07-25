@@ -45,6 +45,7 @@ const state = {
   lens: "api",
   typeFilter: "",
   namespaceFilter: "",
+  kindFilter: "",
   command: "",
   completionIndex: 0,
   promptOpen: false,
@@ -199,7 +200,9 @@ function filteredTypes() {
   const needle = state.typeFilter.toLowerCase();
   return state.package.types.filter(item => {
     const matchesText = !needle || `${item.name} ${item.namespace} ${item.kind}`.toLowerCase().includes(needle);
-    return matchesText && (!state.namespaceFilter || item.namespace === state.namespaceFilter);
+    return matchesText
+      && (!state.namespaceFilter || item.namespace === state.namespaceFilter)
+      && (!state.kindFilter || typeKind(item.kind) === state.kindFilter);
   });
 }
 
@@ -207,6 +210,30 @@ function namespaces() {
   if (!state.package) return [];
   return [...new Set(state.package.types.map(item => item.namespace))];
 }
+
+// Collapse a raw kind string ("sealed class", "readonly struct", "enum", …) to a
+// primary bucket used by the kind filter chips.
+function typeKind(kind) {
+  const value = (kind || "").toLowerCase();
+  if (value.includes("interface")) return "interface";
+  if (value.includes("delegate")) return "delegate";
+  if (value.includes("enum")) return "enum";
+  if (value.includes("struct")) return "struct";
+  return "class";
+}
+
+const KIND_ORDER = ["class", "struct", "interface", "enum", "delegate"];
+
+// Kind buckets present in the current package, honoring the active namespace filter
+// (but not the kind filter itself, so chips stay stable while one is selected).
+function typeKinds() {
+  if (!state.package) return [];
+  const present = new Set(state.package.types
+    .filter(item => !state.namespaceFilter || item.namespace === state.namespaceFilter)
+    .map(item => typeKind(item.kind)));
+  return KIND_ORDER.filter(kind => present.has(kind));
+}
+
 
 function typeGroups() {
   const groups = new Map();
@@ -569,6 +596,10 @@ function renderTypeNav(current, visible) {
       <div class="namespace-chips" aria-label="Namespace filters">
         <button class="${!state.namespaceFilter ? "active" : ""}" data-namespace="">all</button>
         ${namespaces().map(item => `<button class="${state.namespaceFilter === item ? "active" : ""}" data-namespace="${escapeHtml(item)}" title="${escapeHtml(item)}">${escapeHtml(item.split(".").at(-1))}</button>`).join("")}
+      </div>
+      <div class="namespace-chips kind-chips" aria-label="Type kind filters">
+        <button class="${!state.kindFilter ? "active" : ""}" data-kind-filter="">all kinds</button>
+        ${typeKinds().map(kind => `<button class="${state.kindFilter === kind ? "active" : ""}" data-kind-filter="${kind}">${kind}</button>`).join("")}
       </div>
       <div class="type-list" role="listbox" tabindex="0" id="type-list">
         ${[...typeGroups()].map(([namespace, types]) => `
@@ -968,6 +999,7 @@ function bindEvents() {
     state.selectedMemberKey = "";
     state.typeFilter = "";
     state.namespaceFilter = "";
+    state.kindFilter = "";
     render();
   }));
   document.querySelectorAll("[data-lens]").forEach(button => button.addEventListener("click", () => {
@@ -1058,6 +1090,14 @@ function bindEvents() {
     state.selectedMemberKey = "";
     render();
   }));
+  document.querySelectorAll("[data-kind-filter]").forEach(button => button.addEventListener("click", () => {
+    state.kindFilter = button.dataset.kindFilter;
+    state.typeCursor = 0;
+    const first = filteredTypes()[0];
+    if (first) state.selectedTypeId = first.id;
+    state.selectedMemberKey = "";
+    render();
+  }));
   document.querySelectorAll("[data-completion]").forEach(button => button.addEventListener("mousedown", event => {
     event.preventDefault();
     applyCompletion(button.dataset.completion);
@@ -1116,6 +1156,7 @@ function bindEvents() {
   document.querySelector("#clear-filter")?.addEventListener("click", () => {
     state.typeFilter = "";
     state.namespaceFilter = "";
+    state.kindFilter = "";
     render();
     focusFilter();
   });
@@ -1441,6 +1482,7 @@ function pickSpotlight(pkgId, typeId) {
   state.memberAnnotatedError = "";
   state.typeFilter = "";
   state.namespaceFilter = "";
+  state.kindFilter = "";
   state.spotlightOpen = false;
   state.spotlightQuery = "";
   state.spotlightIndex = 0;
@@ -1534,6 +1576,7 @@ function executeCommand() {
   } else if (verb === "clear") {
     state.typeFilter = "";
     state.namespaceFilter = "";
+    state.kindFilter = "";
   } else if (verb === "find" || verb === "types") {
     state.typeFilter = argument.replace(/^public\s*/, "");
   } else if (verb === "share") {
@@ -2365,6 +2408,7 @@ async function loadPackage(packageId, version, framework) {
     state.package = packageModel;
     state.typeFilter = "";
     state.namespaceFilter = "";
+    state.kindFilter = "";
     const deep = pendingDeepLink;
     pendingDeepLink = null;
     if (deep && (deep.type || deep.member)) {
