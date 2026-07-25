@@ -1618,6 +1618,12 @@ public static class ApiOutputFormatter
         IReadOnlyList<Decompiler.DecompilerDecision> decisions)
         =>
         [
+            // Projects the configurable choices the decompiler RECORDED as
+            // decisions -- currently the byte-divergent style lenses and the
+            // opt-in chain-wrap. Some byte-preserving knobs (this.-qualification)
+            // do not yet record a decision, so they will not appear here until
+            // issue #3156 lands; the empty-state wording is scoped to "recorded"
+            // choices to avoid over-claiming completeness.
             .. decisions
                 // The framework-import rewrite (List<T> for the mangled metadata
                 // name) is always-on and universally expected, not a configurable

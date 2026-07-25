@@ -710,7 +710,7 @@ public class MemberCodeView
     [MarkoutSection(Name = SectionNames.FidelityCauses)]
     public List<FidelityCauseRow>? FidelityCauseRows { get; set; }
 
-    [MarkoutSection(Name = SectionNames.AppliedTaste, EmptyText = "No configurable style choices were applied to this member.")]
+    [MarkoutSection(Name = SectionNames.AppliedTaste, EmptyText = "No recorded style choices were applied to this member.")]
     public List<AppliedTasteRow>? AppliedTasteRows { get; set; }
 
     [MarkoutSection(Name = "Annotated Source")]

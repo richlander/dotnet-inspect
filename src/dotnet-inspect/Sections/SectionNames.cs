@@ -84,7 +84,7 @@ public static class SectionNames
     /// <summary>Section for typed causes that prevent Full decompiler fidelity.</summary>
     public const string FidelityCauses = "Fidelity Causes";
 
-    /// <summary>Section for the configurable, opcode-neutral style choices applied while rendering this member.</summary>
+    /// <summary>Section listing the configurable style choices the decompiler recorded while rendering this member, each tagged byte-preserving or byte-divergent. Primarily surfaces the opt-in byte-divergent style lenses (the #3127 signal). Some byte-preserving knobs (e.g. this.-qualification) are not yet recorded; see issue #3156.</summary>
     public const string AppliedTaste = "Applied Taste";
 
     /// <summary>Section for the decompiled C# method body with hidden-fact annotations and interleaved IL.</summary>

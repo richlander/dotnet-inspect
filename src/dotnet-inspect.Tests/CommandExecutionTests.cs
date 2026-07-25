@@ -4213,7 +4213,7 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Contains("## Applied Taste", output);
-        Assert.Contains("No configurable style choices were applied to this member.", output);
+        Assert.Contains("No recorded style choices were applied to this member.", output);
         Assert.DoesNotContain("byte-divergent", output);
     }
 
