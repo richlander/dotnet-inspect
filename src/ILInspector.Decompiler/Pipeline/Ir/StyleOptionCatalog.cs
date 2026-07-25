@@ -74,12 +74,28 @@ public sealed record StyleOptionDescriptor
     public required bool ByteDivergent { get; init; }
 
     /// <summary>
-    /// <see langword="true"/> when the runtime <c>.editorconfig</c>/IDE oracle
-    /// endorses this spelling (so it is eligible for a future "full taste"
-    /// aggregate). <see langword="false"/> for idiosyncratic user preferences such
-    /// as the branchless "bool hack".
+    /// <see langword="true"/> when the <b>declared</b> oracle — the runtime
+    /// <c>.editorconfig</c> and enabled IDE fixers — endorses this spelling (so it
+    /// is part of the "full taste" aggregate). <see langword="false"/> for a knob
+    /// the declared oracle is silent on, including idiosyncratic user preferences
+    /// such as the branchless "bool hack". Orthogonal to <see cref="CorpusEndorsed"/>:
+    /// a declared-silent knob may still be revealed-endorsed by the corpus.
     /// </summary>
     public required bool OracleEndorsed { get; init; }
+
+    /// <summary>
+    /// <see langword="true"/> when the runtime's own <b>source corpus</b> reveals a
+    /// dominant practice endorsing this knob — typically where
+    /// <see cref="OracleEndorsed"/> is <see langword="false"/> (the declared oracle
+    /// is silent), though the two facets are independent and a knob could in
+    /// principle be endorsed by both (see <c>docs/decompiler-taste.md</c>, the two
+    /// oracle facets). Each <see langword="true"/> is a deliberate, documented
+    /// judgment, never a silently-inferred or measured-heat claim. A knob may be
+    /// endorsed by neither facet (an idiosyncratic preference like the branchless
+    /// "bool hack", or wrapping the expression-body arrow, which the corpus does
+    /// not do), by the declared facet, by the revealed facet, or by both.
+    /// </summary>
+    public required bool CorpusEndorsed { get; init; }
 
     /// <summary>
     /// The <c>.dotnet-inspectconfig</c> key that selects this knob, or
@@ -134,6 +150,7 @@ public static class StyleOptionCatalog
             ByteDivergent = false,
             OracleEndorsed = false,
             ConfigKey = null,
+            CorpusEndorsed = false,
             Get = static o => o.ReadableLocalNames,
             With = static (o, v) => o with { ReadableLocalNames = v },
         },
@@ -146,6 +163,7 @@ public static class StyleOptionCatalog
             ByteDivergent = false,
             OracleEndorsed = false,
             ConfigKey = null,
+            CorpusEndorsed = true,
             Get = static o => o.WrapSplittableExpressions,
             With = static (o, v) => o with { WrapSplittableExpressions = v },
         },
@@ -158,6 +176,7 @@ public static class StyleOptionCatalog
             ByteDivergent = false,
             OracleEndorsed = false,
             ConfigKey = null,
+            CorpusEndorsed = false,
             Get = static o => o.WrapExpressionBodyArrow,
             With = static (o, v) => o with { WrapExpressionBodyArrow = v },
         },
@@ -170,6 +189,7 @@ public static class StyleOptionCatalog
             ByteDivergent = false,
             OracleEndorsed = true,
             ConfigKey = "dotnet_style_qualification_for_field",
+            CorpusEndorsed = false,
             Get = static o => o.QualifyFieldAccess,
             With = static (o, v) => o with { QualifyFieldAccess = v },
         },
@@ -182,6 +202,7 @@ public static class StyleOptionCatalog
             ByteDivergent = false,
             OracleEndorsed = true,
             ConfigKey = "dotnet_style_qualification_for_property",
+            CorpusEndorsed = false,
             Get = static o => o.QualifyPropertyAccess,
             With = static (o, v) => o with { QualifyPropertyAccess = v },
         },
@@ -194,6 +215,7 @@ public static class StyleOptionCatalog
             ByteDivergent = false,
             OracleEndorsed = true,
             ConfigKey = "dotnet_style_qualification_for_method",
+            CorpusEndorsed = false,
             Get = static o => o.QualifyMethodAccess,
             With = static (o, v) => o with { QualifyMethodAccess = v },
         },
@@ -206,6 +228,7 @@ public static class StyleOptionCatalog
             ByteDivergent = false,
             OracleEndorsed = true,
             ConfigKey = "dotnet_style_qualification_for_event",
+            CorpusEndorsed = false,
             Get = static o => o.QualifyEventAccess,
             With = static (o, v) => o with { QualifyEventAccess = v },
         },
@@ -219,6 +242,7 @@ public static class StyleOptionCatalog
             OracleEndorsed = true,
             ConfigKey = "dotnet_style_prefer_conditional_expression_over_return",
             ConflictGroup = GuardedBooleanReturnGroup,
+            CorpusEndorsed = false,
             Get = static o => o.PreferConditionalExpressionReturn,
             With = static (o, v) => o with { PreferConditionalExpressionReturn = v },
         },
@@ -232,6 +256,7 @@ public static class StyleOptionCatalog
             OracleEndorsed = false,
             ConfigKey = "dotnet_inspect_style_prefer_branchless_boolean",
             ConflictGroup = GuardedBooleanReturnGroup,
+            CorpusEndorsed = false,
             Get = static o => o.PreferBranchlessBoolean,
             With = static (o, v) => o with { PreferBranchlessBoolean = v },
         },
@@ -243,7 +268,8 @@ public static class StyleOptionCatalog
     /// "full taste" aggregate enables together. A host lists these as the members
     /// a single "full taste" toggle turns on. Excludes idiosyncratic user
     /// preferences (e.g. the branchless "bool hack" lens) and the fidelity-neutral
-    /// formatting/synthesis knobs the oracle takes no position on.
+    /// formatting/synthesis knobs the <b>declared</b> oracle takes no position on
+    /// (some of which are <see cref="CorpusEndorsedOptions">revealed-endorsed</see>).
     ///
     /// <para>Declared after <see cref="Options"/> so its initializer reads the
     /// fully-built list. Because only oracle-endorsed knobs are included, at most
@@ -271,4 +297,21 @@ public static class StyleOptionCatalog
 
         return options;
     }
+
+    /// <summary>
+    /// The revealed-endorsed subset of <see cref="Options"/> — knobs whose
+    /// <see cref="StyleOptionDescriptor.CorpusEndorsed"/> is <see langword="true"/>
+    /// because the runtime's own source corpus reveals a dominant practice for them.
+    /// This is the material a future "house style" aggregate would fold in on top of
+    /// "full taste". The two flags are independent by contract (a knob could in
+    /// principle be endorsed by both facets); in today's catalog every
+    /// revealed-endorsed knob happens to be declared-silent, so this subset and
+    /// <see cref="OracleEndorsedOptions"/> happen to be disjoint. A host should not
+    /// rely on that disjointness — treat the two accessors as independent.
+    ///
+    /// <para>Declared after <see cref="Options"/> so its initializer reads the
+    /// fully-built list.</para>
+    /// </summary>
+    public static IReadOnlyList<StyleOptionDescriptor> CorpusEndorsedOptions { get; } =
+        [.. Options.Where(o => o.CorpusEndorsed)];
 }

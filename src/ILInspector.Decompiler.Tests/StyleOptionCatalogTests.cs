@@ -238,4 +238,66 @@ public class StyleOptionCatalogTests
         foreach (var o in Options)
             Assert.Equal(!o.OracleEndorsed, o.Get(result));
     }
+
+    // ---- corpus (revealed-preference) endorsement axis (#3179) ----
+
+    [Fact]
+    public void CorpusEndorsedOptions_IsExactlyTheCorpusEndorsedDescriptors()
+    {
+        Assert.Equal(
+            Options.Where(o => o.CorpusEndorsed).ToArray(),
+            StyleOptionCatalog.CorpusEndorsedOptions.ToArray());
+        Assert.All(StyleOptionCatalog.CorpusEndorsedOptions, o => Assert.True(o.CorpusEndorsed));
+    }
+
+    [Fact]
+    public void CorpusEndorsedOptions_AreExactlyTheWrapSplittableKnob()
+    {
+        // Pin the first revealed-preference classification to literal ids,
+        // independent of the CorpusEndorsed flag the production filter reads. The
+        // runtime corpus wraps long boolean chains (matching its 120-column
+        // practice); the other formatting/synthesis knobs are deliberately left
+        // un-endorsed pending evidence, so mismarking one fails here.
+        var actual = StyleOptionCatalog.CorpusEndorsedOptions
+            .Select(o => o.Id)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(new[] { "wrap-splittable-expressions" }, actual);
+    }
+
+    [Fact]
+    public void TheTwoEndorsementFacets_AreIndependentFlags()
+    {
+        // The two axes are orthogonal by contract. In today's catalog no knob is
+        // endorsed by both facets (the subsets are disjoint), but this asserts the
+        // flags are read independently, not that one implies the other.
+        var declaredButNotRevealed = Options.Where(o => o.OracleEndorsed && !o.CorpusEndorsed).ToArray();
+        var revealedButNotDeclared = Options.Where(o => o.CorpusEndorsed && !o.OracleEndorsed).ToArray();
+
+        Assert.NotEmpty(declaredButNotRevealed); // e.g. the this.-qualifications
+        Assert.NotEmpty(revealedButNotDeclared); // e.g. wrap-splittable-expressions
+    }
+
+    [Fact]
+    public void BranchlessLens_IsEndorsedByNeitherFacet()
+    {
+        // The idiosyncratic "bool hack" is the canonical neither-facet knob: no
+        // .editorconfig rule and no revealed corpus practice.
+        var branchless = Options.Single(o => o.Id == "prefer-branchless-boolean");
+        Assert.False(branchless.OracleEndorsed);
+        Assert.False(branchless.CorpusEndorsed);
+    }
+
+    [Fact]
+    public void WrapExpressionBodyArrow_IsEndorsedByNeitherFacet()
+    {
+        // Wrapping the expression-body arrow is a user preference, not the corpus's
+        // practice: the runtime keeps => on the same line, so the shipped default
+        // (arrow.Get == false) already matches the corpus and enabling the knob
+        // diverges from it. So it is neither declared- nor revealed-endorsed.
+        var arrow = Options.Single(o => o.Id == "wrap-expression-body-arrow");
+        Assert.False(arrow.OracleEndorsed);
+        Assert.False(arrow.CorpusEndorsed);
+    }
 }
