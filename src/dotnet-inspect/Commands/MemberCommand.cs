@@ -285,7 +285,7 @@ public static class MemberCommand
                 // keep the public-only default. Explicit interface implementations stay resolvable.
                 var directRequest = selectedMember != null && effectiveOptions.IncludeAll;
                 var publicOnly = !directRequest
-                    && selectedMember?.Kind != "explicit-interface-implementation";
+                    && selectedMember?.Kind is not ("explicit-interface-implementation" or "finalizer");
                 var resolved = await ApiCommand.ResolveMethodSourceAsync(
                     pdbLookupPath, sourceTypeName,
                     effectiveOptions.MemberFilter.First(),

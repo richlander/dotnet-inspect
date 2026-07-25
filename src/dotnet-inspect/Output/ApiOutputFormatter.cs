@@ -542,15 +542,19 @@ public static class ApiOutputFormatter
         static string ShapeDestructorSpelling(string typeName)
         {
             var name = typeName;
+            // Isolate the innermost nested-type segment BEFORE stripping generic
+            // arity, so a finalizer on a type nested inside a generic outer
+            // (e.g. "Outer`1.Nested" or "Outer`1+Nested") spells "~Nested()"
+            // rather than "~Outer()".
+            int sep = name.LastIndexOfAny(['.', '+']);
+            if (sep >= 0)
+                name = name[(sep + 1)..];
             int angle = name.IndexOf('<');
             if (angle >= 0)
                 name = name[..angle];
             int tick = name.IndexOf('`');
             if (tick >= 0)
                 name = name[..tick];
-            int dot = name.LastIndexOf('.');
-            if (dot >= 0)
-                name = name[(dot + 1)..];
             return $"~{name}()";
         }
 
@@ -2520,7 +2524,7 @@ public static class ApiOutputFormatter
             var m = e.members[0];
             var returnType = e.kind switch
             {
-                "constructor" => "",
+                "constructor" or "finalizer" => "",
                 "event" => m.ReturnType ?? m.Signature ?? "",
                 _ => MemberReturnType(m)
             };
