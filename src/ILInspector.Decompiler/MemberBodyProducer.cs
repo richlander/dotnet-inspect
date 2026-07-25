@@ -167,6 +167,12 @@ public static class MemberBodyProducer
             {
                 RequiresAsyncModifier = projection.RequiresAsyncBodyModifier,
                 RequiresUnsafeModifier = projection.RequiresUnsafeBodyModifier,
+                // Member-agnostic destructor gate: suppress '~Type()' whenever the
+                // body was not recovered as a canonical destructor (issue #3157).
+                // Harmless for non-finalizers (the writer only consults this when
+                // the member is a finalizer); correct for a finalizer consumer of
+                // this shared substrate whose body did not match the scaffold.
+                SuppressDestructorSyntax = !projection.BodyIsDestructor,
             };
             return new MemberBodyProductionResult(
                 MemberBodyProductionStatus.Complete,

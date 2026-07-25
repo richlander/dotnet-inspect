@@ -15,11 +15,12 @@ namespace ILInspector.Decompiler.Pipeline;
 /// the original IL, so the recovery is opcode-exact.
 ///
 /// <para>Runs after structuring so the EH region is a <see cref="TryFinally"/>.
-/// Conservative: the method must be a parameterless instance <c>void Finalize</c>
-/// whose body is that try/finally, followed at most by the implicit void
-/// return, with a finally of nothing but the base call; anything else (a
-/// prologue before the try, executable trailing work, extra finally work) keeps
-/// the literal form.</para>
+/// Conservative: the method must be a parameterless, non-generic instance
+/// <c>void Finalize</c> whose body is that try/finally, followed at most by the
+/// implicit void return, with a finally of nothing but the base call; anything
+/// else (a prologue before the try, executable trailing work, extra finally
+/// work, or a generic arity that <c>~Type()</c> could not spell) keeps the
+/// literal form.</para>
 /// </summary>
 public sealed class DestructorRecoveryPass : IIrPass
 {
@@ -30,6 +31,7 @@ public sealed class DestructorRecoveryPass : IIrPass
         if (function.Name != "Finalize"
             || !function.Signature.HasThis
             || function.Signature.Parameters.Length != 0
+            || function.Signature.GenericParameterCount != 0
             || !IsVoid(function.Signature.ReturnType))
         {
             return;

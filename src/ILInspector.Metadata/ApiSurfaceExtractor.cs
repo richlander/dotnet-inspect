@@ -193,16 +193,20 @@ public static class ApiSurfaceExtractor
                 // `System.Object::Finalize`, so we detect it by that target
                 // rather than by name/signature shape. Keying on the overridden
                 // slot (not the name `Finalize`, the reused virtual slot, or the
-                // decoded signature) is what excludes the false positives a
-                // shape heuristic admits: a generic `Finalize<T>()` override, an
+                // decoded signature) excludes the false positives a shape
+                // heuristic admits: an implicit generic `Finalize<T>()`, an
                 // override of an unrelated base/interface `Finalize()` slot, and
                 // an explicit `IFoo.Finalize()` implementation (whose MethodImpl
                 // targets the interface, not object). A method whose signature
                 // failed to decode is likewise judged by its MethodImpl target
                 // alone, so a degraded decode cannot masquerade as a finalizer.
+                // A finalizer is never generic, so we still reject a method that
+                // explicitly `.override`s object.Finalize while declaring its own
+                // type parameters — rendering it `~Type()` would erase `<T>`.
                 // VB-style implicit `object.Finalize` overrides carry no
                 // MethodImpl and fall back to the literal `void Finalize()`.
                 var isFinalizer = apiType.Kind == "class"
+                    && method.GetGenericParameters().Count == 0
                     && objectFinalizeOverrides.Contains(methodHandle);
 
                 var member = new ApiMember
@@ -866,7 +870,13 @@ public static class ApiSurfaceExtractor
                     && string.Equals(reader.GetString(typeRef.Name), "Object", StringComparison.Ordinal);
             case HandleKind.TypeDefinition:
                 var typeDef = reader.GetTypeDefinition((TypeDefinitionHandle)typeHandle);
-                return string.Equals(reader.GetString(typeDef.Namespace), "System", StringComparison.Ordinal)
+                // The genuine root object is the only `System.Object` with no
+                // base type. An adversarial assembly can define its own
+                // `System.Object` that extends the real one (a non-root fake);
+                // requiring a nil base type rejects it while still accepting the
+                // real object when inspecting the assembly that defines it.
+                return typeDef.BaseType.IsNil
+                    && string.Equals(reader.GetString(typeDef.Namespace), "System", StringComparison.Ordinal)
                     && string.Equals(reader.GetString(typeDef.Name), "Object", StringComparison.Ordinal);
             default:
                 return false;

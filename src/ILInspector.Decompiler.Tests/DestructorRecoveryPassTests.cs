@@ -83,7 +83,23 @@ public class DestructorRecoveryPassTests
         Assert.False(CSharpPrinter.Print(function).BodyIsDestructor);
     }
 
-    static IrFunction BuildManualFinalize(bool includeExecutableTrailingStatement)
+    [Fact]
+    public void FinalizeOverride_WithGenericArity_StandsDown()
+    {
+        // A finalizer is never generic. An IL method that explicitly overrides
+        // object.Finalize while declaring its own type parameters must keep the
+        // literal form — folding it to '~Type()' would erase '<T>'.
+        var function = BuildManualFinalize(includeExecutableTrailingStatement: false, genericParameterCount: 1);
+
+        new DestructorRecoveryPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.False(function.IsDestructor);
+        Assert.Single(function.Descendants.OfType<TryFinally>());
+        Assert.False(CSharpPrinter.Print(function).BodyIsDestructor);
+    }
+
+    static IrFunction BuildManualFinalize(bool includeExecutableTrailingStatement, int genericParameterCount = 0)
     {
         var body = new BlockContainer();
         var block = new Block(0);
@@ -98,7 +114,7 @@ public class DestructorRecoveryPassTests
         return new IrFunction(
             "Finalize",
             Holder,
-            new MethodSignature(Void, [], HasThis: true, GenericParameterCount: 0),
+            new MethodSignature(Void, [], HasThis: true, GenericParameterCount: genericParameterCount),
             [],
             body);
     }
