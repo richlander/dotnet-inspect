@@ -966,6 +966,7 @@ public sealed class SwitchRaisingPass : IIrPass
         region = [];
         exits = [];
         var members = new SortedSet<int> { head };
+        var reachCache = new Dictionary<int, HashSet<int>>();
 
         bool changed = true;
         while (changed)
@@ -988,11 +989,14 @@ public sealed class SwitchRaisingPass : IIrPass
                     // header — and then the loop body, whose predecessors become
                     // members — interiorize, so the switch owns a section that
                     // still holds an unraised loop (StructuringPass raises it once
-                    // the section is a container). Any foreign entry into t or the
-                    // back-edge source is still rejected by OnlyReachedByTable.
+                    // the section is a container). This relaxation admits some
+                    // foreign entries (OnlyReachedByTable does not screen
+                    // fall-through edges), but any such region is rejected later by
+                    // the OwnsTiledRegion contiguous-span check, which requires the
+                    // owned blocks to exactly tile the case span.
                     bool interior = preds.TryGetValue(t, out var ps)
                         && ps.All(p => members.Contains(p)
-                            || ReachesForward(blocks, t, p, s, offsetToIndex));
+                            || ForwardReachable(blocks, t, s, offsetToIndex, reachCache).Contains(p));
                     if (interior)
                     {
                         members.Add(t);
@@ -1014,33 +1018,42 @@ public sealed class SwitchRaisingPass : IIrPass
     }
 
     /// <summary>
-    /// True if <paramref name="target"/> is forward-reachable from
-    /// <paramref name="from"/> over section-internal edges (blocks past the
-    /// switch, walked through <see cref="TrySuccessors"/>). Used by
-    /// <see cref="GrowRegion"/> to recognize a back-edge predecessor — a loop
-    /// body block that is only reachable through its own header — so the header
+    /// Returns the set of blocks forward-reachable from <paramref name="from"/>
+    /// over section-internal edges (successors with index &gt; <paramref
+    /// name="s"/>, the switch block), including <paramref name="from"/> itself.
+    /// Reachability is a static property of the CFG and independent of region
+    /// growth, so each source's set is computed once and memoized in <paramref
+    /// name="cache"/> for reuse across every <see cref="GrowRegion"/> iteration
+    /// and predecessor test — keeping the growth loop at O(V·(V+E)) instead of
+    /// re-running a fresh DFS per predecessor per iteration. <see
+    /// cref="GrowRegion"/> queries it to recognize a back-edge predecessor — a
+    /// loop body block only reachable through its own header — so the header
     /// interiorizes into the single-entry region instead of becoming a false
     /// exit.
     /// </summary>
-    static bool ReachesForward(IReadOnlyList<Block> blocks, int from, int target, int s, Dictionary<int, int> offsetToIndex)
+    static HashSet<int> ForwardReachable(IReadOnlyList<Block> blocks, int from, int s,
+        Dictionary<int, int> offsetToIndex, Dictionary<int, HashSet<int>> cache)
     {
-        var visited = new HashSet<int>();
+        if (cache.TryGetValue(from, out var cached))
+            return cached;
+
+        var reachable = new HashSet<int>();
         var stack = new Stack<int>();
         stack.Push(from);
         while (stack.Count > 0)
         {
             int cur = stack.Pop();
-            if (cur == target)
-                return true;
-            if (!visited.Add(cur))
+            if (!reachable.Add(cur))
                 continue;
             if (!TrySuccessors(blocks, cur, offsetToIndex, out var succs))
                 continue;
             foreach (int t in succs)
-                if (t > s && !visited.Contains(t))
+                if (t > s && !reachable.Contains(t))
                     stack.Push(t);
         }
-        return false;
+
+        cache[from] = reachable;
+        return reachable;
     }
 
     static bool SectionTerminates(IReadOnlyList<Block> blocks, List<int> region, Dictionary<int, int> offsetToIndex)
