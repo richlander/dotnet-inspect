@@ -59,4 +59,40 @@ public class CorpusManifestTests
     {
         Assert.Throws<ArgumentException>(() => CorpusManifest.FromJson(string.Empty));
     }
+
+    [Fact]
+    public void FromJson_EmptyEntries_Throws()
+    {
+        const string json = """
+        { "schemaVersion": 1, "entries": [] }
+        """;
+
+        Assert.Throws<System.Text.Json.JsonException>(() => CorpusManifest.FromJson(json));
+    }
+
+    [Fact]
+    public void FromJson_MissingEntries_Throws()
+    {
+        const string json = """
+        { "schemaVersion": 1 }
+        """;
+
+        Assert.Throws<System.Text.Json.JsonException>(() => CorpusManifest.FromJson(json));
+    }
+
+    [Fact]
+    public void Entries_DefensivelyCopiesAndExposesReadOnlyView()
+    {
+        var source = new List<CorpusManifestEntry>
+        {
+            new(AssemblySetSourceKind.Package, "P", "1.0.0"),
+        };
+
+        var manifest = new CorpusManifest { Entries = source };
+        source.Clear(); // mutating the original must not affect the manifest
+
+        Assert.Single(manifest.Entries);
+        Assert.IsNotType<List<CorpusManifestEntry>>(manifest.Entries);
+        Assert.Throws<NotSupportedException>(() => ((IList<CorpusManifestEntry>)manifest.Entries).Clear());
+    }
 }

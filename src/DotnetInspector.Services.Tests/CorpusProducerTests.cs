@@ -40,6 +40,11 @@ public class CorpusProducerTests
             Assert.Equal(new CorpusManifestEntry(AssemblySetSourceKind.Package, "TestPackage", "1.0.0", "net10.0"), entry);
             Assert.Empty(populated.Diagnostics);
 
+            // Diagnostics is a genuine read-only view, not a downcastable backing list.
+            Assert.Throws<NotSupportedException>(() =>
+                ((IList<AssemblySetDiagnostic>)populated.Diagnostics).Add(
+                    new AssemblySetDiagnostic(AssemblySetDiagnosticSeverity.Warning, "x")));
+
             // The produced corpus searches offline over exactly the resolved assembly.
             var typeSearch = populated.Corpus.SearchTypes([typeof(CorpusProducerTests).FullName!]);
             Assert.Empty(typeSearch.SkippedAssemblies);
@@ -185,5 +190,72 @@ public class CorpusProducerTests
         Assert.Equal(2, manifest.Entries.Count);
         Assert.Equal(new CorpusManifestEntry(AssemblySetSourceKind.Package, "Pkg", "1.0.0", "net8.0"), manifest.Entries[0]);
         Assert.Equal(new CorpusManifestEntry(AssemblySetSourceKind.Assembly, @"C:\loose\Local.dll"), manifest.Entries[1]);
+    }
+
+    [Fact]
+    public void ToManifest_PlatformFrameworkCollapses_ButPlatformAssembliesStayDistinctByPath()
+    {
+        // Mirrors AssemblySetResolver output: a whole framework's assemblies all carry the framework name
+        // in Source (correctly collapsible), while individually resolved platform assemblies ALSO carry the
+        // framework name in Source rather than the requested assembly name (so collapsing by Source would
+        // wrongly merge them into one un-reloadable entry).
+        var entries = new[]
+        {
+            new AssemblySetEntry(@"C:\packs\App\System.Runtime.dll", "Microsoft.NETCore.App", "10.0.0", AssemblySetSourceKind.PlatformFramework),
+            new AssemblySetEntry(@"C:\packs\App\System.Collections.dll", "Microsoft.NETCore.App", "10.0.0", AssemblySetSourceKind.PlatformFramework),
+            new AssemblySetEntry(@"C:\packs\App\System.Text.Json.dll", "Microsoft.NETCore.App", "10.0.0", AssemblySetSourceKind.PlatformAssembly),
+            new AssemblySetEntry(@"C:\packs\App\System.Linq.dll", "Microsoft.NETCore.App", "10.0.0", AssemblySetSourceKind.PlatformAssembly),
+        };
+
+        var manifest = CorpusProducer.ToManifest(entries);
+
+        // Framework -> exactly one reload-by-name entry.
+        Assert.Single(
+            manifest.Entries,
+            e => e.Kind == AssemblySetSourceKind.PlatformFramework && e.Id == "Microsoft.NETCore.App");
+
+        // Platform assemblies stay distinct, captured by full path (not merged into the framework name).
+        var assemblyEntries = manifest.Entries.Where(e => e.Kind == AssemblySetSourceKind.Assembly).ToArray();
+        Assert.Equal(2, assemblyEntries.Length);
+        Assert.Contains(assemblyEntries, e => e.Id == Path.GetFullPath(@"C:\packs\App\System.Text.Json.dll"));
+        Assert.Contains(assemblyEntries, e => e.Id == Path.GetFullPath(@"C:\packs\App\System.Linq.dll"));
+        Assert.Equal(3, manifest.Entries.Count);
+    }
+
+    [Fact]
+    public void ToManifest_PathBoundEntry_IsNormalizedToFullPath()
+    {
+        var relative = Path.Combine("sub", "Rel.dll");
+        var entries = new[]
+        {
+            new AssemblySetEntry(relative, "Rel.dll", null, AssemblySetSourceKind.Assembly),
+        };
+
+        var entry = Assert.Single(CorpusProducer.ToManifest(entries).Entries);
+
+        Assert.Equal(AssemblySetSourceKind.Assembly, entry.Kind);
+        Assert.True(Path.IsPathFullyQualified(entry.Id));
+        Assert.Equal(Path.GetFullPath(relative), entry.Id);
+    }
+
+    [Fact]
+    public void ToManifest_Entries_AreReadOnlyAndNotDowncastableToMutableList()
+    {
+        var manifest = CorpusProducer.ToManifest(new[]
+        {
+            new AssemblySetEntry(@"C:\loose\A.dll", "A.dll", null, AssemblySetSourceKind.Assembly),
+        });
+
+        Assert.IsNotType<List<CorpusManifestEntry>>(manifest.Entries);
+        Assert.Throws<NotSupportedException>(() => ((IList<CorpusManifestEntry>)manifest.Entries).Clear());
+    }
+
+    [Fact]
+    public async Task PopulateFromManifestAsync_EmptyManifest_Throws()
+    {
+        using var httpClient = new HttpClient();
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            CorpusProducer.PopulateFromManifestAsync(httpClient, new CorpusManifest()));
     }
 }

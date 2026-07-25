@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -11,8 +12,9 @@ namespace DotnetInspector.Services;
 /// </summary>
 /// <param name="Kind">How the entry is re-populated (package, platform framework, loose assembly, …).</param>
 /// <param name="Id">
-/// The re-population identity for <see cref="Kind"/>: a package name, a platform framework/assembly
-/// name, or — for path-bound kinds — the assembly's local file path.
+/// The re-population identity for <see cref="Kind"/>: a package name for packages, a framework name for
+/// a whole platform framework, or — for path-bound kinds (loose assembly, project, directory, and a
+/// single platform assembly) — the assembly's full local file path.
 /// </param>
 /// <param name="Version">The pinned version, when the producer resolved one (informational for platform kinds).</param>
 /// <param name="Tfm">The target framework moniker the entry was selected for, when known.</param>
@@ -37,8 +39,23 @@ public sealed record CorpusManifest
     /// <summary>Schema version of this manifest, so older documents can be detected on load.</summary>
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
 
-    /// <summary>The logical entries, in the order they should be repopulated.</summary>
-    public IReadOnlyList<CorpusManifestEntry> Entries { get; init; } = [];
+    /// <summary>
+    /// The logical entries, in the order they should be repopulated. Assignment defensively copies into
+    /// a genuine read-only collection so a caller cannot downcast the exposed list and mutate the recipe
+    /// (which would break the invariant that a manifest describes its corpus).
+    /// </summary>
+    public IReadOnlyList<CorpusManifestEntry> Entries
+    {
+        get => _entries;
+        init => _entries = value is null
+            ? EmptyEntries
+            : new ReadOnlyCollection<CorpusManifestEntry>([.. value]);
+    }
+
+    private readonly IReadOnlyList<CorpusManifestEntry> _entries = EmptyEntries;
+
+    private static readonly ReadOnlyCollection<CorpusManifestEntry> EmptyEntries =
+        new([]);
 
     /// <summary>Serializes this manifest to indented JSON using the AOT-safe source-generated context.</summary>
     public string ToJson() =>
@@ -46,8 +63,8 @@ public sealed record CorpusManifest
 
     /// <summary>
     /// Deserializes a manifest from JSON produced by <see cref="ToJson"/>. Throws when the payload is
-    /// null/empty JSON or carries an unsupported <see cref="SchemaVersion"/>, so a malformed document
-    /// cannot silently reload as an empty corpus.
+    /// null/empty JSON, carries an unsupported <see cref="SchemaVersion"/>, or contains no entries, so a
+    /// malformed or empty document cannot silently reload as an empty corpus.
     /// </summary>
     public static CorpusManifest FromJson(string json)
     {
@@ -60,6 +77,12 @@ public sealed record CorpusManifest
         {
             throw new NotSupportedException(
                 $"Unsupported corpus manifest schema version {manifest.SchemaVersion}; expected {CurrentSchemaVersion}.");
+        }
+
+        if (manifest.Entries.Count == 0)
+        {
+            throw new JsonException(
+                "Corpus manifest contains no entries; a manifest that describes no assemblies cannot be loaded.");
         }
 
         return manifest;

@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 
@@ -23,7 +24,7 @@ public sealed class PopulatedCorpus : IDisposable
         _sets = sets;
         Corpus = corpus;
         Manifest = manifest;
-        Diagnostics = diagnostics;
+        Diagnostics = new ReadOnlyCollection<AssemblySetDiagnostic>([.. diagnostics]);
     }
 
     /// <summary>The resolved, closed set of assemblies to operate within.</summary>
@@ -41,8 +42,11 @@ public sealed class PopulatedCorpus : IDisposable
         if (_disposed)
             return;
 
+        // Best-effort per set: one failing Dispose must not strand the others' extraction directories.
         foreach (var set in _sets)
-            set.Dispose();
+        {
+            try { set.Dispose(); } catch { }
+        }
 
         _disposed = true;
     }
@@ -85,11 +89,13 @@ public static class CorpusProducer
     }
 
     /// <summary>
-    /// Builds the serializable manifest describing resolved assembly entries. Package and platform
-    /// sources collapse to one logical entry each (many assemblies share a package name/version/TFM);
-    /// path-bound sources (loose assembly, project, directory) are normalized to reload-by-path
-    /// <see cref="AssemblySetSourceKind.Assembly"/> entries so the manifest is always repopulatable.
-    /// Entry order follows first appearance.
+    /// Builds the serializable manifest describing resolved assembly entries. A package or whole platform
+    /// framework collapses to one logical entry (its many assemblies share one package/framework
+    /// name+version+TFM). Every other source — loose assembly, project, directory, and an individually
+    /// resolved platform assembly — is normalized to a reload-by-<em>path</em>
+    /// <see cref="AssemblySetSourceKind.Assembly"/> entry (Id = the assembly's full path) so the manifest
+    /// is always repopulatable and working-directory independent. Entry order follows first appearance;
+    /// duplicates are removed.
     /// </summary>
     public static CorpusManifest ToManifest(IEnumerable<AssemblySetEntry> entries)
     {
@@ -102,7 +108,7 @@ public static class CorpusProducer
         {
             var manifestEntry = IsLogicalOrigin(entry.SourceKind)
                 ? new CorpusManifestEntry(entry.SourceKind, entry.Source, entry.Version, entry.Tfm)
-                : new CorpusManifestEntry(AssemblySetSourceKind.Assembly, entry.Path, entry.Version, entry.Tfm);
+                : new CorpusManifestEntry(AssemblySetSourceKind.Assembly, Path.GetFullPath(entry.Path), entry.Version, entry.Tfm);
 
             if (seen.Add((manifestEntry.Kind, manifestEntry.Id, manifestEntry.Version, manifestEntry.Tfm)))
                 manifestEntries.Add(manifestEntry);
@@ -152,6 +158,13 @@ public static class CorpusProducer
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(manifest);
 
+        if (manifest.Entries.Count == 0)
+        {
+            throw new ArgumentException(
+                "Corpus manifest has no entries; cannot populate a corpus from an empty manifest.",
+                nameof(manifest));
+        }
+
         var sets = new List<AssemblySet>();
         var entries = new List<AssemblySetEntry>();
         var diagnostics = new List<AssemblySetDiagnostic>();
@@ -172,16 +185,21 @@ public static class CorpusProducer
         catch
         {
             foreach (var set in sets)
-                set.Dispose();
+            {
+                try { set.Dispose(); } catch { }
+            }
             throw;
         }
     }
 
     private static bool IsLogicalOrigin(AssemblySetSourceKind kind) => kind switch
     {
+        // A package and a whole platform framework each fan out to many assemblies that share one
+        // logical name+version+TFM, so they collapse to a single re-populatable entry. Every other kind
+        // (including a single platform assembly, whose Source records its framework rather than the
+        // requested assembly) is captured individually by path.
         AssemblySetSourceKind.Package => true,
         AssemblySetSourceKind.PlatformFramework => true,
-        AssemblySetSourceKind.PlatformAssembly => true,
         _ => false,
     };
 
