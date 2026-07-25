@@ -720,7 +720,7 @@ public class ApiCommand
             {
                 var requestedSections = GetRequestedMemberSections(type, mo4);
                 var methods = type.Members
-                    .Where(m => m.Kind is "method" or "constructor" or "operator" or "explicit-interface-implementation" or "extension-method"
+                    .Where(m => m.Kind is "method" or "constructor" or "finalizer" or "operator" or "explicit-interface-implementation" or "extension-method"
                         && (!m.IsAbstract || requestedSections.Contains(SectionNames.UnsafeOperations)))
                     .ToList();
                 if (methods.Count > 0)
@@ -1405,7 +1405,7 @@ public class ApiCommand
             {
                 var requestedSections = GetRequestedMemberSections(type, memberOptions);
                 var methods = type.Members
-                    .Where(m => m.Kind is "method" or "constructor" or "operator" or "explicit-interface-implementation" or "extension-method"
+                    .Where(m => m.Kind is "method" or "constructor" or "finalizer" or "operator" or "explicit-interface-implementation" or "extension-method"
                         && (!m.IsAbstract || requestedSections.Contains(SectionNames.UnsafeOperations)))
                     .ToList();
                 if (methods.Count > 0)
@@ -1623,6 +1623,7 @@ public class ApiCommand
             [SectionNames.ExplicitInterfaceImplementations] = m => m.Kind == "explicit-interface-implementation",
             [SectionNames.ExtensionMethods] = m => m.Kind == "extension-method",
             [SectionNames.Constructors] = m => m.Kind == "constructor",
+            [SectionNames.Finalizer] = m => m.Kind == "finalizer",
             [SectionNames.Events] = m => m.Kind == "event",
             [SectionNames.SourceLocations] = ApiMemberSectionDescriptors.IsMethodLike,
         };

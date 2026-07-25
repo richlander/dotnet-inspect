@@ -1729,6 +1729,7 @@ public class SectionPipelineTests
             [
                 new ApiMember { Name = "Value", Kind = "field", EnumValue = 1 },
                 new ApiMember { Name = ".ctor", Kind = "constructor" },
+                new ApiMember { Name = "Finalize", Kind = "finalizer" },
                 new ApiMember { Name = "Field", Kind = "field" },
                 new ApiMember { Name = "Property", Kind = "property" },
                 new ApiMember { Name = "Method", Kind = "method" },
@@ -1839,7 +1840,7 @@ public class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(29, pipeline.AllSectionNames.Length);
+        Assert.Equal(30, pipeline.AllSectionNames.Length);
     }
 
     [Fact]

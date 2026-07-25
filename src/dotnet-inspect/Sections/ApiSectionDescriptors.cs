@@ -81,6 +81,7 @@ public static class ApiMemberSectionDescriptors
             .Add<TypeInterfaces>()
             .Add<Baseclass>()
             .Add<Constructors>()
+            .Add<Finalizer>()
             .Add<Fields>()
             .Add<Properties>()
             .Add<MethodGroups>()
@@ -161,6 +162,16 @@ public static class ApiMemberSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Any(m => m.Kind == "constructor");
+    }
+
+    public sealed class Finalizer : ISectionDescriptor<ApiType>
+    {
+        public static string Name => SectionNames.Finalizer;
+        public static bool IsExpensive => false;
+        public static bool Info => true;
+        public static string? ScannerKey => null;
+        public static bool CanRender(ApiType model)
+            => model.Members.Any(m => m.Kind == "finalizer");
     }
 
     public sealed class Fields : ISectionDescriptor<ApiType>
@@ -445,7 +456,7 @@ public static class ApiMemberSectionDescriptors
     }
 
     internal static bool IsMethodLike(ApiMember member) =>
-        member.Kind is "method" or "constructor" or "operator" or "explicit-interface-implementation" or "extension-method";
+        member.Kind is "method" or "constructor" or "finalizer" or "operator" or "explicit-interface-implementation" or "extension-method";
 
     private static bool HasMethods(ApiType model)
         => model.Members.Any(m => m.Kind == "method");

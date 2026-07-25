@@ -528,6 +528,7 @@ public static class MemberCommand
     private static string GetMemberSectionName(string kind) => kind switch
     {
         "constructor" => SectionNames.Constructors,
+        "finalizer" => SectionNames.Finalizer,
         "field" => SectionNames.Fields,
         "property" => SectionNames.Properties,
         "method" => SectionNames.Methods,

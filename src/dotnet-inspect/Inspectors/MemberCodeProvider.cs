@@ -87,7 +87,7 @@ internal static class MemberCodeProvider
             // though sections like Calls — which index every method — read it fine.
             // Explicit interface implementations are metadata-private but always selectable,
             // so they too must count across all visibilities.
-            var publicOnly = !includeAll && method.Kind != "explicit-interface-implementation";
+            var publicOnly = !includeAll && method.Kind is not ("explicit-interface-implementation" or "finalizer");
 
             if (!bodySource.ContainsType(lookupType))
                 continue;

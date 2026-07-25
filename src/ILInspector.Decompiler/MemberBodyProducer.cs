@@ -789,7 +789,7 @@ public static class MemberBodyProducer
                 // Hidden union case constructors still occupy metadata overload
                 // slots. Keep fallback overload counting aligned for any
                 // original public members that are not synthesized below.
-                if (member.Kind is "constructor" or "method" or "operator" or "explicit-interface-implementation")
+                if (member.Kind is "constructor" or "method" or "operator" or "explicit-interface-implementation" or "finalizer")
                     overloadIndex[member.Name] = overloadIndex.GetValueOrDefault(member.Name) + 1;
                 continue;
             }
@@ -800,14 +800,14 @@ public static class MemberBodyProducer
             // target renders with no leading blank-line separator.
             if (only is not null && !ReferenceEquals(member, only))
             {
-                if (member.Kind is "constructor" or "method" or "operator" or "explicit-interface-implementation")
+                if (member.Kind is "constructor" or "method" or "operator" or "explicit-interface-implementation" or "finalizer")
                     overloadIndex[member.Name] = overloadIndex.GetValueOrDefault(member.Name) + 1;
                 continue;
             }
 
             switch (member.Kind)
             {
-                case "constructor" or "method" or "operator" or "explicit-interface-implementation":
+                case "constructor" or "method" or "operator" or "explicit-interface-implementation" or "finalizer":
                 {
                     int runningIndex = overloadIndex.GetValueOrDefault(member.Name);
                     overloadIndex[member.Name] = runningIndex + 1;
@@ -822,7 +822,7 @@ public static class MemberBodyProducer
                     first = false;
                     any = true;
 
-                    bool publicOnly = member.Kind != "explicit-interface-implementation";
+                    bool publicOnly = member.Kind is not ("explicit-interface-implementation" or "finalizer");
                     bool bodyPublicOnly = publicOnly
                         && !(member.Kind == "constructor" && member.DeclaringOverloadIndex is not null)
                         && member.Accessibility is null;

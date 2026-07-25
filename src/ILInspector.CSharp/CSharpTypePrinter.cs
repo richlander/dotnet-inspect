@@ -782,7 +782,7 @@ public sealed class CSharpTypePrinter
             ("field", CSharpFieldInitializer) => true,
             (_, CSharpPropertyBody) when IsProperty(member) => true,
             (_, CSharpEventBody) when IsEvent(member) => true,
-            ("method" or "extension-method" or "explicit-interface-implementation" or "constructor", CSharpBlockBody) => true,
+            ("method" or "extension-method" or "explicit-interface-implementation" or "constructor" or "finalizer", CSharpBlockBody) => true,
             _ => false,
         };
         if (!validBody)

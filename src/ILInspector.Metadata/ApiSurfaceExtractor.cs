@@ -216,6 +216,13 @@ public static class ApiSurfaceExtractor
                     {
                         ".ctor" => "constructor",
                         _ when isOperator => "operator",
+                        // A finalizer compiles to a `Finalize` method carrying an
+                        // explicit `.override System.Object::Finalize` MethodImpl,
+                        // so it also lands in `explicitImplementationBodies`. Classify
+                        // it as its own kind before the explicit-interface arm so it
+                        // is not filed under Explicit Interface Implementations; the
+                        // MethodImpl still (correctly) suppresses its accessibility.
+                        _ when isFinalizer => "finalizer",
                         _ when isExplicitInterfaceImplementation => "explicit-interface-implementation",
                         _ => "method"
                     },
