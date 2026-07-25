@@ -606,10 +606,21 @@ public static partial class BrowserInspectionEngine
                 () => File.OpenRead(implementationPath),
                 Provenance: $"lib/{targetFramework}/{assemblyName}"));
             var surface = inspection.ApiSurface(includeAll: true);
-            var type = surface.Types.FirstOrDefault(candidate =>
-                candidate.FullName.Equals(typeName, StringComparison.Ordinal))
-                ?? surface.Types.FirstOrDefault(candidate =>
-                    candidate.Name.Equals(typeName, StringComparison.Ordinal))
+            bool DeclaresMember(ApiType candidate) =>
+                candidate.Members.Any(m => m.Name.Equals(memberName, StringComparison.Ordinal));
+            // The compact call-graph label strips generic arity, so a caller may pass
+            // "JsonTypeInfo" for a node whose real declaring type is the generic
+            // "JsonTypeInfo`1"; that simple name also collides with a same-named
+            // non-generic type. Match on the full name, the simple name, and their
+            // arity-stripped forms, then prefer the candidate that actually declares the
+            // member so the arity collision resolves to the type that owns it.
+            var candidates = surface.Types.Where(candidate =>
+                candidate.FullName.Equals(typeName, StringComparison.Ordinal)
+                || candidate.Name.Equals(typeName, StringComparison.Ordinal)
+                || StripGenericArity(candidate.FullName).Equals(typeName, StringComparison.Ordinal)
+                || StripGenericArity(candidate.Name).Equals(typeName, StringComparison.Ordinal)).ToArray();
+            var type = candidates.FirstOrDefault(DeclaresMember)
+                ?? candidates.FirstOrDefault()
                 ?? throw new InvalidOperationException($"Type '{typeName}' is not in {assemblyName}.");
             var member = type.Members.FirstOrDefault(candidate =>
                 candidate.Name.Equals(memberName, StringComparison.Ordinal))
@@ -992,6 +1003,12 @@ public static partial class BrowserInspectionEngine
         Analysis.CallKind.LoadVirtualFunction => "ldvirtftn",
         _ => "calli",
     };
+
+    static string StripGenericArity(string name)
+    {
+        int tick = name.IndexOf('`');
+        return tick < 0 ? name : name[..tick];
+    }
 
     static BrowserCallGraphNode ToBrowserCallNode(Analysis.CallTreeNode node)
         => new(

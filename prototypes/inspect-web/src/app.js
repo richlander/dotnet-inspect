@@ -1693,6 +1693,24 @@ function attachGraphPanZoom(container, viewport) {
   fit();
 }
 
+function stripArity(name) {
+  const tick = name.indexOf("`");
+  return tick < 0 ? name : name.slice(0, tick);
+}
+
+// The compact call-graph label strips generic arity ("JsonTypeInfo" for JsonTypeInfo`1),
+// which also collides with a same-named non-generic type. Match on exact and
+// arity-stripped forms of both the simple name and the full id so a generic node can
+// still find its declaring type.
+function typeMatchesName(type, typeName) {
+  return type.name === typeName
+    || type.id === typeName
+    || type.id.endsWith("." + typeName)
+    || stripArity(type.name) === typeName
+    || stripArity(type.id) === typeName
+    || stripArity(type.id).endsWith("." + typeName);
+}
+
 function resolveNodeLabel(label) {
   const dot = label.lastIndexOf(".");
   if (dot < 0) return null;
@@ -1701,13 +1719,15 @@ function resolveNodeLabel(label) {
   if (typeName.endsWith(".")) typeName = typeName.slice(0, -1);
   if (!typeName) return null;
   const candidates = [state.package, ...state.packages.filter(item => item !== state.package)];
+  // Prefer the candidate type that actually declares the member: an arity-stripped name
+  // can match both a generic type and a same-named non-generic type, and only one owns
+  // the member.
   for (const pkg of candidates) {
     if (!pkg?.types) continue;
-    const type = pkg.types.find(item =>
-      item.name === typeName || item.id === typeName || item.id.endsWith("." + typeName));
-    if (!type) continue;
-    const group = findMemberGroup(memberGroups(type), memberName);
-    if (group) return { pkg, type, group };
+    for (const type of pkg.types.filter(item => typeMatchesName(item, typeName))) {
+      const group = findMemberGroup(memberGroups(type), memberName);
+      if (group) return { pkg, type, group };
+    }
   }
   return null;
 }
@@ -1750,20 +1770,22 @@ function resolveNodeForSource(label, external = false) {
   if (memberName.includes("<") || memberName.includes(">")) return null;
 
   // A declaring type that is a public loaded type routes to its own package/assembly.
+  // The engine resolves the exact declaring type (disambiguating generic arity
+  // collisions by which type declares the member), so pass the arity-stripped simple
+  // name it can match on.
   const candidates = [state.package, ...state.packages.filter(item => item !== state.package)];
   for (const pkg of candidates) {
     if (!pkg?.types) continue;
-    const type = pkg.types.find(item =>
-      item.name === typeName || item.id === typeName || item.id.endsWith("." + typeName));
+    const type = pkg.types.find(item => typeMatchesName(item, typeName));
     if (!type) continue;
     return {
-      title: `${type.name}.${memberName}`,
+      title: `${stripArity(type.name)}.${memberName}`,
       request: {
         packageId: pkg.id,
         version: pkg.version,
         framework: pkg.activeFramework,
         assembly: type.assembly,
-        type: type.id,
+        type: stripArity(typeName),
         member: memberName
       }
     };
