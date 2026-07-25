@@ -213,6 +213,10 @@ dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- -trait "Area
 The `Area` taxonomy and how classes map to it live with the decompiler test
 docket in `docs/decompiler-correctness-pipeline.md`.
 
+The executable also accepts a discoverable `--gate <preset>` flag that expands
+to these trait filters (e.g. `--gate fast`, `--gate no-corpus`); run
+`--gate list` for the table.
+
 Pack and publish flows remain separate and build `src/dotnet-inspect`
 directly.
 
