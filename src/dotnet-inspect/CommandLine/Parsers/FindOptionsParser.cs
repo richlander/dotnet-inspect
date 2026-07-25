@@ -32,7 +32,8 @@ public static class FindOptionsParser
         Option<string?> TypeFilterOption,
         Option<bool> CompactOption,
         Option<bool> NoHeaderOption,
-        Option<string?> PackagePrefixOption);
+        Option<string?> PackagePrefixOption,
+        Option<bool> MembersOption);
 
     /// <summary>
     /// Result of parsing find command options.
@@ -93,6 +94,9 @@ public static class FindOptionsParser
             BinPaths = binPaths,
             Tfm = parseResult.GetValue(args.TfmOption),
             IncludeAll = parseResult.GetValue(args.AllOption),
+            // Member lens: explicit --members, or auto-enabled by a leading '.' sentinel (e.g. .Serialize).
+            // No valid type/namespace starts with '.', so the shortcut is unambiguous.
+            Members = parseResult.GetValue(args.MembersOption) || pattern!.StartsWith('.'),
             Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(args.TypeFilterOption)),
             Rows = opts.ParseRows(parseResult),
             Count = parseResult.GetValue(opts.Count),

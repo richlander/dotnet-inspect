@@ -58,6 +58,51 @@ public record TypeFindResult
 }
 
 /// <summary>
+/// Raw result from member-name search (<c>find --members</c> / leading-dot shortcut). One record per
+/// matched member. Mirrors <see cref="TypeFindResult"/> for the member lens: services return this flat
+/// model and writers decide presentation. Member search is exact/glob only (no fuzzy fallback), so
+/// there is no similarity score.
+/// </summary>
+public record MemberFindResult
+{
+    // ─── Search Context ─────────────────────────────────────────────────
+    [JsonPropertyName("pattern")]
+    public string Pattern { get; init; } = "";
+
+    [JsonPropertyName("match")]
+    public MatchKind Match { get; init; }
+
+    // ─── Member Identity ────────────────────────────────────────────────
+    [JsonPropertyName("member")]
+    public string Member { get; init; } = "";
+
+    [JsonPropertyName("kind")]
+    public string Kind { get; init; } = "";  // method, property, field, event, constructor, operator
+
+    [JsonPropertyName("declaring_type")]
+    public string DeclaringType { get; init; } = "";
+
+    [JsonPropertyName("namespace")]
+    public string Namespace { get; init; } = "";
+
+    [JsonPropertyName("signature")]
+    public string? Signature { get; init; }
+
+    [JsonPropertyName("return_type")]
+    public string? ReturnType { get; init; }
+
+    // ─── Location ───────────────────────────────────────────────────────
+    [JsonPropertyName("library")]
+    public string Library { get; init; } = "";
+
+    [JsonPropertyName("source")]
+    public string Source { get; init; } = "";  // runtime, aspnetcore, package name
+
+    [JsonPropertyName("source_version")]
+    public string? SourceVersion { get; init; }
+}
+
+/// <summary>
 /// Unified member model containing all extractable and computed member data.
 /// Writers project subsets of these fields for different rendering modes.
 /// </summary>

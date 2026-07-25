@@ -48,6 +48,7 @@ public static class SearchCommandDefinitions
         };
         var tfmOption = new Option<string?>("--tfm") { Description = "Select library or target framework by TFM (e.g., net8.0)" };
         var allOption = new Option<bool>("--all") { Description = "Include non-public, hidden, and obsolete types" };
+        var membersOption = new Option<bool>("--members") { Description = "Search member names instead of type names (auto-enabled when the pattern starts with '.', e.g. .Serialize)" };
         var compactOption = new Option<bool>("--compact") { Description = "Minified JSON (use with --json)" };
         var packagePrefixOption = new Option<string?>("--package-prefix") { Description = "Search all packages matching a NuGet ID prefix (e.g., Azure.AI, AWSSDK)" };
         var typeFilterOption = new Option<string?>("-t") { Description = "Limit type count (-t 5) or filter by glob (-t *Json*)" };
@@ -65,6 +66,7 @@ public static class SearchCommandDefinitions
         findCommand.Options.Add(binOption);
         findCommand.Options.Add(tfmOption);
         findCommand.Options.Add(allOption);
+        findCommand.Options.Add(membersOption);
         findCommand.Options.Add(typeFilterOption);
         findCommand.Options.Add(opts.Json);
         findCommand.Options.Add(compactOption);
@@ -81,7 +83,7 @@ public static class SearchCommandDefinitions
         var commandArgs = new FindOptionsParser.FindCommandArgs(
             patternArg, packageOption, assemblyOption, platformOption, platformLibraryOption,
             extensionsOption, aspnetcoreOption, curatedOption, projectOption, binOption, tfmOption, allOption,
-            typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption);
+            typeFilterOption, compactOption, opts.NoHeaders, packagePrefixOption, membersOption);
 
         findCommand.SetAction(async (parseResult, ct) =>
         {

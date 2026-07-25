@@ -24,8 +24,11 @@ public class FindCommand
             // Discovery mode: -D/--discover lists schema
             if (options.Discover != null)
             {
-                var schema = new DocumentSchema()
-                    .Add("Results", "column", "Pattern", "Type", "Namespace", "Kind", "Library", "Source", "Match", "Sim");
+                var schema = options.Members
+                    ? new DocumentSchema()
+                        .Add("Members", "column", "Pattern", "Member", "Kind", "Type", "Signature", "Library", "Source")
+                    : new DocumentSchema()
+                        .Add("Results", "column", "Pattern", "Type", "Namespace", "Kind", "Library", "Source", "Match", "Sim");
                 return DiscoverOutput.Execute(options.Discover, schema,
                     tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl);
             }
@@ -44,6 +47,11 @@ public class FindCommand
                 {
                     PlatformFrameworks = CommandLineBuilder.PlatformFrameworkNames
                 };
+            }
+
+            if (options.Members)
+            {
+                return await ExecuteMemberSearchAsync(options, patterns, logger, context.HttpClient);
             }
 
             var results = await TypeSearchService.FindTypesAsync(options, patterns, logger, context.HttpClient);
@@ -70,6 +78,45 @@ public class FindCommand
             Console.Error.WriteLine($"Error: {ex.Message}");
             return 1;
         }
+    }
+
+    private static async Task<int> ExecuteMemberSearchAsync(
+        FindOptions options,
+        string[] patterns,
+        VerboseLogger logger,
+        HttpClient httpClient)
+    {
+        // Strip the leading '.' sentinel from each segment so ".Serialize" and "Serialize" both search
+        // the member named "Serialize" (no valid member name starts with a dot).
+        var memberPatterns = patterns
+            .Select(p => p.StartsWith('.') ? p[1..] : p)
+            .Where(p => p.Length > 0)
+            .ToArray();
+
+        if (memberPatterns.Length == 0)
+        {
+            Console.Error.WriteLine("Error: No member pattern specified.");
+            return 1;
+        }
+
+        var results = await MemberSearchService.FindMembersAsync(options, memberPatterns, logger, httpClient);
+        var title = memberPatterns.Length == 1 ? $"Find member: {memberPatterns[0]}" : "Find Members";
+
+        if (options.JsonOutput)
+        {
+            var writer = new MemberFindJsonWriter();
+            writer.Write(results, new WriterOptions(), Console.Out);
+        }
+        else if (options.Count)
+        {
+            WriteMemberCount(results, title);
+        }
+        else
+        {
+            WriteMemberOutput(results, title, options);
+        }
+
+        return 0;
     }
 
     private static void WriteOutput(List<TypeFindResult> rawData, string title, FindOptions options)
@@ -100,6 +147,37 @@ public class FindCommand
     private static void WriteCount(List<TypeFindResult> rawData, string title)
     {
         var view = FindOutputFormatter.BuildView(rawData, title);
+        Console.WriteLine(view.Results?.Count ?? 0);
+    }
+
+    private static void WriteMemberOutput(List<MemberFindResult> rawData, string title, FindOptions options)
+    {
+        var view = FindOutputFormatter.BuildMemberView(rawData, title);
+
+        if (view.Results == null && view.Description != null)
+        {
+            Console.Error.WriteLine(view.Description);
+            return;
+        }
+
+        if (options.Tabular)
+        {
+            OutputFormatter.WriteProjectedTable(Console.Out, !options.NoHeader, options.Tsv, options.Jsonl,
+                options.Columns, options.Fields,
+                (writer, formatter, writerOptions) =>
+                    MarkoutSerializer.Serialize(view, writer, formatter, SearchViewContext.Default, writerOptions),
+                options.Rows);
+        }
+        else
+        {
+            OutputFormatter.WriteLimitedMarkdown(Console.Out,
+                MarkoutSerializer.Serialize(view, SearchViewContext.Default), options.Rows);
+        }
+    }
+
+    private static void WriteMemberCount(List<MemberFindResult> rawData, string title)
+    {
+        var view = FindOutputFormatter.BuildMemberView(rawData, title);
         Console.WriteLine(view.Results?.Count ?? 0);
     }
 }

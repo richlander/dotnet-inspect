@@ -5648,6 +5648,66 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Find_Members_ExplicitFlag_RendersMembersSection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "Serialize", "--members", "--platform", "System.Text.Json");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Members", output);
+        Assert.Contains("Find member: Serialize", output);
+        Assert.Contains("System.Text.Json.JsonSerializer", output);
+    }
+
+    [Fact]
+    public async Task Find_Members_LeadingDotShortcut_MatchesExplicitFlag()
+    {
+        var (dotExit, dotOutput, _) = await RunAppAsync(
+            "find", ".Serialize", "--platform", "System.Text.Json");
+        var (flagExit, flagOutput, _) = await RunAppAsync(
+            "find", "Serialize", "--members", "--platform", "System.Text.Json");
+
+        Assert.Equal(0, dotExit);
+        Assert.Equal(0, flagExit);
+        // The leading-dot sentinel enables the member lens and strips the dot, so both spellings
+        // produce identical output.
+        Assert.Equal(flagOutput, dotOutput);
+    }
+
+    [Fact]
+    public async Task Find_Members_Count_EmitsPositiveCount()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", ".Serialize", "--platform", "System.Text.Json", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.True(int.TryParse(output.Trim(), out var count));
+        Assert.True(count >= 1, $"expected at least one member, got {count}");
+    }
+
+    [Fact]
+    public async Task Find_Members_Json_EmitsMemberFields()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "find", ".Serialize", "--platform", "System.Text.Json", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("\"member\":\"Serialize\"", output);
+        Assert.Contains("\"declaring_type\":\"System.Text.Json.JsonSerializer\"", output);
+    }
+
+    [Fact]
+    public async Task Find_Members_NoMatches_ReportsNoMembers()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "find", ".ZzzNoSuchMemberName", "--platform", "System.Text.Json");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("No members found", error);
+    }
+
+    [Fact]
     public async Task Member_PackageLibrarySelector_ResolvesBareLibraryName()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime", "System.Text.RegularExpressions");
