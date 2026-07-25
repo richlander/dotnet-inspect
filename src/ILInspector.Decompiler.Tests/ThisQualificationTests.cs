@@ -215,6 +215,59 @@ public sealed class ThisQualificationTests
         Assert.DoesNotContain("this.FaceMethod()", text);
     }
 
+    // The value-type sibling of the #3128 arms (#3201). A struct reaches an
+    // interface member through `this` by BOXING — `((IDimSFace)this).Value()`
+    // lowers to `ldarg.0; ldobj Struct; box Struct; callvirt IDimSFace::Value()`,
+    // so the IR receiver is a Box over the this value, not a bare LoadArgument.
+    // The printer must still re-insert the `((I)this)` cast; bare `(this).Value()`
+    // is CS1061. Faithful: the cast re-emits exactly the `ldobj; box` the struct
+    // boxing produced.
+    [Fact]
+    public void StructDefaultInterfaceMemberCall_RendersInterfaceCast_ByDefault()
+    {
+        var text = RenderMember(typeof(StructDimConsumer), nameof(StructDimConsumer.DimCall));
+        Assert.Contains("((IDimSFace)this).Value()", text);
+        Assert.DoesNotContain("(this).Value()", text);
+    }
+
+    // A struct DIM method group over `this` boxes the same way:
+    // `((IDimSFace)this).Value` recompiles to `ldarg.0; ldobj S; box S; dup;
+    // ldvirtftn IDimSFace::Value; newobj Func`. Bare `(this).Value` (CS1061) or the
+    // knob's `this.Value` would not bind.
+    [Fact]
+    public void StructDefaultInterfaceMemberGroup_RendersInterfaceCast_ByDefault()
+    {
+        var text = RenderMember(typeof(StructDimConsumer), nameof(StructDimConsumer.DimGroup));
+        Assert.Contains("((IDimSFace)this).Value", text);
+        Assert.DoesNotContain("(this).Value", text);
+    }
+
+    // An explicit interface implementation on a struct invoked through `this`
+    // reaches the call site with the interface as declaring type and a boxed
+    // receiver; it must render `((IStructFace)this).FaceMethod()` — bare
+    // `(this).FaceMethod()` is CS1061 (#3201).
+    [Fact]
+    public void StructExplicitInterfaceCall_RendersInterfaceCast()
+    {
+        var text = RenderMember(typeof(StructExplicitFace),
+            nameof(StructExplicitFace.CallExplicitInterface));
+        Assert.Contains("((IStructFace)this).FaceMethod()", text);
+        Assert.DoesNotContain("(this).FaceMethod()", text);
+    }
+
+    // Negative guard: a boxed `this` that reaches a NON-interface member (here
+    // `object.ToString()` via `((object)this).ToString()`) must NOT be over-cast to
+    // the enclosing struct — `IsInterfaceCastThisReceiver` declines a non-interface
+    // callee, so the boxed-this arm never fires. The faithful render keeps the
+    // object cast the boxing spells and never writes `((StructBoxedObjectReceiver)this)`.
+    [Fact]
+    public void StructBoxedThis_NonInterfaceCallee_IsNotOverCast()
+    {
+        var text = RenderMember(typeof(StructBoxedObjectReceiver),
+            nameof(StructBoxedObjectReceiver.CallObjectToString));
+        Assert.DoesNotContain("StructBoxedObjectReceiver)this", text);
+    }
+
     [Fact]
     public void EventSubscription_DefaultsToBareName()
     {
@@ -602,4 +655,46 @@ public sealed class DimConsumer : IDimFace
     public int DimCall() => ((IDimFace)this).Value();
 
     public System.Func<int> DimGroup() => ((IDimFace)this).Value;
+}
+
+// The value-type siblings of DimConsumer/ThisQualificationExplicitFace (#3201).
+// A struct reaches an interface member through `this` by BOXING: ((IDimSFace)this)
+// / ((IStructFace)this) lowers to `ldarg.0; ldobj Struct; box Struct; callvirt
+// IFace::M()` (a boxing conversion that DOES emit `box`, unlike the no-IL class
+// upcast of #3128). The IR receiver is therefore a Box over the this value, not a
+// bare LoadArgument{0,"this"}, so the printer must recognise the boxed-this shape
+// and re-insert the ((I)this) cast — bare (this).M() is CS1061.
+public interface IDimSFace
+{
+    int Value() => 7;
+}
+
+public struct StructDimConsumer : IDimSFace
+{
+    public int DimCall() => ((IDimSFace)this).Value();
+
+    public System.Func<int> DimGroup() => ((IDimSFace)this).Value;
+}
+
+public interface IStructFace
+{
+    int FaceMethod();
+}
+
+public struct StructExplicitFace : IStructFace
+{
+    int IStructFace.FaceMethod() => 7;
+
+    public int CallExplicitInterface() => ((IStructFace)this).FaceMethod();
+}
+
+// Negative fixture (#3201): a struct that boxes `this` to reach a NON-interface
+// member. `((object)this).ToString()` also lowers to `ldarg.0; ldobj S; box S;
+// callvirt object::ToString()`, so its IR receiver is likewise a Box over this —
+// but the callee's declaring type is System.Object, not an interface, so the
+// boxed-this arm must decline and leave the object cast untouched. Guards the
+// arm against firing on every boxed-this receiver.
+public struct StructBoxedObjectReceiver
+{
+    public string CallObjectToString() => ((object)this).ToString()!;
 }
