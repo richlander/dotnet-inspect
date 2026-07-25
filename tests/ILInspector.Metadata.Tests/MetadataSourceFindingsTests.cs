@@ -315,15 +315,17 @@ public sealed class MetadataSourceFindingsTests
             .Select(static finding => finding.Payload)
             .ToArray();
 
+        // CanonicalPath is separator-agnostic (always forward slashes); OriginalPath
+        // carries the OS separator and so fails these suffix checks on Windows (#3018).
         var authored = Assert.Single(mappings, mapping =>
-            mapping.OriginalPath.EndsWith(
+            mapping.CanonicalPath.EndsWith(
                 "tests/ILInspector.Metadata.Tests/MetadataSourceFindingsTests.cs",
                 StringComparison.Ordinal));
         Assert.False(authored.IsPrimaryDocument);
         var primary = Assert.Single(mappings, static mapping => mapping.IsPrimaryDocument);
         Assert.EndsWith(
             "Generated/MetadataSourceFindings.g.cs",
-            primary.OriginalPath,
+            primary.CanonicalPath,
             StringComparison.Ordinal);
     }
 
