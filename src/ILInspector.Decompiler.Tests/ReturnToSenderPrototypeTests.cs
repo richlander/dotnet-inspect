@@ -1279,6 +1279,96 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_ExplicitInterfaceOperatorFallsBackToPlainWithoutRecompileFail()
+    {
+        // Negative case (#3112, adversarial review): an explicit-interface implementation of a
+        // static-abstract operator cannot be reconstructed by the explicit-method path — the
+        // explicit target spelling would carry the raw `op_Addition` metadata name (via
+        // CSharpIdentifier.Sanitize) instead of C# `operator +` syntax, so it would not match
+        // the interface's `operator` member (CS0539). RTS must fall back to the plain sanitized
+        // shape (main's behavior) rather than regress the method-not-found ContextFail into a
+        // RecompileFail.
+        var assemblyPath = CompileFixture("""
+            public sealed class ExplicitOperatorFixture : INonGenericAdd
+            {
+                static INonGenericAdd INonGenericAdd.operator +(INonGenericAdd left, INonGenericAdd right)
+                {
+                    return left;
+                }
+            }
+
+            public interface INonGenericAdd
+            {
+                static abstract INonGenericAdd operator +(INonGenericAdd left, INonGenericAdd right);
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitOperatorFixture",
+                    "INonGenericAdd.op_Addition",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("INonGenericAdd_op_Addition", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("INonGenericAdd.op_Addition(", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExplicitInterfaceDefaultMethodFallsBackToPlainWithoutRecompileFail()
+    {
+        // Negative case (#3112, adversarial review): an explicit-interface implementation of a
+        // default interface method (virtual, non-abstract, has a body) cannot be reconstructed
+        // by the explicit-method path — the interface member reconstructs bodyless
+        // (StubBody.None) while remaining `virtual`, which is invalid because a non-abstract
+        // virtual interface method requires a body (CS0501). RTS must fall back to the plain
+        // sanitized shape (main's behavior) rather than regress the method-not-found ContextFail
+        // into a RecompileFail.
+        var assemblyPath = CompileFixture("""
+            public sealed class ExplicitDimFixture : IDefaultMethod
+            {
+                int IDefaultMethod.Compute()
+                {
+                    return 1;
+                }
+            }
+
+            public interface IDefaultMethod
+            {
+                int Compute() => 0;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ExplicitDimFixture",
+                    "IDefaultMethod.Compute",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("IDefaultMethod_Compute", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("int IDefaultMethod.Compute(", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackFirstPropertyGetter_RoundTripsExplicitInterfaceIndexer()
     {
         var assemblyPath = CompileFixture("""
