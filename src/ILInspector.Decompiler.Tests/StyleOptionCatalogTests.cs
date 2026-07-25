@@ -146,4 +146,53 @@ public class StyleOptionCatalogTests
         Assert.False(arrow.Get(PrinterOptions.Default));
         Assert.True(arrow.Get(arrow.With(PrinterOptions.Default, true)));
     }
+
+    [Fact]
+    public void OracleEndorsedOptions_IsExactlyTheOracleEndorsedDescriptors()
+    {
+        // The "full taste" member list is precisely the oracle-endorsed filter over
+        // Options — same instances, same order — and nothing else.
+        Assert.Equal(
+            Options.Where(o => o.OracleEndorsed).ToArray(),
+            StyleOptionCatalog.OracleEndorsedOptions.ToArray());
+        Assert.All(StyleOptionCatalog.OracleEndorsedOptions, o => Assert.True(o.OracleEndorsed));
+    }
+
+    [Fact]
+    public void ApplyFullTaste_EnablesExactlyTheOracleEndorsedSubset()
+    {
+        var full = StyleOptionCatalog.ApplyFullTaste(PrinterOptions.Default);
+
+        foreach (var o in Options)
+            Assert.Equal(o.OracleEndorsed, o.Get(full));
+    }
+
+    [Fact]
+    public void ApplyFullTaste_ResolvesGuardedBooleanReturnGroup_ToTheTernary()
+    {
+        // The aggregate picks the oracle-endorsed ternary and never the branchless
+        // "bool hack", so the conflict group resolves deterministically by
+        // construction — the two are never both on.
+        var full = StyleOptionCatalog.ApplyFullTaste(PrinterOptions.Default);
+
+        var ternary = Options.Single(o => o.Id == "prefer-conditional-expression-return");
+        var branchless = Options.Single(o => o.Id == "prefer-branchless-boolean");
+        Assert.True(ternary.Get(full));
+        Assert.False(branchless.Get(full));
+    }
+
+    [Fact]
+    public void ApplyFullTaste_False_DisablesExactlyTheOracleEndorsedSubset()
+    {
+        // Turn every knob on, then apply the aggregate with enabled: false — only
+        // the oracle-endorsed subset is turned back off; non-endorsed knobs stay on.
+        var allOn = PrinterOptions.Default;
+        foreach (var o in Options)
+            allOn = o.With(allOn, true);
+
+        var result = StyleOptionCatalog.ApplyFullTaste(allOn, enabled: false);
+
+        foreach (var o in Options)
+            Assert.Equal(!o.OracleEndorsed, o.Get(result));
+    }
 }

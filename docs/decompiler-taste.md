@@ -521,6 +521,15 @@ dotnet_style_prefer_conditional_expression_over_return = true
   ternary [style lens](#style-lenses-behavior-faithful-byte-divergent)), and
   `dotnet_inspect_style_prefer_branchless_boolean` (the non-oracle-endorsed
   branchless lens, under a tool-owned key). The set grows as more knobs ship.
+- `dotnet_inspect_style_full_taste = true` is a tool-owned **aggregate** key: it
+  enables the whole oracle-endorsed subset at once (the four `this`-qualifications
+  and the ternary lens — everything the runtime `.editorconfig`/IDE oracle
+  prefers) so a user need not copy each `dotnet_style_*` line. It deliberately
+  excludes the non-endorsed branchless lens, so the guarded-boolean-return
+  conflict group resolves to the ternary deterministically. It applies in file
+  order like any other key, so a later explicit per-knob line overrides it
+  (last-write-wins) — `full_taste = true` then
+  `dotnet_style_qualification_for_field = false` is "full taste minus one knob".
 - The recognized keys are not hand-maintained in the resolver: they come from the
   library-owned `StyleOptionCatalog` (see [Option catalog](#option-catalog)), so
   the CLI vocabulary and the option surface cannot drift.
@@ -575,11 +584,15 @@ set the knob on a `PrinterOptions` without reflection.
 This makes the option surface discoverable and drift-proof for every host, not
 just the CLI: the config resolver derives its recognized keys from the catalog,
 a Wasm UI can enumerate the knobs (grouping the mutually-exclusive lenses by
-`ConflictGroup` and toggling each through `Get`/`With`), and the future "full
-taste" aggregate is exactly the `OracleEndorsed` subset. The two guarded-boolean
-lenses share the `guarded-boolean-return` conflict group, so a picker offers at
-most one (the printer still resolves any overlap deterministically, preferring the
-oracle-endorsed ternary). Every opt-in knob is a boolean toggle — including the
+`ConflictGroup` and toggling each through `Get`/`With`), and the "full taste"
+aggregate is exactly the `OracleEndorsed` subset. The catalog exposes that subset
+as `OracleEndorsedOptions` and applies it with `ApplyFullTaste(PrinterOptions,
+enabled)`; the CLI surfaces it as the `dotnet_inspect_style_full_taste` config
+key. Because that subset enables only the oracle-endorsed ternary, the aggregate
+never trips the `guarded-boolean-return` conflict group the two guarded-boolean
+lenses share. A picker offers at most one member of that group (the printer still
+resolves any overlap deterministically, preferring the oracle-endorsed ternary).
+Every opt-in knob is a boolean toggle — including the
 expression-body arrow wrap (`WrapExpressionBodyArrow`) — so the catalog is
 exhaustive; a future non-boolean knob would need a descriptor shape that carries
 its value domain.

@@ -105,6 +105,72 @@ public class RenderStyleConfigTests
     }
 
     [Fact]
+    public void Parse_FullTasteKey_EnablesTheOracleEndorsedSubset()
+    {
+        // The "full taste" aggregate turns on the whole oracle-endorsed subset with
+        // one key — the four this.-qualifications and the ternary lens — and never
+        // the non-endorsed branchless "bool hack".
+        var result = RenderStyleConfig.Parse("dotnet_inspect_style_full_taste = true", origin: "cfg");
+
+        Assert.True(result.Options.QualifyFieldAccess);
+        Assert.True(result.Options.QualifyPropertyAccess);
+        Assert.True(result.Options.QualifyMethodAccess);
+        Assert.True(result.Options.QualifyEventAccess);
+        Assert.True(result.Options.PreferConditionalExpressionReturn);
+        Assert.False(result.Options.PreferBranchlessBoolean);
+        Assert.Empty(result.Warnings);
+    }
+
+    [Fact]
+    public void Parse_FullTasteKey_DefaultsOffAndToleratesSeverity()
+    {
+        Assert.False(RenderStyleConfig.Parse("", origin: null).Options.QualifyFieldAccess);
+
+        var withSeverity = RenderStyleConfig.Parse(
+            "dotnet_inspect_style_full_taste = true:suggestion",
+            origin: null);
+        Assert.True(withSeverity.Options.QualifyFieldAccess);
+        Assert.True(withSeverity.Options.PreferConditionalExpressionReturn);
+        Assert.Empty(withSeverity.Warnings);
+    }
+
+    [Fact]
+    public void Parse_FullTasteFalse_IsRecognizedAndLeavesSubsetOff()
+    {
+        var result = RenderStyleConfig.Parse("dotnet_inspect_style_full_taste = false", origin: null);
+
+        Assert.False(result.Options.QualifyFieldAccess);
+        Assert.False(result.Options.PreferConditionalExpressionReturn);
+        Assert.Empty(result.Warnings);
+    }
+
+    [Fact]
+    public void Parse_FullTasteThenExplicitOverride_LastWriteWins()
+    {
+        // A later explicit per-knob line overrides the aggregate (file order is
+        // last-write-wins), so a user can take "full taste" minus one knob.
+        var result = RenderStyleConfig.Parse(
+            "dotnet_inspect_style_full_taste = true\n" +
+            "dotnet_style_qualification_for_field = false\n",
+            origin: null);
+
+        Assert.False(result.Options.QualifyFieldAccess);
+        Assert.True(result.Options.QualifyPropertyAccess);
+        Assert.True(result.Options.PreferConditionalExpressionReturn);
+        Assert.Empty(result.Warnings);
+    }
+
+    [Fact]
+    public void Parse_FullTasteKey_NonBoolValue_Warns()
+    {
+        var result = RenderStyleConfig.Parse("dotnet_inspect_style_full_taste = maybe", origin: null);
+
+        var warning = Assert.Single(result.Warnings);
+        Assert.Contains("expects true/false", warning);
+        Assert.False(result.Options.QualifyFieldAccess);
+    }
+
+    [Fact]
     public void Parse_ToleratesEditorConfigSeveritySuffix()
     {
         var result = RenderStyleConfig.Parse("dotnet_style_qualification_for_field = true:suggestion", origin: null);
