@@ -41,6 +41,25 @@ public sealed record PrinterOptions
     public bool WrapSplittableExpressions { get; init; }
 
     /// <summary>
+    /// When set, the always-on <b>width-based</b> wrappers are suppressed, so a
+    /// construct that would otherwise break across continuation lines because its
+    /// single-line form exceeds the wrap width stays on one physical line no matter
+    /// how wide. This covers the long fluent-call chain wrapper and the long
+    /// member-signature (parameter-list) wrapper — the "one-liner pretty printing"
+    /// the renderer applies by default. Off by default (wrapping is the shipped
+    /// house style, matching the runtime corpus, which wraps long lines).
+    ///
+    /// This is a user compactness preference: keeping a wide construct inline
+    /// <b>diverges</b> from the corpus, so it is neither declared- nor
+    /// revealed-endorsed. It governs only the <em>always-on</em> width wrappers; the
+    /// opt-in <see cref="WrapSplittableExpressions"/> boolean/bitwise chain wrapping
+    /// is independent (a user who opts into that has explicitly asked for it).
+    /// Whitespace-only: it never changes which tokens are emitted, so the IL is
+    /// unchanged.
+    /// </summary>
+    public bool DisableOneLinerWrapping { get; init; }
+
+    /// <summary>
     /// When set, an instance field accessed through <c>this</c> renders the explicit
     /// <c>this.</c> qualifier even where the bare name is unambiguous (the shipped
     /// default qualifies only to escape a local/parameter shadow or a member/type

@@ -300,4 +300,16 @@ public class StyleOptionCatalogTests
         Assert.False(arrow.OracleEndorsed);
         Assert.False(arrow.CorpusEndorsed);
     }
+
+    [Fact]
+    public void DisableOneLinerWrapping_IsEndorsedByNeitherFacet()
+    {
+        // Suppressing the always-on width wrappers is a user compactness preference,
+        // not the corpus's practice: the runtime wraps wide constructs (the shipped
+        // default keeps wrapping), so keeping a one-liner on one line diverges from
+        // the corpus, and no .editorconfig rule declares it. Neither facet endorses it.
+        var disable = Options.Single(o => o.Id == "disable-one-liner-wrapping");
+        Assert.False(disable.OracleEndorsed);
+        Assert.False(disable.CorpusEndorsed);
+    }
 }

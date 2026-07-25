@@ -869,7 +869,7 @@ public static class MemberBodyProducer
                         }
                         else if (bodyIsSingleExpressionBody || CSharpExpressionBody.FromSingleStatement(body) is not null)
                         {
-                            CSharpMemberLayout.Append(sb, head, body, 4, WrapExpressionBodyArrow(printerOptions), bodyIsSingleExpressionBody);
+                            CSharpMemberLayout.Append(sb, head, body, 4, WrapExpressionBodyArrow(printerOptions), bodyIsSingleExpressionBody, DisableSignatureWrapping(printerOptions));
                         }
                         else
                         {
@@ -892,7 +892,7 @@ public static class MemberBodyProducer
                     var declaration = bodyShape is null
                         ? DefaultDeclarationFormatter.FormatMember(type, member)
                         : DefaultDeclarationFormatter.FormatMemberWithBody(type, member, bodyShape);
-                    AppendMember(sb, declaration, body, WrapExpressionBodyArrow(printerOptions), constructorChain, bodyIsSingleExpressionBody);
+                    AppendMember(sb, declaration, body, WrapExpressionBodyArrow(printerOptions), constructorChain, bodyIsSingleExpressionBody, DisableSignatureWrapping(printerOptions));
                     break;
                 }
 
@@ -1121,12 +1121,12 @@ public static class MemberBodyProducer
         return null;
     }
 
-    static void AppendMember(StringBuilder sb, string signature, string? body, bool wrapExpressionBodyArrow, string? constructorChain = null, bool bodyIsSingleExpressionBody = false)
+    static void AppendMember(StringBuilder sb, string signature, string? body, bool wrapExpressionBodyArrow, string? constructorChain = null, bool bodyIsSingleExpressionBody = false, bool disableSignatureWrapping = false)
     {
         // An explicit base(...)/this(...) chain renders as a signature
         // initializer (the printer lifted it out of the body).
         string head = constructorChain is null ? signature : $"{signature} : {constructorChain}";
-        CSharpMemberLayout.Append(sb, head, body, 4, wrapExpressionBodyArrow, bodyIsSingleExpressionBody);
+        CSharpMemberLayout.Append(sb, head, body, 4, wrapExpressionBodyArrow, bodyIsSingleExpressionBody, disableSignatureWrapping);
     }
 
     static string TypeParameterDisplayName(TypeParameter typeParameter)
@@ -1236,7 +1236,7 @@ public static class MemberBodyProducer
         if (accessors is [("get", { } loneGet, _, var loneGetSingleReturn)]
             && (loneGetSingleReturn || CSharpExpressionBody.FromSingleStatement(loneGet) is not null))
         {
-            CSharpMemberLayout.Append(sb, head, loneGet, 4, WrapExpressionBodyArrow(printerOptions), loneGetSingleReturn);
+            CSharpMemberLayout.Append(sb, head, loneGet, 4, WrapExpressionBodyArrow(printerOptions), loneGetSingleReturn, DisableSignatureWrapping(printerOptions));
             return;
         }
 
@@ -1253,6 +1253,9 @@ public static class MemberBodyProducer
 
     static bool WrapExpressionBodyArrow(Pipeline.PrinterOptions? printerOptions)
         => (printerOptions ?? Pipeline.PrinterOptions.Default).WrapExpressionBodyArrow;
+
+    static bool DisableSignatureWrapping(Pipeline.PrinterOptions? printerOptions)
+        => (printerOptions ?? Pipeline.PrinterOptions.Default).DisableOneLinerWrapping;
 
     /// <summary>
     /// The expression of a single-statement body suitable for '=>':

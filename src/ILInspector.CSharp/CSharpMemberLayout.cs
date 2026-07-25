@@ -39,7 +39,7 @@ public static class CSharpMemberLayout
     /// single-line bodies stay on the
     /// <see cref="CSharpExpressionBody.FromSingleStatement"/> path.
     /// </param>
-    public static void Append(StringBuilder sb, string head, string? body, int indent, bool wrapExpressionBodyArrow = false, bool bodyIsSingleExpressionBody = false)
+    public static void Append(StringBuilder sb, string head, string? body, int indent, bool wrapExpressionBodyArrow = false, bool bodyIsSingleExpressionBody = false, bool disableSignatureWrapping = false)
     {
         ArgumentNullException.ThrowIfNull(sb);
         ArgumentNullException.ThrowIfNull(head);
@@ -47,29 +47,29 @@ public static class CSharpMemberLayout
         string pad = new(' ', indent);
         if (body is null)
         {
-            sb.AppendLine($"{pad}{head};");
+            sb.AppendLine(LayOutHead(pad, head, ";", ";", disableSignatureWrapping));
             return;
         }
         if (bodyIsSingleExpressionBody
             && CSharpExpressionBody.MultilineExpressionBodyLines(body) is { } expressionLines)
         {
-            AppendMultilineExpressionBody(sb, head, expressionLines, indent, wrapExpressionBodyArrow);
+            AppendMultilineExpressionBody(sb, head, expressionLines, indent, wrapExpressionBodyArrow, disableSignatureWrapping);
             return;
         }
         if (CSharpExpressionBody.FromSingleStatement(body) is { } expression)
         {
             if (wrapExpressionBodyArrow)
             {
-                sb.AppendLine($"{pad}{head}");
+                sb.AppendLine(LayOutHead(pad, head, "", " =>", disableSignatureWrapping));
                 sb.AppendLine($"{pad}    => {expression};");
             }
             else
             {
-                sb.AppendLine($"{pad}{head} => {expression};");
+                sb.AppendLine(LayOutHead(pad, head, $" => {expression};", " =>", disableSignatureWrapping));
             }
             return;
         }
-        sb.AppendLine($"{pad}{head}");
+        sb.AppendLine(LayOutHead(pad, head, "", " {", disableSignatureWrapping));
         sb.AppendLine($"{pad}{{");
         AppendIndentedBody(sb, body, indent + 4);
         sb.AppendLine($"{pad}}}");
@@ -88,18 +88,18 @@ public static class CSharpMemberLayout
     /// terminator (<c>;</c>). Blank lines are preserved.
     /// </summary>
     static void AppendMultilineExpressionBody(
-        StringBuilder sb, string head, IReadOnlyList<string> expressionLines, int indent, bool wrapExpressionBodyArrow)
+        StringBuilder sb, string head, IReadOnlyList<string> expressionLines, int indent, bool wrapExpressionBodyArrow, bool disableSignatureWrapping)
     {
         string pad = new(' ', indent);
         string valueLine = expressionLines[0];
         if (wrapExpressionBodyArrow)
         {
-            sb.AppendLine($"{pad}{head}");
+            sb.AppendLine(LayOutHead(pad, head, "", " =>", disableSignatureWrapping));
             sb.AppendLine($"{pad}    => {valueLine}");
         }
         else
         {
-            sb.AppendLine($"{pad}{head} => {valueLine}");
+            sb.AppendLine(LayOutHead(pad, head, $" => {valueLine}", " =>", disableSignatureWrapping));
         }
 
         string continuationPad = new(' ', wrapExpressionBodyArrow ? indent + 4 : indent);
@@ -117,6 +117,239 @@ public static class CSharpMemberLayout
                 sb.Append(';');
             sb.AppendLine();
         }
+    }
+
+    /// <summary>
+    /// The dotnet/runtime max line width. A member signature whose single physical
+    /// line would exceed this wraps its parameter list one parameter per line (the
+    /// revealed corpus practice). Shares the rationale — and value — of the
+    /// decompiler's fluent-chain wrap width; a pure formatting tiebreaker that never
+    /// changes which tokens are emitted.
+    /// </summary>
+    internal const int SignatureWrapWidth = 120;
+
+    /// <summary>
+    /// Renders the declaration <paramref name="head"/> at <paramref name="pad"/>,
+    /// wrapping its parameter list one parameter per line (each under a four-space
+    /// continuation indent, the closing <c>)</c> and everything after it kept on the
+    /// last parameter's line) when the single physical line
+    /// <c>pad + head + decisionSuffix</c> would exceed
+    /// <see cref="SignatureWrapWidth"/> and the parameter list can be unambiguously
+    /// located. <paramref name="renderTail"/> is whatever follows the head's closing
+    /// <c>)</c> on its final line (<c>" =&gt; expr;"</c>, <c>";"</c>, or <c>""</c>).
+    /// Falls back to the inline single line when wrapping is disabled, the signature
+    /// fits, or the parameter list cannot be located — so an unrecognized shape
+    /// degrades to today's output rather than a mangled signature. Whitespace only:
+    /// the wrapped form is token-identical to the inline form.
+    /// </summary>
+    static string LayOutHead(string pad, string head, string renderTail, string decisionSuffix, bool disableSignatureWrapping)
+    {
+        if (!disableSignatureWrapping
+            && pad.Length + head.Length + decisionSuffix.Length > SignatureWrapWidth
+            && WrapParameterList(pad, head, renderTail) is { } wrapped)
+            return wrapped;
+        return pad + head + renderTail;
+    }
+
+    static string? WrapParameterList(string pad, string head, string renderTail)
+    {
+        if (!TryLocateParameterList(head, out int open, out int close))
+            return null;
+        var parameters = SplitTopLevelCommas(head, open + 1, close);
+        if (parameters.Count == 0)
+            return null;
+
+        string continuation = pad + "    ";
+        var sb = new StringBuilder();
+        sb.Append(pad).Append(head, 0, open + 1);
+        for (int i = 0; i < parameters.Count; i++)
+        {
+            sb.Append('\n').Append(continuation).Append(parameters[i].Trim());
+            if (i < parameters.Count - 1)
+                sb.Append(',');
+        }
+        sb.Append(head, close, head.Length - close);
+        sb.Append(renderTail);
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Locates the method/constructor parameter-list parentheses in
+    /// <paramref name="head"/> — the first top-level <c>(</c> immediately preceded by
+    /// the member name (an identifier char or a generic-arg <c>&gt;</c>), so a
+    /// parenthesized/tuple return type (which precedes the name) is skipped and a
+    /// <c>new()</c> in a trailing <c>where</c> constraint is excluded by bounding the
+    /// scan before the constraint clause. Returns false for shapes it cannot match
+    /// with confidence (e.g. operator tokens before the paren), so the caller leaves
+    /// the signature inline rather than risk mangling it.
+    /// </summary>
+    static bool TryLocateParameterList(string head, out int open, out int close)
+    {
+        open = -1;
+        close = -1;
+        int limit = FindTopLevelWhere(head);
+        if (limit < 0)
+            limit = head.Length;
+
+        int angle = 0, bracket = 0, brace = 0;
+        for (int i = 0; i < limit; i++)
+        {
+            char c = head[i];
+            if (c is '"' or '\'')
+            {
+                i = SkipLiteral(head, i);
+                continue;
+            }
+            switch (c)
+            {
+                case '<': angle++; break;
+                case '>': if (angle > 0) angle--; break;
+                case '[': bracket++; break;
+                case ']': if (bracket > 0) bracket--; break;
+                case '{': brace++; break;
+                case '}': if (brace > 0) brace--; break;
+                case '(':
+                    if (angle == 0 && bracket == 0 && brace == 0)
+                    {
+                        char prev = i > 0 ? head[i - 1] : '\0';
+                        if (char.IsLetterOrDigit(prev) || prev == '_' || prev == '>')
+                        {
+                            int match = MatchParen(head, i);
+                            if (match < 0)
+                                return false;
+                            open = i;
+                            close = match;
+                            return true;
+                        }
+                        // A top-level '(' not preceded by the member name (a tuple or
+                        // parenthesized return type): skip its whole group.
+                        int end = MatchParen(head, i);
+                        if (end < 0)
+                            return false;
+                        i = end;
+                    }
+                    break;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Splits the parameter text <c>head[start..end]</c> on top-level commas —
+    /// commas at bracket depth zero, ignoring those inside <c>&lt;&gt;</c>,
+    /// <c>()</c>, <c>[]</c>, <c>{}</c> or string/char literals — so a generic type
+    /// argument, tuple, attribute argument, or default value with its own commas
+    /// stays on one line.
+    /// </summary>
+    static List<string> SplitTopLevelCommas(string head, int start, int end)
+    {
+        var result = new List<string>();
+        int angle = 0, paren = 0, bracket = 0, brace = 0;
+        int segmentStart = start;
+        for (int i = start; i < end; i++)
+        {
+            char c = head[i];
+            if (c is '"' or '\'')
+            {
+                i = SkipLiteral(head, i);
+                continue;
+            }
+            switch (c)
+            {
+                case '<': angle++; break;
+                case '>': if (angle > 0) angle--; break;
+                case '(': paren++; break;
+                case ')': if (paren > 0) paren--; break;
+                case '[': bracket++; break;
+                case ']': if (bracket > 0) bracket--; break;
+                case '{': brace++; break;
+                case '}': if (brace > 0) brace--; break;
+                case ',':
+                    if (angle == 0 && paren == 0 && bracket == 0 && brace == 0)
+                    {
+                        result.Add(head[segmentStart..i]);
+                        segmentStart = i + 1;
+                    }
+                    break;
+            }
+        }
+        string tail = head[segmentStart..end];
+        if (tail.Trim().Length > 0 || result.Count > 0)
+            result.Add(tail);
+        return result;
+    }
+
+    /// <summary>Index of the <c>)</c> matching the <c>(</c> at <paramref name="open"/>, or -1.</summary>
+    static int MatchParen(string head, int open)
+    {
+        int depth = 0;
+        for (int i = open; i < head.Length; i++)
+        {
+            char c = head[i];
+            if (c is '"' or '\'')
+            {
+                i = SkipLiteral(head, i);
+                continue;
+            }
+            if (c == '(')
+                depth++;
+            else if (c == ')' && --depth == 0)
+                return i;
+        }
+        return -1;
+    }
+
+    /// <summary>Index of a top-level <c>" where "</c> generic-constraint clause, or -1.</summary>
+    static int FindTopLevelWhere(string head)
+    {
+        int angle = 0, paren = 0, bracket = 0, brace = 0;
+        for (int i = 0; i + 7 <= head.Length; i++)
+        {
+            char c = head[i];
+            if (c is '"' or '\'')
+            {
+                i = SkipLiteral(head, i);
+                continue;
+            }
+            switch (c)
+            {
+                case '<': angle++; break;
+                case '>': if (angle > 0) angle--; break;
+                case '(': paren++; break;
+                case ')': if (paren > 0) paren--; break;
+                case '[': bracket++; break;
+                case ']': if (bracket > 0) bracket--; break;
+                case '{': brace++; break;
+                case '}': if (brace > 0) brace--; break;
+                case ' ':
+                    if (angle == 0 && paren == 0 && bracket == 0 && brace == 0
+                        && string.CompareOrdinal(head, i, " where ", 0, 7) == 0)
+                        return i;
+                    break;
+            }
+        }
+        return -1;
+    }
+
+    /// <summary>
+    /// Given <paramref name="start"/> at a string or char literal's opening quote,
+    /// returns the index of its closing quote (respecting <c>\</c> escapes), or the
+    /// last index when unterminated.
+    /// </summary>
+    static int SkipLiteral(string head, int start)
+    {
+        char quote = head[start];
+        for (int i = start + 1; i < head.Length; i++)
+        {
+            if (head[i] == '\\')
+            {
+                i++;
+                continue;
+            }
+            if (head[i] == quote)
+                return i;
+        }
+        return head.Length - 1;
     }
 
     /// <summary>

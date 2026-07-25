@@ -4,10 +4,10 @@ namespace ILInspector.CSharp.Tests;
 
 public sealed class CSharpMemberLayoutTests
 {
-    static string Render(string head, string? body, int indent, bool wrapExpressionBodyArrow = false, bool bodyIsSingleExpressionBody = false)
+    static string Render(string head, string? body, int indent, bool wrapExpressionBodyArrow = false, bool bodyIsSingleExpressionBody = false, bool disableSignatureWrapping = false)
     {
         var sb = new StringBuilder();
-        CSharpMemberLayout.Append(sb, head, body, indent, wrapExpressionBodyArrow, bodyIsSingleExpressionBody);
+        CSharpMemberLayout.Append(sb, head, body, indent, wrapExpressionBodyArrow, bodyIsSingleExpressionBody, disableSignatureWrapping);
         return sb.ToString().Replace("\r\n", "\n");
     }
 
@@ -196,4 +196,92 @@ public sealed class CSharpMemberLayoutTests
         CSharpMemberLayout.AppendIndentedBody(sb, "a();  \n\nb();", indent: 8);
         Assert.Equal("        a();\n\n        b();\n", sb.ToString().Replace("\r\n", "\n"));
     }
+
+    // Issue #3185: a member whose single physical line would exceed the 120-column
+    // runtime budget wraps its parameter list one parameter per line, keeping the
+    // `=>`/`{`/`;` on the closing `)` line. Token-identical, IL-unchanged, and the
+    // revealed corpus practice. Mirrors the always-on fluent-chain wrapper.
+    const string LongParseHead =
+        "public static JsonElement Parse([StringSyntax(\"Json\")] ReadOnlySpan<byte> utf8Json, JsonDocumentOptions options = default)";
+
+    [Fact]
+    public void Append_LongExpressionBodiedSignature_WrapsParametersKeepingArrowOnCloseParen()
+        => Assert.Equal(
+            "    public static JsonElement Parse(\n"
+            + "        [StringSyntax(\"Json\")] ReadOnlySpan<byte> utf8Json,\n"
+            + "        JsonDocumentOptions options = default) => JsonDocument.ParseValue(utf8Json, options).RootElement;\n",
+            Render(LongParseHead, "return JsonDocument.ParseValue(utf8Json, options).RootElement;", indent: 4));
+
+    [Fact]
+    public void Append_LongSignature_DisableOptOut_KeepsSingleLine()
+        => Assert.Equal(
+            "    " + LongParseHead + " => JsonDocument.ParseValue(utf8Json, options).RootElement;\n",
+            Render(LongParseHead, "return JsonDocument.ParseValue(utf8Json, options).RootElement;", indent: 4, disableSignatureWrapping: true));
+
+    [Fact]
+    public void Append_ShortSignature_StaysInline()
+        => Assert.Equal(
+            "    public int Add(int a, int b) => a + b;\n",
+            Render("public int Add(int a, int b)", "return a + b;", indent: 4));
+
+    [Fact]
+    public void Append_LongSignature_NullBody_WrapsAndKeepsSemicolonOnCloseParen()
+        => Assert.Equal(
+            "    public static void RegisterLongDescriptiveFactoryMethod<TService, TImpl>(\n"
+            + "        IServiceCollection services,\n"
+            + "        string longParameterName) where TImpl : TService, new();\n",
+            Render(
+                "public static void RegisterLongDescriptiveFactoryMethod<TService, TImpl>(IServiceCollection services, string longParameterName) where TImpl : TService, new()",
+                body: null,
+                indent: 4));
+
+    [Fact]
+    public void Append_LongGenericSignature_KeepsGenericArgCommasIntact()
+        => Assert.Equal(
+            "    public static TResult LongGenericHelperMethodName<TSource, TResult>(\n"
+            + "        TSource source,\n"
+            + "        Func<TSource, TResult> selector,\n"
+            + "        IComparer<TResult> comparer) => selector(source);\n",
+            Render(
+                "public static TResult LongGenericHelperMethodName<TSource, TResult>(TSource source, Func<TSource, TResult> selector, IComparer<TResult> comparer)",
+                "return selector(source);",
+                indent: 4));
+
+    [Fact]
+    public void Append_LongSignature_TupleReturnType_WrapsParamsNotReturnTuple()
+        => Assert.Equal(
+            "    public static (int Quotient, int Remainder) DivRemWithAVeryLongMethodNameThatExceeds(\n"
+            + "        int dividend,\n"
+            + "        int divisorValue) => (dividend / divisorValue, dividend % divisorValue);\n",
+            Render(
+                "public static (int Quotient, int Remainder) DivRemWithAVeryLongMethodNameThatExceeds(int dividend, int divisorValue)",
+                "return (dividend / divisorValue, dividend % divisorValue);",
+                indent: 4));
+
+    [Fact]
+    public void Append_LongOperatorSignature_FallsBackToInline()
+    {
+        // The '(' after 'operator +' is preceded by '+', which the conservative
+        // locator does not recognize as a member name, so the signature degrades
+        // to today's single line rather than risk a mangled operator declaration.
+        const string head =
+            "public static VeryLongCustomNumericTypeNameHere operator +(VeryLongCustomNumericTypeNameHere left, VeryLongCustomNumericTypeNameHere right)";
+        Assert.Equal("    " + head + " => left;\n", Render(head, "return left;", indent: 4));
+    }
+
+    [Fact]
+    public void Append_LongSignature_BlockBody_WrapsParamsAndKeepsBraceOnOwnLine()
+        => Assert.Equal(
+            "    public static void ConfigureLongServiceRegistrationPipeline(\n"
+            + "        IServiceCollection services,\n"
+            + "        IConfiguration configuration,\n"
+            + "        ILoggerFactory loggerFactory)\n"
+            + "    {\n"
+            + "        DoWork();\n"
+            + "        DoMore();\n"
+            + "    }\n",
+            Render(
+                "public static void ConfigureLongServiceRegistrationPipeline(IServiceCollection services, IConfiguration configuration, ILoggerFactory loggerFactory)",
+                "DoWork();\nDoMore();",
+                indent: 4));
 }

@@ -169,6 +169,19 @@ public static class StyleOptionCatalog
         },
         new StyleOptionDescriptor
         {
+            Id = "disable-one-liner-wrapping",
+            Title = "Keep one-liners on one line",
+            Summary = "Suppress the always-on width wrappers (long fluent chains and long member signatures) so a wide construct stays on a single physical line instead of wrapping (whitespace only).",
+            Tier = StyleOptionTier.Formatting,
+            ByteDivergent = false,
+            OracleEndorsed = false,
+            ConfigKey = null,
+            CorpusEndorsed = false,
+            Get = static o => o.DisableOneLinerWrapping,
+            With = static (o, v) => o with { DisableOneLinerWrapping = v },
+        },
+        new StyleOptionDescriptor
+        {
             Id = "wrap-expression-body-arrow",
             Title = "Wrap expression-body arrow",
             Summary = "Wrap the => of an expression-bodied member or accessor onto the next line instead of keeping it on the declaration line (whitespace only).",
