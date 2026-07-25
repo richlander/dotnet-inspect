@@ -87,7 +87,7 @@ public class PackageVersionTests
         Assert.Equal(0, exit);
         Assert.Equal(
             ["8.0.0", "8.0.1", "8.0.2", "8.0.3", "8.0.4", "8.0.5"],
-            output.Trim().Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries));
     }
 
     [Fact]
