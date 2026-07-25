@@ -312,6 +312,20 @@ public class FidelityGateTests
     /// </summary>
     static readonly string[] PinnedExact =
     {
+        // #3161: a `switch` with TWO loop-bearing sections — an Array-like arm
+        // (length guard + a `foreach`) and an Object-like arm (count guard + a
+        // `while` with an in-loop early return) — plus scalar arms and a default,
+        // shaped for high likeness to the platform method that motivated the fix
+        // (System.Text.Json.JsonElement.DeepEquals, whose Array and Object arms each
+        // loop). csc emits a dense `switch` opcode over cases 0..4 and lowers both
+        // loops to back-edges, so neither case section is a straight-line
+        // single-entry region. Before #3161 SwitchRaisingPass left the whole switch
+        // flat; it now owns both loop-bearing sections and the raise recompiles
+        // opcode-exact. This pins the transformation's IL fidelity on a shape we own
+        // — the same fidelity that cannot be checked on DeepEquals itself, since its
+        // internal System.Text.Json surface is not recompilable by the compile-back
+        // oracle (tracked for a future cross-assembly compile-back capability).
+        "SwitchWithTwoLoopingCaseSections",
         // The compile-back oracle replays the fixture's runtime-async feature,
         // so these methods must retain the same lowering rather than merely
         // remaining recompilable.
