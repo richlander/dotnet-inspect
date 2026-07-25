@@ -5710,21 +5710,28 @@ public class CommandExecutionTests
     [Fact]
     public async Task Find_Members_LeadingDotCtor_FindsConstructors()
     {
-        // ".ctor" is a real metadata member name; the leading-dot sentinel must preserve it (not
-        // strip it to a non-matching "ctor"), so the shortcut both enables the member lens and
-        // searches for constructors. Preservation must also honor case-insensitivity and globs.
+        // ".ctor"/".cctor" are the only real metadata member names beginning with a dot; the
+        // leading-dot sentinel must preserve an exact (case-insensitive) match for them (not strip
+        // to a non-matching "ctor"), while any leading-dot glob is treated purely as the member-lens
+        // sentinel and stripped — so ".c*" searches members named c* rather than only constructors.
         var ctor = await RunAppAsync("find", ".ctor", "--platform", "System.Text.Json", "--count");
         var upper = await RunAppAsync("find", ".CTOR", "--platform", "System.Text.Json", "--count");
-        var glob = await RunAppAsync("find", ".ctor*", "--platform", "System.Text.Json", "--count");
+        var dotGlob = await RunAppAsync("find", ".c*", "--platform", "System.Text.Json", "--count");
+        var memberGlob = await RunAppAsync("find", "c*", "--members", "--platform", "System.Text.Json", "--count");
 
         Assert.Equal(0, ctor.Item1);
         Assert.Empty(ctor.Item3);
         Assert.True(int.TryParse(ctor.Item2.Trim(), out var count));
         Assert.True(count >= 1, $"expected at least one constructor, got {count}");
 
-        // Case-insensitive exact and constructor glob resolve to the same constructor set.
+        // Exact constructor preservation is case-insensitive.
         Assert.Equal(ctor.Item2.Trim(), upper.Item2.Trim());
-        Assert.Equal(ctor.Item2.Trim(), glob.Item2.Trim());
+
+        // A leading-dot glob is a member-lens shortcut, not a constructor-only query: ".c*" must
+        // resolve to the same set as the explicit "c*" member search, not collapse to constructors.
+        Assert.Equal(memberGlob.Item2.Trim(), dotGlob.Item2.Trim());
+        Assert.True(int.TryParse(dotGlob.Item2.Trim(), out var dotGlobCount));
+        Assert.True(dotGlobCount > count, $"expected .c* ({dotGlobCount}) to exceed constructors ({count})");
     }
 
     [Fact]

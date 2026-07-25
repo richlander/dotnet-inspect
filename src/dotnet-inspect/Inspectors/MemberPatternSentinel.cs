@@ -5,41 +5,36 @@ namespace DotnetInspector.Inspectors;
 /// <summary>
 /// Normalizes the leading-dot sentinel used by the <c>find</c> member lens. A leading <c>.</c>
 /// auto-enables member search (e.g. <c>.Serialize</c>) and is normally stripped to form the search
-/// term. The constructor member names <c>.ctor</c> and <c>.cctor</c> genuinely begin with a dot,
-/// however, so the sentinel must not be stripped when doing so would turn a constructor query into a
-/// non-matching one. The decision reuses the same matcher the corpus member search uses
-/// (<see cref="TypeMatcher"/>), so case-insensitivity and glob wildcards behave identically to the
-/// actual search.
+/// term. The only metadata member names that genuinely begin with a dot are the constructor names
+/// <c>.ctor</c> and <c>.cctor</c>, so the sentinel is preserved solely for an exact
+/// (case-insensitive) match of one of those two names.
 /// </summary>
 public static class MemberPatternSentinel
 {
     private static readonly string[] ConstructorNames = [".ctor", ".cctor"];
 
     /// <summary>
-    /// Strips the leading sentinel <c>.</c> from a member pattern segment, but preserves it when the
-    /// pattern is a constructor query — i.e. when it matches <c>.ctor</c>/<c>.cctor</c> yet the
-    /// stripped form would not. Patterns that already match constructors after stripping (for example
-    /// <c>.*</c> or <c>.*ctor</c>) are still stripped so the sentinel behaves consistently.
+    /// Strips the leading sentinel <c>.</c> from a member pattern segment, preserving it only when the
+    /// pattern is an exact (case-insensitive) match for the constructor names <c>.ctor</c> or
+    /// <c>.cctor</c>. Every other leading-dot pattern — including globs such as <c>.c*</c> or
+    /// <c>.ctor*</c> — treats the dot purely as the member-lens sentinel and strips it, because a glob
+    /// against the two-name dot-prefixed domain cannot unambiguously signal constructor intent
+    /// (<c>.c*</c> and <c>.ctor*</c> both intersect <c>.ctor</c>). To glob-match constructors, use the
+    /// explicit member lens with a wildcard that spans the dot, e.g. <c>find "?ctor" --members</c>.
     /// </summary>
     public static string Strip(string pattern)
     {
         if (!pattern.StartsWith('.'))
             return pattern;
 
-        var stripped = pattern[1..];
         foreach (var ctor in ConstructorNames)
         {
-            if (Matches(pattern, ctor) && !Matches(stripped, ctor))
+            // MatchesMemberName is the corpus member matcher's exact (non-glob) path: a
+            // case-insensitive equality check. Reusing it keeps preservation aligned with search.
+            if (TypeMatcher.MatchesMemberName(ctor, pattern))
                 return pattern;
         }
 
-        return stripped;
+        return pattern[1..];
     }
-
-    // Mirrors the corpus member-search matcher: globs (containing * or ?) go through the
-    // case-insensitive glob regex, everything else is a case-insensitive exact match.
-    private static bool Matches(string pattern, string memberName)
-        => pattern.Contains('*') || pattern.Contains('?')
-            ? TypeMatcher.MatchesGlob(memberName, pattern)
-            : TypeMatcher.MatchesMemberName(memberName, pattern);
 }

@@ -11,11 +11,14 @@ public class MemberPatternSentinelTests
     [InlineData(".cctor", ".cctor")]          // static constructor name preserved
     [InlineData(".CTOR", ".CTOR")]            // constructor preserved case-insensitively
     [InlineData(".Cctor", ".Cctor")]          // static constructor preserved case-insensitively
-    [InlineData(".ctor*", ".ctor*")]          // constructor glob preserved
-    [InlineData(".cctor*", ".cctor*")]        // static constructor glob preserved
+    [InlineData(".ctor*", "ctor*")]           // glob is not an exact ctor name -> sentinel stripped
+    [InlineData(".cctor*", "cctor*")]         // glob is not an exact ctor name -> sentinel stripped
     [InlineData(".ctorInfo", "ctorInfo")]     // not a constructor; sentinel stripped
-    [InlineData(".*", "*")]                    // stripped form still matches ctors, so strip
-    [InlineData(".*ctor", "*ctor")]            // stripped form still matches ctors, so strip
+    [InlineData(".c*", "c*")]                  // member-lens glob, not a ctor query -> strip
+    [InlineData(".*", "*")]                    // member-lens glob -> strip
+    [InlineData(".*ctor", "*ctor")]            // member-lens glob -> strip
+    [InlineData(".?ctor", "?ctor")]            // member-lens glob -> strip
+    [InlineData(".?????", "?????")]            // member-lens glob -> strip
     [InlineData(".", "")]                     // bare sentinel strips to empty
     [InlineData("..ctor", ".ctor")]           // only a single leading dot is stripped
     public void Strip_HandlesSentinelAndConstructorNames(string input, string expected)
