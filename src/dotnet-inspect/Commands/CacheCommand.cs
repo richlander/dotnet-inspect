@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Text.Json;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
@@ -147,10 +148,15 @@ public class CacheCommand
         }
     }
 
+    // Path separators a session name must not contain; cached to avoid
+    // allocating the separator array on every validation.
+    private static readonly SearchValues<char> s_sessionNameSeparators =
+        SearchValues.Create([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar, Path.VolumeSeparatorChar]);
+
     private static bool IsSafeSessionName(string sessionName) =>
         !string.IsNullOrWhiteSpace(sessionName)
         && !sessionName.Contains("..", StringComparison.Ordinal)
-        && sessionName.IndexOfAny([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar, Path.VolumeSeparatorChar]) < 0;
+        && !sessionName.AsSpan().ContainsAny(s_sessionNameSeparators);
 
     private static bool IsUnderTempDirectory(string path)
     {

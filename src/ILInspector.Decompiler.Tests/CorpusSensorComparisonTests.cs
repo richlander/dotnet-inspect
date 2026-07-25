@@ -1306,6 +1306,39 @@ public class CorpusSensorComparisonTests
     }
 
     [Fact]
+    public void QualityMetricChanges_GroupsThousandsInLargeDeltas()
+    {
+        // At corpus scale a folded delta must carry the same thousands grouping as its operands
+        // (Markout NumberFormat="N0", issue #3170): the scalar Change<int> count row groups both
+        // operands and the absolute delta, and the composite share row groups its delta-noun count.
+        var methods = ValidityMethods(("One", "valid"), ("Two", "valid"));
+        var baseline = Snapshot(
+            totalMethods: 88_000,
+            fullyRaisedMethods: 80_000,
+            fullyRaisedBasisPoints: 9_091,
+            pinnedMethods: methods,
+            validityCompileCap: 2,
+            fullMalformedMethods: 2_000,
+            semanticCheckedMethods: 2);
+        var current = Snapshot(
+            totalMethods: 88_000,
+            fullyRaisedMethods: 81_624,
+            fullyRaisedBasisPoints: 9_275,
+            pinnedMethods: methods,
+            validityCompileCap: 2,
+            fullMalformedMethods: 3_624,
+            semanticCheckedMethods: 2);
+
+        string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
+
+        // Scalar count row: grouped operands + grouped absolute delta.
+        Assert.Contains("2,000 → 3,624 (+1,624)", report);
+        // Composite share row (residue): grouped operands (shape) + grouped delta-noun count (knob).
+        Assert.Contains("8,000 (", report);
+        Assert.Contains("(-1,624 methods)", report);
+    }
+
+    [Fact]
     public void CurrentMeasuredDebt_ReportsNoneForCleanEnabledChecks()
     {
         var snapshot = Snapshot(

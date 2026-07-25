@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Reflection.Metadata;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -518,6 +519,10 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
         return true;
     }
 
+    // Delimiters that mark a NuGet version range rather than a single version;
+    // cached to avoid allocating the delimiter array on every call.
+    static readonly SearchValues<char> s_versionRangeDelimiters = SearchValues.Create("[](),");
+
     static string? DependencyExactVersion(string? version)
     {
         if (string.IsNullOrWhiteSpace(version))
@@ -535,7 +540,7 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
                 return range[0].Trim();
         }
 
-        return version.IndexOfAny(['[', ']', '(', ')', ',']) < 0 ? version : null;
+        return version.AsSpan().ContainsAny(s_versionRangeDelimiters) ? null : version;
     }
 
     static IEnumerable<string> ProbeNuGetPackageVersionDlls(string packageDir, string? tfm, bool preferImplementationAssemblies)

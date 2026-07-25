@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 
@@ -12,7 +13,12 @@ static class ResourceExtractor
         string DestinationPath,
         string DestinationFullPath);
 
-    static readonly char[] s_portableInvalidFileNameCharacters = ['<', '>', '"', '|', '?', '*'];
+    // The portable set ('<' '>' '"' '|' '?' '*') is unioned with the platform's
+    // invalid file-name characters so component validation stays deterministic
+    // across operating systems. Caching in SearchValues also avoids the fresh
+    // array that Path.GetInvalidFileNameChars() allocates on every call.
+    static readonly SearchValues<char> s_invalidFileNameCharacters =
+        SearchValues.Create([.. Path.GetInvalidFileNameChars(), '<', '>', '"', '|', '?', '*']);
 
     public static List<string> ExtractAll(PEReader peReader, string outputDirectory)
     {
@@ -199,8 +205,7 @@ static class ResourceExtractor
         {
             if (component.Length == 0
                 || component is "." or ".."
-                || component.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
-                || component.IndexOfAny(s_portableInvalidFileNameCharacters) >= 0
+                || component.AsSpan().ContainsAny(s_invalidFileNameCharacters)
                 || component.Contains(':')
                 || component.EndsWith(' ')
                 || component.EndsWith('.')

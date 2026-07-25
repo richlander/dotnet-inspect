@@ -4828,6 +4828,63 @@ public class CfgSampleClass
             return v + 1;
         }
     }
+
+    // #3161 compile-back witness, shaped for high likeness to the platform method
+    // that motivated the fix (System.Text.Json.JsonElement.DeepEquals): a `switch`
+    // with TWO loop-bearing sections — an Array-like arm (length guard + an
+    // elementwise `foreach`) and an Object-like arm (count guard + a paired `while`
+    // with an in-loop early return) — plus scalar arms and a default. csc emits a
+    // dense `switch` opcode over cases 0..4 and lowers both loops to back-edges, so
+    // neither case section is a straight-line single-entry region. Before #3161 the
+    // whole switch stayed flat (a loop-bearing section could not be owned);
+    // SwitchRaisingPass now owns both sections and StructuringPass raises the loops.
+    // SwitchBranchRenderingTests proves the raise renders a structured `switch`;
+    // this method carries it into the fidelity gate so contract-V1 compile-back
+    // proves the raised switch-with-loops recompiles to the original opcodes —
+    // the IL fidelity that cannot be checked on DeepEquals itself, whose internal
+    // System.Text.Json surface the compile-back oracle cannot recompile.
+    public static int SwitchWithTwoLoopingCaseSections(int kind, int[] left, int[] right)
+    {
+        switch (kind)
+        {
+            case 0:
+                if (left.Length != right.Length)
+                {
+                    return 0;
+                }
+                int sum = 0;
+                foreach (int value in left)
+                {
+                    sum += value;
+                }
+                return sum;
+            case 1:
+                if (left.Length != right.Length)
+                {
+                    return -1;
+                }
+                int matched = 0;
+                int i = 0;
+                while (i < left.Length)
+                {
+                    if (left[i] != right[i])
+                    {
+                        return matched;
+                    }
+                    matched++;
+                    i++;
+                }
+                return matched;
+            case 2:
+                return left.Length;
+            case 3:
+                return right.Length;
+            case 4:
+                return 42;
+            default:
+                return -1;
+        }
+    }
 }
 
 internal static class AwaitOrderingHelpers
