@@ -168,6 +168,32 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void FinalizerMember_NeverGetsAsyncModifier_EvenWhenForced()
+    {
+        // Defensive guard (adversarial review of #3168): a finalizer must never
+        // acquire the 'async' modifier. Even under ForceAsync and an async-eligible
+        // Kind (explicit-interface-implementation), 'async ~Handle()' is not legal
+        // C#. The '!member.IsFinalizer' clause on the async gate locks this shut
+        // independently of the Kind classification, so a future Kind change cannot
+        // re-open it.
+        var type = new ApiType { Namespace = "Samples", Name = "Handle", Kind = "class" };
+        var finalizer = new ApiMember
+        {
+            Name = "Finalize",
+            Kind = "explicit-interface-implementation",
+            Signature = "void Finalize()",
+            IsVirtual = true,
+            IsFinalizer = true,
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+            type, finalizer, new CSharpDeclarationOptions { ForceAsync = true });
+
+        Assert.Equal("~Handle()", declaration);
+        Assert.DoesNotContain("async", declaration);
+    }
+
+    [Fact]
     public void ShortWithUsingsMemberUnit_GeneratesImportsAndShortensTypes()
     {
         var type = CreateSampleType();

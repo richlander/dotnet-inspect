@@ -435,6 +435,7 @@ internal static class CSharpDeclarationWriter
         }
 
         if ((options.ForceAsync || member.IsAsync)
+            && !member.IsFinalizer
             && member.Kind is "method" or "extension-method" or "explicit-interface-implementation")
             modifiers.Add("async");
 
