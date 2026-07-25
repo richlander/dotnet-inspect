@@ -326,6 +326,8 @@ public sealed partial class CSharpPrinter
             WrapSplittableExpressions = _options.WrapSplittableExpressions,
             QualifyFieldAccess = _options.QualifyFieldAccess,
             QualifyPropertyAccess = _options.QualifyPropertyAccess,
+            QualifyMethodAccess = _options.QualifyMethodAccess,
+            QualifyEventAccess = _options.QualifyEventAccess,
         };
 
     void AddDecision(string ruleId, string category, string subject, string detail, string? oldValue = null, string? newValue = null)
@@ -2391,7 +2393,7 @@ public sealed partial class CSharpPrinter
                 && SameLValue(load.Instance, s.Instance)
                 && PlaceIdentity.SameOperands(load.IndexArguments, s.IndexArguments),
             StorePropertyTargetType(s)),
-        EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual)} {(e.IsAdd ? "+=" : "-=")} {CoerceText(e.Value, e.Accessor.ParameterTypes[0])};",
+        EventSubscription e => $"{PropertyTarget(e.Accessor, e.HasInstance ? e.Instance : null, [], e.EventName, e.IsVirtual, isEvent: true)} {(e.IsAdd ? "+=" : "-=")} {CoerceText(e.Value, e.Accessor.ParameterTypes[0])};",
         StoreElement s when InlineReceiverTempStoreValue(s) is { } value => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {value};",
         StoreElement s => $"{Operand(s.Array)}[{ArrayIndexText(s.Index)}] = {InitializerText(s.Value, StoreElementTargetType(s), StoreElementNewTarget(s))};",
         StoreIndirect s => AssignmentText(
@@ -2765,7 +2767,7 @@ public sealed partial class CSharpPrinter
         Call c when MultiDimArrayAccessText(c) is { } text => text,
         Call c => CallText(c),
         CallIndirect ci => $"{FunctionPointerOperand(ci.Pointer)}({Arguments(ci.Arguments, ci.ParameterTypes, CallIndirectRefKinds(ci), explicitIn: true)})",
-        DelegateCreation d => $"new {TypeText(d.DelegateType)}({MethodGroupText(d.Method, d.Target)})",
+        DelegateCreation d => $"new {TypeText(d.DelegateType)}({MethodGroupText(d.Method, d.Target, d.IsVirtual)})",
         InterpolatedStringExpression i => InterpolatedStringText(i),
         Lambda lam => LambdaText(lam),
         LocalFunctionInvocation inv => $"{CSharpNaming.EscapeIdentifier(inv.Name)}({Arguments(inv.Arguments)})",

@@ -138,18 +138,36 @@ Anything the count cannot prove safe stays explicit.
 
 `this.field` and `field`, and `this.Prop` and `Prop`, compile to the identical
 IL — a `this`-rooted instance member load is `ldarg.0; ldfld` / `ldarg.0; call
-get_Prop` either way, so the `this.` prefix has no IL consequence. This is a
-class-3 no-anchor spelling with **no binding hazard** (unlike target-typed
-`new()` or argument elision): the prefix cannot rebind the member, it can only be
-redundant. The shipped default renders the bare name, qualifying only where the
-bare name would not bind to the member — a local/parameter shadow or a
-member/type-name collision — matching how the runtime writes member access.
+get_Prop` either way, so the `this.` prefix has no IL consequence. The same holds
+for an instance method call (`this.M()` and `M()` both emit `ldarg.0;
+call/callvirt`), a method group over `this` (`this.M` and `M` both emit `ldarg.0;
+ldftn`), and an event subscription (`this.E += h` and `E += h` both emit
+`ldarg.0; ... call add_E`). This is a class-3 no-anchor spelling with **no binding
+hazard** (unlike target-typed `new()` or argument elision): the prefix cannot
+rebind the member, it can only be redundant. The shipped default renders the bare
+name, qualifying only where the bare name would not bind to the member — a
+local/parameter shadow or a member/type-name collision — matching how the runtime
+writes member access.
 
 The always-qualified spelling is available as an opt-in, off by default so
 default output stays byte-for-byte stable:
 
 - `PrinterOptions.QualifyFieldAccess` mirrors `dotnet_style_qualification_for_field`.
 - `PrinterOptions.QualifyPropertyAccess` mirrors `dotnet_style_qualification_for_property`.
+- `PrinterOptions.QualifyMethodAccess` mirrors `dotnet_style_qualification_for_method`
+  (instance method calls and method groups over `this`).
+- `PrinterOptions.QualifyEventAccess` mirrors `dotnet_style_qualification_for_event`
+  (event `+=`/`-=` subscriptions).
+
+The four knobs are independent — each qualifies only the member kind it governs.
+Two consequences are worth calling out:
+
+- A genuine non-virtual `base.M()` call is **never** rewritten to `this.M()`, even
+  with method qualification on: the `base` call deliberately skips virtual
+  dispatch, so `this.M()` would re-enable it and change behavior.
+- Event subscriptions are governed by `QualifyEventAccess`, not
+  `QualifyPropertyAccess` (they share a printer helper internally but are decoupled
+  at the knob), matching the separate `_event`/`_property` editorconfig keys.
 
 ```csharp
 public int Compute() => _count + Extra;          // shipped default: bare
@@ -409,6 +427,8 @@ The file is flat `key = value`, using the same key and value vocabulary as an
 root = true
 dotnet_style_qualification_for_field = true
 dotnet_style_qualification_for_property = true
+dotnet_style_qualification_for_method = true
+dotnet_style_qualification_for_event = true
 dotnet_style_prefer_conditional_expression_over_return = true
 ```
 
@@ -419,8 +439,8 @@ dotnet_style_prefer_conditional_expression_over_return = true
   `.editorconfig` does not warn). Discovery already stops at the nearest file, so
   `root = true` drives no behavior on its own; it is the conventional, explicit
   way to mark a repository-root config as the boundary.
-- Recognized keys map to `PrinterOptions`: the two `this`-qualification keys
-  above (byte-preserving class-3 spellings),
+- Recognized keys map to `PrinterOptions`: the four `this`-qualification keys
+  above (field, property, method, event — byte-preserving class-3 spellings),
   `dotnet_style_prefer_conditional_expression_over_return` (the oracle-endorsed
   ternary [style lens](#style-lenses-behavior-faithful-byte-divergent)), and
   `dotnet_inspect_style_prefer_branchless_boolean` (the non-oracle-endorsed

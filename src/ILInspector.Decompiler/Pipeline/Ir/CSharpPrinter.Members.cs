@@ -79,7 +79,7 @@ public sealed partial class CSharpPrinter
             : null;
     }
 
-    string PropertyTarget(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, string name, bool isVirtual = true)
+    string PropertyTarget(MethodRef accessor, IrExpression? instance, IReadOnlyList<IrExpression> indexArguments, string name, bool isVirtual = true, bool isEvent = false)
     {
         if (PointerMemberReceiver(instance) is { } pointerReceiver)
         {
@@ -98,8 +98,10 @@ public sealed partial class CSharpPrinter
             // bare read binds to it, not the property (e.g. the synthesized record
             // Deconstruct(out int X, ...) whose body reads this.X). Qualify with
             // this. to reach the property; an unshadowed instance property stays
-            // bare per the taste convention, matching FieldTarget.
-            LoadArgument { Index: 0, Name: "this" } => _options.QualifyPropertyAccess || QualifyThisMember(name, AccessorValueType(accessor)) ? "this" : "",
+            // bare per the taste convention, matching FieldTarget. An event
+            // subscription routes through here too, so it honors the separate
+            // event qualification knob rather than the property one.
+            LoadArgument { Index: 0, Name: "this" } => (isEvent ? _options.QualifyEventAccess : _options.QualifyPropertyAccess) || QualifyThisMember(name, AccessorValueType(accessor)) ? "this" : "",
             _ => ReceiverText(instance),
         };
         // An instance property accessor with index arguments IS an indexer,
@@ -229,13 +231,26 @@ public sealed partial class CSharpPrinter
     /// method group (Type.Method); a this-receiver drops the qualifier to match
     /// instance-call spelling; any other receiver qualifies the name.
     /// </summary>
-    string MethodGroupText(MethodRef method, IrExpression target)
+    string MethodGroupText(MethodRef method, IrExpression target, bool isVirtual)
     {
         string name = CSharpNaming.SourceMethodName(method.Name);
         if (target is Constant { Value: null })
             return $"{TypeQualifierText(method.DeclaringType)}.{name}";
         if (target is LoadArgument { Index: 0, Name: "this" })
-            return name;
+        {
+            // A non-virtual (ldftn) instance method group over this to a
+            // base-declared method is C#'s base.M — the ldftn deliberately
+            // captures the base slot. Bare M or this.M would rebind to the derived
+            // override and recompile to ldvirtftn (virtual dispatch), changing
+            // behavior; so it stays base even under the qualify-method knob,
+            // mirroring CallText. HasThis excludes closed static extension groups,
+            // which share the `ldarg.0; ldftn` shape but bind the receiver as their
+            // first argument — base.Ext would be CS0117 on the base type; they
+            // stay this.Ext (or bare) like any other extension group.
+            if (method.HasThis && !isVirtual && IsCrossType(method.DeclaringType))
+                return $"base.{name}";
+            return _options.QualifyMethodAccess ? $"this.{name}" : name;
+        }
         if (PointerMethodReceiver(target) is { } pointerReceiver)
             return $"{pointerReceiver}->{name}";
         return $"{ReceiverText(target)}.{name}";
@@ -338,11 +353,15 @@ public sealed partial class CSharpPrinter
             return $"(({TypeText(lambda.DelegateType)}){Operand(lambda)}).Invoke({rest})";
         if (receiver is LoadArgument { Index: 0, Name: "this" })
         {
+            string thisMethodName = CSharpNaming.SourceMethodName(call.Callee.Name);
             // Non-virtual this-receiver call to a base-declared method is
-            // C#'s base.M() — the call opcode deliberately skips dispatch.
-            return !call.IsVirtual && IsCrossType(call.Callee.DeclaringType)
-                ? $"base.{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})"
-                : $"{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
+            // C#'s base.M() — the call opcode deliberately skips dispatch, so it
+            // stays base. even under the qualify-method knob (this.M() would
+            // re-enable virtual dispatch and change behavior).
+            if (!call.IsVirtual && IsCrossType(call.Callee.DeclaringType))
+                return $"base.{thisMethodName}{typeArguments}({rest})";
+            string thisMethodQualifier = _options.QualifyMethodAccess ? "this." : "";
+            return $"{thisMethodQualifier}{thisMethodName}{typeArguments}({rest})";
         }
         if (PointerMethodReceiver(receiver) is { } pointerReceiver)
             return $"{pointerReceiver}->{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";

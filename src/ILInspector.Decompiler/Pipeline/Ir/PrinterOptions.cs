@@ -76,6 +76,26 @@ public sealed record PrinterOptions
     public bool QualifyPropertyAccess { get; init; }
 
     /// <summary>
+    /// <summary>
+    /// When set, an instance method invoked through <c>this</c> renders the explicit
+    /// <c>this.</c> qualifier even where the bare name is unambiguous. IL-identical —
+    /// <c>this.M()</c> and <c>M()</c> both emit <c>ldarg.0; call/callvirt</c>. A
+    /// genuine non-virtual base call still renders <c>base.M()</c> (qualifying it
+    /// with <c>this.</c> would re-enable virtual dispatch). Off by default. Mirrors
+    /// <c>dotnet_style_qualification_for_method</c>.
+    /// </summary>
+    public bool QualifyMethodAccess { get; init; }
+
+    /// <summary>
+    /// When set, an instance event subscribed through <c>this</c> renders the
+    /// explicit <c>this.</c> qualifier even where the bare name is unambiguous.
+    /// IL-identical — <c>this.E += h</c> and <c>E += h</c> both emit
+    /// <c>ldarg.0; call add_E</c>. Off by default. Mirrors
+    /// <c>dotnet_style_qualification_for_event</c>.
+    /// </summary>
+    public bool QualifyEventAccess { get; init; }
+
+    /// <summary>
     /// When set, a guarded boolean return the default view must render as a flat
     /// <c>if (c) return A; return B;</c> — because no short-circuit fold is
     /// opcode-faithful for that shape (see <c>ShortCircuitFidelity</c> / #3114) —

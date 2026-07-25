@@ -38,14 +38,15 @@ internal static class RenderStyleConfig
     /// <summary>The tool-owned style file name discovered by walking up from the working directory.</summary>
     public const string FileName = ".dotnet-inspectconfig";
 
-    // v1 recognizes the two class-3 this.-qualification knobs (byte-preserving
-    // spelling choices) plus the opt-in ternary style lens
-    // (dotnet_style_prefer_conditional_expression_over_return). The latter is the
-    // first BYTE-DIVERGENT key: it is behavior-preserving but not opcode-faithful
-    // (#3138), so it is a deliberate style lens, not a class-3 spelling knob. More
-    // keys are added here as further knobs land.
+    // Recognizes the class-3 this.-qualification knobs (byte-preserving spelling
+    // choices with an exact editorconfig key) plus the opt-in style lenses. The
+    // lenses are the first BYTE-DIVERGENT keys: behavior-preserving but not
+    // opcode-faithful (#3138), so they are deliberate style lenses, not class-3
+    // spelling knobs. More keys are added here as further knobs land.
     private const string FieldKey = "dotnet_style_qualification_for_field";
     private const string PropertyKey = "dotnet_style_qualification_for_property";
+    private const string MethodKey = "dotnet_style_qualification_for_method";
+    private const string EventKey = "dotnet_style_qualification_for_event";
     private const string PreferConditionalReturnKey = "dotnet_style_prefer_conditional_expression_over_return";
 
     // The branchless "bool hack" lens (#3138) is NOT oracle-endorsed — no real
@@ -128,6 +129,8 @@ internal static class RenderStyleConfig
     {
         bool qualifyField = false;
         bool qualifyProperty = false;
+        bool qualifyMethod = false;
+        bool qualifyEvent = false;
         bool preferConditionalReturn = false;
         bool preferBranchlessBoolean = false;
         List<string>? warnings = null;
@@ -179,6 +182,18 @@ internal static class RenderStyleConfig
                     else
                         Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
                     break;
+                case MethodKey:
+                    if (TryParseBool(value, out var m))
+                        qualifyMethod = m;
+                    else
+                        Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
+                    break;
+                case EventKey:
+                    if (TryParseBool(value, out var e))
+                        qualifyEvent = e;
+                    else
+                        Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
+                    break;
                 case PreferConditionalReturnKey:
                     if (TryParseBool(value, out var t))
                         preferConditionalReturn = t;
@@ -209,6 +224,8 @@ internal static class RenderStyleConfig
         {
             QualifyFieldAccess = qualifyField,
             QualifyPropertyAccess = qualifyProperty,
+            QualifyMethodAccess = qualifyMethod,
+            QualifyEventAccess = qualifyEvent,
             PreferConditionalExpressionReturn = preferConditionalReturn,
             PreferBranchlessBoolean = preferBranchlessBoolean,
         };
