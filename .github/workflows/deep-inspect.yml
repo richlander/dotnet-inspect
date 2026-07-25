@@ -133,8 +133,8 @@ jobs:
           echo "$ILASM_DIR" >> "$GITHUB_PATH"
           echo "$ILDASM_DIR" >> "$GITHUB_PATH"
 
-      - name: Run decompiler tests (including slow)
-        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release
+      - name: Run decompiler tests (slow gates except the multi-hour corpus sweep)
+        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
 
       - name: Run analysis tests (including slow)
         run: dotnet run --project src/ILInspector.Analysis.Tests -c Release
@@ -144,6 +144,36 @@ jobs:
 
       - name: Run IL round-trip tests (including slow sweep)
         run: dotnet run --project tests/DotnetInspector.ILRoundtrip.Tests -c Release
+
+  decompiler-corpus:
+    name: Decompiler corpus lane
+    # Split out of the test lane so the multi-hour corpus sweep gets its own
+    # 6h job budget instead of sharing the test job's budget with the other
+    # slow gates (which previously pushed the combined job past its timeout).
+    if: inputs.lane == 'test' || inputs.lane == 'all'
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build solution (tool + fixtures)
+        run: dotnet build dotnet-inspect.slnx -c Release
+
+      - name: Run decompiler corpus sweep
+        run: dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate corpus
 
   census:
     name: Census lane
