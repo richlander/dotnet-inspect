@@ -195,18 +195,21 @@ static class AuthoredCorpusHistoryCard
 
 internal sealed record HistoryRunValidDifferent(int Total, int FrontierIlExact, int FrontierIlDiff);
 
-internal sealed record HistoryRunInvalidBreakdown(int ProductBodyDefect, int HarnessShellReconstruction, int Unclassified);
+internal sealed record HistoryRunInvalidBreakdown(
+    [property: JsonRequired] int ProductBodyDefect,
+    [property: JsonRequired] int HarnessShellReconstruction,
+    [property: JsonRequired] int Unclassified);
 
 internal sealed record HistoryRun(
-    string? Date,
+    [property: JsonRequired] string? Date,
     string? Commit,
     int PoolMatched,
     int PoolTotal,
     int Evaluated,
-    double ValidPct,
-    int Correct,
+    [property: JsonRequired] double ValidPct,
+    [property: JsonRequired] int Correct,
     HistoryRunValidDifferent? ValidDifferent,
-    int Invalid,
+    [property: JsonRequired] int Invalid,
     HistoryRunInvalidBreakdown? InvalidBreakdown,
     int Unsupported,
     int Drift,

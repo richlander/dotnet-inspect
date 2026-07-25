@@ -214,7 +214,7 @@ static class Program
                         break;
                     case "--history-card": historyCard = true; break;
                     case "--history-path": historyCardPath = NextArg(args, ref i, flag); break;
-                    case "--history-window": historyCardWindow = int.Parse(NextArg(args, ref i, flag)); break;
+                    case "--history-window": historyCardWindow = NextIntArg(args, ref i, flag); break;
                     case "--verify-authored-corpus":
                         verifyAuthoredCorpus = true;
                         verifyCorpusPath = NextArg(args, ref i, flag);
@@ -1776,6 +1776,14 @@ static class Program
         => i + 1 < args.Length
             ? args[++i]
             : throw new MissingArgumentException(flag);
+
+    static int NextIntArg(string[] args, ref int i, string flag)
+    {
+        string value = NextArg(args, ref i, flag);
+        return int.TryParse(value, out int result)
+            ? result
+            : throw new ArgumentException($"{flag} requires an integer value (got '{value}').");
+    }
 
     sealed class MissingArgumentException(string flag) : Exception
     {

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
@@ -104,5 +105,37 @@ public class AuthoredCorpusHistoryCardTests
         // The Runs trend table still lists every run.
         Assert.Contains("| 2026-07-20 | (baseline) |", card, StringComparison.Ordinal);
         Assert.Contains("| 2026-07-30 | deadbeef |", card, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ParseHistory_RejectsRowMissingRequiredMetricsInsteadOfFabricatingZeros()
+    {
+        // A row missing core measured fields must fail loudly rather than
+        // deserialize into an all-zero record that renders fabricated 0
+        // metrics and false movement glyphs.
+        Assert.Throws<JsonException>(
+            () => AuthoredCorpusHistoryCard.ParseHistory(["""{"date":"2026-08-01","commit":"cafef00d"}"""]));
+    }
+
+    [Fact]
+    public void ParseHistory_RejectsPartialInvalidBreakdownInsteadOfFabricatingZeros()
+    {
+        // A present-but-empty breakdown must not silently become {0,0,0};
+        // only an absent (null) breakdown is a valid "not measured" signal.
+        Assert.Throws<JsonException>(
+            () => AuthoredCorpusHistoryCard.ParseHistory(
+                ["""{"date":"2026-08-01","validPct":57.0,"correct":1610,"invalid":5170,"invalidBreakdown":{}}"""]));
+    }
+
+    [Fact]
+    public void ParseHistory_AcceptsAbsentBreakdownAsNotMeasured()
+    {
+        // Regression guard: a null breakdown remains a legitimate pre-#3096
+        // row and must still parse (rendered later as "—", never fabricated).
+        var runs = AuthoredCorpusHistoryCard.ParseHistory(
+            ["""{"date":"2026-08-01","validPct":57.0,"correct":1610,"invalid":5170,"invalidBreakdown":null}"""]);
+
+        Assert.Single(runs);
+        Assert.Null(runs[0].InvalidBreakdown);
     }
 }
