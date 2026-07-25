@@ -14,6 +14,7 @@ const state = {
   selectedMemberKey: "",
   selectedOverloadIndex: null,
   memberSection: "overview",
+  memberKindFilter: "all",
   memberSource: null,
   memberSourceLoading: false,
   memberSourceError: "",
@@ -433,12 +434,22 @@ function renderLens(item) {
       <section class="document-section empty-document"><span class="large-glyph">λ</span><h2>Select a method to inspect IL</h2><p>Choose a member from the API surface or run <code>member Deserialize show il</code>.</p></section>`;
   }
   const groups = memberGroups(item);
+  const kindOrder = ["constructor", "method", "property", "field", "event"];
+  const kindLabels = { constructor: "constructors", method: "methods", property: "properties", field: "fields", event: "events" };
+  const presentKinds = kindOrder.filter(kind => groups.some(group => group.kind === kind));
+  if (state.memberKindFilter !== "all" && !presentKinds.includes(state.memberKindFilter)) state.memberKindFilter = "all";
+  const activeKind = state.memberKindFilter;
+  const visibleGroups = activeKind === "all" ? groups : groups.filter(group => group.kind === activeKind);
+  const filterButtons = [`<button class="member-kind ${activeKind === "all" ? "active" : ""}" data-kind="all">all</button>`]
+    .concat(presentKinds.map(kind =>
+      `<button class="member-kind ${activeKind === kind ? "active" : ""}" data-kind="${kind}">${kindLabels[kind]}</button>`))
+    .join("");
   return `
     ${typeHeading(item)}
     <section class="document-section">
       <div class="section-title"><h2>Public API</h2><span>${groups.length} member groups · ${item.members} overloads</span></div>
-      <div class="member-filter"><button class="active">all</button><button>methods</button><button>properties</button><button>fields</button><span></span><button>declared only</button></div>
-      <div class="api-list">${groups.map(group => `
+      <div class="member-filter">${filterButtons}</div>
+      <div class="api-list">${visibleGroups.map(group => `
         <button class="api-row" data-member="${escapeHtml(group.key)}">
           <span class="member-icon">${escapeHtml(group.kind?.slice(0, 1)?.toUpperCase() || "M")}</span>
           <code>${highlight(group.overloads[0].signature)}</code>
@@ -729,7 +740,12 @@ function bindEvents() {
   document.querySelectorAll("[data-type]").forEach(button => button.addEventListener("click", () => {
     state.selectedTypeId = button.dataset.type;
     state.selectedMemberKey = "";
+    state.memberKindFilter = "all";
     state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
+    render();
+  }));
+  document.querySelectorAll(".member-filter .member-kind").forEach(button => button.addEventListener("click", () => {
+    state.memberKindFilter = button.dataset.kind;
     render();
   }));
   document.querySelectorAll("[data-member]").forEach(button => button.addEventListener("click", () => {
@@ -928,6 +944,7 @@ function selectTypeByCursor(cursor, items, focusList) {
   state.typeCursor = cursor;
   state.selectedTypeId = items[cursor].id;
   state.selectedMemberKey = "";
+  state.memberKindFilter = "all";
   render();
   requestAnimationFrame(() => {
     if (focusList) document.querySelector("#type-list")?.focus();

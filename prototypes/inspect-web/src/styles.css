@@ -425,7 +425,9 @@ kbd {
   color: var(--dim);
   border-radius: 2px;
   font: 10px var(--mono);
+  cursor: pointer;
 }
+.member-filter button:hover { color: var(--text); background: var(--panel-raised); }
 .member-filter button.active { color: var(--text); background: var(--panel-active); }
 .member-filter span { flex: 1; }
 .api-list { border: 1px solid var(--line); }
