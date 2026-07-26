@@ -60,6 +60,8 @@ const state = {
   memberCallGraph: null,
   memberCallGraphLoading: false,
   memberCallGraphError: "",
+  memberCallGraphExpanding: false,
+  memberCallGraphSeq: 0,
   memberFacts: null,
   memberFactsLoading: false,
   memberFactsError: "",
@@ -482,6 +484,10 @@ function resetMemberSectionState() {
   state.memberSourceError = "";
   state.memberCallGraph = null;
   state.memberCallGraphError = "";
+  state.memberCallGraphExpanding = false;
+  // Invalidate any in-flight progressive call-graph load so a late cross-library
+  // result can't repopulate the graph after the selection has moved on.
+  state.memberCallGraphSeq++;
   state.memberFacts = null;
   state.memberFactsError = "";
   state.memberAnnotated = null;
@@ -1605,7 +1611,10 @@ function renderMember(type, member) {
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Building workspace call graph…</h2><p>Scanning implementation IL across ${state.packages.length} loaded package${state.packages.length === 1 ? "" : "s"}.</p></section>`
       : state.memberCallGraph
         ? `<section class="document-section call-graph-section">
-            <div class="section-title"><h2>Call graph</h2><span>${callers.length} callers · ${callees.length} callees</span></div>
+            <div class="section-title"><h2>Call graph</h2><span>${callers.length} caller${callers.length === 1 ? "" : "s"} · ${callees.length} callee${callees.length === 1 ? "" : "s"}</span></div>
+            ${state.memberCallGraphExpanding
+              ? `<div class="graph-expanding"><span class="loader"></span> Scanning ${state.packages.length - 1} other librar${state.packages.length - 1 === 1 ? "y" : "ies"} for callers…</div>`
+              : ""}
             <div class="graph-scope"><strong>Workspace callers</strong><span>${scope.packages} loaded packages · ${scope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(scope.calleeScope)} · depth 2</span></div>
             <div id="call-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
             <div class="graph-legend" aria-label="Graph legend">
@@ -3245,6 +3254,12 @@ async function openDependencyPackage(packageId, versionRange) {
   render();
 }
 
+function nextPaint() {
+  // Resolve after the browser has had a chance to lay out and paint the current DOM.
+  return new Promise(resolve =>
+    requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 0))));
+}
+
 async function loadSelectedMemberCallGraph() {
   if (state.memberCallGraph) {
     render();
@@ -3260,28 +3275,61 @@ async function loadSelectedMemberCallGraph() {
     return;
   }
 
+  // Progressive, two-stage load so live data prints quickly even with many libraries open.
+  // Stage 1 (fast) scopes the query to the target assembly only — that yields the callees and
+  // the intra-library callers without downloading/opening any other package. Stage 2 (slow)
+  // re-runs across the full workspace to add cross-library callers, then re-renders (the
+  // "flash"). A sequence token drops results once the member/overload selection has moved on.
+  const seq = ++state.memberCallGraphSeq;
+  const base = {
+    packageId: state.package.id,
+    version: state.package.version,
+    framework: state.package.activeFramework,
+    assembly: type.assembly,
+    type: type.id,
+    member: overload.name,
+    signature: overload.signature
+  };
+  const hasOtherLibraries = state.packages.length > 1;
+
   state.memberCallGraphLoading = true;
+  state.memberCallGraphExpanding = false;
   state.memberCallGraphError = "";
   render();
   try {
-    state.memberCallGraph = await inspectMemberCallGraph({
-      packageId: state.package.id,
-      version: state.package.version,
-      framework: state.package.activeFramework,
-      assembly: type.assembly,
-      type: type.id,
-      member: overload.name,
-      signature: overload.signature,
-      workspace: state.packages.map(packageItem => ({
-        package: packageItem.id,
-        version: packageItem.version,
-        framework: packageItem.activeFramework
-      }))
-    });
-  } catch (error) {
-    state.memberCallGraphError = String(error?.message || error);
-  } finally {
+    const local = await inspectMemberCallGraph({ ...base, workspace: [] });
+    if (seq !== state.memberCallGraphSeq) return;
+    state.memberCallGraph = local;
     state.memberCallGraphLoading = false;
+    state.memberCallGraphExpanding = hasOtherLibraries;
+    render();
+    await renderMermaidCallGraph();
+
+    if (hasOtherLibraries) {
+      // The engine runs synchronously on the main thread, so yield a paint frame first —
+      // otherwise the stage-1 graph never appears before the blocking cross-library pass.
+      await nextPaint();
+      if (seq !== state.memberCallGraphSeq) return;
+      const full = await inspectMemberCallGraph({
+        ...base,
+        workspace: state.packages.map(packageItem => ({
+          package: packageItem.id,
+          version: packageItem.version,
+          framework: packageItem.activeFramework
+        }))
+      });
+      if (seq !== state.memberCallGraphSeq) return;
+      state.memberCallGraph = full;
+      state.memberCallGraphExpanding = false;
+      render();
+      renderMermaidCallGraph();
+    }
+  } catch (error) {
+    if (seq !== state.memberCallGraphSeq) return;
+    // Keep a good stage-1 graph if the cross-library pass fails; only the expansion is lost.
+    if (!state.memberCallGraph) state.memberCallGraphError = String(error?.message || error);
+    state.memberCallGraphLoading = false;
+    state.memberCallGraphExpanding = false;
     render();
     if (state.memberCallGraph) renderMermaidCallGraph();
   }
