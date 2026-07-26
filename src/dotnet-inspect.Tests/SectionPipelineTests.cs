@@ -645,13 +645,16 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryPipeline_SourceLinkAuditDiscovery_UsesStructuralApplicability()
+    public void LibraryPipeline_SourceLinkAuditDiscovery_UsesSymbolDependentApplicability()
     {
         var pipeline = LibrarySections.CreatePipeline();
         var model = new LibraryInspection
         {
             AssemblyInfo = new AssemblyInfo(),
-            PdbPath = "Library.pdb"
+            PdbPath = "Library.pdb",
+            // A resolved PDB that exposes a SourceLink document is the symbol-dependent gate
+            // that makes the SourceLink family discoverable (network-free) under -D.
+            HasSourceLink = true
         };
 
         var applicable = pipeline.GetApplicableSections(model);
@@ -663,6 +666,27 @@ public class SectionPipelineTests
         Assert.DoesNotContain("Source Link: Availability", renderable);
         Assert.DoesNotContain("Source Link: Missing Files", renderable);
         Assert.DoesNotContain("Source Link: Integrity", renderable);
+    }
+
+    [Fact]
+    public void LibraryPipeline_SourceLinkFamily_NotDiscoverableWithoutSourceLink()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        // A recorded PDB path with no resolvable SourceLink document must NOT list the
+        // SourceLink family in discovery (hyper-subscribe: the @SourceLink door disappears).
+        var model = new LibraryInspection
+        {
+            AssemblyInfo = new AssemblyInfo(),
+            PdbPath = "Library.pdb",
+            HasSourceLink = false
+        };
+
+        var applicable = pipeline.GetApplicableSections(model);
+
+        Assert.DoesNotContain("Source Link: Files", applicable);
+        Assert.DoesNotContain("Source Link: Availability", applicable);
+        Assert.DoesNotContain("Source Link: Missing Files", applicable);
+        Assert.DoesNotContain("Source Link: Integrity", applicable);
     }
 
     [Fact]

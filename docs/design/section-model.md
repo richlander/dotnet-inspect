@@ -104,6 +104,32 @@ requires `-v:m`; every other bounded network-free section first renders at
   `Performance:` buckets, which stay behind the `@Performance` door in `-D` yet
   still appear at `-v:d`.
 
+### Symbol-dependent discovery (SourceLink family)
+
+The SourceLink section family — Source Link: Files / Availability / Missing
+Files (rooted in `@SourceLink`) and Source Link: Integrity (behind `@Hidden`) —
+is **symbol-dependent**: it is only discoverable when a local PDB (embedded,
+adjacent, or **already in the symbol cache**) exposes a SourceLink document.
+This is an orthogonal discovery gate, not a peer of cost: rendering these
+sections still performs its network work (HEAD/GET) on demand, but *listing*
+them under `-D` is network-free.
+
+- Discovery applicability for the family is `AssemblyInfo != null &&
+  HasSourceLink` (`LibrarySections.SourceLinkDiscoverable`). The sections remain
+  `ExplicitOnly`, so they never auto-render; the gate only controls whether they
+  *list*.
+- During `-D`, `LibraryMetadataService.ProbeLocalSourceLinkAsync` populates
+  `HasSourceLink` network-free: it opens the assembly, and if no embedded or
+  adjacent PDB is present it consults the symbol cache **read-only** (never
+  downloads). A PDB warmed into the cache by a prior render (or `source`
+  command) therefore makes the family discoverable on the next `-D`; clearing it
+  hides the family again.
+- Because the family's effectiveness depends on cached-PDB presence, the
+  effective-section cache key folds a network-free SourceLink-availability token
+  (`#sl0`/`#sl1`) so warming or clearing a cached PDB busts a stale `-D` catalog.
+- Hyper-subscribe applies: with no resolvable SourceLink, the `@SourceLink` door
+  and its members disappear from `-D` entirely.
+
 ### `-D` catalog
 
 `-D` is **categories-first** and carries **no** `(verbose)`/`(opt-in)`

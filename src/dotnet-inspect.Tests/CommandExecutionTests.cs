@@ -6327,6 +6327,14 @@ public class CommandExecutionTests
     [Fact]
     public async Task LibraryCommand_DiscoverEffective_GroupsSourceLinkUnderSourceLinkAndHidden()
     {
+        // SourceLink discovery is symbol-dependent: the SourceLink family only lists under -D
+        // when a local PDB (embedded, adjacent, or already in the symbol cache) exposes a
+        // SourceLink document — network-free. Newtonsoft's PDB is external (snupkg), so warm the
+        // symbol cache first with an explicit render; discovery then resolves it cache-only.
+        var (warmExit, _, _) = await RunAppAsync(
+            "library", "--package", "Newtonsoft.Json", "-S", "Source Link: Availability", "--tips", "q");
+        Assert.Equal(0, warmExit);
+
         // Curated catalog: SourceLink audit sections are not @All members, so bare -D lists
         // them under the @SourceLink door (Availability/Missing Files) and the @Hidden pole
         // (Integrity, the unbounded GET+hash check), never at the top level.

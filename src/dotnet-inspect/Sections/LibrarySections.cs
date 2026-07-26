@@ -45,10 +45,10 @@ public static class LibrarySections
             .Add<AllocationContext>()
             .Add<SafetyContext>()
             .Add<CostContext>()
-            .Add<SourceFiles>()
-            .Add<SourceLinkAudit>(SourceLinkAuditApplicable)
-            .Add<MissingSourceFiles>(SourceLinkAuditApplicable)
-            .Add<SourceIntegrity>(SourceLinkAuditApplicable)
+            .Add<SourceFiles>(SourceLinkDiscoverable)
+            .Add<SourceLinkAudit>(SourceLinkDiscoverable)
+            .Add<MissingSourceFiles>(SourceLinkDiscoverable)
+            .Add<SourceIntegrity>(SourceLinkDiscoverable)
             .Add<Symbols>()
             .Add<Signals>()
             .Add<Switches>()
@@ -442,11 +442,13 @@ public static class LibrarySections
 
     // ===== Opt-in SourceLink sections =====
 
-    private static bool SourceLinkAuditApplicable(LibraryInspection model)
-        => model.AssemblyInfo != null
-           && (model.HasSourceLink
-               || model.HasEmbeddedPdb
-               || !string.IsNullOrWhiteSpace(model.PdbPath));
+    // Discovery-time applicability for the SourceLink section family. A section is only
+    // listed by -D when a local PDB (embedded, adjacent, or already in the symbol cache)
+    // exposes a SourceLink document. HasSourceLink is populated network-free during
+    // discovery by LibraryMetadataService.ProbeLocalSourceLinkAsync; rendering (HEAD/fetch)
+    // still runs on demand when a section is explicitly selected.
+    private static bool SourceLinkDiscoverable(LibraryInspection model)
+        => model.AssemblyInfo != null && model.HasSourceLink;
 
     private static bool HasReferenceData(LibraryInspection model)
         => model.AssemblyInfo?.References is { Count: > 0 }

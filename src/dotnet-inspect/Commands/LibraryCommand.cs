@@ -256,10 +256,16 @@ public class LibraryCommand
                 if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
                     return await WriteILCoordinateBatchAsync(resolvedPath!, null, null, isPlatformAssembly: true, options, context.HttpClient, logger);
 
+                // Network-free SourceLink availability probe: drives the SourceLink section
+                // family in -D and keys the effective cache so a warmed/cleared PDB busts a
+                // stale catalog. Skipped (false) outside discovery.
+                bool sourceLinkAvailable = effectiveDiscovery && !HasILOffsetCoordinate(options)
+                    && await LibraryMetadataService.ProbeLocalSourceLinkAsync(resolvedPath!, context.HttpClient, logger, isPlatformAssembly: true);
+
                 // Check effective sections cache before running full inspection
                 if (effectiveDiscovery && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options))
                 {
-                    var cached = TryGetCachedEffective(resolvedPath!);
+                    var cached = TryGetCachedEffective(resolvedPath!, sourceLinkAvailable);
                     if (cached != null)
                     {
                         var rootLabel = Path.GetFileNameWithoutExtension(resolvedPath!);
@@ -283,7 +289,7 @@ public class LibraryCommand
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
                 if (effectiveDiscovery)
-                    return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline, userVerbosity, cache: !HasILOffsetCoordinate(options));
+                    return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options));
                 if (TryWriteLibrarySingletonCount(inspection, options))
                     return 0;
                 if (options.Print || options.PrintAll)
@@ -314,10 +320,15 @@ public class LibraryCommand
                 if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
                     return await WriteILCoordinateBatchAsync(assemblyPaths[0], packageName, packageVersion, isPlatformAssembly: false, options, context.HttpClient, logger);
 
+                // Network-free SourceLink availability probe (see platform branch).
+                bool sourceLinkAvailable = effectiveDiscovery && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options)
+                    && await LibraryMetadataService.ProbeLocalSourceLinkAsync(assemblyPaths[0], context.HttpClient, logger, isPlatformAssembly: false,
+                        packageName: packageName, packageVersion: packageVersion);
+
                 // Check effective sections cache before running full inspection
                 if (effectiveDiscovery && options.Discover is { Length: 0 } && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options))
                 {
-                    var cached = TryGetCachedEffective(assemblyPaths[0]);
+                    var cached = TryGetCachedEffective(assemblyPaths[0], sourceLinkAvailable);
                     if (cached != null)
                     {
                         var rootLabel = Path.GetFileNameWithoutExtension(assemblyPaths[0]);
@@ -353,7 +364,7 @@ public class LibraryCommand
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
                 if (effectiveDiscovery)
-                    return WriteEffectiveSections(assemblyPaths[0], inspections[0], options, pipeline, userVerbosity, cache: !HasILOffsetCoordinate(options));
+                    return WriteEffectiveSections(assemblyPaths[0], inspections[0], options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options));
                 if (TryWriteLibrarySingletonCount(inspections[0], options))
                     return 0;
                 if (options.Print || options.PrintAll)
@@ -383,10 +394,14 @@ public class LibraryCommand
                 if (!string.IsNullOrWhiteSpace(options.ILOffsetsPath))
                     return await WriteILCoordinateBatchAsync(assemblyPath!, null, null, isPlatformAssembly: false, options, context.HttpClient, logger);
 
+                // Network-free SourceLink availability probe (see platform branch).
+                bool sourceLinkAvailable = effectiveDiscovery && !HasILOffsetCoordinate(options)
+                    && await LibraryMetadataService.ProbeLocalSourceLinkAsync(assemblyPath!, context.HttpClient, logger, isPlatformAssembly: false);
+
                 // Check effective sections cache before running full inspection
                 if (effectiveDiscovery && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options))
                 {
-                    var cached = TryGetCachedEffective(assemblyPath!);
+                    var cached = TryGetCachedEffective(assemblyPath!, sourceLinkAvailable);
                     if (cached != null)
                     {
                         var rootLabel = Path.GetFileNameWithoutExtension(assemblyPath!);
@@ -409,7 +424,7 @@ public class LibraryCommand
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
                 if (effectiveDiscovery)
-                    return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline, userVerbosity, cache: !HasILOffsetCoordinate(options));
+                    return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options));
                 if (TryWriteLibrarySingletonCount(inspection, options))
                     return 0;
                 if (options.Print || options.PrintAll)
@@ -1297,8 +1312,13 @@ public class LibraryCommand
 
     private static int WriteEffectiveSections(string assemblyPath, LibraryInspection inspection,
         LibraryOptions options, SectionPipeline<LibraryInspection> pipeline, Verbosity userVerbosity = Verbosity.Minimal,
-        bool cache = true)
+        bool sourceLinkAvailable = false, bool cache = true)
     {
+        // Seed the network-free SourceLink-availability fact so the SourceLink section family
+        // gates on a cached/embedded/adjacent PDB during discovery (never clears a value the
+        // inspection already established from an embedded or adjacent PDB).
+        inspection.HasSourceLink |= sourceLinkAvailable;
+
         // Compute all structurally applicable sections for discovery/caching,
         // including opt-in sections whose renderability depends on the section's
         // own work (for example SourceLink audit sections).
@@ -1308,7 +1328,7 @@ public class LibraryCommand
         // Field-level filtering on ALL effective sections (unfiltered) for caching
         var filteredSchema = FilterSchemaToEffectiveFields(inspection, allEffective, schemaMap, pipeline, allEffective.ToArray());
         if (cache)
-            CacheEffective(assemblyPath, allEffective, filteredSchema);
+            CacheEffective(assemblyPath, inspection.HasSourceLink, allEffective, filteredSchema);
 
         // Apply user filters
         var effective = FilterEffective(allEffective, options);
@@ -1325,16 +1345,16 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    private const string EffectiveCategory = "effective-v15";
+    private const string EffectiveCategory = "effective-v16";
 
     static LibraryCommand()
     {
         CoreCache.RegisterVersionedCategory("effective-v", EffectiveCategory);
     }
 
-    private static (List<string> Sections, DocumentSchema Schema)? TryGetCachedEffective(string assemblyPath)
+    private static (List<string> Sections, DocumentSchema Schema)? TryGetCachedEffective(string assemblyPath, bool hasSourceLink)
     {
-        string key = GetEffectiveCacheKey(assemblyPath);
+        string key = GetEffectiveCacheKey(assemblyPath, hasSourceLink);
         var cached = CoreCache.TryGet(EffectiveCategory, key, extension: "tsv");
         if (cached == null) return null;
 
@@ -1353,9 +1373,9 @@ public class LibraryCommand
         return (sections, schema);
     }
 
-    private static void CacheEffective(string assemblyPath, List<string> sections, DocumentSchema filteredSchema)
+    private static void CacheEffective(string assemblyPath, bool hasSourceLink, List<string> sections, DocumentSchema filteredSchema)
     {
-        string key = GetEffectiveCacheKey(assemblyPath);
+        string key = GetEffectiveCacheKey(assemblyPath, hasSourceLink);
         var sb = new System.Text.StringBuilder();
         foreach (var name in sections)
         {
@@ -1368,11 +1388,13 @@ public class LibraryCommand
         CoreCache.Set(EffectiveCategory, key, sb.ToString(), extension: "tsv");
     }
 
-    private static string GetEffectiveCacheKey(string assemblyPath)
+    private static string GetEffectiveCacheKey(string assemblyPath, bool hasSourceLink)
     {
-        // Include file size for invalidation when local files change
+        // Include file size for invalidation when local files change, and a network-free
+        // SourceLink-availability token so warming/clearing a cached PDB (which flips whether
+        // the SourceLink section family is effective) busts a stale -D catalog.
         var size = new FileInfo(assemblyPath).Length;
-        return $"{assemblyPath}#{size}";
+        return $"{assemblyPath}#{size}#sl{(hasSourceLink ? 1 : 0)}";
     }
 
     private static List<string> FilterEffective(List<string> sections, LibraryOptions options)

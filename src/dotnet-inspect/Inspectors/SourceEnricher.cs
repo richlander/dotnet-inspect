@@ -22,7 +22,8 @@ internal static class SourceEnricher
     internal static async Task AcquirePdbAsync(
         PdbContext context, HttpClient httpClient,
         string? packageName, string? packageVersion,
-        bool isPlatformAssembly, Action<string>? log)
+        bool isPlatformAssembly, Action<string>? log,
+        bool cacheOnly = false)
     {
         if (!context.NeedsPdb) return;
 
@@ -30,7 +31,7 @@ internal static class SourceEnricher
         var result = await downloader.DownloadPdbAsync(
             context.PdbId!.Guid, context.PdbId.Age, context.PdbId.PdbFileName,
             context.PdbId.IsPortable, context.AssemblyPath,
-            packageName, packageVersion, log, isPlatformAssembly);
+            packageName, packageVersion, log, isPlatformAssembly, cacheOnly);
 
         if (result.PdbFilePath != null)
             context.LoadPdbFromFile(result.PdbFilePath, "Symbol Package", result.SymbolServer);

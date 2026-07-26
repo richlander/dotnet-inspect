@@ -377,6 +377,42 @@ internal static class LibraryMetadataService
     }
 
     /// <summary>
+    /// Network-free probe: does this assembly resolve a PDB (embedded, adjacent, or already in
+    /// the symbol cache) that exposes a SourceLink document? Used by <c>-D</c> discovery to decide
+    /// whether the SourceLink section family is effective without touching the network. The symbol
+    /// cache is consulted read-only (no download); rendering a selected SourceLink section still
+    /// performs its network work on demand.
+    /// </summary>
+    public static async Task<bool> ProbeLocalSourceLinkAsync(
+        string assemblyPath,
+        HttpClient httpClient,
+        VerboseLogger logger,
+        bool isPlatformAssembly = false,
+        string? packageName = null,
+        string? packageVersion = null)
+    {
+        try
+        {
+            using var service = SourceLinkService.Open(assemblyPath, logger.Log);
+            var context = service.Context;
+
+            if (!context.HasPdb && !context.WindowsPdbDetected && context.NeedsPdb)
+            {
+                await SourceEnricher.AcquirePdbAsync(
+                    context, httpClient, packageName, packageVersion,
+                    isPlatformAssembly, logger.Log, cacheOnly: true);
+            }
+
+            return context.HasPdb && service.HasSourceLink;
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"SourceLink discovery probe failed for {assemblyPath}: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Infers who built the assembly based on symbol availability and SourceLink.
     /// </summary>
     public static string? InferBuilder(LibraryInspection inspection)

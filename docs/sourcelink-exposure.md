@@ -152,6 +152,22 @@ to the wrong documents. Therefore:
 
 This is a fail-closed rule: missing SourceLink is better than wrong SourceLink.
 
+### Discovery-time cache-only probe
+
+`-D` discovery lists the SourceLink section family only when a local PDB
+(embedded, adjacent, or already in the symbol cache) exposes a SourceLink
+document — determined **network-free**. `LibraryMetadataService.ProbeLocalSourceLinkAsync`
+opens the assembly and, if no embedded/adjacent PDB is present, consults the
+symbol cache **read-only** via `SymbolPackageDownloader.DownloadPdbAsync(..., cacheOnly: true)`:
+each `TryLocateFrom*` helper returns after its cache-hit check and issues no
+HTTP (no GET/HEAD, no `PutAsync`). Steps 3–4 above (snupkg / symbol server) are
+consulted only as cache lookups here; the network download for those steps still
+happens on demand when a SourceLink section is explicitly rendered. A PDB warmed
+into the cache by a prior render therefore makes the family discoverable on the
+next `-D`; the effective-section cache keys on this availability so warming or
+clearing the PDB busts a stale catalog. See
+`docs/design/section-model.md#symbol-dependent-discovery-sourcelink-family`.
+
 ## Network and performance policy
 
 dotnet-inspect should stay fast and local by default. SourceLink is allowed to
