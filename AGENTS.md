@@ -309,10 +309,13 @@ until every required fixed-head review is clean.
   break it into slices — each a coherent PR — and **stack** them (each slice branches
   from the previous) rather than opening one sprawling PR. Slice for deliberate code
   and risk boundaries, not to fragment gratuitously.
-- **Each slice clears its own gate before the next.** A slice must pass adversarial
-  review (per the tiers above) before work moves on to the next slice in the stack.
-- **Do not stall a passing stack for sign-off.** Once a slice's adversarial review
-  passes and it raises no blocking design, UX, or security question that needs human
+- **Each slice clears its own gate before the next.** A slice clears the review its
+  own triviality and risk require (which may be none for a trivial slice) before work
+  moves on to the next slice in the stack. Nightshift orders are the exception — they
+  always clear Nightshift's stricter two-clean gate regardless of these general tiers
+  (see `NIGHTSHIFT.md`).
+- **Do not stall a passing stack for sign-off.** Once a slice has cleared its required
+  review and raises no blocking design, UX, or security question that needs human
   input, move straight on to the next slice — there is no need to stop and wait
   between slices. Stop only when a slice surfaces a blocking design, UX, or security
   issue that requires input.
