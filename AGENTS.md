@@ -243,6 +243,12 @@ follow-up so readiness remains unambiguous.
 
 ## Adversarial review
 
+**These instructions assume a harness — such as the GitHub Copilot CLI — that can
+delegate a review to any model family in the roster below.** The multi-model tiers
+depend on that ability. Most harnesses do not expose multiple model families; a
+harness that only exposes its own vendor's models handles review differently (see
+*Single-vendor harnesses* below).
+
 **How much review a PR needs is a function of its triviality and risk alone —
 never the kind of change it makes.** Place the PR on that spectrum and match the
 review depth to it:
@@ -269,8 +275,13 @@ should reference it rather than restating it. **Always use the highest version a
 model offers** — e.g. if both Opus 4.8 and Opus 5 are available, use Opus 5.
 
 For a two-model review, do not review with your own model when another listed
-family is available. A single-model agent that cannot delegate may use
-independent passes from its own model.
+family is available.
+
+**Single-vendor harnesses.** A harness that only exposes its own vendor's models —
+for example Claude Code or Codex — cannot run a cross-model review itself. It must
+first pass adversarial review with its own model (using independent passes on the
+fixed head), then **request a subsequent review with another roster model from the
+user.** Do not mark the PR ready until that different-model review is obtained.
 
 Give each reviewer the same self-contained prompt: exact base and head, design
 intent, relevant diff, concrete attack points, and required real-run evidence.
