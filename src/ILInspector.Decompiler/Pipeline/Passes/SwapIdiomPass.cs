@@ -23,9 +23,9 @@ namespace ILInspector.Decompiler.Pipeline;
 /// non-aliasing lvalues) that are legal ValueTuple elements, and the carrier is
 /// a stack slot or an unnamed (compiler) local referenced only by the save and
 /// the final restore. Field, element, indexer, pointer, function-pointer,
-/// byref, and ref-struct / stack-only places — which can alias, carry side
-/// effects, reseat rather than assign, or are illegal as tuple elements — keep
-/// their explicit three-statement spelling.
+/// byref, generic-parameter, and ref-struct / stack-only places — which can
+/// alias, carry side effects, reseat rather than assign, or are illegal as
+/// tuple elements — keep their explicit three-statement spelling.
 /// </summary>
 public sealed class SwapIdiomPass : IIrPass
 {
@@ -232,11 +232,15 @@ public sealed class SwapIdiomPass : IIrPass
     // ref-struct / stack-only reasoning in PatternSwitchExpressionPass
     // (IsStackOnlyValueType / IsByRefLike): those helpers live there privately,
     // so the swap pass keeps its own trimmed copies rather than raising invalid
-    // or meaning-changing `Full` C#.
+    // or meaning-changing `Full` C#. Generic parameters are declined
+    // conservatively: a `where T : allows ref struct` parameter can be a ref
+    // struct at some instantiation, which is illegal as a tuple element
+    // (CS9244), and that anti-constraint is not tracked in the IR.
     static bool IsSwappablePlaceType(IrFunction function, TypeRef type)
     {
         if (type.Kind is TypeRefKind.ByRef or TypeRefKind.Pointer
-            or TypeRefKind.FunctionPointer or TypeRefKind.Pinned or TypeRefKind.Unsupported)
+            or TypeRefKind.FunctionPointer or TypeRefKind.Pinned or TypeRefKind.Unsupported
+            or TypeRefKind.GenericParameter or TypeRefKind.MethodGenericParameter)
         {
             return false;
         }

@@ -51,6 +51,8 @@ public class SwapIdiomPassTests
         { "pointer (illegal ValueTuple element, CS0306)", TypeRef.Pointer(Int) },
         { "ref struct (illegal ValueTuple element, CS9244)",
             TypeRef.GenericInstance(TypeRef.CoreLib("System", "Span"), [Int]) },
+        { "generic parameter (may allow ref struct, CS9244)",
+            TypeRef.MethodGenericParameter(0, "T") },
     };
 
     [Theory]
