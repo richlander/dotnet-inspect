@@ -218,6 +218,7 @@ let pendingDeepLink = {
 
 const app = document.querySelector("#app");
 let mermaidModule;
+let depGraphRenderSeq = 0;
 document.documentElement.dataset.theme = state.theme;
 
 function escapeHtml(value) {
@@ -843,8 +844,8 @@ function renderPackageDependencies() {
 
   const graphSection = `
     <section class="document-section">
-      <div class="section-title"><h2>Dependency graph</h2><span>callers above · direct dependencies below</span></div>
-      <p class="lens-note">Open packages that depend on <strong>${escapeHtml(state.package.id)}</strong> appear as callers; its own direct <code>${escapeHtml(group.framework)}</code> dependencies appear below. Click any dependency to open it in a new tab.</p>
+      <div class="section-title"><h2>Dependency graph</h2><span>callers above · dependencies below · up to 3 levels</span></div>
+      <p class="lens-note">Callers of <strong>${escapeHtml(state.package.id)}</strong> flow in from above and its <code>${escapeHtml(group.framework)}</code> dependencies flow out below, up to three levels each way. The neighbourhood grows as you open more packages. Click any dependency to open it in a new tab.</p>
       <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
     </section>`;
 
@@ -2772,70 +2773,114 @@ function navigateToTypeByName(fullName) {
 }
 
 // Projects the current package, its direct dependencies for the selected framework, and any
-// open packages that declare a dependency on it into a call-graph-style Mermaid flowchart:
-// caller (open) packages flow down into the current package, which flows down into its deps.
+// Projects the current package and its transitive dependency neighbourhood into a
+// call-graph-style Mermaid flowchart. Walks up to three levels of callees (from cached
+// dependency manifests) and three levels of callers (open packages that transitively
+// depend on the centre). Because only opened packages have cached manifests, the graph
+// grows as the user clicks around and opens more of the neighbourhood.
 function buildDependencyGraphMermaid(selectedTfm) {
+  const MAX_DEPTH = 3;
+  const MAX_NODES = 80;
   const centerId = state.package.id;
   const centerKey = centerId.toLowerCase();
   const openById = new Map(state.packages.map(item => [item.id.toLowerCase(), item]));
 
-  const nodes = [];
-  const nodeInfoByLabel = new Map();
-  const seen = new Set();
-  const addNode = (id, versionRange) => {
+  const nodeInfo = new Map();
+  const ensureNode = (id, versionRange) => {
     const key = id.toLowerCase();
-    if (seen.has(key)) return;
-    seen.add(key);
-    const open = openById.get(key);
-    const kind = key === centerKey ? "self" : (open ? "open" : "external");
-    nodes.push({ id, kind });
-    nodeInfoByLabel.set(id, { id, kind, versionRange: versionRange || "" });
+    if (!nodeInfo.has(key)) {
+      const open = openById.get(key);
+      const kind = key === centerKey ? "self" : (open ? "open" : "external");
+      nodeInfo.set(key, { id, kind, versionRange: versionRange || "" });
+    }
+    return nodeInfo.get(key);
+  };
+  ensureNode(centerId);
+
+  const edgeSet = new Set();
+  const edges = [];
+  const addEdge = (fromId, toId) => {
+    const key = `${fromId.toLowerCase()}\u0000${toId.toLowerCase()}`;
+    if (edgeSet.has(key)) return;
+    edgeSet.add(key);
+    edges.push({ from: fromId.toLowerCase(), to: toId.toLowerCase() });
   };
 
-  addNode(centerId);
-
-  const centerGroups = state.workspaceDependencies[`${centerKey}@${state.package.version.toLowerCase()}`]
-    || state.packageDependencies?.dependencyGroups
-    || [];
-  const centerGroup = centerGroups.find(group => group.framework === selectedTfm)
-    || centerGroups.find(group => group.isActive)
-    || centerGroups[0];
-  const downstreamDeps = centerGroup?.dependencies || [];
-  const downstream = downstreamDeps.map(dependency => dependency.id);
-  for (const dependency of downstreamDeps) addNode(dependency.id, dependency.versionRange);
-
-  const upstream = [];
-  for (const item of state.packages) {
-    if (item.id.toLowerCase() === centerKey) continue;
-    const groups = state.workspaceDependencies[`${item.id.toLowerCase()}@${item.version.toLowerCase()}`] || [];
-    const group = groups.find(candidate => candidate.framework === selectedTfm)
-      || groups.find(candidate => candidate.isActive)
+  const groupFor = (id, version) => {
+    let groups = state.workspaceDependencies[`${id.toLowerCase()}@${String(version).toLowerCase()}`];
+    if (!groups && id.toLowerCase() === centerKey) groups = state.packageDependencies?.dependencyGroups;
+    if (!groups) return null;
+    return groups.find(group => group.framework === selectedTfm)
+      || groups.find(group => group.isActive)
       || groups[0];
-    const dependsOnCenter = (group?.dependencies || []).some(dependency => dependency.id.toLowerCase() === centerKey);
-    if (dependsOnCenter) {
-      addNode(item.id);
-      upstream.push(item.id);
+  };
+
+  // Callees: walk the centre's dependencies, expanding any dependency that is itself an
+  // open package (only open packages have cached manifests to walk further).
+  let downFrontier = [{ id: centerId, version: state.package.version }];
+  const downVisited = new Set([centerKey]);
+  for (let depth = 0; depth < MAX_DEPTH && downFrontier.length && nodeInfo.size < MAX_NODES; depth++) {
+    const next = [];
+    for (const node of downFrontier) {
+      const group = groupFor(node.id, node.version);
+      if (!group) continue;
+      for (const dependency of group.dependencies || []) {
+        ensureNode(dependency.id, dependency.versionRange);
+        addEdge(node.id, dependency.id);
+        const depKey = dependency.id.toLowerCase();
+        if (!downVisited.has(depKey)) {
+          downVisited.add(depKey);
+          const open = openById.get(depKey);
+          if (open) next.push({ id: open.id, version: open.version });
+        }
+      }
     }
+    downFrontier = next;
   }
 
-  if (!downstream.length && !upstream.length) return null;
+  // Callers: open packages that (transitively) declare a dependency on a frontier node.
+  let upFrontier = [centerId];
+  const upVisited = new Set([centerKey]);
+  for (let depth = 0; depth < MAX_DEPTH && upFrontier.length && nodeInfo.size < MAX_NODES; depth++) {
+    const next = [];
+    for (const targetId of upFrontier) {
+      const targetKey = targetId.toLowerCase();
+      for (const pkg of state.packages) {
+        const pkgKey = pkg.id.toLowerCase();
+        if (pkgKey === targetKey) continue;
+        const group = groupFor(pkg.id, pkg.version);
+        if (!group) continue;
+        if ((group.dependencies || []).some(dependency => dependency.id.toLowerCase() === targetKey)) {
+          ensureNode(pkg.id);
+          addEdge(pkg.id, targetId);
+          if (!upVisited.has(pkgKey)) {
+            upVisited.add(pkgKey);
+            next.push(pkg.id);
+          }
+        }
+      }
+    }
+    upFrontier = next;
+  }
 
+  if (!edges.length) return null;
+
+  const keys = [...nodeInfo.keys()];
   const idOf = new Map();
-  nodes.forEach((node, index) => idOf.set(node.id.toLowerCase(), `d${index}`));
+  keys.forEach((key, index) => idOf.set(key, `d${index}`));
   const lines = ["flowchart TD"];
-  for (const node of nodes) {
-    const label = node.id.replace(/"/g, "&quot;");
-    lines.push(`  ${idOf.get(node.id.toLowerCase())}["${label}"]:::${node.kind}`);
+  for (const key of keys) {
+    const info = nodeInfo.get(key);
+    const label = info.id.replace(/"/g, "&quot;");
+    lines.push(`  ${idOf.get(key)}["${label}"]:::${info.kind}`);
   }
-  for (const id of upstream) {
-    lines.push(`  ${idOf.get(id.toLowerCase())} --> ${idOf.get(centerKey)}`);
-  }
-  for (const id of downstream) {
-    lines.push(`  ${idOf.get(centerKey)} --> ${idOf.get(id.toLowerCase())}`);
+  for (const edge of edges) {
+    lines.push(`  ${idOf.get(edge.from)} --> ${idOf.get(edge.to)}`);
   }
   lines.push("classDef self fill:var(--accent-soft),stroke:var(--accent),color:var(--text),stroke-width:2px;");
   lines.push("classDef open fill:var(--panel-active),stroke:var(--blue),color:var(--text);");
   lines.push("classDef external fill:transparent,stroke:var(--line-strong),color:var(--dim);");
+  const nodeInfoByLabel = new Map([...nodeInfo.values()].map(info => [info.id, info]));
   return { definition: lines.join("\n"), nodeInfoByLabel };
 }
 
@@ -2848,14 +2893,23 @@ async function renderDependencyGraph() {
   const built = buildDependencyGraphMermaid(selectedTfm);
   if (!built) {
     container.dataset.graphDef = "";
+    delete container.dataset.graphPending;
     container.innerHTML = '<p class="graph-empty">No connected packages for this framework. Open a package that depends on this one to see caller edges.</p>';
     return;
   }
+  // Already showing exactly this graph — nothing to do.
   if (container.dataset.graphDef === built.definition && container.querySelector(".graph-viewport")) return;
-  container.dataset.graphDef = built.definition;
+  // A render for this exact definition is already in flight on this container; let it finish.
+  // (renderDependencyGraph is invoked repeatedly per render cycle — from both
+  // maybeAutoLoadPackageDependencies and ensureWorkspaceDependencies — so without this guard
+  // two concurrent mermaid.render calls race and one's catch can clobber the other's graph.)
+  if (container.dataset.graphPending === built.definition) return;
+  container.dataset.graphPending = built.definition;
+  const seq = ++depGraphRenderSeq;
   try {
     mermaidModule ??= import("https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.esm.min.mjs");
     const { default: mermaid } = await mermaidModule;
+    if (seq !== depGraphRenderSeq) return;
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: "strict",
@@ -2863,13 +2917,15 @@ async function renderDependencyGraph() {
       themeVariables: { fontSize: "16px" },
       flowchart: { htmlLabels: false, curve: "basis" }
     });
-    const id = `dep-graph-${Date.now().toString(36)}`;
+    const id = `dep-graph-${seq.toString(36)}-${Date.now().toString(36)}`;
     const rootStyle = getComputedStyle(document.documentElement);
     const resolved = built.definition.replace(
       /var\((--[\w-]+)\)/g,
       (whole, name) => rootStyle.getPropertyValue(name).trim() || whole
     );
     const { svg } = await mermaid.render(id, resolved);
+    // A newer render superseded this one, or the container was swapped out — bail without touching the DOM.
+    if (seq !== depGraphRenderSeq) return;
     if (document.querySelector("#dependency-graph-diagram") !== container) return;
     container.innerHTML =
       '<div class="graph-viewport"></div>'
@@ -2880,6 +2936,7 @@ async function renderDependencyGraph() {
       + '</div>';
     const viewport = container.querySelector(".graph-viewport");
     viewport.innerHTML = svg;
+    container.dataset.graphDef = built.definition;
     attachGraphPanZoom(container, viewport);
     viewport.querySelectorAll("g.node").forEach(node => {
       const label = (node.textContent || "").replace(/\s+/g, " ").trim();
@@ -2893,10 +2950,15 @@ async function renderDependencyGraph() {
       });
     });
   } catch (error) {
-    if (document.querySelector("#dependency-graph-diagram") === container) {
+    // Only surface the error if this is still the latest render and nothing else has drawn a graph.
+    if (seq === depGraphRenderSeq
+      && document.querySelector("#dependency-graph-diagram") === container
+      && !container.querySelector(".graph-viewport")) {
       container.dataset.graphDef = "";
       container.innerHTML = `<div class="graph-render-error"><strong>Diagram rendering failed</strong><p>${escapeHtml(String(error?.message || error))}</p></div>`;
     }
+  } finally {
+    if (container.dataset.graphPending === built.definition) delete container.dataset.graphPending;
   }
 }
 
