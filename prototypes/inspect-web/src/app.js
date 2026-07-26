@@ -177,6 +177,17 @@ function navForward() {
 
 const memberSections = ["overview", "source", "annotated", "call-graph", "facts"];
 
+// Member-mode strip: the sections shown for an open member, in display order. Lives at
+// module scope because both the scope/lens strip (in render) and the member detail view
+// read it. Order here is the visual left-to-right order in the strip.
+const memberSectionDefs = [
+  ["overview", "Overview"],
+  ["call-graph", "Call graph"],
+  ["facts", "Facts"],
+  ["source", "Source"],
+  ["annotated", "Annotated source"]
+];
+
 // URL-safe base64 over UTF-8 bytes. Used for the opaque share packet so a shared or
 // duplicated link can carry the full session state without bloating the visible query.
 function base64UrlEncode(text) {
@@ -434,7 +445,10 @@ function scope() {
 }
 
 function activeLenses() {
-  return scope() === "package" ? packageLenses : lenses;
+  const sc = scope();
+  if (sc === "package") return packageLenses;
+  if (sc === "member") return memberSectionDefs;
+  return lenses;
 }
 
 // The nav pane reacts to context: types at the top level, or the current type's
@@ -468,6 +482,24 @@ function openOverload(index) {
   state.selectedOverloadIndex = index;
   resetMemberSectionState();
   loadSelectedMemberDocumentation();
+}
+
+// Switch the open member's section (Overview / Call graph / Facts / Source / Annotated) and
+// kick off its lazy load. Shared by the scope-bar strip click and the 1—5 shortcut. If a
+// multi-overload member is still on its picker, resolve the first overload so the section
+// has content to show.
+function applyMemberSection(id) {
+  const member = selectedMember(selectedType());
+  if (member && member.overloads.length > 1 && state.selectedOverloadIndex == null) {
+    state.selectedOverloadIndex = 0;
+  }
+  state.memberSection = id;
+  if (id === "source") loadSelectedMemberSource();
+  else if (id === "annotated") loadSelectedMemberAnnotatedSource();
+  else if (id === "call-graph") loadSelectedMemberCallGraph();
+  else if (id === "facts") loadSelectedMemberFacts();
+  else if (id === "overview") loadSelectedMemberDocumentation();
+  else render();
 }
 
 // Flattened, ordered nav rows for member mode: every member group, with the active
@@ -701,19 +733,7 @@ function render() {
         </div>
       </section>
 
-      <nav class="lensbar" aria-label="Inspection lenses">
-        <button class="home-lens ${state.atPackageRoot ? "active" : ""}" id="package-root" title="Package scope"><span>⌘</span> Types</button>
-        <span class="lens-separator"></span>
-        ${state.atPackageRoot
-          ? packageLenses.map(([id, label], index) => `
-            <button class="lens ${state.packageLens === id ? "active" : ""}" data-package-lens="${id}">
-              ${escapeHtml(label)}<kbd>${index + 1}</kbd>
-            </button>`).join("")
-          : lenses.map(([id, label], index) => `
-            <button class="lens ${state.lens === id ? "active" : ""}" data-lens="${id}">
-              ${escapeHtml(label)}<kbd>${index + 1}</kbd>
-            </button>`).join("")}
-      </nav>
+      ${renderScopeBar()}
 
       <main class="workspace">
         ${renderNavPane(current, visible)}
@@ -806,6 +826,38 @@ function maybeAutoLoadTypeMetadata() {
 
 function renderNavPane(current, visible) {
   return navMode() === "member" ? renderMemberNav(current) : renderTypeNav(current, visible);
+}
+
+// The scope switcher + lens strip. The leading segmented control is the scope ladder —
+// Package (whole package), Types (one public type), and Member (a member of that type,
+// shown only once you drill in). Each segment is selectable and swaps the strip beside it:
+//   package → package lenses   type → type lenses   member → member sections
+// Keeping all three families of buttons on one strip means the member modes (Overview,
+// Call graph, …) live here too instead of inside the detail pane.
+function renderScopeBar() {
+  const sc = scope();
+  const lensButton = (id, label, active, attr, index) =>
+    `<button class="lens ${active ? "active" : ""}" ${attr}="${id}">${escapeHtml(label)}<kbd>${index + 1}</kbd></button>`;
+  let strip;
+  if (sc === "package") {
+    strip = packageLenses.map(([id, label], i) => lensButton(id, label, state.packageLens === id, "data-package-lens", i)).join("");
+  } else if (sc === "member") {
+    strip = memberSectionDefs.map(([id, label], i) => lensButton(id, label, state.memberSection === id, "data-member-section", i)).join("");
+  } else {
+    strip = lenses.map(([id, label], i) => lensButton(id, label, state.lens === id, "data-lens", i)).join("");
+  }
+  const seg = (id, label, active) =>
+    `<button class="scope-seg ${active ? "active" : ""}" data-scope="${id}" role="tab" aria-selected="${active}">${label}</button>`;
+  return `
+    <nav class="lensbar" aria-label="Scope and lenses">
+      <div class="scope-switch" role="tablist" aria-label="Scope">
+        ${seg("package", "Package", sc === "package")}
+        ${seg("type", "Types", sc === "type")}
+        ${sc === "member" ? seg("member", "Member", true) : ""}
+      </div>
+      <span class="lens-separator"></span>
+      ${strip}
+    </nav>`;
 }
 
 function renderTypeNav(current, visible) {
@@ -1464,13 +1516,6 @@ function renderMember(type, member) {
         </div>
       </section>`;
   }
-  const sections = [
-    ["overview", "Overview"],
-    ["call-graph", "Call graph"],
-    ["facts", "Facts"],
-    ["source", "Source"],
-    ["annotated", "Annotated source"]
-  ];
   const overloadIndex = state.selectedOverloadIndex ?? 0;
   const overload = member.overloads[overloadIndex];
   let content;
@@ -1575,12 +1620,9 @@ function renderMember(type, member) {
           </section>`
         : `<section class="document-section empty-member-section"><h2>Source query failed</h2><p>${escapeHtml(state.memberSourceError || "No source result was returned.")}</p></section>`;
   }
-  return `
-    <button class="member-back" id="member-back">← ${member.overloads.length > 1 ? `${escapeHtml(member.name)} overloads` : escapeHtml(type.name)}</button>
-    <nav class="member-sections" aria-label="Member details">
-      ${sections.map(([id, label]) => `<button class="${state.memberSection === id ? "active" : ""}" data-member-section="${id}">${label}</button>`).join("")}
-    </nav>
-    ${content}`;
+  // The member-mode strip (Overview / Call graph / Facts / Source / Annotated) now lives in
+  // the top scope+lens bar, so the detail view renders only the section content itself.
+  return content;
 }
 
 function renderMemberFacts(type, member, overload, overloadIndex) {
@@ -1859,10 +1901,24 @@ function bindEvents() {
     state.kindFilter = "";
     render();
   }));
-  document.querySelector("#package-root")?.addEventListener("click", () => {
-    state.atPackageRoot = true;
+  document.querySelectorAll("[data-scope]").forEach(button => button.addEventListener("click", () => {
+    const target = button.dataset.scope;
+    if (target === "package") {
+      state.atPackageRoot = true;
+    } else if (target === "type") {
+      // Pop out to the type level: leave the package root and drop any open member so the
+      // type lenses (API / Metadata / Source) take the strip. Ensure a type is selected.
+      state.atPackageRoot = false;
+      if (!state.selectedTypeId) {
+        const first = filteredTypes()[0];
+        if (first) state.selectedTypeId = first.id;
+      }
+      state.selectedMemberKey = "";
+      state.selectedOverloadIndex = null;
+    }
+    // "member" is only shown while it is already the active scope, so it is a no-op.
     render();
-  });
+  }));
   document.querySelectorAll("[data-package-lens]").forEach(button => button.addEventListener("click", () => {
     state.packageLens = button.dataset.packageLens;
     render();
@@ -1943,13 +1999,7 @@ function bindEvents() {
     drillOut();
   });
   document.querySelectorAll("[data-member-section]").forEach(button => button.addEventListener("click", () => {
-    state.memberSection = button.dataset.memberSection;
-    if (state.memberSection === "source") loadSelectedMemberSource();
-    else if (state.memberSection === "annotated") loadSelectedMemberAnnotatedSource();
-    else if (state.memberSection === "call-graph") loadSelectedMemberCallGraph();
-    else if (state.memberSection === "facts") loadSelectedMemberFacts();
-    else if (state.memberSection === "overview") loadSelectedMemberDocumentation();
-    else render();
+    applyMemberSection(button.dataset.memberSection);
   }));
   document.querySelector("#member-back")?.addEventListener("click", () => {
     drillOut();
@@ -3941,9 +3991,10 @@ document.addEventListener("keydown", event => {
     const set = activeLenses();
     const index = Number(event.key) - 1;
     if (index < set.length) {
-      if (state.atPackageRoot) state.packageLens = set[index][0];
-      else state.lens = set[index][0];
-      render();
+      const sc = scope();
+      if (sc === "package") { state.packageLens = set[index][0]; render(); }
+      else if (sc === "member") applyMemberSection(set[index][0]);
+      else { state.lens = set[index][0]; render(); }
     }
   } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
       && (event.key === "ArrowUp" || event.key === "ArrowDown")) {

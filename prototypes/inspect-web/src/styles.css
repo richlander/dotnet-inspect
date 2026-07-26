@@ -245,6 +245,20 @@ body {
 .home-lens { color: var(--text) !important; font-weight: 600; cursor: pointer; }
 .home-lens.active { border-bottom-color: var(--accent); }
 .home-lens span { color: var(--accent); margin-right: 6px; }
+.scope-switch { display: flex; align-items: center; gap: 2px; padding: 3px; margin-right: 4px; background: rgba(127,127,127,.08); border: 1px solid var(--line); border-radius: 8px; }
+.scope-switch button.scope-seg {
+  height: 26px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.scope-switch button.scope-seg:hover { color: var(--text); background: rgba(127,127,127,.12); }
+.scope-switch button.scope-seg.active { color: #fff; background: var(--accent); border-bottom-color: transparent; }
 .lens-separator { width: 1px; height: 17px; background: var(--line); margin: 0 5px; }
 .lens kbd { margin-left: 8px; color: var(--dim); font: 10px var(--mono); }
 
