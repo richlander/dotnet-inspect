@@ -82,9 +82,9 @@ The life of one order:
    them (`add`/`plan`).
 2. The Coordinator seeds the specs and the ready set. A Worker claims a ready order
    with `next`.
-3. The Worker **builds** it (a builder subagent on model A) and **reviews** it (a
-   reviewer subagent on model B ≠ A), fixing and re-reviewing until **two clean reviews
-   from two different models** on the same final head.
+3. The Worker **builds** it (a builder subagent on model A) and **reviews** it (reviewer
+   subagents on two other models, B and C, neither the builder's A), fixing and
+   re-reviewing until **two clean reviews from two different models** on the same final head.
 4. The Worker hands the branch back and `release`s it done, with the review attestation.
 5. The Coordinator pushes the branch, opens/updates the PR, and posts the **one**
    clearance note.
@@ -100,7 +100,8 @@ The life of one order:
 - **Every change clears the gate:** two clean reviews from two **different** models on
   the final head — governance and docs PRs included.
 - **Only the coordinator writes to GitHub** — every push, PR, and the single clearance
-  note. Build and review roles run with no write access to origin.
+  note; the PR Lander's merge is the one exception. Build and review roles run with no
+  write access to origin.
 
 ## The CLI contract
 
