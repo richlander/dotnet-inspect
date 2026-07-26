@@ -1481,6 +1481,154 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceWithVarArgsFallsBackWithoutRecompileFail()
+    {
+        // Regression guard: the decoded return/parameter strings do not carry a method's
+        // calling convention, so a VarArgs (`__arglist`) interface method is spelled
+        // identically to a fixed-arity one. C# cannot express `__arglist` in a reconstructed
+        // explicit interface member, so engaging would emit `void RtsVar.IProbe.M()` (the
+        // `__arglist` dropped), which binds to no member of the resolved interface
+        // (CS0539 = RecompileFail). The gate must decline any non-default calling convention
+        // and keep the sanitized ContextFail floor.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            "namespace RtsVar { public interface IProbe { void M(__arglist); } }",
+            directory: fixtureDir,
+            assemblyName: "RtsVarContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class VarImpl : RtsVar.IProbe
+            {
+                void RtsVar.IProbe.M(__arglist) { }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "VarImpl",
+                    "RtsVar.IProbe.M",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsVar_IProbe_M", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsVar.IProbe.M", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceWithInternalInterfaceFallsBackWithoutRecompileFail()
+    {
+        // Regression guard: the reconstructed assembly ("return-to-sender-source-oracle")
+        // references the interface's defining assembly but is not granted InternalsVisibleTo,
+        // so it cannot name an internal interface even though the target implements it via IVT
+        // to its own name. Engaging would emit `: RtsInt.IProbe` against a type the recompile
+        // cannot see (CS0122 = RecompileFail). The gate must decline any non-publicly-accessible
+        // interface and keep the sanitized ContextFail floor.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            """
+            using System.Runtime.CompilerServices;
+            [assembly: InternalsVisibleTo("fixture")]
+            namespace RtsInt { internal interface IProbe { void M(); } }
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsIntContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class IntImpl : RtsInt.IProbe
+            {
+                void RtsInt.IProbe.M() { }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "IntImpl",
+                    "RtsInt.IProbe.M",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsInt_IProbe_M", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsInt.IProbe.M", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceWithGenericParameterDriftFallsBackWithoutRecompileFail()
+    {
+        // Regression guard: SignatureDecoder spells generic method parameters by their metadata
+        // name, not their position, so `int M<T, U>(U)` and `int M<U, T>(U)` both decode their
+        // parameter to "U" and compare equal — yet the parameter is the 2nd type parameter in
+        // one and the 1st in the other. The target is compiled against `int M<T, U>(U)`, but the
+        // sibling resolved at reconstruction declares `int M<U, T>(U)`. Engaging would emit an
+        // explicit member binding to no interface member (CS0539 = RecompileFail). The gate must
+        // decline any signature carrying generic parameters and keep the sanitized floor.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var referenceDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var referencePath = CompileFixture(
+            "namespace RtsGen { public interface IProbe { int M<T, U>(U value); } }",
+            directory: referenceDir,
+            assemblyName: "RtsGenContracts");
+        CompileFixture(
+            "namespace RtsGen { public interface IProbe { int M<U, T>(U value); } }",
+            directory: fixtureDir,
+            assemblyName: "RtsGenContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class GenImpl : RtsGen.IProbe
+            {
+                int RtsGen.IProbe.M<T, U>(U value) => 0;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(referencePath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "GenImpl",
+                    "RtsGen.IProbe.M",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsGen_IProbe_M", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsGen.IProbe.M", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            if (Directory.Exists(referenceDir))
+                Directory.Delete(referenceDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RoundTripsGenericExplicitInterfaceMethod()
     {
         // A generic method on a non-generic interface implemented explicitly keeps its method

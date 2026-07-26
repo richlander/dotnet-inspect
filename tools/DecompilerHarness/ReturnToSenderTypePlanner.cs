@@ -1607,9 +1607,11 @@ public static class CompileBackSourceComposer
     // Probes whether a method signature carries detail that SignatureDecoder renders
     // ambiguously, making a decoded-string comparison unsound: by-ref parameters (in/out/ref
     // all decode to "ref T"), custom modifiers (dropped by GetModifiedType), multidimensional
-    // arrays (a rank-1 MDArray decodes identically to an SZArray), and function pointers
-    // (calling-convention modopts). When a signature is free of all of these, its decoded
-    // string form is a faithful identity and string equality is an exact signature check.
+    // arrays (a rank-1 MDArray decodes identically to an SZArray), function pointers
+    // (calling-convention modopts), and generic parameters (spelled by their metadata name,
+    // so a reordered/renamed drift can compare equal while binding to a different position).
+    // When a signature is free of all of these, its decoded string form is a faithful
+    // identity and string equality is an exact signature check.
     sealed class UnrepresentableSignatureProbe : ISignatureTypeProvider<bool, object?>
     {
         public static readonly UnrepresentableSignatureProbe Instance = new();
@@ -1617,15 +1619,25 @@ public static class CompileBackSourceComposer
         public bool GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => false;
         public bool GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) => false;
         public bool GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
-            => reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+        {
+            // Mirror SignatureDecoder.GetTypeFromSpecification: a cross-handle TypeSpec
+            // re-entry (including a cycle back to this row) must be bounded or a crafted
+            // dependency could overflow the stack — uncatchable, crashing the harness. A
+            // TypeSpec too deep or structurally unsafe to decode is, for our purposes,
+            // unrepresentable: treat it as such and decline.
+            if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+                return true;
+            using (scope)
+                return reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+        }
         public bool GetSZArrayType(bool elementType) => elementType;
         public bool GetArrayType(bool elementType, ArrayShape shape) => true;
         public bool GetByReferenceType(bool elementType) => true;
         public bool GetPointerType(bool elementType) => elementType;
         public bool GetGenericInstantiation(bool genericType, ImmutableArray<bool> typeArguments)
             => genericType || typeArguments.Any(argument => argument);
-        public bool GetGenericMethodParameter(object? genericContext, int index) => false;
-        public bool GetGenericTypeParameter(object? genericContext, int index) => false;
+        public bool GetGenericMethodParameter(object? genericContext, int index) => true;
+        public bool GetGenericTypeParameter(object? genericContext, int index) => true;
         public bool GetFunctionPointerType(MethodSignature<bool> signature) => true;
         public bool GetModifiedType(bool modifier, bool unmodifiedType, bool isRequired) => true;
         public bool GetPinnedType(bool elementType) => elementType;
@@ -1636,11 +1648,34 @@ public static class CompileBackSourceComposer
         try
         {
             var signature = method.DecodeSignature(UnrepresentableSignatureProbe.Instance, (object?)null);
-            return signature.ReturnType || signature.ParameterTypes.Any(parameter => parameter);
+            // The decoded return/parameter strings do not carry the method's calling
+            // convention, so a VarArgs (`__arglist`) method is spelled identically to a
+            // fixed-arity one. C# cannot express `__arglist` in a reconstructed explicit
+            // member, so any non-default calling convention is unrepresentable and declines.
+            return signature.Header.CallingConvention != SignatureCallingConvention.Default
+                || signature.ReturnType
+                || signature.ParameterTypes.Any(parameter => parameter);
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
         {
             return true;
+        }
+    }
+
+    // Whether a type (and every enclosing type) is accessible to an assembly that references
+    // the defining assembly without InternalsVisibleTo: a top-level type must be public, and a
+    // nested type must be nested-public with a publicly accessible declaring type.
+    static bool IsPubliclyAccessible(MetadataReader reader, TypeDefinition type)
+    {
+        while (true)
+        {
+            var visibility = type.Attributes & TypeAttributes.VisibilityMask;
+            var declaring = type.GetDeclaringType();
+            if (declaring.IsNil)
+                return visibility == TypeAttributes.Public;
+            if (visibility != TypeAttributes.NestedPublic)
+                return false;
+            type = reader.GetTypeDefinition(declaring);
         }
     }
 
@@ -1709,6 +1744,14 @@ public static class CompileBackSourceComposer
         {
             return false;
         }
+        // The reconstructed assembly references the interface's defining assembly but is not
+        // granted InternalsVisibleTo, so it can only name a publicly accessible interface.
+        // Engaging on an internal (or nested non-public) interface would emit `: DisplayName`
+        // against a type the recompile cannot see (CS0122 = RecompileFail). A public interface
+        // also guarantees, by C#'s consistent-accessibility rule, that its method signature
+        // types are at least as accessible, so the emitted members reference only public types.
+        if (!IsPubliclyAccessible(reader, interfaceDef))
+            return false;
         if (interfaceDef.GetProperties().Count != 0 || interfaceDef.GetEvents().Count != 0)
             return false;
 
