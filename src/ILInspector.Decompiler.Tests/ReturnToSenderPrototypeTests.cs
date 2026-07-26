@@ -1234,20 +1234,27 @@ public class ReturnToSenderPrototypeTests
     }
 
     // Close-negative for the shadow-decline (#3112 review): a compiler-authored sibling whose
-    // simple name matches a *middle* segment of the interface spelling
-    // (`N.Collections` vs `System.Collections.IEnumerable`) must NOT trigger a decline. The
-    // explicit-member qualifier is emitted fully qualified (`System.Collections.IEnumerable.
-    // GetEnumerator`, leading `System`) and the base-list entry is shortened to the bare type
-    // name (`IEnumerable`); the middle `Collections` never appears in leading position, so the
-    // reconstruction stays compilable. Under RoundTripScope.All the sibling `N.Collections` is
-    // reconstructed alongside the real explicit impl and the whole shape must round-trip Exact,
-    // not fall back to the sanitized `System_Collections_IEnumerable_GetEnumerator` floor.
-    [Fact]
-    public void CompileBackTargets_ExternalExplicitInterfaceKeepsExactWhenClosureSiblingMatchesMiddleSegment()
+    // simple name matches a *non-leading* segment of the interface spelling must NOT trigger a
+    // decline. Only the FIRST segment (`System`) can be shadowed into a compile error, because
+    // the explicit-member qualifier is always emitted fully qualified
+    // (`System.Collections.IEnumerable.GetEnumerator`) and the collision-aware using-collapser
+    // only shortens the base-list entry to the bare `IEnumerable` when nothing collides:
+    //  - `N.Collections` (middle segment): collapser shortens to `class Seq : IEnumerable`; the
+    //    middle `Collections` never leads, so it compiles.
+    //  - `N.IEnumerable` (final type name): collapser detects the collision and KEEPS the base
+    //    list fully qualified (`class Seq : System.Collections.IEnumerable`, leading `System`),
+    //    so it still compiles.
+    // Under RoundTripScope.All the sibling is reconstructed alongside the real explicit impl and
+    // the whole shape must round-trip Exact, not fall back to the sanitized
+    // `System_Collections_IEnumerable_GetEnumerator` floor.
+    [Theory]
+    [InlineData("Collections")]
+    [InlineData("IEnumerable")]
+    public void CompileBackTargets_ExternalExplicitInterfaceKeepsExactWhenClosureSiblingMatchesNonLeadingSegment(string siblingName)
     {
-        var assemblyPath = CompileFixture("""
+        var assemblyPath = CompileFixture($$"""
             namespace N;
-            public sealed class Collections { }
+            public sealed class {{siblingName}} { }
             public sealed class Seq : System.Collections.IEnumerable
             {
                 System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
@@ -1279,7 +1286,7 @@ public class ReturnToSenderPrototypeTests
                 "System_Collections_IEnumerable_GetEnumerator",
                 result.Source,
                 StringComparison.Ordinal);
-            Assert.Contains("class Collections", result.Source, StringComparison.Ordinal);
+            Assert.Contains($"class {siblingName}", result.Source, StringComparison.Ordinal);
         }
         finally
         {

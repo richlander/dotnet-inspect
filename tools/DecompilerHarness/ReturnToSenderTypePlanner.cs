@@ -1526,30 +1526,29 @@ public static class CompileBackSourceComposer
 
     // True when a type declared in the recompile closure would intercept the leading
     // identifier of <paramref name="interfaceDisplayFullName"/> as spelled from inside the
-    // target type's namespace. The external-interface spelling appears in two positions, and
-    // only two of its identifiers can ever appear in leading position: the FIRST segment (the
-    // explicit-member qualifier is always emitted fully qualified, e.g.
-    // `System.Collections.IEnumerable.GetEnumerator`, so its head is the first segment; a
-    // fully-qualified base-list entry leads with the same segment) and the FINAL simple type
-    // name (the using-collapser shortens the base-list entry to the bare type name, e.g.
-    // `IEnumerable`, never to a partial `Collections.IEnumerable`). A middle segment such as
-    // `Collections` therefore never leads and must not trigger a decline (that over-declines a
+    // target type's namespace. The external-interface spelling appears in two positions —
+    // the base-list entry and the explicit-member qualifier — and only its FIRST segment can
+    // ever be shadowed into a compile error. The explicit-member qualifier is always emitted
+    // fully qualified (e.g. `System.Collections.IEnumerable.GetEnumerator`), so its head is
+    // the first segment. The base-list entry is either emitted fully qualified (same first
+    // segment) or shortened by the using-collapser to the bare type name (e.g. `IEnumerable`);
+    // the collapser is collision-aware (CSharpDeclarationWriter.TypeNamePlan keeps a name
+    // qualified when its simple name is ambiguous), so it only shortens to a simple name that
+    // does NOT collide with a sibling — a sibling matching the final type name forces the base
+    // list to stay fully qualified (leading `System`) and still compiles. No partial
+    // qualification (`Collections.IEnumerable`) is ever emitted, so middle and final segments
+    // never lead into a failure and must not trigger a decline (that over-declines a
     // compiler-authored Exact). <paramref name="closureRoots"/> already reflects the active
     // scope, so under RoundTripScope.Cluster (which does not reconstruct the shadowing sibling)
     // this returns false and engagement proceeds; under RoundTripScope.All it declines the
-    // crafted-IL shadow shape.
+    // crafted-IL first-segment shadow shape.
     static bool ExternalInterfaceSpellingShadowedByClosure(
         MetadataReader reader,
         TypeDefinition targetType,
         IReadOnlySet<TypeDefinitionHandle> closureRoots,
         string interfaceDisplayFullName)
     {
-        string[] parts = interfaceDisplayFullName.Split('.');
-        var segments = new HashSet<string>(StringComparer.Ordinal)
-        {
-            parts[0],       // leads when the spelling is emitted fully qualified
-            parts[^1],      // leads when the base-list entry is shortened to the simple name
-        };
+        string leadingSegment = interfaceDisplayFullName.Split('.', 2)[0];
         string targetNamespace = reader.GetString(targetType.Namespace);
 
         foreach (var handle in closureRoots)
@@ -1557,11 +1556,11 @@ public static class CompileBackSourceComposer
             var candidate = reader.GetTypeDefinition(handle);
             string candidateNamespace = reader.GetString(candidate.Namespace);
 
-            // Type collision: a reconstructed top-level type whose simple name matches a
+            // Type collision: a reconstructed top-level type whose simple name matches the
             // leading spelling identifier and that sits in the target's namespace, an ancestor
             // namespace, or the global namespace is nearer than the external namespace
             // chain and intercepts the identifier.
-            if (segments.Contains(reader.GetString(candidate.Name))
+            if (string.Equals(reader.GetString(candidate.Name), leadingSegment, StringComparison.Ordinal)
                 && NamespaceIsInScope(candidateNamespace, targetNamespace))
             {
                 return true;
@@ -1572,7 +1571,7 @@ public static class CompileBackSourceComposer
             // intercept the identifier. Types beneath the global namespace merge with the
             // external namespace chain instead of shadowing it, so global is excluded here.
             if (LeadingSegmentBelowInScopeNonGlobalNamespace(candidateNamespace, targetNamespace) is { } childSegment
-                && segments.Contains(childSegment))
+                && string.Equals(childSegment, leadingSegment, StringComparison.Ordinal))
             {
                 return true;
             }
