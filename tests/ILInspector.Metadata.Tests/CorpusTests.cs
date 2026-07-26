@@ -122,6 +122,44 @@ namespace ILInspector.Metadata.Tests
         }
 
         [Fact]
+        public void SearchTypes_unbounded_scan_preserves_member_order()
+        {
+            // The same assembly listed twice with distinct provenance: the unbounded (parallel) scan
+            // must still emit member 0's matches before member 1's, identical to a sequential pass.
+            var corpus = new Corpus(
+            [
+                new CorpusMember { AssemblyPath = SelfAssembly, Source = "first" },
+                new CorpusMember { AssemblyPath = SelfAssembly, Source = "second" },
+            ]);
+
+            var sources = corpus.SearchTypes(["CorpusProbeType*"]).Results.Select(r => r.Source).ToList();
+
+            var firstBlock = sources.TakeWhile(s => s == "first").Count();
+            Assert.True(firstBlock > 0);
+            Assert.All(sources.Take(firstBlock), s => Assert.Equal("first", s));
+            Assert.All(sources.Skip(firstBlock), s => Assert.Equal("second", s));
+            Assert.Equal(sources.Count(s => s == "first"), sources.Count(s => s == "second"));
+        }
+
+        [Fact]
+        public void SearchTypes_unbounded_scan_surfaces_skips_between_good_members()
+        {
+            var missing = Path.Combine(Path.GetTempPath(), "corpus-types-order-3f9a.dll");
+            var corpus = new Corpus(
+            [
+                new CorpusMember { AssemblyPath = SelfAssembly, Source = "good-1" },
+                new CorpusMember { AssemblyPath = missing, Source = "bad" },
+                new CorpusMember { AssemblyPath = SelfAssembly, Source = "good-2" },
+            ]);
+
+            var outcome = corpus.SearchTypes(["CorpusProbeTypeAlpha"]);
+
+            Assert.Contains(outcome.Results, r => r.Source == "good-1");
+            Assert.Contains(outcome.Results, r => r.Source == "good-2");
+            Assert.Equal(missing, Assert.Single(outcome.SkippedAssemblies));
+        }
+
+        [Fact]
         public void SearchMembers_finds_member_with_declaring_type_and_provenance()
         {
             var outcome = SelfCorpus().SearchMembers(["CorpusProbeMemberAlpha"]);

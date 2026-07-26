@@ -134,7 +134,10 @@ public sealed class Corpus
     /// <summary>
     /// Finds types in the corpus whose full or simple name matches any pattern. Exact patterns use
     /// the shared namespace/arity-aware <see cref="TypeMatcher.MatchesTypeFilter"/>; patterns with
-    /// <c>*</c>/<c>?</c> are globs. A type is emitted once per pattern it matches.
+    /// <c>*</c>/<c>?</c> are globs. A type is emitted once per pattern it matches. An unbounded
+    /// search scans members in parallel but yields results in a deterministic member order identical
+    /// to a sequential pass; a bounded search (<paramref name="limit"/>) scans sequentially so it can
+    /// stop early.
     /// </summary>
     /// <param name="patterns">Type-name patterns.</param>
     /// <param name="includeAll">When true, non-public types are included; otherwise public only.</param>
@@ -152,49 +155,111 @@ public sealed class Corpus
         if (patterns.Count == 0)
             return new CorpusTypeSearchOutcome(results, skipped);
 
+        // Unbounded search scans members concurrently — each member is an independent metadata read —
+        // then reassembles matches and skips in member order, so the output is identical to a
+        // sequential pass. A bounded search cannot early-exit deterministically in parallel, so it
+        // stays sequential.
+        if (limit is null)
+        {
+            var perMember = new List<CorpusTypeMatch>[_members.Count];
+            var perMemberSkip = new string?[_members.Count];
+
+            Parallel.For(0, _members.Count, i =>
+            {
+                perMember[i] = ScanTypesInMember(_members[i], patterns, includeAll, out perMemberSkip[i]);
+            });
+
+            for (var i = 0; i < _members.Count; i++)
+            {
+                results.AddRange(perMember[i]);
+                if (perMemberSkip[i] is string skippedPath)
+                    skipped.Add(skippedPath);
+            }
+
+            return new CorpusTypeSearchOutcome(results, skipped);
+        }
+
         foreach (var member in _members)
         {
-            if (limit is int cap && results.Count >= cap)
+            if (results.Count >= limit.Value)
                 break;
 
-            var surface = AssemblyReader.ExtractApiSurface(member.AssemblyPath, includeAll, typesOnly: true);
-            if (surface is null)
+            var matches = ScanTypesInMember(member, patterns, includeAll, out var skippedPath);
+            if (skippedPath is not null)
             {
-                skipped.Add(member.AssemblyPath);
+                skipped.Add(skippedPath);
                 continue;
             }
 
-            var assemblyName = Path.GetFileNameWithoutExtension(member.AssemblyPath);
-
-            foreach (var type in surface.Types)
+            foreach (var match in matches)
             {
-                foreach (var pattern in patterns)
-                {
-                    if (limit is int innerCap && results.Count >= innerCap)
-                        return new CorpusTypeSearchOutcome(results, skipped);
-
-                    var isGlob = pattern.Contains('*') || pattern.Contains('?');
-                    if (!TypeMatcher.MatchesTypeFilter(type.FullName, pattern))
-                        continue;
-
-                    results.Add(new CorpusTypeMatch
-                    {
-                        Pattern = pattern,
-                        TypeName = type.Name,
-                        Namespace = type.Namespace,
-                        FullName = type.FullName,
-                        Kind = type.Kind,
-                        Assembly = assemblyName,
-                        Source = member.Source,
-                        Version = member.Version,
-                        Tfm = member.Tfm,
-                        IsGlob = isGlob,
-                    });
-                }
+                if (results.Count >= limit.Value)
+                    return new CorpusTypeSearchOutcome(results, skipped);
+                results.Add(match);
             }
         }
 
         return new CorpusTypeSearchOutcome(results, skipped);
+    }
+
+    /// <summary>
+    /// Scans one member for type matches. An assembly whose metadata cannot be read is surfaced via
+    /// <paramref name="skippedPath"/> (never as a fake "no matches" success and never by aborting the
+    /// whole corpus search), matching the closed-set "keep failure visible" contract.
+    /// </summary>
+    private static List<CorpusTypeMatch> ScanTypesInMember(
+        CorpusMember member,
+        IReadOnlyList<string> patterns,
+        bool includeAll,
+        out string? skippedPath)
+    {
+        var matches = new List<CorpusTypeMatch>();
+
+        ApiSurface? surface;
+        try
+        {
+            surface = AssemblyReader.ExtractApiSurface(member.AssemblyPath, includeAll, typesOnly: true);
+        }
+        catch
+        {
+            skippedPath = member.AssemblyPath;
+            return matches;
+        }
+
+        if (surface is null)
+        {
+            skippedPath = member.AssemblyPath;
+            return matches;
+        }
+
+        skippedPath = null;
+        var assemblyName = Path.GetFileNameWithoutExtension(member.AssemblyPath);
+
+        foreach (var type in surface.Types)
+        {
+            foreach (var pattern in patterns)
+            {
+                var isGlob = pattern.Contains('*') || pattern.Contains('?');
+                if (!TypeMatcher.MatchesTypeFilter(type.FullName, pattern))
+                    continue;
+
+                matches.Add(new CorpusTypeMatch
+                {
+                    Pattern = pattern,
+                    TypeName = type.Name,
+                    Namespace = type.Namespace,
+                    FullName = type.FullName,
+                    Kind = type.Kind,
+                    Assembly = assemblyName,
+                    Source = member.Source,
+                    Version = member.Version,
+                    Tfm = member.Tfm,
+                    IsGlob = isGlob,
+                });
+            }
+        }
+
+        return matches;
     }
 
     /// <summary>
