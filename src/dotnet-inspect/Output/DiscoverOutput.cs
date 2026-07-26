@@ -22,7 +22,8 @@ public static class DiscoverOutput
         bool tree = false, bool markdown = false, bool json = false, bool tsv = false, bool jsonl = false, int verbosity = 0,
         string? rootLabel = null, IReadOnlyDictionary<string, string>? sectionCostAnnotations = null,
         IReadOnlyDictionary<string, string[]>? sectionCategories = null,
-        IReadOnlySet<string>? catalogHiddenSections = null)
+        IReadOnlySet<string>? catalogHiddenSections = null,
+        IReadOnlySet<string>? listedCategoryDoors = null)
     {
         sectionCategories = FilterCategories(sectionCategories, schema.SectionNames);
 
@@ -40,7 +41,7 @@ public static class DiscoverOutput
         if (tree)
             return WriteTree(discover, schema, rootLabel, sectionCostAnnotations, sectionCategories, catalogHiddenSections);
 
-        var rows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections);
+        var rows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
         if (rows == null)
             return 1;
 
@@ -76,7 +77,8 @@ public static class DiscoverOutput
         string? rootLabel = null, DocumentSchema? fullSchema = null,
         IReadOnlyDictionary<string, string>? sectionCostAnnotations = null,
         IReadOnlyDictionary<string, string[]>? sectionCategories = null,
-        IReadOnlySet<string>? catalogHiddenSections = null)
+        IReadOnlySet<string>? catalogHiddenSections = null,
+        IReadOnlySet<string>? listedCategoryDoors = null)
     {
         // Build a filtered schema with only effective sections
         var filtered = new DocumentSchema();
@@ -100,7 +102,7 @@ public static class DiscoverOutput
             discover = remaining;
         }
 
-        return Execute(discover, filtered, tree, markdown, json, tsv, jsonl, verbosity, rootLabel, sectionCostAnnotations, sectionCategories, catalogHiddenSections);
+        return Execute(discover, filtered, tree, markdown, json, tsv, jsonl, verbosity, rootLabel, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
     }
 
     /// <summary>
@@ -306,13 +308,33 @@ public static class DiscoverOutput
         DocumentSchema schema,
         IReadOnlyDictionary<string, string>? sectionCostAnnotations = null,
         IReadOnlyDictionary<string, string[]>? sectionCategories = null,
-        IReadOnlySet<string>? catalogHiddenSections = null)
+        IReadOnlySet<string>? catalogHiddenSections = null,
+        IReadOnlySet<string>? listedCategoryDoors = null)
     {
-        // Bare -D: regular sections, @categories, then opt-in sections.
-        // Each group is alpha sorted.
+        // Bare -D. Curated pipelines (listedCategoryDoors provided) lead with the topical category
+        // doors, then a single alpha group of effective sections, with no cost annotations. Legacy
+        // pipelines keep the original section/category/opt-in grouping.
         if (discover is null or { Length: 0 })
         {
             var items = schema.Discover()!;
+
+            if (listedCategoryDoors != null)
+            {
+                var doorRows = sectionCategories?
+                    .Where(category => listedCategoryDoors.Contains(category.Key))
+                    .Select(category => new DiscoveryRow(category.Key, "category"))
+                    .OrderBy(row => row.Name, StringComparer.OrdinalIgnoreCase)
+                    .ToList() ?? [];
+
+                var effectiveRows = items
+                    .Where(i => catalogHiddenSections is null || !catalogHiddenSections.Contains(i.Name))
+                    .Select(i => new DiscoveryRow(i.Name, i.Kind))
+                    .OrderBy(row => row.Name, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                return [.. doorRows, .. effectiveRows];
+            }
+
             var categoryRows = sectionCategories?
                 // The @Hidden pole is the computed complement of the listed catalog. It is a
                 // --schema/exact-name entrypoint only: excluded from the curated top-level catalog

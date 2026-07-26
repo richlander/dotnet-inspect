@@ -6150,8 +6150,12 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Contains("| Name | Kind |", output);
         Assert.Contains("| Library Info | section |", output);
-        Assert.Contains("| Async Methods | section (opt-in) |", output);
-        Assert.Contains("| Custom Attributes | section (opt-in) |", output);
+        // The curated -D catalog drops the internal (verbose)/(opt-in) markers: every
+        // effective section is listed with the bare "section" kind.
+        Assert.Contains("| Async Methods | section |", output);
+        Assert.Contains("| Custom Attributes | section |", output);
+        Assert.DoesNotContain("section (opt-in)", output);
+        Assert.DoesNotContain("section (verbose)", output);
     }
 
     [Fact]
@@ -6369,40 +6373,41 @@ public class CommandExecutionTests
             .ToArray();
         var names = lines.Select(ExtractSectionName).ToArray();
 
-        var symbolsIndex = Array.IndexOf(names, "Symbols");
-        var firstOptInIndex = Array.FindIndex(lines, line => line.Contains("section (opt-in)", StringComparison.Ordinal));
+        // --schema is the exhaustive escape hatch: every section is listed with the bare
+        // "section" kind. The curated catalog dropped the internal (verbose)/(opt-in) markers.
+        Assert.DoesNotContain("section (opt-in)", output);
+        Assert.DoesNotContain("section (verbose)", output);
+        Assert.Contains("Symbols", names);
 
-        Assert.True(symbolsIndex >= 0);
-        Assert.True(firstOptInIndex >= 0);
-        Assert.True(symbolsIndex < firstOptInIndex);
-
-        var optInNames = lines
-            .Where(line => line.Contains("section (opt-in)", StringComparison.Ordinal))
-            .Select(ExtractSectionName)
-            .ToHashSet(StringComparer.Ordinal);
-
-        // The full --schema catalog is the exhaustive escape hatch: every non-default section is
-        // listed as opt-in, including the surface opt-ins, the source/hidden-pole sections, and the
-        // sections whose default rendering changed under the curated model (P/Invoke, Non-normalized).
+        // Unlike the -D top level, --schema surfaces the whole catalog: the surface opt-ins, the
+        // source/audit sections, the footguns, the kind-scoped performance sub-group, and the
+        // coordinate-gated IL-context sections.
         foreach (var expected in new[]
                  {
                      "Async Methods", "Custom Attributes", "Extension Methods", "Type Forwarders",
                      "Union Types", "P/Invoke Methods", "Non-normalized Paths", "Top Leverage",
-                     "Source Files", "SourceLink Availability", "SourceLink Missing Files",
-                     "SourceLink Integrity", "Member Context", "Integration Opportunities"
+                     "Unsafe Members", "Source Files", "SourceLink Availability",
+                     "SourceLink Missing Files", "SourceLink Integrity", "Member Context",
+                     "Integration Opportunities"
                  })
         {
-            Assert.Contains(expected, optInNames);
+            Assert.Contains(expected, names);
         }
 
-        // --schema is exhaustive: unlike the -D top level, it also surfaces the kind-scoped
-        // performance sections (their runtime entrypoint remains the @Performance category door).
         Assert.Contains(names, name => name.StartsWith("Performance: ", StringComparison.Ordinal));
-        Assert.Contains(output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries),
-            line => ExtractSectionName(line) == "@Performance" && line.Contains("category", StringComparison.Ordinal));
-        // The computed @Hidden pole is revealed by --schema (but not by a bare -D catalog).
-        Assert.Contains(output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries),
-            line => ExtractSectionName(line) == "@Hidden" && line.Contains("category", StringComparison.Ordinal));
+
+        // The topical category doors lead the catalog (alpha); @Performance is one of them.
+        var categoryLines = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+            .Where(line => line.Contains("category", StringComparison.Ordinal))
+            .ToArray();
+        Assert.Contains(categoryLines, line => ExtractSectionName(line) == "@Performance");
+
+        // Computed/internal poles are never user-facing: @Hidden, @Default and @All dissolved.
+        Assert.DoesNotContain(categoryLines, line => ExtractSectionName(line) == "@Hidden");
+        Assert.DoesNotContain(categoryLines, line => ExtractSectionName(line) == "@Default");
+        Assert.DoesNotContain(categoryLines, line => ExtractSectionName(line) == "@All");
+        Assert.DoesNotContain(categoryLines, line => ExtractSectionName(line) == "@Switches");
+
         Assert.DoesNotContain(lines, line => line.StartsWith("Missing Source Files", StringComparison.Ordinal));
         Assert.DoesNotContain(lines, line => line.StartsWith("Source Integrity", StringComparison.Ordinal));
     }
@@ -7085,7 +7090,7 @@ public class CommandExecutionTests
     public async Task LibraryCommand_DiscoverSwitchesCategory_ListsSwitchesSection()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-D", "@Switches", "--table");
+            "library", "System.Text.Json", "-D", "@Audit", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Switches", output);
@@ -7102,7 +7107,7 @@ public class CommandExecutionTests
             Assert.Empty(SwitchScanner.Scan(peReader));
 
         var (exit, output, error) = await RunAppAsync(
-            "library", assemblyPath, "-D", "@Switches", "--table");
+            "library", assemblyPath, "-D", "@Audit", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Switches", output);
@@ -8020,7 +8025,23 @@ public class CommandExecutionTests
             .ToArray();
 
         Assert.NotEmpty(sectionHeaders);
-        Assert.Equal(sectionHeaders.OrderBy(h => h, StringComparer.OrdinalIgnoreCase).ToArray(), sectionHeaders);
+
+        // The kind-scoped Performance sub-group renders as a contiguous trailing cluster
+        // (its "Performance:" prefix keeps it grouped), and Resource Triage trails with it.
+        // The remaining primary spine renders alphabetically.
+        var trailing = new HashSet<string>(StringComparer.Ordinal) { "Resource Triage" };
+        var spine = sectionHeaders
+            .Where(h => !h.StartsWith("Performance:", StringComparison.Ordinal) && !trailing.Contains(h))
+            .ToArray();
+        Assert.Equal(spine.OrderBy(h => h, StringComparer.OrdinalIgnoreCase).ToArray(), spine);
+
+        var performanceIndexes = sectionHeaders
+            .Select((header, index) => (header, index))
+            .Where(pair => pair.header.StartsWith("Performance:", StringComparison.Ordinal))
+            .Select(pair => pair.index)
+            .ToArray();
+        Assert.NotEmpty(performanceIndexes);
+        Assert.Equal(performanceIndexes.Length, performanceIndexes[^1] - performanceIndexes[0] + 1);
     }
 
     [Fact]

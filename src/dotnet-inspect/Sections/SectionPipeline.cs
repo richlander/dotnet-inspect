@@ -16,6 +16,8 @@ public sealed class SectionEntry<TModel>
     public bool ListedInCatalog { get; init; } = true;
     public bool ProbeEffectiveness { get; init; } = true;
     public SectionCapabilities Capabilities { get; init; }
+    public SectionSizeClass SizeClass { get; init; }
+    public SectionCost Cost { get; init; }
     public required string? ScannerKey { get; init; }
     public bool HasExplicitApplicability { get; init; }
     public required Func<TModel, bool> IsApplicable { get; init; }
@@ -89,6 +91,8 @@ public sealed class SectionPipeline<TModel>
             ListedInCatalog = TDescriptor.ListedInCatalog,
             ProbeEffectiveness = TDescriptor.ProbeEffectiveness,
             Capabilities = TDescriptor.Capabilities,
+            SizeClass = TDescriptor.SizeClass,
+            Cost = TDescriptor.Cost,
             ScannerKey = TDescriptor.ScannerKey,
             HasExplicitApplicability = isApplicable != null,
             IsApplicable = isApplicable ?? TDescriptor.CanRender,
@@ -123,6 +127,14 @@ public sealed class SectionPipeline<TModel>
 
     /// <summary>All registered section names, in registration order.</summary>
     public string[] AllSectionNames => _entries.Select(e => e.Name).ToArray();
+
+    /// <summary>
+    /// The authored topical category doors (e.g. <c>@Audit</c>, <c>@Source</c>). Excludes the
+    /// computed/selector-only poles <c>@Default</c>, <c>@All</c>, and <c>@Hidden</c>. These are the
+    /// only categories the curated <c>-D</c> catalog lists as doors.
+    /// </summary>
+    public IReadOnlySet<string> GetListedCategoryDoors()
+        => _categories.Select(c => c.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Section names that are independently selectable with <c>-S</c>. Headless context
@@ -181,7 +193,7 @@ public sealed class SectionPipeline<TModel>
     /// </summary>
     public IReadOnlySet<string> GetCatalogHiddenSections()
         => _curatedCatalog
-            ? _entries.Where(e => IsSelectable(e) && !IsAllMember(e))
+            ? _entries.Where(e => IsSelectable(e) && (!IsAllMember(e) || !e.ListedInCatalog))
                 .Select(e => e.Name)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase)
             : _entries.Where(e => !e.ListedInCatalog)
@@ -434,7 +446,9 @@ public sealed class SectionPipeline<TModel>
                 continue;
 
             Verbosity required;
-            if (entry.IsExpensive)
+            if (_curatedCatalog)
+                required = CuratedRequiredVerbosity(entry);
+            else if (entry.IsExpensive)
                 required = Verbosity.Detailed;
             else if (i > primaryThreshold)
                 required = Verbosity.Normal;
@@ -445,6 +459,23 @@ public sealed class SectionPipeline<TModel>
                 maxVerbosity = required;
         }
         return maxVerbosity;
+    }
+
+    /// <summary>
+    /// The lowest verbosity whose curated ladder would render <paramref name="entry"/>, used to
+    /// auto-promote the render level when <c>-S</c> targets it. Mirrors
+    /// <see cref="IsCuratedAutoRendered"/>: Verbose size or non-network-free cost needs Detailed;
+    /// the target (<see cref="SectionEntry{TModel}.Info"/>) section renders from Minimal; every
+    /// other bounded network-free section (Terse or Informative) first renders at Normal, since
+    /// Minimal shows the target only.
+    /// </summary>
+    private static Verbosity CuratedRequiredVerbosity(SectionEntry<TModel> entry)
+    {
+        if (entry.SizeClass == SectionSizeClass.Verbose || entry.Cost != SectionCost.NetworkFree)
+            return Verbosity.Detailed;
+        if (entry.Info)
+            return Verbosity.Minimal;
+        return Verbosity.Normal;
     }
 
     /// <summary>
@@ -500,11 +531,18 @@ public sealed class SectionPipeline<TModel>
         if (include is { Count: > 0 })
             return include.Contains(entry.Name);
 
-        // Not explicitly included: ExplicitOnly sections are never auto-selected by verbosity
+        // Not explicitly included: ExplicitOnly sections are never auto-selected by verbosity.
+        // In the curated model this covers coordinate-gated sections (IL context) only; the old
+        // "keep out of the default view" reasons are expressed by size class and cost instead.
         if (entry.ExplicitOnly)
             return false;
 
-        // Verbosity-based selection using position and IsExpensive
+        // Curated catalog: the verbosity ladder is driven by declared size class + cost, not
+        // section position. Everything else (@All/@Hidden, catalog listing) is computed from these.
+        if (_curatedCatalog)
+            return IsCuratedAutoRendered(entry, verbosity);
+
+        // Legacy pipelines: verbosity-based selection using position and IsExpensive
         return verbosity switch
         {
             Verbosity.Quiet => index == 0 && entry.Name == "Summary", // Include headless summary at quiet
@@ -513,6 +551,29 @@ public sealed class SectionPipeline<TModel>
             _ => true, // Detailed: all non-ExplicitOnly sections
         };
     }
+
+    /// <summary>
+    /// Curated verbosity ladder. A section auto-renders (no explicit <c>-S</c>) when its declared
+    /// <see cref="SectionEntry{TModel}.SizeClass"/> and <see cref="SectionEntry{TModel}.Cost"/>
+    /// fit the view:
+    /// <list type="bullet">
+    ///   <item><b>Quiet</b>: no sections (the identity line is rendered by the view model).</item>
+    ///   <item><b>Minimal</b>: the target section(s) only (<see cref="SectionEntry{TModel}.Info"/>).</item>
+    ///   <item><b>Normal</b>: Terse + Informative, network-free.</item>
+    ///   <item><b>Detailed</b>: all size classes, network-free or moderated cost (never unbounded).</item>
+    /// </list>
+    /// Unbounded-cost sections never auto-render at any verbosity; they are reached by exact name
+    /// or an explicit category door.
+    /// </summary>
+    private static bool IsCuratedAutoRendered(SectionEntry<TModel> entry, Verbosity verbosity)
+        => verbosity switch
+        {
+            Verbosity.Quiet => false,
+            Verbosity.Minimal => entry.Info,
+            Verbosity.Normal => entry.SizeClass <= SectionSizeClass.Informative
+                && entry.Cost == SectionCost.NetworkFree,
+            _ => entry.Cost != SectionCost.Unbounded, // Detailed: all sizes, bounded cost
+        };
 
     private static bool IsSelectable(SectionEntry<TModel> entry)
         => !string.Equals(entry.Name, SectionNames.Summary, StringComparison.OrdinalIgnoreCase);

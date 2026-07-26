@@ -52,7 +52,8 @@ public class LibraryCommand
                     sectionCategories: pipeline.GetCategoryMap(),
                     // --schema reveals the full catalog including the @Hidden pole; a static -D
                     // without --schema keeps the curated top-level view.
-                    catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections());
+                    catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
+                    listedCategoryDoors: pipeline.GetListedCategoryDoors());
             }
         }
 
@@ -1318,7 +1319,8 @@ public class LibraryCommand
             verbosity: (int)userVerbosity, rootLabel: rootLabel, fullSchema: schemaMap,
             sectionCostAnnotations: pipeline.GetCostAnnotations(),
             sectionCategories: pipeline.GetCategoryMap(),
-            catalogHiddenSections: EffectiveCatalogHidden(pipeline));
+            catalogHiddenSections: EffectiveCatalogHidden(pipeline),
+            listedCategoryDoors: pipeline.GetListedCategoryDoors());
     }
 
     // ── Effective sections cache ──
@@ -1390,7 +1392,8 @@ public class LibraryCommand
             verbosity: (int)userVerbosity, rootLabel: rootLabel,
             sectionCostAnnotations: LibrarySections.CreatePipeline().GetCostAnnotations(),
             sectionCategories: LibrarySections.CreatePipeline().GetCategoryMap(),
-            catalogHiddenSections: EffectiveCatalogHidden(LibrarySections.CreatePipeline()));
+            catalogHiddenSections: EffectiveCatalogHidden(LibrarySections.CreatePipeline()),
+            listedCategoryDoors: LibrarySections.CreatePipeline().GetListedCategoryDoors());
     }
 
     /// <summary>

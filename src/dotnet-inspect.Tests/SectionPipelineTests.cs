@@ -350,33 +350,37 @@ public class SectionPipelineTests
 
         var hidden = pipeline.GetCatalogHiddenSections();
 
-        // Curated catalog: the -D top level lists only @All members (default-rendered
-        // sections plus Noisy cheap-but-verbose opt-ins) and real category doors.
-        // Everything else is catalog-hidden: reached through a category door (@Performance,
-        // @Source, @Audit, ...), the computed @Hidden pole, or --schema — never the -D top level.
+        // Curated catalog: the -D top level lists the visible "spine" (size-classed, bounded,
+        // network-free sections) plus the topical category doors. Catalog-hidden are the sections
+        // that must never appear in the flat top level: the unbounded/expensive footguns
+        // (reached through a category door or by exact name) and the coordinate-gated IL context
+        // sections (reached only when an --il-offset makes them applicable).
 
-        // @All members are never catalog-hidden.
-        foreach (var allMember in new[]
-                 {
-                     "Library Info", "Symbols", "Signals", "References", "Dependencies",
-                     "Async Methods", "Custom Attributes", "Extension Methods",
-                     "P/Invoke Methods", "Type Forwarders", "Union Types"
-                 })
+        // Visible spine members are never catalog-hidden — including the now-size-classed
+        // sections that used to be opt-in (Switches, Custom Attributes, Non-normalized Paths, ...).
+        var visible = new List<string>
         {
-            Assert.DoesNotContain(allMember, hidden);
-        }
+            "Library Info", "Symbols", "Signals", "References", "Dependencies",
+            "Async Methods", "Custom Attributes", "Extension Methods",
+            "P/Invoke Methods", "Type Forwarders", "Union Types",
+            "Switches", "Resources", "Non-normalized Paths"
+        };
+        foreach (var name in visible)
+            Assert.DoesNotContain(name, hidden);
 
-        // Feeders (category-doored), the @Hidden pole, and coordinate sections ARE catalog-hidden.
+        // Footguns (unbounded/expensive), the kind-scoped performance sub-group (kept behind the
+        // @Performance door via ListedInCatalog=false), and coordinate IL-context sections ARE
+        // catalog-hidden.
         foreach (var kind in PerformanceKinds.Sections)
             Assert.Contains(kind, hidden);
-        foreach (var feeder in new[]
+        foreach (var footgun in new[]
                  {
-                     "Top Leverage", "Non-normalized Paths", "SourceLink Integrity",
+                     "Top Leverage", "Unsafe Members", "SourceLink Integrity",
                      "Source Files", "SourceLink Availability", "SourceLink Missing Files",
-                     "Switches", "Member Context"
+                     "Member Context"
                  })
         {
-            Assert.Contains(feeder, hidden);
+            Assert.Contains(footgun, hidden);
         }
 
         // Every catalog-hidden section is still registered and selectable by name.
@@ -556,7 +560,7 @@ public class SectionPipelineTests
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Integration Opportunities" });
 
-        Assert.DoesNotContain("Integration Opportunities", effective);
+        Assert.Contains("Integration Opportunities", effective);
         Assert.Contains("Integration Opportunities", selected);
     }
 
@@ -587,7 +591,7 @@ public class SectionPipelineTests
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section });
 
-        Assert.DoesNotContain(section, effective);
+        Assert.Contains(section, effective);
         Assert.Contains(section, selected);
     }
 
@@ -605,7 +609,7 @@ public class SectionPipelineTests
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Switches" });
 
-        Assert.DoesNotContain("Switches", effective);
+        Assert.Contains("Switches", effective);
         Assert.Contains("Switches", selected);
     }
 
@@ -935,18 +939,19 @@ public class SectionPipelineTests
             [
                 SectionNames.UnsafeMembers,
                 "P/Invoke Methods",
-                "Switches"
+                "Switches",
+                "Non-normalized Paths"
             ],
             sections);
     }
 
     [Fact]
-    public void LibraryPipeline_IntegrationsCategory_IncludesUnionTypes()
+    public void LibraryPipeline_IntegrationsCategory_ExcludesUnionTypes()
     {
         var categories = LibrarySections.CreatePipeline().GetCategoryMap();
 
         Assert.True(categories.TryGetValue("@Integrations", out var sections));
-        Assert.Contains("Union Types", sections);
+        Assert.DoesNotContain("Union Types", sections);
     }
 
     [Fact]
@@ -1033,7 +1038,7 @@ public class SectionPipelineTests
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Extension Methods" });
 
-        Assert.DoesNotContain("Extension Methods", effective);
+        Assert.Contains("Extension Methods", effective);
         Assert.Contains("Extension Methods", selected);
     }
 
@@ -1102,7 +1107,7 @@ public class SectionPipelineTests
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "P/Invoke Methods" });
 
-        Assert.DoesNotContain("P/Invoke Methods", effective);
+        Assert.Contains("P/Invoke Methods", effective);
         Assert.Contains("P/Invoke Methods", selected);
     }
 
@@ -1120,7 +1125,7 @@ public class SectionPipelineTests
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Async Methods" });
 
-        Assert.DoesNotContain("Async Methods", effective);
+        Assert.Contains("Async Methods", effective);
         Assert.Contains("Async Methods", selected);
     }
 
@@ -1169,7 +1174,7 @@ public class SectionPipelineTests
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Resources" });
 
-        Assert.DoesNotContain("Resources", effective);
+        Assert.Contains("Resources", effective);
         Assert.Contains("Resources", selected);
     }
 
@@ -1187,7 +1192,7 @@ public class SectionPipelineTests
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "OpenTelemetry" });
 
-        Assert.DoesNotContain("OpenTelemetry", effective);
+        Assert.Contains("OpenTelemetry", effective);
         Assert.Contains("OpenTelemetry", selected);
     }
 
@@ -1205,7 +1210,7 @@ public class SectionPipelineTests
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Integrations" });
 
-        Assert.DoesNotContain("Integrations", effective);
+        Assert.Contains("Integrations", effective);
         Assert.Contains("Integrations", selected);
     }
 
@@ -1246,7 +1251,7 @@ public class SectionPipelineTests
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { sectionName });
 
-        Assert.DoesNotContain(sectionName, effective);
+        Assert.Contains(sectionName, effective);
         Assert.Contains(sectionName, selected);
     }
 
@@ -1264,7 +1269,7 @@ public class SectionPipelineTests
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Custom Attributes" });
 
-        Assert.DoesNotContain("Custom Attributes", effective);
+        Assert.Contains("Custom Attributes", effective);
         Assert.Contains("Custom Attributes", selected);
     }
 
@@ -1282,7 +1287,7 @@ public class SectionPipelineTests
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Type Forwarders" });
 
-        Assert.DoesNotContain("Type Forwarders", effective);
+        Assert.Contains("Type Forwarders", effective);
         Assert.Contains("Type Forwarders", selected);
     }
 
