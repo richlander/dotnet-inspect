@@ -35,7 +35,8 @@ internal static class LibraryMetadataService
         HttpClient httpClient,
         bool isPlatformAssembly = false,
         HashSet<string>? scanners = null,
-        ScannerRegistry? scannerRegistry = null)
+        ScannerRegistry? scannerRegistry = null,
+        bool discoveryOnly = false)
     {
         logger.Log($"Inspecting: {Path.GetFileName(path)}");
 
@@ -204,6 +205,14 @@ internal static class LibraryMetadataService
                 options.UserVerbosity,
                 options.IncludeSections);
 
+            // Effective-section discovery (-D) must be network-free regardless of
+            // verbosity or -S filters: the SourceLink family is listed from the
+            // network-free ProbeLocalSourceLinkAsync gate, so a discovery inspection
+            // never downloads a PDB. This keeps -D listings verbosity-independent and
+            // keeps the effective cache token (probe-driven) consistent with what the
+            // inspection records for HasSourceLink.
+            bool allowPdbDownload = sourcePlan.AllowPdbDownload && !discoveryOnly;
+
             await AuditAsync(
                 service,
                 inspection,
@@ -213,7 +222,7 @@ internal static class LibraryMetadataService
                 logger,
                 httpClient,
                 isPlatformAssembly,
-                allowPdbDownload: sourcePlan.AllowPdbDownload);
+                allowPdbDownload: allowPdbDownload);
 
             var sourceSubject = FindingSubjectFor(path);
             inspection.SourceDocumentInspection = MetadataFindings.InspectSourceDocuments(

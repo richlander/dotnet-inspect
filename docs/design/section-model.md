@@ -129,6 +129,13 @@ them under `-D` is network-free.
   (`#sl0`/`#sl1`) so warming or clearing a cached PDB busts a stale `-D` catalog.
 - Hyper-subscribe applies: with no resolvable SourceLink, the `@SourceLink` door
   and its members disappear from `-D` entirely.
+- `-D` discovery is network-free at **every** verbosity. The discovery
+  inspection is run with `discoveryOnly: true`, which forces
+  `allowPdbDownload = false` regardless of `-v` level or `-S` filters — so
+  `-D -v:d` never downloads a PDB to list a section. The SourceLink family is
+  listed solely from the network-free probe, keeping the `-D` catalog identical
+  across verbosities and keeping the effective-cache token (probe-driven)
+  consistent with what the inspection records for `HasSourceLink`.
 
 ### `-D` catalog
 
