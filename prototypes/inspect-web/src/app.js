@@ -814,7 +814,8 @@ function renderPackageDependencies() {
   }
 
   const selectedTfm = resolveDependenciesFramework(groups);
-  const selectorChips = groups
+  const orderedGroups = [...groups].sort((a, b) => compareFrameworks(a.framework, b.framework));
+  const selectorChips = orderedGroups
     .map(group => `<button class="type-chip ${group.framework === selectedTfm ? "active" : ""}" data-dep-framework="${escapeHtml(group.framework)}">${escapeHtml(group.framework)}</button>`)
     .join("");
   const selector = `
@@ -832,10 +833,10 @@ function renderPackageDependencies() {
       ${deps.length
         ? `<ul class="dep-list">${deps.map(dependency => {
             const isOpen = openIds.has(dependency.id.toLowerCase());
-            const nameCell = isOpen
-              ? `<button class="dep-name as-link" data-dep-open="${escapeHtml(dependency.id)}" title="Open ${escapeHtml(dependency.id)}">${escapeHtml(dependency.id)}</button>`
-              : `<span class="dep-name" title="${escapeHtml(dependency.id)}">${escapeHtml(dependency.id)}</span>`;
-            return `<li>${nameCell}<code class="dep-version">${escapeHtml(dependency.versionRange || "*")}</code></li>`;
+            const attrs = isOpen
+              ? `data-dep-open="${escapeHtml(dependency.id)}" title="Switch to ${escapeHtml(dependency.id)}"`
+              : `data-dep-load="${escapeHtml(dependency.id)}" data-dep-version="${escapeHtml(dependency.versionRange || "")}" title="Open ${escapeHtml(dependency.id)} in a new tab"`;
+            return `<li><button class="dep-name as-link${isOpen ? " is-open" : ""}" ${attrs}>${escapeHtml(dependency.id)}</button><code class="dep-version">${escapeHtml(dependency.versionRange || "*")}</code></li>`;
           }).join("")}</ul>`
         : `<div class="empty-list">No package dependencies declared for ${escapeHtml(group.framework)}.</div>`}
     </section>`;
@@ -843,11 +844,44 @@ function renderPackageDependencies() {
   const graphSection = `
     <section class="document-section">
       <div class="section-title"><h2>Dependency graph</h2><span>callers above · direct dependencies below</span></div>
-      <p class="lens-note">Open packages that depend on <strong>${escapeHtml(state.package.id)}</strong> appear as callers; its own direct <code>${escapeHtml(group.framework)}</code> dependencies appear below. Open-package nodes are clickable.</p>
+      <p class="lens-note">Open packages that depend on <strong>${escapeHtml(state.package.id)}</strong> appear as callers; its own direct <code>${escapeHtml(group.framework)}</code> dependencies appear below. Click any dependency to open it in a new tab.</p>
       <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
     </section>`;
 
   return `${selector}${graphSection}${depList}`;
+}
+
+// Orders target-framework monikers: modern .NET (net with a dotted version) first,
+// then .NET Framework (net without a dot), then netstandard, each descending by version,
+// with anything else sorted alphabetically last.
+function frameworkTier(moniker) {
+  const m = String(moniker).toLowerCase();
+  if (m.startsWith("netstandard")) return 2;
+  if (m.startsWith("net")) return m.slice(3).includes(".") ? 0 : 1;
+  return 3;
+}
+
+function frameworkVersionParts(moniker) {
+  const match = String(moniker).toLowerCase().match(/(\d+(?:\.\d+)*)$/);
+  const version = match ? match[1] : "";
+  if (!version) return [];
+  return version.includes(".") ? version.split(".").map(Number) : version.split("").map(Number);
+}
+
+function compareFrameworks(a, b) {
+  const tierA = frameworkTier(a);
+  const tierB = frameworkTier(b);
+  if (tierA !== tierB) return tierA - tierB;
+  if (tierA === 3) return String(a).localeCompare(String(b));
+  const versionA = frameworkVersionParts(a);
+  const versionB = frameworkVersionParts(b);
+  const length = Math.max(versionA.length, versionB.length);
+  for (let i = 0; i < length; i++) {
+    const partA = versionA[i] ?? 0;
+    const partB = versionB[i] ?? 0;
+    if (partA !== partB) return partB - partA;
+  }
+  return String(a).localeCompare(String(b));
 }
 
 function resolveDependenciesFramework(groups) {
@@ -856,7 +890,7 @@ function resolveDependenciesFramework(groups) {
     return state.dependenciesFramework;
   }
   const active = groups.find(group => group.isActive);
-  return active ? active.framework : available[0];
+  return active ? active.framework : [...available].sort(compareFrameworks)[0];
 }
 
 async function loadPackageDependencies() {
@@ -1706,6 +1740,9 @@ function bindEvents() {
   }));
   document.querySelectorAll("[data-dep-open]").forEach(button => button.addEventListener("click", () => {
     switchToPackageForDependencies(button.dataset.depOpen);
+  }));
+  document.querySelectorAll("[data-dep-load]").forEach(button => button.addEventListener("click", () => {
+    openDependencyPackage(button.dataset.depLoad, button.dataset.depVersion || "");
   }));
   document.querySelectorAll("[data-kind-jump]").forEach(button => button.addEventListener("click", () => {
     state.atPackageRoot = false;
@@ -2745,17 +2782,17 @@ function buildDependencyGraphMermaid(selectedTfm) {
   const nodes = [];
   const nodeInfoByLabel = new Map();
   const seen = new Set();
-  const addNode = (id, role) => {
+  const addNode = (id, versionRange) => {
     const key = id.toLowerCase();
     if (seen.has(key)) return;
     seen.add(key);
     const open = openById.get(key);
     const kind = key === centerKey ? "self" : (open ? "open" : "external");
     nodes.push({ id, kind });
-    nodeInfoByLabel.set(id, { id, kind });
+    nodeInfoByLabel.set(id, { id, kind, versionRange: versionRange || "" });
   };
 
-  addNode(centerId, "self");
+  addNode(centerId);
 
   const centerGroups = state.workspaceDependencies[`${centerKey}@${state.package.version.toLowerCase()}`]
     || state.packageDependencies?.dependencyGroups
@@ -2763,8 +2800,9 @@ function buildDependencyGraphMermaid(selectedTfm) {
   const centerGroup = centerGroups.find(group => group.framework === selectedTfm)
     || centerGroups.find(group => group.isActive)
     || centerGroups[0];
-  const downstream = (centerGroup?.dependencies || []).map(dependency => dependency.id);
-  for (const id of downstream) addNode(id);
+  const downstreamDeps = centerGroup?.dependencies || [];
+  const downstream = downstreamDeps.map(dependency => dependency.id);
+  for (const dependency of downstreamDeps) addNode(dependency.id, dependency.versionRange);
 
   const upstream = [];
   for (const item of state.packages) {
@@ -2846,10 +2884,13 @@ async function renderDependencyGraph() {
     viewport.querySelectorAll("g.node").forEach(node => {
       const label = (node.textContent || "").replace(/\s+/g, " ").trim();
       const info = built.nodeInfoByLabel.get(label);
-      if (!info || info.kind !== "open") return;
+      if (!info || info.kind === "self") return;
       node.classList.add("nav-node");
       node.style.cursor = "pointer";
-      node.addEventListener("click", () => switchToPackageForDependencies(info.id));
+      node.addEventListener("click", () => {
+        if (info.kind === "open") switchToPackageForDependencies(info.id);
+        else openDependencyPackage(info.id, info.versionRange);
+      });
     });
   } catch (error) {
     if (document.querySelector("#dependency-graph-diagram") === container) {
@@ -2869,6 +2910,29 @@ function switchToPackageForDependencies(packageId) {
   state.selectedTypeId = target.types[0]?.id || "";
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
+  render();
+}
+
+// Extracts a concrete version to load from a NuGet dependency range. Ranges are usually a
+// bare minimum ("10.0.10", meaning >=), sometimes bracketed ("[10.0.0, )"); pull the first
+// version token and fall back to "latest" when it can't be parsed.
+function dependencyVersion(range) {
+  if (!range) return "latest";
+  const match = String(range).match(/\d+(?:\.\d+)+(?:-[0-9A-Za-z.-]+)?/);
+  return match ? match[0] : "latest";
+}
+
+async function openDependencyPackage(packageId, versionRange) {
+  const existing = state.packages.find(item => item.id.toLowerCase() === packageId.toLowerCase());
+  if (existing) {
+    switchToPackageForDependencies(existing.id);
+    return;
+  }
+  const model = await loadPackage(packageId, dependencyVersion(versionRange), "");
+  if (!model) return;
+  state.atPackageRoot = true;
+  state.packageLens = "dependencies";
+  state.dependenciesFramework = "";
   render();
 }
 
@@ -3396,7 +3460,7 @@ async function loadPackage(packageId, version, framework) {
     const packageModel = {
       id: result.package,
       version: result.version,
-      frameworks: result.frameworks ?? [],
+      frameworks: (result.frameworks ?? []).slice().sort(compareFrameworks),
       activeFramework: result.activeFramework,
       assembly: (result.assemblies ?? []).map(item => item.name).join(", "),
       assemblies: result.assemblies ?? [],
