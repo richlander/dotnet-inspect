@@ -166,6 +166,7 @@ public class AppliedTasteSectionTests
     [Theory]
     [InlineData("\u001b[31m", "\\u001B[31m")]   // ANSI escape: recolors or rewrites the terminal
     [InlineData("\u202E", "\\u202E")]       // bidi override: reorders what follows it
+    [InlineData("\u061C", "\\u061C")]       // Arabic letter mark: Bidi_Control, easy to overlook
     [InlineData("\u2066", "\\u2066")]       // isolate: same class
     [InlineData("\u000B", "\\u000B")]       // vertical tab: not a C# terminator, still moves the cursor
     [InlineData("\u0000", "\\u0000")]

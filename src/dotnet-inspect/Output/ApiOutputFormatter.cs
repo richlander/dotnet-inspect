@@ -1711,11 +1711,17 @@ public static class ApiOutputFormatter
         // leaves it, but it does move the cursor down a line in a terminal — it is
         // caught here as the C0 control it is.
         static bool IsRenderingHazard(char ch) =>
-            ch != '\t'
-            && (char.IsControl(ch)
-                || ch is '\u200E' or '\u200F'
-                    or >= '\u202A' and <= '\u202E'
-                    or >= '\u2066' and <= '\u2069');
+            ch != '\t' && (char.IsControl(ch) || IsBidiControl(ch));
+
+        // Exactly Unicode's Bidi_Control set: ALM, LRM/RLM, the LRE/RLE/PDF/LRO/RLO
+        // embeddings and overrides, and the LRI/RLI/FSI/PDI isolates. Deliberately
+        // narrower than the Cf category — a zero-width joiner or a BOM does not
+        // reorder its neighbors, and legitimate identifiers may contain format
+        // characters, so escaping all of Cf would corrupt ordinary names.
+        static bool IsBidiControl(char ch) =>
+            ch is '\u061C' or '\u200E' or '\u200F'
+                or >= '\u202A' and <= '\u202E'
+                or >= '\u2066' and <= '\u2069';
     }
 
     static string TrimLensPrefix(string ruleId)
