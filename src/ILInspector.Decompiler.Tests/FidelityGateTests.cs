@@ -326,6 +326,15 @@ public class FidelityGateTests
         // internal System.Text.Json surface is not recompilable by the compile-back
         // oracle (tracked for a future cross-assembly compile-back capability).
         "SwitchWithTwoLoopingCaseSections",
+        // #3166: the value-swap idiom. csc lowers the tuple swap `(a, b) = (b, a)`
+        // (and the equivalent manual `temp = b; b = a; a = temp;`) to a single
+        // dup-slot save plus the two cross-stores; SwapIdiomPass raises that
+        // surviving carrier back to `(a, b) = (b, a)`. Because the tuple swap and
+        // the one-temp sequence share IL, the raise is opcode-exact — this pins it.
+        // Mirrors System.Text.Json.JsonElement.DeepEquals, which swaps two
+        // JsonElement structs through one such temp but cannot itself be fed to the
+        // compile-back oracle (internal System.Text.Json surface).
+        "SwapStructPair",
         // The compile-back oracle replays the fixture's runtime-async feature,
         // so these methods must retain the same lowering rather than merely
         // remaining recompilable.
