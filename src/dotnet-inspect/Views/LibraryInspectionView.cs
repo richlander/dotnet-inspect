@@ -866,7 +866,7 @@ public class LibraryInspectionView
                 ILInspector.Analysis.ResourceLifecycleOccurrence>.Complete;
 
     [MarkoutSection(
-        Name = SectionNames.ResourceTriage,
+        Name = SectionNames.EscapeArrayPool,
         ShowWhenProperty = nameof(HasResourceTriage),
         EmptyText = "No actionable resource lifecycle candidates found.")]
     public List<ResourceTriageRow> ResourceTriageSection =>

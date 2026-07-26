@@ -558,7 +558,7 @@ public class LibraryInspection
             AddFailure(failures, "Switches", SwitchInspection);
             AddFailure(
                 failures,
-                DotnetInspector.Sections.SectionNames.ResourceTriage,
+                DotnetInspector.Sections.SectionNames.EscapeArrayPool,
                 ResourceLifecycleInspection);
             return NullIfEmpty(failures);
             });

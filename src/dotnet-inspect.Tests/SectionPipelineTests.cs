@@ -338,7 +338,7 @@ public class SectionPipelineTests
         Assert.Contains("Performance: Async", pipeline.AllSectionNames);
         Assert.Contains("Performance: Other", pipeline.AllSectionNames);
         Assert.DoesNotContain("Performance Triage", pipeline.AllSectionNames);
-        Assert.Contains("Resource Triage", pipeline.AllSectionNames);
+        Assert.Contains("Escape: Array Pool", pipeline.AllSectionNames);
         Assert.Contains("Return Address Context", pipeline.AllSectionNames);
         Assert.Contains("Union Types", pipeline.AllSectionNames);
     }

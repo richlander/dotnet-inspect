@@ -8,11 +8,15 @@ public static class SectionCategoryNames
     public const string Audit = "@Audit";
     public const string Source = "@Source";
 
-    /// <summary>Cheap-but-verbose surface sections (Async Methods, Custom Attributes, etc.).</summary>
+    /// <summary>Cheap-but-verbose surface sections (Async Methods, Custom Attributes, Resources, etc.).</summary>
     public const string Surface = "@Surface";
 
-    /// <summary>Manifest-resource sections (Resources, Resource Triage).</summary>
-    public const string Resources = "@Resources";
+    /// <summary>
+    /// Resource escape / exception-safety sections (Resource Escape Triage family). Members are
+    /// <c>Escape: &lt;Resource&gt;</c> findings where a resource escapes its safe cleanup scope on an
+    /// exception path (today only <c>Escape: Array Pool</c>).
+    /// </summary>
+    public const string Escape = "@Escape";
 
     /// <summary>
     /// Computed complement pole: sections surfaced by no listed category. Discovered only via

@@ -40,6 +40,7 @@ public static class SelectResolver
         ["Optimization Opportunities"] = SectionNames.PerformanceTriage,
         ["IL Offset"] = SectionNames.ILOffset,
         ["Package README"] = DotnetInspector.Views.PackageSections.PackageReadme,
+        ["Resource Triage"] = SectionNames.EscapeArrayPool,
     };
 
     /// <summary>
@@ -54,6 +55,8 @@ public static class SelectResolver
         ["Performance"] = SectionCategoryNames.Performance,
         ["Performance Triage"] = SectionCategoryNames.Performance,
         ["Optimization Opportunities"] = SectionCategoryNames.Performance,
+        ["Escape"] = SectionCategoryNames.Escape,
+        ["Resource Escape Triage"] = SectionCategoryNames.Escape,
     };
 
     public static bool IsAllSelector(string[]? select)

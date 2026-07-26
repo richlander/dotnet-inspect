@@ -609,14 +609,14 @@ public class CommandExecutionTests
             "library",
             TestAssemblyPath,
             "-S",
-            SectionNames.ResourceTriage,
+            SectionNames.EscapeArrayPool,
             "--tips",
             "q");
         var jsonl = await RunAppAsync(
             "library",
             TestAssemblyPath,
             "-S",
-            SectionNames.ResourceTriage,
+            SectionNames.EscapeArrayPool,
             "--jsonl",
             "--tips",
             "q");
@@ -624,7 +624,7 @@ public class CommandExecutionTests
             "library",
             TestAssemblyPath,
             "-S",
-            SectionNames.ResourceTriage,
+            SectionNames.EscapeArrayPool,
             "--tsv",
             "--tips",
             "q");
@@ -632,16 +632,16 @@ public class CommandExecutionTests
             "library",
             FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
             "-S",
-            SectionNames.ResourceTriage,
+            SectionNames.EscapeArrayPool,
             "--tips",
             "q");
 
         Assert.Equal(0, defaultResult.Exit);
-        Assert.DoesNotContain(SectionNames.ResourceTriage, defaultResult.Output);
+        Assert.DoesNotContain(SectionNames.EscapeArrayPool, defaultResult.Output);
 
         Assert.Equal(0, markdown.Exit);
         Assert.Empty(markdown.Error);
-        Assert.Contains("## Resource Triage", markdown.Output);
+        Assert.Contains("## Escape: Array Pool", markdown.Output);
         Assert.Contains("ReadBeforeReturn", markdown.Output);
         Assert.DoesNotContain(
             nameof(ResourceTriageFixture.TransformWithUnrelatedReadAfterReturn),
@@ -6421,7 +6421,7 @@ public class CommandExecutionTests
             .ToArray();
         var categoryNames = categoryLines.Select(ExtractSectionName).ToArray();
         Assert.Equal(
-            new[] { "@Audit", "@Integrations", "@Performance", "@Resources", "@Source", "@Surface" },
+            new[] { "@Audit", "@Escape", "@Integrations", "@Performance", "@Source", "@Surface" },
             categoryNames);
 
         var raw = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
@@ -6471,7 +6471,7 @@ public class CommandExecutionTests
             "library",
             TestAssemblyPath,
             "-D",
-            SectionNames.ResourceTriage,
+            SectionNames.EscapeArrayPool,
             "--tips",
             "q");
 
@@ -8054,16 +8054,16 @@ public class CommandExecutionTests
 
         Assert.NotEmpty(sectionHeaders);
 
-        // The kind-scoped Performance sub-group and Resource Triage render as a contiguous
-        // trailing cluster (the "Performance:" prefix keeps the buckets grouped). Everything
-        // from the first trailing member onward must be part of that cluster, and the primary
-        // spine that precedes it renders alphabetically.
+        // The kind-scoped Performance sub-group and the Escape family render as a contiguous
+        // trailing cluster (the "Performance:"/"Escape:" prefixes keep the buckets grouped).
+        // Everything from the first trailing member onward must be part of that cluster, and the
+        // primary spine that precedes it renders alphabetically.
         bool IsTrailing(string h) =>
             h.StartsWith("Performance:", StringComparison.Ordinal)
-            || string.Equals(h, "Resource Triage", StringComparison.Ordinal);
+            || h.StartsWith("Escape:", StringComparison.Ordinal);
 
         var firstTrailing = Array.FindIndex(sectionHeaders, IsTrailing);
-        Assert.True(firstTrailing >= 0, "expected a trailing Performance/Resource Triage cluster");
+        Assert.True(firstTrailing >= 0, "expected a trailing Performance/Escape cluster");
 
         // No spine section may appear after the trailing cluster begins.
         for (var i = firstTrailing; i < sectionHeaders.Length; i++)

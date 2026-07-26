@@ -80,7 +80,7 @@ public static class LibrarySections
             .Add<PerformanceHotspots>()
             .Add<PerformanceAsync>()
             .Add<PerformanceOther>()
-            .Add<ResourceTriage>()
+            .Add<EscapeArrayPool>()
             .Add<PInvokeMethods>()
             .Add<AsyncMethods>()
             .Add<Resources>()
@@ -99,12 +99,12 @@ public static class LibrarySections
                 "Async Methods",
                 "Custom Attributes",
                 "Extension Methods",
+                "Resources",
                 "Type Forwarders",
                 "Union Types",
                 "P/Invoke Methods")
-            .AddCategory(SectionCategoryNames.Resources,
-                "Resources",
-                SectionNames.ResourceTriage)
+            .AddCategory(SectionCategoryNames.Escape,
+                SectionNames.EscapeArrayPool)
             .AddCategory(SectionCategoryNames.Source,
                 "Source Files",
                 "SourceLink Availability",
@@ -653,10 +653,13 @@ public static class LibrarySections
             => HasPerformanceKind(model, SectionNames.PerformanceOther) || model.HasMethodBodies;
     }
 
-    public sealed class ResourceTriage : ISectionDescriptor<LibraryInspection>
+    public sealed class EscapeArrayPool : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => SectionNames.ResourceTriage;
+        public static string Name => SectionNames.EscapeArrayPool;
         public static bool IsExpensive => false;
+        // Kept behind the @Escape door in the flat -D catalog (a growing Escape: <Resource> family),
+        // yet still reachable by drilling into that door (-D @Escape) or by exact name.
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerResourceTriage;
         public static bool CanRender(LibraryInspection model)
             => model.ResourceLifecycleInspection?.Value

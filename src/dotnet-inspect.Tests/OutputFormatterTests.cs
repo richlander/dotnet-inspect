@@ -32,7 +32,7 @@ public class OutputFormatterTests
         };
 
         var failure = Assert.Single(inspection.InspectionFailures!);
-        Assert.Equal(SectionNames.ResourceTriage, failure.Section);
+        Assert.Equal(SectionNames.EscapeArrayPool, failure.Section);
         Assert.Equal("Resource lifecycle occurrence", failure.Finding);
         Assert.Equal("fixture failure", failure.Reason);
     }

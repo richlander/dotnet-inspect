@@ -211,8 +211,12 @@ public static class SectionNames
     /// <summary>Catch-all for performance findings whose shape has no dedicated section (keeps the scan non-lossy).</summary>
     public const string PerformanceOther = "Performance: Other";
 
-    /// <summary>Section for curated exception-path resource lifecycle candidates.</summary>
-    public const string ResourceTriage = "Resource Triage";
+    /// <summary>
+    /// Escape/exception-safety section for the array-pool shape: an <c>ArrayPool&lt;T&gt;.Shared.Rent</c>
+    /// that is not returned on an exception path. Part of the <c>@Escape</c> (Resource Escape Triage)
+    /// family; named for the specific resource because the analysis is array-pool-specific today.
+    /// </summary>
+    public const string EscapeArrayPool = "Escape: Array Pool";
 
     /// <summary>Section for unsafe-relevant evidence from the selected member body.</summary>
     public const string UnsafeOperations = "Unsafe Operations";

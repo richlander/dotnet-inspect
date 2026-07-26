@@ -49,7 +49,7 @@ Two orthogonal facts round out a section's placement:
   Info`). It is the only thing `-v:m` renders; it is described by fields, not a
   size class.
 - **Topical category membership** — which visible doors (`@Surface`,
-  `@Performance`, `@Audit`, `@Source`, `@Resources`, `@Integrations`) surface
+  `@Performance`, `@Audit`, `@Source`, `@Escape`, `@Integrations`) surface
   the section. `@All`/`@Hidden` remain internal computed poles (below); they are
   not user-facing doors.
 
