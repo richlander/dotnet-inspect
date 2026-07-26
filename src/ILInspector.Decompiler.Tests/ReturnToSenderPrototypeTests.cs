@@ -4418,13 +4418,22 @@ public class ReturnToSenderPrototypeTests
             optimizationLevel: OptimizationLevel.Release,
             nullableContextOptions: NullableContextOptions.Disable,
             allowUnsafe: true);
+        var references = RoslynTestReferences.TrustedPlatform.ToArray();
+
+        var decompiledArtifact = CompileBackSourceComposer.Compose(request);
+        var decompiledTree = CSharpSyntaxTree.ParseText(decompiledArtifact.Source, parseOptions);
+        var decompiledDiagnostics = CSharpCompilation
+            .Create("return-to-sender-decompiled", [decompiledTree], references, compileOptions)
+            .GetDiagnostics();
 
         return ReturnToSender.TryIsolateRecompileFailure(
             request,
+            decompiledArtifact.Source,
+            decompiledDiagnostics,
             sourceIndex,
             parseOptions,
             compileOptions,
-            RoslynTestReferences.TrustedPlatform.ToArray());
+            references);
     }
 
     static (TypeDefinitionHandle Type, MethodDefinitionHandle Method) FindMethod(

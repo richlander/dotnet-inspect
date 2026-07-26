@@ -39,7 +39,8 @@ sealed record ReturnToSenderSourceProbeResult(
     string? RecompiledOpcodes = null,
     IReadOnlyList<string>? IlDiffLines = null,
     MemberAnchor? MemberAnchor = null,
-    ReturnToSender.FaultIsolationKind? FaultIsolationKind = null)
+    ReturnToSender.FaultIsolationKind? FaultIsolationKind = null,
+    ReturnToSender.FaultIsolationMethod? FaultIsolationMethod = null)
 {
     public bool Passed => Outcome == ReturnToSenderSourceOutcome.ValidMatch;
     public bool Different => Outcome == ReturnToSenderSourceOutcome.ValidDifferent;
@@ -314,7 +315,8 @@ static partial class ReturnToSenderSourceProbe
                     ExpectedBody: sourceMember?.Body,
                     ActualBody: result.TargetBody,
                     MemberAnchor: result.MemberAnchor,
-                    FaultIsolationKind: result.FaultIsolation?.Kind));
+                    FaultIsolationKind: result.FaultIsolation?.Kind,
+                    FaultIsolationMethod: result.FaultIsolation?.Method));
                 continue;
             }
 
@@ -333,7 +335,8 @@ static partial class ReturnToSenderSourceProbe
                     ExpectedBody: null,
                     ActualBody: result.TargetBody,
                     MemberAnchor: result.MemberAnchor,
-                    FaultIsolationKind: result.FaultIsolation?.Kind));
+                    FaultIsolationKind: result.FaultIsolation?.Kind,
+                    FaultIsolationMethod: result.FaultIsolation?.Method));
                 continue;
             }
 
@@ -349,7 +352,8 @@ static partial class ReturnToSenderSourceProbe
                     ExpectedBody: null,
                     ActualBody: result.TargetBody,
                     MemberAnchor: result.MemberAnchor,
-                    FaultIsolationKind: result.FaultIsolation?.Kind));
+                    FaultIsolationKind: result.FaultIsolation?.Kind,
+                    FaultIsolationMethod: result.FaultIsolation?.Method));
                 continue;
             }
 
@@ -372,7 +376,8 @@ static partial class ReturnToSenderSourceProbe
                     ExpectedBody: null,
                     ActualBody: result.TargetBody,
                     MemberAnchor: result.MemberAnchor,
-                    FaultIsolationKind: result.FaultIsolation?.Kind));
+                    FaultIsolationKind: result.FaultIsolation?.Kind,
+                    FaultIsolationMethod: result.FaultIsolation?.Method));
                 continue;
             }
 
@@ -395,7 +400,8 @@ static partial class ReturnToSenderSourceProbe
                     expected,
                     actual,
                     MemberAnchor: result.MemberAnchor,
-                    FaultIsolationKind: result.FaultIsolation?.Kind));
+                    FaultIsolationKind: result.FaultIsolation?.Kind,
+                    FaultIsolationMethod: result.FaultIsolation?.Method));
                 continue;
             }
 
@@ -419,7 +425,8 @@ static partial class ReturnToSenderSourceProbe
                 RecompiledOpcodes: fidelityEvidence?.RecompiledOpcodes,
                 IlDiffLines: fidelityEvidence?.IlDiffLines,
                 MemberAnchor: result.MemberAnchor,
-                FaultIsolationKind: result.FaultIsolation?.Kind));
+                FaultIsolationKind: result.FaultIsolation?.Kind,
+                    FaultIsolationMethod: result.FaultIsolation?.Method));
         }
 
         return results;
@@ -591,6 +598,7 @@ static partial class ReturnToSenderSourceProbe
                 expected_body = result.ExpectedBody,
                 actual_body = result.ActualBody,
                 fault_isolation = result.FaultIsolationKind?.ToString(),
+                fault_isolation_method = result.FaultIsolationMethod?.ToString(),
                 original_opcodes = result.OriginalOpcodes,
                 recompiled_opcodes = result.RecompiledOpcodes,
                 il_diff = result.IlDiffLines,
@@ -616,7 +624,8 @@ static partial class ReturnToSenderSourceProbe
             ExpectedBody: null,
             ActualBody: result.TargetBody,
             MemberAnchor: result.MemberAnchor,
-            FaultIsolationKind: result.FaultIsolation?.Kind));
+            FaultIsolationKind: result.FaultIsolation?.Kind,
+                    FaultIsolationMethod: result.FaultIsolation?.Method));
     }
 
 }

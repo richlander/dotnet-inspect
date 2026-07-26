@@ -37,6 +37,16 @@ Each row contains these fields:
   least one target.
 - `sweepManifestSha256`: SHA-256 of the pool sweep manifest, or `null` when the
   manifest is unknown.
+- `methodologyVersion`: how `invalidBreakdown.productBodyDefect` was computed.
+  Absent (or `null`) means **v1**: substitution control only — a body defect is
+  credited only when the checksum-verified authored body compiles in the failing
+  row's shell, so a broken shell masks the defect and the count is a lower bound.
+  **v2** adds span attribution: when the shell is broken it additionally credits
+  a body defect if the authored body is error-free within its own body span while
+  the decompiled body carries an in-body error. v1 and v2 counts are not directly
+  comparable; the progress card never diffs `productBodyDefect` across the
+  boundary. Copy this field verbatim from the run JSON's top-level
+  `methodologyVersion`.
 
 ## Append procedure
 
@@ -60,8 +70,9 @@ Each row contains these fields:
 
 4. Archive the full JSON and `/tmp/evil-pool/sweep-manifest.json` out-of-tree.
 5. Record the UTC date, short SHA, and sweep-manifest SHA-256.
-6. Append one compact JSON object to `history.jsonl`.
-7. Validate every line parses before committing.
+6. Copy the run JSON's top-level `methodologyVersion` into the row.
+7. Append one compact JSON object to `history.jsonl`.
+8. Validate every line parses before committing.
 
 ## Progress card
 
@@ -93,3 +104,11 @@ column compared to the previous populated one — no hand-computed delta or tren
 word. Runs that predate PR #3096 have no `invalidBreakdown`, so their
 product/harness columns render as `—` and the product-defect pivot cell is
 absent (`-`) with no fabricated step, keeping the missing signal honest.
+
+The Runs table's `Method` column reports each run's `methodologyVersion`
+(`v1`/`v2`). Because v1 and v2 `productBodyDefect` counts are not comparable,
+when the movement window straddles a version boundary the product-defect metric
+is split into `Product defects (v1 lower bound)` and
+`Product defects (v2 span-measured)` rows, each populated only for its own
+version's columns. Markout therefore never charts a step across the boundary; a
+window of uniform version keeps the single `Product defects` row.

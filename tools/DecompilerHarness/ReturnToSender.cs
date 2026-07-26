@@ -33,10 +33,26 @@ static class ReturnToSender
         ShellOrClosureDefect,
     }
 
+    public enum FaultIsolationMethod
+    {
+        /// <summary>Authored body compiled in the failing shell (positive control).</summary>
+        SubstitutionControl,
+
+        /// <summary>
+        /// Shell was also broken, but the authored body was error-free within its
+        /// own body span while the decompiled body carried an in-body error —
+        /// attributable to the decompiler by span comparison.
+        /// </summary>
+        SpanMeasured,
+    }
+
     public sealed record FaultIsolationResult(
         FaultIsolationKind Kind,
         string SourcePath,
-        string? Detail);
+        string? Detail)
+    {
+        public FaultIsolationMethod Method { get; init; } = FaultIsolationMethod.SubstitutionControl;
+    }
 
     /// <summary>
     /// Independent compile-back evidence for an event accessor's sibling
@@ -1659,7 +1675,7 @@ static class ReturnToSender
                 ? compilationResult.FirstError
                 : compilationResult.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
                     ?? compilationResult.FirstError;
-            var faultIsolation = TryIsolateRecompileFailure(sourceResult.Request, sourceIndex, parseOptions, compileOptions, references);
+            var faultIsolation = TryIsolateRecompileFailure(sourceResult.Request, unit, compilationResult.Diagnostics, sourceIndex, parseOptions, compileOptions, references);
             return new Result(
                 plan,
                 unit,
@@ -2121,6 +2137,8 @@ static class ReturnToSender
 
     internal static FaultIsolationResult? TryIsolateRecompileFailure(
         ArtifactRequest request,
+        string decompiledSource,
+        ImmutableArray<Diagnostic> decompiledDiagnostics,
         ReturnToSenderSourceIndex? sourceIndex,
         CSharpParseOptions parseOptions,
         CSharpCompilationOptions compileOptions,
@@ -2156,6 +2174,30 @@ static class ReturnToSender
                     "authored body compiled in the same RTS shell");
             }
 
+            // Shell is broken: the substitution control is blind. Recover the
+            // additional signal by span attribution — if the authored body is
+            // error-free within its own body span yet the decompiled body carries
+            // an in-body error, the shell demonstrably does not force a body-region
+            // error and the decompiled body's in-body error is its own fault.
+            if (BuildTargetIdentity(request) is { } identity
+                && SpanAttribution.DecompiledBodyIsolatedUnderBrokenShell(
+                    decompiledSource,
+                    decompiledDiagnostics,
+                    authoredArtifact.Source,
+                    emit.Diagnostics,
+                    identity))
+            {
+                var decompiledError = decompiledDiagnostics.FirstOrDefault(
+                    diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+                return new FaultIsolationResult(
+                    FaultIsolationKind.BodyDefect,
+                    sourceMember.SourcePath,
+                    $"span-measured: decompiled body error absent from authored body ({FormatDiagnostic(decompiledError)})")
+                {
+                    Method = FaultIsolationMethod.SpanMeasured,
+                };
+            }
+
             var error = emit.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
             return new FaultIsolationResult(
                 FaultIsolationKind.ShellOrClosureDefect,
@@ -2166,6 +2208,29 @@ static class ReturnToSender
         {
             return null;
         }
+    }
+
+    static SpanAttribution.TargetIdentity? BuildTargetIdentity(ArtifactRequest request)
+    {
+        int parameterCount = request.Function.Signature.Parameters.Length;
+        var kind = request switch
+        {
+            PropertyGetterArtifactRequest => SpanAttribution.TargetMemberKind.PropertyGet,
+            PropertySetterArtifactRequest => SpanAttribution.TargetMemberKind.PropertySet,
+            EventAccessorArtifactRequest when request.MethodName.StartsWith("add_", StringComparison.Ordinal)
+                => SpanAttribution.TargetMemberKind.EventAdd,
+            EventAccessorArtifactRequest when request.MethodName.StartsWith("remove_", StringComparison.Ordinal)
+                => SpanAttribution.TargetMemberKind.EventRemove,
+            EventAccessorArtifactRequest => (SpanAttribution.TargetMemberKind?)null,
+            MethodArtifactRequest when request.MethodName is ".ctor" or ".cctor"
+                => SpanAttribution.TargetMemberKind.Constructor,
+            MethodArtifactRequest => SpanAttribution.TargetMemberKind.Method,
+            _ => null,
+        };
+
+        return kind is { } memberKind
+            ? new SpanAttribution.TargetIdentity(request.FullType, request.MethodName, parameterCount, memberKind)
+            : null;
     }
 
     internal static ArtifactRequest WithTargetBody(ArtifactRequest request, ProductTargetBody targetBody)
