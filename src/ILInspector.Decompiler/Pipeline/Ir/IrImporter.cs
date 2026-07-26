@@ -560,7 +560,8 @@ public static class IrImporter
 
         ResolveTypeInfo(source, function);
         RecordUnsupportedTypeDiagnostics(function);
-        function.CheckInvariant();
+        if (IrInvariants.Enabled)
+            function.CheckInvariant();
         return function;
     }
 
@@ -1933,7 +1934,8 @@ public static class IrImporter
         body.Add(new ExpressionStatement(new UnsupportedNode(offset, opcode, reason)));
         function.Diagnostics.Add(new DecompilerDiagnostic(
             DiagnosticIds.UnsupportedConstruct, $"IL_{offset:X4} {opcode}: {reason}"));
-        function.CheckInvariant();
+        if (IrInvariants.Enabled)
+            function.CheckInvariant();
     }
 
     static (ComparisonKind Kind, bool IsUnsigned) ComparisonOf(ILOpCode opcode) => opcode switch
