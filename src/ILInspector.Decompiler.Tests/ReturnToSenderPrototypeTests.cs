@@ -1402,6 +1402,53 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    // Regression for #3112 review (unrepresentable interface name): a hand-authored external
+    // interface can live in a namespace whose segment is a compiler-unspeakable name (`<Bad>`)
+    // — legal in metadata but not a legal C# identifier. Clean() sanitizes it lossily to a
+    // DIFFERENT identifier (`__Bad_`), so the reconstruction would emit `using __Bad_;` /
+    // `__Bad_.IProbe.M()` referencing a type that does not exist (CS0246 = RecompileFail). The
+    // gate must recognize the name cannot round-trip and decline to the sanitized ContextFail
+    // floor. Uses two IL assemblies (an external contract plus the target) resolved as
+    // siblings.
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenNameIsUnrepresentable()
+    {
+        var ilasm = TryLocateIlasm();
+        if (ilasm is null)
+        {
+            Assert.Skip("ilasm not available; skipping hand-authored IL unrepresentable-name regression.");
+            return;
+        }
+
+        var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        AssembleIlFixture(ilasm, UnrepresentableContractsIl, directory, "GeneratedContracts");
+        var assemblyPath = AssembleIlFixture(ilasm, UnrepresentableFixtureIl, directory, "badfixture");
+        try
+        {
+            var target = new ReturnToSender.RequestedTarget("N.Seq", "<Bad>.IProbe.M", 0);
+
+            // All would reconstruct the interface spelling from the lossily-sanitized display
+            // name (`__Bad_.IProbe`), which names no type. The gate must decline rather than
+            // emit a new RecompileFail (CS0246). The name-representability guard is what
+            // catches this; the raw metadata name is not identifier-like.
+            var all = Assert.Single(
+                ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
+            Assert.True(
+                all.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"all {all.Status}: {all.Detail}{Environment.NewLine}{all.Source}");
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
     [Fact]
     public void CompileBackTargets_MultiMemberExternalExplicitInterfaceFallsBackWithoutRecompileFail()
     {
@@ -7618,6 +7665,48 @@ public class ReturnToSenderPrototypeTests
         .class public auto ansi sealed beforefieldinit N.'class'
             extends [System.Runtime]System.Object
         {
+          .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+          {
+            ldarg.0
+            call instance void [System.Runtime]System.Object::.ctor()
+            ret
+          }
+        }
+        """;
+
+    // External contract for the unrepresentable-name regression: an interface whose namespace
+    // segment is a compiler-unspeakable name (`<Bad>`) — legal in metadata, not a legal C#
+    // identifier — so Clean() sanitizes it lossily to a different name (`__Bad_`).
+    const string UnrepresentableContractsIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly GeneratedContracts { }
+        .module GeneratedContracts.dll
+
+        .class interface public abstract auto ansi '<Bad>'.IProbe
+        {
+          .method public hidebysig newslot abstract virtual instance void M() cil managed {}
+        }
+        """;
+
+    // Target for the unrepresentable-name regression: N.Seq explicitly implements the external
+    // `<Bad>.IProbe`. The reconstruction would emit the sanitized `__Bad_.IProbe`, which names
+    // no real type (CS0246) — the gate must decline to the sanitized ContextFail floor instead.
+    const string UnrepresentableFixtureIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern GeneratedContracts { }
+        .assembly badfixture { }
+        .module badfixture.dll
+
+        .class public auto ansi sealed beforefieldinit N.Seq
+            extends [System.Runtime]System.Object
+            implements [GeneratedContracts]'<Bad>'.IProbe
+        {
+          .method private final hidebysig newslot virtual
+              instance void '<Bad>.IProbe.M'() cil managed
+          {
+            .override [GeneratedContracts]'<Bad>'.IProbe::M
+            ret
+          }
           .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
           {
             ldarg.0

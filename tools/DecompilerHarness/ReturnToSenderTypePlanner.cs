@@ -1464,6 +1464,17 @@ public static class CompileBackSourceComposer
                 return null;
             }
 
+            // The reconstructed C# spelling emits the interface's DISPLAY name
+            // (Clean(metadataFullName)) in both the base-list entry and the explicit-member
+            // qualifier. Clean keyword-escapes an identifier-like segment losslessly
+            // (`class` -> `@class`), but rewrites a segment that is not a legal C# identifier
+            // through a lossy sanitizing branch (`<Bad>` -> `__Bad_`), which then references a
+            // type that does not exist (CS0246 = RecompileFail). Only engage when the raw
+            // metadata name round-trips through the display name; otherwise decline to the
+            // plain sanitized shape (the pre-#3112 ContextFail floor).
+            if (!ExternalInterfaceNameIsRepresentable(interfaceReference.MetadataFullName))
+                return null;
+
             // Name + arity alone are signature-blind: a resolved interface method whose
             // parameter or return types differ from what the target actually implements
             // (e.g. a reference resolved to a different build than the target was compiled
@@ -1522,6 +1533,27 @@ public static class CompileBackSourceComposer
         }
 
         return null;
+    }
+
+    // True when every dotted segment of the external interface's raw metadata full name is a
+    // legal C# identifier (keyword segments included). Such a name round-trips through the
+    // display spelling the reconstruction emits: Clean(metadataFullName) keyword-escapes an
+    // identifier-like segment losslessly (`class` -> `@class`, which C# resolves back to
+    // `class`). A segment that is not identifier-like (e.g. a compiler-unspeakable
+    // `<Bad>`) is instead rewritten by Clean's sanitizing branch into a different identifier
+    // (`__Bad_`) that names no real type, so the emitted `using __Bad_;` / `__Bad_.IProbe`
+    // spelling fails to bind (CS0246 = RecompileFail). Nested external types are qualified
+    // with `.` (Outer.Inner), so an ordinary nested interface passes; only genuinely
+    // unrepresentable names are declined here to the sanitized ContextFail floor.
+    static bool ExternalInterfaceNameIsRepresentable(string metadataFullName)
+    {
+        foreach (var segment in metadataFullName.Split('.'))
+        {
+            if (!CSharpIdentifier.IsIdentifierLike(segment))
+                return false;
+        }
+
+        return true;
     }
 
     // True when a type declared in the recompile closure would intercept the leading
