@@ -176,6 +176,49 @@ function navForward() {
 
 const memberSections = ["overview", "source", "annotated", "call-graph", "facts"];
 
+// URL-safe base64 over UTF-8 bytes. Used for the opaque workspace bucket so a shared or
+// duplicated link can carry the full open-tab set without bloating the visible query.
+function base64UrlEncode(text) {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64UrlDecode(value) {
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+// Encodes the open-tab set as a compact [id, version, framework] tuple list. Type/member
+// detail is intentionally omitted — tabs are re-fetched on restore, only their identity
+// needs to travel in the link.
+function encodeWorkspace(packages) {
+  const tuples = packages.map(item => [item.id, item.version, item.activeFramework || ""]);
+  return base64UrlEncode(JSON.stringify(tuples));
+}
+
+function decodeWorkspace(value) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(base64UrlDecode(value));
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(Array.isArray)
+      .map(tuple => ({
+        id: String(tuple[0] || ""),
+        version: String(tuple[1] || "latest"),
+        framework: String(tuple[2] || "")
+      }))
+      .filter(tab => tab.id);
+  } catch {
+    return [];
+  }
+}
+
 function parseLocation() {
   const params = new URLSearchParams(location.search);
   const route = location.pathname.split("/").filter(Boolean);
@@ -193,7 +236,8 @@ function parseLocation() {
     atPackageRoot: hashLens === "pkg" || hashLens.startsWith("pkg:"),
     packageLens: (hashLens === "pkg" || hashLens.startsWith("pkg:"))
       ? (packageLenses.some(([id]) => id === hashLens.split(":")[1]) ? hashLens.split(":")[1] : "overview")
-      : null
+      : null,
+    workspace: decodeWorkspace(params.get("w"))
   };
 }
 
@@ -2402,6 +2446,9 @@ function buildStateUrl(base = location.href) {
   if (state.selectedMemberKey) params.set("member", state.selectedMemberKey);
   if (state.selectedOverloadIndex != null) params.set("overload", String(state.selectedOverloadIndex));
   if (state.memberSection && state.memberSection !== "overview") params.set("section", state.memberSection);
+  // Opaque workspace bucket: carries the full open-tab set so a shared or duplicated link
+  // reopens every tab, not just the active one. Omitted for a lone tab to keep links clean.
+  if (state.packages.length > 1) params.set("w", encodeWorkspace(state.packages));
   url.search = params.toString();
   url.hash = state.atPackageRoot
     ? (state.packageLens && state.packageLens !== "overview" ? `pkg:${state.packageLens}` : "pkg")
@@ -3669,6 +3716,40 @@ async function runCallGraphDemo() {
   await loadSelectedMemberCallGraph();
 }
 
+// Restores the full open-tab set from the opaque workspace bucket (or just the visible
+// target for a lone/legacy link), loading each tab in order so the tab bar and any
+// cross-package dependency edges come back. Only the focused target restores its deep-link.
+async function restoreInitialWorkspace() {
+  const target = {
+    id: state.requestedPackage,
+    version: state.requestedVersion,
+    framework: state.requestedFramework
+  };
+  const tabs = (initialLocation.workspace && initialLocation.workspace.length)
+    ? initialLocation.workspace.slice()
+    : [target];
+  const matchesTarget = tab =>
+    tab.id.toLowerCase() === target.id.toLowerCase()
+    && String(tab.version).toLowerCase() === String(target.version).toLowerCase();
+  if (!tabs.some(matchesTarget)) tabs.push(target);
+
+  const savedDeep = pendingDeepLink;
+  pendingDeepLink = null;
+  for (const tab of tabs) {
+    await loadPackage(tab.id, tab.version, tab.framework);
+  }
+  pendingDeepLink = savedDeep;
+
+  const targetModel = state.packages.find(matchesTarget);
+  if (targetModel) {
+    state.package = targetModel;
+    applyDeepLink(savedDeep);
+  }
+  state.loading = false;
+  render();
+  loadSelectionData();
+}
+
 async function bootstrap() {
   state.loading = true;
   state.error = "";
@@ -3685,7 +3766,7 @@ async function bootstrap() {
     } catch {
       state.styleOptions = [];
     }
-    await loadPackage(state.requestedPackage, state.requestedVersion, state.requestedFramework);
+    await restoreInitialWorkspace();
     const tReady = performance.now();
     state.diag = computeDiagnostics(tStart, tEngine, tReady);
     render();
