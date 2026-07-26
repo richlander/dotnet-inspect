@@ -61,6 +61,49 @@ public class InlineArraySpilledElementTests
     }
 
     [Fact]
+    public void RaisedBuffer_SlotRetainedButEliminatedFromFidelity()
+    {
+        var function = BuildSpilledCollection(SpillDefect.None);
+
+        // The unspellable `<>y__InlineArray2` buffer local (slot 0) caps fidelity
+        // (DEC0009) while it is still a live rendered type.
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(function));
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        // The buffer slot is retained so the span local (slot 1) keeps its index,
+        // but it is marked eliminated: every reference was consumed by the raise,
+        // so it renders nowhere and its unspellable type no longer contributes a
+        // fidelity cause. The fully raised body is Full, not Partial (#3221).
+        Assert.Equal(2, function.Locals.Length);
+        Assert.Contains(0, function.EliminatedLocalSlots);
+        Assert.False(CSharpSpellability.HasUnrepresentableMetadataName(function));
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void MarkLocalEliminated_SkipsOnlyTheMarkedSlot()
+    {
+        // Two locals of the same unspellable synthesized buffer type. Eliminating
+        // one slot must not stop the other, still-live slot from capping fidelity —
+        // the fix skips exactly the marked slot, never blanket-ignoring unspellable
+        // locals.
+        var body = new BlockContainer();
+        body.Add(new Block());
+        var signature = new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [Buffer, Buffer], body);
+
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(function));
+
+        function.MarkLocalEliminated(0);
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(function));
+
+        function.MarkLocalEliminated(1);
+        Assert.False(CSharpSpellability.HasUnrepresentableMetadataName(function));
+    }
+
+    [Fact]
     public void AddressSpillReadTwice_StaysFlat()
     {
         // The spilled element-ref address must be read exactly once — the address

@@ -287,6 +287,7 @@ public sealed class IrFunction : IrNode
     /// </summary>
     public IrMethodKind MethodKind { get; set; } = IrMethodKind.Method;
     public ImmutableArray<TypeRef> Locals { get; private set; }
+    ImmutableHashSet<int> _eliminatedLocalSlots = ImmutableHashSet<int>.Empty;
     public MetadataFactState CompilerGenerated { get; set; } = MetadataFactState.Unknown;
     public MetadataFactState DeclaringTypeCompilerGenerated { get; set; } = MetadataFactState.Unknown;
     public MetadataFactState IsRuntimeAsync { get; set; } = MetadataFactState.Unknown;
@@ -323,6 +324,32 @@ public sealed class IrFunction : IrNode
         while (aligned.Length < locals.Length)
             aligned = aligned.Add(null);
         LocalNames = aligned;
+        // The slot numbering is now wholly the transplanted body's; any prior
+        // eliminated-slot indices no longer name the same locals.
+        _eliminatedLocalSlots = ImmutableHashSet<int>.Empty;
+    }
+
+    /// <summary>
+    /// Slots a raising pass proved dead — every original reference was consumed by
+    /// the raise, so the local renders nowhere (e.g. the compiler-synthesized
+    /// <c>&lt;&gt;y__InlineArrayN</c> buffer <see cref="ILInspector.Decompiler.Pipeline.InlineArrayCollectionPass"/>
+    /// folds into a collection expression). The slot is retained in
+    /// <see cref="Locals"/> so surviving slot indices stay stable, but because it
+    /// is never rendered its (often unspellable) type must not degrade method
+    /// fidelity. Reset by <see cref="ResetLocals"/>, which renumbers slots.
+    /// </summary>
+    public IReadOnlySet<int> EliminatedLocalSlots => _eliminatedLocalSlots;
+
+    /// <summary>
+    /// Records that slot <paramref name="index"/> is dead — the raising pass that
+    /// consumed its last reference retains the slot for index stability but the
+    /// printer emits no declaration for it. See <see cref="EliminatedLocalSlots"/>.
+    /// </summary>
+    public void MarkLocalEliminated(int index)
+    {
+        if (index < 0 || index >= Locals.Length)
+            throw new ArgumentOutOfRangeException(nameof(index));
+        _eliminatedLocalSlots = _eliminatedLocalSlots.Add(index);
     }
 
     /// <summary>
