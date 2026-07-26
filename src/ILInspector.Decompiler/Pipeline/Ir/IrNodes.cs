@@ -316,17 +316,27 @@ public sealed class IrFunction : IrNode
     /// moving a structured <c>MoveNext</c> into the kickoff, where the kickoff's
     /// original locals (and body) are being discarded. Keeps
     /// <see cref="LocalNames"/> length-aligned with <see cref="Locals"/>.
+    /// <paramref name="eliminatedSlots"/> carries the transplanted body's own
+    /// eliminated-slot indices (e.g. a reconstructed <c>MoveNext</c>'s dead
+    /// inline-array buffer); pass the source function's
+    /// <see cref="EliminatedLocalSlots"/> so a raise that landed inside the
+    /// transplanted body is not silently undone. A null set drops any prior
+    /// marking, since the new numbering no longer names the same locals.
     /// </summary>
-    public void ResetLocals(ImmutableArray<TypeRef> locals, ImmutableArray<string?> names)
+    public void ResetLocals(ImmutableArray<TypeRef> locals, ImmutableArray<string?> names,
+        IReadOnlySet<int>? eliminatedSlots = null)
     {
         Locals = locals;
         var aligned = names;
         while (aligned.Length < locals.Length)
             aligned = aligned.Add(null);
         LocalNames = aligned;
-        // The slot numbering is now wholly the transplanted body's; any prior
-        // eliminated-slot indices no longer name the same locals.
-        _eliminatedLocalSlots = ImmutableHashSet<int>.Empty;
+        _eliminatedLocalSlots = eliminatedSlots switch
+        {
+            null => ImmutableHashSet<int>.Empty,
+            ImmutableHashSet<int> set => set,
+            _ => ImmutableHashSet.CreateRange(eliminatedSlots),
+        };
     }
 
     /// <summary>

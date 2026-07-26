@@ -55,7 +55,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["ValidityShellNoiseTests.cs"] = (1, "Seam isolation: injects deliberate shell noise into a validity compilation."),
 
             // Optimization / parse-option matrices intrinsic to the claim.
-            ["IteratorReconstructionPassTests.cs"] = (1, "Optimization matrix: compiles the same source under Debug and Release."),
+            ["IteratorReconstructionPassTests.cs"] = (2, "Optimization matrix + transplant seam: compiles the complex-iterator source under Debug and Release, and a Release inline-array-collection iterator whose dead buffer local must stay eliminated across the ResetLocals transplant (#3221)."),
             ["CompilerFeatureOptionsTests.cs"] = (1, "Parse-option matrix: varies LanguageVersion/feature flags across compilations."),
 
             // Cross-assembly reference seam.
@@ -93,9 +93,13 @@ public sealed class DynamicCompilationSiteInventoryTests
     //     rendering.
     //   #3009 sub-part 3 adds BitwiseChainWrapTests.cs (1 site): recompiles the
     //     printer's wrapped bitwise |/&/^ chain output.
-    //   Combined: 35 files, 43 sites.
+    //   #3221 adds a second site to IteratorReconstructionPassTests.cs (1 -> 2
+    //     sites): compiles a Release inline-array-collection iterator that
+    //     exercises the dead-buffer eliminated marking across the ResetLocals
+    //     transplant seam.
+    //   Combined: 35 files, 44 sites.
     const int ExpectedDynamicFiles = 35;
-    const int ExpectedDynamicSites = 43;
+    const int ExpectedDynamicSites = 44;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

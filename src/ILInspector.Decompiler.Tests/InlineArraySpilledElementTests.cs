@@ -104,6 +104,27 @@ public class InlineArraySpilledElementTests
     }
 
     [Fact]
+    public void ResetLocals_CarriesProvidedEliminatedSlots_ElseClears()
+    {
+        var body = new BlockContainer();
+        body.Add(new Block());
+        var signature = new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [Buffer], body);
+        function.MarkLocalEliminated(0);
+
+        // A transplant that carries the reconstructed body's own eliminated slots
+        // (e.g. an iterator MoveNext's dead inline-array buffer, whose slot indices
+        // are the transplanted numbering) preserves them across the reset.
+        function.ResetLocals([Object, Buffer], [null, null], new HashSet<int> { 1 });
+        Assert.Equal(new[] { 1 }, function.EliminatedLocalSlots.Order());
+
+        // A reset with no carried set drops the marking — the new numbering no
+        // longer names the same locals.
+        function.ResetLocals([Object], [null]);
+        Assert.Empty(function.EliminatedLocalSlots);
+    }
+
+    [Fact]
     public void AddressSpillReadTwice_StaysFlat()
     {
         // The spilled element-ref address must be read exactly once — the address
