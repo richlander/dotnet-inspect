@@ -431,6 +431,74 @@ public sealed class ThisQualificationTests
         Assert.DoesNotContain(")this).MemberwiseClone", group);
     }
 
+    // #3214: a boxed NON-`this` ref parameter reaching a DEFAULT interface member
+    // renders the `((I)s)` cast. `((IBoxedNonThisDim)s).Dim()` lowers to `ldarg.1;
+    // ldobj S; box S; callvirt IBoxedNonThisDim::Dim` — the same box shape as the
+    // boxed-`this` interface case (#3201/#3213) but the boxed operand is a ref
+    // parameter, not arg0/`this`. `Dim` is a DIM not on the struct, so bare
+    // `(s).Dim()` is CS1061; the erased upcast must be re-inserted (#3214).
+    [Fact]
+    public void BoxedNonThisRefParam_DefaultInterfaceCallee_RendersInterfaceCast()
+    {
+        var text = RenderMember(typeof(BoxedNonThisHost),
+            nameof(BoxedNonThisHost.DimOnRefParam));
+        Assert.Contains("((IBoxedNonThisDim)s).Dim()", text);
+        Assert.DoesNotContain("(s).Dim()", text);
+    }
+
+    // #3214: a boxed by-value parameter reaching a normally-implemented interface
+    // member renders `((I)s).Face()`. `Face` IS on the struct, so bare `(s).Face()`
+    // compiles but silently rebinds to the struct's own `call S::Face` (fidelity
+    // loss); the explicit `((IBoxedNonThisFace)s)` re-emits `box; callvirt I::Face`.
+    [Fact]
+    public void BoxedNonThisValueParam_InterfaceCallee_RendersInterfaceCast()
+    {
+        var text = RenderMember(typeof(BoxedNonThisHost),
+            nameof(BoxedNonThisHost.FaceOnValueParam));
+        Assert.Contains("((IBoxedNonThisFace)s).Face()", text);
+        Assert.DoesNotContain("(s).Face()", text);
+    }
+
+    // #3214: a boxed local reaching an interface member renders the cast in both the
+    // call and method-group forms. The local carries no metadata name (spelled
+    // `V_n`), so assert the `((I)` cast prefix and the member tail, not the name.
+    [Fact]
+    public void BoxedNonThisLocal_InterfaceCallee_RendersInterfaceCast()
+    {
+        var call = RenderMember(typeof(BoxedNonThisHost),
+            nameof(BoxedNonThisHost.FaceOnLocal));
+        Assert.Contains("((IBoxedNonThisFace)", call);
+        Assert.Contains(").Face()", call);
+
+        var group = RenderMember(typeof(BoxedNonThisHost),
+            nameof(BoxedNonThisHost.FaceGroupOnLocal));
+        Assert.Contains("((IBoxedNonThisFace)", group);
+        Assert.Contains(").Face)", group);
+    }
+
+    // #3214: a boxed FIELD reaching a default interface member renders
+    // `((I)_field).Dim()`. The boxed operand is `LoadField`, not arg0/`this`.
+    [Fact]
+    public void BoxedNonThisField_DefaultInterfaceCallee_RendersInterfaceCast()
+    {
+        var text = RenderMember(typeof(BoxedNonThisHost),
+            nameof(BoxedNonThisHost.DimOnField));
+        Assert.Contains("((IBoxedNonThisDim)_field).Dim()", text);
+    }
+
+    // Negative (#3214): a boxed non-`this` value reaching a base-CLASS member
+    // (`object::ToString`) must NOT be cast — the arm is gated on a confirmed
+    // interface callee. A boxed value reaching a base-class member is a separate
+    // fidelity concern and stays on the ordinary receiver path (`(s).ToString()`).
+    [Fact]
+    public void BoxedNonThisRefParam_BaseClassCallee_StaysUncast()
+    {
+        var text = RenderMember(typeof(BoxedNonThisHost),
+            nameof(BoxedNonThisHost.BaseOnRefParam));
+        Assert.Contains("(s).ToString()", text);
+        Assert.DoesNotContain("(object)", text);
+    }
+
     [Fact]
     public void EventSubscription_DefaultsToBareName()
     {
@@ -960,4 +1028,56 @@ public struct StructMemberwiseCloneReceiver
     public object CloneCall() => base.MemberwiseClone();
 
     public System.Func<object> CloneGroup() => base.MemberwiseClone;
+}
+
+// #3214 fixtures: a boxed NON-`this` value (parameter, local, field, or ref place)
+// reaching an interface member. csc boxes the value type for the implicit upcast to
+// the interface, so bare `(x).M()` is CS1061 for a default interface member (`Dim`)
+// or a silent rebind to the struct's own method for a normally-implemented one
+// (`Face`); the printer must re-insert the erased `((I)x)` cast (#3214).
+public interface IBoxedNonThisFace
+{
+    int Face();
+}
+
+public interface IBoxedNonThisDim
+{
+    int Dim() => 11;
+}
+
+public struct BoxedNonThisStruct : IBoxedNonThisFace, IBoxedNonThisDim
+{
+    public int Face() => 3;
+}
+
+public class BoxedNonThisHost
+{
+    private BoxedNonThisStruct _field = new BoxedNonThisStruct();
+
+    // boxed ref parameter reaching a default interface member (the CS1061 case)
+    public int DimOnRefParam(ref BoxedNonThisStruct s) => ((IBoxedNonThisDim)s).Dim();
+
+    // boxed by-value parameter reaching a normally-implemented interface member
+    public int FaceOnValueParam(BoxedNonThisStruct s) => ((IBoxedNonThisFace)s).Face();
+
+    // boxed local reaching an interface member (call form)
+    public int FaceOnLocal()
+    {
+        var s = default(BoxedNonThisStruct);
+        return ((IBoxedNonThisFace)s).Face();
+    }
+
+    // boxed local reaching an interface member (method-group form)
+    public System.Func<int> FaceGroupOnLocal()
+    {
+        var s = default(BoxedNonThisStruct);
+        return ((IBoxedNonThisFace)s).Face;
+    }
+
+    // boxed field reaching a default interface member
+    public int DimOnField() => ((IBoxedNonThisDim)_field).Dim();
+
+    // NEGATIVE: a boxed non-`this` value reaching a base-class (object) member stays
+    // uncast — the interface-only gate must not fire (separate fidelity concern).
+    public string? BaseOnRefParam(ref BoxedNonThisStruct s) => ((object)s).ToString();
 }

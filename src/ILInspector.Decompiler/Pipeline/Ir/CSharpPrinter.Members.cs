@@ -475,6 +475,40 @@ public sealed partial class CSharpPrinter
     static bool IsStructBaseClass(TypeRef type)
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "ValueType" or "Object" };
 
+    /// <summary>
+    /// True when <paramref name="receiver"/> (or method-group target) is a boxed
+    /// NON-<c>this</c> value — a local, parameter, field, or <c>ref</c>/<c>in</c>
+    /// place — reaching a CONFIRMED interface member of
+    /// <paramref name="declaringType"/>; <paramref name="placeText"/> receives the
+    /// unboxed place spelled as a cast operand. A value type must box to invoke an
+    /// interface member (`<c>ldobj; box; call[virt] I::M</c>` — or `<c>ldftn</c>`
+    /// for a group), so the member is not on the value type and the erased
+    /// <c>((I)x)</c> upcast must be re-inserted: bare <c>(x).M()</c> is CS1061 for a
+    /// default interface member or explicit implementation, and a silent rebind to
+    /// the struct's own method for a normally-implemented one. The boxed
+    /// <c>this</c> case (arg0) is owned by <see cref="IsBoxedThisReceiver"/> (with
+    /// its <c>base</c>/cast split) and is excluded here — including a
+    /// <c>static</c> method's <c>@this</c> parameter, which shares the arg0 name but
+    /// must not be re-cast. Requires a confirmed interface declaring type
+    /// (<see cref="IsInterfaceCastThisReceiver"/> declines an unresolved or
+    /// non-interface callee, so a boxed value reaching a base-class member stays on
+    /// the ordinary path — a separate fidelity concern); the non-<c>this</c>
+    /// sibling of #3201/#3213 (#3214).
+    /// </summary>
+    bool TryBoxedNonThisInterfaceReceiver(IrExpression receiver, TypeRef declaringType, out string placeText)
+    {
+        placeText = "";
+        if (receiver is not Box box)
+            return false;
+        var place = box.Operand is LoadIndirect { Address: { } address } ? address : box.Operand;
+        if (place is LoadArgument { Index: 0, Name: "this" })
+            return false;
+        if (!IsInterfaceCastThisReceiver(declaringType))
+            return false;
+        placeText = Operand(place);
+        return true;
+    }
+
     /// <summary>Member-access receivers: value-type receivers arrive by address in IL; C# spells the place itself, not its address.</summary>
     string ReceiverText(IrExpression receiver) => receiver switch
     {
@@ -586,6 +620,12 @@ public sealed partial class CSharpPrinter
                 return $"base.{name}";
             return $"(({TypeText(method.DeclaringType)})this).{name}";
         }
+        // #3214: a boxed NON-this value (local, parameter, field, ref/in place)
+        // reaching a confirmed interface member — the non-this sibling of the
+        // boxed-this interface cast above. `((I)x).M` re-emits `ldobj; box;
+        // ld[virt]ftn I::M`; bare `(x).M` would be CS1061 for a DIM/explicit impl.
+        if (TryBoxedNonThisInterfaceReceiver(target, method.DeclaringType, out var boxedGroupPlace))
+            return $"(({TypeText(method.DeclaringType)}){boxedGroupPlace}).{name}";
         if (PointerMethodReceiver(target) is { } pointerReceiver)
             return $"{pointerReceiver}->{name}";
         return $"{ReceiverText(target)}.{name}";
@@ -711,6 +751,13 @@ public sealed partial class CSharpPrinter
             // opcode-faithful. Subsumes the struct interface-cast case (#3201).
             return $"(({TypeText(call.Callee.DeclaringType)})this).{boxedMethodName}{typeArguments}({rest})";
         }
+        // #3214: a boxed NON-this value (local, parameter, field, ref/in place)
+        // reaching a confirmed interface member — the non-this sibling of the
+        // boxed-this interface cast above. `((I)x).M()` re-emits `ldobj; box;
+        // call[virt] I::M`; bare `(x).M()` would be CS1061 for a DIM/explicit impl,
+        // or a silent rebind to the value type's own method otherwise.
+        if (TryBoxedNonThisInterfaceReceiver(receiver, call.Callee.DeclaringType, out var boxedNonThisPlace))
+            return $"(({TypeText(call.Callee.DeclaringType)}){boxedNonThisPlace}).{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
         if (receiver is LoadArgument { Index: 0, Name: "this" })
         {
             string thisMethodName = CSharpNaming.SourceMethodName(call.Callee.Name);
