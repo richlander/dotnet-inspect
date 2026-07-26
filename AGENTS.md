@@ -43,8 +43,8 @@ documentation.
   working-tree changes into your work.
 - Treat worktrees as temporary. For a PR requiring adversarial review, confirm
   the exact reviewed head is pushed, then remove the development and review
-  worktrees with `git worktree remove <path>` as soon as both fixed-head
-  reviews are clean. For a change that does not require adversarial review,
+  worktrees with `git worktree remove <path>` as soon as every required
+  fixed-head review is clean. For a change that does not require adversarial review,
   remove its development worktree after merge. Do not retain inactive
   worktrees in case more work appears; recreate one for the branch if follow-up
   work is needed.
@@ -243,9 +243,27 @@ follow-up so readiness remains unambiguous.
 
 ## Adversarial review
 
-Any PR with non-trivial behavior changes, new heuristics or shapes, or subtle
-correctness, security, or compatibility risk requires adversarial review from
-two different models (latest versions) chosen from:
+**These instructions assume a harness — such as the GitHub Copilot CLI — that can
+delegate a review to any model family in the roster below.** The multi-model tiers
+depend on that ability. Most harnesses do not expose multiple model families; a
+harness that only exposes its own vendor's models handles review differently (see
+*Single-vendor harnesses* below).
+
+**How much review a PR needs is a function of its triviality and risk alone —
+never the kind of change it makes.** Place the PR on that spectrum and match the
+review depth to it:
+
+- **Trivial** — no review. State why the change is trivial.
+- **More than trivial, but not high risk** — a single review, always with
+  **MAI-Code**.
+- **High risk** (subtle correctness, security, or compatibility risk, or a large
+  or uncertain blast radius) — the default for any substantial change — two
+  reviews from two different models.
+
+If you are unsure which tier a PR falls in, escalate: default to more review, not
+less.
+
+Reviewer roster:
 
 - Claude Opus
 - Gemini Pro
@@ -253,27 +271,34 @@ two different models (latest versions) chosen from:
 - MAI-Code
 
 This list is the single source of truth for the reviewer roster; scenario docs
-should reference it rather than restating it.
+should reference it rather than restating it. **Always use the highest version a
+model offers** — e.g. if both Opus 4.8 and Opus 5 are available, use Opus 5.
 
-Do not review with your own model when another listed family is available. A
-single-model agent that cannot delegate may use independent passes from its own
-model.
+For a two-model review, do not review with your own model when another listed
+family is available.
 
-Give both reviewers the same self-contained prompt: exact base and head, design
+**Single-vendor harnesses.** The tiers above set how many reviews and which models
+a PR requires; a harness's capabilities change only *how* those reviews are
+obtained, not the bar. Most harnesses expose only their own vendor's models — for
+example Claude Code or Codex. For the **single-review tier**, such a harness just
+reviews with its own model (for example an Opus subagent under Claude Code); that
+one review satisfies the tier — no MAI-Code or other cross-model review is
+additionally required. The cross-model requirement applies only to the **two-model
+tier**: there the harness reviews with its own model (independent passes on the
+fixed head), then **requests a second, different-family review from the user**, and
+does **not** mark the PR ready until that different-model review is obtained.
+
+Give each reviewer the same self-contained prompt: exact base and head, design
 intent, relevant diff, concrete attack points, and required real-run evidence.
 Isolate every reviewer in a separate linked review worktree; never detach the
 primary checkout for review. Require scratch work under `/tmp/` and prohibit
 `git reset`, `git add`, and commits in review trees. Before acting on a blocking
 finding, reproduce it on a clean exact-head review worktree.
 
-After addressing findings, re-review the fixed exact head. Reconcile both
-reviews publicly on the PR: attribute findings, state what was verified or
-dismissed, and link resolution commits or explain explicit non-actions. Do not
-mark the PR ready until both fixed-head reviews are clean.
-
-Simple, mechanical, or documentation-only changes do not require adversarial
-review; state why the change is low risk. If the blast radius is uncertain,
-default to review.
+After addressing findings, re-review the fixed exact head. Reconcile the reviews
+publicly on the PR: attribute findings, state what was verified or dismissed, and
+link resolution commits or explain explicit non-actions. Do not mark the PR ready
+until every required fixed-head review is clean.
 
 ## PR and CI discipline
 

@@ -91,16 +91,14 @@ theme into orders:
 
 ## How this composes with the repo's review gate
 
-`AGENTS.md` already requires adversarial review from **two different models** for any non-trivial
-behavior change — this **is** Nightshift's two-clean gate, so the two do not stack: a worker's two
-clean reviews from two different models on the final head satisfy both. Where the two bars differ,
-**Nightshift is the stricter one and it governs the shift.** `AGENTS.md` exempts simple, mechanical,
-or documentation-only changes from adversarial review; a Nightshift **order** does **not** inherit
-that exemption — **every order clears the two-clean gate on its final head, docs and design orders
-included.** Scale the review *effort* to the blast radius — a docs order is cleared by confirming its
-claims and links are accurate, a heuristic or shape change by attacking its correctness — but never
-waive the two-clean bar itself. Keep the repo's readiness convention: when all merge-blocking
-validation and required review are complete, the clearance note is `Ready to merge`.
+`AGENTS.md` sets the repo's review policy: how much adversarial review a change needs scales with its
+triviality and risk — from none for a trivial change, to a single review, to two reviews from two
+different models for a high-risk one. **Nightshift is the stricter bar and it governs the shift:** a
+Nightshift **order** does **not** take the reduced tiers — **every order clears the two-clean gate on
+its final head**, two clean reviews from two different models, regardless of how small the order looks.
+Scale the review *effort* to the blast radius, but never waive the two-clean bar itself. Keep the
+repo's readiness convention: when all merge-blocking validation and required review are complete, the
+clearance note is `Ready to merge`.
 
 The mechanics of expressing an order and driving it to merge — the plan format, the two-clean review
 gate, landing — are standard Nightshift and belong to your skill.
