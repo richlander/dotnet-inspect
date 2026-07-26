@@ -188,6 +188,23 @@ const memberSectionDefs = [
   ["annotated", "Annotated source"]
 ];
 
+// Members that are not directly callable have no method-body identity, so the body-dependent
+// sections (Call graph, Facts, Annotated source) don't apply and the engine rejects them.
+// Everything else — methods, constructors, operators, explicit interface method impls — keeps
+// the full strip. Properties/fields/events still get Overview and Source (which read the
+// declaration, not a body).
+const bodilessMemberKinds = new Set(["property", "field", "event", "constant"]);
+
+function memberHasBody(member) {
+  return !!member && !bodilessMemberKinds.has(member.kind);
+}
+
+function memberSectionsFor(member) {
+  return memberHasBody(member)
+    ? memberSectionDefs
+    : memberSectionDefs.filter(([id]) => id === "overview" || id === "source");
+}
+
 // URL-safe base64 over UTF-8 bytes. Used for the opaque share packet so a shared or
 // duplicated link can carry the full session state without bloating the visible query.
 function base64UrlEncode(text) {
@@ -447,7 +464,7 @@ function scope() {
 function activeLenses() {
   const sc = scope();
   if (sc === "package") return packageLenses;
-  if (sc === "member") return memberSectionDefs;
+  if (sc === "member") return memberSectionsFor(selectedMember(selectedType()));
   return lenses;
 }
 
@@ -571,7 +588,7 @@ function stepHorizontal(delta) {
   const member = state.lens === "api" ? selectedMember(type) : null;
   const overloadOpen = member && !(member.overloads.length > 1 && state.selectedOverloadIndex == null);
   if (overloadOpen) {
-    const order = ["overview", "call-graph", "facts", "source", "annotated"];
+    const order = memberSectionsFor(member).map(([id]) => id);
     let index = order.indexOf(state.memberSection);
     if (index < 0) index = 0;
     state.memberSection = order[(index + delta + order.length) % order.length];
@@ -842,7 +859,8 @@ function renderScopeBar() {
   if (sc === "package") {
     strip = packageLenses.map(([id, label], i) => lensButton(id, label, state.packageLens === id, "data-package-lens", i)).join("");
   } else if (sc === "member") {
-    strip = memberSectionDefs.map(([id, label], i) => lensButton(id, label, state.memberSection === id, "data-member-section", i)).join("");
+    const sections = memberSectionsFor(selectedMember(selectedType()));
+    strip = sections.map(([id, label], i) => lensButton(id, label, state.memberSection === id, "data-member-section", i)).join("");
   } else {
     strip = lenses.map(([id, label], i) => lensButton(id, label, state.lens === id, "data-lens", i)).join("");
   }
