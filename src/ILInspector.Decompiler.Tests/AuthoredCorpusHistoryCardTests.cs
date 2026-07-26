@@ -178,7 +178,7 @@ public class AuthoredCorpusHistoryCardTests
     {
         // A window that straddles v1 -> v2 must not diff productBodyDefect across the boundary: the
         // metric splits into one row per version, each populated only for its own columns, so no
-        // ✓/✗ step is charted from the v1 lower bound to the v2 span-measured count.
+        // ✓/✗ step is charted from the v1 bound to the tighter v2 bound.
         var runs = AuthoredCorpusHistoryCard.ParseHistory(
         [
             """{"date":"2026-07-24","commit":"16c0687f","validPct":56.2,"correct":1539,"invalid":5259,"invalidBreakdown":{"productBodyDefect":306,"harnessShellReconstruction":4826,"unclassified":127}}""",
@@ -187,8 +187,8 @@ public class AuthoredCorpusHistoryCardTests
 
         string card = AuthoredCorpusHistoryCard.Render(runs, window: 0);
 
-        Assert.Contains("| Product defects (v1 lower bound) \u2193 | 306 | - |", card, StringComparison.Ordinal);
-        Assert.Contains("| Product defects (v2 span-measured) \u2193 | - | 471 |", card, StringComparison.Ordinal);
+        Assert.Contains("| Product defects (v1 substitution lower bound) \u2193 | 306 | - |", card, StringComparison.Ordinal);
+        Assert.Contains("| Product defects (v2 span-measured lower bound) \u2193 | - | 471 |", card, StringComparison.Ordinal);
         // The undivided row must not appear, and no polarity glyph may sit beside 471.
         Assert.DoesNotContain("| Product defects \u2193 |", card, StringComparison.Ordinal);
         Assert.DoesNotContain("471 \u2713", card, StringComparison.Ordinal);

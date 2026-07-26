@@ -38,15 +38,40 @@ Each row contains these fields:
 - `sweepManifestSha256`: SHA-256 of the pool sweep manifest, or `null` when the
   manifest is unknown.
 - `methodologyVersion`: how `invalidBreakdown.productBodyDefect` was computed.
+  **Every version is a lower bound on decompiler-caused body defects**; a later
+  version tightens the bound rather than measuring the true count. Copy this
+  field verbatim from the run JSON's top-level `methodologyVersion`.
+
   Absent (or `null`) means **v1**: substitution control only — a body defect is
   credited only when the checksum-verified authored body compiles in the failing
-  row's shell, so a broken shell masks the defect and the count is a lower bound.
-  **v2** adds span attribution: when the shell is broken it additionally credits
-  a body defect if the authored body is error-free within its own body span while
-  the decompiled body carries an in-body error. v1 and v2 counts are not directly
-  comparable; the progress card never diffs `productBodyDefect` across the
-  boundary. Copy this field verbatim from the run JSON's top-level
-  `methodologyVersion`.
+  row's shell, so a broken shell masks the defect entirely.
+
+  **v2** keeps the v1 substitution control and adds span attribution, which
+  recovers some of the rows a broken shell used to mask. Under a broken shell it
+  credits a body defect only when *both* hold:
+
+  1. the authored body is error-free within its own body span (the control), and
+  2. the decompiled body carries an in-body error that a broken shell
+     **provably cannot manufacture**.
+
+  Condition 2 is the entire soundness argument and is enforced by default-deny.
+  Only two error classes qualify:
+
+  - any **parser diagnostic** inside the body span (from
+    `SyntaxTree.GetDiagnostics()`, which no shell state can influence), and
+  - a **body-intrinsic semantic error** drawn from an explicit allowlist,
+    currently exactly `CS0128` (duplicate local declaration).
+
+  Context-dependent errors — unresolved names, types, or members (`CS0103`,
+  `CS0246`, `CS0234`, `CS1061`, `CS1069`), conversions, and overload resolution
+  — are **never** credited, because a broken shell reconstructor produces them
+  identically to a real body defect. Every other case declines, which is a
+  deliberate false negative that preserves the lower bound.
+
+  Because the allowlist defines what `v2` means, expanding it requires a new
+  `methodologyVersion`; do not add IDs under the existing stamp. v1 and v2
+  counts are not directly comparable, and the progress card never diffs
+  `productBodyDefect` across the boundary.
 
 ## Append procedure
 
@@ -106,9 +131,10 @@ product/harness columns render as `—` and the product-defect pivot cell is
 absent (`-`) with no fabricated step, keeping the missing signal honest.
 
 The Runs table's `Method` column reports each run's `methodologyVersion`
-(`v1`/`v2`). Because v1 and v2 `productBodyDefect` counts are not comparable,
-when the movement window straddles a version boundary the product-defect metric
-is split into `Product defects (v1 lower bound)` and
-`Product defects (v2 span-measured)` rows, each populated only for its own
-version's columns. Markout therefore never charts a step across the boundary; a
-window of uniform version keeps the single `Product defects` row.
+(`v1`/`v2`). Both versions are lower bounds, but v2's tighter rule counts
+strictly more rows, so the counts are not comparable. When the movement window
+straddles a version boundary the product-defect metric is split into
+`Product defects (v1 substitution lower bound)` and
+`Product defects (v2 span-measured lower bound)` rows, each populated only for
+its own version's columns. Markout therefore never charts a step across the
+boundary; a window of uniform version keeps the single `Product defects` row.

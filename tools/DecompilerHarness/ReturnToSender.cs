@@ -2199,7 +2199,8 @@ static class ReturnToSender
                     decompiledDiagnostics,
                     authoredArtifact.Source,
                     emit.Diagnostics,
-                    identity) is { } isolatingError)
+                    identity,
+                    parseOptions) is { } isolatingError)
             {
                 return new FaultIsolationResult(
                     FaultIsolationKind.BodyDefect,

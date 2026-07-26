@@ -79,13 +79,15 @@ internal static class SpanAttribution
         ImmutableArray<Diagnostic> decompiledDiagnostics,
         string authoredSource,
         ImmutableArray<Diagnostic> authoredDiagnostics,
-        TargetIdentity identity)
+        TargetIdentity identity,
+        CSharpParseOptions? parseOptions = null)
         => IsolatingBodyError(
             decompiledSource,
             decompiledDiagnostics,
             authoredSource,
             authoredDiagnostics,
-            identity) is not null;
+            identity,
+            parseOptions) is not null;
 
     /// <summary>
     /// Returns the decompiled in-body diagnostic that soundly attributes the
@@ -108,11 +110,12 @@ internal static class SpanAttribution
         ImmutableArray<Diagnostic> decompiledDiagnostics,
         string authoredSource,
         ImmutableArray<Diagnostic> authoredDiagnostics,
-        TargetIdentity identity)
+        TargetIdentity identity,
+        CSharpParseOptions? parseOptions = null)
     {
-        if (TryLocateBodySpan(decompiledSource, identity) is not { } decompiledBody)
+        if (TryLocateBodySpan(decompiledSource, identity, parseOptions) is not { } decompiledBody)
             return null;
-        if (TryLocateBodySpan(authoredSource, identity) is not { } authoredBody)
+        if (TryLocateBodySpan(authoredSource, identity, parseOptions) is not { } authoredBody)
             return null;
 
         // Substitution control: the authored body must be clean within its own
@@ -122,7 +125,7 @@ internal static class SpanAttribution
             return null;
 
         // Shell-independent syntax error: the decompiled body text does not parse.
-        if (FirstSyntaxErrorInSpan(decompiledSource, decompiledBody) is { } syntaxError)
+        if (FirstSyntaxErrorInSpan(decompiledSource, decompiledBody, parseOptions) is { } syntaxError)
             return syntaxError;
 
         // Shell-independent body-intrinsic semantic error (locals/control flow).
@@ -148,13 +151,19 @@ internal static class SpanAttribution
     /// <see cref="SyntaxTree.GetDiagnostics()"/>, which reports only parser/lexer
     /// diagnostics, so a hit proves the decompiled body text is unparseable
     /// regardless of any shell state.
+    ///
+    /// <paramref name="parseOptions"/> must match the options the pipeline
+    /// compiled with. Language-version gating is a binding diagnostic rather than
+    /// a parser one today, but re-parsing under different options than the
+    /// compile is a latent source of phantom syntax errors, which would inflate
+    /// the metric.
     /// </summary>
-    static Diagnostic? FirstSyntaxErrorInSpan(string source, TextSpan bodySpan)
+    static Diagnostic? FirstSyntaxErrorInSpan(string source, TextSpan bodySpan, CSharpParseOptions? parseOptions)
     {
         SyntaxTree tree;
         try
         {
-            tree = CSharpSyntaxTree.ParseText(source);
+            tree = CSharpSyntaxTree.ParseText(source, parseOptions);
         }
         catch (Exception)
         {
@@ -198,12 +207,12 @@ internal static class SpanAttribution
     /// identified. Robust to reformatting because it walks the parse tree rather
     /// than matching text.
     /// </summary>
-    internal static TextSpan? TryLocateBodySpan(string source, TargetIdentity identity)
+    internal static TextSpan? TryLocateBodySpan(string source, TargetIdentity identity, CSharpParseOptions? parseOptions = null)
     {
         SyntaxNode root;
         try
         {
-            root = CSharpSyntaxTree.ParseText(source).GetRoot();
+            root = CSharpSyntaxTree.ParseText(source, parseOptions).GetRoot();
         }
         catch (Exception)
         {

@@ -157,8 +157,9 @@ static class AuthoredCorpusHistoryCard
     // rather than charting a bogus step.
     //
     // productBodyDefect is also computed differently across methodology versions (v1 = substitution
-    // lower bound; v2 = span-measured). The two are not comparable, so when the window straddles a
-    // version boundary the metric is split into one row per version — each populated only for its own
+    // control only; v2 = substitution control plus span attribution). Both are lower bounds, but a
+    // tighter rule counts strictly more rows, so the two are not comparable. When the window straddles
+    // a version boundary the metric is split into one row per version — each populated only for its own
     // columns — so Markout never charts a step across the boundary. When every populated run shares a
     // version, a single "Product defects" row is emitted (unchanged output for uniform history).
     static IEnumerable<MultiSourceRow> ProductDefectRows(IReadOnlyList<HistoryRun> window, string[] cols)
@@ -167,8 +168,8 @@ static class AuthoredCorpusHistoryCard
         bool hasV2 = window.Any(run => run.InvalidBreakdown is not null && run.Methodology >= 2);
         if (hasV1 && hasV2)
         {
-            yield return ProductDefectRow("Product defects (v1 lower bound)", window, cols, version: 1);
-            yield return ProductDefectRow("Product defects (v2 span-measured)", window, cols, version: 2);
+            yield return ProductDefectRow("Product defects (v1 substitution lower bound)", window, cols, version: 1);
+            yield return ProductDefectRow("Product defects (v2 span-measured lower bound)", window, cols, version: 2);
         }
         else
         {
