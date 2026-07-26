@@ -55,7 +55,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["ValidityShellNoiseTests.cs"] = (1, "Seam isolation: injects deliberate shell noise into a validity compilation."),
 
             // Optimization / parse-option matrices intrinsic to the claim.
-            ["IteratorReconstructionPassTests.cs"] = (2, "Optimization matrix + transplant seam: compiles the complex-iterator source under Debug and Release, and a Release inline-array-collection iterator whose dead buffer local must stay eliminated across the ResetLocals transplant (#3221)."),
+            ["IteratorReconstructionPassTests.cs"] = (2, "Optimization matrix + reconstruction seams: compiles the complex-iterator source under Debug and Release, and a parameterized Release inline-array-collection iterator (single-loop and conditional-yield shapes) whose dead buffer local must stay eliminated across the two seams that carry MoveNext locals into the kickoff (#3221)."),
             ["CompilerFeatureOptionsTests.cs"] = (1, "Parse-option matrix: varies LanguageVersion/feature flags across compilations."),
 
             // Cross-assembly reference seam.
@@ -94,9 +94,10 @@ public sealed class DynamicCompilationSiteInventoryTests
     //   #3009 sub-part 3 adds BitwiseChainWrapTests.cs (1 site): recompiles the
     //     printer's wrapped bitwise |/&/^ chain output.
     //   #3221 adds a second site to IteratorReconstructionPassTests.cs (1 -> 2
-    //     sites): compiles a Release inline-array-collection iterator that
-    //     exercises the dead-buffer eliminated marking across the ResetLocals
-    //     transplant seam.
+    //     sites): a parameterized Release inline-array-collection iterator that
+    //     exercises the dead-buffer eliminated marking across both iterator
+    //     reconstruction seams (the ResetLocals transplant and the
+    //     MultiYieldReconstruction offset copy).
     //   Combined: 35 files, 44 sites.
     const int ExpectedDynamicFiles = 35;
     const int ExpectedDynamicSites = 44;

@@ -166,14 +166,15 @@ public class IteratorReconstructionPassTests
         }
     }
 
-    // An iterator whose MoveNext body contains an inline-array collection
-    // expression (a params ReadOnlySpan<int> target lowered to a synthesized,
-    // dead inline-array buffer local). Reconstruction transplants the raised
-    // MoveNext body — including that dead buffer local — into the kickoff.
-    // Regression coverage for #3221 across the ResetLocals transplant seam.
-    static CompiledFixture CompileInlineArrayIteratorFixture(OptimizationLevel optimization)
+    // Compiles an iterator whose MoveNext body contains an inline-array collection
+    // expression (a params ReadOnlySpan<int> target lowered to a synthesized, dead
+    // inline-array buffer local). Reconstruction copies that dead buffer local into
+    // the kickoff; its eliminated marking must survive so its unspellable name does
+    // not re-cap the method at Partial. Regression coverage for #3221 across the
+    // iterator reconstruction seams that carry MoveNext locals into the kickoff.
+    static CompiledFixture CompileInlineArrayIteratorFixture(string parameters, string body, OptimizationLevel optimization)
     {
-        const string source = """
+        var source = $$"""
             using System;
             using System.Collections.Generic;
 
@@ -181,10 +182,9 @@ public class IteratorReconstructionPassTests
 
             public static class Iterators
             {
-                public static IEnumerable<int> InlineArrayYield(int a, int b)
+                public static IEnumerable<int> InlineArrayYield({{parameters}})
                 {
-                    for (int i = 0; i < a; i++)
-                        yield return Sum([a + i, b + i]);
+                    {{body}}
                 }
 
                 static int Sum(ReadOnlySpan<int> values)
@@ -214,26 +214,31 @@ public class IteratorReconstructionPassTests
         return new CompiledFixture(path);
     }
 
-    // Debug-optimized inline-array iterators keep enough state-machine
-    // scaffolding that reconstruction declines (an unrelated iterator limit), so
-    // this exercises the Release shape that reconstructs. Under the test's Roslyn
-    // the buffer struct is spellable, so fidelity is Full either way; the
+    // Under the test's Roslyn the inline-array buffer struct is spellable, so
+    // fidelity is Full whether or not the dead buffer stays eliminated. The
     // discriminating evidence for #3221 is that the buffer's eliminated marking
-    // survives the ResetLocals transplant (EliminatedLocalSlots is non-empty).
-    // Reverting the IteratorReconstructionPass wiring empties it.
-    [Fact]
-    public void ReconstructedIterator_WithInlineArrayCollection_KeepsBufferEliminated()
+    // survives reconstruction (EliminatedLocalSlots is non-empty); reverting either
+    // reconstruction wiring empties it. Debug-optimized inline-array iterators keep
+    // enough state-machine scaffolding that reconstruction declines (an unrelated
+    // iterator limit), so these use the Release shapes that reconstruct. The two
+    // shapes exercise the two seams that copy MoveNext locals into the kickoff:
+    // the single-loop shape (Transplant/ResetLocals) and the conditional-yield
+    // shape (MultiYieldReconstruction, which appends locals at an offset).
+    [Theory]
+    [InlineData("int a, int b", "for (int i = 0; i < a; i++)\n            yield return Sum([a + i, b + i]);")]
+    [InlineData("int a, int b, bool flag", "if (flag)\n            yield return Sum([a, b]);\n        yield return 0;")]
+    public void ReconstructedIterator_WithInlineArrayCollection_KeepsBufferEliminated(string parameters, string body)
     {
-        using var compiled = CompileInlineArrayIteratorFixture(OptimizationLevel.Release);
+        using var compiled = CompileInlineArrayIteratorFixture(parameters, body, OptimizationLevel.Release);
         using var source = MetadataSource.Open(compiled.Path);
 
         var result = RaisedFrom(source, "Issue3221.Iterators", "InlineArrayYield");
 
         // The iterator reconstructs and the collection expression raises, so the
-        // shipped body has no buffer reference. The dead buffer local is
-        // transplanted with the reconstructed MoveNext body; its eliminated
-        // marking must survive the ResetLocals transplant (#3221), or an
-        // unspellable buffer name would re-cap the method at Partial.
+        // shipped body has no buffer reference. The dead buffer local is carried
+        // into the kickoff with the reconstructed body; its eliminated marking must
+        // survive that carry (#3221), or an unspellable buffer name would re-cap the
+        // method at Partial.
         Assert.DoesNotContain("not reconstructed", result.Output);
         Assert.NotEmpty(result.Function.Descendants.OfType<CollectionExpression>());
         Assert.NotEmpty(result.Function.EliminatedLocalSlots);
