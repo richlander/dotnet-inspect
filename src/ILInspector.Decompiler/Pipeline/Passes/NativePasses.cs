@@ -107,6 +107,8 @@ internal static class NativePasses
     public static OptionalArgumentElisionPass OptionalArgumentElision => new();
     [Native(NativeCategory.EmitArtifact, "a when-true-constant bool ternary (the slot-diamond spelling of a short-circuit && / ||, e.g. c ? false : y) re-formed into the LogicalBinary operator the compiler lowered to branches")]
     public static ShortCircuitTernaryPass ShortCircuitTernary => new();
+    [Native(NativeCategory.EmitArtifact, "the compiler's one-temp value-swap codegen shape (S = p; p = q; q = S over two distinct same-type by-value places) folded back to the recognized tuple deconstruction swap (q, p) = (p, q) — byte-identical to the manual temp swap, so it inverts a codegen shape, not the named DeconstructionAssignmentOperator lowering")]
+    public static SwapIdiomPass SwapIdiom => new();
 
     // ───────── IlErasure — reconstruct information the IL type system dropped ─────────
     [Native(NativeCategory.IlErasure, "int constants re-typed to bool/char/enum at typed positions")]
