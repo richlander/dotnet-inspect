@@ -1446,12 +1446,12 @@ public static class CompileBackSourceComposer
             // The explicit-member spelling emits Identifier(declarationName) =
             // CSharpIdentifier.Sanitize(declarationName). A keyword member name is escaped
             // losslessly (`class` -> `@class`, which binds back to `class`), but a member name
-            // that is not a legal C# identifier (e.g. a compiler-unspeakable `<Bad>`) is
-            // rewritten by the lossy sanitizing branch (`<Bad>` -> `__Bad_`). The interface
-            // still declares `<Bad>`, so the reconstructed `IType.__Bad_()` binds to no
-            // interface member (CS0539 = RecompileFail). Only engage when the raw member name
-            // round-trips; otherwise decline to the sanitized ContextFail floor.
-            if (!CSharpIdentifier.IsIdentifierLike(declarationName))
+            // that does not round-trip through a C# identifier — a compiler-unspeakable name
+            // (`<Bad>` -> lossily sanitized `__Bad_`), or one carrying a Unicode format
+            // character that Roslyn strips when binding (`M\u200C` -> `M`) — reconstructs an
+            // `IType.<member>()` that binds to no interface member (CS0539 = RecompileFail).
+            // Only engage when the raw member name round-trips; else decline to the floor.
+            if (!MetadataIdentifierRoundTrips(declarationName))
                 return null;
 
             if (ExternalInterfaceReference(reader, (TypeReferenceHandle)declaration.Parent) is not { } interfaceReference)
@@ -1546,25 +1546,47 @@ public static class CompileBackSourceComposer
         return null;
     }
 
-    // True when every dotted segment of the external interface's raw metadata full name is a
-    // legal C# identifier (keyword segments included). Such a name round-trips through the
-    // display spelling the reconstruction emits: Clean(metadataFullName) keyword-escapes an
-    // identifier-like segment losslessly (`class` -> `@class`, which C# resolves back to
-    // `class`). A segment that is not identifier-like (e.g. a compiler-unspeakable
-    // `<Bad>`) is instead rewritten by Clean's sanitizing branch into a different identifier
-    // (`__Bad_`) that names no real type, so the emitted `using __Bad_;` / `__Bad_.IProbe`
-    // spelling fails to bind (CS0246 = RecompileFail). Nested external types are qualified
-    // with `.` (Outer.Inner), so an ordinary nested interface passes; only genuinely
-    // unrepresentable names are declined here to the sanitized ContextFail floor.
+    // True when every dotted segment of the external interface's raw metadata full name
+    // round-trips through the display spelling the reconstruction emits. Clean(metadataFullName)
+    // keyword-escapes an identifier-like segment losslessly (`class` -> `@class`, which C#
+    // resolves back to `class`). A segment that does not round-trip — a compiler-unspeakable
+    // name (`<Bad>`, rewritten by Clean's sanitizing branch to a different identifier
+    // `__Bad_`) or one carrying a Unicode format character Roslyn strips when binding
+    // (`G\u200Cood` -> `Good`) — names no real type, so the emitted `using`/qualifier fails to
+    // bind (CS0246 = RecompileFail). Nested external types are qualified with `.` (Outer.Inner),
+    // so an ordinary nested interface passes; only genuinely unrepresentable names are declined
+    // here to the sanitized ContextFail floor.
     static bool ExternalInterfaceNameIsRepresentable(string metadataFullName)
     {
         foreach (var segment in metadataFullName.Split('.'))
         {
-            if (!CSharpIdentifier.IsIdentifierLike(segment))
+            if (!MetadataIdentifierRoundTrips(segment))
                 return false;
         }
 
         return true;
+    }
+
+    // True when a raw metadata identifier round-trips through the C# identifier the
+    // reconstruction emits (via CSharpIdentifier.Sanitize / Clean). Lexical identifier-likeness
+    // is necessary but not sufficient: Roslyn's identifier binding additionally removes Unicode
+    // format (Cf) characters and applies Unicode normalization form C, so a name carrying a Cf
+    // character (e.g. U+200C) or a non-NFC form binds to a DIFFERENT name than its exact
+    // metadata spelling (CS0246/CS0539 = RecompileFail). Require the name to be identifier-like,
+    // free of Cf characters, and already in NFC; keyword names still round-trip (Escape only
+    // prepends `@`, which binding strips).
+    static bool MetadataIdentifierRoundTrips(string name)
+    {
+        if (!CSharpIdentifier.IsIdentifierLike(name))
+            return false;
+
+        foreach (var rune in name.EnumerateRunes())
+        {
+            if (Rune.GetUnicodeCategory(rune) == UnicodeCategory.Format)
+                return false;
+        }
+
+        return name.IsNormalized(NormalizationForm.FormC);
     }
 
     // True when a type declared in the recompile closure would intercept the leading

@@ -1447,6 +1447,91 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    // Regression for #3112 review (format-character member name): a hand-authored external
+    // interface method name can carry a Unicode format character (U+200C) that is
+    // identifier-like yet does NOT round-trip — Roslyn strips format characters when binding,
+    // so the emitted `Good.IProbe.M\u200C()` binds to `Good.IProbe.M`, which the interface
+    // (declaring the raw `M\u200C`) does not contain (CS0539 = RecompileFail). The member-name
+    // round-trip guard must reject format characters, not merely check identifier-likeness.
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenMemberNameHasFormatCharacter()
+    {
+        var ilasm = TryLocateIlasm();
+        if (ilasm is null)
+        {
+            Assert.Skip("ilasm not available; skipping hand-authored IL format-character member regression.");
+            return;
+        }
+
+        const string zwnj = "\u200C";
+        var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        AssembleIlFixture(ilasm, CfMemberContractsIl.Replace("%ZWNJ%", zwnj), directory, "CfContracts");
+        var assemblyPath = AssembleIlFixture(
+            ilasm, CfMemberFixtureIl.Replace("%ZWNJ%", zwnj), directory, "cffixture");
+        try
+        {
+            var target = new ReturnToSender.RequestedTarget("N.Seq", $"Good.IProbe.M{zwnj}", 0);
+
+            var all = Assert.Single(
+                ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
+            Assert.True(
+                all.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"all {all.Status}: {all.Detail}{Environment.NewLine}{all.Source}");
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
+    // Regression for #3112 review (format-character namespace): the same format-character
+    // hazard applies to the interface TYPE name. A namespace segment `G\u200Cood` is
+    // identifier-like but does not round-trip (Roslyn strips U+200C, so the emitted
+    // `G\u200Cood.IProbe` binds to `Good.IProbe`, which does not exist — CS0246). The
+    // interface-name representability guard must reject format characters per segment.
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenNamespaceHasFormatCharacter()
+    {
+        var ilasm = TryLocateIlasm();
+        if (ilasm is null)
+        {
+            Assert.Skip("ilasm not available; skipping hand-authored IL format-character namespace regression.");
+            return;
+        }
+
+        const string zwnj = "\u200C";
+        var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        AssembleIlFixture(ilasm, CfNamespaceContractsIl.Replace("%ZWNJ%", zwnj), directory, "CfNsContracts");
+        var assemblyPath = AssembleIlFixture(
+            ilasm, CfNamespaceFixtureIl.Replace("%ZWNJ%", zwnj), directory, "cfnsfixture");
+        try
+        {
+            var target = new ReturnToSender.RequestedTarget("N.Seq", $"G{zwnj}ood.IProbe.M", 0);
+
+            var all = Assert.Single(
+                ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
+            Assert.True(
+                all.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"all {all.Status}: {all.Detail}{Environment.NewLine}{all.Source}");
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
     // Regression for #3112 review (unrepresentable interface name): a hand-authored external
     // interface can live in a namespace whose segment is a compiler-unspeakable name (`<Bad>`)
     // — legal in metadata but not a legal C# identifier. Clean() sanitizes it lossily to a
@@ -7792,6 +7877,82 @@ public class ReturnToSenderPrototypeTests
               instance void 'Good.IProbe.<Bad>'() cil managed
           {
             .override [BadMethodContracts]Good.IProbe::'<Bad>'
+            ret
+          }
+          .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+          {
+            ldarg.0
+            call instance void [System.Runtime]System.Object::.ctor()
+            ret
+          }
+        }
+        """;
+
+    // External contract for the format-character regressions: the `%ZWNJ%` placeholder is
+    // replaced with U+200C (a Unicode format character) at test time. Roslyn strips format
+    // characters when binding identifiers, so a member name `M\u200C` binds as `M` — a name
+    // that is identifier-like yet does not round-trip. Interface variant: namespace `G\u200Cood`.
+    const string CfMemberContractsIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly CfContracts { }
+        .module CfContracts.dll
+
+        .class interface public abstract auto ansi Good.IProbe
+        {
+          .method public hidebysig newslot abstract virtual instance void 'M%ZWNJ%'() cil managed {}
+        }
+        """;
+
+    const string CfMemberFixtureIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern CfContracts { }
+        .assembly cffixture { }
+        .module cffixture.dll
+
+        .class public auto ansi sealed beforefieldinit N.Seq
+            extends [System.Runtime]System.Object
+            implements [CfContracts]Good.IProbe
+        {
+          .method private final hidebysig newslot virtual
+              instance void 'Good.IProbe.M%ZWNJ%'() cil managed
+          {
+            .override [CfContracts]Good.IProbe::'M%ZWNJ%'
+            ret
+          }
+          .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+          {
+            ldarg.0
+            call instance void [System.Runtime]System.Object::.ctor()
+            ret
+          }
+        }
+        """;
+
+    const string CfNamespaceContractsIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly CfNsContracts { }
+        .module CfNsContracts.dll
+
+        .class interface public abstract auto ansi 'G%ZWNJ%ood'.IProbe
+        {
+          .method public hidebysig newslot abstract virtual instance void M() cil managed {}
+        }
+        """;
+
+    const string CfNamespaceFixtureIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern CfNsContracts { }
+        .assembly cfnsfixture { }
+        .module cfnsfixture.dll
+
+        .class public auto ansi sealed beforefieldinit N.Seq
+            extends [System.Runtime]System.Object
+            implements [CfNsContracts]'G%ZWNJ%ood'.IProbe
+        {
+          .method private final hidebysig newslot virtual
+              instance void 'G%ZWNJ%ood.IProbe.M'() cil managed
+          {
+            .override [CfNsContracts]'G%ZWNJ%ood'.IProbe::M
             ret
           }
           .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
