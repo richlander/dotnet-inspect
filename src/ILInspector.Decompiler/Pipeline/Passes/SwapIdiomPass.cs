@@ -20,10 +20,12 @@ namespace ILInspector.Decompiler.Pipeline;
 ///
 /// Scoped to the safe, alias-free case: the two exchanged places are distinct
 /// by-value parameters or locals of the same type (side-effect-free,
-/// non-aliasing lvalues), and the carrier is a stack slot or an unnamed
-/// (compiler) local referenced only by the save and the final restore. Field,
-/// element, indexer, pointer, and byref places — which can alias or carry
-/// side effects — keep their explicit three-statement spelling.
+/// non-aliasing lvalues) that are legal ValueTuple elements, and the carrier is
+/// a stack slot or an unnamed (compiler) local referenced only by the save and
+/// the final restore. Field, element, indexer, pointer, function-pointer,
+/// byref, and ref-struct / stack-only places — which can alias, carry side
+/// effects, reseat rather than assign, or are illegal as tuple elements — keep
+/// their explicit three-statement spelling.
 /// </summary>
 public sealed class SwapIdiomPass : IIrPass
 {
@@ -87,6 +89,16 @@ public sealed class SwapIdiomPass : IIrPass
         // A swap exchanges two *distinct* places of the same type. Equal
         // places, or a type mismatch, are not the swap idiom.
         if (p.Equals(q) || !p.Type.Equals(q.Type))
+            return false;
+
+        // The exchanged places must be spellable, non-aliasing, by-value
+        // lvalues that are legal ValueTuple elements. Byref (`ref`
+        // parameters/locals — a byref reseat, not a value swap), pointers,
+        // function pointers, and ref-struct / stack-only value types either
+        // change meaning under tuple deconstruction (a `ref` reseat becomes a
+        // value write to the referent) or cannot appear as a tuple element at
+        // all (CS9244 / CS0306). Leave those in the flat three-statement form.
+        if (!IsSwappablePlaceType(function, p.Type))
             return false;
 
         // The carrier must be a genuine single-def/single-use temp: referenced
@@ -214,4 +226,47 @@ public sealed class SwapIdiomPass : IIrPass
         => index >= 0
             && index < function.LocalNames.Length
             && function.LocalNames[index] is null;
+
+    // A place type is swappable only when it is a spellable, boxable-or-plain
+    // by-value type that is legal as a ValueTuple element. Mirrors the
+    // ref-struct / stack-only reasoning in PatternSwitchExpressionPass
+    // (IsStackOnlyValueType / IsByRefLike): those helpers live there privately,
+    // so the swap pass keeps its own trimmed copies rather than raising invalid
+    // or meaning-changing `Full` C#.
+    static bool IsSwappablePlaceType(IrFunction function, TypeRef type)
+    {
+        if (type.Kind is TypeRefKind.ByRef or TypeRefKind.Pointer
+            or TypeRefKind.FunctionPointer or TypeRefKind.Pinned or TypeRefKind.Unsupported)
+        {
+            return false;
+        }
+        return !IsStackOnlyValueType(type) && !IsByRefLike(function, type);
+    }
+
+    // The corelib stack-only value types (ref structs and byref-like intrinsics)
+    // recognised by name, since their ref-struct nature lives on the
+    // cross-assembly corelib definition rather than this TypeRef. Matching
+    // `System` avoids user types of the same simple name; user-defined ref
+    // structs in the inspected assembly are caught by IsByRefLike instead.
+    static bool IsStackOnlyValueType(TypeRef type)
+    {
+        var (name, ns) = type.Kind is TypeRefKind.GenericInstance
+            ? (type.ElementType?.Name, type.ElementType?.Namespace)
+            : (type.Name, type.Namespace);
+        if (ns != "System" || name is null)
+            return false;
+        int tick = name.IndexOf('`');
+        string simple = tick < 0 ? name : name[..tick];
+        return simple is "Span" or "ReadOnlySpan" or "TypedReference"
+            or "ArgIterator" or "RuntimeArgumentHandle";
+    }
+
+    // Whether the type (or a generic instance's definition) carries the
+    // compiler's [IsByRefLike] fact recovered at import — a user-defined
+    // `ref struct` in the inspected assembly.
+    static bool IsByRefLike(IrFunction function, TypeRef type)
+    {
+        var definition = type.Kind == TypeRefKind.GenericInstance ? type.ElementType : type;
+        return definition is not null && function.ByRefLikeTypes.Contains(definition);
+    }
 }

@@ -43,6 +43,49 @@ public class SwapIdiomPassTests
         Assert.DoesNotContain("S_", output);
     }
 
+    // --- Negative: place types that forbid a tuple swap (byref / pointer / ref struct) ---
+
+    public static TheoryData<string, TypeRef> UnspellableSwapPlaceTypes() => new()
+    {
+        { "byref (a `ref` reseat, not a value swap)", TypeRef.ByRef(Int) },
+        { "pointer (illegal ValueTuple element, CS0306)", TypeRef.Pointer(Int) },
+        { "ref struct (illegal ValueTuple element, CS9244)",
+            TypeRef.GenericInstance(TypeRef.CoreLib("System", "Span"), [Int]) },
+    };
+
+    [Theory]
+    [MemberData(nameof(UnspellableSwapPlaceTypes))]
+    public void SwapOfUnspellablePlaceType_NotRaised(string _, TypeRef placeType)
+    {
+        // S = a; a = b; b = S;  over two places of a type that cannot appear as
+        // a ValueTuple element (or would reseat rather than assign): decline.
+        var function = BuildBlock(
+            new StoreStackSlot(0, new LoadArgument(0, "p0", placeType)),
+            new StoreArgument(0, "p0", placeType, new LoadArgument(1, "p1", placeType)),
+            new StoreArgument(1, "p1", placeType, new LoadStackSlot(0, placeType)));
+
+        new SwapIdiomPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<DeconstructionAssignment>());
+        Assert.Empty(function.Descendants.OfType<TupleExpression>());
+    }
+
+    [Fact]
+    public void SwapOfReferenceTypePlaces_Raises()
+    {
+        // Reference-type swaps are byte-exact and legal ValueTuple elements, so
+        // the guard must not over-reject them: `S = a; a = b; b = S;` still raises.
+        var stringType = TypeRef.CoreLib("System", "String");
+        var function = BuildBlock(
+            new StoreStackSlot(0, new LoadArgument(0, "p0", stringType)),
+            new StoreArgument(0, "p0", stringType, new LoadArgument(1, "p1", stringType)),
+            new StoreArgument(1, "p1", stringType, new LoadStackSlot(0, stringType)));
+
+        new SwapIdiomPass().Run(function, PassContext.None);
+
+        Assert.Single(function.Descendants.OfType<DeconstructionAssignment>());
+    }
+
     // --- Negative: synthesized IR exercising each decline gate directly ---
 
     [Fact]
