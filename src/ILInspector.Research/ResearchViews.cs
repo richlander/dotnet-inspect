@@ -48,14 +48,16 @@ public static partial class ResearchViews
     {
         try
         {
-            var imported = (request.MethodToken is null
+            IrFunction? ImportFunction() => request.MethodToken is null
                 ? IrImporter.Import(
                     request.Source,
                     request.Type,
                     request.Method,
                     request.OverloadIndex,
                     request.PublicOnly)
-                : IrImporter.Import(request.Source, request.MethodToken.Value))
+                : IrImporter.Import(request.Source, request.MethodToken.Value);
+
+            var imported = ImportFunction()
                 ?? throw new InvalidOperationException($"{request.Type}::{request.Method} has no IL body");
 
             var assembly = ResolveAssemblyContext(imported);
@@ -69,12 +71,21 @@ public static partial class ResearchViews
             DecompilerResult? annotatedSource = null;
             if (request.AnnotatedSource)
             {
+                // Printing raises and rewrites the IR in place, so the annotated
+                // render cannot share this function with the overlay and fact-row
+                // projections: a byte-divergent style lens applies only to this
+                // view, but its rewrites would survive on the shared graph and
+                // silently reshape renders that are supposed to be style-invariant.
+                // Give the annotated render its own import so the isolation does
+                // not depend on projection order.
+                var annotatedFunction = ImportFunction()
+                    ?? throw new InvalidOperationException($"{request.Type}::{request.Method} has no IL body");
                 annotatedSource = WithTrace(
                     RunProjection(() => RenderMixedCore(
                         request.Source,
                         request.Type,
                         request.Method,
-                        imported,
+                        annotatedFunction,
                         facts,
                         request.AnnotatedStage,
                         request.OverloadIndex,

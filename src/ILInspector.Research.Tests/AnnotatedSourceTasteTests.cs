@@ -138,6 +138,40 @@ public class AnnotatedSourceTasteTests
             d => d.RuleId == "style-lens.prefer-conditional-return");
         Assert.Equal(DecompilerDecisionCategories.StyleLens, decision.Category);
     }
+
+    [Fact]
+    public void ByteDivergentLens_DoesNotLeakIntoTheStyleInvariantOverlays()
+    {
+        // Printing raises and rewrites the IR in place, so an annotated render
+        // that shares its function with the overlays would let a lens requested
+        // for this one view reshape renders that never asked for it: selecting a
+        // section would change a different section's output. Pin that the overlays
+        // render the member's own control flow no matter which sections are also
+        // requested in the same projection.
+        static ResearchViews.MemberProjectionResult Project(bool annotated)
+        {
+            using var source = MetadataSource.Open(typeof(AnnotatedTasteFixture).Assembly.Location);
+            return ResearchViews.ProjectMember(new ResearchViews.MemberProjectionRequest(
+                source,
+                typeof(AnnotatedTasteFixture).FullName!,
+                nameof(AnnotatedTasteFixture.GuardBothVariable),
+                AnnotatedSource: annotated,
+                CostOverlay: true,
+                SemanticsOverlay: true,
+                PrinterOptions: annotated ? new PrinterOptions { PreferConditionalExpressionReturn = true } : null));
+        }
+
+        var overlaysOnly = Project(annotated: false);
+        var withAnnotated = Project(annotated: true);
+
+        // The lens did fire, so this is a live test and not a vacuous one.
+        Assert.Contains("Interleaved IL suppressed", Assert.IsType<string>(withAnnotated.AnnotatedSource?.Output));
+
+        Assert.Equal(overlaysOnly.CostOverlay?.Body.Output, withAnnotated.CostOverlay?.Body.Output);
+        Assert.Equal(overlaysOnly.SemanticsOverlay?.Output, withAnnotated.SemanticsOverlay?.Output);
+        Assert.DoesNotContain("a ? b : c", Assert.IsType<string>(withAnnotated.CostOverlay?.Body.Output));
+        Assert.DoesNotContain("a ? b : c", Assert.IsType<string>(withAnnotated.SemanticsOverlay?.Output));
+    }
 }
 
 public sealed class AnnotatedTasteFixture
