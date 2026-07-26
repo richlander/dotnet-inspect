@@ -2870,6 +2870,24 @@ public class CfgSampleClass
         return a + b;
     }
 
+    // #3166 compile-back witness: the value-swap idiom. csc lowers the tuple swap
+    // `(a, b) = (b, a)` — and the equivalent manual `temp = b; b = a; a = temp;` —
+    // to a single dup-slot save followed by the two cross-stores (verified
+    // byte-identical for a struct), so SwapIdiomPass raising the surviving carrier
+    // back to `(a, b) = (b, a)` is opcode-exact, not a byte-divergent rewrite. This
+    // mirrors System.Text.Json.JsonElement.DeepEquals, which swaps two JsonElement
+    // structs through one such temp (issue #3166); carrying it into the fidelity
+    // gate proves the raised swap recompiles to the original IL — the check the
+    // internal-surface DeepEquals cannot itself feed to compile-back.
+    public static int SwapStructPair(Pairing a, Pairing b)
+    {
+        if (a.First < b.First)
+        {
+            (a, b) = (b, a);
+        }
+        return a.First - b.First;
+    }
+
     public static object AnonShorthand(int a, string b) => new { a, b };
 
     public static object AnonNamed(int x, string y) => new { Id = x, Name = y };

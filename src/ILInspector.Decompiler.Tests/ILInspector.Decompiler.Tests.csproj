@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <PackageReference Include="Markout" />
+    <PackageReference Include="Markout.Templates" />
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
   </ItemGroup>
@@ -46,6 +47,7 @@
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.UnsafeChainA\ILInspector.Decompiler.Fixtures.UnsafeChainA.csproj" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.UnsafeChainB\ILInspector.Decompiler.Fixtures.UnsafeChainB.csproj" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.UnsafeChainC\ILInspector.Decompiler.Fixtures.UnsafeChainC.csproj" />
+    <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.VbFinalizer\ILInspector.Decompiler.Fixtures.VbFinalizer.vbproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.Ladder\ILInspector.Decompiler.Fixtures.Ladder.csproj" />
     <ProjectReference Include="..\ILInspector.Decompiler.Fixtures.TypeIdentity\ILInspector.Decompiler.Fixtures.TypeIdentity.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\DiffFixtures.V1\DiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
