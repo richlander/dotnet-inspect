@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 using ILInspector.DecompilerHarness;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -5,28 +7,45 @@ using Microsoft.CodeAnalysis.CSharp;
 namespace ILInspector.Decompiler.Tests;
 
 /// <summary>
-/// Pins the annotated compile-back failure render (#3238): a RecompileFail's
-/// emitted C# is shown with a caret underline under the exact diagnostic span,
-/// and invisible/format runes on that line are revealed so the caret points at
-/// something the reader can see. The caret sits on a <c>//</c> comment so the
-/// block stays valid C# inside a code fence.
+/// Pins the annotated compile-back failure render (#3238) and its cause/fix
+/// classification (#3256). Layers 1-2: the emitted C# is shown with a caret under
+/// the exact diagnostic span, invisible runes revealed. Layer 3: a classified
+/// <c>cause</c> + paired <c>fix</c>. The concrete-fix causes are held to their
+/// claim - apply the fix, recompile, and the diagnostic must be gone - so a
+/// green suite verifies the <c>fix:</c> line, not merely its wording.
 /// </summary>
 [Trait("Area", "Fidelity")]
 public class AnnotatedCompileBackFailureTests
 {
-    // The "killer" shape: an identifier carrying a zero-width non-joiner
-    // (U+200C). Roslyn cannot bind `Missing<ZWNJ>Type`, so the CS0246 span
-    // covers the whole identifier — including the invisible rune.
     const char Zwnj = '\u200C';
 
-    static Diagnostic FirstError(string source)
+    // The one dynamic compilation site in this file (registered in the
+    // DynamicCompilationSite manifest); every test routes through it.
+    static ImmutableArray<Diagnostic> Compile(string source)
     {
         var comp = CSharpCompilation.Create("annot",
             [CSharpSyntaxTree.ParseText(source)],
             [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
         using var ms = new MemoryStream();
-        return comp.Emit(ms).Diagnostics.First(d => d.Severity == DiagnosticSeverity.Error);
+        return comp.Emit(ms).Diagnostics;
+    }
+
+    static Diagnostic FirstError(string source)
+        => Compile(source).First(d => d.Severity == DiagnosticSeverity.Error);
+
+    static bool CompilesClean(string source)
+        => !Compile(source).Any(d => d.Severity == DiagnosticSeverity.Error);
+
+    // Classify a real diagnostic the way the render site does: widen to the
+    // diagnostic's failing line + span, then hand it to the classifier.
+    static FidelityCheck.CauseFix? Classify(string source, Diagnostic d)
+    {
+        var span = d.Location.GetLineSpan().Span;
+        string line = source.Replace("\r\n", "\n").Split('\n')[span.Start.Line];
+        int start = span.Start.Character;
+        int end = span.End.Line == span.Start.Line ? span.End.Character : line.Length;
+        return FidelityCheck.ClassifyCause(line, start, end, d.Id);
     }
 
     [Fact]
@@ -41,12 +60,10 @@ public class AnnotatedCompileBackFailureTests
         string render = FidelityCheck.RenderAnnotatedFailure(source, FirstError(source))!;
         string[] lines = render.Split('\n');
 
-        // The code line reveals the ZWNJ as a visible token.
+        // Layers 1-2: the code line reveals the ZWNJ; the caret is a // comment
+        // carrying the diagnostic, aligned under the revealed identifier.
         Assert.Contains("Missing\u2039ZWNJ\u203AType", lines[0]);
         Assert.DoesNotContain('\u200C', render);
-
-        // The caret line is a // comment carrying the diagnostic, with carets
-        // aligned under the revealed identifier (7 + 6 for <ZWNJ> + 4 = 17).
         Assert.StartsWith("    //", lines[1]);
         Assert.Contains(new string('^', 17), lines[1]);
         Assert.Contains("CS0246", lines[1]);
@@ -55,64 +72,11 @@ public class AnnotatedCompileBackFailureTests
         int revealedIdentColumn = lines[0].IndexOf("Missing", StringComparison.Ordinal);
         Assert.Equal(revealedIdentColumn, caretColumn);
 
-        // Layer 3 (#3256): a classified cause + paired fix follow on the gutter,
-        // deriving the fix from the emitted token itself (reveal → stripped).
-        Assert.StartsWith("    //  cause: invisible-rune", lines[2]);
-        Assert.StartsWith("    //  fix:", lines[3]);
-        Assert.Contains("Missing\u2039ZWNJ\u203AType \u2192 MissingType", lines[3]);
-    }
-
-    [Theory]
-    [InlineData("M\u200C", "invisible-rune", "M\u2039ZWNJ\u203A \u2192 M")]      // Cf stripping
-    [InlineData("\u200DName", "invisible-rune", "\u2039ZWJ\u203AName \u2192 Name")]
-    public void ClassifiesInvisibleRuneWithStrippedFix(string token, string cause, string fixDelta)
-    {
-        var result = FidelityCheck.ClassifyCause(token);
-        Assert.NotNull(result);
-        Assert.StartsWith(cause, result!.Value.Cause);
-        Assert.Contains(fixDelta, result.Value.Fix);
-    }
-
-    [Theory]
-    [InlineData("class")]
-    [InlineData("int")]
-    [InlineData("return")]
-    public void ClassifiesBareKeywordWithVerbatimFix(string keyword)
-    {
-        var result = FidelityCheck.ClassifyCause(keyword);
-        Assert.NotNull(result);
-        Assert.StartsWith("keyword-escape", result!.Value.Cause);
-        Assert.Equal($"emit  {keyword} \u2192 @{keyword}", result.Value.Fix);
-    }
-
-    [Theory]
-    [InlineData("<>c")]
-    [InlineData("<M>b__0")]
-    public void ClassifiesUnspeakableNameWithPolicyFix(string token)
-    {
-        var result = FidelityCheck.ClassifyCause(token);
-        Assert.NotNull(result);
-        Assert.StartsWith("unspeakable-name", result!.Value.Cause);
-        Assert.Contains("no exact source form", result.Value.Fix);
-    }
-
-    [Theory]
-    [InlineData("Ordinary")]     // plain identifier — nothing to classify
-    [InlineData("MyType")]
-    [InlineData("")]
-    [InlineData("@class")]        // already escaped — not a bare keyword
-    public void FallsThroughForUnrecognizedToken(string token)
-        => Assert.Null(FidelityCheck.ClassifyCause(token));
-
-    // invisible-rune is checked before keyword-escape: a keyword-looking token
-    // carrying a format rune is classified by the rune, since that is the real
-    // reason binding diverged.
-    [Fact]
-    public void InvisibleRuneTakesPrecedenceOverKeyword()
-    {
-        var result = FidelityCheck.ClassifyCause("class\u200C");
-        Assert.NotNull(result);
-        Assert.StartsWith("invisible-rune", result!.Value.Cause);
+        // Layer 3: an interior Cf that lexed but failed to *bind* is unspeakable -
+        // Roslyn strips Cf from metadata names, so the name came from a non-C#
+        // producer and no source spelling reaches it. Policy fix, no A -> B delta.
+        Assert.StartsWith("    //  cause: unspeakable-name", lines[2]);
+        Assert.Contains("no exact source form", lines[3]);
     }
 
     [Fact]
@@ -120,4 +84,93 @@ public class AnnotatedCompileBackFailureTests
         => Assert.Null(FidelityCheck.RenderAnnotatedFailure("class C {}", Diagnostic.Create(
             new DiagnosticDescriptor("XX000", "t", "no location", "c", DiagnosticSeverity.Error, true),
             Location.None)));
+
+    // ---- Concrete fixes, held to their claim (apply -> recompile -> clean) ----
+
+    [Fact]
+    public void InvisibleRuneFixIsVerifiedByRecompile()
+    {
+        // A leading Cf is a valid identifier-part but not an identifier-start, so
+        // it breaks *lexing* (CS1001). Dropping it is a real fix.
+        string source = "class " + Zwnj + "Foo { }\n";
+        Diagnostic err = FirstError(source);
+        Assert.Contains(err.Id, new[] { "CS1001", "CS1056" });
+
+        FidelityCheck.CauseFix? cf = Classify(source, err);
+        Assert.NotNull(cf);
+        Assert.StartsWith("invisible-rune", cf!.Value.Cause);
+        Assert.NotNull(cf.Value.From);
+        Assert.NotNull(cf.Value.To);
+
+        string patched = source.Replace(cf.Value.From!, cf.Value.To!);
+        Assert.DoesNotContain(Zwnj, patched);
+        Assert.True(CompilesClean(patched), "applying the invisible-rune fix must clear the diagnostic");
+    }
+
+    [Fact]
+    public void KeywordEscapeFixIsVerifiedByRecompile()
+    {
+        // 'event' written bare is a keyword; '@event' is the fix.
+        string source = "class C { int event; }\n";
+        Diagnostic err = FirstError(source);
+
+        FidelityCheck.CauseFix? cf = Classify(source, err);
+        Assert.NotNull(cf);
+        Assert.StartsWith("keyword-escape", cf!.Value.Cause);
+        Assert.Equal("event", cf.Value.From);
+        Assert.Equal("@event", cf.Value.To);
+
+        string patched = source.Replace(cf.Value.From!, cf.Value.To!);
+        Assert.True(CompilesClean(patched), "applying the keyword-escape fix must clear the diagnostic");
+    }
+
+    // ---- Interior Cf -> unspeakable (not a droppable rune) ----
+
+    [Fact]
+    public void InteriorCfThatFailsToBindIsUnspeakableNotDroppable()
+    {
+        // Interior Cf on a name the compiler cannot resolve is CS0246 (binding).
+        // The honest classification is unspeakable - dropping the rune would be
+        // inert, since the compiler already treats the names as equal.
+        string source = "class C { Missing" + Zwnj + "Type f; }\n";
+        FidelityCheck.CauseFix? cf = Classify(source, FirstError(source));
+
+        Assert.NotNull(cf);
+        Assert.StartsWith("unspeakable-name", cf!.Value.Cause);
+        Assert.Null(cf.Value.From);   // policy fix - no concrete delta claimed
+        Assert.Null(cf.Value.To);
+        Assert.Contains("no exact source form", cf.Value.Fix);
+    }
+
+    // ---- The former harmful precedence case, now correct ----
+
+    [Fact]
+    public void KeywordStemCarryingCfIsNeverConvertedIntoAKeyword()
+    {
+        // 'class\u200C' is a *legal identifier* - the rune is what makes it legal.
+        // The classifier must never propose `class\u200C -> class`, which would
+        // manufacture a keyword error.
+        FidelityCheck.CauseFix? cf = FidelityCheck.ClassifyCause("class" + Zwnj, 0, 6, "CS0103");
+
+        if (cf is { } value)
+        {
+            Assert.DoesNotContain("keyword-escape", value.Cause);
+            Assert.NotEqual("class", value.To);
+        }
+    }
+
+    // ---- Fall-through: not every span is a classifiable identifier ----
+
+    [Theory]
+    // generic argument list - the '<'/'>' are not a generated-name marker
+    [InlineData("var x = new List<int>();", 12, 21, "CS0246")]
+    // a bare '<' span (e.g. CS1526 on `new <>c()`) is not an identifier
+    [InlineData("var x = new <>c();", 12, 13, "CS1526")]
+    // a lambda arrow is not an identifier
+    [InlineData("f = x => x;", 6, 8, "CS0119")]
+    // an ordinary identifier with no defect
+    [InlineData("Ordinary y = null;", 0, 8, "CS0246")]
+    public void FallsThroughForSpansThatAreNotAClassifiableCause(
+        string line, int start, int end, string id)
+        => Assert.Null(FidelityCheck.ClassifyCause(line, start, end, id));
 }
