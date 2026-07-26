@@ -280,12 +280,13 @@ family is available.
 **Single-vendor harnesses.** The tiers above set how many reviews and which models
 a PR requires; a harness's capabilities change only *how* those reviews are
 obtained, not the bar. Most harnesses expose only their own vendor's models — for
-example Claude Code or Codex — and cannot run a cross-model review themselves. Such
-a harness first reviews with its own model (independent passes on the fixed head),
-then **requests the tier's required roster-model review from the user**: the
-MAI-Code review for the single-review tier, or the second, different-family review
-for the two-model tier. Its own-model pass is a precondition, not a substitute — do
-not mark the PR ready until the required different-model review is obtained.
+example Claude Code or Codex. For the **single-review tier**, such a harness just
+reviews with its own model (for example an Opus subagent under Claude Code); that
+one review satisfies the tier — no MAI-Code or other cross-model review is
+additionally required. The cross-model requirement applies only to the **two-model
+tier**: there the harness reviews with its own model (independent passes on the
+fixed head), then **requests a second, different-family review from the user**, and
+does **not** mark the PR ready until that different-model review is obtained.
 
 Give each reviewer the same self-contained prompt: exact base and head, design
 intent, relevant diff, concrete attack points, and required real-run evidence.
