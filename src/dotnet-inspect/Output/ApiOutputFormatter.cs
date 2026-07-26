@@ -6,6 +6,7 @@ using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using System.Collections.Immutable;
 using System.Text;
+using System.Globalization;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -1670,12 +1671,51 @@ public static class ApiOutputFormatter
         if (parts.Count == 0)
             return null;
 
-        // A subject is a metadata name, and metadata strings are untrusted: a name
-        // carrying any C# line terminator would end the // comment and leave the
-        // rest of the annotation as active code in output a reader may compile or
-        // paste. ReplaceLineEndings folds every terminator C# recognizes (CR, LF,
-        // CRLF, FF, NEL, LS, PS), so the annotation cannot leave its own line.
-        return string.Join("; ", parts).ReplaceLineEndings(" ");
+        // A subject is a metadata name, and metadata names are untrusted: the CLR
+        // does not require them to be spellable, printable, or even single-line.
+        return NeutralizeForSideComment(string.Join("; ", parts));
+    }
+
+    // Makes an untrusted metadata string safe to carry in a trailing // comment
+    // without losing which name it was.
+    //
+    // Two separate hazards, so two separate treatments. A C# line terminator ends
+    // the comment, which would leave the rest of the annotation as active code in
+    // a block a reader may paste or compile; those fold to a space so the comment
+    // cannot leave its line. ReplaceLineEndings covers exactly the terminators C#
+    // recognizes (CR, LF, CRLF, FF, NEL, LS, PS). Everything else here is a
+    // rendering hazard rather than a syntax one — ANSI escapes recolor or rewrite
+    // the terminal, and bidi overrides reorder what follows them, so a name can
+    // misrepresent itself or its neighbors. Those become visible \uXXXX escapes,
+    // which keeps the identity legible instead of dropping characters that are
+    // part of the real name.
+    private static string NeutralizeForSideComment(string value)
+    {
+        var folded = value.ReplaceLineEndings(" ");
+        if (!folded.Any(IsRenderingHazard))
+            return folded;
+
+        var builder = new StringBuilder(folded.Length);
+        foreach (var ch in folded)
+        {
+            if (IsRenderingHazard(ch))
+                builder.Append(CultureInfo.InvariantCulture, $"\\u{(int)ch:X4}");
+            else
+                builder.Append(ch);
+        }
+
+        return builder.ToString();
+
+        // Tab is deliberately allowed: it is legal in a comment and renders as
+        // space. Vertical tab is not a C# line terminator, so ReplaceLineEndings
+        // leaves it, but it does move the cursor down a line in a terminal — it is
+        // caught here as the C0 control it is.
+        static bool IsRenderingHazard(char ch) =>
+            ch != '\t'
+            && (char.IsControl(ch)
+                || ch is '\u200E' or '\u200F'
+                    or >= '\u202A' and <= '\u202E'
+                    or >= '\u2066' and <= '\u2069');
     }
 
     static string TrimLensPrefix(string ruleId)

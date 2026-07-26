@@ -163,6 +163,47 @@ public class AppliedTasteSectionTests
         Assert.Contains("Injected", annotation, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("\u001b[31m", "\\u001B[31m")]   // ANSI escape: recolors or rewrites the terminal
+    [InlineData("\u202E", "\\u202E")]       // bidi override: reorders what follows it
+    [InlineData("\u2066", "\\u2066")]       // isolate: same class
+    [InlineData("\u000B", "\\u000B")]       // vertical tab: not a C# terminator, still moves the cursor
+    [InlineData("\u0000", "\\u0000")]
+    public void TasteAnnotation_SubjectCarryingARenderingHazard_IsEscapedButStillLegible(
+        string hazard,
+        string expectedEscape)
+    {
+        // These do not break C# syntax, so folding them to a space would be wrong —
+        // they are part of the real metadata name. Escape them visibly instead, so
+        // a name cannot silently misrepresent itself or its neighbors in a terminal
+        // while the reader can still tell which name it was.
+        var decision = new DecompilerDecision(
+            "qualify-field-access",
+            DecompilerDecisionCategories.Taste,
+            $"x{hazard}y",
+            "Qualified instance member with 'this.'.");
+
+        var annotation = ApiOutputFormatter.BuildTasteAnnotation([decision]);
+
+        Assert.Equal($"taste.qualify-field-access(x{expectedEscape}y)", annotation);
+    }
+
+    [Fact]
+    public void TasteAnnotation_OrdinarySubject_IsLeftExactlyAsItIs()
+    {
+        // The escaping pass must be inert for every well-formed name, so normal
+        // output is byte-identical and the hazard path stays exceptional.
+        var decision = new DecompilerDecision(
+            "qualify-method-access",
+            DecompilerDecisionCategories.Taste,
+            "Compute<T>",
+            "Qualified instance member with 'this.'.");
+
+        Assert.Equal(
+            "taste.qualify-method-access(Compute<T>)",
+            ApiOutputFormatter.BuildTasteAnnotation([decision]));
+    }
+
     [Fact]
     public void TasteAnnotation_NoDecisions_YieldsNothing()
         => Assert.Null(ApiOutputFormatter.BuildTasteAnnotation([]));
