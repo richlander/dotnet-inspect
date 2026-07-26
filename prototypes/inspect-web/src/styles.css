@@ -684,6 +684,10 @@ kbd {
 .composition-grid .count-cell.as-button:hover { background: var(--panel-active); }
 .composition-grid .count-cell.as-button:hover strong { color: var(--accent); }
 .assembly-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.assembly-grid .assembly-cell { display: flex; flex-direction: column; gap: 6px; padding: 14px 12px; background: var(--panel); min-width: 0; }
+.assembly-grid .assembly-name { font: 13px var(--mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assembly-grid .assembly-stats { font-size: 12px; color: var(--dim); }
+.assembly-grid .assembly-stats strong { font-family: var(--mono); color: var(--text); font-weight: 600; }
 .type-chip-list .type-chip .ns-count { display: inline-block; min-width: 18px; margin-right: 6px; padding: 0 5px; border-radius: 999px; background: var(--panel-active); color: var(--dim); font-size: 11px; text-align: center; }
 .type-chip-list .type-chip.active { border-color: var(--accent); color: var(--accent); }
 .type-chip-list .attr-chip .ref-version { color: var(--muted); margin-left: 4px; }

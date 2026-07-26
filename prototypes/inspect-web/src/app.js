@@ -1130,8 +1130,8 @@ function renderPackageOverview() {
     .join("");
 
   const assemblies = (pkg.assemblies || [])
-    .map(assembly => `<div class="count-cell"><strong>${assembly.publicTypes}</strong><span>${escapeHtml(assembly.name)}</span><em>${assembly.publicMembers.toLocaleString()} members</em></div>`)
-    .join("") || '<div class="count-cell"><strong>0</strong><span>assemblies</span></div>';
+    .map(assembly => `<div class="assembly-cell"><span class="assembly-name" title="${escapeHtml(assembly.name)}">${escapeHtml(assembly.name)}</span><span class="assembly-stats"><strong>${assembly.publicTypes}</strong> type${assembly.publicTypes === 1 ? "" : "s"} · <strong>${assembly.publicMembers.toLocaleString()}</strong> member${assembly.publicMembers === 1 ? "" : "s"}</span></div>`)
+    .join("") || '<div class="assembly-cell"><span class="assembly-name">No assemblies</span></div>';
 
   const kindCounts = new Map();
   for (const type of pkg.types) {
