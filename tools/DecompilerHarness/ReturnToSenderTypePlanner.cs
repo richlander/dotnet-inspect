@@ -1570,11 +1570,12 @@ public static class CompileBackSourceComposer
     // True when a raw metadata identifier round-trips through the C# identifier the
     // reconstruction emits (via CSharpIdentifier.Sanitize / Clean). Lexical identifier-likeness
     // is necessary but not sufficient: Roslyn's identifier binding additionally removes Unicode
-    // format (Cf) characters and applies Unicode normalization form C, so a name carrying a Cf
-    // character (e.g. U+200C) or a non-NFC form binds to a DIFFERENT name than its exact
-    // metadata spelling (CS0246/CS0539 = RecompileFail). Require the name to be identifier-like,
-    // free of Cf characters, and already in NFC; keyword names still round-trip (Escape only
-    // prepends `@`, which binding strips).
+    // format (Cf) characters, so a name carrying a Cf character (e.g. U+200C) binds to a
+    // DIFFERENT name than its exact metadata spelling (CS0246/CS0539 = RecompileFail). Roslyn
+    // does NOT apply Unicode normalization to identifiers: a decomposed (non-NFC) metadata name
+    // such as `e` + U+0301 is emitted and bound verbatim, so it round-trips exactly and must
+    // NOT be declined. Require the name to be identifier-like and free of Cf characters; keyword
+    // names still round-trip (Escape only prepends `@`, which binding strips).
     static bool MetadataIdentifierRoundTrips(string name)
     {
         if (!CSharpIdentifier.IsIdentifierLike(name))
@@ -1586,7 +1587,7 @@ public static class CompileBackSourceComposer
                 return false;
         }
 
-        return name.IsNormalized(NormalizationForm.FormC);
+        return true;
     }
 
     // True when a type declared in the recompile closure would intercept the leading

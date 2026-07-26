@@ -1532,6 +1532,51 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    // Regression for #3112 review (decomposed / non-NFC member name): the round-trip guard must
+    // NOT over-decline. Roslyn strips format (Cf) characters when binding identifiers but does
+    // NOT apply Unicode normalization, so a decomposed member name `e` + U+0301 (which is NOT in
+    // NFC — its composed form is U+00E9) is emitted and bound verbatim and round-trips exactly.
+    // A prior guard that additionally required NFC declined this compiler-producible shape to the
+    // sanitized ContextFail floor, regressing a real Exact. The gate must engage and round-trip
+    // Exact, not decline.
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceKeepsExactWhenMemberNameIsDecomposed()
+    {
+        var ilasm = TryLocateIlasm();
+        if (ilasm is null)
+        {
+            Assert.Skip("ilasm not available; skipping hand-authored IL decomposed-identifier member regression.");
+            return;
+        }
+
+        const string comb = "\u0301";
+        var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        AssembleIlFixture(ilasm, NfcMemberContractsIl.Replace("%COMB%", comb), directory, "NfcContracts");
+        var assemblyPath = AssembleIlFixture(
+            ilasm, NfcMemberFixtureIl.Replace("%COMB%", comb), directory, "nfcfixture");
+        try
+        {
+            var target = new ReturnToSender.RequestedTarget("N.Seq", $"Good.IProbe.e{comb}", 0);
+
+            var all = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath, [target], RoundTripScope.All, RoundTripBodyPolicy.Full));
+            Assert.True(
+                all.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"all {all.Status}: {all.Detail}{Environment.NewLine}{all.Source}");
+            Assert.False(all.UsedCompileBackFloor, all.Detail);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
     // Regression for #3112 review (unrepresentable interface name): a hand-authored external
     // interface can live in a namespace whose segment is a compiler-unspeakable name (`<Bad>`)
     // — legal in metadata but not a legal C# identifier. Clean() sanitizes it lossily to a
@@ -7953,6 +7998,46 @@ public class ReturnToSenderPrototypeTests
               instance void 'G%ZWNJ%ood.IProbe.M'() cil managed
           {
             .override [CfNsContracts]'G%ZWNJ%ood'.IProbe::M
+            ret
+          }
+          .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+          {
+            ldarg.0
+            call instance void [System.Runtime]System.Object::.ctor()
+            ret
+          }
+        }
+        """;
+
+    // External contract for the decomposed-identifier (non-NFC) regression: the `%COMB%`
+    // placeholder is replaced with U+0301 (combining acute accent) at test time, so the member
+    // name is `e` + U+0301 — identifier-like, format-character-free, and NOT in NFC. Roslyn binds
+    // it verbatim (no normalization), so it round-trips Exact and must NOT be declined.
+    const string NfcMemberContractsIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly NfcContracts { }
+        .module NfcContracts.dll
+
+        .class interface public abstract auto ansi Good.IProbe
+        {
+          .method public hidebysig newslot abstract virtual instance void 'e%COMB%'() cil managed {}
+        }
+        """;
+
+    const string NfcMemberFixtureIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern NfcContracts { }
+        .assembly nfcfixture { }
+        .module nfcfixture.dll
+
+        .class public auto ansi sealed beforefieldinit N.Seq
+            extends [System.Runtime]System.Object
+            implements [NfcContracts]Good.IProbe
+        {
+          .method private final hidebysig newslot virtual
+              instance void 'Good.IProbe.e%COMB%'() cil managed
+          {
+            .override [NfcContracts]Good.IProbe::'e%COMB%'
             ret
           }
           .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
