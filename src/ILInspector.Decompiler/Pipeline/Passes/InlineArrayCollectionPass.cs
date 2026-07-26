@@ -27,8 +27,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// as <c>TwoObjects</c> used by string.Format's params lowering are a distinct
 /// shape and left untouched), default-initialized once, written by exactly N
 /// element stores covering slots 0..N-1, and used by exactly one
-/// AsReadOnlySpan — nothing else references the local. Anything outside this is
-/// left flat. The whole shape is proven before any node is detached.</para>
+/// AsReadOnlySpan — nothing else references the local. Each element store is
+/// either a direct indirect store or, when the element value carries a branch,
+/// an element-ref address spilled to a single-use evaluation-stack slot and
+/// stored through; anything outside this is left flat. The whole shape is proven
+/// before any node is detached.</para>
 /// </summary>
 public sealed class InlineArrayCollectionPass : IIrPass
 {
@@ -73,16 +76,23 @@ public sealed class InlineArrayCollectionPass : IIrPass
             if (stores is null)
                 continue;
 
-            // Shape proven. Detach each element value (discarding the
-            // ElementRef address subtree), build the collection expression, and
-            // replace the span source; then drop the init and the stores.
-            var elements = stores.Select(s => (IrExpression)s.DetachChildren()[1]).ToList();
+            // Shape proven. Detach each element value from its store, build the
+            // collection expression, replace the span source, then drop the init
+            // and every consumed store/spill statement.
+            var elements = new List<IrExpression>(stores.Count);
+            foreach (var store in stores)
+            {
+                store.Value.Detach();
+                elements.Add(store.Value);
+            }
+
             var collection = new CollectionExpression(element, spanType, elements);
             context.Stepper.StepOver("raise inline-array lowering to collection expression", span);
             span.ReplaceWith(collection);
             init.Detach();
             foreach (var store in stores)
-                store.Detach();
+                foreach (var statement in store.Consumed)
+                    statement.Detach();
         }
 
         RaisePlaceConversions(function, context);
@@ -730,32 +740,112 @@ public sealed class InlineArrayCollectionPass : IIrPass
     }
 
     /// <summary>
-    /// The N element stores for the inline-array local, ordered by slot index, or
-    /// null when they do not cover exactly slots 0..N-1 through
-    /// <c>InlineArrayElementRef(ref local, i)</c> — each a statement directly in a
-    /// block (its own slot, so it can be detached).
+    /// A single inline-array element store, resolved to the stored value
+    /// expression and the block statements that must be removed when the store is
+    /// folded into the collection expression. A direct store consumes one
+    /// statement; a spilled store consumes its address spill, its indirect store,
+    /// and (when the value is itself spilled) its value spill.
     /// </summary>
-    static List<StoreIndirect>? CollectElementStores(IrFunction function, int local, int count)
+    sealed record InlineArrayElementStore(int Slot, IrExpression Value, IReadOnlyList<IrNode> Consumed);
+
+    /// <summary>
+    /// The N element stores for the inline-array local, ordered by slot index, or
+    /// null when they do not cover exactly slots 0..N-1.
+    ///
+    /// <para>Two store shapes are recognized. The common shape is a direct
+    /// <c>*(InlineArrayElementRef(ref local, i)) = value</c> statement. When an
+    /// element's value contains a branch (a ternary or short-circuit), csc must
+    /// evaluate the element-ref address before that branch and so spills the
+    /// <c>ref</c> to an evaluation-stack slot: <c>slot_a =
+    /// InlineArrayElementRef(ref local, i); [slot_v = value;] *slot_a =
+    /// slot_v-or-value;</c>. That spilled shape is recognized too, but only when
+    /// every spill slot is written once and read once — so the address computation
+    /// (which has no observable effect once the collection expression drops it) and
+    /// the value can be recovered and re-sequenced into slot order safely. Anything
+    /// else (a multi-use spill slot, a volatile store, an unrecovered stack-slot
+    /// value) returns null and the whole shape is left flat.</para>
+    /// </summary>
+    static List<InlineArrayElementStore>? CollectElementStores(IrFunction function, int local, int count)
     {
-        var byIndex = new SortedDictionary<int, StoreIndirect>();
-        foreach (var store in function.Descendants.OfType<StoreIndirect>())
+        var elementRefs = function.Descendants.OfType<Call>()
+            .Where(c => IsPrivateImpl(c.Callee, "InlineArrayElementRef")
+                && c.Arguments is [LoadLocalAddress { Index: var refLocal }, Constant { Value: int }]
+                && refLocal == local)
+            .ToList();
+        if (elementRefs.Count != count)
+            return null;
+
+        var byIndex = new SortedDictionary<int, InlineArrayElementStore>();
+        foreach (var elementRef in elementRefs)
         {
-            // A volatile. stind has no faithful spelling inside a collection
-            // expression; leave it flat so fidelity caps (issue #1434).
-            if (store.IsVolatile)
-                continue;
-            if (store.Address is not Call elementRef || !IsPrivateImpl(elementRef.Callee, "InlineArrayElementRef"))
-                continue;
-            if (elementRef.Arguments is not [LoadLocalAddress { Index: var refLocal }, Constant { Value: int slot }] || refLocal != local)
-                continue;
-            if (store.Parent is not Block)
+            if (elementRef.Arguments is not [_, Constant { Value: int slot }])
                 return null;
             if (slot < 0 || slot >= count || byIndex.ContainsKey(slot))
                 return null;
-            byIndex[slot] = store;
+            if (ResolveElementStore(function, elementRef, slot) is not { } resolved)
+                return null;
+            byIndex[slot] = resolved;
         }
-        if (byIndex.Count != count)
-            return null;
-        return byIndex.Values.ToList();
+
+        return byIndex.Count == count ? byIndex.Values.ToList() : null;
     }
+
+    /// <summary>
+    /// Resolves the store that writes <paramref name="elementRef"/>'s slot: a
+    /// direct indirect store, or an address spilled to a single-use evaluation-stack
+    /// slot and stored through — recovering a single-use value spill so the element
+    /// is the real expression, never a dangling stack-slot load. Null for any other
+    /// shape.
+    /// </summary>
+    static InlineArrayElementStore? ResolveElementStore(IrFunction function, Call elementRef, int slot)
+    {
+        switch (elementRef.Parent)
+        {
+            // Direct: *(InlineArrayElementRef(ref local, slot)) = value.
+            case StoreIndirect { IsVolatile: false, Parent: Block } direct when direct.Address == elementRef:
+                return new InlineArrayElementStore(slot, direct.Value, [direct]);
+
+            // Address spilled: slot_a = InlineArrayElementRef(ref local, slot); the
+            // stored value flows through slot_a exactly once.
+            case StoreStackSlot { Parent: Block, Slot: var addressSlot } addressSpill when addressSpill.Value == elementRef:
+            {
+                if (StackSlotStoreCount(function, addressSlot) != 1 || StackSlotLoadCount(function, addressSlot) != 1)
+                    return null;
+                var addressLoad = function.Descendants.OfType<LoadStackSlot>().Single(l => l.Slot == addressSlot);
+                if (addressLoad.Parent is not StoreIndirect { IsVolatile: false, Parent: Block } indirect
+                    || indirect.Address != addressLoad)
+                {
+                    return null;
+                }
+
+                var value = indirect.Value;
+                List<IrNode> consumed = [addressSpill, indirect];
+
+                // A stack-slot load cannot be a collection element on its own; when
+                // the value was itself spilled, recover it — but only from a clean
+                // single-def/single-use spill, else leave the whole shape flat.
+                if (value is LoadStackSlot { Slot: var valueSlot })
+                {
+                    if (StackSlotStoreCount(function, valueSlot) != 1 || StackSlotLoadCount(function, valueSlot) != 1)
+                        return null;
+                    var valueSpill = function.Descendants.OfType<StoreStackSlot>().Single(s => s.Slot == valueSlot);
+                    if (valueSpill.Parent is not Block)
+                        return null;
+                    value = valueSpill.Value;
+                    consumed = [addressSpill, valueSpill, indirect];
+                }
+
+                return new InlineArrayElementStore(slot, value, consumed);
+            }
+
+            default:
+                return null;
+        }
+    }
+
+    static int StackSlotStoreCount(IrFunction function, int slot)
+        => function.Descendants.OfType<StoreStackSlot>().Count(s => s.Slot == slot);
+
+    static int StackSlotLoadCount(IrFunction function, int slot)
+        => function.Descendants.OfType<LoadStackSlot>().Count(l => l.Slot == slot);
 }

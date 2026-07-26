@@ -4885,6 +4885,27 @@ public class CfgSampleClass
                 return -1;
         }
     }
+
+    static int UseObjectSpan(System.ReadOnlySpan<object> s) => s.Length;
+
+    // A collection expression whose element VALUE carries a branch AND a call:
+    // `s is not null ? s.ToUpper() : "null"` in a params ReadOnlySpan<object>
+    // context. csc cannot evaluate that element in one push, so it computes the
+    // element-ref ADDRESS first and spills it to an evaluation-stack temp, then
+    // spills the conditional's value to a second temp, and finally stores through
+    // the spilled address — `ref object A = ref InlineArrayElementRef(ref buffer,
+    // 1); object V = s is not null ? s.ToUpper() : "null"; A = V;`. The `object`
+    // element type (boxing) and the method call keep that double spill alive all
+    // the way to InlineArrayCollectionPass, unlike a scalar `flag ? 1 : 2` whose
+    // spill an earlier ternary fold collapses to a direct store. This is the shape
+    // EncLocalInfo's params `string.Format` hits in the wild (issue #3129, S4):
+    // the pass recovers the spilled address+value and raises the whole thing back
+    // to `[a, s is not null ? s.ToUpper() : "null"]`, re-sequencing into slot
+    // (= source) order. Placed last in the class so its two extra methods do not
+    // shift any pre-existing method's compiler-generated ordinal (the fidelity
+    // docket keys on `<>9__N`/`<>c__DisplayClassN` names — see issue #3129, S4).
+    public static int InlineArrayObjectConditionalElementSpan(int a, string? s)
+        => UseObjectSpan([a, s is not null ? s.ToUpper() : "null"]);
 }
 
 internal static class AwaitOrderingHelpers
