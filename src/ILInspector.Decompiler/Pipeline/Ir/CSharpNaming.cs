@@ -38,11 +38,21 @@ internal static class CSharpNaming
     public static string SafeIdentifier(string name)
         => CSharpIdentifier.Sanitize(name);
 
+    /// <summary>
+    /// The emittable C# spelling of a call/method-group target name: the source
+    /// name (a <c>&gt;g__</c> local function decodes to its source spelling; any
+    /// other name is unchanged), routed through <see cref="SafeIdentifier"/> so a
+    /// reserved keyword is <c>@</c>-escaped and — the fallback that keeps output
+    /// parseable — an unspellable compiler-generated name a raising pass left
+    /// standing (a lambda body method <c>&lt;M&gt;b__N_M</c>, a
+    /// <c>&lt;Clone&gt;$</c>) is sanitized into a legal identifier rather than
+    /// leaked raw. This never emits a raw <c>&lt;&gt;</c> name; for names that are
+    /// already valid identifiers it is identical to <see cref="EscapeIdentifier"/>.
+    /// The method's fidelity is still degraded by the spellability check on the
+    /// unchanged IR name, so honest failure remains visible.
+    /// </summary>
     public static string SourceMethodName(string metadataName)
-    {
-        string sourceName = MethodName(metadataName);
-        return sourceName == metadataName ? EscapeIdentifier(sourceName) : SafeIdentifier(sourceName);
-    }
+        => SafeIdentifier(MethodName(metadataName));
 
     public static string TypeNameSegment(string metadataName)
         => SafeIdentifier(StripArity(metadataName));

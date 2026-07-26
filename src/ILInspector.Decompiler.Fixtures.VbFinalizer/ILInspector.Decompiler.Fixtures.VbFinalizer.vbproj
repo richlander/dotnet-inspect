@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    VB.NET fixture for #3196. The VB compiler emits a finalizer as a virtual,
+    reuse-slot, parameterless `void Finalize()` that carries NO `.override`
+    MethodImpl (unlike the Roslyn/C# destructor, which emits the explicit
+    `.override System.Object::Finalize`). This project is the compiler-produced
+    canary that proves `ApiSurfaceExtractor.IsImplicitObjectFinalizeOverride`
+    classifies that shape as a finalizer. Consumed by path through
+    FixtureCatalog (id `decompiler.vb-finalizer`); never referenced for
+    compilation. RootNamespace is cleared so the fixture types are plain
+    `Handle`/`VbBase`/`VbDerived`.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <OutputType>Library</OutputType>
+    <RootNamespace></RootNamespace>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <!-- EnablePreviewFeatures (repo root) sets LangVersion=Preview, which vbc rejects. -->
+    <LangVersion>latest</LangVersion>
+    <EnablePreviewFeatures>false</EnablePreviewFeatures>
+  </PropertyGroup>
+
+</Project>

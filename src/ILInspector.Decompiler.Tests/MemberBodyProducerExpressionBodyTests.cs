@@ -322,6 +322,27 @@ public class MemberBodyProducerExpressionBodyTests
         Assert.False(member.IsFinalizer);
     }
 
+    [Fact]
+    public void CustomVirtualFinalizeSlot_IsNotClassifiedAsFinalizer()
+    {
+        // Close negative (compiler-produced): a custom `new virtual void Finalize()`
+        // slot and an override of it are NOT the object.Finalize destructor. The C#
+        // compiler emits CS0465 (a warning) but the shape is legal metadata, and it
+        // must never fold to `~Type()`.
+        using var assembly = Compile("""
+            public class CustomBase { public virtual void Finalize() { } }
+            public class CustomDerived : CustomBase { public override void Finalize() { } }
+            """);
+
+        var baseMember = ExtractMember(assembly.Path, "CustomBase", "Finalize");
+        Assert.False(baseMember.IsFinalizer);
+        Assert.NotEqual("finalizer", baseMember.Kind);
+
+        var derivedMember = ExtractMember(assembly.Path, "CustomDerived", "Finalize");
+        Assert.False(derivedMember.IsFinalizer);
+        Assert.NotEqual("finalizer", derivedMember.Kind);
+    }
+
     static ApiMember ExtractMember(string path, string typeName, string memberName)
     {
         using var pe = new PEReader(File.OpenRead(path));

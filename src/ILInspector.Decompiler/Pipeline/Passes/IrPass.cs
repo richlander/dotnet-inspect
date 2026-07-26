@@ -428,6 +428,14 @@ public static class IrPasses
         // `c ? … : false` diamond shape, and before coercion insertion so the
         // reshaped bool value is coerced at its sink.
         new ShortCircuitTernaryPass(),
+        // Raise the compiler's value-swap lowering (a single-def/single-use temp
+        // saving one place across the two cross-assignments) into the recognized
+        // swap form (q, p) = (p, q). Roslyn lowers that tuple swap to exactly this
+        // one-temp sequence, so the raise is opcode-exact. Runs last, after every
+        // slot/local settling pass, so it matches the final surviving carrier
+        // (stack slot or hidden local); before coercion insertion so the tuple
+        // elements are coerced at their sinks like any load (issue #3166).
+        new SwapIdiomPass(),
         new CoercionInsertionPass(),
     ];
 

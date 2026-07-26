@@ -18,6 +18,16 @@ difference after, and which frontier remains. Delete sections that do not apply.
 **Conclusion:** **PASS/REVIEW/BLOCKED** — {one sentence naming the
 uncheckable bucket, the fix, and the decisive evidence}.
 
+### Aggregate before/after
+
+<!--
+Use this compact form when the change moves a population between compile-back
+buckets and no single emitted render is the crux. When the change turns on a
+specific reconstructed method whose emitted C# binds (or fails to bind) a
+particular way, prefer the Original -> Before -> After -> Fully raised render
+walkthrough below instead, so a reviewer can see the exact failing line.
+-->
+
 Before:
 
 ```text
@@ -29,6 +39,104 @@ After:
 ```text
 {same method or bucket now Exact / OpcodeDiff / OperandDiff / explicitly frontiered}
 ```
+
+### Reconstructed render (Original → Before → After → Fully raised)
+
+<!--
+Required whenever the change turns on how a specific method is reconstructed
+(a new RecompileFail avoided, a rescued row, a fixed over-decline). Compile-back
+failures live in ONE emitted qualifier or statement whose C# binding diverges
+from its metadata spelling; a bucket count cannot show that, so walk the render.
+
+Acquire each code block from the harness compile-back output — the exact C#
+source Roslyn was handed — not paraphrase or hand-transcription, so every block
+is verbatim for the same target `{Type} {member} {scope}`. (Generating this
+annotated render — emitted C# + caret + rune-reveal + cause line — directly from
+the harness is tracked in #3238; until then, author the blocks by hand from the
+harness output.)
+
+- Original: the authoritative anchor. Prefer SourceLink C# (`-S "Original
+  Source"`); for hand-authored IL / metadata-only RTS targets, use the raw IL /
+  metadata identity (`-S "IL"`) — that is the source of truth for the shape the
+  reconstruction must round-trip.
+- Before: the emitted C# at the base commit, with its method signature, and the
+  diverging line annotated (the identifier/statement whose binding fails).
+- After: the emitted C# at this PR's head, with its signature. Show the honest
+  fallback (e.g. the sanitized ContextFail floor) when the shape is declined
+  rather than raised.
+
+When a block IS a declined-to-floor shape, render the ACTUAL floor, not the
+shape that was declined. A decline changes the member's IDENTITY, not its body:
+it is not a skeleton — the real reconstructed body is kept — but the member is
+emitted as a plain method with no explicit-interface qualifier, named by the
+sanitized MethodDef name (dots become underscores, `IType.Member` ->
+`IType_Member`). Two mechanisms produce this floor: an EXTERNAL
+explicit-interface decline both leaves the member with no explicit-interface
+fields AND drops the interface from the base list (`ExternalInterfaces` becomes
+empty — the #3112/#3222 case), whereas a SAME-ASSEMBLY revert clears only the
+member's `ExplicitInterfaceMemberName` / `DeclarationSignature`. Either way the
+verdict is `ContextFail` ("method-not-found"): the plain shape compiles, but the
+original explicit-member identity no longer exists in the recompiled assembly to
+opcode-compare — chosen precisely because it is strictly safer than the
+`RecompileFail` the explicit spelling would have produced. When you draw an
+external-interface floor, do not leave the interface base entry or the explicit
+qualifier attached.
+
+Record the compile-back verdict next to the code it judges (never inferred from
+prose):
+
+- Verdict: the compile-back status — `Exact` / `OpcodeDiff` / `OperandDiff` /
+  `RecompileFail {CSxxxx}` / `ContextFail {bucket}`.
+- Valid: does the emitted C# compile and bind (True/False)?
+- Correct: does it bind to the intended metadata member/behavior (True/False)?
+- IL fidelity: does it recompile to the original opcodes (True/False/not
+  currently checkable)?
+- Commit: the exact digest the render was acquired at (base for Before, head for
+  After).
+-->
+
+Target: `{Type} {member} {scope}`
+
+**Original** (authoritative anchor — SourceLink C#, or raw IL/metadata for
+hand-authored targets):
+
+```text
+// authoritative metadata/IL identity or original C# the reconstruction must round-trip
+```
+
+**Before** (emitted C# at base + verdict):
+
+```csharp
+// emitted reconstruction with its signature; annotate the line whose binding diverges
+```
+
+- Verdict: {Exact / OpcodeDiff / OperandDiff / RecompileFail {CSxxxx} / ContextFail {bucket}}
+- Valid: {True/False} · Correct: {True/False} · IL fidelity: {True/False/not currently checkable}
+- Commit: {base commit digest}
+
+**After** (emitted C# at head + verdict):
+
+```csharp
+// emitted reconstruction at this PR's head, including an honest declined-to-floor fallback
+```
+
+- Verdict: {Exact / OpcodeDiff / OperandDiff / RecompileFail {CSxxxx} / ContextFail {bucket}}
+- Valid: {True/False} · Correct: {True/False} · IL fidelity: {True/False/not currently checkable}
+- Commit: {head commit digest}
+
+**Fully raised.** Choose one:
+
+- `The After render is in the fully raised state.` (when After is `Exact` and
+  opcode-faithful — then delete the block and tracking item below), or
+- the intended fully raised C# below plus a required tracking issue, or
+- `N/A — the ContextFail floor is the correct endpoint: a conformant C#
+  compiler cannot author this shape, so there is no better C# to reach.`
+
+```csharp
+// intended fully raised output; delete when After is fully raised or the floor is the endpoint
+```
+
+- Required tracking issue: #{issue} — {remaining slice or slices}
 
 ## Scope and safety
 

@@ -25,7 +25,7 @@ public sealed partial class CSharpPrinter
         => $"{Operand(node.Receiver)} with {{ {string.Join(", ", node.Entries.Select(WithExpressionEntryText))} }}";
 
     string WithExpressionEntryText(InitializerEntry entry)
-        => $"{CSharpNaming.EscapeIdentifier(entry.Member!)} = {Expression(entry.Arguments[0])}";
+        => $"{CSharpNaming.SafeIdentifier(entry.Member!)} = {Expression(entry.Arguments[0])}";
 
     /// <summary>Renders the brace body shared by a top-level initializer and a nested <see cref="InitializerBlock"/>.</summary>
     string InitializerBodyText(bool isCollection, IReadOnlyList<InitializerEntry> entries)
@@ -51,7 +51,7 @@ public sealed partial class CSharpPrinter
             : Expression(value);
 
         if (entry.Member is { } member)
-            return $"{CSharpNaming.EscapeIdentifier(member)} = {valueText}";
+            return $"{CSharpNaming.SafeIdentifier(member)} = {valueText}";
 
         // An indexer member: the trailing argument is the value, the rest are keys.
         var keys = entry.Arguments.Take(entry.Arguments.Count - 1).Select(Expression);
