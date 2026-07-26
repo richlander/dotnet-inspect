@@ -1443,6 +1443,17 @@ public static class CompileBackSourceComposer
             if (OperatorNames.FormatDisplayName(declarationName) != declarationName)
                 return null;
 
+            // The explicit-member spelling emits Identifier(declarationName) =
+            // CSharpIdentifier.Sanitize(declarationName). A keyword member name is escaped
+            // losslessly (`class` -> `@class`, which binds back to `class`), but a member name
+            // that is not a legal C# identifier (e.g. a compiler-unspeakable `<Bad>`) is
+            // rewritten by the lossy sanitizing branch (`<Bad>` -> `__Bad_`). The interface
+            // still declares `<Bad>`, so the reconstructed `IType.__Bad_()` binds to no
+            // interface member (CS0539 = RecompileFail). Only engage when the raw member name
+            // round-trips; otherwise decline to the sanitized ContextFail floor.
+            if (!CSharpIdentifier.IsIdentifierLike(declarationName))
+                return null;
+
             if (ExternalInterfaceReference(reader, (TypeReferenceHandle)declaration.Parent) is not { } interfaceReference)
                 return null;
             if (!string.Equals(interfaceReference.MetadataFullName, interfaceMetadataName, StringComparison.Ordinal))

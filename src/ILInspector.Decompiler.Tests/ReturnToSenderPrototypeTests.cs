@@ -1402,6 +1402,51 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    // Regression for #3112 review (unspeakable member name): a hand-authored external interface
+    // can have a legal type name (`Good.IProbe`) but a method whose metadata name is
+    // compiler-unspeakable (`<Bad>`). The explicit-member spelling emits
+    // Identifier(declarationName), which sanitizes `<Bad>` lossily to `__Bad_`; the interface
+    // still declares `<Bad>`, so `Good.IProbe.__Bad_()` binds to no interface member
+    // (CS0539 = RecompileFail). The gate must decline to the sanitized ContextFail floor.
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenMemberNameIsUnrepresentable()
+    {
+        var ilasm = TryLocateIlasm();
+        if (ilasm is null)
+        {
+            Assert.Skip("ilasm not available; skipping hand-authored IL unspeakable-member regression.");
+            return;
+        }
+
+        var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        AssembleIlFixture(ilasm, UnspeakableMemberContractsIl, directory, "BadMethodContracts");
+        var assemblyPath = AssembleIlFixture(ilasm, UnspeakableMemberFixtureIl, directory, "badmethodfixture");
+        try
+        {
+            var target = new ReturnToSender.RequestedTarget("N.Seq", "Good.IProbe.<Bad>", 0);
+
+            // All would reconstruct `Good.IProbe.__Bad_()` from the lossily-sanitized member
+            // name; the interface declares `<Bad>`, so it binds to nothing (CS0539). The gate
+            // must decline rather than emit a new RecompileFail. The member-name guard is what
+            // catches this; the raw member name is not identifier-like.
+            var all = Assert.Single(
+                ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
+            Assert.True(
+                all.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"all {all.Status}: {all.Detail}{Environment.NewLine}{all.Source}");
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
     // Regression for #3112 review (unrepresentable interface name): a hand-authored external
     // interface can live in a namespace whose segment is a compiler-unspeakable name (`<Bad>`)
     // — legal in metadata but not a legal C# identifier. Clean() sanitizes it lossily to a
@@ -7705,6 +7750,48 @@ public class ReturnToSenderPrototypeTests
               instance void '<Bad>.IProbe.M'() cil managed
           {
             .override [GeneratedContracts]'<Bad>'.IProbe::M
+            ret
+          }
+          .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+          {
+            ldarg.0
+            call instance void [System.Runtime]System.Object::.ctor()
+            ret
+          }
+        }
+        """;
+
+    // External contract for the unspeakable-member regression: an interface with a legal name
+    // (`Good.IProbe`) but a method whose metadata name is compiler-unspeakable (`<Bad>`).
+    const string UnspeakableMemberContractsIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly BadMethodContracts { }
+        .module BadMethodContracts.dll
+
+        .class interface public abstract auto ansi Good.IProbe
+        {
+          .method public hidebysig newslot abstract virtual instance void '<Bad>'() cil managed {}
+        }
+        """;
+
+    // Target for the unspeakable-member regression: N.Seq explicitly implements the external
+    // `Good.IProbe.<Bad>`. The reconstruction would emit `Good.IProbe.__Bad_()`, which binds
+    // to no interface member (CS0539) — the gate must decline to the sanitized ContextFail
+    // floor instead.
+    const string UnspeakableMemberFixtureIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern BadMethodContracts { }
+        .assembly badmethodfixture { }
+        .module badmethodfixture.dll
+
+        .class public auto ansi sealed beforefieldinit N.Seq
+            extends [System.Runtime]System.Object
+            implements [BadMethodContracts]Good.IProbe
+        {
+          .method private final hidebysig newslot virtual
+              instance void 'Good.IProbe.<Bad>'() cil managed
+          {
+            .override [BadMethodContracts]Good.IProbe::'<Bad>'
             ret
           }
           .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
