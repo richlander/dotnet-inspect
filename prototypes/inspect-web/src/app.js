@@ -16,6 +16,7 @@ const state = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   packages: [],
   package: null,
+  queryNotice: "",
   requestedPackage: "System.Text.Json",
   requestedVersion: "10.0.0",
   requestedFramework: "net10.0",
@@ -591,6 +592,14 @@ function render() {
           <button id="help" aria-label="Keyboard help">?</button>
         </div>
       </header>
+
+      ${state.queryNotice
+        ? `<div class="query-notice" role="alert">
+            <span class="query-notice-glyph">⚠</span>
+            <span class="query-notice-text">${escapeHtml(state.queryNotice)}</span>
+            <button id="dismiss-notice" type="button" aria-label="Dismiss">×</button>
+          </div>`
+        : ""}
 
       <section class="scopebar">
         <div class="package-title">
@@ -2004,6 +2013,10 @@ function bindEvents() {
     loadPackage(packageId, version, "");
   });
   document.querySelector("#share").addEventListener("click", share);
+  document.querySelector("#dismiss-notice")?.addEventListener("click", () => {
+    state.queryNotice = "";
+    render();
+  });
   document.querySelector("#nav-back")?.addEventListener("click", navBack);
   document.querySelector("#nav-forward")?.addEventListener("click", navForward);
   document.querySelector("#demo-call-graph").addEventListener("click", runCallGraphDemo);
@@ -3605,6 +3618,7 @@ async function loadPackage(packageId, version, framework) {
   };
   state.loading = true;
   state.error = "";
+  state.queryNotice = "";
   state.requestedPackage = packageId;
   state.requestedVersion = version;
   state.requestedFramework = framework;
@@ -3658,14 +3672,15 @@ async function loadPackage(packageId, version, framework) {
     if (prevPackage) {
       // A failed *new* query must not blow away an already-open workbench and trap the user
       // on a full-screen error. Keep them in their current package and restore the requested
-      // identity (so URL/retry stay pinned to the good package); surface a dismissible toast.
+      // identity (so URL/retry stay pinned to the good package); surface a persistent,
+      // dismissible notice banner so the failure is clearly explained, not silent.
       state.package = prevPackage;
       state.requestedPackage = prevRequested.package;
       state.requestedVersion = prevRequested.version;
       state.requestedFramework = prevRequested.framework;
       state.error = "";
+      state.queryNotice = friendly.message;
       render();
-      showToast(friendly.message, 5000);
     } else {
       state.error = friendly.message;
       state.errorTitle = friendly.title;

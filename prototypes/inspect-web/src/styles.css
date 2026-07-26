@@ -831,6 +831,30 @@ kbd {
 }
 @keyframes toast { from { transform: translateY(7px); opacity: 0; } }
 
+.query-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  border-bottom: 1px solid #6b4034;
+  background: rgba(236, 150, 123, .12);
+  color: #ec967b;
+  font: 12px var(--mono);
+  animation: toast .16s ease-out;
+}
+.query-notice-glyph { font-size: 13px; }
+.query-notice-text { flex: 1; color: var(--text); }
+.query-notice button {
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--muted);
+  font: 13px var(--mono);
+  cursor: pointer;
+}
+.query-notice button:hover { color: var(--text); }
+
 .loading-screen {
   height: 100vh;
   display: grid;
