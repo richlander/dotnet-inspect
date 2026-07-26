@@ -566,10 +566,42 @@ public class RenderStyleConfigTests
         Assert.DoesNotContain("this.Pinged", code);
     }
 
+    // Annotated Source renders the same member as Decompiled Source, through a
+    // different printer path (the statement-line-map overload the interleaved-IL
+    // overlay anchors onto). Both must consume the resolved config: a member that
+    // spells `this._count` in one section and `_count` in the other is one tool
+    // disagreeing with itself (#3191).
+
+    [Fact]
+    public void Collect_AnnotatedSource_AppliesTheSameTasteAsDecompiledSource()
+    {
+        var (decompiled, annotated) = RenderSpecimenBothViews(
+            nameof(ThisQualificationConfigSpecimen.Compute),
+            PrinterOptions.Default with { QualifyFieldAccess = true, QualifyPropertyAccess = true });
+
+        Assert.Contains("this._count", decompiled);
+        Assert.Contains("this.Extra", decompiled);
+        Assert.Contains("this._count", annotated);
+        Assert.Contains("this.Extra", annotated);
+
+        // The knob is byte-preserving, so the annotated view keeps its IL.
+        Assert.Matches(@"// IL_[0-9A-Fa-f]{4}: ", annotated);
+    }
+
+    [Fact]
+    public void Collect_AnnotatedSource_WithoutRenderOptions_RendersBareThisMemberAccess()
+    {
+        var (_, annotated) = RenderSpecimenBothViews(
+            nameof(ThisQualificationConfigSpecimen.Compute), renderOptions: null);
+
+        Assert.Contains("_count", annotated);
+        Assert.DoesNotContain("this._count", annotated);
+        Assert.Matches(@"// IL_[0-9A-Fa-f]{4}: ", annotated);
+    }
+
     // Whole-type decompilation (the `type -S "Decompiled Source"` path) routes
     // through MemberBodyProducer.Project rather than Collect, so it needs the
     // resolved options threaded separately.
-
     [Fact]
     public void WholeType_WithoutRenderOptions_RendersBareThisMemberAccess()
     {
@@ -833,6 +865,36 @@ public class RenderStyleConfigTests
         var decompiled = code.DecompiledResult;
         Assert.NotNull(decompiled?.Output);
         return (decompiled!.Output, decompiled);
+    }
+
+    private static (string Decompiled, string Annotated) RenderSpecimenBothViews(
+        string memberName, PrinterOptions? renderOptions)
+    {
+        string assemblyPath = typeof(ThisQualificationConfigSpecimen).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var surface = ApiSurfaceExtractor.Extract(pe, includeAll: false);
+        var type = surface.Types.Single(t => t.FullName == typeof(ThisQualificationConfigSpecimen).FullName);
+        var methods = type.Members.Where(m => m.Name == memberName).ToList();
+
+        var request = new MemberCodeProvider.Request(
+            DecompiledSource: true,
+            AnnotatedSource: true,
+            CostOverlay: false,
+            SemanticsOverlay: false,
+            IL: false,
+            Attributes: false,
+            Calls: false,
+            Callers: false,
+            CallGraph: false,
+            UnsafeOperations: false);
+
+        var results = MemberCodeProvider.Collect(
+            type, methods, assemblyPath, overloadIndex: 0, request, renderOptions: renderOptions);
+
+        var (_, code) = Assert.Single(results);
+        Assert.NotNull(code.DecompiledResult?.Output);
+        Assert.NotNull(code.AnnotatedResult?.Output);
+        return (code.DecompiledResult!.Output!, code.AnnotatedResult!.Output!);
     }
 
     private static string RenderSpecimenWholeType(PrinterOptions? renderOptions)

@@ -485,8 +485,7 @@ behavior-preserving; that is what lets the lens re-offer a fold the default had
 to decline. It deliberately stops at IDE0046: the further `c ? true : d` → `c ||
 d` collapse (IDE0075) is a separate future knob, so a literal-arm ternary such as
 `a ? true : b` is kept as written rather than simplified. The lens runs only on
-the opt-in raised path, after the default pipeline, and the IL-anchored Annotated
-view never applies it (it must stay byte-faithful for line/IL alignment).
+the opt-in raised path, after the default pipeline.
 
 The second lens is `PrinterOptions.PreferBranchlessBoolean`
 (`dotnet_inspect_style_prefer_branchless_boolean`). It targets the *same* declined
@@ -520,6 +519,39 @@ present, it would rebind to that operator's semantics), or valid but not branchl
 (a negation spelled as the ternary `(t ? false : true)` re-embeds a branch).
 Over-declining is always valid and faithful. When both lenses are enabled the
 oracle-endorsed ternary wins the shared shape.
+
+### Lenses and the Annotated view
+
+The Annotated view renders the same member as Decompiled Source, so it applies
+the same resolved style options: a member must not be spelled `this._count` in
+one section and `_count` in the other. For every byte-preserving knob this is
+free — the knob changes only the C# spelling, so the interleaved IL beneath each
+statement is byte-identical to the default render, and the view demonstrates the
+knob's contract rather than obscuring it.
+
+A style lens cannot keep that bargain. Its render no longer reproduces the
+member's opcodes, so anchoring the raw IL beneath it would assert a
+statement-to-opcode correspondence that does not hold — the single claim this
+view exists to make. When a lens **actually rewrites** (it records a
+`style-lens.*` decision under the `style-lens` category), the Annotated view
+therefore drops the interleaved IL and says so in the body, naming the applied
+lens and pointing at `-S "Applied Taste"`:
+
+```csharp
+// Interleaved IL suppressed: a byte-divergent style lens shaped this render.
+// Applied lens: style-lens.prefer-conditional-return.
+return a ? b : c;
+```
+
+Suppression keys on what the render *did*, not on what the host *asked for*: a
+lens that is enabled but finds no shape to rewrite is byte-faithful for that
+member, so its IL stays. The fact-comment overlay also stays, because a fact is
+a property of the member, not a claim about which opcodes a printed statement
+reproduces.
+
+The lowered Annotated stage applies the byte-preserving knobs but never runs the
+lenses at all: they are raised-altitude sugar, and the lowered pipeline exists to
+show the shape beneath that sugar.
 
 ## Names
 
