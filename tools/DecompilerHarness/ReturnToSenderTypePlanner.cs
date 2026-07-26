@@ -1,9 +1,12 @@
 using System.Globalization;
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Text;
+using DotnetInspector.Services;
 using DotnetInspector.RoundTripCompilation;
 using ILInspector.CSharp;
 using ILInspector.Decompiler;
@@ -351,6 +354,7 @@ public sealed record CompileBackTypeRequirement(
     public CompileBackTypeKind Kind => RequiredKind;
     public IReadOnlyList<CompileBackMemberRequirement> Members => RequiredMembers;
     public bool IncludeMemberSurface { get; init; }
+    public IReadOnlyList<string> ExternalInterfaces { get; init; } = [];
 }
 
 public sealed record CompileBackMemberRequirement(
@@ -402,6 +406,17 @@ internal sealed record ExplicitInterfaceEventInfo(
     EventDefinitionHandle InterfaceEvent,
     string QualifiedName,
     string AccessorName);
+
+internal sealed record ExternalExplicitInterfaceMethodInfo(
+    string InterfaceDisplayName,
+    string ExplicitInterfaceMemberName);
+
+internal sealed record ExternalInterfaceReferenceInfo(
+    string MetadataFullName,
+    string DisplayFullName,
+    AssemblyReferenceIdentity AssemblyIdentity);
+
+internal sealed record ExternalInterfaceRequiredMethod(string Name, int GenericArity);
 
 public static class CompileBackSourceComposer
 {
@@ -1384,6 +1399,277 @@ public static class CompileBackSourceComposer
         return false;
     }
 
+    // External explicit-interface implementations must also name the interface in the
+    // containing type's base list (CS0540) and satisfy its complete required surface
+    // (CS0535). Engage only for non-generic external interfaces whose transitive
+    // required surface is exactly the target method; every uncertain case keeps the
+    // previous plain sanitized shape and its ContextFail floor (#3112).
+    static ExternalExplicitInterfaceMethodInfo? ExternalExplicitInterfaceMethod(
+        MetadataReader reader,
+        string assemblyPath,
+        TypeDefinition targetType,
+        MethodDefinitionHandle targetMethod,
+        string metadataMethodName,
+        int targetMethodGenericArity)
+    {
+        if (!TrySplitExplicitInterfaceMetadataName(metadataMethodName, out var interfaceMetadataName, out var targetMemberName))
+            return null;
+
+        foreach (var implementationHandle in targetType.GetMethodImplementations())
+        {
+            var implementation = reader.GetMethodImplementation(implementationHandle);
+            if (implementation.MethodBody != targetMethod)
+                continue;
+
+            if (implementation.MethodDeclaration.Kind == HandleKind.TypeSpecification)
+                return null;
+            if (implementation.MethodDeclaration.Kind != HandleKind.MemberReference)
+                continue;
+
+            var declaration = reader.GetMemberReference((MemberReferenceHandle)implementation.MethodDeclaration);
+            if (declaration.Parent.Kind == HandleKind.TypeSpecification)
+                return null;
+            if (declaration.Parent.Kind != HandleKind.TypeReference)
+                return null;
+
+            string declarationName = reader.GetString(declaration.Name);
+            if (!string.Equals(declarationName, targetMemberName, StringComparison.Ordinal))
+                continue;
+            if (OperatorNames.FormatDisplayName(declarationName) != declarationName)
+                return null;
+
+            if (ExternalInterfaceReference(reader, (TypeReferenceHandle)declaration.Parent) is not { } interfaceReference)
+                return null;
+            if (!string.Equals(interfaceReference.MetadataFullName, interfaceMetadataName, StringComparison.Ordinal))
+                continue;
+
+            if (!TryReadExternalInterfaceSurface(
+                    assemblyPath,
+                    interfaceReference,
+                    out var requiredMethods)
+                || requiredMethods.Count != 1)
+            {
+                return null;
+            }
+
+            var requiredMethod = requiredMethods[0];
+            if (!string.Equals(requiredMethod.Name, declarationName, StringComparison.Ordinal)
+                || requiredMethod.GenericArity != targetMethodGenericArity)
+            {
+                return null;
+            }
+
+            string explicitInterfaceMemberName =
+                $"{interfaceReference.DisplayFullName}.{Identifier(declarationName)}";
+            return new ExternalExplicitInterfaceMethodInfo(
+                interfaceReference.DisplayFullName,
+                explicitInterfaceMemberName);
+        }
+
+        return null;
+    }
+
+    static bool TryReadExternalInterfaceSurface(
+        string assemblyPath,
+        ExternalInterfaceReferenceInfo interfaceReference,
+        out IReadOnlyList<ExternalInterfaceRequiredMethod> requiredMethods)
+    {
+        // Reading a referenced interface's transitive surface opens and scans its
+        // defining assembly (often CoreLib). The same interface (e.g.
+        // System.Collections.IEnumerable) recurs across many targets in a single run,
+        // so memoize per (target assembly, interface): rescanning CoreLib for every
+        // explicit-impl target is an unbounded slowdown. The resolver itself is also
+        // cached per target assembly, and negative results are cached so an
+        // unresolvable interface is not retried.
+        string cacheKey = $"{assemblyPath}|{interfaceReference.MetadataFullName}";
+        var cached = _externalInterfaceSurfaces.GetOrAdd(cacheKey, _ =>
+        {
+            var resolver = _externalInterfaceResolvers.GetOrAdd(assemblyPath, static path =>
+                new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(path)
+                {
+                    AllowPlatformAssemblyVersionRollForward = true,
+                    ExcludeTargetAssembly = true,
+                }));
+            if (ResolveExternalAssembly(resolver, interfaceReference.AssemblyIdentity) is not { } assembly)
+                return null;
+
+            var collected = new List<ExternalInterfaceRequiredMethod>();
+            return TryCollectExternalInterfaceMethods(
+                    assembly,
+                    interfaceReference.MetadataFullName,
+                    resolver,
+                    new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                    collected)
+                ? collected
+                : null;
+        });
+
+        if (cached is null)
+        {
+            requiredMethods = [];
+            return false;
+        }
+
+        requiredMethods = cached;
+        return true;
+    }
+
+    static readonly ConcurrentDictionary<string, AssemblyDependencyResolver> _externalInterfaceResolvers =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    static readonly ConcurrentDictionary<string, IReadOnlyList<ExternalInterfaceRequiredMethod>?> _externalInterfaceSurfaces =
+        new(StringComparer.Ordinal);
+
+    static bool TryCollectExternalInterfaceMethods(
+        ResolvedAssemblyReference assembly,
+        string metadataFullName,
+        AssemblyDependencyResolver resolver,
+        HashSet<string> visited,
+        List<ExternalInterfaceRequiredMethod> methods)
+    {
+        try
+        {
+            var location = TypeForwardResolver.LocateType(
+                    assembly,
+                    metadataFullName,
+                    resolver,
+                    scope: AssemblyResolutionScope.Any)
+                ?? TypeForwardResolver.LocateType(
+                    assembly,
+                    metadataFullName,
+                    resolver,
+                    scope: AssemblyResolutionScope.Platform);
+            if (location is null)
+                return false;
+
+            using var stream = location.OpenRead();
+            using var peReader = new PEReader(stream);
+            if (!peReader.HasMetadata)
+                return false;
+
+            var externalReader = peReader.GetMetadataReader();
+            if (TypeProducer.FindType(externalReader, location.FullTypeName) is not { } interfaceHandle)
+                return false;
+
+            string assemblyKey = location.AssemblyPath is { Length: > 0 } path
+                ? Path.GetFullPath(path)
+                : location.AssemblyKey;
+            return TryCollectRequiredInterfaceMethods(
+                externalReader,
+                interfaceHandle,
+                resolver,
+                assemblyKey,
+                visited,
+                methods);
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    static bool TryCollectRequiredInterfaceMethods(
+        MetadataReader reader,
+        TypeDefinitionHandle interfaceHandle,
+        AssemblyDependencyResolver resolver,
+        string assemblyKey,
+        HashSet<string> visited,
+        List<ExternalInterfaceRequiredMethod> methods)
+    {
+        var interfaceDef = reader.GetTypeDefinition(interfaceHandle);
+        string interfaceName = reader.GetFullTypeName(interfaceDef);
+        if (!visited.Add($"{assemblyKey}|{interfaceName}"))
+            return false;
+        if ((interfaceDef.Attributes & TypeAttributes.Interface) == 0
+            || interfaceDef.GetGenericParameters().Count != 0)
+        {
+            return false;
+        }
+        if (interfaceDef.GetProperties().Count != 0 || interfaceDef.GetEvents().Count != 0)
+            return false;
+
+        foreach (var methodHandle in interfaceDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            string methodName = reader.GetString(method.Name);
+            if (method.Attributes.HasFlag(MethodAttributes.Static)
+                || (method.Attributes & MethodAttributes.Abstract) == 0
+                || OperatorNames.FormatDisplayName(methodName) != methodName)
+            {
+                return false;
+            }
+
+            methods.Add(new ExternalInterfaceRequiredMethod(
+                methodName,
+                method.GetGenericParameters().Count));
+        }
+
+        foreach (var implementationHandle in interfaceDef.GetInterfaceImplementations())
+        {
+            var implementation = reader.GetInterfaceImplementation(implementationHandle);
+            if (implementation.Interface.Kind == HandleKind.TypeDefinition)
+            {
+                if (!TryCollectRequiredInterfaceMethods(
+                        reader,
+                        (TypeDefinitionHandle)implementation.Interface,
+                        resolver,
+                        assemblyKey,
+                        visited,
+                        methods))
+                {
+                    return false;
+                }
+                continue;
+            }
+
+            if (implementation.Interface.Kind == HandleKind.TypeReference)
+            {
+                if (ExternalInterfaceReference(reader, (TypeReferenceHandle)implementation.Interface) is not { } baseReference)
+                    return false;
+                if (ResolveExternalAssembly(resolver, baseReference.AssemblyIdentity) is not { } baseAssembly)
+                    return false;
+                if (!TryCollectExternalInterfaceMethods(
+                        baseAssembly,
+                        baseReference.MetadataFullName,
+                        resolver,
+                        visited,
+                        methods))
+                {
+                    return false;
+                }
+                continue;
+            }
+
+            return false;
+        }
+
+        return true;
+    }
+
+    static ResolvedAssemblyReference? ResolveExternalAssembly(
+        AssemblyDependencyResolver resolver,
+        AssemblyReferenceIdentity identity)
+        => resolver.Resolve(identity, AssemblyResolutionScope.Any)
+           ?? resolver.Resolve(identity, AssemblyResolutionScope.Platform);
+
+    static ExternalInterfaceReferenceInfo? ExternalInterfaceReference(
+        MetadataReader reader,
+        TypeReferenceHandle handle)
+    {
+        var typeRef = reader.GetTypeReference(handle);
+        if (typeRef.ResolutionScope.Kind != HandleKind.AssemblyReference)
+            return null;
+
+        string metadataFullName = reader.GetFullTypeName(typeRef);
+        if (metadataFullName.Contains('`', StringComparison.Ordinal))
+            return null;
+
+        return new ExternalInterfaceReferenceInfo(
+            metadataFullName,
+            Clean(metadataFullName),
+            AssemblyReferenceIdentity.From(reader, (AssemblyReferenceHandle)typeRef.ResolutionScope));
+    }
+
     // Compatibility declaration text for an explicit-interface method target. The C#
     // printer keeps method-shaped explicit-interface implementations on compatibility
     // text (TryRenderSignatureModel only models plain methods), so RTS supplies the
@@ -1768,11 +2054,25 @@ public static class CompileBackSourceComposer
         // (`IType.Member`) must be reconstructed as an explicit-interface implementation,
         // not a plain method with the dotted name sanitized to `IType_Member`. The latter
         // compiles but carries the wrong metadata name, so the fidelity lookup fails as
-        // ContextFail/method-not-found (#3112). Only supported non-generic interface
-        // targets resolve here; anything else keeps the pre-existing plain shape.
-        string? explicitInterfaceMemberName = isConstructor
+        // ContextFail/method-not-found (#3112). Same-assembly interfaces are handled by
+        // TypeProducer.FindType; the external path engages only after proving that adding
+        // the interface base-list entry cannot create CS0540/CS0535 regressions.
+        string? sameAssemblyExplicitInterfaceMemberName = isConstructor
             ? null
             : ExplicitInterfaceMemberName(reader, methodName);
+        var externalExplicitInterfaceMethod =
+            !isConstructor && sameAssemblyExplicitInterfaceMemberName is null
+                ? ExternalExplicitInterfaceMethod(
+                    reader,
+                    assemblyPath,
+                    targetTypeDef,
+                    targetMethod,
+                    methodName,
+                    targetTypeParameters.Count)
+                : null;
+        string? explicitInterfaceMemberName =
+            sameAssemblyExplicitInterfaceMemberName
+            ?? externalExplicitInterfaceMethod?.ExplicitInterfaceMemberName;
         string? explicitInterfaceDeclarationSignature = explicitInterfaceMemberName is null
             ? null
             : ExplicitInterfaceMethodDeclarationSignature(
@@ -1908,7 +2208,10 @@ public static class CompileBackSourceComposer
                 targetFacts)
             {
                 IncludeMemberSurface = includeRecordSurface
-                    || targetFacts.Any(fact => fact.Id == "closure-member")
+                    || targetFacts.Any(fact => fact.Id == "closure-member"),
+                ExternalInterfaces = externalExplicitInterfaceMethod is null
+                    ? []
+                    : [externalExplicitInterfaceMethod.InterfaceDisplayName],
             }
         };
         AddClosureTypeRequirements(requirements, reader, targetRoot, closureFacts, closureMemberRequirements);
@@ -1921,28 +2224,32 @@ public static class CompileBackSourceComposer
             AddClosureTypeRequirements(requirements, reader, dependency, closureFacts, closureMemberRequirements);
         }
 
-        if (explicitInterfaceMemberName is not null
-            && !AddExplicitInterfaceMethodDeclaration(requirements, reader, targetTypeDef, targetMethod))
+        if (explicitInterfaceMemberName is not null)
         {
-            // The interface member declaration could not be supplied (unsupported
-            // interface-member signature, or the interface is not a standalone closure
-            // requirement — e.g. a nested interface reached only through its enclosing
-            // root). Revert the target to the plain sanitized shape rather than emit
-            // `IType.Member()` against an interface that cannot declare it, which would
-            // turn a method-not-found ContextFail into a CS0539 RecompileFail.
-            // requirements[0].RequiredMembers wraps the still-mutable targetMembers list,
-            // so clearing the explicit-interface fields here reverts the rendered shape.
-            int targetIndex = targetMembers.FindIndex(member =>
-                member.Kind == CompileBackMemberKind.Method
-                && member.StubBody == CompileBackStubBodyKind.TargetBody
-                && member.ExplicitInterfaceMemberName == explicitInterfaceMemberName);
-            if (targetIndex >= 0)
+            bool explicitInterfaceShapeIsViable = externalExplicitInterfaceMethod is not null
+                || AddExplicitInterfaceMethodDeclaration(requirements, reader, targetTypeDef, targetMethod);
+            if (!explicitInterfaceShapeIsViable)
             {
-                targetMembers[targetIndex] = targetMembers[targetIndex] with
+                // The interface member declaration could not be supplied (unsupported
+                // interface-member signature, or the interface is not a standalone closure
+                // requirement — e.g. a nested interface reached only through its enclosing
+                // root). Revert the target to the plain sanitized shape rather than emit
+                // `IType.Member()` against an interface that cannot declare it, which would
+                // turn a method-not-found ContextFail into a CS0539 RecompileFail.
+                // requirements[0].RequiredMembers wraps the still-mutable targetMembers list,
+                // so clearing the explicit-interface fields here reverts the rendered shape.
+                int targetIndex = targetMembers.FindIndex(member =>
+                    member.Kind == CompileBackMemberKind.Method
+                    && member.StubBody == CompileBackStubBodyKind.TargetBody
+                    && member.ExplicitInterfaceMemberName == explicitInterfaceMemberName);
+                if (targetIndex >= 0)
                 {
-                    ExplicitInterfaceMemberName = null,
-                    DeclarationSignature = null,
-                };
+                    targetMembers[targetIndex] = targetMembers[targetIndex] with
+                    {
+                        ExplicitInterfaceMemberName = null,
+                        DeclarationSignature = null,
+                    };
+                }
             }
         }
 
@@ -3247,11 +3554,13 @@ public static class CompileBackSourceComposer
         MetadataReader reader,
         string metadataPropertyName)
     {
-        int separator = metadataPropertyName.LastIndexOf('.');
-        if (separator <= 0 || separator == metadataPropertyName.Length - 1)
+        if (!TrySplitExplicitInterfaceMetadataName(
+                metadataPropertyName,
+                out var interfaceMetadataName,
+                out var memberMetadataName))
+        {
             return null;
-
-        string interfaceMetadataName = metadataPropertyName[..separator];
+        }
         if (TypeProducer.FindType(reader, interfaceMetadataName) is not { } interfaceHandle)
             return null;
         var interfaceDef = reader.GetTypeDefinition(interfaceHandle);
@@ -3262,8 +3571,26 @@ public static class CompileBackSourceComposer
         }
 
         string interfaceName = Clean(interfaceMetadataName);
-        string memberName = CSharpIdentifier.Sanitize(metadataPropertyName[(separator + 1)..]);
+        string memberName = CSharpIdentifier.Sanitize(memberMetadataName);
         return $"{interfaceName}.{memberName}";
+    }
+
+    static bool TrySplitExplicitInterfaceMetadataName(
+        string metadataMemberName,
+        out string interfaceMetadataName,
+        out string memberMetadataName)
+    {
+        int separator = metadataMemberName.LastIndexOf('.');
+        if (separator <= 0 || separator == metadataMemberName.Length - 1)
+        {
+            interfaceMetadataName = "";
+            memberMetadataName = "";
+            return false;
+        }
+
+        interfaceMetadataName = metadataMemberName[..separator];
+        memberMetadataName = metadataMemberName[(separator + 1)..];
+        return true;
     }
 
     sealed class TypeProducer
@@ -3768,6 +4095,8 @@ public static class CompileBackSourceComposer
                 Kind: ToShellKind(kind),
                 InterfaceDisplayNames: InterfaceSignatures(reader, typeDef, requirementsByMetadataName)
                     .Select(signature => signature.DisplayName)
+                    .Concat(requirement.ExternalInterfaces)
+                    .Distinct(StringComparer.Ordinal)
                     .ToList(),
                 MemberPolicies: policies,
                 PrimaryConstructorParameters: primaryConstructorParameters,

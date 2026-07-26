@@ -1185,6 +1185,140 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_RoundTripsExternalSingleMemberExplicitInterfaceMethod()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class Seq : System.Collections.IEnumerable
+            {
+                System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
+                {
+                    throw null;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Seq",
+                    "System.Collections.IEnumerable.GetEnumerator",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.Source.Contains("class Seq : System.Collections.IEnumerable", StringComparison.Ordinal)
+                || result.Source.Contains("class Seq : IEnumerable", StringComparison.Ordinal),
+                result.Source);
+            Assert.True(
+                result.Source.Contains(
+                    "System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()",
+                    StringComparison.Ordinal)
+                || result.Source.Contains(
+                    "IEnumerator System.Collections.IEnumerable.GetEnumerator()",
+                    StringComparison.Ordinal)
+                || result.Source.Contains(
+                    "IEnumerator IEnumerable.GetEnumerator()",
+                    StringComparison.Ordinal),
+                result.Source);
+            Assert.DoesNotContain("System_Collections_IEnumerable_GetEnumerator", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_MultiMemberExternalExplicitInterfaceFallsBackWithoutRecompileFail()
+    {
+        var assemblyPath = CompileFixture("""
+            using System;
+
+            public sealed class Convertible : IConvertible
+            {
+                TypeCode IConvertible.GetTypeCode() => TypeCode.Empty;
+                bool IConvertible.ToBoolean(IFormatProvider provider) => false;
+                byte IConvertible.ToByte(IFormatProvider provider) => 0;
+                char IConvertible.ToChar(IFormatProvider provider) => '\0';
+                DateTime IConvertible.ToDateTime(IFormatProvider provider) => default;
+                decimal IConvertible.ToDecimal(IFormatProvider provider) => 0m;
+                double IConvertible.ToDouble(IFormatProvider provider) => 0d;
+                short IConvertible.ToInt16(IFormatProvider provider) => 0;
+                int IConvertible.ToInt32(IFormatProvider provider) => 0;
+                long IConvertible.ToInt64(IFormatProvider provider) => 0L;
+                sbyte IConvertible.ToSByte(IFormatProvider provider) => 0;
+                float IConvertible.ToSingle(IFormatProvider provider) => 0f;
+                string IConvertible.ToString(IFormatProvider provider) => "";
+                object IConvertible.ToType(Type conversionType, IFormatProvider provider) => this;
+                ushort IConvertible.ToUInt16(IFormatProvider provider) => 0;
+                uint IConvertible.ToUInt32(IFormatProvider provider) => 0U;
+                ulong IConvertible.ToUInt64(IFormatProvider provider) => 0UL;
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "Convertible",
+                    "System.IConvertible.ToBoolean",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("System_IConvertible_ToBoolean", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("System.IConvertible.ToBoolean", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_GenericExternalExplicitInterfaceFallsBackWithoutRecompileFail()
+    {
+        var assemblyPath = CompileFixture("""
+            public sealed class IntSeq : System.Collections.Generic.IEnumerable<int>
+            {
+                System.Collections.Generic.IEnumerator<int> System.Collections.Generic.IEnumerable<int>.GetEnumerator()
+                {
+                    throw null;
+                }
+
+                System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
+                {
+                    throw null;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "IntSeq",
+                    "System.Collections.Generic.IEnumerable<System.Int32>.GetEnumerator",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("System_Collections_Generic_IEnumerable_System_Int32__GetEnumerator", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("System.Collections.Generic.IEnumerable<System.Int32>.GetEnumerator", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RoundTripsGenericExplicitInterfaceMethod()
     {
         // A generic method on a non-generic interface implemented explicitly keeps its method
