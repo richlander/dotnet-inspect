@@ -19,6 +19,18 @@ namespace ILInspector.DecompilerHarness;
 /// </summary>
 static class AuthoredCorpusBenchmark
 {
+    /// <summary>
+    /// Methodology version for how <c>invalidBreakdown.productBodyDefect</c> is
+    /// computed. v1 = substitution control only (authored body must compile in
+    /// the failing shell; a broken shell masks the body defect, so the count is
+    /// a lower bound). v2 = v1 plus span attribution, which additionally credits
+    /// a body defect when the shell is broken but the authored body is error-free
+    /// within its own body span while the decompiled body carries an in-body
+    /// error. The two versions are not directly comparable; the history card must
+    /// not diff productBodyDefect across the boundary.
+    /// </summary>
+    internal const int MethodologyVersion = 2;
+
     public static int Run(IReadOnlyList<string> assemblies, string corpusPath, bool json)
     {
         if (!File.Exists(corpusPath))
@@ -232,8 +244,7 @@ static class AuthoredCorpusBenchmark
         => reason.Contains("fidelity-unavailable", StringComparison.Ordinal)
             || reason.Equals("NotFull", StringComparison.Ordinal);
 
-    internal sealed record InvalidBreakdownCounts(
-        int ProductBodyDefect,
+    internal sealed record InvalidBreakdownCounts(        int ProductBodyDefect,
         int HarnessShellReconstruction,
         int Unclassified)
     {
@@ -312,6 +323,7 @@ static class AuthoredCorpusBenchmark
             corpusAssemblies,
             unmatchedRows,
             targetsEvaluated = evaluated,
+            methodologyVersion = MethodologyVersion,
             honest,
             correct = match,
             validDifferent = different,
@@ -343,6 +355,7 @@ static class AuthoredCorpusBenchmark
                 compileBackStatus = result.CompileBackStatus?.ToString(),
                 invalidKind = ReturnToSenderInvalidClassifier.Classify(result)?.ToString(),
                 faultIsolation = result.FaultIsolationKind?.ToString(),
+                faultIsolationMethod = result.FaultIsolationMethod?.ToString(),
                 reason = result.Reason,
                 detail = result.Detail,
                 sourceFile = result.SourcePath,
