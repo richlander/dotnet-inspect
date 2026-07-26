@@ -188,26 +188,27 @@ public static class ApiSurfaceExtractor
                 var isOverride = isVirtual && !isNewSlot && !isExplicitInterfaceImplementation;
 
                 // A class finalizer is the `object.Finalize` override the C#
-                // `~Type()` destructor compiles to. Roslyn emits it with an
-                // explicit `.override` MethodImpl targeting
-                // `System.Object::Finalize`, so we detect it by that target
-                // rather than by name/signature shape. Keying on the overridden
-                // slot (not the name `Finalize`, the reused virtual slot, or the
-                // decoded signature) excludes the false positives a shape
-                // heuristic admits: an implicit generic `Finalize<T>()`, an
-                // override of an unrelated base/interface `Finalize()` slot, and
-                // an explicit `IFoo.Finalize()` implementation (whose MethodImpl
-                // targets the interface, not object). A method whose signature
-                // failed to decode is likewise judged by its MethodImpl target
-                // alone, so a degraded decode cannot masquerade as a finalizer.
-                // A finalizer is never generic, so we still reject a method that
-                // explicitly `.override`s object.Finalize while declaring its own
-                // type parameters — rendering it `~Type()` would erase `<T>`.
-                // VB-style implicit `object.Finalize` overrides carry no
-                // MethodImpl and fall back to the literal `void Finalize()`.
+                // `~Type()` destructor compiles to. It is detected by the
+                // overridden slot (not by name/signature shape), which excludes
+                // the false positives a shape heuristic admits: an implicit
+                // generic `Finalize<T>()`, an override of an unrelated
+                // base/interface `Finalize()` slot, and an explicit
+                // `IFoo.Finalize()` implementation. There are two slot-anchored
+                // shapes:
+                //   * Roslyn (C#) emits an explicit `.override` MethodImpl
+                //     targeting `System.Object::Finalize`; `objectFinalizeOverrides`
+                //     carries those.
+                //   * The VB.NET compiler emits `Protected Overrides Sub Finalize()`
+                //     with NO MethodImpl — it reuses the inherited object.Finalize
+                //     slot implicitly; `IsImplicitObjectFinalizeOverride` proves
+                //     that slot roots at `System.Object` over metadata alone.
+                // A finalizer is never generic, so a method that overrides
+                // object.Finalize while declaring its own type parameters is still
+                // rejected — rendering it `~Type()` would erase `<T>`.
                 var isFinalizer = apiType.Kind == "class"
                     && method.GetGenericParameters().Count == 0
-                    && objectFinalizeOverrides.Contains(methodHandle);
+                    && (objectFinalizeOverrides.Contains(methodHandle)
+                        || IsImplicitObjectFinalizeOverride(reader, typeDefHandle, method));
 
                 var member = new ApiMember
                 {
@@ -843,13 +844,15 @@ public static class ApiSurfaceExtractor
     }
 
     /// <summary>
-    /// True when <paramref name="methodHandle"/> is a C# destructor: a non-generic method named
-    /// <c>Finalize</c> that <c>.override</c>s <c>System.Object::Finalize</c> via a MethodImpl. This
-    /// mirrors the <see cref="ApiMember.IsFinalizer"/> object.Finalize-override signal and is shared
-    /// with the source-mapping producer (<see cref="PdbContext.EnumerateMemberSources"/>) so a
-    /// destructor's <c>~Type()</c> source line is anchored from metadata identity rather than
-    /// inferred from source text. The <c>Finalize</c> name gate keeps the MethodImpl enumeration off
-    /// the hot path for every other method.
+    /// True when <paramref name="methodHandle"/> is a C# destructor / VB finalizer: a non-generic
+    /// method named <c>Finalize</c> that overrides <c>System.Object::Finalize</c>, either via an
+    /// explicit <c>.override</c> MethodImpl (the Roslyn/C# shape) or by implicitly reusing the
+    /// inherited object.Finalize slot (the VB.NET shape, which carries no MethodImpl). This mirrors
+    /// the <see cref="ApiMember.IsFinalizer"/> object.Finalize-override signal and is shared with the
+    /// source-mapping producer (<see cref="PdbContext.EnumerateMemberSources"/>) so a destructor's
+    /// <c>~Type()</c> source line is anchored from metadata identity rather than inferred from source
+    /// text. The <c>Finalize</c> name gate keeps the MethodImpl enumeration off the hot path for
+    /// every other method.
     /// </summary>
     internal static bool IsFinalizerMethod(MetadataReader reader, MethodDefinitionHandle methodHandle)
     {
@@ -859,7 +862,8 @@ public static class ApiSurfaceExtractor
         if (method.GetGenericParameters().Count != 0)
             return false;
 
-        var typeDef = reader.GetTypeDefinition(method.GetDeclaringType());
+        var typeHandle = method.GetDeclaringType();
+        var typeDef = reader.GetTypeDefinition(typeHandle);
         foreach (var implementationHandle in typeDef.GetMethodImplementations())
         {
             var implementation = reader.GetMethodImplementation(implementationHandle);
@@ -871,7 +875,135 @@ public static class ApiSurfaceExtractor
             }
         }
 
+        // No MethodImpl: fall back to the implicit-slot shape the VB.NET compiler emits.
+        return IsImplicitObjectFinalizeOverride(reader, typeHandle, method);
+    }
+
+    // A malformed or adversarial base-type chain can be arbitrarily long or cyclic; the visited-set
+    // below stops in-assembly cycles, and this cap stops an unbounded walk through a long legitimate
+    // (or degenerate) hierarchy. Real finalizer-bearing hierarchies are far shallower than this.
+    private const int MaxBaseChainDepth = 256;
+
+    /// <summary>
+    /// True when <paramref name="method"/> on <paramref name="typeDefHandle"/> implicitly overrides
+    /// <c>System.Object.Finalize</c> through the inherited virtual slot rather than an explicit
+    /// <c>.override</c> MethodImpl — the shape the VB.NET compiler emits for
+    /// <c>Protected Overrides Sub Finalize()</c>. The method must be a non-generic, parameterless,
+    /// <c>void</c>-returning, non-static, non-abstract virtual that reuses (does not new-slot) the
+    /// inherited slot, and the declaring type's base chain must be provably rooted at
+    /// <c>System.Object</c> using metadata alone (SRM-only, no inspected-assembly loading):
+    /// <list type="bullet">
+    /// <item>a base reference resolving to the strong-name-anchored <c>System.Object</c> confirms;</item>
+    /// <item>an in-assembly base that introduces its own <c>new virtual void Finalize()</c> slot is a
+    /// custom slot (the round-1 false-positive shape) and rejects;</item>
+    /// <item>a base that leaves the assembly without resolving to <c>System.Object</c> — including a
+    /// generic (<see cref="TypeSpecification"/>) base — cannot be proven and rejects conservatively,
+    /// so no guessed <c>~Type()</c> is spelled for an unresolvable chain.</item>
+    /// </list>
+    /// </summary>
+    private static bool IsImplicitObjectFinalizeOverride(
+        MetadataReader reader, TypeDefinitionHandle typeDefHandle, MethodDefinition method)
+    {
+        if (!string.Equals(reader.GetString(method.Name), "Finalize", StringComparison.Ordinal))
+            return false;
+
+        var attributes = method.Attributes;
+        // A finalizer reuses the inherited object.Finalize slot: Virtual and NOT NewSlot. An explicit
+        // interface implementation is NewSlot (and name-mangled), so it is excluded here too. Static
+        // and abstract methods are never finalizers.
+        if ((attributes & MethodAttributes.Virtual) == 0
+            || (attributes & MethodAttributes.NewSlot) != 0
+            || (attributes & MethodAttributes.Static) != 0
+            || (attributes & MethodAttributes.Abstract) != 0)
+            return false;
+        if (method.GetGenericParameters().Count != 0)
+            return false;
+        if (!HasVoidNullaryInstanceSignature(reader, method))
+            return false;
+
+        // Walk the base-type chain. The slot roots at whichever ancestor first declares a
+        // `new virtual void Finalize()`; for a genuine finalizer that ancestor is System.Object,
+        // which we recognize by reaching its (typically cross-assembly) reference without any
+        // in-assembly base introducing its own Finalize slot first.
+        var visited = new HashSet<TypeDefinitionHandle>();
+        var currentType = reader.GetTypeDefinition(typeDefHandle);
+        for (int depth = 0; depth < MaxBaseChainDepth; depth++)
+        {
+            var baseHandle = currentType.BaseType;
+            if (baseHandle.IsNil)
+                return false;
+
+            switch (baseHandle.Kind)
+            {
+                case HandleKind.TypeReference:
+                    // Reached a cross-assembly base: only System.Object roots the object.Finalize slot.
+                    return IsSystemObjectType(reader, baseHandle);
+                case HandleKind.TypeDefinition:
+                    var baseTypeHandle = (TypeDefinitionHandle)baseHandle;
+                    if (!visited.Add(baseTypeHandle))
+                        return false; // cyclic base chain in malformed metadata
+                    var baseType = reader.GetTypeDefinition(baseTypeHandle);
+                    if (DeclaresNewVirtualFinalize(reader, baseType))
+                        return false; // custom Finalize slot introduced below object — not a destructor
+                    if (IsSystemObjectType(reader, baseTypeHandle))
+                        return true; // in-assembly System.Object (inspecting the core library itself)
+                    currentType = baseType;
+                    continue;
+                default:
+                    // TypeSpecification (generic base) or any other shape: the slot root cannot be
+                    // proven from the handle alone, so reject rather than guess.
+                    return false;
+            }
+        }
+
         return false;
+    }
+
+    /// <summary>
+    /// True when <paramref name="type"/> declares a <c>new virtual void Finalize()</c> — a
+    /// parameterless, <c>void</c>-returning, non-generic method named <c>Finalize</c> that new-slots
+    /// its own virtual slot. Such a slot shadows <c>object.Finalize</c>, so an override binding to it
+    /// is not the object finalizer and must not be spelled <c>~Type()</c>. A base that merely
+    /// <em>overrides</em> Finalize (reuse-slot) does not introduce a new slot and is walked past.
+    /// </summary>
+    private static bool DeclaresNewVirtualFinalize(MetadataReader reader, TypeDefinition type)
+    {
+        foreach (var methodHandle in type.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            if (!string.Equals(reader.GetString(method.Name), "Finalize", StringComparison.Ordinal))
+                continue;
+            var attributes = method.Attributes;
+            if ((attributes & MethodAttributes.Virtual) != 0
+                && (attributes & MethodAttributes.NewSlot) != 0
+                && method.GetGenericParameters().Count == 0
+                && HasVoidNullaryInstanceSignature(reader, method))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// True when <paramref name="method"/>'s signature is an instance <c>void Method()</c>: a method
+    /// (not property/field) calling convention, no parameters, and a plain <c>void</c> return with no
+    /// custom modifiers or by-ref. This matches the fixed <c>object.Finalize</c> slot signature; a
+    /// mismatch (extra parameters, a non-void return, or a modified return) cannot bind that slot, so
+    /// it rejects — a name-only collision cannot masquerade as a finalizer.
+    /// </summary>
+    private static bool HasVoidNullaryInstanceSignature(MetadataReader reader, MethodDefinition method)
+    {
+        var blob = reader.GetBlobReader(method.Signature);
+        var header = blob.ReadSignatureHeader();
+        if (header.Kind != SignatureKind.Method)
+            return false;
+        if (header.IsGeneric)
+            blob.ReadCompressedInteger(); // generic parameter count
+        if (blob.ReadCompressedInteger() != 0) // parameter count
+            return false;
+        // Return type: a plain ELEMENT_TYPE_VOID. Any leading custom modifier or by-ref token is
+        // read here instead of Void and correctly rejects.
+        return blob.ReadSignatureTypeCode() == SignatureTypeCode.Void;
     }
 
     /// <summary>
