@@ -1076,7 +1076,7 @@ public class CorpusSensorComparisonTests
         string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
         string semanticRow = report.Split('\n').Single(line => line.Contains("Semantic defects", StringComparison.Ordinal));
 
-        Assert.Contains("Semantic defects (-)", semanticRow);
+        Assert.Contains("Semantic defects ↓", semanticRow);
         Assert.Contains("✓", semanticRow);
         Assert.EndsWith("| 1 (50.00%) → 0 (0.00%) (-1 methods) ✓ |", semanticRow.TrimEnd());
         Assert.DoesNotContain("sampling differs", report);
@@ -1104,7 +1104,7 @@ public class CorpusSensorComparisonTests
 
         string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
 
-        Assert.Contains("Full malformed (-)", report);
+        Assert.Contains("Full malformed ↓", report);
         Assert.DoesNotContain("Full malformed (sampling differs)", report);
         Assert.Contains("Semantic defects (sampling differs)", report);
     }
@@ -1161,7 +1161,7 @@ public class CorpusSensorComparisonTests
         Assert.Contains("Fidelity operand diffs (sampling differs)", report);
         Assert.Contains("Fidelity unavailable comparisons (sampling differs)", report);
         Assert.Contains("Fidelity exact (sampling differs)", report);
-        Assert.DoesNotContain("Fidelity opcode diffs (-)", report);
+        Assert.DoesNotContain("Fidelity opcode diffs ↓", report);
         Assert.DoesNotContain("✗", report);
     }
 
@@ -1229,9 +1229,9 @@ public class CorpusSensorComparisonTests
 
         string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
 
-        Assert.Contains("Fully raised (+)", report);
+        Assert.Contains("Fully raised ↑", report);
         Assert.Contains("1 (50.00%) → 2 (100.00%) (+1 methods) ✓", report);
-        Assert.Contains("Detected lowering residue (-)", report);
+        Assert.Contains("Detected lowering residue ↓", report);
         Assert.Contains("0 (0.00%) → 0 (0.00%) (0 methods) |", report);
         Assert.True(
             report.IndexOf("| Fully raised", StringComparison.Ordinal)
@@ -1301,7 +1301,7 @@ public class CorpusSensorComparisonTests
 
         string report = CorpusSensor.QualityMetricChangesForTesting(baseline, current);
 
-        Assert.Contains("Detected lowering residue (-)", report);
+        Assert.Contains("Detected lowering residue ↓", report);
         Assert.Contains("6 (6.45%) → 6 (6.45%) (0 methods) |", report);
     }
 
@@ -1630,5 +1630,110 @@ public class CorpusSensorComparisonTests
             methods.Add(SnapshotMethod(value.Method, fidelityCheck: value.FidelityCheck));
         }
         return methods.ToImmutable();
+    }
+
+    [Fact]
+    public void QualityDiffCard_RealWorld_RendersEntirelyThroughMarkout()
+    {
+        var methods = ValidityMethods(("One", "valid"), ("Two", "semantic-defect:CS0159"));
+        var baseline = Snapshot(
+            totalMethods: 8_000,
+            fullyRaisedMethods: 7_000,
+            fullyRaisedBasisPoints: 8_750,
+            pinnedMethods: methods,
+            validityCompileCap: 2,
+            fullMalformedMethods: 40,
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 1,
+            featureCoverage: CompleteFeatureCoverage(),
+            classicStateMachineCoverage: CompleteClassicStateMachineCoverage());
+        var current = Snapshot(
+            totalMethods: 8_000,
+            fullyRaisedMethods: 7_100,
+            fullyRaisedBasisPoints: 8_875,
+            pinnedMethods: methods,
+            validityCompileCap: 2,
+            fullMalformedMethods: 42,
+            semanticCheckedMethods: 2,
+            semanticDefectMethods: 1,
+            featureCoverage: CompleteFeatureCoverage(),
+            classicStateMachineCoverage: CompleteClassicStateMachineCoverage());
+
+        string card = CorpusSensor.QualityDiffCardForTesting(
+            baseline, current,
+            regressions: ["Full malformed methods (pinned) increased by 2 (baseline 40, current 42, tolerance 0)"],
+            risky: false,
+            baselineRef: "abc123");
+
+        // The metric table now leads the card, immediately under the heading, so the
+        // glyph table renders as the first thing a reviewer sees.
+        Assert.StartsWith("### Decompiler quality diff\n\n| Metric | Change |\n| ------ | ------ |\n", card);
+        // Scalar fields render as two bulleted groups under soft (bold) headers.
+        Assert.Contains(
+            "**Input**\n\n"
+            + "- Corpus: test 1 assembly, 8,000 methods\n"
+            + "- Baseline ref: `abc123`\n"
+            + "- Sample: hash-stable 100 methods per assembly\n\n"
+            + "**Analysis**\n\n"
+            + "- Correctness coverage: validity compiled 2 methods (compile-cap 2; per-sample, not corpus-wide); fidelity not run\n"
+            + "- Current measured debt: 900 methods with detected lowering residue; 42 malformed Full methods; 1 semantic defect among 2 checked.\n"
+            + "- Regression verdict: FAIL — corpus sensor reported regressions; review before merging.\n",
+            card);
+        Assert.Contains("Feature evidence:", card);
+        Assert.Contains("- `runtime-async-methods`: 1", card);
+        Assert.Contains("Classic state-machine kickoff evidence:", card);
+        Assert.Contains("- `classic-async`: population 1, fully raised 1, residual 0", card);
+        Assert.Contains("\n\n- Full malformed methods (pinned) increased by 2 (baseline 40, current 42, tolerance 0)", card);
+    }
+
+    [Fact]
+    public void QualityDiffCard_OptInNet11_UsesProfileHeadingAndSkipsPinnedGate()
+    {
+        var methods = ValidityMethods(("One", "valid"));
+        var baseline = Snapshot(8_000, 7_000, 8_750, methods, profile: CorpusProfile.OptInNet11);
+        var current = Snapshot(8_000, 7_100, 8_875, methods, profile: CorpusProfile.OptInNet11);
+
+        string card = CorpusSensor.QualityDiffCardForTesting(baseline, current, regressions: []);
+
+        Assert.StartsWith("### Decompiler net11 opt-in feature diff\n\n| Metric | Change |\n| ------ | ------ |\n", card);
+        // No baseline ref for the opt-in profile, so the Input group drops that bullet.
+        Assert.Contains(
+            "**Input**\n\n"
+            + "- Corpus: test 1 assembly, 8,000 methods\n"
+            + "- Sample: hash-stable 100 methods per assembly\n\n"
+            + "**Analysis**\n\n"
+            + "- Correctness coverage: validity not run; fidelity not run\n"
+            + "- Current measured debt: 900 methods with detected lowering residue.\n"
+            + "- Regression verdict: PASS — corpus sensor matched baseline tolerances.",
+            card);
+        Assert.DoesNotContain("Baseline ref:", card);
+        // The pinned-subset gate is a RealWorld-only section.
+        Assert.DoesNotContain("Pinned-subset gate", card);
+    }
+
+    [Fact]
+    public void QualityDiffCard_StaleBaseline_LeadsWithTableThenStalenessAndAppendsCaveat()
+    {
+        var methods = ValidityMethods(("One", "valid"));
+        var baseline = Snapshot(8_050, 7_050, 8_758, methods, validityCompileCap: 2, semanticCheckedMethods: 2);
+        var current = Snapshot(8_000, 7_100, 8_875, methods, validityCompileCap: 2, semanticCheckedMethods: 2);
+
+        string card = CorpusSensor.QualityDiffCardForTesting(
+            baseline, current,
+            regressions: ["detected lowering residue rate (pinned) increased"],
+            risky: true);
+
+        // The table leads; the staleness note follows it (and now reads "table above").
+        Assert.StartsWith("### Decompiler quality diff\n\n| Metric | Change |", card);
+        Assert.Contains("- Risk warning: thin correctness coverage", card);
+        Assert.Contains("Baseline staleness: corpus drifted from the pinned baseline", card);
+        Assert.Contains("aggregate count deltas in the table above", card);
+        Assert.Contains("- total methods 8,050 -> 8,000 (-50)", card);
+        // Exactly one blank line separates the staleness drift list from the Input group.
+        Assert.Contains("(-50)\n\n**Input**", card);
+        Assert.DoesNotContain("(-50)\n\n\n**Input**", card);
+        Assert.Contains(
+            "Caveat: the corpus drifted from the baseline (see baseline staleness above).",
+            card);
     }
 }
