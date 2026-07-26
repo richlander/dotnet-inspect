@@ -66,16 +66,21 @@ harness output.)
   rather than raised.
 
 When a block IS a declined-to-floor shape, render the ACTUAL floor, not the
-shape that was declined — a decline changes the member's IDENTITY, not its body.
-It is not a skeleton: the real reconstructed body is kept. What changes is that
-the interface is dropped from the base list and the member is demoted from an
-explicit implementation to a plain method whose name is the sanitized MethodDef
-name (dots become underscores, `IType.Member` -> `IType_Member`). Its verdict is
-`ContextFail` ("method-not-found"): the plain shape compiles, but the original
-explicit-member identity no longer exists in the recompiled assembly to
-opcode-compare — it is chosen precisely because it is strictly safer than the
-`RecompileFail` the explicit spelling would have produced. Do not draw the floor
-still carrying the interface base entry or the explicit qualifier.
+shape that was declined. A decline changes the member's IDENTITY, not its body:
+it is not a skeleton — the real reconstructed body is kept — but the member is
+emitted as a plain method with no explicit-interface qualifier, named by the
+sanitized MethodDef name (dots become underscores, `IType.Member` ->
+`IType_Member`). Two mechanisms produce this floor: an EXTERNAL
+explicit-interface decline both leaves the member with no explicit-interface
+fields AND drops the interface from the base list (`ExternalInterfaces` becomes
+empty — the #3112/#3222 case), whereas a SAME-ASSEMBLY revert clears only the
+member's `ExplicitInterfaceMemberName` / `DeclarationSignature`. Either way the
+verdict is `ContextFail` ("method-not-found"): the plain shape compiles, but the
+original explicit-member identity no longer exists in the recompiled assembly to
+opcode-compare — chosen precisely because it is strictly safer than the
+`RecompileFail` the explicit spelling would have produced. When you draw an
+external-interface floor, do not leave the interface base entry or the explicit
+qualifier attached.
 
 Record the compile-back verdict next to the code it judges (never inferred from
 prose):
