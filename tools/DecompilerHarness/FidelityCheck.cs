@@ -2039,6 +2039,8 @@ static class FidelityCheck
     /// something the reader can see, and the caret sits on a <c>//</c> comment so
     /// the whole block stays valid C# inside a code fence. Null when the
     /// diagnostic carries no in-source location (nothing to point at).
+    /// When the failure matches an enumerated cause (see <see cref="ClassifyCause"/>),
+    /// a <c>cause:</c> and paired <c>fix:</c> line follow on the caret gutter.
     /// </summary>
     internal static string? RenderAnnotatedFailure(string source, Diagnostic? diagnostic)
     {
@@ -2077,7 +2079,73 @@ static class FidelityCheck
         sb.Append(revealed).Append('\n');
         sb.Append(indent).Append("//").Append(' ', pad).Append('^', caretLen)
           .Append(' ').Append(diagnostic.Id).Append(": ").Append(diagnostic.GetMessage());
+
+        // Layer 3 (#3256): classify the failure into a cause + paired fix on the
+        // same gutter as the caret, when the fix is derivable from the emitted
+        // token alone. Falls through silently for everything else.
+        string emittedToken = raw.Substring(startCol, Math.Max(0, endCol - startCol));
+        if (ClassifyCause(emittedToken) is { } classified)
+        {
+            sb.Append('\n').Append(indent).Append("//  cause: ").Append(classified.Cause);
+            sb.Append('\n').Append(indent).Append("//  fix:   ").Append(classified.Fix);
+        }
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Layer 3 (#3256): maps a recompile-failure span to an enumerated
+    /// <c>(cause, fix)</c> pair, or null to fall through to the bare layer 1–2
+    /// render. Honesty rule: this classifies only causes whose fix is the
+    /// <em>delta of the emitted token itself</em> — no guessing, no locale-fragile
+    /// diagnostic-message parsing. The remaining enumerated causes
+    /// (namespace-shadow, signature-drift) need the ground-truth original for the
+    /// specific failing token, which is not available at this render site, so they
+    /// are intentionally omitted rather than fabricated.
+    /// </summary>
+    /// <remarks>
+    /// Precedence matters: a token can be both a keyword-looking string and carry
+    /// an invisible rune; invisible-rune is checked first because the rune is the
+    /// real reason binding diverged.
+    /// </remarks>
+    internal static (string Cause, string Fix)? ClassifyCause(string emittedToken)
+    {
+        if (string.IsNullOrEmpty(emittedToken))
+            return null;
+
+        // invisible-rune (Cf stripping): binding removes Unicode format runes, so
+        // a name carrying one binds to a different name than its metadata spelling.
+        if (emittedToken.EnumerateRunes().Any(r => Rune.GetUnicodeCategory(r) == UnicodeCategory.Format))
+        {
+            string revealed = string.Concat(emittedToken.Select(RevealRune));
+            string stripped = string.Concat(emittedToken
+                .EnumerateRunes()
+                .Where(r => Rune.GetUnicodeCategory(r) != UnicodeCategory.Format)
+                .Select(r => r.ToString()));
+            Rune firstFormat = emittedToken.EnumerateRunes()
+                .First(r => Rune.GetUnicodeCategory(r) == UnicodeCategory.Format);
+            string firstRevealed = string.Concat(firstFormat.ToString().Select(RevealRune));
+            return ($"invisible-rune — emitted name carries {firstRevealed} (Cf); binding strips it, so the name no longer matches.",
+                    $"emit  {revealed} → {stripped}   (drop the format-category rune)");
+        }
+
+        // unspeakable-name: compiler-generated metadata names (e.g. <>c, <M>b__0)
+        // have no legal C# source form.
+        if (emittedToken.Contains('<') || emittedToken.Contains('>'))
+        {
+            return ("unspeakable-name — compiler-generated identifier isn't legal C#.",
+                    "no exact source form — emit a speakable alias or exclude from round-trip.");
+        }
+
+        // keyword-escape: a reserved keyword emitted as a bare identifier only
+        // needs the verbatim '@' prefix to round-trip.
+        if (SyntaxFacts.GetKeywordKind(emittedToken) is var kind &&
+            SyntaxFacts.IsReservedKeyword(kind))
+        {
+            return ($"keyword-escape — emitted identifier '{emittedToken}' is a C# keyword written bare.",
+                    $"emit  {emittedToken} → @{emittedToken}");
+        }
+
+        return null;
     }
 
     /// <summary>

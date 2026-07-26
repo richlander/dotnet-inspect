@@ -54,6 +54,65 @@ public class AnnotatedCompileBackFailureTests
         int caretColumn = lines[1].IndexOf('^');
         int revealedIdentColumn = lines[0].IndexOf("Missing", StringComparison.Ordinal);
         Assert.Equal(revealedIdentColumn, caretColumn);
+
+        // Layer 3 (#3256): a classified cause + paired fix follow on the gutter,
+        // deriving the fix from the emitted token itself (reveal → stripped).
+        Assert.StartsWith("    //  cause: invisible-rune", lines[2]);
+        Assert.StartsWith("    //  fix:", lines[3]);
+        Assert.Contains("Missing\u2039ZWNJ\u203AType \u2192 MissingType", lines[3]);
+    }
+
+    [Theory]
+    [InlineData("M\u200C", "invisible-rune", "M\u2039ZWNJ\u203A \u2192 M")]      // Cf stripping
+    [InlineData("\u200DName", "invisible-rune", "\u2039ZWJ\u203AName \u2192 Name")]
+    public void ClassifiesInvisibleRuneWithStrippedFix(string token, string cause, string fixDelta)
+    {
+        var result = FidelityCheck.ClassifyCause(token);
+        Assert.NotNull(result);
+        Assert.StartsWith(cause, result!.Value.Cause);
+        Assert.Contains(fixDelta, result.Value.Fix);
+    }
+
+    [Theory]
+    [InlineData("class")]
+    [InlineData("int")]
+    [InlineData("return")]
+    public void ClassifiesBareKeywordWithVerbatimFix(string keyword)
+    {
+        var result = FidelityCheck.ClassifyCause(keyword);
+        Assert.NotNull(result);
+        Assert.StartsWith("keyword-escape", result!.Value.Cause);
+        Assert.Equal($"emit  {keyword} \u2192 @{keyword}", result.Value.Fix);
+    }
+
+    [Theory]
+    [InlineData("<>c")]
+    [InlineData("<M>b__0")]
+    public void ClassifiesUnspeakableNameWithPolicyFix(string token)
+    {
+        var result = FidelityCheck.ClassifyCause(token);
+        Assert.NotNull(result);
+        Assert.StartsWith("unspeakable-name", result!.Value.Cause);
+        Assert.Contains("no exact source form", result.Value.Fix);
+    }
+
+    [Theory]
+    [InlineData("Ordinary")]     // plain identifier — nothing to classify
+    [InlineData("MyType")]
+    [InlineData("")]
+    [InlineData("@class")]        // already escaped — not a bare keyword
+    public void FallsThroughForUnrecognizedToken(string token)
+        => Assert.Null(FidelityCheck.ClassifyCause(token));
+
+    // invisible-rune is checked before keyword-escape: a keyword-looking token
+    // carrying a format rune is classified by the rune, since that is the real
+    // reason binding diverged.
+    [Fact]
+    public void InvisibleRuneTakesPrecedenceOverKeyword()
+    {
+        var result = FidelityCheck.ClassifyCause("class\u200C");
+        Assert.NotNull(result);
+        Assert.StartsWith("invisible-rune", result!.Value.Cause);
     }
 
     [Fact]
