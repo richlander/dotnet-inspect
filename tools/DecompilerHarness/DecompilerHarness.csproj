@@ -26,6 +26,7 @@
     <ProjectReference Include="../../src/ILInspector.Metadata/ILInspector.Metadata.csproj" />
     <!-- Validity check: parse and bind the decompiled C# to measure validity. -->
     <PackageReference Include="Markout" />
+    <PackageReference Include="Markout.Templates" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
   </ItemGroup>
 

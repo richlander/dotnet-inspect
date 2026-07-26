@@ -11,6 +11,7 @@ using ILInspector.Instructions;
 using ILInspector.Metadata;
 using Markout;
 using Markout.Formatting;
+using Markout.Templates;
 
 namespace ILInspector.DecompilerHarness;
 
@@ -1912,60 +1913,156 @@ internal static class CorpusSensor
         }
     }
 
+    // The quality diff card is authored as a prose-first Markout template: the fixed
+    // narrative structure lives here as Markdown, while the genuinely data-driven parts
+    // (the glyph metric table, evidence lists, staleness, pinned gate, advisory) are
+    // pre-rendered to strings and injected as block bindings. The metric table leads;
+    // the scalar fields render as two bulleted groups under soft (bold) "Input" and
+    // "Analysis" headers so they read well as Markdown instead of a run of plain lines.
+    // Standalone {{#if}}/{{/if}} directive lines gate the optional blocks while
+    // preserving single-blank-line spacing.
+    const string QualityDiffCardTemplate =
+        """
+        ### {{title}}
+
+        {{metric_table}}
+
+        {{#if has_staleness}}
+        {{staleness}}
+
+        {{/if}}
+        **Input**
+
+        {{input}}
+
+        **Analysis**
+
+        {{analysis}}
+
+        {{#if has_features}}
+        {{feature_block}}
+
+        {{/if}}
+        {{#if has_pinned_gate}}
+        {{pinned_gate}}
+
+        {{/if}}
+        {{#if has_advisory}}
+        {{advisory}}
+
+        {{/if}}
+        {{#if has_regressions}}
+        Regressions:
+
+        {{regressions}}
+        {{#if has_caveat}}
+
+        {{caveat}}
+        {{/if}}
+        {{/if}}
+        """;
+
     static void PrintQualityDiffCard(
+        CorpusSensorSnapshot baseline,
+        CorpusSensorSnapshot current,
+        IReadOnlyList<string> regressions,
+        bool risky,
+        string? baselineRef,
+        TextWriter? output = null)
+    {
+        (output ?? Console.Out).Write(
+            RenderQualityDiffCard(baseline, current, regressions, risky, baselineRef));
+    }
+
+    internal static string QualityDiffCardForTesting(
+        CorpusSensorSnapshot baseline,
+        CorpusSensorSnapshot current,
+        IReadOnlyList<string> regressions,
+        bool risky = false,
+        string? baselineRef = null)
+        => RenderQualityDiffCard(baseline, current, regressions, risky, baselineRef);
+
+    static string RenderQualityDiffCard(
         CorpusSensorSnapshot baseline,
         CorpusSensorSnapshot current,
         IReadOnlyList<string> regressions,
         bool risky,
         string? baselineRef)
     {
-        Console.WriteLine(QualityCardHeadingForProfile(current.Profile));
-        Console.WriteLine();
-        Console.WriteLine($"Corpus: {current.Description} {AssemblyCount(current.Assemblies.Count)}, {Number(current.Metrics.TotalMethods)} methods");
-        if (baselineRef is not null)
-            Console.WriteLine($"Baseline ref: `{baselineRef}`");
-        if (current.MethodCap is { } cap)
-            Console.WriteLine($"Sample: hash-stable {Number(cap)} methods per assembly");
-        Console.WriteLine($"Correctness coverage: {CoverageSummary(current)}");
-        if (risky)
-            PrintRiskyCoverageGuidance(current);
-        PrintBaselineStaleness(baseline, current);
-        Console.WriteLine();
-        PrintQualityMetricChanges(baseline, current);
-        PrintFeatureCoverage(current);
-        if (current.Profile == CorpusProfile.RealWorld)
-            PrintPinnedGate(baseline, current);
-        if (!risky && current.Profile == CorpusProfile.RealWorld)
-            PrintAdvisoryRateMovements(baseline, current);
-        Console.WriteLine();
-        Console.WriteLine($"Current measured debt: {CurrentMeasuredDebt(current)}");
-        Console.WriteLine(RegressionVerdict(regressions.Count));
-        if (regressions.Count > 0)
+        bool realWorld = current.Profile == CorpusProfile.RealWorld;
+        string metricTable = RenderBlock(w => WriteQualityMetricChanges(w, baseline, current));
+        string staleness = RenderBlock(w => WriteBaselineStaleness(w, baseline, current));
+        string featureBlock = RenderBlock(w => WriteFeatureCoverage(w, current));
+        string pinnedGate = realWorld ? (PinnedGateSummary(baseline, current) ?? "") : "";
+        string advisory = !risky && realWorld
+            ? RenderBlock(w => WriteAdvisoryRateMovements(w, baseline, current))
+            : "";
+        string caveat = RegressionCaveat(baseline, current, regressions);
+
+        var input = new List<string>
         {
-            Console.WriteLine();
-            Console.WriteLine("Regressions:");
-            foreach (var regression in regressions)
-                Console.WriteLine($"- {regression}");
-            if (IsBaselineStale(baseline, current) && current.Profile == CorpusProfile.RealWorld)
-            {
-                Console.WriteLine();
-                Console.WriteLine(
-                    "Caveat: the corpus drifted from the baseline (see baseline staleness above). "
-                    + "The aggregate rows above mix the PR with that drift, but rate/count "
-                    + "regressions are gated on the pinned-NuGet subset where available (a fixed method set), so any "
-                    + "`(pinned)` regression listed here is a real decompiler delta, not drift.");
-            }
+            $"Corpus: {current.Description} {AssemblyCount(current.Assemblies.Count)}, {Number(current.Metrics.TotalMethods)} methods",
+        };
+        if (baselineRef is not null)
+            input.Add($"Baseline ref: `{baselineRef}`");
+        if (current.MethodCap is { } cap)
+            input.Add($"Sample: hash-stable {Number(cap)} methods per assembly");
 
-            else if (IsBaselineStale(baseline, current))
-            {
-                Console.WriteLine();
-                Console.WriteLine(
-                    "Caveat: the opt-in corpus population differs from its baseline. "
-                    + "Advance fixture sources or the pinned SDK and regenerate the baseline "
-                    + "together; otherwise treat this as unexpected corpus drift.");
-            }
+        var analysis = new List<string> { $"Correctness coverage: {CoverageSummary(current)}" };
+        if (risky)
+            analysis.Add(RenderBlock(w => WriteRiskyCoverageGuidance(w, current)));
+        analysis.Add($"Current measured debt: {CurrentMeasuredDebt(current)}");
+        analysis.Add(RegressionVerdict(regressions.Count));
 
-        }
+        string card = MarkoutTemplate.Parse(QualityDiffCardTemplate)
+            .Bind("title", QualityCardTitleForProfile(current.Profile))
+            .Bind("metric_table", metricTable)
+            .Bind("has_staleness", staleness.Length > 0)
+            .Bind("staleness", staleness)
+            .Bind("input", input)
+            .Bind("analysis", analysis)
+            .Bind("has_features", featureBlock.Length > 0)
+            .Bind("feature_block", featureBlock)
+            .Bind("has_pinned_gate", pinnedGate.Length > 0)
+            .Bind("pinned_gate", pinnedGate)
+            .Bind("has_advisory", advisory.Length > 0)
+            .Bind("advisory", advisory)
+            .Bind("has_regressions", regressions.Count > 0)
+            .Bind("regressions", regressions)
+            .Bind("has_caveat", caveat.Length > 0)
+            .Bind("caveat", caveat)
+            .Render();
+
+        return card.TrimEnd('\n') + "\n";
+    }
+
+    static string RegressionCaveat(
+        CorpusSensorSnapshot baseline,
+        CorpusSensorSnapshot current,
+        IReadOnlyList<string> regressions)
+    {
+        if (regressions.Count == 0 || !IsBaselineStale(baseline, current))
+            return "";
+        return current.Profile == CorpusProfile.RealWorld
+            ? "Caveat: the corpus drifted from the baseline (see baseline staleness above). "
+                + "The aggregate rows above mix the PR with that drift, but rate/count "
+                + "regressions are gated on the pinned-NuGet subset where available (a fixed method set), so any "
+                + "`(pinned)` regression listed here is a real decompiler delta, not drift."
+            : "Caveat: the opt-in corpus population differs from its baseline. "
+                + "Advance fixture sources or the pinned SDK and regenerate the baseline "
+                + "together; otherwise treat this as unexpected corpus drift.";
+    }
+
+    // Renders a card sub-block through a scratch MarkoutWriter and trims the outer
+    // blank lines so the template owns the spacing between blocks. Returns "" when the
+    // writer emits nothing (the sub-block gates itself), which drives the {{#if}} flags.
+    static string RenderBlock(Action<MarkoutWriter> write)
+    {
+        using var sw = new StringWriter();
+        var writer = new MarkoutWriter(sw, new MarkdownFormatter());
+        write(writer);
+        writer.Flush();
+        return sw.ToString().Trim('\n');
     }
 
     static string CurrentMeasuredDebt(CorpusSensorSnapshot snapshot)
@@ -2071,30 +2168,46 @@ internal static class CorpusSensor
         }
     }
 
+    static void WriteFeatureCoverage(MarkoutWriter writer, CorpusSensorSnapshot snapshot)
+    {
+        if (snapshot.FeatureCoverage is { Count: > 0 } coverage)
+        {
+            writer.WriteParagraph("Feature evidence:");
+            writer.WriteList(
+                [.. coverage
+                    .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                    .Select(pair => $"`{pair.Key}`: {pair.Value}")]);
+        }
+
+        if (snapshot.ClassicStateMachineCoverage is { Count: > 0 } stateMachines)
+        {
+            writer.WriteParagraph("Classic state-machine kickoff evidence:");
+            writer.WriteList(
+                [.. stateMachines
+                    .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+                    .Select(pair =>
+                        $"`{pair.Key}`: population {pair.Value.Population}, "
+                        + $"fully raised {pair.Value.FullyRaised}, residual {pair.Value.Residual}")]);
+        }
+    }
+
     internal static string QualityCardHeadingForProfile(CorpusProfile profile)
+        => "### " + QualityCardTitleForProfile(profile);
+
+    static string QualityCardTitleForProfile(CorpusProfile profile)
         => profile switch
         {
-            CorpusProfile.RealWorld => "### Decompiler quality diff",
-            CorpusProfile.OptInNet11 => "### Decompiler net11 opt-in feature diff",
+            CorpusProfile.RealWorld => "Decompiler quality diff",
+            CorpusProfile.OptInNet11 => "Decompiler net11 opt-in feature diff",
             _ => throw new ArgumentOutOfRangeException(nameof(profile)),
         };
 
     /// <summary>
     /// Shows the pinned-NuGet-subset metrics that drive the PR quick verdict, so
     /// reviewers can see the stable gate alongside the drifting aggregate rows.
-    /// Silent when per-method detail is unavailable (the verdict then falls back
-    /// to aggregate counts/rates).
+    /// Silent (returns null) when per-method detail is unavailable (the verdict then
+    /// falls back to aggregate counts/rates).
     /// </summary>
-    static void PrintPinnedGate(CorpusSensorSnapshot baseline, CorpusSensorSnapshot current)
-    {
-        string? summary = PinnedGateSummary(baseline, current);
-        if (summary is null)
-            return;
-
-        Console.WriteLine();
-        Console.WriteLine(summary);
-    }
-
     internal static string? PinnedGateSummaryForTesting(
         CorpusSensorSnapshot baseline,
         CorpusSensorSnapshot current)
@@ -2152,7 +2265,7 @@ internal static class CorpusSensor
             + fidelity + ".";
     }
 
-    static void PrintAdvisoryRateMovements(CorpusSensorSnapshot baseline, CorpusSensorSnapshot current)
+    static void WriteAdvisoryRateMovements(MarkoutWriter writer, CorpusSensorSnapshot baseline, CorpusSensorSnapshot current)
     {
         var tolerance = baseline.Tolerances ?? CorpusSensorTolerances.Default;
         var advisories = new List<string>();
@@ -2167,10 +2280,8 @@ internal static class CorpusSensor
         if (advisories.Count == 0)
             return;
 
-        Console.WriteLine();
-        Console.WriteLine("Advisory aggregate rate movement (not a PR quick hard gate; review for decompiler-risky changes):");
-        foreach (var advisory in advisories)
-            Console.WriteLine($"- {advisory}");
+        writer.WriteParagraph("Advisory aggregate rate movement (not a PR quick hard gate; review for decompiler-risky changes):");
+        writer.WriteList([.. advisories]);
 
         void AddAdvisory(string name, int baselineRate, int currentRate, int toleranceBps, bool lowerIsRegression)
         {
@@ -2192,20 +2303,18 @@ internal static class CorpusSensor
     /// Surface the drift explicitly so reviewers rebaseline instead of chasing a
     /// phantom regression.
     /// </summary>
-    static void PrintBaselineStaleness(CorpusSensorSnapshot baseline, CorpusSensorSnapshot current)
+    static void WriteBaselineStaleness(MarkoutWriter writer, CorpusSensorSnapshot baseline, CorpusSensorSnapshot current)
     {
         var drift = DescribeBaselineDrift(baseline, current);
         if (drift.Count == 0)
             return;
 
-        Console.WriteLine();
-        Console.WriteLine(
+        writer.WriteParagraph(
             $"Baseline staleness: corpus drifted from the pinned baseline "
-            + $"(generated {baseline.GeneratedUtc:yyyy-MM-dd}). Aggregate count deltas below include "
+            + $"(generated {baseline.GeneratedUtc:yyyy-MM-dd}). The aggregate count deltas in the table above include "
             + "this corpus change and are not a clean PR signal; rebaseline against current main "
             + "(--emit-corpus-baseline) before trusting count-based regressions.");
-        foreach (var line in drift)
-            Console.WriteLine($"- {line}");
+        writer.WriteList([.. drift]);
     }
 
     static bool IsBaselineStale(CorpusSensorSnapshot baseline, CorpusSensorSnapshot current)
@@ -2244,10 +2353,10 @@ internal static class CorpusSensor
         return lines;
     }
 
-    static void PrintQualityMetricChanges(
+    static void WriteQualityMetricChanges(
+        MarkoutWriter writer,
         CorpusSensorSnapshot baseline,
-        CorpusSensorSnapshot current,
-        TextWriter? output = null)
+        CorpusSensorSnapshot current)
     {
         bool comparableStructuralPopulation = HaveSameMethodSample(
             baseline.Methods,
@@ -2451,7 +2560,6 @@ internal static class CorpusSensor
         if (fullyRaisedRow is { } raisedRow)
             rows.Add(raisedRow);
 
-        var writer = new MarkoutWriter(output ?? Console.Out, new MarkdownFormatter());
         writer.WriteMultiSourceTable("Metric", rows);
     }
 
@@ -2494,9 +2602,11 @@ internal static class CorpusSensor
         CorpusSensorSnapshot baseline,
         CorpusSensorSnapshot current)
     {
-        using var writer = new StringWriter();
-        PrintQualityMetricChanges(baseline, current, writer);
-        return writer.ToString();
+        using var stringWriter = new StringWriter();
+        var writer = new MarkoutWriter(stringWriter, new MarkdownFormatter());
+        WriteQualityMetricChanges(writer, baseline, current);
+        writer.Flush();
+        return stringWriter.ToString();
     }
 
     static MultiSourceRow CountChangeRow(
@@ -2505,12 +2615,13 @@ internal static class CorpusSensor
         int current,
         Goal goal,
         bool countDeltaKnown = true)
-        => new(
-            MetricLabel(metric, goal),
+        => new MultiSourceRow(
+            metric,
             new Source(
                 "Change",
                 new Change<int>(baseline, current),
-                new MarkoutCellFormat { Goal = goal, Delta = countDeltaKnown ? Markout.Delta.Absolute : Markout.Delta.None, NumberFormat = "N0" }));
+                new MarkoutCellFormat { Goal = goal, Delta = countDeltaKnown ? Markout.Delta.Absolute : Markout.Delta.None, NumberFormat = "N0" }))
+        { Goal = goal };
 
     static MultiSourceRow ShareChangeRow(
         string metric,
@@ -2520,12 +2631,13 @@ internal static class CorpusSensor
         int currentTotal,
         Goal goal,
         bool countDeltaKnown = true)
-        => new(
-            MetricLabel(metric, goal),
+        => new MultiSourceRow(
+            metric,
             new Source(
                 "Change",
                 new Change<QualityRate>(new QualityRate(baseline, baselineTotal), new QualityRate(current, currentTotal)),
-                new MarkoutCellFormat { Goal = goal, DeltaNoun = countDeltaKnown ? "methods" : null, NumberFormat = "N0" }));
+                new MarkoutCellFormat { Goal = goal, DeltaNoun = countDeltaKnown ? "methods" : null, NumberFormat = "N0" }))
+        { Goal = goal };
 
     static bool HaveSameMethodSample(
         IReadOnlyList<CorpusMethodSnapshot>? baselineMethods,
@@ -2541,14 +2653,6 @@ internal static class CorpusSensor
             .ToHashSet(StringComparer.Ordinal)
             .SetEquals(currentMethods.Where(isChecked).Select(MethodKey));
     }
-
-    static string MetricLabel(string metric, Goal goal)
-        => goal switch
-        {
-            Goal.Higher => metric + " (+)",
-            Goal.Lower => metric + " (-)",
-            _ => metric,
-        };
 
     static string CoverageSummary(CorpusSensorSnapshot snapshot)
     {
@@ -2584,7 +2688,7 @@ internal static class CorpusSensor
             _ => profile.ToString(),
         };
 
-    static void PrintRiskyCoverageGuidance(CorpusSensorSnapshot snapshot)
+    static void WriteRiskyCoverageGuidance(MarkoutWriter writer, CorpusSensorSnapshot snapshot)
     {
         List<string> warnings = [];
         if (snapshot.ValidityCompileCap <= 0)
@@ -2599,11 +2703,11 @@ internal static class CorpusSensor
 
         if (warnings.Count > 0)
         {
-            Console.WriteLine($"Risk warning: thin correctness coverage ({string.Join("; ", warnings)}). Add targeted improved examples and still-flat near misses; aggregate numbers are not sufficient alone.");
+            writer.WriteParagraph($"Risk warning: thin correctness coverage ({string.Join("; ", warnings)}). Add targeted improved examples and still-flat near misses; aggregate numbers are not sufficient alone.");
             return;
         }
 
-        Console.WriteLine("Risk guidance: add targeted improved examples and still-flat near misses; aggregate numbers are not sufficient alone.");
+        writer.WriteParagraph("Risk guidance: add targeted improved examples and still-flat near misses; aggregate numbers are not sufficient alone.");
     }
 
     static string Coverage(int checkedMethods, int totalMethods)
