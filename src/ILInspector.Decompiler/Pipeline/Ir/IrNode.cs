@@ -197,11 +197,13 @@ public abstract class IrNode
     /// (<see cref="LoadLocal"/>, <see cref="StoreLocal"/>,
     /// <see cref="LoadLocalAddress"/>) references a slot that exists in the
     /// nearest enclosing local scope. The containing <see cref="IrFunction"/>
-    /// always opens a scope; a <see cref="Lambda"/> or
-    /// <see cref="LocalFunctionStatement"/> opens its own scope only when it
-    /// declares a non-empty local table — an empty-<c>Locals</c> nested body
-    /// <em>shares</em> the host's scope and references the outer function's
-    /// locals by their outer index, matching how the C# printer scopes it
+    /// always opens a scope; a <em>static</em> <see cref="LocalFunctionStatement"/>
+    /// also always opens its own scope (it cannot capture); a capturing
+    /// (non-static) <see cref="LocalFunctionStatement"/> or a <see cref="Lambda"/>
+    /// opens its own scope only when it declares a non-empty local table — an
+    /// empty-<c>Locals</c> capturing body <em>shares</em> the host's scope and
+    /// references the outer function's locals by their outer index, matching how
+    /// the C# printer scopes it
     /// (<c>NeedsNestedLambdaScope</c>/<c>NeedsNestedLocalFunctionScope</c>). A
     /// pass that drops a local without repointing its readers, or fabricates a
     /// dangling slot, trips this instead of surfacing as a downstream
@@ -246,17 +248,27 @@ public abstract class IrNode
     /// <summary>
     /// Local-slot count of the scope this node itself opens, or null if it opens
     /// none. An <see cref="IrFunction"/> always opens a scope (even with zero
-    /// locals). A <see cref="Lambda"/> or <see cref="LocalFunctionStatement"/>
+    /// locals). A <em>static</em> <see cref="LocalFunctionStatement"/> also always
+    /// opens its own scope: it cannot capture, so its local references bind to its
+    /// own table and an empty table is a genuine zero-slot scope. A capturing
+    /// (non-static) <see cref="LocalFunctionStatement"/> or a <see cref="Lambda"/>
     /// opens its own scope only when it declares locals; an empty-<c>Locals</c>
-    /// nested body shares the enclosing scope, so returning null here lets its
+    /// capturing body shares the enclosing scope, so returning null here lets its
     /// outer-indexed local references validate against the host — mirroring the
     /// printer's shared-vs-nested distinction.
+    /// <para>
+    /// The <see cref="Lambda"/> node carries no static/instance flag, so a
+    /// hypothetical static lambda with an empty local table is treated as shared
+    /// (a bounded, no-false-positive under-approximation) rather than tightened
+    /// the way a static local function is.
+    /// </para>
     /// </summary>
     int? OwnLocalScope() => this switch
     {
         IrFunction f => f.Locals.Length,
-        Lambda l => l.Locals.IsEmpty ? null : l.Locals.Length,
+        LocalFunctionStatement { IsStatic: true } lf => lf.Locals.Length,
         LocalFunctionStatement lf => lf.Locals.IsEmpty ? null : lf.Locals.Length,
+        Lambda l => l.Locals.IsEmpty ? null : l.Locals.Length,
         _ => null,
     };
 

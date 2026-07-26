@@ -145,6 +145,23 @@ public sealed class IrInvariantCheckTests
             () => invalid.CheckInvariant(includeSemantics: true));
     }
 
+    [Fact]
+    public void SemanticCheck_StaticLocalFunction_OpensItsOwnZeroSlotScope()
+    {
+        // Second adversarial finding (GPT, PR #3261): a STATIC local function
+        // cannot capture, so its empty local table is a genuine zero-slot scope —
+        // not a shared one. A store into slot 0 there is dangling and must trip,
+        // even though the outer function has a local at slot 0.
+        var staticFn = FunctionWithLocalContainingLocalFunction(isStatic: true, storeSlot: 0);
+        Assert.Throws<InvalidOperationException>(
+            () => staticFn.CheckInvariant(includeSemantics: true));
+
+        // A NON-static (capturing) empty-Locals local function shares the outer
+        // scope, so the same store into outer slot 0 is valid.
+        var capturingFn = FunctionWithLocalContainingLocalFunction(isStatic: false, storeSlot: 0);
+        capturingFn.CheckInvariant(includeSemantics: true);
+    }
+
     static readonly TypeRef IntType = TypeRef.CoreLib("System", "Int32");
 
     static IrFunction FunctionStoringLocal(ImmutableArray<TypeRef> locals, int slot)
@@ -200,6 +217,26 @@ public sealed class IrInvariantCheckTests
         var outerLocalTable = Enumerable.Repeat(IntType, outerLocals).ToImmutableArray();
         var signature = new MethodSignature(actionType, [], HasThis: false, GenericParameterCount: 0);
         return new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, outerLocalTable, outerBody);
+    }
+
+    static IrFunction FunctionWithLocalContainingLocalFunction(bool isStatic, int storeSlot)
+    {
+        // An empty-Locals local function whose body stores into `storeSlot`.
+        var fnBlock = new Block(0);
+        fnBlock.Add(new StoreLocal(storeSlot, IntType, new Constant(0, IntType)));
+        var fnBody = new BlockContainer();
+        fnBody.Add(fnBlock);
+        var localFunction = new LocalFunctionStatement(
+            "Local", TypeRef.CoreLib("System", "Void"), [], isStatic, [], [],
+            usesUpdatedMemorySafetyRules: false, skipLocalsInit: false, fnBody);
+
+        var outerBlock = new Block(0);
+        outerBlock.Add(localFunction);
+        outerBlock.Add(new Return(null));
+        var outerBody = new BlockContainer();
+        outerBody.Add(outerBlock);
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [IntType], outerBody);
     }
 
     /// <summary>
