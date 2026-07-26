@@ -255,17 +255,70 @@ public sealed class ThisQualificationTests
         Assert.DoesNotContain("(this).FaceMethod()", text);
     }
 
-    // Negative guard: a boxed `this` that reaches a NON-interface member (here
-    // `object.ToString()` via `((object)this).ToString()`) must NOT be over-cast to
-    // the enclosing struct — `IsInterfaceCastThisReceiver` declines a non-interface
-    // callee, so the boxed-this arm never fires. The faithful render keeps the
-    // object cast the boxing spells and never writes `((StructBoxedObjectReceiver)this)`.
+    // A boxed `this` reaching a NON-interface VIRTUAL member (here
+    // `object.ToString()` via `((object)this).ToString()`) renders the cast form
+    // `((object)this).ToString()`: the explicit `box` is the source upcast, and a
+    // virtual `callvirt object::ToString` re-emits from `ldobj; box`. Bare
+    // `(this).ToString()` would instead lower to `constrained. callvirt` (no box) —
+    // not opcode-faithful — and must never be over-cast to the enclosing struct
+    // (#3213, extending #3201 beyond interface callees).
     [Fact]
-    public void StructBoxedThis_NonInterfaceCallee_IsNotOverCast()
+    public void StructBoxedThis_ObjectVirtualCallee_RendersObjectCast()
     {
         var text = RenderMember(typeof(StructBoxedObjectReceiver),
             nameof(StructBoxedObjectReceiver.CallObjectToString));
+        Assert.Contains("((object)this).ToString()", text);
         Assert.DoesNotContain("StructBoxedObjectReceiver)this", text);
+        Assert.DoesNotContain("(this).ToString()", text);
+    }
+
+    // A boxed `this` reaching a NON-interface NON-VIRTUAL base member renders
+    // `base.M()`. A struct overriding `GetHashCode` and calling `base.GetHashCode()`
+    // lowers to `ldarg.0; ldobj S; box S; call System.ValueType::GetHashCode; ret`
+    // — a non-virtual `call` (not `callvirt`) to a base method. Bare
+    // `(this).GetHashCode()` re-dispatches virtually to the struct's own override:
+    // infinite self-recursion. `base.GetHashCode()` re-emits exactly the
+    // `ldobj; box; call ValueType::GetHashCode` (#3213).
+    [Fact]
+    public void StructBoxedThis_NonVirtualBaseCallee_RendersBaseCall()
+    {
+        var text = RenderMember(typeof(StructBaseHashCall),
+            nameof(StructBaseHashCall.GetHashCode));
+        Assert.Contains("base.GetHashCode()", text);
+        Assert.DoesNotContain("(this).GetHashCode()", text);
+        Assert.DoesNotContain(")this).GetHashCode()", text);
+    }
+
+    // A boxed `this` reaching a virtual member through an explicit base cast renders
+    // the cast form, not `base.`. Casting a struct to `System.ValueType` boxes;
+    // because `GetHashCode`'s virtual slot is introduced on `System.Object`, csc
+    // binds the `callvirt` to `object::GetHashCode`, so the faithful cast is
+    // `((object)this).GetHashCode()` (re-emits `ldobj; box; callvirt
+    // object::GetHashCode`). Distinguished from `base.M()` by the call being
+    // virtual, not by the receiver shape (#3213).
+    [Fact]
+    public void StructBoxedThis_ExplicitBaseCastVirtualCallee_RendersObjectCast()
+    {
+        var text = RenderMember(typeof(StructValueTypeCastReceiver),
+            nameof(StructValueTypeCastReceiver.CallViaValueTypeCast));
+        Assert.Contains("((object)this).GetHashCode()", text);
+        Assert.DoesNotContain("base.", text);
+        Assert.DoesNotContain("(this).GetHashCode()", text);
+    }
+
+    // Negative guard (#3213): an implicit `this.ToString()` on a struct that does
+    // NOT box does not go through the boxed-this arm. Because the struct does not
+    // override `ToString`, csc emits `ldarg.0; constrained. S; callvirt
+    // object::ToString()` — a bare `LoadArgument{0,"this"}` receiver with a
+    // `constrained.` prefix and NO `box`, so `IsBoxedThisReceiver` declines. The
+    // render must not gain a cast or `base.` — the constrained call already binds.
+    [Fact]
+    public void StructImplicitThis_ConstrainedCall_IsNotBoxedOrBased()
+    {
+        var text = RenderMember(typeof(StructImplicitToString),
+            nameof(StructImplicitToString.CallImplicitToString));
+        Assert.DoesNotContain("base.", text);
+        Assert.DoesNotContain(")this).ToString()", text);
     }
 
     [Fact]
@@ -688,13 +741,38 @@ public struct StructExplicitFace : IStructFace
     public int CallExplicitInterface() => ((IStructFace)this).FaceMethod();
 }
 
-// Negative fixture (#3201): a struct that boxes `this` to reach a NON-interface
-// member. `((object)this).ToString()` also lowers to `ldarg.0; ldobj S; box S;
-// callvirt object::ToString()`, so its IR receiver is likewise a Box over this —
-// but the callee's declaring type is System.Object, not an interface, so the
-// boxed-this arm must decline and leave the object cast untouched. Guards the
-// arm against firing on every boxed-this receiver.
+// Boxed-this fixtures reaching NON-interface members (#3213). All three box
+// `this` (`ldarg.0; ldobj S; box S; ...`) — the value-type sibling of a reference
+// upcast — but the callee is not an interface member, so the fix must split on
+// call kind rather than interface-ness: a virtual `callvirt` re-emits the cast
+// (`((T)this).M()`); a non-virtual `call` to a base method is `base.M()`.
+//   * CallObjectToString: virtual `callvirt object::ToString` -> `((object)this)`.
+//   * GetHashCode: non-virtual `call ValueType::GetHashCode` -> `base.` (a bare
+//     `(this).GetHashCode()` would recurse into this override forever).
+//   * CallViaValueTypeCast: an explicit `(ValueType)this` cast boxes, but csc
+//     binds the virtual call to the slot-defining `object::GetHashCode`, so it
+//     renders `((object)this)` (still a cast, not `base.`, because it is virtual).
 public struct StructBoxedObjectReceiver
 {
     public string CallObjectToString() => ((object)this).ToString()!;
+}
+
+public struct StructBaseHashCall
+{
+    public override int GetHashCode() => base.GetHashCode();
+}
+
+public struct StructValueTypeCastReceiver
+{
+    public int CallViaValueTypeCast() => ((System.ValueType)this).GetHashCode();
+}
+
+// Negative fixture (#3213): an implicit `this.ToString()` on a struct that does
+// NOT override ToString does NOT box — csc emits `ldarg.0; constrained. S;
+// callvirt object::ToString()`, leaving a bare `LoadArgument{0,"this"}` receiver
+// (with a `constrained.` prefix), not a Box. `IsBoxedThisReceiver` declines, so
+// the boxed-this arm must not fire and the render gains no cast or `base.`.
+public struct StructImplicitToString
+{
+    public string CallImplicitToString() => this.ToString()!;
 }

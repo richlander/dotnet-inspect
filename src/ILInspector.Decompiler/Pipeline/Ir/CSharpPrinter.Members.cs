@@ -419,23 +419,23 @@ public sealed partial class CSharpPrinter
             && !IsEnclosingTypeAtOwnInstantiation(declaringType);
 
     /// <summary>
-    /// True when <paramref name="receiver"/> is a value type's <c>this</c> boxed
-    /// to reach an interface member. On a struct, <c>((I)this).M()</c> is a
-    /// boxing conversion that lowers to <c>ldobj; box; callvirt I::M</c>, so the
-    /// receiver is a <see cref="Box"/> over the dereferenced <c>this</c> pointer
-    /// (<c>LoadIndirect</c> of <c>LoadArgument{0,"this"}</c>) rather than the bare
-    /// <c>LoadArgument{0,"this"}</c> the reference-type upcast of #3128 leaves.
-    /// The member is not a member of the struct, so bare <c>(this).M()</c> is
-    /// CS1061; re-inserting <c>((I)this)</c> is opcode-faithful because the cast
-    /// re-emits exactly the <c>ldobj; box</c> the boxing conversion produced.
-    /// Uses the same confirmed-interface gate as
-    /// <see cref="IsInterfaceCastThisReceiver"/> (declines when interface-ness is
-    /// unknown), and only <c>this</c> — a boxed field/local/parameter has a
-    /// different address operand and is left to the ordinary receiver path (#3201).
+    /// True when <paramref name="receiver"/> (or method-group target) is a value
+    /// type's <c>this</c> boxed to reach a member of a type the struct was cast
+    /// to. A struct must box to invoke a base (<c>System.ValueType</c>/
+    /// <c>System.Object</c>) or interface member, so <c>((T)this).M()</c> /
+    /// <c>base.M()</c> lowers to <c>ldarg.0; ldobj S; box S; call[virt] T::M</c> —
+    /// the receiver is a <see cref="Box"/> over the dereferenced <c>this</c>
+    /// pointer (<c>LoadIndirect</c> of <c>LoadArgument{0,"this"}</c>), not the bare
+    /// <c>LoadArgument{0,"this"}</c> a reference-type upcast (no IL) leaves. Only a
+    /// value type produces this shape (a class <c>this</c> is already a reference),
+    /// and only <c>this</c> — a boxed field/local/parameter has a different address
+    /// operand and is left to the ordinary receiver path. The <see cref="Box"/> is
+    /// itself the evidence of the cast, so no interface metadata is needed:
+    /// callers re-insert the cast (virtual) or spell <c>base.</c> (non-virtual)
+    /// from the callee's declaring type and its call kind (#3201, #3213).
     /// </summary>
-    bool IsBoxedThisInterfaceReceiver(IrExpression receiver, TypeRef declaringType)
-        => receiver is Box { Operand: LoadIndirect { Address: LoadArgument { Index: 0, Name: "this" } } }
-            && IsInterfaceCastThisReceiver(declaringType);
+    static bool IsBoxedThisReceiver(IrExpression receiver)
+        => receiver is Box { Operand: LoadIndirect { Address: LoadArgument { Index: 0, Name: "this" } } };
 
     /// <summary>Member-access receivers: value-type receivers arrive by address in IL; C# spells the place itself, not its address.</summary>
     string ReceiverText(IrExpression receiver) => receiver switch
@@ -524,13 +524,20 @@ public sealed partial class CSharpPrinter
             }
             return name;
         }
-        // A struct's interface method group boxes this: ((I)this).M lowers to
-        // `ldobj; box; dup; ldvirtftn I::M`, so the target is a Box over this, not
-        // a bare LoadArgument. Re-insert the ((I)this) cast the boxing spells —
-        // bare (this).M / this.M is CS1061 (#3201), the value-type sibling of the
-        // reference-type arm above.
-        if (IsBoxedThisInterfaceReceiver(target, method.DeclaringType))
+        // A method group through a boxed this to a type the struct was cast to
+        // (base class or interface). A non-virtual (ldftn) group to a base method
+        // is base.M — the ldftn captures the base slot; `base.M` lowers to
+        // `ldobj; box; ldftn Base::M`. A virtual (ldvirtftn) group is ((T)this).M
+        // — the box is the source's upcast; `((T)this).M` lowers to `ldobj; box;
+        // dup; ldvirtftn T::M`. Bare (this).M / this.M would be CS1061 or rebind
+        // to the derived override. Subsumes the struct interface-cast case (#3201)
+        // and the base-class case (#3213). Mirrors the bare-this arms above.
+        if (IsBoxedThisReceiver(target))
+        {
+            if (method.HasThis && !isVirtual && IsCrossType(method.DeclaringType))
+                return $"base.{name}";
             return $"(({TypeText(method.DeclaringType)})this).{name}";
+        }
         if (PointerMethodReceiver(target) is { } pointerReceiver)
             return $"{pointerReceiver}->{name}";
         return $"{ReceiverText(target)}.{name}";
@@ -631,14 +638,26 @@ public sealed partial class CSharpPrinter
         }
         if (call.Callee.Name == "Invoke" && receiver is Lambda lambda)
             return $"(({TypeText(lambda.DelegateType)}){Operand(lambda)}).Invoke({rest})";
-        // A struct reaching an interface member through this boxes the value:
-        // ((I)this).M() lowers to `ldobj; box; callvirt I::M`, so the receiver is
-        // a Box over this, not a bare LoadArgument. Re-insert the ((I)this) cast
-        // the boxing conversion spells — bare (this).M() is CS1061 (#3201), the
-        // value-type sibling of the reference-type this arm below. Faithful: the
-        // cast re-emits exactly the `ldobj; box` the struct boxing produced.
-        if (IsBoxedThisInterfaceReceiver(receiver, call.Callee.DeclaringType))
-            return $"(({TypeText(call.Callee.DeclaringType)})this).{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
+        if (IsBoxedThisReceiver(receiver))
+        {
+            string boxedMethodName = CSharpNaming.SourceMethodName(call.Callee.Name);
+            // A non-virtual call through a boxed this to a base-declared method is
+            // base.M(): a struct must box to invoke a base (System.ValueType/
+            // Object) method non-virtually, so `base.M()` lowers to exactly
+            // `ldobj; box; call Base::M`. Bare (this).M() here re-dispatches
+            // virtually to the struct's own override — self-recursion or a wrong
+            // target (e.g. GetHashCode calling itself) (#3213). Mirrors the
+            // bare-this base arm below; stays base. even under the qualify knob.
+            if (!call.IsVirtual && IsCrossType(call.Callee.DeclaringType))
+                return $"base.{boxedMethodName}{typeArguments}({rest})";
+            // A virtual call through a boxed this to a type the struct was cast to
+            // (a base class like object/ValueType, or an interface): ((T)this).M().
+            // The explicit box is the source's upcast; ((T)this).M() re-emits
+            // `ldobj; box; callvirt T::M`. A bare this.M() would instead emit
+            // `constrained. callvirt` (no box) — not opcode-faithful. Subsumes the
+            // struct interface-cast case (#3201) and the base-class case (#3213).
+            return $"(({TypeText(call.Callee.DeclaringType)})this).{boxedMethodName}{typeArguments}({rest})";
+        }
         if (receiver is LoadArgument { Index: 0, Name: "this" })
         {
             string thisMethodName = CSharpNaming.SourceMethodName(call.Callee.Name);
