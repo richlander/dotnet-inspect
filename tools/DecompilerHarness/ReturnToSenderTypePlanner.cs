@@ -1526,22 +1526,30 @@ public static class CompileBackSourceComposer
 
     // True when a type declared in the recompile closure would intercept the leading
     // identifier of <paramref name="interfaceDisplayFullName"/> as spelled from inside the
-    // target type's namespace. The external-interface spelling appears both as a base-list
-    // entry and as the explicit-member qualifier; the using-directive collapser can shorten
-    // it to any of its segments, so every segment is treated as a potential leading
-    // identifier. <paramref name="closureRoots"/> already reflects the active scope, so under
-    // RoundTripScope.Cluster (which does not reconstruct the shadowing sibling) this returns
-    // false and engagement proceeds; under RoundTripScope.All it declines the crafted-IL
-    // shadow shape.
+    // target type's namespace. The external-interface spelling appears in two positions, and
+    // only two of its identifiers can ever appear in leading position: the FIRST segment (the
+    // explicit-member qualifier is always emitted fully qualified, e.g.
+    // `System.Collections.IEnumerable.GetEnumerator`, so its head is the first segment; a
+    // fully-qualified base-list entry leads with the same segment) and the FINAL simple type
+    // name (the using-collapser shortens the base-list entry to the bare type name, e.g.
+    // `IEnumerable`, never to a partial `Collections.IEnumerable`). A middle segment such as
+    // `Collections` therefore never leads and must not trigger a decline (that over-declines a
+    // compiler-authored Exact). <paramref name="closureRoots"/> already reflects the active
+    // scope, so under RoundTripScope.Cluster (which does not reconstruct the shadowing sibling)
+    // this returns false and engagement proceeds; under RoundTripScope.All it declines the
+    // crafted-IL shadow shape.
     static bool ExternalInterfaceSpellingShadowedByClosure(
         MetadataReader reader,
         TypeDefinition targetType,
         IReadOnlySet<TypeDefinitionHandle> closureRoots,
         string interfaceDisplayFullName)
     {
-        var segments = new HashSet<string>(
-            interfaceDisplayFullName.Split('.'),
-            StringComparer.Ordinal);
+        string[] parts = interfaceDisplayFullName.Split('.');
+        var segments = new HashSet<string>(StringComparer.Ordinal)
+        {
+            parts[0],       // leads when the spelling is emitted fully qualified
+            parts[^1],      // leads when the base-list entry is shortened to the simple name
+        };
         string targetNamespace = reader.GetString(targetType.Namespace);
 
         foreach (var handle in closureRoots)
@@ -1550,7 +1558,7 @@ public static class CompileBackSourceComposer
             string candidateNamespace = reader.GetString(candidate.Namespace);
 
             // Type collision: a reconstructed top-level type whose simple name matches a
-            // spelling segment and that sits in the target's namespace, an ancestor
+            // leading spelling identifier and that sits in the target's namespace, an ancestor
             // namespace, or the global namespace is nearer than the external namespace
             // chain and intercepts the identifier.
             if (segments.Contains(reader.GetString(candidate.Name))

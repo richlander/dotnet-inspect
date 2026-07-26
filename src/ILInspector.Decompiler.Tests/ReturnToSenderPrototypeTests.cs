@@ -1233,6 +1233,60 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    // Close-negative for the shadow-decline (#3112 review): a compiler-authored sibling whose
+    // simple name matches a *middle* segment of the interface spelling
+    // (`N.Collections` vs `System.Collections.IEnumerable`) must NOT trigger a decline. The
+    // explicit-member qualifier is emitted fully qualified (`System.Collections.IEnumerable.
+    // GetEnumerator`, leading `System`) and the base-list entry is shortened to the bare type
+    // name (`IEnumerable`); the middle `Collections` never appears in leading position, so the
+    // reconstruction stays compilable. Under RoundTripScope.All the sibling `N.Collections` is
+    // reconstructed alongside the real explicit impl and the whole shape must round-trip Exact,
+    // not fall back to the sanitized `System_Collections_IEnumerable_GetEnumerator` floor.
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceKeepsExactWhenClosureSiblingMatchesMiddleSegment()
+    {
+        var assemblyPath = CompileFixture("""
+            namespace N;
+            public sealed class Collections { }
+            public sealed class Seq : System.Collections.IEnumerable
+            {
+                System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator()
+                {
+                    throw null;
+                }
+            }
+            """);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "N.Seq",
+                    "System.Collections.IEnumerable.GetEnumerator",
+                    0)],
+                RoundTripScope.All,
+                RoundTripBodyPolicy.Full));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.Contains(
+                "System.Collections.IEnumerable.GetEnumerator()",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "System_Collections_IEnumerable_GetEnumerator",
+                result.Source,
+                StringComparison.Ordinal);
+            Assert.Contains("class Collections", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
     // Regression for #3112 review: a hand-authored IL assembly can carry a *clean*
     // explicit-interface metadata name (`System.Collections.IEnumerable.GetEnumerator`)
     // while also declaring a sibling type `N.System` that shadows the `System` namespace
