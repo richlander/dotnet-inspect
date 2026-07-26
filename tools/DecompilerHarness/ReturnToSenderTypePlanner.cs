@@ -1752,6 +1752,18 @@ public static class CompileBackSourceComposer
         // types are at least as accessible, so the emitted members reference only public types.
         if (!IsPubliclyAccessible(reader, interfaceDef))
             return false;
+
+        // The reconstructed explicit member names the interface twice — in the base list
+        // (`: DisplayName`) and in the member qualifier (`void DisplayName.M()`). If the resolved
+        // interface is marked `[Obsolete(..., error: true)]`, naming it is a hard CS0619 error,
+        // turning the sanitized ContextFail floor (which never names the interface) into a
+        // RecompileFail. `#pragma warning disable` in the emitted source suppresses warning-level
+        // obsolescence but not the error form, so decline any real (non-compiler-compat) obsolete
+        // interface. TryGetObsoleteAttribute already excludes Roslyn's synthetic compiler-compat
+        // [Obsolete] markers (required members, ref structs), which do not error when referenced.
+        if (AttributeReader.TryGetObsoleteAttribute(reader, interfaceDef.GetCustomAttributes(), out _))
+            return false;
+
         if (interfaceDef.GetProperties().Count != 0 || interfaceDef.GetEvents().Count != 0)
             return false;
 

@@ -1627,6 +1627,62 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceWithObsoleteErrorInterfaceFallsBackWithoutRecompileFail()
+    {
+        // Regression guard: the reconstructed explicit member names the interface twice — the base
+        // list `: RtsObs.IProbe` and the qualifier `void RtsObs.IProbe.M()`. If the interface the
+        // recompile resolves is marked `[Obsolete(..., error: true)]`, naming it is a hard CS0619
+        // (the emitted `#pragma warning disable` suppresses only the warning form), turning the
+        // sanitized ContextFail floor into a RecompileFail. A target cannot itself be compiled
+        // against an obsolete-error interface (CS0619 at its own build), so the obsolete form only
+        // arises as version drift: the target is built against a clean interface, and the sibling
+        // resolved at reconstruction has since become obsolete-error. The gate must decline.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var referenceDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var referencePath = CompileFixture(
+            "namespace RtsObs { public interface IProbe { void M(); } }",
+            directory: referenceDir,
+            assemblyName: "RtsObsContracts");
+        CompileFixture(
+            """
+            namespace RtsObs { [System.Obsolete("gone", true)] public interface IProbe { void M(); } }
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsObsContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class ObsImpl : RtsObs.IProbe
+            {
+                void RtsObs.IProbe.M() { }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(referencePath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ObsImpl",
+                    "RtsObs.IProbe.M",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsObs_IProbe_M", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsObs.IProbe.M", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            if (Directory.Exists(referenceDir))
+                Directory.Delete(referenceDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_ExternalExplicitInterfaceWithGenericParameterDriftFallsBackWithoutRecompileFail()
     {
         // Regression guard: SignatureDecoder spells generic method parameters by their metadata
