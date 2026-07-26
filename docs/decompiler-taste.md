@@ -590,8 +590,8 @@ the full account, with each rule's detail and fidelity as table rows.
 Nothing is annotated by default: no style decision is recorded unless a knob was
 requested, so the comment appears exactly when the reader asked for taste.
 `--taste` is the one-invocation gesture for requesting the whole oracle-endorsed
-set (the flag form of `dotnet_inspect_style_full_taste`); it folds on top of any
-resolved config, so a per-knob line still refines it.
+set (the flag form of `dotnet_inspect_style_full_taste`); it applies after the
+config file resolves and wins for the knobs it covers.
 
 The lowered Annotated stage applies the byte-preserving knobs but never runs the
 lenses at all: they are raised-altitude sugar, and the lowered pipeline exists to
@@ -654,10 +654,12 @@ dotnet_style_prefer_conditional_expression_over_return = true
   `dotnet_style_qualification_for_field = false` is "full taste minus one knob".
 - `--taste` on `member` and `type` is the same aggregate as a one-invocation
   gesture, for asking a single question without leaving a config file behind. It
-  folds on top of the resolved config rather than replacing it, so a config that
-  already refines a knob keeps that refinement. Because the aggregate includes
-  the ternary lens, the Annotated view drops its interleaved IL for any member
-  that lens actually rewrites.
+  applies after the file resolves, so for the knobs the aggregate covers the
+  flag wins: an explicit gesture is never silently narrowed by a checked-in
+  `full_taste = true` + `dotnet_style_qualification_for_field = false`. Knobs
+  outside the endorsed set — the branchless lens — keep whatever the file
+  selected. Because the aggregate includes the ternary lens, the Annotated view
+  drops its interleaved IL for any member that lens actually rewrites.
 - The recognized keys are not hand-maintained in the resolver: they come from the
   library-owned `StyleOptionCatalog` (see [Option catalog](#option-catalog)), so
   the CLI vocabulary and the option surface cannot drift.

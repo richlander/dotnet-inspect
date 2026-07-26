@@ -190,6 +190,42 @@ public class RenderStyleConfigTests
     }
 
     [Fact]
+    public void TasteGesture_WinsOverAConfigThatNarrowsTheEndorsedSet()
+    {
+        // --taste is an explicit per-invocation request, so it must not be silently
+        // narrowed by a checked-in config: for the knobs the aggregate covers, the
+        // gesture wins. This is the precedence docs/decompiler-taste.md states.
+        var config = RenderStyleConfig.Parse(
+            """
+            dotnet_inspect_style_full_taste = true
+            dotnet_style_qualification_for_field = false
+            """,
+            origin: "cfg");
+        Assert.False(config.Options.QualifyFieldAccess);
+
+        var gestured = StyleOptionCatalog.ApplyFullTaste(config.Options);
+
+        Assert.True(gestured.QualifyFieldAccess);
+        Assert.True(gestured.PreferConditionalExpressionReturn);
+    }
+
+    [Fact]
+    public void TasteGesture_LeavesKnobsOutsideTheEndorsedSetAlone()
+    {
+        // The aggregate is the oracle-endorsed subset only, so a config selection on
+        // a non-endorsed knob survives the gesture rather than being reset.
+        var config = RenderStyleConfig.Parse(
+            "dotnet_inspect_style_prefer_branchless_boolean = true",
+            origin: "cfg");
+        Assert.True(config.Options.PreferBranchlessBoolean);
+
+        var gestured = StyleOptionCatalog.ApplyFullTaste(config.Options);
+
+        Assert.True(gestured.PreferBranchlessBoolean);
+        Assert.True(gestured.QualifyFieldAccess);
+    }
+
+    [Fact]
     public void Parse_FullTasteFalse_IsRecognizedAndLeavesSubsetOff()
     {
         var result = RenderStyleConfig.Parse("dotnet_inspect_style_full_taste = false", origin: null);
