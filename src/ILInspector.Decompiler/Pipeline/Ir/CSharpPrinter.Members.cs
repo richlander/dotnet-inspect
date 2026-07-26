@@ -487,13 +487,34 @@ public sealed partial class CSharpPrinter
     /// default interface member or explicit implementation, and a silent rebind to
     /// the struct's own method for a normally-implemented one. The boxed
     /// <c>this</c> case (arg0) is owned by <see cref="IsBoxedThisReceiver"/> (with
-    /// its <c>base</c>/cast split) and is excluded here — including a
-    /// <c>static</c> method's <c>@this</c> parameter, which shares the arg0 name but
-    /// must not be re-cast. Requires a confirmed interface declaring type
-    /// (<see cref="IsInterfaceCastThisReceiver"/> declines an unresolved or
-    /// non-interface callee, so a boxed value reaching a base-class member stays on
-    /// the ordinary path — a separate fidelity concern); the non-<c>this</c>
-    /// sibling of #3201/#3213 (#3214).
+    /// its <c>base</c>/cast split) and is excluded here. A <c>static</c> method's
+    /// <c>@this</c> parameter shares the arg0 metadata name but is a genuine
+    /// non-<c>this</c> place; it is also excluded because the printer still spells
+    /// arg0-<c>"this"</c> with the <c>this</c> keyword (CS0026 in a static body) —
+    /// a pre-existing spelling limitation (#3260) — so it stays on the ordinary
+    /// path, unchanged from before this arm existed, rather than gaining an invalid
+    /// <c>((I)this)</c> cast.
+    /// <para>
+    /// The place is spelled deref-aware: a <c>ref</c>/<c>in</c> managed reference
+    /// reads back as the bare identifier/member (<c>s</c>) via
+    /// <see cref="DerefLoad"/>, while any other <see cref="LoadIndirect"/> — an
+    /// unmanaged pointer especially — is spelled through <see cref="Operand"/> so
+    /// its dereference is PARENTHESIZED: bare <c>*p</c> after a cast reparses as
+    /// multiplication (<c>(I)*p</c> is <c>(I) * p</c>, CS0119), whereas
+    /// <c>(I)(*p)</c> binds as a cast. Unwrapping the address instead would drop
+    /// the <c>*</c> entirely and emit <c>((I)p).M()</c> for a <c>T*</c> (CS0030).
+    /// </para>
+    /// <para>
+    /// Gated on a CONFIRMED interface declaring type
+    /// (<see cref="IrFunction.InterfaceTypes"/>; an unresolved or non-interface
+    /// callee is absent, so a boxed value reaching a base-class member stays on the
+    /// ordinary path — a separate fidelity concern). Unlike
+    /// <see cref="IsInterfaceCastThisReceiver"/> it does NOT apply the
+    /// enclosing-instantiation exclusion: that carve-out is sound only for a real
+    /// <c>this</c> receiver (already typed as the interface), whereas a boxed
+    /// struct place always needs the cast even when the callee interface is the
+    /// enclosing type. The non-<c>this</c> sibling of #3201/#3213 (#3214).
+    /// </para>
     /// </summary>
     bool TryBoxedNonThisInterfaceReceiver(IrExpression receiver, TypeRef declaringType, out string placeText)
     {
@@ -503,9 +524,11 @@ public sealed partial class CSharpPrinter
         var place = box.Operand is LoadIndirect { Address: { } address } ? address : box.Operand;
         if (place is LoadArgument { Index: 0, Name: "this" })
             return false;
-        if (!IsInterfaceCastThisReceiver(declaringType))
+        if (!_function.InterfaceTypes.Contains(NamedDefinition(declaringType)))
             return false;
-        placeText = Operand(place);
+        placeText = box.Operand is LoadIndirect { Address.ResultType.Kind: TypeRefKind.ByRef } byRefDeref
+            ? DerefLoad(byRefDeref)
+            : Operand(box.Operand);
         return true;
     }
 
