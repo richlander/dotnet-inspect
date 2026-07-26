@@ -196,10 +196,16 @@ public abstract class IrNode
     /// <item>local-slot range — every <c>ldloc</c>/<c>stloc</c>/<c>ldloca</c>
     /// (<see cref="LoadLocal"/>, <see cref="StoreLocal"/>,
     /// <see cref="LoadLocalAddress"/>) references a slot that exists in the
-    /// nearest enclosing local scope (the containing <see cref="IrFunction"/>,
-    /// <see cref="Lambda"/>, or <see cref="LocalFunctionStatement"/>). A pass that
-    /// drops a local without repointing its readers, or fabricates a dangling
-    /// slot, trips this instead of surfacing as a downstream miscompile.</item>
+    /// nearest enclosing local scope. The containing <see cref="IrFunction"/>
+    /// always opens a scope; a <see cref="Lambda"/> or
+    /// <see cref="LocalFunctionStatement"/> opens its own scope only when it
+    /// declares a non-empty local table — an empty-<c>Locals</c> nested body
+    /// <em>shares</em> the host's scope and references the outer function's
+    /// locals by their outer index, matching how the C# printer scopes it
+    /// (<c>NeedsNestedLambdaScope</c>/<c>NeedsNestedLocalFunctionScope</c>). A
+    /// pass that drops a local without repointing its readers, or fabricates a
+    /// dangling slot, trips this instead of surfacing as a downstream
+    /// miscompile.</item>
     /// </list>
     /// Semantic checks are off by default because hand-built unit-test fixtures
     /// legitimately omit the local table they would validate against; they are
@@ -237,12 +243,20 @@ public abstract class IrNode
         }
     }
 
-    /// <summary>Local-slot count this node itself declares, or null if it opens no local scope.</summary>
+    /// <summary>
+    /// Local-slot count of the scope this node itself opens, or null if it opens
+    /// none. An <see cref="IrFunction"/> always opens a scope (even with zero
+    /// locals). A <see cref="Lambda"/> or <see cref="LocalFunctionStatement"/>
+    /// opens its own scope only when it declares locals; an empty-<c>Locals</c>
+    /// nested body shares the enclosing scope, so returning null here lets its
+    /// outer-indexed local references validate against the host — mirroring the
+    /// printer's shared-vs-nested distinction.
+    /// </summary>
     int? OwnLocalScope() => this switch
     {
         IrFunction f => f.Locals.Length,
-        Lambda l => l.Locals.Length,
-        LocalFunctionStatement lf => lf.Locals.Length,
+        Lambda l => l.Locals.IsEmpty ? null : l.Locals.Length,
+        LocalFunctionStatement lf => lf.Locals.IsEmpty ? null : lf.Locals.Length,
         _ => null,
     };
 
