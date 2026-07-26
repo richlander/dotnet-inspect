@@ -1766,6 +1766,16 @@ public static class CompileBackSourceComposer
                 return false;
             }
 
+            // A generic interface method carries constraints that the reconstructed explicit
+            // member cannot restate (C# inherits them from the interface). A type parameter can
+            // appear only in a constraint — invisible to the return/parameter signature probe —
+            // so a constraint drift between the target and the resolved interface would emit a
+            // body that no longer satisfies the interface's constraint (CS1061/CS0535). The
+            // signature comparison also cannot distinguish generic parameters by position (they
+            // are spelled by name). Decline every generic method and keep the ContextFail floor.
+            if (method.GetGenericParameters().Count != 0)
+                return false;
+
             // A required method whose signature SignatureDecoder cannot represent faithfully
             // (by-ref kinds, custom modifiers, multidimensional arrays, function pointers)
             // cannot be safely signature-compared against the target, so decline the whole

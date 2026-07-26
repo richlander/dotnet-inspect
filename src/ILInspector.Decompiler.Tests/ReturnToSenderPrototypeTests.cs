@@ -1629,6 +1629,65 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceWithConstraintOnlyGenericFallsBackWithoutRecompileFail()
+    {
+        // Regression guard: a generic type parameter can appear ONLY in a constraint, invisible
+        // to the return/parameter signature the probe inspects. `void M<T>() where T : Base` has
+        // an empty signature, so a signature-only gate would engage. An explicit interface member
+        // cannot restate constraints — it inherits them from the resolved interface. The target is
+        // compiled against the constrained interface (its body calls the constraint member), but
+        // the sibling resolved at reconstruction declares `void M<T>()` with NO constraint.
+        // Engaging would emit `void RtsCon.IProbe.M<T>()` whose inherited (drifted, unconstrained)
+        // T no longer permits the call — CS1061 = RecompileFail. The sanitized floor instead emits
+        // a plain generic method that restates `where T : Base`, so it still compiles. The gate
+        // must decline any generic interface method and keep the ContextFail floor.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var referenceDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var referencePath = CompileFixture(
+            "namespace RtsCon { public class Base { public void Foo() { } } public interface IProbe { void M<T>() where T : Base; } }",
+            directory: referenceDir,
+            assemblyName: "RtsConContracts");
+        CompileFixture(
+            "namespace RtsCon { public class Base { public void Foo() { } } public interface IProbe { void M<T>(); } }",
+            directory: fixtureDir,
+            assemblyName: "RtsConContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class ConImpl : RtsCon.IProbe
+            {
+                void RtsCon.IProbe.M<T>()
+                {
+                    default(T).Foo();
+                }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(referencePath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "ConImpl",
+                    "RtsCon.IProbe.M",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsCon_IProbe_M", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsCon.IProbe.M", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            if (Directory.Exists(referenceDir))
+                Directory.Delete(referenceDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RoundTripsGenericExplicitInterfaceMethod()
     {
         // A generic method on a non-generic interface implemented explicitly keeps its method
