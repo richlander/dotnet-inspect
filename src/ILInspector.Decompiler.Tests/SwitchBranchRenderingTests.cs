@@ -506,6 +506,44 @@ public class SwitchBranchRenderingTests
         Assert.DoesNotContain("goto ", output);
         Assert.DoesNotMatch(new Regex(@"(?m)^\s*IL_[0-9A-Fa-f]+:\s*$"), output);
     }
+
+    [Fact]
+    public void FullPipeline_RaisesOpenCodedPairedEnumeratorLoop()
+    {
+        // Regression witness for #3163 (part of #3159), the DeepEquals object arm:
+        // an open-coded paired enumerator loop (two `List<int>` enumerators taken
+        // by hand and advanced in lockstep with manual MoveNext()/Current, no
+        // `foreach` sugar) in a switch's default section. csc lowers it to a
+        // bottom-tested/mid-entry goto loop (`goto COND; BODY: …; COND: if
+        // (e.MoveNext()) goto BODY;`). Before #3161 the unraised switch — entangled
+        // with case 0's `foreach` try/finally — kept the whole container flat, so
+        // this loop survived as raw `goto`s/labels; now SwitchRaisingPass owns the
+        // loop-bearing sections and StructuringPass raises it to a structured
+        // `while` with no residual `goto`/labels.
+        using var source = MetadataSource.Open(typeof(OpenCodedPairedEnumeratorLoopFixture).Assembly.Location);
+        var function = IrImporter.Import(
+            source,
+            typeof(OpenCodedPairedEnumeratorLoopFixture).FullName!,
+            nameof(OpenCodedPairedEnumeratorLoopFixture.Compare));
+        Assert.NotNull(function);
+
+        var result = CSharpPrinter.PrintRaised(function);
+        string output = result.Output ?? "";
+
+        Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
+
+        // The switch raised (real IL jump table over the dense cases).
+        Assert.Contains("switch (", output);
+        Assert.DoesNotContain("__switchValue", output);
+
+        // The #3163 outcome: the open-coded paired enumerator loop raised to a
+        // structured `while`, keeping the lockstep second-enumerator advance, with
+        // no residual `goto`/labels anywhere in the body.
+        Assert.Contains("while (e1.MoveNext())", output);
+        Assert.Contains("e2.MoveNext();", output);
+        Assert.DoesNotContain("goto ", output);
+        Assert.DoesNotMatch(new Regex(@"(?m)^\s*IL_[0-9A-Fa-f]+:\s*$"), output);
+    }
 }
 
 /// <summary>
@@ -566,6 +604,63 @@ static class GuardsBeforeLoopingSwitchFixture
                     index++;
                 }
                 return true;
+        }
+    }
+}
+
+/// <summary>
+/// Real-IL fixture for
+/// <see cref="SwitchBranchRenderingTests.FullPipeline_RaisesOpenCodedPairedEnumeratorLoop"/>:
+/// mirrors the object-comparison arm of
+/// <c>System.Text.Json.JsonElement.DeepEquals</c> — an <em>open-coded</em> paired
+/// enumerator loop (two <see cref="System.Collections.Generic.List{T}"/>
+/// enumerators taken by hand and advanced in lockstep with manual
+/// <c>MoveNext()</c>/<c>Current</c>, no <c>foreach</c> sugar). csc lowers it to a
+/// bottom-tested/mid-entry goto loop (<c>goto COND; BODY: …; COND: if (e.MoveNext())
+/// goto BODY;</c>). It sits in a <c>switch</c> whose <c>case 0</c> carries an
+/// EH-entangled <c>foreach</c> (a <c>try/finally</c> with a surviving <c>Leave</c>),
+/// so before #3161 the unraised switch kept the whole container flat and this loop
+/// survived as raw <c>goto</c>s/labels (issue #3163). Once <c>SwitchRaisingPass</c>
+/// owns the loop-bearing sections, <c>StructuringPass</c> raises it into a
+/// structured <c>while</c> with no residual <c>goto</c>/labels.
+/// </summary>
+static class OpenCodedPairedEnumeratorLoopFixture
+{
+    public static bool Compare(int kind, System.Collections.Generic.List<int> left, System.Collections.Generic.List<int> right)
+    {
+        switch (kind)
+        {
+            case 0:
+                foreach (int value in left)
+                {
+                    if (value < 0)
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            case 1:
+                return left.Count == right.Count;
+            case 2:
+                return true;
+            case 3:
+                return left.Count > 0;
+            case 4:
+                return right.Count > 0;
+            default:
+                int count = left.Count;
+                System.Collections.Generic.List<int>.Enumerator e1 = left.GetEnumerator();
+                System.Collections.Generic.List<int>.Enumerator e2 = right.GetEnumerator();
+                while (e1.MoveNext())
+                {
+                    e2.MoveNext();
+                    if (e1.Current != e2.Current)
+                    {
+                        return false;
+                    }
+                    count--;
+                }
+                return count == 0;
         }
     }
 }
