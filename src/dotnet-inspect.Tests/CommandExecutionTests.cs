@@ -6159,6 +6159,24 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_DiscoverDetailedTree_UsesCuratedCatalog()
+    {
+        // -D auto-promotes to a tree at detailed verbosity. That tree must use the same curated
+        // catalog as the flat -D listing: categories-first, no @All/@Default/@Hidden poles, and
+        // no internal (verbose)/(opt-in) annotations. Regression guard for the tree branch wiring.
+        var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-D", "-v:d");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("@Audit (category)", output);
+        Assert.Contains("@Source (category)", output);
+        Assert.DoesNotContain("(opt-in)", output);
+        Assert.DoesNotContain("(verbose)", output);
+        Assert.DoesNotContain("@All", output);
+        Assert.DoesNotContain("@Default", output);
+        Assert.DoesNotContain("@Hidden", output);
+    }
+
+    [Fact]
     public async Task CliDiscoverySections_AreSelectable()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
@@ -6396,11 +6414,21 @@ public class CommandExecutionTests
 
         Assert.Contains(names, name => name.StartsWith("Performance: ", StringComparison.Ordinal));
 
-        // The topical category doors lead the catalog (alpha); @Performance is one of them.
+        // The topical category doors lead the catalog: they are exactly the six doors, in
+        // alphabetical order, and every category row precedes every section row.
         var categoryLines = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
             .Where(line => line.Contains("category", StringComparison.Ordinal))
             .ToArray();
-        Assert.Contains(categoryLines, line => ExtractSectionName(line) == "@Performance");
+        var categoryNames = categoryLines.Select(ExtractSectionName).ToArray();
+        Assert.Equal(
+            new[] { "@Audit", "@Integrations", "@Performance", "@Resources", "@Source", "@Surface" },
+            categoryNames);
+
+        var raw = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
+        var lastCategoryIndex = Array.FindLastIndex(raw, line => line.Contains("category", StringComparison.Ordinal));
+        var firstSectionIndex = Array.FindIndex(raw, line => line.Contains("section", StringComparison.Ordinal));
+        Assert.True(lastCategoryIndex >= 0 && firstSectionIndex >= 0);
+        Assert.True(lastCategoryIndex < firstSectionIndex, "category doors must lead the section catalog");
 
         // Computed/internal poles are never user-facing: @Hidden, @Default and @All dissolved.
         Assert.DoesNotContain(categoryLines, line => ExtractSectionName(line) == "@Hidden");
@@ -8026,15 +8054,26 @@ public class CommandExecutionTests
 
         Assert.NotEmpty(sectionHeaders);
 
-        // The kind-scoped Performance sub-group renders as a contiguous trailing cluster
-        // (its "Performance:" prefix keeps it grouped), and Resource Triage trails with it.
-        // The remaining primary spine renders alphabetically.
-        var trailing = new HashSet<string>(StringComparer.Ordinal) { "Resource Triage" };
-        var spine = sectionHeaders
-            .Where(h => !h.StartsWith("Performance:", StringComparison.Ordinal) && !trailing.Contains(h))
-            .ToArray();
+        // The kind-scoped Performance sub-group and Resource Triage render as a contiguous
+        // trailing cluster (the "Performance:" prefix keeps the buckets grouped). Everything
+        // from the first trailing member onward must be part of that cluster, and the primary
+        // spine that precedes it renders alphabetically.
+        bool IsTrailing(string h) =>
+            h.StartsWith("Performance:", StringComparison.Ordinal)
+            || string.Equals(h, "Resource Triage", StringComparison.Ordinal);
+
+        var firstTrailing = Array.FindIndex(sectionHeaders, IsTrailing);
+        Assert.True(firstTrailing >= 0, "expected a trailing Performance/Resource Triage cluster");
+
+        // No spine section may appear after the trailing cluster begins.
+        for (var i = firstTrailing; i < sectionHeaders.Length; i++)
+            Assert.True(IsTrailing(sectionHeaders[i]),
+                $"section '{sectionHeaders[i]}' broke the trailing cluster at index {i}");
+
+        var spine = sectionHeaders[..firstTrailing];
         Assert.Equal(spine.OrderBy(h => h, StringComparer.OrdinalIgnoreCase).ToArray(), spine);
 
+        // The Performance buckets form one contiguous run inside the trailing cluster.
         var performanceIndexes = sectionHeaders
             .Select((header, index) => (header, index))
             .Where(pair => pair.header.StartsWith("Performance:", StringComparison.Ordinal))

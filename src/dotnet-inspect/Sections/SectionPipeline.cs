@@ -469,6 +469,14 @@ public sealed class SectionPipeline<TModel>
     /// other bounded network-free section (Terse or Informative) first renders at Normal, since
     /// Minimal shows the target only.
     /// </summary>
+    /// <remarks>
+    /// For an <see cref="SectionCost.Unbounded"/> section this returns Detailed as a nominal
+    /// high-water mark even though the ladder never auto-renders it at any verbosity (see
+    /// <see cref="IsCuratedAutoRendered"/>). That is harmless: an Unbounded section is also
+    /// <see cref="SectionEntry{TModel}.ExplicitOnly"/>, so it is reached only through an explicit
+    /// include, and an explicit include overrides the ladder in <see cref="IsRequested"/>. The
+    /// promoted verbosity therefore never causes it (or anything else) to auto-render.
+    /// </remarks>
     private static Verbosity CuratedRequiredVerbosity(SectionEntry<TModel> entry)
     {
         if (entry.SizeClass == SectionSizeClass.Verbose || entry.Cost != SectionCost.NetworkFree)

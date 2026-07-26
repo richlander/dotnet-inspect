@@ -39,7 +39,7 @@ public static class DiscoverOutput
             tree = true;
 
         if (tree)
-            return WriteTree(discover, schema, rootLabel, sectionCostAnnotations, sectionCategories, catalogHiddenSections);
+            return WriteTree(discover, schema, rootLabel, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
 
         var rows = GetDiscoveryRows(discover, schema, sectionCostAnnotations, sectionCategories, catalogHiddenSections, listedCategoryDoors);
         if (rows == null)
@@ -493,7 +493,8 @@ public static class DiscoverOutput
     private static int WriteTree(string[]? discover, DocumentSchema schema, string? rootLabel = null,
         IReadOnlyDictionary<string, string>? sectionCostAnnotations = null,
         IReadOnlyDictionary<string, string[]>? sectionCategories = null,
-        IReadOnlySet<string>? catalogHiddenSections = null)
+        IReadOnlySet<string>? catalogHiddenSections = null,
+        IReadOnlySet<string>? listedCategoryDoors = null)
     {
         var nodes = new List<TreeNode>();
 
@@ -538,6 +539,37 @@ public static class DiscoverOutput
         }
         else
         {
+            // Curated pipelines (listedCategoryDoors provided) mirror the flat GetDiscoveryRows
+            // catalog: topical doors (alpha) then the effective section group (alpha), with no cost
+            // annotations and no @All/@Default/@Hidden poles.
+            if (listedCategoryDoors != null)
+            {
+                var doorNodes = (sectionCategories ?? new Dictionary<string, string[]>())
+                    .Where(category => listedCategoryDoors.Contains(category.Key))
+                    .OrderBy(category => category.Key, StringComparer.OrdinalIgnoreCase)
+                    .Select(category => new TreeNode($"{category.Key} (category)")
+                    {
+                        Children = category.Value.Select(section => new TreeNode(section)).ToList()
+                    });
+
+                var sectionNodes = schema.Discover()!
+                    .Where(i => catalogHiddenSections is null || !catalogHiddenSections.Contains(i.Name))
+                    .OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
+                    .Select(i =>
+                    {
+                        var children = new List<TreeNode>();
+                        var section = schema.GetSection(i.Name);
+                        if (section != null)
+                            foreach (var item in section.Items)
+                                children.Add(new TreeNode($"{item.Name} ({item.Kind})"));
+                        return new TreeNode(i.Name) { Children = children };
+                    });
+
+                nodes.AddRange(doorNodes);
+                nodes.AddRange(sectionNodes);
+            }
+            else
+            {
             var sectionRows = schema.SectionNames
                 // Catalog-hidden sections appear only under their category node (drill-in), not as
                 // top-level entries — same entrypoint model as the flat bare -D listing.
@@ -581,6 +613,7 @@ public static class DiscoverOutput
                         ? $"{sectionName} ({tier})"
                         : sectionName;
                 nodes.Add(new TreeNode(label) { Children = children });
+            }
             }
         }
 
