@@ -42,6 +42,8 @@ const state = {
   packageDependenciesLoading: false,
   packageDependenciesError: "",
   packageDependenciesKey: "",
+  dependenciesFramework: "",
+  workspaceDependencies: {},
   packageIntegrations: null,
   packageIntegrationsLoading: false,
   packageIntegrationsError: "",
@@ -806,29 +808,55 @@ function renderPackageDependencies() {
     return `<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
   }
 
-  const activeFramework = state.package.activeFramework;
   const groups = data.dependencyGroups || [];
-  const orderedGroups = [...groups].sort((a, b) => (b.isActive ? 1 : 0) - (a.isActive ? 1 : 0));
-  const groupBlocks = orderedGroups.length
-    ? orderedGroups.map(group => `
-        <section class="document-section">
-          <div class="section-title"><h2>NuGet dependencies${group.isActive ? " · active" : ""}</h2><span>${escapeHtml(group.framework)} · ${group.dependencies.length} package${group.dependencies.length === 1 ? "" : "s"}</span></div>
-          ${group.dependencies.length
-            ? `<dl class="fact-rows">${group.dependencies.map(dependency => `<div><dt>${escapeHtml(dependency.id)}</dt><dd><code>${escapeHtml(dependency.versionRange || "*")}</code></dd></div>`).join("")}</dl>`
-            : `<div class="empty-list">No package dependencies declared for ${escapeHtml(group.framework)}.</div>`}
-        </section>`).join("")
-    : `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No package dependencies</h2><p>The manifest declares no NuGet dependencies — a self-contained package.</p></section>`;
+  if (!groups.length) {
+    return `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No package dependencies</h2><p>The manifest declares no NuGet dependencies — a self-contained package.</p></section>`;
+  }
 
-  const references = data.assemblyReferences || [];
-  const referenceBlock = `
+  const selectedTfm = resolveDependenciesFramework(groups);
+  const selectorChips = groups
+    .map(group => `<button class="type-chip ${group.framework === selectedTfm ? "active" : ""}" data-dep-framework="${escapeHtml(group.framework)}">${escapeHtml(group.framework)}</button>`)
+    .join("");
+  const selector = `
     <section class="document-section">
-      <div class="section-title"><h2>Assembly references</h2><span>${references.length} from ${escapeHtml(state.package.assembly)} · ${escapeHtml(activeFramework)}</span></div>
-      ${references.length
-        ? `<div class="type-chip-list">${references.map(reference => `<code class="attr-chip" title="${escapeHtml(reference.name)} ${escapeHtml(reference.version)}">${escapeHtml(reference.name)} <span class="ref-version">${escapeHtml(reference.version)}</span></code>`).join("")}</div>`
-        : `<div class="empty-list">No assembly references read from the implementation assembly.</div>`}
+      <div class="section-title"><h2>Target frameworks</h2><span>one framework at a time</span></div>
+      <div class="type-chip-list">${selectorChips}</div>
     </section>`;
 
-  return `${groupBlocks}${referenceBlock}`;
+  const group = groups.find(candidate => candidate.framework === selectedTfm) || groups[0];
+  const deps = group.dependencies || [];
+  const openIds = new Set(state.packages.map(item => item.id.toLowerCase()));
+  const depList = `
+    <section class="document-section">
+      <div class="section-title"><h2>NuGet dependencies</h2><span>${escapeHtml(group.framework)} · ${deps.length} package${deps.length === 1 ? "" : "s"}</span></div>
+      ${deps.length
+        ? `<ul class="dep-list">${deps.map(dependency => {
+            const isOpen = openIds.has(dependency.id.toLowerCase());
+            const nameCell = isOpen
+              ? `<button class="dep-name as-link" data-dep-open="${escapeHtml(dependency.id)}" title="Open ${escapeHtml(dependency.id)}">${escapeHtml(dependency.id)}</button>`
+              : `<span class="dep-name" title="${escapeHtml(dependency.id)}">${escapeHtml(dependency.id)}</span>`;
+            return `<li>${nameCell}<code class="dep-version">${escapeHtml(dependency.versionRange || "*")}</code></li>`;
+          }).join("")}</ul>`
+        : `<div class="empty-list">No package dependencies declared for ${escapeHtml(group.framework)}.</div>`}
+    </section>`;
+
+  const graphSection = `
+    <section class="document-section">
+      <div class="section-title"><h2>Dependency graph</h2><span>callers above · direct dependencies below</span></div>
+      <p class="lens-note">Open packages that depend on <strong>${escapeHtml(state.package.id)}</strong> appear as callers; its own direct <code>${escapeHtml(group.framework)}</code> dependencies appear below. Open-package nodes are clickable.</p>
+      <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
+    </section>`;
+
+  return `${selector}${graphSection}${depList}`;
+}
+
+function resolveDependenciesFramework(groups) {
+  const available = groups.map(group => group.framework);
+  if (state.dependenciesFramework && available.includes(state.dependenciesFramework)) {
+    return state.dependenciesFramework;
+  }
+  const active = groups.find(group => group.isActive);
+  return active ? active.framework : available[0];
 }
 
 async function loadPackageDependencies() {
@@ -850,18 +878,54 @@ async function loadPackageDependencies() {
       assembly: state.package.assembly
     });
     if (state.packageDependenciesKey === signature) state.packageDependencies = result;
+    if (result?.dependencyGroups) {
+      state.workspaceDependencies[`${state.package.id.toLowerCase()}@${state.package.version.toLowerCase()}`] = result.dependencyGroups;
+    }
   } catch (error) {
     if (state.packageDependenciesKey === signature) state.packageDependenciesError = String(error?.message || error);
   } finally {
     if (state.packageDependenciesKey === signature) state.packageDependenciesLoading = false;
     render();
+    ensureWorkspaceDependencies();
   }
 }
 
 function maybeAutoLoadPackageDependencies() {
   if (!state.atPackageRoot || state.packageLens !== "dependencies") return;
-  if (state.packageDependenciesKey === packageDependenciesSignature()) return;
+  if (state.packageDependenciesKey === packageDependenciesSignature()) {
+    if (state.packageDependencies) {
+      renderDependencyGraph();
+      ensureWorkspaceDependencies();
+    }
+    return;
+  }
   loadPackageDependencies();
+}
+
+// Fetches dependency manifests for every other open package so the dependency graph can
+// draw incoming "caller" edges (open packages that declare a dependency on the current one).
+async function ensureWorkspaceDependencies() {
+  const missing = state.packages.filter(item =>
+    !state.workspaceDependencies[`${item.id.toLowerCase()}@${item.version.toLowerCase()}`]);
+  if (!missing.length) {
+    renderDependencyGraph();
+    return;
+  }
+  for (const item of missing) {
+    const key = `${item.id.toLowerCase()}@${item.version.toLowerCase()}`;
+    try {
+      const result = await inspectPackageDependencies({
+        packageId: item.id,
+        version: item.version,
+        framework: item.activeFramework,
+        assembly: item.assembly
+      });
+      state.workspaceDependencies[key] = result?.dependencyGroups || [];
+    } catch {
+      state.workspaceDependencies[key] = [];
+    }
+  }
+  if (state.atPackageRoot && state.packageLens === "dependencies") renderDependencyGraph();
 }
 
 function packageIntegrationsSignature() {
@@ -1636,6 +1700,13 @@ function bindEvents() {
   document.querySelectorAll("[data-framework-chip]").forEach(button => button.addEventListener("click", () => {
     loadPackage(state.package.id, state.package.version, button.dataset.frameworkChip);
   }));
+  document.querySelectorAll("[data-dep-framework]").forEach(button => button.addEventListener("click", () => {
+    state.dependenciesFramework = button.dataset.depFramework;
+    render();
+  }));
+  document.querySelectorAll("[data-dep-open]").forEach(button => button.addEventListener("click", () => {
+    switchToPackageForDependencies(button.dataset.depOpen);
+  }));
   document.querySelectorAll("[data-kind-jump]").forEach(button => button.addEventListener("click", () => {
     state.atPackageRoot = false;
     state.kindFilter = button.dataset.kindJump;
@@ -1863,6 +1934,8 @@ function toggleTheme() {
   document.documentElement.dataset.theme = state.theme;
   render();
   if (state.memberCallGraph) renderMermaidCallGraph();
+  const depGraph = document.querySelector("#dependency-graph-diagram");
+  if (depGraph) { depGraph.dataset.graphDef = ""; renderDependencyGraph(); }
 }
 
 function handleTypeKeys(event) {
@@ -2661,6 +2734,144 @@ function navigateToTypeByName(fullName) {
   render();
 }
 
+// Projects the current package, its direct dependencies for the selected framework, and any
+// open packages that declare a dependency on it into a call-graph-style Mermaid flowchart:
+// caller (open) packages flow down into the current package, which flows down into its deps.
+function buildDependencyGraphMermaid(selectedTfm) {
+  const centerId = state.package.id;
+  const centerKey = centerId.toLowerCase();
+  const openById = new Map(state.packages.map(item => [item.id.toLowerCase(), item]));
+
+  const nodes = [];
+  const nodeInfoByLabel = new Map();
+  const seen = new Set();
+  const addNode = (id, role) => {
+    const key = id.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    const open = openById.get(key);
+    const kind = key === centerKey ? "self" : (open ? "open" : "external");
+    nodes.push({ id, kind });
+    nodeInfoByLabel.set(id, { id, kind });
+  };
+
+  addNode(centerId, "self");
+
+  const centerGroups = state.workspaceDependencies[`${centerKey}@${state.package.version.toLowerCase()}`]
+    || state.packageDependencies?.dependencyGroups
+    || [];
+  const centerGroup = centerGroups.find(group => group.framework === selectedTfm)
+    || centerGroups.find(group => group.isActive)
+    || centerGroups[0];
+  const downstream = (centerGroup?.dependencies || []).map(dependency => dependency.id);
+  for (const id of downstream) addNode(id);
+
+  const upstream = [];
+  for (const item of state.packages) {
+    if (item.id.toLowerCase() === centerKey) continue;
+    const groups = state.workspaceDependencies[`${item.id.toLowerCase()}@${item.version.toLowerCase()}`] || [];
+    const group = groups.find(candidate => candidate.framework === selectedTfm)
+      || groups.find(candidate => candidate.isActive)
+      || groups[0];
+    const dependsOnCenter = (group?.dependencies || []).some(dependency => dependency.id.toLowerCase() === centerKey);
+    if (dependsOnCenter) {
+      addNode(item.id);
+      upstream.push(item.id);
+    }
+  }
+
+  if (!downstream.length && !upstream.length) return null;
+
+  const idOf = new Map();
+  nodes.forEach((node, index) => idOf.set(node.id.toLowerCase(), `d${index}`));
+  const lines = ["flowchart TD"];
+  for (const node of nodes) {
+    const label = node.id.replace(/"/g, "&quot;");
+    lines.push(`  ${idOf.get(node.id.toLowerCase())}["${label}"]:::${node.kind}`);
+  }
+  for (const id of upstream) {
+    lines.push(`  ${idOf.get(id.toLowerCase())} --> ${idOf.get(centerKey)}`);
+  }
+  for (const id of downstream) {
+    lines.push(`  ${idOf.get(centerKey)} --> ${idOf.get(id.toLowerCase())}`);
+  }
+  lines.push("classDef self fill:var(--accent-soft),stroke:var(--accent),color:var(--text),stroke-width:2px;");
+  lines.push("classDef open fill:var(--panel-active),stroke:var(--blue),color:var(--text);");
+  lines.push("classDef external fill:transparent,stroke:var(--line-strong),color:var(--dim);");
+  return { definition: lines.join("\n"), nodeInfoByLabel };
+}
+
+async function renderDependencyGraph() {
+  const container = document.querySelector("#dependency-graph-diagram");
+  if (!container) return;
+  const groups = state.packageDependencies?.dependencyGroups || [];
+  if (!groups.length) return;
+  const selectedTfm = resolveDependenciesFramework(groups);
+  const built = buildDependencyGraphMermaid(selectedTfm);
+  if (!built) {
+    container.dataset.graphDef = "";
+    container.innerHTML = '<p class="graph-empty">No connected packages for this framework. Open a package that depends on this one to see caller edges.</p>';
+    return;
+  }
+  if (container.dataset.graphDef === built.definition && container.querySelector(".graph-viewport")) return;
+  container.dataset.graphDef = built.definition;
+  try {
+    mermaidModule ??= import("https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.esm.min.mjs");
+    const { default: mermaid } = await mermaidModule;
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      theme: state.theme === "light" ? "default" : "dark",
+      themeVariables: { fontSize: "16px" },
+      flowchart: { htmlLabels: false, curve: "basis" }
+    });
+    const id = `dep-graph-${Date.now().toString(36)}`;
+    const rootStyle = getComputedStyle(document.documentElement);
+    const resolved = built.definition.replace(
+      /var\((--[\w-]+)\)/g,
+      (whole, name) => rootStyle.getPropertyValue(name).trim() || whole
+    );
+    const { svg } = await mermaid.render(id, resolved);
+    if (document.querySelector("#dependency-graph-diagram") !== container) return;
+    container.innerHTML =
+      '<div class="graph-viewport"></div>'
+      + '<div class="graph-controls">'
+      + '<button type="button" data-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>'
+      + '<button type="button" data-zoom="out" title="Zoom out" aria-label="Zoom out">\u2212</button>'
+      + '<button type="button" class="reset" data-zoom="reset" title="Reset view" aria-label="Reset view">fit</button>'
+      + '</div>';
+    const viewport = container.querySelector(".graph-viewport");
+    viewport.innerHTML = svg;
+    attachGraphPanZoom(container, viewport);
+    viewport.querySelectorAll("g.node").forEach(node => {
+      const label = (node.textContent || "").replace(/\s+/g, " ").trim();
+      const info = built.nodeInfoByLabel.get(label);
+      if (!info || info.kind !== "open") return;
+      node.classList.add("nav-node");
+      node.style.cursor = "pointer";
+      node.addEventListener("click", () => switchToPackageForDependencies(info.id));
+    });
+  } catch (error) {
+    if (document.querySelector("#dependency-graph-diagram") === container) {
+      container.dataset.graphDef = "";
+      container.innerHTML = `<div class="graph-render-error"><strong>Diagram rendering failed</strong><p>${escapeHtml(String(error?.message || error))}</p></div>`;
+    }
+  }
+}
+
+function switchToPackageForDependencies(packageId) {
+  const target = state.packages.find(item => item.id.toLowerCase() === packageId.toLowerCase());
+  if (!target) return;
+  state.package = target;
+  state.atPackageRoot = true;
+  state.packageLens = "dependencies";
+  state.dependenciesFramework = "";
+  state.selectedTypeId = target.types[0]?.id || "";
+  state.selectedMemberKey = "";
+  state.selectedOverloadIndex = null;
+  render();
+}
+
 async function loadSelectedMemberCallGraph() {
   if (state.memberCallGraph) {
     render();
@@ -2733,7 +2944,7 @@ async function renderMermaidCallGraph() {
         + '</div>';
       const viewport = container.querySelector(".graph-viewport");
       viewport.innerHTML = svg;
-      attachGraphPanZoom(container, viewport);
+      attachGraphPanZoom(container, viewport, true);
     }
   } catch (error) {
     if (document.querySelector("#call-graph-diagram") === container) {
@@ -2742,7 +2953,7 @@ async function renderMermaidCallGraph() {
   }
 }
 
-function attachGraphPanZoom(container, viewport) {
+function attachGraphPanZoom(container, viewport, bindCallGraphNodes = false) {
   const svg = viewport.querySelector("svg");
   if (!svg) return;
 
@@ -2852,19 +3063,21 @@ function attachGraphPanZoom(container, viewport) {
     event.preventDefault();
   });
 
-  svg.querySelectorAll("g.node").forEach(node => {
-    const label = (node.textContent || "").replace(/\s+/g, " ").trim();
-    const target = resolveNodeLabel(label);
-    const source = target ? null : resolveNodeForSource(label, node.classList.contains("differentAssembly"));
-    if (!target && !source) return;
-    node.classList.add("nav-node");
-    node.style.cursor = "pointer";
-    node.addEventListener("click", () => {
-      if (moved) return;
-      if (target) navigateToMember(target.pkg, target.type, target.group);
-      else openGraphSource(source.request, source.title);
+  if (bindCallGraphNodes) {
+    svg.querySelectorAll("g.node").forEach(node => {
+      const label = (node.textContent || "").replace(/\s+/g, " ").trim();
+      const target = resolveNodeLabel(label);
+      const source = target ? null : resolveNodeForSource(label, node.classList.contains("differentAssembly"));
+      if (!target && !source) return;
+      node.classList.add("nav-node");
+      node.style.cursor = "pointer";
+      node.addEventListener("click", () => {
+        if (moved) return;
+        if (target) navigateToMember(target.pkg, target.type, target.group);
+        else openGraphSource(source.request, source.title);
+      });
     });
-  });
+  }
 
   fit();
 }
@@ -3200,6 +3413,7 @@ async function loadPackage(packageId, version, framework) {
     state.typeFilter = "";
     state.namespaceFilter = "";
     state.kindFilter = "";
+    state.dependenciesFramework = "";
     const deep = pendingDeepLink;
     pendingDeepLink = null;
     if (deep && (deep.type || deep.member)) {
