@@ -358,6 +358,57 @@ public sealed class ThisQualificationTests
         Assert.DoesNotContain(")this).ToString()", text);
     }
 
+    // Regression (#3213 review, Gemini + GPT): a boxed `this` reaching a SEALED
+    // default interface member must render the `((I)this)` cast, NOT `base.`. A
+    // sealed DIM is non-virtual, so `((I)this).SealedPing()` lowers to
+    // `ldobj; box; call ISealedDim::SealedPing` — a non-virtual `call` that shares
+    // the base-call shape (`!IsVirtual && IsCrossType`). Before the ValueType gate
+    // the base arm over-fired here and emitted invalid `base.SealedPing()` (CS0117
+    // — a struct's base `System.ValueType` has no such member). The declaring type
+    // is an interface, not `System.ValueType`, so the cast arm re-emits the exact
+    // non-virtual `call ISealedDim::SealedPing`.
+    [Fact]
+    public void StructBoxedThis_SealedInterfaceCallee_RendersInterfaceCast()
+    {
+        var text = RenderMember(typeof(StructSealedDimReceiver),
+            nameof(StructSealedDimReceiver.CallSealedDim));
+        Assert.Contains("((ISealedDim)this).SealedPing()", text);
+        Assert.DoesNotContain("base.", text);
+        Assert.DoesNotContain("(this).SealedPing()", text);
+    }
+
+    // Regression (#3213 review, Gemini): the method-group form of the sealed-DIM
+    // case. `((ISealedDim)this).SealedPing` (as a delegate) emits `ldobj; box;
+    // ldftn ISealedDim::SealedPing; newobj` — a non-virtual `ldftn` matching the
+    // base-group shape. It must render the `((I)this)` cast, never invalid
+    // `base.SealedPing` (CS0117).
+    [Fact]
+    public void StructBoxedThis_SealedInterfaceMethodGroup_RendersInterfaceCast()
+    {
+        var text = RenderMember(typeof(StructSealedDimReceiver),
+            nameof(StructSealedDimReceiver.SealedDimGroup));
+        Assert.Contains("((ISealedDim)this).SealedPing", text);
+        Assert.DoesNotContain("base.", text);
+    }
+
+    // Regression (#3213 review, GPT): a boxed `this` reaching a NON-VIRTUAL
+    // `System.Object` member (`base.GetType()`) renders the `((object)this)` cast,
+    // not `base.`. `base.GetType()` lowers to `ldobj; box; call object::GetType` —
+    // the callee's declaring type is `System.Object`, not the struct's immediate
+    // base `System.ValueType`, so `base.` is not guaranteed token-exact. Because
+    // `GetType` is non-virtual, the cast `((object)this).GetType()` re-emits the
+    // identical `ldobj; box; call object::GetType` (verified IL-equal to the
+    // `base.GetType()` source), so the ValueType-gated arm routes it to the cast
+    // form. Both spellings round-trip; the printer picks the cast.
+    [Fact]
+    public void StructBoxedThis_ObjectNonVirtualCallee_RendersObjectCast()
+    {
+        var text = RenderMember(typeof(StructBaseGetType),
+            nameof(StructBaseGetType.CallBaseGetType));
+        Assert.Contains("((object)this).GetType()", text);
+        Assert.DoesNotContain("base.", text);
+    }
+
     [Fact]
     public void EventSubscription_DefaultsToBareName()
     {
@@ -842,4 +893,36 @@ public struct StructStaticThisParameter
     public static System.Type BoxNonVirtual(ref StructStaticThisParameter @this) => ((object)@this).GetType();
 
     public static string BoxVirtual(ref StructStaticThisParameter @this) => ((object)@this).ToString()!;
+}
+
+// Sealed default interface member reached from a boxed struct `this` (#3213
+// review, Gemini + GPT). A sealed DIM is NON-VIRTUAL, so `((ISealedDim)this)
+// .SealedPing()` lowers to `ldobj; box; call ISealedDim::SealedPing` and its
+// method group to `ldobj; box; ldftn ISealedDim::SealedPing; newobj` — both share
+// the non-virtual base-call/group shape. The declaring type is an interface, not
+// the struct's immediate base `System.ValueType`, so the printer must re-emit the
+// `((I)this)` cast, never `base.SealedPing` (CS0117 — a struct's base has no such
+// member).
+public interface ISealedDim
+{
+    sealed void SealedPing() { }
+}
+
+public struct StructSealedDimReceiver : ISealedDim
+{
+    public void CallSealedDim() => ((ISealedDim)this).SealedPing();
+
+    public System.Action SealedDimGroup() => ((ISealedDim)this).SealedPing;
+}
+
+// A boxed struct `this` reaching a NON-VIRTUAL `System.Object` member via `base.`
+// (#3213 review, GPT). `base.GetType()` lowers to `ldobj; box; call
+// object::GetType` — the callee's declaring type is `System.Object`, not the
+// struct's immediate base `System.ValueType`. Because `GetType` is non-virtual,
+// `((object)this).GetType()` re-emits the identical `ldobj; box; call
+// object::GetType`, so the ValueType-gated base arm routes it to the cast form
+// (both spellings round-trip; only `System.ValueType` callees stay `base.`).
+public struct StructBaseGetType
+{
+    public System.Type CallBaseGetType() => base.GetType();
 }
