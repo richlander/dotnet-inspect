@@ -1899,7 +1899,17 @@ public static class CompileBackSourceComposer
     sealed class UnrepresentableSignatureProbe : ISignatureTypeProvider<bool, object?>
     {
         public static readonly UnrepresentableSignatureProbe Instance = new();
-        public bool GetPrimitiveType(PrimitiveTypeCode typeCode) => false;
+
+        // `typedref` (System.TypedReference) is a restricted primitive that cannot be a method
+        // return type in C# (CS1599) — nor a field, type argument, or array element — so an
+        // interface member mentioning it cannot be reconstructed as a bindable explicit
+        // implementation or `throw null` stub (the surface would emit CS1599 = RecompileFail).
+        // SignatureDecoder spells it as the bare token `TypedReference`, which carries no `+`/`!`
+        // marker for SignatureTypeIsUnspellable to catch, and it is not emittable from C# source
+        // (it appears only on hand-authored / Reflection.Emit IL), so treat it as unrepresentable
+        // detail here and decline the whole surface to the ContextFail floor (#3112). Every other
+        // primitive is a faithful, bindable C# spelling.
+        public bool GetPrimitiveType(PrimitiveTypeCode typeCode) => typeCode == PrimitiveTypeCode.TypedReference;
         public bool GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => false;
         public bool GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) => false;
         public bool GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
@@ -2110,6 +2120,20 @@ public static class CompileBackSourceComposer
         foreach (var implementationHandle in interfaceDef.GetInterfaceImplementations())
         {
             var implementation = reader.GetInterfaceImplementation(implementationHandle);
+
+            // A member inherited from a base interface is collected here with no record of the
+            // interface that DECLARED it: ExternalInterfaceRequiredMethod carries only name,
+            // arity, and signature, and the caller qualifies every synthesized stub with the
+            // ROOT interface's display name. C# requires an inherited member to be spelled with
+            // its declaring interface (`void IBase.M()`), so a stub emitted as `void IRoot.M()`
+            // is CS0539 (not a member of IRoot) and leaves the base member unimplemented
+            // (CS0535 = RecompileFail). A base interface that contributes NO required members
+            // (an empty marker, or one carrying only already-declined property/event/generic
+            // members) is harmless. So allow base interfaces that add nothing to the surface,
+            // but decline the whole engagement to the ContextFail floor the moment any base
+            // interface contributes a required member (#3112).
+            int methodsBefore = methods.Count;
+
             if (implementation.Interface.Kind == HandleKind.TypeDefinition)
             {
                 if (!TryCollectRequiredInterfaceMethods(
@@ -2122,6 +2146,8 @@ public static class CompileBackSourceComposer
                 {
                     return false;
                 }
+                if (methods.Count != methodsBefore)
+                    return false;
                 continue;
             }
 
@@ -2140,6 +2166,8 @@ public static class CompileBackSourceComposer
                 {
                     return false;
                 }
+                if (methods.Count != methodsBefore)
+                    return false;
                 continue;
             }
 

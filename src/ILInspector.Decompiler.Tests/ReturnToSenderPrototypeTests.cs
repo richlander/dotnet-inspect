@@ -1792,6 +1792,91 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_InheritedBaseInterfaceMemberFallsBackWithoutRecompileFail()
+    {
+        // #3112 Increment 2 base-interface atomicity: an external interface that INHERITS from
+        // another interface flattens the base's members into the required surface, but the
+        // synthesized stubs record no declaring-interface identity and are all qualified with
+        // the ROOT interface. An inherited member emitted as `void IRoot.Member()` is CS0539
+        // (not a member of IRoot) and leaves the base member unimplemented (CS0535 =
+        // RecompileFail). The gate must decline the WHOLE surface to the sanitized ContextFail
+        // floor whenever a base interface contributes a required member.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            "namespace RtsInh { public interface IBase { void Sibling(); } public interface IDerived : IBase { void Target(); } }",
+            directory: fixtureDir,
+            assemblyName: "RtsInhContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class InhImpl : RtsInh.IDerived
+            {
+                void RtsInh.IDerived.Target() { }
+                void RtsInh.IBase.Sibling() { }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("InhImpl", "RtsInh.IDerived.Target", 0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsInh_IDerived_Target", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsInh.IDerived.Target", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_NestedExternalMultiMemberInterfaceFallsBackWithoutRecompileFail()
+    {
+        // #3112 Increment 2: a nested external interface (`Outer.IProbe`) cannot be named in the
+        // reconstructed base list — its metadata separator (`Outer+IProbe`) is not bindable C#
+        // and its TypeReference resolves through the enclosing type rather than an assembly
+        // reference. The engagement must decline to the sanitized ContextFail floor rather than
+        // emit an unspellable `Outer+IProbe` qualifier (CS1001/CS0246 = RecompileFail).
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            "namespace RtsNest { public class Outer { public interface IProbe { void Target(); void Sibling(); } } }",
+            directory: fixtureDir,
+            assemblyName: "RtsNestContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class NestImpl : RtsNest.Outer.IProbe
+            {
+                void RtsNest.Outer.IProbe.Target() { }
+                void RtsNest.Outer.IProbe.Sibling() { }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget("NestImpl", "RtsNest.Outer.IProbe.Target", 0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsNest_Outer_IProbe_Target", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_GenericExternalExplicitInterfaceFallsBackWithoutRecompileFail()
     {
         var assemblyPath = CompileFixture("""
