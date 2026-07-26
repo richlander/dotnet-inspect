@@ -184,7 +184,7 @@ public class LibraryInspection
     public bool? AllSourcesAccessible { get; set; }
 
     /// <summary>
-    /// Whether a SourceLink Integrity pass (GET + checksum verification) was run.
+    /// Whether a Source Link: Integrity pass (GET + checksum verification) was run.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool SourceIntegrityChecked { get; set; }

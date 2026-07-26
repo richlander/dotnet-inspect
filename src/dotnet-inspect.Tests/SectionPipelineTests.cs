@@ -323,7 +323,7 @@ public class SectionPipelineTests
         Assert.Contains("OpenAPI", pipeline.AllSectionNames);
         Assert.Contains("OpenTelemetry", pipeline.AllSectionNames);
         Assert.Contains("Options", pipeline.AllSectionNames);
-        Assert.Contains("Source Files", pipeline.AllSectionNames);
+        Assert.Contains("Source Link: Files", pipeline.AllSectionNames);
         Assert.Contains("Source Link: Availability", pipeline.AllSectionNames);
         Assert.Contains("Source Link: Missing Files", pipeline.AllSectionNames);
         Assert.Contains("Source Link: Integrity", pipeline.AllSectionNames);
@@ -376,7 +376,7 @@ public class SectionPipelineTests
         foreach (var footgun in new[]
                  {
                      "Top Leverage", "Unsafe Members", "Source Link: Integrity",
-                     "Source Files", "Source Link: Availability", "Source Link: Missing Files",
+                     "Source Link: Files", "Source Link: Availability", "Source Link: Missing Files",
                      "Member Context"
                  })
         {
@@ -753,7 +753,7 @@ public class SectionPipelineTests
         string[] sourceSections =
         [
             SectionNames.ILOffset,
-            "Source Files",
+            "Source Link: Files",
             "Symbols",
             "Signals",
             "Source Link: Availability",
@@ -790,7 +790,7 @@ public class SectionPipelineTests
                 Assert.Equal(expectedAudit, plan.RunHeadAudit);
                 Assert.Equal(expectedIntegrity, plan.RunIntegrity);
                 Assert.Equal(
-                    include?.Contains("Source Files") == true,
+                    include?.Contains("Source Link: Files") == true,
                     plan.CollectSourceFiles);
             }
         }

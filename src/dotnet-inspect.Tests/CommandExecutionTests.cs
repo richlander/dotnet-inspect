@@ -6347,7 +6347,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, sourceExit);
         Assert.DoesNotContain("Tip:", sourceError);
-        Assert.Contains("Source Files", sourceOutput);
+        Assert.Contains("Source Link: Files", sourceOutput);
         Assert.Contains("Source Link: Availability", sourceOutput);
         Assert.Contains("Source Link: Missing Files", sourceOutput);
         // Integrity stays behind the @Hidden pole, not the @SourceLink door.
@@ -6406,7 +6406,7 @@ public class CommandExecutionTests
                  {
                      "Async Methods", "Custom Attributes", "Extension Methods", "Type Forwarders",
                      "Union Types", "P/Invoke Methods", "Non-normalized Paths", "Top Leverage",
-                     "Unsafe Members", "Source Files", "Source Link: Availability",
+                     "Unsafe Members", "Source Link: Files", "Source Link: Availability",
                      "Source Link: Missing Files", "Source Link: Integrity", "Member Context",
                      "Integration Opportunities"
                  })
@@ -6493,11 +6493,11 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "System.CommandLine.dll", "--package", "System.CommandLine",
-            "-S", "Source Files", "--tips", "q", "-n", "18");
+            "-S", "Source Link: Files", "--tips", "q", "-n", "18");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Source Files", output);
+        Assert.Contains("## Source Link: Files", output);
         Assert.Contains("| Type | Url |", output);
         Assert.Contains("System.CommandLine.Command", output);
         Assert.Contains("Command.cs", output);

@@ -501,7 +501,7 @@ public class LibraryInspectionView
     [MarkoutIgnore]
     public bool HasSourceLinkAudit => _data.AllSourcesAccessible.HasValue || _data.TotalSourceFiles > 0;
 
-    [MarkoutSection(Name = "Source Files", EmptyText = "No SourceLink source files found for this library.")]
+    [MarkoutSection(Name = SectionNames.SourceLinkFiles, EmptyText = "No SourceLink source files found for this library.")]
     public List<SourceFileRow>? SourceFilesSection =>
         _data.SourceFiles?
             .Select(file => new SourceFileRow(file.Type, file.Url))

@@ -82,7 +82,7 @@ The auto-generated schemas are more accurate in several places:
 - **TypeView** sections include Select, Description, Overloads, and other columns
   that were missing from the manual schema
 - **Type Forwarders** section correctly appears in CliApiSurface
-- **SourceLink Missing Files** section now discoverable (was absent from manual map)
+- **Source Link: Missing Files** section now discoverable (was absent from manual map)
 
 ## Files changed
 

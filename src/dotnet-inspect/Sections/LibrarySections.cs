@@ -108,7 +108,7 @@ public static class LibrarySections
             .AddCategory(SectionCategoryNames.Escape,
                 SectionNames.EscapeArrayPool)
             .AddCategory(SectionCategoryNames.SourceLink,
-                "Source Files",
+                SectionNames.SourceLinkFiles,
                 SectionNames.SourceLinkAvailability,
                 SectionNames.SourceLinkMissingFiles)
             .AddCategory("@Integrations", [.. LibraryIntegrationCatalog.CategorySections, "Integration Opportunities"]);
@@ -265,7 +265,7 @@ public static class LibrarySections
 
     public sealed class SourceFiles : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Source Files";
+        public static string Name => SectionNames.SourceLinkFiles;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -469,7 +469,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.SourceLinkMissingFiles;
         public static bool IsExpensive => true;
-        // Opt-in only: derived from the same per-file HEAD pass as SourceLink Availability.
+        // Opt-in only: derived from the same per-file HEAD pass as Source Link: Availability.
         public static bool ExplicitOnly => true;
         public static SectionCost Cost => SectionCost.Unbounded;
         public static string? ScannerKey => null;

@@ -105,8 +105,14 @@ public static class SectionNames
     /// <summary>Section for a line diff between original and decompiled method source.</summary>
     public const string SourceDiff = "Source Diff";
 
-    /// <summary>Section for SourceLink source file URLs for a type.</summary>
+    /// <summary>Section for SourceLink source file URLs for a type (API/package scope).</summary>
     public const string SourceFiles = "Source Files";
+
+    /// <summary>
+    /// SourceLink source file listing (library scope). Part of the <c>@SourceLink</c> family;
+    /// prefixed <c>Source Link:</c> so the family sorts together.
+    /// </summary>
+    public const string SourceLinkFiles = "Source Link: Files";
 
     /// <summary>
     /// SourceLink availability audit (library scope): per-source-file HEAD probe results. Part of

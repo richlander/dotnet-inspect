@@ -91,7 +91,7 @@ requires `-v:m`; every other bounded network-free section first renders at
   - **Known footgun (deferred hardening):** because a topical door is a render
     selector, rooting an `Unbounded` member in it means `-S @Category` fans out
     to that unbounded work. This is inherited from the pre-curated model:
-    `@SourceLink` roots Source Files / Source Link: Availability / Source Link:
+    `@SourceLink` roots Source Link: Files / Source Link: Availability / Source Link:
     Missing Files, and `@Audit` roots Unsafe Members. `-D @SourceLink` / `-D @Audit` never
     execute them, but `-S @SourceLink` / `-S @Audit` do. Gating door *render*
     expansion to skip `Unbounded` members (a "discovery-listed, exact-name-run"
@@ -144,7 +144,7 @@ standalone set, `@Hidden` is its complement, and neither is a user-facing door
 | Noisy-but-cheap (Custom Attributes) | `Terse` | `NetworkFree` | `-v:n` | `@Surface` |
 | Large surface (Extension Methods, `Performance:` buckets, Async Methods) | `Verbose` | `NetworkFree` | `-v:d` | `@Surface` / `@Performance` |
 | Networked (Source Link: Availability) | `Terse` | `Moderated` | `-v:d` | `@SourceLink` |
-| Footgun (Unsafe Members, Top Leverage, Source Files, Source Link: Integrity) | `Verbose` | `Unbounded` | never (exact name only) | — / `@SourceLink` |
+| Footgun (Unsafe Members, Top Leverage, Source Link: Files, Source Link: Integrity) | `Verbose` | `Unbounded` | never (exact name only) | — / `@SourceLink` |
 
 ## Query paths
 

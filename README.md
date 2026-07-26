@@ -143,13 +143,13 @@ scope.
 
 ## Signals
 
-`Signals` is an evidence report, not a safety certification. Select it with `-S Signals`. For libraries, Signals reports metadata/provenance observations and acquires a missing PDB when selected to resolve SourceLink. For packages, Signals reports package metadata/assets, dependencies, signature provenance, and NuGet registry observations. The per-source-file reachability pass (`SourceLink Availability`, `SourceLink Missing Files`) is selected explicitly with `-S` because its cost scales with source-file count. The slow, exhaustive content check (`SourceLink Integrity`) is opt-in only.
+`Signals` is an evidence report, not a safety certification. Select it with `-S Signals`. For libraries, Signals reports metadata/provenance observations and acquires a missing PDB when selected to resolve SourceLink. For packages, Signals reports package metadata/assets, dependencies, signature provenance, and NuGet registry observations. The per-source-file reachability pass (`Source Link: Availability`, `Source Link: Missing Files`) is selected explicitly with `-S` because its cost scales with source-file count. The slow, exhaustive content check (`Source Link: Integrity`) is opt-in only.
 
 | Command | Scope | Signals |
 | ------- | ----- | ------- |
 | `library X -S Signals` | Metadata + provenance | Library metadata/provenance signals; a missing library PDB is acquired to resolve SourceLink. |
-| `library X -S "Signals,SourceLink Availability,SourceLink Missing Files"` | Detailed SourceLink reachability | Adds the opt-in per-file HEAD pass and reports embedded-source coverage. |
-| `library X -S "SourceLink Integrity"` | Content verification (slow, opt-in) | Downloads every tracked source file and compares its hash to the PDB checksum; a mismatch exits non-zero. Never runs in a default flow. |
+| `library X -S "Signals,Source Link: Availability,Source Link: Missing Files"` | Detailed SourceLink reachability | Adds the opt-in per-file HEAD pass and reports embedded-source coverage. |
+| `library X -S "Source Link: Integrity"` | Content verification (slow, opt-in) | Downloads every tracked source file and compares its hash to the PDB checksum; a mismatch exits non-zero. Never runs in a default flow. |
 | `package X -S Signals` | Full package signals | Package and dependency signals, including known vulnerabilities, package age, dependency vulnerability/deprecation counts, and dependency age. |
 
 Vulnerability-service traffic is capability-gated. It runs only for detailed
@@ -354,8 +354,8 @@ dotnet-inspect library System.Text.Json -S Signals
 dotnet-inspect package Microsoft.Extensions.Logging.Abstractions --library -S Integrations
 dotnet-inspect library Microsoft.Extensions.Logging.Abstractions -S Integrations
 dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
-dotnet-inspect library System.Text.Json -S "Signals,SourceLink Availability,SourceLink Missing Files"
-dotnet-inspect library System.Text.Json -S "SourceLink Integrity"
+dotnet-inspect library System.Text.Json -S "Signals,Source Link: Availability,Source Link: Missing Files"
+dotnet-inspect library System.Text.Json -S "Source Link: Integrity"
 dotnet-inspect package System.Text.Json -S Signals
 dotnet-inspect package System.Text.Json --versions
 dotnet-inspect package System.Text.Json@8.0.0..8.0.5 --versions

@@ -35,7 +35,7 @@ public class PackageCommand
         // @Hidden is a discovery-only pole. For the embedded-library render modes (which resolve
         // -S against the curated LibrarySections pipeline), reject it up front — before extracting
         // or fetching the package — so an invalid render selector never pays acquisition cost and
-        // can never fan out to the unbounded SourceLink Integrity group.
+        // can never fan out to the unbounded Source Link: Integrity group.
         if (packageLibraryMode && LibraryCommand.RejectHiddenRenderSelector(options.Select))
             return 1;
 

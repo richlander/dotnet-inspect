@@ -74,7 +74,7 @@ public class LibraryCommand
 
         // @Hidden is a discovery-only pole: it lists via -D @Hidden / --schema and its members
         // render by exact name, but it is not a render selector. This keeps -S from fanning out to
-        // the unbounded SourceLink Integrity check (and other @Hidden members) as a group.
+        // the unbounded Source Link: Integrity check (and other @Hidden members) as a group.
         if (RejectHiddenRenderSelector(options.Select))
             return 1;
 
@@ -693,7 +693,7 @@ public class LibraryCommand
 
     // @Hidden is a discovery-only pole: it lists via -D @Hidden / --schema and its members
     // render by exact name, but it is not a render selector. Rejecting -S @Hidden keeps render
-    // selection from fanning out to the unbounded SourceLink Integrity check (and other @Hidden
+    // selection from fanning out to the unbounded Source Link: Integrity check (and other @Hidden
     // members) as a group. Shared with the package embedded-library render path, which resolves
     // -S against the same curated LibrarySections pipeline.
     internal static bool RejectHiddenRenderSelector(string[]? select)
@@ -701,7 +701,7 @@ public class LibraryCommand
         if (select is { Length: > 0 }
             && select.Any(v => v.Equals(SectionPipeline<LibraryInspection>.HiddenCategory, StringComparison.OrdinalIgnoreCase)))
         {
-            Console.Error.WriteLine("Error: @Hidden is discovery-only. List it with -D @Hidden or --schema, and render its members by exact name (for example -S \"SourceLink Integrity\").");
+            Console.Error.WriteLine("Error: @Hidden is discovery-only. List it with -D @Hidden or --schema, and render its members by exact name (for example -S \"Source Link: Integrity\").");
             return true;
         }
 
@@ -817,7 +817,7 @@ public class LibraryCommand
         var section = options.IncludeSections!.Single();
         var rows = section switch
         {
-            "Source Files" => ProjectLibrarySourceFiles(inspection, section, kind, options),
+            SectionNames.SourceLinkFiles => ProjectLibrarySourceFiles(inspection, section, kind, options),
             "Library Info" => ProjectLibraryInfo(inspection, section, kind, options),
             SectionNames.ILOffset => ProjectLibraryILOffset(inspection, section, kind, options),
             SectionNames.MemberContext => ProjectLibraryMemberContext(inspection, section, kind, options),
@@ -836,7 +836,7 @@ public class LibraryCommand
             return 1;
         }
 
-        if (rows.Count == 0 && section is not ("Source Files" or "Library Info") && section != SectionNames.ILOffset)
+        if (rows.Count == 0 && section is not (SectionNames.SourceLinkFiles or "Library Info") && section != SectionNames.ILOffset)
         {
             Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
             return 1;
@@ -1325,7 +1325,7 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    private const string EffectiveCategory = "effective-v14";
+    private const string EffectiveCategory = "effective-v15";
 
     static LibraryCommand()
     {

@@ -18,7 +18,7 @@ SourceLink answers three related questions:
 | Question | Best home |
 | --- | --- |
 | Does this binary have trustworthy source provenance? | `library` / `package` `Signals`, `Symbols`, and `SourceLink *` sections |
-| Which source files map to this target? | `Source Files` sections on `library` / `package` / `type` |
+| Which source files map to this target? | `Source Link: Files` (`library`) / `Source Files` (`package` / `type`) |
 | Where do these member signatures live in source? | A dedicated member `Source Locations` section for file/URL/line when a verified PDB is available |
 | What is the source for this exact member or IL offset? | selected `member` source sections, or `library --il-offset <token>+<offset>` for MethodDef token + IL offset point queries |
 
@@ -37,10 +37,10 @@ selection controls rendering.
 | --- | --- | --- |
 | `Symbols` | PDB format/location, SourceLink presence, symbol server, builder hints | may acquire one missing PDB when authorized |
 | `Signals` | summary evidence including SourceLink/provenance signals | opt-in; may acquire one missing PDB |
-| `Source Files` | type-to-SourceLink URL rows for the selected library | opt-in; may acquire one missing PDB |
-| `SourceLink Availability` | per-source-file reachability via HTTP HEAD | opt-in; one request per source file |
-| `SourceLink Missing Files` | files not reachable or embedded | opt-in; derived from availability pass |
-| `SourceLink Integrity` | downloads source bodies and checks PDB checksums | opt-in; slowest and exits non-zero on mismatch |
+| `Source Link: Files` | type-to-SourceLink URL rows for the selected library | opt-in; may acquire one missing PDB |
+| `Source Link: Availability` | per-source-file reachability via HTTP HEAD | opt-in; one request per source file |
+| `Source Link: Missing Files` | files not reachable or embedded | opt-in; derived from availability pass |
+| `Source Link: Integrity` | downloads source bodies and checks PDB checksums | opt-in; slowest and exits non-zero on mismatch |
 
 ### Package
 
@@ -88,8 +88,8 @@ The former `source` command has been folded into host-command sections and point
 queries. Issue [#1163](https://github.com/richlander/dotnet-inspect/issues/1163)
 records the removal path: source inventories became `Source Files` sections,
 source-body retrieval follows selected-member `Original Source` / package
-content patterns, availability checks live in `SourceLink Integrity` and
-`SourceLink Availability`, URL shape is selected with `--blob`, and IL offset
+content patterns, availability checks live in `Source Link: Integrity` and
+`Source Link: Availability`, URL shape is selected with `--blob`, and IL offset
 symbolication is now `library --il-offset <token>+<offset>`, which supplies the
 value for the `Source Location` section.
 
@@ -147,7 +147,7 @@ to the wrong documents. Therefore:
 - Symbol-package cache keys include PDB identity, not just package/version/file
   name.
 - If identity does not match, treat the PDB as unavailable for that assembly.
-- SourceLink Integrity cannot replace identity checking: content hashes can
+- Source Link: Integrity cannot replace identity checking: content hashes can
   verify source files while method-row mappings are still wrong.
 
 This is a fail-closed rule: missing SourceLink is better than wrong SourceLink.
@@ -160,8 +160,8 @@ use the network only when the selected section justifies it.
 | Work | When allowed |
 | --- | --- |
 | Acquire one missing PDB | explicit SourceLink/source/provenance section, or detailed library provenance where already documented |
-| HEAD every source URL | explicit `SourceLink Availability` / `SourceLink Missing Files` |
-| Download every source body | explicit `SourceLink Integrity` |
+| HEAD every source URL | explicit `Source Link: Availability` / `Source Link: Missing Files` |
+| Download every source body | explicit `Source Link: Integrity` |
 | Fetch one original member source body | explicit selected-member `Original Source` / `@Source` |
 | Resolve member file/line locations | explicit member `Source Locations` section; may acquire one missing PDB but should not fetch source bodies |
 

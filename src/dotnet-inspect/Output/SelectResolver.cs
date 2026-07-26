@@ -41,6 +41,7 @@ public static class SelectResolver
         ["IL Offset"] = SectionNames.ILOffset,
         ["Package README"] = DotnetInspector.Views.PackageSections.PackageReadme,
         ["Resource Triage"] = SectionNames.EscapeArrayPool,
+        ["Source Files"] = SectionNames.SourceLinkFiles,
         ["SourceLink Availability"] = SectionNames.SourceLinkAvailability,
         ["SourceLink Missing Files"] = SectionNames.SourceLinkMissingFiles,
         ["SourceLink Integrity"] = SectionNames.SourceLinkIntegrity,

@@ -207,7 +207,7 @@ internal static class ILOffsetQuery
         {
             Console.Error.WriteLine("Error: No readable PDB found.");
         }
-        Console.Error.WriteLine("       Use 'library <target> -S \"SourceLink Availability\"' for full source reachability.");
+        Console.Error.WriteLine("       Use 'library <target> -S \"Source Link: Availability\"' for full source reachability.");
         Console.Error.WriteLine();
     }
 }
