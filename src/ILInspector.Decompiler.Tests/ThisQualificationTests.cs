@@ -306,6 +306,43 @@ public sealed class ThisQualificationTests
         Assert.DoesNotContain("(this).GetHashCode()", text);
     }
 
+    // Negative guard (#3213 review, GPT): a boxed-`this` method group whose callee
+    // is a STATIC extension method must NOT be cast to the extension host. A struct
+    // forming `((object)this).ExtValue` (or `this.ExtValue`) as a delegate boxes and
+    // emits `ldobj; box; ldftn Host::ExtValue(object); newobj`, matching the
+    // boxed-this shape — but the callee is static (`method.HasThis` false) and its
+    // declaring type is the static host, which is not a cast target: `((Host)this)`
+    // is CS0716. It falls through to the ordinary receiver path, spelling the boxed
+    // receiver, so the render must show neither the host cast nor `base.`.
+    [Fact]
+    public void StructBoxedThis_StaticExtensionMethodGroup_IsNotCastToHost()
+    {
+        var text = RenderMember(typeof(StructExtensionGroupReceiver),
+            nameof(StructExtensionGroupReceiver.ExtGroup));
+        Assert.Contains("(this).ExtValue", text);
+        Assert.DoesNotContain("BoxedThisExtensionHost)this", text);
+        Assert.DoesNotContain("base.", text);
+    }
+
+    // Negative guard (#3213 review, Gemini): a STATIC method whose first parameter is
+    // spelled `@this` emits the metadata name `"this"` at index 0, so a boxed
+    // `((object)@this).M()` matches the boxed-this shape — but `base`/`this` are
+    // illegal in a static method (CS0026). The boxed-this arm is gated on the
+    // enclosing method having an implicit `this`, so it must NOT synthesize
+    // `base.GetType()` (non-virtual) or `((object)this).ToString()` (virtual) here;
+    // the boxed `@this` parameter falls through to the ordinary receiver path.
+    [Fact]
+    public void StaticMethodWithThisNamedParameter_BoxedReceiver_DoesNotSynthesizeBaseOrCast()
+    {
+        var nonVirtual = RenderMember(typeof(StructStaticThisParameter),
+            nameof(StructStaticThisParameter.BoxNonVirtual));
+        Assert.DoesNotContain("base.", nonVirtual);
+        var virtualText = RenderMember(typeof(StructStaticThisParameter),
+            nameof(StructStaticThisParameter.BoxVirtual));
+        Assert.DoesNotContain("((object)this)", virtualText);
+        Assert.DoesNotContain("base.", virtualText);
+    }
+
     // Negative guard (#3213): an implicit `this.ToString()` on a struct that does
     // NOT box does not go through the boxed-this arm. Because the struct does not
     // override `ToString`, csc emits `ldarg.0; constrained. S; callvirt
@@ -775,4 +812,34 @@ public struct StructValueTypeCastReceiver
 public struct StructImplicitToString
 {
     public string CallImplicitToString() => this.ToString()!;
+}
+
+// Boxed-this method-group whose callee is a STATIC extension method (#3213 review,
+// GPT). `((object)this).ExtValue` boxes and emits `ldobj; box; ldftn
+// BoxedThisExtensionHost::ExtValue(object); newobj Func` — the boxed-this shape,
+// but the callee is static, so `method.HasThis` gates the boxed-this arm off and
+// the render must spell the boxed receiver, never `((BoxedThisExtensionHost)this)`
+// (CS0716 — a static type is not a cast target).
+public static class BoxedThisExtensionHost
+{
+    public static int ExtValue(this object x) => 7;
+}
+
+public struct StructExtensionGroupReceiver
+{
+    public System.Func<int> ExtGroup() => ((object)this).ExtValue;
+}
+
+// A STATIC method whose first parameter is spelled `@this` (#3213 review, Gemini).
+// The compiler emits the metadata name `"this"` at index 0, so a boxed
+// `((object)@this).M()` matches `Box{LoadIndirect{LoadArgument{0,"this"}}}` — yet
+// `base`/`this` are illegal in a static context (CS0026). The boxed-this arm is
+// gated on the ENCLOSING method having an implicit `this` (`_function.Signature
+// .HasThis`), so these must not synthesize `base.`/`((object)this)`; the boxed
+// `@this` parameter falls through to the ordinary receiver path.
+public struct StructStaticThisParameter
+{
+    public static System.Type BoxNonVirtual(ref StructStaticThisParameter @this) => ((object)@this).GetType();
+
+    public static string BoxVirtual(ref StructStaticThisParameter @this) => ((object)@this).ToString()!;
 }

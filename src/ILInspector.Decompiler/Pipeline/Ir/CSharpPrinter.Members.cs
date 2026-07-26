@@ -419,23 +419,32 @@ public sealed partial class CSharpPrinter
             && !IsEnclosingTypeAtOwnInstantiation(declaringType);
 
     /// <summary>
-    /// True when <paramref name="receiver"/> (or method-group target) is a value
-    /// type's <c>this</c> boxed to reach a member of a type the struct was cast
-    /// to. A struct must box to invoke a base (<c>System.ValueType</c>/
-    /// <c>System.Object</c>) or interface member, so <c>((T)this).M()</c> /
-    /// <c>base.M()</c> lowers to <c>ldarg.0; ldobj S; box S; call[virt] T::M</c> —
-    /// the receiver is a <see cref="Box"/> over the dereferenced <c>this</c>
-    /// pointer (<c>LoadIndirect</c> of <c>LoadArgument{0,"this"}</c>), not the bare
+    /// True when <paramref name="receiver"/> (or method-group target) is the
+    /// enclosing value type's <c>this</c> boxed to reach a member of a type the
+    /// struct was cast to. A struct must box to invoke a base
+    /// (<c>System.ValueType</c>/<c>System.Object</c>) or interface member, so
+    /// <c>((T)this).M()</c> / <c>base.M()</c> lowers to
+    /// <c>ldarg.0; ldobj S; box S; call[virt] T::M</c> — the receiver is a
+    /// <see cref="Box"/> over the dereferenced <c>this</c> pointer
+    /// (<c>LoadIndirect</c> of <c>LoadArgument{0,"this"}</c>), not the bare
     /// <c>LoadArgument{0,"this"}</c> a reference-type upcast (no IL) leaves. Only a
-    /// value type produces this shape (a class <c>this</c> is already a reference),
-    /// and only <c>this</c> — a boxed field/local/parameter has a different address
-    /// operand and is left to the ordinary receiver path. The <see cref="Box"/> is
-    /// itself the evidence of the cast, so no interface metadata is needed:
-    /// callers re-insert the cast (virtual) or spell <c>base.</c> (non-virtual)
-    /// from the callee's declaring type and its call kind (#3201, #3213).
+    /// value type produces this shape (a class <c>this</c> is already a reference).
+    /// The <see cref="Box"/> is itself the evidence of the cast, so no interface
+    /// metadata is needed: callers re-insert the cast (virtual) or spell
+    /// <c>base.</c> (non-virtual) from the callee's declaring type and call kind
+    /// (#3201, #3213).
+    /// <para>
+    /// Gated on the enclosing method having an implicit <c>this</c>: a
+    /// <c>static</c> method (or extension method) whose first parameter is spelled
+    /// <c>@this</c> emits the metadata name <c>"this"</c> at index 0, matching the
+    /// shape, but <c>base</c>/<c>this</c> are illegal there (CS0026). Such a boxed
+    /// <c>@this</c> parameter falls through to the ordinary receiver path, which
+    /// spells the parameter by name (#3213 review).
+    /// </para>
     /// </summary>
-    static bool IsBoxedThisReceiver(IrExpression receiver)
-        => receiver is Box { Operand: LoadIndirect { Address: LoadArgument { Index: 0, Name: "this" } } };
+    bool IsBoxedThisReceiver(IrExpression receiver)
+        => _function.Signature.HasThis
+            && receiver is Box { Operand: LoadIndirect { Address: LoadArgument { Index: 0, Name: "this" } } };
 
     /// <summary>Member-access receivers: value-type receivers arrive by address in IL; C# spells the place itself, not its address.</summary>
     string ReceiverText(IrExpression receiver) => receiver switch
@@ -532,9 +541,15 @@ public sealed partial class CSharpPrinter
         // dup; ldvirtftn T::M`. Bare (this).M / this.M would be CS1061 or rebind
         // to the derived override. Subsumes the struct interface-cast case (#3201)
         // and the base-class case (#3213). Mirrors the bare-this arms above.
-        if (IsBoxedThisReceiver(target))
+        // HasThis gates the whole branch: a closed static extension method group
+        // (`((object)this).Ext`) shares the `ldobj; box; ldftn` shape but binds the
+        // boxed this as its first argument, so its DeclaringType is the static
+        // extension host — not a cast target (`((E)this).Ext` is CS0716). Those
+        // fall through to the ordinary receiver path, which spells the boxed
+        // receiver ((object)this) the extension already carries.
+        if (method.HasThis && IsBoxedThisReceiver(target))
         {
-            if (method.HasThis && !isVirtual && IsCrossType(method.DeclaringType))
+            if (!isVirtual && IsCrossType(method.DeclaringType))
                 return $"base.{name}";
             return $"(({TypeText(method.DeclaringType)})this).{name}";
         }
