@@ -74,6 +74,32 @@ public sealed class MetadataSource : IDisposable
     public DecompilerSymbolSource Symbols => _symbols;
 
     /// <summary>
+    /// Extracts this assembly's <see cref="ApiSurface"/> from the already-open PE image,
+    /// mirroring <c>AssemblyInspectionSession</c>/<c>PdbContext</c> so callers do not re-open
+    /// the file. Presentation-neutral type projection (<c>ResearchViews.ProjectType</c>) uses
+    /// this to compose type-level views from one live source.
+    /// </summary>
+    public ApiSurface ExtractApiSurface(bool includeAll = false, bool typesOnly = false)
+        => ApiSurfaceExtractor.Extract(Pe, includeAll, typesOnly);
+
+    /// <summary>
+    /// Classifies the async shape of the given MethodDef metadata token (runtime or
+    /// state-machine async), or <see langword="null"/> when the token is not a MethodDef or
+    /// the method is not async. Async is a body-gated fact the API surface deliberately omits
+    /// (docs/design/member-body-substrate.md, <c>ApiMember.IsAsync</c>), so callers that need
+    /// an accurate async signal recover it here from live metadata.
+    /// </summary>
+    public MethodClassification? ClassifyAsync(int methodDefToken)
+    {
+        var entity = MetadataTokens.EntityHandle(methodDefToken);
+        if (entity.Kind != HandleKind.MethodDefinition)
+            return null;
+
+        var method = Reader.GetMethodDefinition((MethodDefinitionHandle)entity);
+        return MethodClassificationScanner.ClassifyAsyncMethod(Reader, method);
+    }
+
+    /// <summary>
     /// Opens an assembly. Throws <see cref="BadImageFormatException"/> for files
     /// without managed metadata. <paramref name="externalPdbPath"/> is a portable
     /// PDB to use for source local names when the assembly carries no embedded
