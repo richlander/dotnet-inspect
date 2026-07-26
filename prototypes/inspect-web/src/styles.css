@@ -848,8 +848,12 @@ kbd {
 @keyframes spin { to { transform: rotate(360deg); } }
 .load-error { width: min(720px, 86vw); padding: 20px; border: 1px solid #6b4034; background: var(--panel); }
 .load-error strong { color: #ec967b; font: 13px var(--mono); }
-.load-error pre { max-height: 50vh; overflow: auto; color: var(--muted); font: 11px/1.6 var(--mono); white-space: pre-wrap; }
-.load-error button { height: 28px; padding: 0 12px; border: 1px solid var(--line-strong); background: var(--panel-active); font: 10px var(--mono); }
+.load-error-message { margin: 10px 0 14px; color: var(--text); font: 12px/1.6 var(--sans, inherit); }
+.load-error-query { display: flex; gap: 8px; margin-bottom: 12px; }
+.load-error-query input { flex: 1; height: 30px; padding: 0 10px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: 12px var(--mono); }
+.load-error-query button, .load-error-actions button { height: 30px; padding: 0 12px; border: 1px solid var(--line-strong); background: var(--panel-active); color: var(--text); font: 10px var(--mono); cursor: pointer; }
+.load-error-actions { display: flex; gap: 8px; }
+.load-error pre, .load-error-detail { max-height: 50vh; overflow: auto; margin-top: 12px; color: var(--muted); font: 11px/1.6 var(--mono); white-space: pre-wrap; }
 
 @media (max-width: 1050px) {
   .scope-stats, .asset-path { display: none; }

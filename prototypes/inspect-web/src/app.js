@@ -90,6 +90,8 @@ const state = {
   loading: true,
   loadingMessage: "Starting browser inspection engine…",
   error: "",
+  errorTitle: "",
+  errorDetail: "",
   diag: null
 };
 
@@ -844,8 +846,7 @@ function renderPackageDependencies() {
 
   const graphSection = `
     <section class="document-section">
-      <div class="section-title"><h2>Dependency graph</h2><span>callers above · dependencies below · up to 3 levels</span></div>
-      <p class="lens-note">Callers of <strong>${escapeHtml(state.package.id)}</strong> flow in from above and its <code>${escapeHtml(group.framework)}</code> dependencies flow out below, up to three levels each way. The neighbourhood grows as you open more packages. Click any dependency to open it in a new tab.</p>
+      <div class="section-title"><h2>Dependency graph</h2><span>callers above · dependencies below · click a package to open</span></div>
       <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
     </section>`;
 
@@ -2476,13 +2477,32 @@ async function share() {
   showToast("selection link copied");
 }
 
-function showToast(message) {
+function showToast(message, duration = 2200) {
   document.querySelector(".toast")?.remove();
   const toast = document.createElement("div");
   toast.className = "toast";
   toast.textContent = message;
   document.body.append(toast);
-  setTimeout(() => toast.remove(), 2200);
+  setTimeout(() => toast.remove(), duration);
+}
+
+// Turns a raw inspection failure into a friendly, actionable message. A mistyped package
+// name surfaces as a NuGet 404; call that out plainly instead of showing a stack trace.
+function friendlyLoadError(error, packageId, version) {
+  const raw = String(error?.message || error || "");
+  if (/\b404\b|not\s*found/i.test(raw)) {
+    const suffix = version && version !== "latest" ? `@${version}` : "";
+    return {
+      notFound: true,
+      title: "Package not found",
+      message: `Package “${packageId}${suffix}” wasn’t found on NuGet. Check the spelling — names are case-insensitive — and try again.`
+    };
+  }
+  return {
+    notFound: false,
+    title: "Inspection query failed",
+    message: `Couldn’t load “${packageId}”: ${raw || "unknown error"}`
+  };
 }
 
 async function copyText(value, confirmation) {
@@ -2499,10 +2519,35 @@ function renderLoading() {
     <div class="loading-screen">
       <div class="loading-brand"><span>◇</span> dotnet-inspect</div>
       ${state.error
-        ? `<div class="load-error"><strong>Inspection query failed</strong><pre>${escapeHtml(state.error)}</pre><button id="retry-load">retry</button></div>`
+        ? `<div class="load-error">
+             <strong>${escapeHtml(state.errorTitle || "Inspection query failed")}</strong>
+             <p class="load-error-message">${escapeHtml(state.error)}</p>
+             <form class="load-error-query" id="error-package-query">
+               <input id="error-package-input" placeholder="Package or Package@version" aria-label="Open a different NuGet package" autocomplete="off" spellcheck="false" value="${escapeHtml(state.requestedPackage || "")}" />
+               <button type="submit">open</button>
+             </form>
+             <div class="load-error-actions">
+               <button id="retry-load" type="button">retry</button>
+               ${state.errorDetail ? `<button id="toggle-error-detail" type="button">details</button>` : ""}
+             </div>
+             ${state.errorDetail ? `<pre class="load-error-detail" hidden>${escapeHtml(state.errorDetail)}</pre>` : ""}
+           </div>`
         : `<div class="load-progress"><span class="loader"></span><strong>${escapeHtml(state.loadingMessage)}</strong><small>${escapeHtml(state.requestedPackage)}@${escapeHtml(state.requestedVersion)} · ${escapeHtml(state.requestedFramework || "best framework")}</small></div>`}
     </div>`;
   document.querySelector("#retry-load")?.addEventListener("click", bootstrap);
+  document.querySelector("#error-package-query")?.addEventListener("submit", event => {
+    event.preventDefault();
+    const value = document.querySelector("#error-package-input").value.trim();
+    const separator = value.lastIndexOf("@");
+    if (!value || separator === value.length - 1) return;
+    const packageId = separator > 0 ? value.slice(0, separator) : value;
+    const version = separator > 0 ? value.slice(separator + 1) : "latest";
+    loadPackage(packageId, version, "");
+  });
+  document.querySelector("#toggle-error-detail")?.addEventListener("click", () => {
+    const pre = document.querySelector(".load-error-detail");
+    if (pre) pre.hidden = !pre.hidden;
+  });
 }
 
 async function loadSelectedMemberDocumentation() {
@@ -3505,6 +3550,12 @@ async function loadSelectedMemberFacts() {
 }
 
 async function loadPackage(packageId, version, framework) {
+  const prevPackage = state.package;
+  const prevRequested = {
+    package: state.requestedPackage,
+    version: state.requestedVersion,
+    framework: state.requestedFramework
+  };
   state.loading = true;
   state.error = "";
   state.requestedPackage = packageId;
@@ -3556,8 +3607,24 @@ async function loadPackage(packageId, version, framework) {
     return packageModel;
   } catch (error) {
     state.loading = false;
-    state.error = String(error?.stack || error);
-    render();
+    const friendly = friendlyLoadError(error, packageId, version);
+    if (prevPackage) {
+      // A failed *new* query must not blow away an already-open workbench and trap the user
+      // on a full-screen error. Keep them in their current package and restore the requested
+      // identity (so URL/retry stay pinned to the good package); surface a dismissible toast.
+      state.package = prevPackage;
+      state.requestedPackage = prevRequested.package;
+      state.requestedVersion = prevRequested.version;
+      state.requestedFramework = prevRequested.framework;
+      state.error = "";
+      render();
+      showToast(friendly.message, 5000);
+    } else {
+      state.error = friendly.message;
+      state.errorTitle = friendly.title;
+      state.errorDetail = String(error?.stack || error);
+      render();
+    }
     return null;
   }
 }
@@ -3624,7 +3691,9 @@ async function bootstrap() {
     render();
   } catch (error) {
     state.loading = false;
-    state.error = String(error?.stack || error);
+    state.error = "Couldn’t start the inspection engine. Retry, or open a different package.";
+    state.errorTitle = "Startup failed";
+    state.errorDetail = String(error?.stack || error);
     render();
   }
 }
