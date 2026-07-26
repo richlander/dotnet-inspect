@@ -34,4 +34,29 @@ public static class FindOutputFormatter
             )).ToList()
         };
     }
+
+    /// <summary>
+    /// Builds a unified member view from raw member-search results. Works with both table and Markdown
+    /// formatters. The declaring type's full name is shown in the Type column.
+    /// </summary>
+    public static FindMembersResultView BuildMemberView(
+        List<MemberFindResult> results,
+        string? title = null)
+    {
+        return new FindMembersResultView
+        {
+            Title = title ?? "Find Members",
+            Matches = results.Count,
+            Description = results.Count == 0 ? "No members found matching the pattern." : null,
+            Results = results.Count == 0 ? null : results.Select(r => new FindMemberRow(
+                r.Pattern,
+                r.Member,
+                r.Kind,
+                r.DeclaringType,
+                r.Signature ?? "",
+                r.Library,
+                SourceColumn.Format(r.Source, r.SourceVersion)
+            )).ToList()
+        };
+    }
 }

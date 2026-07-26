@@ -54,6 +54,13 @@ public record FindOptions : IAssemblySourceOptions
     public bool IncludeAll { get; init; }
 
     /// <summary>
+    /// Search member names instead of type names (the <c>--members</c> lens). Auto-enabled when the
+    /// positional pattern starts with <c>.</c> (e.g. <c>.Serialize</c>), an unambiguous sentinel since
+    /// no valid type or namespace name starts with a dot.
+    /// </summary>
+    public bool Members { get; init; }
+
+    /// <summary>
     /// Limit number of results.
     /// </summary>
     public int? Limit { get; init; }

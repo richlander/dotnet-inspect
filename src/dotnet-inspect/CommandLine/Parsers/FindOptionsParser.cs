@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspector.Commands;
+using DotnetInspector.Inspectors;
 using DotnetInspector.Options;
 using DotnetInspector.Output;
 using DotnetInspector.Services;
@@ -32,7 +33,8 @@ public static class FindOptionsParser
         Option<string?> TypeFilterOption,
         Option<bool> CompactOption,
         Option<bool> NoHeaderOption,
-        Option<string?> PackagePrefixOption);
+        Option<string?> PackagePrefixOption,
+        Option<bool> MembersOption);
 
     /// <summary>
     /// Result of parsing find command options.
@@ -93,6 +95,9 @@ public static class FindOptionsParser
             BinPaths = binPaths,
             Tfm = parseResult.GetValue(args.TfmOption),
             IncludeAll = parseResult.GetValue(args.AllOption),
+            // Member lens: explicit --members, or auto-enabled by a leading '.' sentinel (e.g. .Serialize).
+            // No valid type/namespace starts with '.', so the shortcut is unambiguous.
+            Members = parseResult.GetValue(args.MembersOption) || pattern!.StartsWith('.'),
             Limit = CommandLineHelpers.ParseTypeLimit(parseResult.GetValue(args.TypeFilterOption)),
             Rows = opts.ParseRows(parseResult),
             Count = parseResult.GetValue(opts.Count),
@@ -124,6 +129,12 @@ public static class FindOptionsParser
     /// </summary>
     public static List<Tip> BuildTips(FindOptions options, string? pattern)
     {
+        // In member mode, canonicalize the displayed pattern (strip the leading '.' sentinel per
+        // segment, preserving .ctor/.cctor) and append --members so following a tip stays in the
+        // member lens and the explicit-flag and leading-dot forms yield identical tips.
+        var tipPattern = options.Members ? MemberTipPattern(pattern) : pattern;
+        var memberFlag = options.Members ? " --members" : "";
+
         var pkg = options.Packages.Length > 0 ? options.Packages[0] : null;
         if (pkg != null)
         {
@@ -135,16 +146,34 @@ public static class FindOptionsParser
             return
             [
                 new(MemberCommand.Name, $"<TypeName> {pinnedSourceFlag} --library <LibraryName>", "inspect the type you found"),
-                new(FindCommand.Name, $"{pattern} {sourceFlag} --table", "compact output"),
-                new(FindCommand.Name, $"{pattern} {sourceFlag} -v:d", "detailed results")
+                new(FindCommand.Name, $"{tipPattern} {sourceFlag}{memberFlag} --table", "compact output"),
+                new(FindCommand.Name, $"{tipPattern} {sourceFlag}{memberFlag} -v:d", "detailed results")
             ];
         }
 
         return
         [
             new(MemberCommand.Name, "<TypeName> --platform <LibraryName>", "inspect the type you found"),
-            new(FindCommand.Name, $"{pattern} --platform --table", "compact output"),
-            new(FindCommand.Name, $"{pattern} --platform -v:d", "detailed results")
+            new(FindCommand.Name, $"{tipPattern} --platform{memberFlag} --table", "compact output"),
+            new(FindCommand.Name, $"{tipPattern} --platform{memberFlag} -v:d", "detailed results")
         ];
+    }
+
+    /// <summary>
+    /// Canonicalizes a member-lens pattern for tip display: strips the leading '.' sentinel from each
+    /// comma segment (preserving .ctor/.cctor) so tips match the search actually performed.
+    /// </summary>
+    private static string? MemberTipPattern(string? pattern)
+    {
+        if (string.IsNullOrEmpty(pattern))
+            return pattern;
+
+        var segments = pattern
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(MemberPatternSentinel.Strip)
+            .Where(p => p.Length > 0)
+            .ToArray();
+
+        return segments.Length == 0 ? pattern : string.Join(",", segments);
     }
 }

@@ -178,6 +178,14 @@ internal partial class PackageSearchJsonlContext : JsonSerializerContext { }
 [JsonSerializable(typeof(TypeFindResult))]
 internal partial class TypeFindResultJsonlContext : JsonSerializerContext { }
 
+// MemberFindResult JSONL context (one compact object per line)
+[JsonSourceGenerationOptions(
+    WriteIndented = false,
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+[JsonSerializable(typeof(MemberFindResult))]
+internal partial class MemberFindResultJsonlContext : JsonSerializerContext { }
+
 static class JsonOutputHelper
 {
     public static void Write<T>(T data, JsonTypeInfo<T> indented, JsonTypeInfo<T> compact, bool useCompact)

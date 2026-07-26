@@ -271,41 +271,6 @@ internal static class TypeSearchService
 
         bool ReachedLimit() => pattern != null && options.Limit.HasValue && results.Count >= options.Limit.Value;
 
-        AssemblySetRequest CreateFindRequest(
-            IReadOnlyList<string>? packages = null,
-            IReadOnlyList<string>? assemblies = null,
-            IReadOnlyList<string>? platformAssemblies = null,
-            IReadOnlyList<string>? platformFrameworks = null,
-            IReadOnlyList<string>? projects = null,
-            IReadOnlyList<string>? directories = null)
-        {
-            return new AssemblySetRequest
-            {
-                Packages = packages ?? options.Packages,
-                Assemblies = assemblies ?? options.Assemblies,
-                PlatformAssemblies = platformAssemblies ?? options.PlatformAssemblies,
-                PlatformFrameworks = platformFrameworks ?? options.PlatformFrameworks,
-                Projects = projects ?? options.Projects,
-                Directories = directories ?? options.BinPaths,
-                Tfm = options.Tfm,
-                SourceOptions = options.SourceOptions,
-                TempDirPrefix = "inspect-find",
-                PlatformAssemblyFrameworkHint = options.PlatformFrameworks.Length > 0
-                    ? options.PlatformFrameworks[0]
-                    : null,
-                IncludePackageRuntimeAssemblies = true,
-                SourceOrder =
-                [
-                    AssemblySetSourceKind.Package,
-                    AssemblySetSourceKind.Assembly,
-                    AssemblySetSourceKind.PlatformAssembly,
-                    AssemblySetSourceKind.PlatformFramework,
-                    AssemblySetSourceKind.Project,
-                    AssemblySetSourceKind.Directory,
-                ],
-            };
-        }
-
         async Task CollectAndScanAsync(AssemblySetRequest request)
         {
             using var assemblySet = await AssemblySetResolver.CollectAsync(httpClient, request, logger.Log);
@@ -341,83 +306,11 @@ internal static class TypeSearchService
 
         if (pattern != null && options.Limit.HasValue)
         {
-            foreach (var package in options.Packages)
-            {
-                if (ReachedLimit()) break;
-                await CollectAndScanAsync(CreateFindRequest(
-                    packages: [package],
-                    assemblies: [],
-                    platformAssemblies: [],
-                    platformFrameworks: [],
-                    projects: [],
-                    directories: []));
-            }
-
-            foreach (var assembly in options.Assemblies)
-            {
-                if (ReachedLimit()) break;
-                await CollectAndScanAsync(CreateFindRequest(
-                    packages: [],
-                    assemblies: [assembly],
-                    platformAssemblies: [],
-                    platformFrameworks: [],
-                    projects: [],
-                    directories: []));
-            }
-
-            foreach (var platformAssembly in options.PlatformAssemblies)
-            {
-                if (ReachedLimit()) break;
-                await CollectAndScanAsync(CreateFindRequest(
-                    packages: [],
-                    assemblies: [],
-                    platformAssemblies: [platformAssembly],
-                    platformFrameworks: [],
-                    projects: [],
-                    directories: []));
-            }
-
-            foreach (var framework in options.PlatformFrameworks)
-            {
-                if (ReachedLimit()) break;
-                await CollectAndScanAsync(CreateFindRequest(
-                    packages: [],
-                    assemblies: [],
-                    platformAssemblies: [],
-                    platformFrameworks: [framework],
-                    projects: [],
-                    directories: []));
-            }
-
-            foreach (var project in options.Projects)
-            {
-                if (ReachedLimit()) break;
-                await CollectAndScanAsync(CreateFindRequest(
-                    packages: [],
-                    assemblies: [],
-                    platformAssemblies: [],
-                    platformFrameworks: [],
-                    projects: [project],
-                    directories: []));
-            }
-
-            foreach (var directory in options.BinPaths)
-            {
-                if (ReachedLimit()) break;
-                await CollectAndScanAsync(CreateFindRequest(
-                    packages: [],
-                    assemblies: [],
-                    platformAssemblies: [],
-                    platformFrameworks: [],
-                    projects: [],
-                    directories: [directory]));
-            }
-
+            await FindSourceCollector.StreamSourcesAsync(options, ReachedLimit, CollectAndScanAsync);
             return results;
         }
 
-        var request = CreateFindRequest();
-        await CollectAndScanAsync(request);
+        await CollectAndScanAsync(FindSourceCollector.BuildFindRequest(options));
         return results;
     }
 }

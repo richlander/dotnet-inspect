@@ -33,3 +33,18 @@ public class FindJsonWriter : IResultWriter<TypeFindResult>
         }
     }
 }
+
+/// <summary>
+/// JSONL writer for member-search results. One compact JSON object per line (streaming-friendly).
+/// Uses source-generated JSON context for AOT compatibility.
+/// </summary>
+public class MemberFindJsonWriter : IResultWriter<MemberFindResult>
+{
+    public void Write(IReadOnlyList<MemberFindResult> results, WriterOptions options, TextWriter output)
+    {
+        foreach (var result in results)
+        {
+            output.WriteLine(JsonSerializer.Serialize(result, MemberFindResultJsonlContext.Default.MemberFindResult));
+        }
+    }
+}
