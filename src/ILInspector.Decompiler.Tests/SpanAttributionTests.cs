@@ -115,10 +115,69 @@ public class SpanAttributionTests
     }
 
     [Fact]
-    public void DecompiledBodyIsolated_TrueWhenAuthoredBodyCleanButDecompiledBodyErrors()
+    public void DecompiledBodyIsolated_TrueWhenDecompiledBodyHasSyntaxError()
     {
         // Broken shell (undefined Shell symbol outside every body) makes both
-        // compiles fail, but only the decompiled body carries an in-body error.
+        // compiles fail, but the decompiled body carries a SYNTAX error — the
+        // decompiler emitted body text that does not parse, which no shell state
+        // can cause. This is a sound, shell-independent attribution.
+        const string decompiled = """
+            class C
+            {
+                int M() { int x = ; return 0; }
+                int Filler = Shell.Broken;
+            }
+            """;
+        const string authored = """
+            class C
+            {
+                int M() { return 42; }
+                int Filler = Shell.Broken;
+            }
+            """;
+
+        bool isolated = SpanAttribution.DecompiledBodyIsolatedUnderBrokenShell(
+            decompiled, Compile(decompiled), authored, Compile(authored), Method("C", "M", 0));
+
+        Assert.True(isolated);
+    }
+
+    [Fact]
+    public void DecompiledBodyIsolated_TrueWhenDecompiledBodyHasIntrinsicSemanticError()
+    {
+        // CS0165 (use of unassigned local) depends only on the body's own locals
+        // and control flow — never a shell member — so it is a sound attribution
+        // even though the shell is broken.
+        const string decompiled = """
+            class C
+            {
+                int M() { int x; return x; }
+                int Filler = Shell.Broken;
+            }
+            """;
+        const string authored = """
+            class C
+            {
+                int M() { return 42; }
+                int Filler = Shell.Broken;
+            }
+            """;
+
+        bool isolated = SpanAttribution.DecompiledBodyIsolatedUnderBrokenShell(
+            decompiled, Compile(decompiled), authored, Compile(authored), Method("C", "M", 0));
+
+        Assert.True(isolated);
+    }
+
+    [Fact]
+    public void DecompiledBodyIsolated_FalseWhenDecompiledBodyHasOnlyResolutionError()
+    {
+        // Close negative (PR #3231 adversarial review). A broken shell reconstructor
+        // that fails to synthesize a compiler-generated member the decompiled body
+        // references produces an in-body CS0103/CS0246 identical to a real body
+        // defect. The authored body uses high-level syntax and never names that
+        // member, so it stays clean. Crediting this would break the lower-bound
+        // guarantee, so the sound rule must DECLINE it.
         const string decompiled = """
             class C
             {
@@ -137,7 +196,7 @@ public class SpanAttributionTests
         bool isolated = SpanAttribution.DecompiledBodyIsolatedUnderBrokenShell(
             decompiled, Compile(decompiled), authored, Compile(authored), Method("C", "M", 0));
 
-        Assert.True(isolated);
+        Assert.False(isolated);
     }
 
     [Fact]

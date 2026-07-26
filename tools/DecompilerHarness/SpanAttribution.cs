@@ -46,17 +46,26 @@ internal static class SpanAttribution
         int ParameterCount,
         TargetMemberKind Kind);
 
+    // Error codes that are provably intrinsic to the decompiled body itself and
+    // cannot be induced by a broken or incomplete reconstructed shell: they
+    // concern only the body's own local variables and control flow, never a
+    // shell-provided member, type, or reference. Resolution errors
+    // (CS0103/CS0246/CS1061/CS0234/CS1069/...) and conversion/overload/shape
+    // errors are deliberately excluded because a shell-reconstruction miss
+    // produces them identically to a genuine decompiler body defect, which would
+    // break the lower-bound guarantee (see adversarial review of PR #3231).
+    static readonly ImmutableHashSet<string> BodyIntrinsicSemanticErrorIds =
+        ImmutableHashSet.Create(
+            StringComparer.Ordinal,
+            "CS0128",  // duplicate local variable name (body-internal)
+            "CS0165"); // use of unassigned local variable (body-internal dataflow)
+
     /// <summary>
     /// Sound refinement of the substitution oracle for the case where the
     /// authored body also failed to compile (shell broken). Returns true only
-    /// when the authored body is provably error-free within its own body span
-    /// yet the decompiled body carries at least one in-body error: the shell
-    /// then demonstrably does not force a body-region error, so the decompiled
-    /// body's in-body errors are attributable to the decompiler.
-    ///
-    /// If either body span cannot be uniquely located the method returns false
-    /// (the caller keeps the existing <c>ShellOrClosureDefect</c> classification);
-    /// it never fabricates a body defect.
+    /// when <see cref="IsolatingBodyError"/> finds a provably shell-independent
+    /// in-body error attributable to the decompiler; it never fabricates a body
+    /// defect.
     /// </summary>
     internal static bool DecompiledBodyIsolatedUnderBrokenShell(
         string decompiledSource,
@@ -64,17 +73,99 @@ internal static class SpanAttribution
         string authoredSource,
         ImmutableArray<Diagnostic> authoredDiagnostics,
         TargetIdentity identity)
+        => IsolatingBodyError(
+            decompiledSource,
+            decompiledDiagnostics,
+            authoredSource,
+            authoredDiagnostics,
+            identity) is not null;
+
+    /// <summary>
+    /// Returns the decompiled in-body diagnostic that soundly attributes the
+    /// recompile failure to the decompiler, or null when no sound attribution is
+    /// possible (the caller then keeps <c>ShellOrClosureDefect</c>).
+    ///
+    /// Soundness rule (default-deny). The authored body must be error-free within
+    /// its own span (the substitution control), and the decompiled body must
+    /// carry at least one in-body error that is provably <em>shell-independent</em>:
+    /// either a syntax/parser error — the decompiler emitted body text that does
+    /// not parse, which no shell state can cause — or a body-intrinsic semantic
+    /// error over the body's own locals/control flow (see
+    /// <see cref="BodyIntrinsicSemanticErrorIds"/>). Context-dependent errors
+    /// (unresolved names/types/members, conversions, overloads) are never credited
+    /// because a broken shell reconstructor produces them identically to a real
+    /// body defect. If either body span cannot be uniquely located, returns null.
+    /// </summary>
+    internal static Diagnostic? IsolatingBodyError(
+        string decompiledSource,
+        ImmutableArray<Diagnostic> decompiledDiagnostics,
+        string authoredSource,
+        ImmutableArray<Diagnostic> authoredDiagnostics,
+        TargetIdentity identity)
     {
         if (TryLocateBodySpan(decompiledSource, identity) is not { } decompiledBody)
-            return false;
+            return null;
         if (TryLocateBodySpan(authoredSource, identity) is not { } authoredBody)
-            return false;
+            return null;
 
-        int authoredInBody = CountErrorsInSpan(authoredDiagnostics, authoredBody);
-        if (authoredInBody != 0)
-            return false;
+        // Substitution control: the authored body must be clean within its own
+        // span. If a broken shell also breaks the authored body span we decline
+        // (a conservative false negative that keeps the count a lower bound).
+        if (CountErrorsInSpan(authoredDiagnostics, authoredBody) != 0)
+            return null;
 
-        return CountErrorsInSpan(decompiledDiagnostics, decompiledBody) > 0;
+        // Shell-independent syntax error: the decompiled body text does not parse.
+        if (FirstSyntaxErrorInSpan(decompiledSource, decompiledBody) is { } syntaxError)
+            return syntaxError;
+
+        // Shell-independent body-intrinsic semantic error (locals/control flow).
+        foreach (var diagnostic in decompiledDiagnostics)
+        {
+            if (diagnostic.Severity != DiagnosticSeverity.Error)
+                continue;
+            if (!BodyIntrinsicSemanticErrorIds.Contains(diagnostic.Id))
+                continue;
+            var location = diagnostic.Location;
+            if (location.Kind != LocationKind.SourceFile)
+                continue;
+            if (decompiledBody.IntersectsWith(location.SourceSpan))
+                return diagnostic;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Returns the first Error-severity <em>syntactic</em> diagnostic whose span
+    /// intersects <paramref name="bodySpan"/>, or null. Uses
+    /// <see cref="SyntaxTree.GetDiagnostics()"/>, which reports only parser/lexer
+    /// diagnostics, so a hit proves the decompiled body text is unparseable
+    /// regardless of any shell state.
+    /// </summary>
+    static Diagnostic? FirstSyntaxErrorInSpan(string source, TextSpan bodySpan)
+    {
+        SyntaxTree tree;
+        try
+        {
+            tree = CSharpSyntaxTree.ParseText(source);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+
+        foreach (var diagnostic in tree.GetDiagnostics())
+        {
+            if (diagnostic.Severity != DiagnosticSeverity.Error)
+                continue;
+            var location = diagnostic.Location;
+            if (location.Kind != LocationKind.SourceFile)
+                continue;
+            if (bodySpan.IntersectsWith(location.SourceSpan))
+                return diagnostic;
+        }
+
+        return null;
     }
 
     static int CountErrorsInSpan(ImmutableArray<Diagnostic> diagnostics, TextSpan bodySpan)

@@ -1675,7 +1675,15 @@ static class ReturnToSender
                 ? compilationResult.FirstError
                 : compilationResult.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
                     ?? compilationResult.FirstError;
-            var faultIsolation = TryIsolateRecompileFailure(sourceResult.Request, unit, compilationResult.Diagnostics, sourceIndex, parseOptions, compileOptions, references);
+            var faultIsolation = TryIsolateRecompileFailure(
+                sourceResult.Request,
+                unit,
+                compilationResult.Diagnostics,
+                spanAttributionEligible: compilationResult.Status != RoundTripCompilationStatus.IterationBudget,
+                sourceIndex,
+                parseOptions,
+                compileOptions,
+                references);
             return new Result(
                 plan,
                 unit,
@@ -2139,6 +2147,7 @@ static class ReturnToSender
         ArtifactRequest request,
         string decompiledSource,
         ImmutableArray<Diagnostic> decompiledDiagnostics,
+        bool spanAttributionEligible,
         ReturnToSenderSourceIndex? sourceIndex,
         CSharpParseOptions parseOptions,
         CSharpCompilationOptions compileOptions,
@@ -2175,24 +2184,24 @@ static class ReturnToSender
             }
 
             // Shell is broken: the substitution control is blind. Recover the
-            // additional signal by span attribution — if the authored body is
-            // error-free within its own body span yet the decompiled body carries
-            // an in-body error, the shell demonstrably does not force a body-region
-            // error and the decompiled body's in-body error is its own fault.
-            if (BuildTargetIdentity(request) is { } identity
-                && SpanAttribution.DecompiledBodyIsolatedUnderBrokenShell(
+            // additional signal by span attribution — but only credit a body
+            // defect for a provably shell-independent in-body error (syntax or
+            // body-intrinsic semantic), and only when the diagnostics match the
+            // decompiled source (not the IterationBudget path, where the returned
+            // source and diagnostics come from different compose iterations).
+            if (spanAttributionEligible
+                && BuildTargetIdentity(request) is { } identity
+                && SpanAttribution.IsolatingBodyError(
                     decompiledSource,
                     decompiledDiagnostics,
                     authoredArtifact.Source,
                     emit.Diagnostics,
-                    identity))
+                    identity) is { } isolatingError)
             {
-                var decompiledError = decompiledDiagnostics.FirstOrDefault(
-                    diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
                 return new FaultIsolationResult(
                     FaultIsolationKind.BodyDefect,
                     sourceMember.SourcePath,
-                    $"span-measured: decompiled body error absent from authored body ({FormatDiagnostic(decompiledError)})")
+                    $"span-measured: shell-independent decompiled body error absent from authored body ({FormatDiagnostic(isolatingError)})")
                 {
                     Method = FaultIsolationMethod.SpanMeasured,
                 };
