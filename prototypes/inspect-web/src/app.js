@@ -1034,14 +1034,30 @@ function renderPackageDependencies() {
   const selector = `
     <section class="document-section">
       <div class="section-title"><h2>Target frameworks</h2><span>one framework at a time</span></div>
-      <div class="type-chip-list">${selectorChips}</div>
+      <div class="type-chip-list" id="dep-tfm-chips">${selectorChips}</div>
     </section>`;
 
   const group = groups.find(candidate => candidate.framework === selectedTfm) || groups[0];
+  const depList = dependencyListSectionHtml(groups, selectedTfm);
+
+  const graphSection = `
+    <section class="document-section">
+      <div class="section-title"><h2>Dependency graph</h2><span>callers above · dependencies below · click a package to open</span></div>
+      <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
+    </section>`;
+
+  return `${selector}${graphSection}${depList}`;
+}
+
+// The NuGet dependency list for the selected TFM. Extracted so a framework switch can
+// replace just this section in place instead of re-rendering the whole page (which would
+// reset the dependency graph container to its loader and flash the diagram).
+function dependencyListSectionHtml(groups, selectedTfm) {
+  const group = groups.find(candidate => candidate.framework === selectedTfm) || groups[0];
   const deps = group.dependencies || [];
   const openIds = new Set(state.packages.map(item => item.id.toLowerCase()));
-  const depList = `
-    <section class="document-section">
+  return `
+    <section class="document-section" id="dep-list-section">
       <div class="section-title"><h2>NuGet dependencies</h2><span>${escapeHtml(group.framework)} · ${deps.length} package${deps.length === 1 ? "" : "s"}</span></div>
       ${deps.length
         ? `<ul class="dep-list">${deps.map(dependency => {
@@ -1053,14 +1069,30 @@ function renderPackageDependencies() {
           }).join("")}</ul>`
         : `<div class="empty-list">No package dependencies declared for ${escapeHtml(group.framework)}.</div>`}
     </section>`;
+}
 
-  const graphSection = `
-    <section class="document-section">
-      <div class="section-title"><h2>Dependency graph</h2><span>callers above · dependencies below · click a package to open</span></div>
-      <div id="dependency-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
-    </section>`;
+// Switch the dependency lens to a different target framework without a full page render:
+// toggle the active chip, swap the dependency list in place, and let renderDependencyGraph
+// swap the diagram (it keeps the old SVG until the new one is ready, so no loader flash).
+function patchDependenciesFramework() {
+  const groups = state.packageDependencies?.dependencyGroups || [];
+  const listSection = document.querySelector("#dep-list-section");
+  if (!groups.length || !listSection) { render(); return; }
+  const selectedTfm = resolveDependenciesFramework(groups);
+  document.querySelectorAll("#dep-tfm-chips [data-dep-framework]").forEach(button =>
+    button.classList.toggle("active", button.dataset.depFramework === selectedTfm));
+  listSection.outerHTML = dependencyListSectionHtml(groups, selectedTfm);
+  bindDependencyListHandlers();
+  renderDependencyGraph();
+}
 
-  return `${selector}${graphSection}${depList}`;
+function bindDependencyListHandlers() {
+  document.querySelectorAll("[data-dep-open]").forEach(button => {
+    button.onclick = () => switchToPackageForDependencies(button.dataset.depOpen);
+  });
+  document.querySelectorAll("[data-dep-load]").forEach(button => {
+    button.onclick = () => openDependencyPackage(button.dataset.depLoad, button.dataset.depVersion || "");
+  });
 }
 
 // Orders target-framework monikers: modern .NET (net with a dotted version) first,
@@ -1954,15 +1986,11 @@ function bindEvents() {
     loadPackage(state.package.id, state.package.version, button.dataset.frameworkChip);
   }));
   document.querySelectorAll("[data-dep-framework]").forEach(button => button.addEventListener("click", () => {
+    if (state.dependenciesFramework === button.dataset.depFramework) return;
     state.dependenciesFramework = button.dataset.depFramework;
-    render();
+    patchDependenciesFramework();
   }));
-  document.querySelectorAll("[data-dep-open]").forEach(button => button.addEventListener("click", () => {
-    switchToPackageForDependencies(button.dataset.depOpen);
-  }));
-  document.querySelectorAll("[data-dep-load]").forEach(button => button.addEventListener("click", () => {
-    openDependencyPackage(button.dataset.depLoad, button.dataset.depVersion || "");
-  }));
+  bindDependencyListHandlers();
   document.querySelectorAll("[data-kind-jump]").forEach(button => button.addEventListener("click", () => {
     state.atPackageRoot = false;
     state.kindFilter = button.dataset.kindJump;
