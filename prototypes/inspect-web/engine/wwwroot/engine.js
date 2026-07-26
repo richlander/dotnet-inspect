@@ -3,6 +3,7 @@ import { dotnet } from "./_framework/dotnet.js";
 let queryPackage;
 let queryMemberSource;
 let queryMemberAnnotatedSource;
+let queryTypeProjection;
 let queryTypeMemberSource;
 let queryTypeSource;
 let queryMemberCallGraph;
@@ -19,6 +20,7 @@ export async function initializeEngine(onStatus = () => {}) {
   queryPackage = exports.BrowserInspectionEngine.QueryPackage;
   queryMemberSource = exports.BrowserInspectionEngine.QueryMemberSource;
   queryMemberAnnotatedSource = exports.BrowserInspectionEngine.QueryMemberAnnotatedSource;
+  queryTypeProjection = exports.BrowserInspectionEngine.QueryTypeProjection;
   queryTypeMemberSource = exports.BrowserInspectionEngine.QueryTypeMemberSource;
   queryTypeSource = exports.BrowserInspectionEngine.QueryTypeSource;
   queryMemberCallGraph = exports.BrowserInspectionEngine.QueryMemberCallGraph;
@@ -74,6 +76,17 @@ export async function inspectTypeMemberSource(request) {
     request.type,
     request.member,
     request.styleOptionsJson ?? "[]");
+  return JSON.parse(json);
+}
+
+export async function inspectTypeProjection(request) {
+  if (!queryTypeProjection) throw new Error("The browser inspection engine is not initialized.");
+  const json = await queryTypeProjection(
+    request.packageId,
+    request.version,
+    request.framework,
+    request.assembly,
+    request.type);
   return JSON.parse(json);
 }
 

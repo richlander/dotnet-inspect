@@ -1,5 +1,5 @@
 import { lenses, rootCommands } from "./data.js";
-import { initializeEngine, inspectListStyleOptions, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectSearchTypes, inspectTypeMemberSource, inspectTypeSource } from "/engine.js";
+import { initializeEngine, inspectListStyleOptions, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
 
 function loadStoredTaste() {
   try {
@@ -34,6 +34,10 @@ const state = {
   typeSourceLoading: false,
   typeSourceError: "",
   typeSourceKey: "",
+  typeMetadata: null,
+  typeMetadataLoading: false,
+  typeMetadataError: "",
+  typeMetadataKey: "",
   memberCallGraph: null,
   memberCallGraphLoading: false,
   memberCallGraphError: "",
@@ -563,6 +567,7 @@ function render() {
   recordNav();
   syncUrl();
   maybeAutoLoadTypeSource();
+  maybeAutoLoadTypeMetadata();
 }
 
 function maybeAutoLoadTypeSource() {
@@ -572,6 +577,18 @@ function maybeAutoLoadTypeSource() {
   const signature = typeSourceSignature(type);
   if (state.typeSourceKey === signature) return;
   loadSelectedTypeSource();
+}
+
+function maybeAutoLoadTypeMetadata() {
+  if (state.lens !== "metadata") return;
+  const type = selectedType();
+  if (!type) return;
+  const signature = typeMetadataSignature(type);
+  if (state.typeMetadataKey === signature) {
+    if (state.typeMetadata?.graphNodes?.length > 1) renderTypeGraph();
+    return;
+  }
+  loadSelectedTypeMetadata();
 }
 
 function renderNavPane(current, visible) {
@@ -671,18 +688,7 @@ function renderLens(item) {
       ${renderTypeSource(item)}`;
   }
   if (state.lens === "metadata") {
-    return `${typeHeading(item)}
-      <section class="document-section">
-        <div class="section-title"><h2>Type definition</h2><span>ECMA-335 metadata</span></div>
-        ${factRows([
-          ["Signature", item.signature],
-          ["Kind", item.kind],
-          ["Accessibility", item.accessibility],
-          ["Namespace", item.namespace],
-          ["Assembly", item.assembly],
-          ["Declared public members", String(item.members)]
-        ])}
-      </section>`;
+    return `${typeHeading(item)}${renderTypeMetadata(item)}`;
   }
   if (state.lens === "findings") {
     return `${typeHeading(item)}
@@ -946,6 +952,134 @@ function factRows(rows) {
   return `<dl class="fact-rows">${rows.map(([key, value]) => `<div><dt>${escapeHtml(key)}</dt><dd><code>${escapeHtml(value)}</code></dd></div>`).join("")}</dl>`;
 }
 
+function typeMetadataSignature(item) {
+  return `${state.package.id}@${state.package.version}/${state.package.activeFramework}/${item.assembly}/${item.id}`;
+}
+
+const COMPOSITION_KINDS = [
+  ["methods", "Methods"],
+  ["properties", "Properties"],
+  ["fields", "Fields"],
+  ["events", "Events"],
+  ["constructors", "Constructors"],
+  ["operators", "Operators"],
+  ["extensionMethods", "Extension methods"],
+  ["explicitInterfaceImplementations", "Explicit impls"]
+];
+
+const COMPOSITION_FLAGS = [
+  ["static", "static"],
+  ["unsafe", "unsafe"],
+  ["async", "async"],
+  ["virtual", "virtual"],
+  ["abstract", "abstract"],
+  ["override", "override"],
+  ["extension", "extension"],
+  ["obsolete", "obsolete"]
+];
+
+function renderCompositionGrid(composition) {
+  const kinds = COMPOSITION_KINDS
+    .filter(([key]) => composition[key] > 0)
+    .map(([key, label]) => `<div class="count-cell"><strong>${composition[key]}</strong><span>${label}</span></div>`)
+    .join("");
+  const flags = COMPOSITION_FLAGS
+    .filter(([key]) => composition[key] > 0)
+    .map(([key, label]) => `<span class="count-flag flag-${key}">${composition[key]} ${label}</span>`)
+    .join("");
+  return `
+    <div class="composition-grid">${kinds || '<div class="count-cell"><strong>0</strong><span>members</span></div>'}</div>
+    ${flags ? `<div class="composition-flags">${flags}</div>` : ""}`;
+}
+
+function renderTypeMetadata(item) {
+  const current = typeMetadataSignature(item);
+  const fresh = state.typeMetadataKey === current;
+  if (state.typeMetadataLoading && fresh) {
+    return `<section class="document-section source-progress"><span class="loader"></span><h2>Projecting type metadata…</h2><p>Composing type facts through the shared dotnet-inspect projection.</p></section>`;
+  }
+  if (fresh && state.typeMetadataError) {
+    return `<section class="document-section empty-document"><span class="large-glyph">⌁</span><h2>Metadata projection failed</h2><p>${escapeHtml(state.typeMetadataError)}</p></section>`;
+  }
+  const meta = fresh ? state.typeMetadata : null;
+  if (!meta) {
+    return `<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
+  }
+
+  const shape = [
+    ["Kind", [...(meta.modifiers || []), meta.kind].join(" ")],
+    ["Accessibility", meta.accessibility || "public"],
+    ["Namespace", meta.namespace || "global"],
+    ["Assembly", meta.assembly || item.assembly]
+  ];
+  if (meta.baseType) shape.push(["Base type", meta.baseType]);
+  if (meta.enumUnderlyingType) shape.push(["Enum underlying", meta.enumUnderlyingType]);
+  if (meta.typeParameters?.length) {
+    shape.push(["Type parameters", meta.typeParameters
+      .map(parameter => `${parameter.variance ? parameter.variance + " " : ""}${parameter.name}${parameter.constraints?.length ? ` : ${parameter.constraints.join(", ")}` : ""}`)
+      .join(" · ")]);
+  }
+
+  const interfaces = (meta.interfaces || []).length
+    ? `<section class="document-section">
+        <div class="section-title"><h2>Implements</h2><span>${meta.interfaces.length} interface${meta.interfaces.length === 1 ? "" : "s"}</span></div>
+        <div class="type-chip-list">${meta.interfaces.map(name => `<button class="type-chip" data-graph-type="${escapeHtml(name)}" title="${escapeHtml(name)}">${escapeHtml(shortTypeName(name))}</button>`).join("")}</div>
+      </section>`
+    : "";
+
+  const derived = (meta.derivedTypes || []).length
+    ? `<section class="document-section">
+        <div class="section-title"><h2>Known derived types</h2><span>${meta.derivedTypes.length} in ${escapeHtml(meta.assembly || item.assembly)}</span></div>
+        <div class="type-chip-list">${meta.derivedTypes.map(name => `<button class="type-chip" data-graph-type="${escapeHtml(name)}" title="${escapeHtml(name)}">${escapeHtml(shortTypeName(name))}</button>`).join("")}</div>
+      </section>`
+    : "";
+
+  const attributes = (meta.attributes || []).length
+    ? `<section class="document-section">
+        <div class="section-title"><h2>Custom attributes</h2><span>${meta.attributes.length}</span></div>
+        <div class="type-chip-list">${meta.attributes.map(name => `<code class="attr-chip">[${escapeHtml(name)}]</code>`).join("")}</div>
+      </section>`
+    : "";
+
+  const composition = meta.composition
+    ? `<section class="document-section">
+        <div class="section-title"><h2>Composition</h2><span>${meta.composition.total} member${meta.composition.total === 1 ? "" : "s"}</span></div>
+        ${renderCompositionGrid(meta.composition)}
+      </section>`
+    : "";
+
+  const graph = (meta.graphNodes || []).length > 1
+    ? `<section class="document-section call-graph-section">
+        <div class="section-title"><h2>Type relationships</h2><span>base · interfaces · derived — click a node to open</span></div>
+        <div id="type-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
+      </section>`
+    : "";
+
+  const failures = (meta.inspectionFailures || []).length
+    ? `<section class="document-section metadata-warning"><strong>⚠ Relationship view may be incomplete</strong><ul>${meta.inspectionFailures.map(entry => `<li><code>${escapeHtml(entry)}</code></li>`).join("")}</ul></section>`
+    : "";
+
+  return `
+    <section class="document-section">
+      <div class="section-title"><h2>Type shape</h2><span>ECMA-335 metadata</span></div>
+      ${factRows(shape)}
+    </section>
+    ${composition}
+    ${interfaces}
+    ${derived}
+    ${attributes}
+    ${graph}
+    ${failures}`;
+}
+
+function shortTypeName(fullName) {
+  const generic = fullName.indexOf("<");
+  const head = generic < 0 ? fullName : fullName.slice(0, generic);
+  const tail = generic < 0 ? "" : fullName.slice(generic);
+  const dot = head.lastIndexOf(".");
+  return (dot < 0 ? head : head.slice(dot + 1)) + tail;
+}
+
 function typeSourceSignature(item) {
   return `${state.package.id}@${state.package.version}/${state.package.activeFramework}/${item.assembly}/${item.id}`;
 }
@@ -1013,6 +1147,9 @@ function bindEvents() {
     state.memberKindFilter = "all";
     state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
     render();
+  }));
+  document.querySelectorAll("[data-graph-type]").forEach(button => button.addEventListener("click", () => {
+    navigateToTypeByName(button.dataset.graphType);
   }));
   document.querySelectorAll(".member-filter .member-kind").forEach(button => button.addEventListener("click", () => {
     state.memberKindFilter = button.dataset.kind;
@@ -1679,6 +1816,10 @@ function loadSelectionData() {
     loadSelectedTypeSource();
     return;
   }
+  if (state.lens === "metadata") {
+    loadSelectedTypeMetadata();
+    return;
+  }
   if (state.lens !== "api" || !state.selectedMemberKey) return;
   const member = selectedMember(selectedType());
   if (!member) return;
@@ -1868,6 +2009,127 @@ async function loadSelectedTypeSource() {
     if (state.typeSourceKey === signature) state.typeSourceLoading = false;
     render();
   }
+}
+
+async function loadSelectedTypeMetadata() {
+  const type = selectedType();
+  if (!type) {
+    render();
+    return;
+  }
+  const signature = typeMetadataSignature(type);
+  if (state.typeMetadataKey === signature && (state.typeMetadata || state.typeMetadataError)) {
+    render();
+    return;
+  }
+  state.typeMetadataKey = signature;
+  state.typeMetadata = null;
+  state.typeMetadataError = "";
+  state.typeMetadataLoading = true;
+  render();
+  try {
+    const result = await inspectTypeProjection({
+      packageId: state.package.id,
+      version: state.package.version,
+      framework: state.package.activeFramework,
+      assembly: type.assembly,
+      type: type.id
+    });
+    if (state.typeMetadataKey === signature) state.typeMetadata = result;
+  } catch (error) {
+    if (state.typeMetadataKey === signature) state.typeMetadataError = String(error?.message || error);
+  } finally {
+    if (state.typeMetadataKey === signature) state.typeMetadataLoading = false;
+    render();
+    if (state.typeMetadata?.graphNodes?.length > 1) renderTypeGraph();
+  }
+}
+
+// Projects the neutral type-relationship node/edge model into a Mermaid flowchart so it
+// renders with the same pan/zoom/click affordances as the call graph.
+function buildTypeGraphMermaid(meta) {
+  const nodes = meta.graphNodes || [];
+  const edges = meta.graphEdges || [];
+  if (nodes.length < 2) return null;
+  const idOf = new Map();
+  nodes.forEach((node, index) => idOf.set(node.id, `t${index}`));
+  const lines = ["flowchart TD"];
+  for (const node of nodes) {
+    const label = shortTypeName(node.displayName).replace(/"/g, "&quot;");
+    lines.push(`  ${idOf.get(node.id)}["${label}"]:::${node.role}`);
+  }
+  for (const edge of edges) {
+    const from = idOf.get(edge.fromId);
+    const to = idOf.get(edge.toId);
+    if (from && to) lines.push(`  ${from} --> ${to}`);
+  }
+  lines.push("classDef self fill:var(--accent-soft),stroke:var(--accent),color:var(--text),stroke-width:2px;");
+  lines.push("classDef base fill:var(--panel-active),stroke:var(--line-strong),color:var(--text);");
+  lines.push("classDef interface fill:transparent,stroke:var(--line-strong),color:var(--dim);");
+  lines.push("classDef derived fill:var(--panel),stroke:var(--line),color:var(--text);");
+  return lines.join("\n");
+}
+
+async function renderTypeGraph() {
+  const container = document.querySelector("#type-graph-diagram");
+  if (!container || container.querySelector(".graph-viewport")) return;
+  const meta = state.typeMetadata;
+  const definition = meta ? buildTypeGraphMermaid(meta) : null;
+  if (!definition) return;
+  const fullNameOf = new Map((meta.graphNodes || []).map(node => [shortTypeName(node.displayName), node.id]));
+  try {
+    mermaidModule ??= import("https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.esm.min.mjs");
+    const { default: mermaid } = await mermaidModule;
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: "strict",
+      theme: state.theme === "light" ? "default" : "dark",
+      themeVariables: { fontSize: "17px" },
+      flowchart: { htmlLabels: false, curve: "basis" }
+    });
+    const id = `type-graph-${Date.now().toString(36)}`;
+    const rootStyle = getComputedStyle(document.documentElement);
+    const resolved = definition.replace(
+      /var\((--[\w-]+)\)/g,
+      (whole, name) => rootStyle.getPropertyValue(name).trim() || whole
+    );
+    const { svg } = await mermaid.render(id, resolved);
+    if (document.querySelector("#type-graph-diagram") !== container) return;
+    container.innerHTML =
+      '<div class="graph-viewport"></div>'
+      + '<div class="graph-controls">'
+      + '<button type="button" data-zoom="in" title="Zoom in" aria-label="Zoom in">+</button>'
+      + '<button type="button" data-zoom="out" title="Zoom out" aria-label="Zoom out">\u2212</button>'
+      + '<button type="button" class="reset" data-zoom="reset" title="Reset view" aria-label="Reset view">fit</button>'
+      + '</div>';
+    const viewport = container.querySelector(".graph-viewport");
+    viewport.innerHTML = svg;
+    attachGraphPanZoom(container, viewport);
+    viewport.querySelectorAll("g.node").forEach(node => {
+      const label = (node.textContent || "").replace(/\s+/g, " ").trim();
+      const fullName = fullNameOf.get(label);
+      if (!fullName) return;
+      const target = state.package.types.find(candidate => candidate.id === fullName);
+      if (!target) return;
+      node.classList.add("nav-node");
+      node.style.cursor = "pointer";
+      node.addEventListener("click", () => navigateToTypeByName(fullName));
+    });
+  } catch (error) {
+    if (document.querySelector("#type-graph-diagram") === container) {
+      container.innerHTML = `<div class="graph-render-error"><strong>Diagram rendering failed</strong><p>${escapeHtml(String(error?.message || error))}</p></div>`;
+    }
+  }
+}
+
+function navigateToTypeByName(fullName) {
+  const target = state.package.types.find(candidate => candidate.id === fullName);
+  if (!target) return;
+  state.selectedTypeId = target.id;
+  state.selectedMemberKey = "";
+  state.memberKindFilter = "all";
+  state.typeCursor = filteredTypes().findIndex(candidate => candidate.id === target.id);
+  render();
 }
 
 async function loadSelectedMemberCallGraph() {

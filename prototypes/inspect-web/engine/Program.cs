@@ -187,12 +187,59 @@ public sealed record BrowserStyleOption(
     bool OracleEndorsed,
     string? ConflictGroup);
 
+// Type-level metadata projection — a JSON mirror of ILInspector.Research
+// ResearchViews.TypeProjectionResult, the presentation-neutral shared seam.
+public sealed record BrowserTypeMetadata(
+    string FullName,
+    string? Namespace,
+    string Name,
+    string Kind,
+    string[] Modifiers,
+    string? Accessibility,
+    string? Assembly,
+    string? BaseType,
+    string[] Interfaces,
+    string[] DerivedTypes,
+    BrowserTypeParameter[] TypeParameters,
+    string[] Attributes,
+    string? EnumUnderlyingType,
+    BrowserTypeComposition? Composition,
+    BrowserTypeGraphNode[] GraphNodes,
+    BrowserTypeGraphEdge[] GraphEdges,
+    string[] InspectionFailures);
+
+public sealed record BrowserTypeParameter(string Name, string? Variance, string[] Constraints);
+
+public sealed record BrowserTypeComposition(
+    int Methods,
+    int Properties,
+    int Fields,
+    int Events,
+    int Constructors,
+    int Operators,
+    int ExplicitInterfaceImplementations,
+    int ExtensionMethods,
+    int Static,
+    int Unsafe,
+    int Async,
+    int Virtual,
+    int Abstract,
+    int Override,
+    int Extension,
+    int Obsolete,
+    int Total);
+
+public sealed record BrowserTypeGraphNode(string Id, string DisplayName, string Role);
+
+public sealed record BrowserTypeGraphEdge(string FromId, string ToId, string Kind);
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserMemberSource))]
 [JsonSerializable(typeof(BrowserCallGraph))]
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
 [JsonSerializable(typeof(BrowserMemberFacts))]
+[JsonSerializable(typeof(BrowserTypeMetadata))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(typeof(BrowserTypeCandidate[]))]
 [JsonSerializable(typeof(BrowserTypeSearchHit[]))]
@@ -669,6 +716,111 @@ public static partial class BrowserInspectionEngine
                     null,
                     $"Annotated by dotnet-inspect from lib/{targetFramework}/{assemblyName}"),
                 BrowserJsonContext.Default.BrowserMemberSource);
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); }
+            catch { }
+        }
+    }
+
+    // Projects type-level metadata (identity, shape, generic parameters, base/interfaces/
+    // derived relationships, attributes, and aggregate member composition) through the shared
+    // ILInspector.Research ProjectType seam — the same presentation-neutral view the CLI
+    // consumes — so the web Metadata section never reimplements type-fact composition.
+    [JSExport]
+    public static async Task<string> QueryTypeProjection(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName,
+        string typeId)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-web-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            string implementationPath;
+            using (var stream = new MemoryStream(packageBytes, writable: false))
+            using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
+            {
+                var implementation = archive.Entries.FirstOrDefault(entry =>
+                    entry.FullName.Equals($"lib/{targetFramework}/{assemblyName}", StringComparison.OrdinalIgnoreCase))
+                    ?? throw new InvalidOperationException(
+                        $"No implementation asset for {assemblyName} at {targetFramework}.");
+
+                foreach (var entry in archive.Entries.Where(entry =>
+                    entry.FullName.StartsWith($"lib/{targetFramework}/", StringComparison.OrdinalIgnoreCase)
+                    && entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
+                {
+                    await WriteEntryAsync(entry, Path.Combine(tempRoot, entry.Name));
+                }
+
+                implementationPath = Path.Combine(tempRoot, implementation.Name);
+                if (!File.Exists(implementationPath))
+                    await WriteEntryAsync(implementation, implementationPath);
+            }
+
+            var resolver = Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(implementationPath);
+            using var source = Pipeline.MetadataSource.Open(implementationPath, null, resolver);
+
+            var projection = Research.ResearchViews.ProjectType(
+                new Research.ResearchViews.TypeProjectionRequest(source, typeId));
+
+            var result = new BrowserTypeMetadata(
+                projection.Identity.FullName,
+                projection.Identity.Namespace,
+                projection.Identity.Name,
+                projection.Identity.Kind,
+                [.. projection.Identity.Modifiers],
+                projection.Identity.Accessibility,
+                projection.Identity.Assembly,
+                projection.BaseType,
+                [.. projection.Interfaces],
+                [.. projection.DerivedTypes],
+                projection.TypeParameters
+                    .Select(parameter => new BrowserTypeParameter(
+                        parameter.Name, parameter.Variance, [.. parameter.Constraints]))
+                    .ToArray(),
+                [.. projection.Attributes],
+                projection.EnumUnderlyingType,
+                projection.Composition is { } composition
+                    ? new BrowserTypeComposition(
+                        composition.Methods,
+                        composition.Properties,
+                        composition.Fields,
+                        composition.Events,
+                        composition.Constructors,
+                        composition.Operators,
+                        composition.ExplicitInterfaceImplementations,
+                        composition.ExtensionMethods,
+                        composition.Static,
+                        composition.Unsafe,
+                        composition.Async,
+                        composition.Virtual,
+                        composition.Abstract,
+                        composition.Override,
+                        composition.Extension,
+                        composition.Obsolete,
+                        composition.Total)
+                    : null,
+                projection.Graph?.Nodes
+                    .Select(node => new BrowserTypeGraphNode(
+                        node.Id, node.DisplayName, node.Role.ToString().ToLowerInvariant()))
+                    .ToArray() ?? [],
+                projection.Graph?.Edges
+                    .Select(edge => new BrowserTypeGraphEdge(
+                        edge.FromId, edge.ToId, edge.Kind.ToString().ToLowerInvariant()))
+                    .ToArray() ?? [],
+                projection.InspectionFailures
+                    .Select(failure => $"{failure.Operation}: {failure.Detail}")
+                    .ToArray());
+
+            return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserTypeMetadata);
         }
         finally
         {
