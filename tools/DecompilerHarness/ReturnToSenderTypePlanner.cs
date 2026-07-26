@@ -1766,6 +1766,15 @@ public static class CompileBackSourceComposer
                 return false;
             }
 
+            // A public interface may still declare a non-public member (C# 8+ allows explicit
+            // accessibility on interface members). The reconstructed assembly references the
+            // interface's defining assembly but is not granted InternalsVisibleTo, so it can only
+            // name a public member; emitting `void IProbe.M()` for an `internal`/`protected`
+            // member would be inaccessible (CS0122 = RecompileFail). Decline any non-public
+            // required method and keep the ContextFail floor.
+            if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+                return false;
+
             // A generic interface method carries constraints that the reconstructed explicit
             // member cannot restate (C# inherits them from the interface). A type parameter can
             // appear only in a constraint — invisible to the return/parameter signature probe —

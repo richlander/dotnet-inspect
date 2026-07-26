@@ -1576,6 +1576,57 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceWithInternalMemberFallsBackWithoutRecompileFail()
+    {
+        // Regression guard: a PUBLIC interface may still declare a NON-public member (C# 8+
+        // allows explicit accessibility on interface members). The interface type passes the
+        // IsPubliclyAccessible gate, but the reconstructed assembly
+        // ("return-to-sender-source-oracle") is not granted InternalsVisibleTo, so it cannot
+        // name the internal member even though the target implements it via IVT to its own name.
+        // Engaging would emit `void RtsVis.IProbe.M()` against a member the recompile cannot see
+        // (CS0122 = RecompileFail). The gate must decline any non-public required method and keep
+        // the sanitized ContextFail floor.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            """
+            using System.Runtime.CompilerServices;
+            [assembly: InternalsVisibleTo("fixture")]
+            namespace RtsVis { public interface IProbe { internal abstract void M(); } }
+            """,
+            directory: fixtureDir,
+            assemblyName: "RtsVisContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class VisImpl : RtsVis.IProbe
+            {
+                void RtsVis.IProbe.M() { }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "VisImpl",
+                    "RtsVis.IProbe.M",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsVis_IProbe_M", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsVis.IProbe.M", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_ExternalExplicitInterfaceWithGenericParameterDriftFallsBackWithoutRecompileFail()
     {
         // Regression guard: SignatureDecoder spells generic method parameters by their metadata
