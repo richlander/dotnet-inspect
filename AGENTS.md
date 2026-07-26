@@ -300,6 +300,23 @@ publicly on the PR: attribute findings, state what was verified or dismissed, an
 link resolution commits or explain explicit non-actions. Do not mark the PR ready
 until every required fixed-head review is clean.
 
+## Pull request scope and stacking
+
+- **One issue per PR by default.** A PR addresses a single issue and is the atomic
+  unit of review and merge.
+- **Slice large or boundary-crossing work into stacked PRs.** When one issue is large
+  enough, or spans distinct code or risk boundaries that separate slices make clearer,
+  break it into slices — each a coherent PR — and **stack** them (each slice branches
+  from the previous) rather than opening one sprawling PR. Slice for deliberate code
+  and risk boundaries, not to fragment gratuitously.
+- **Each slice clears its own gate before the next.** A slice must pass adversarial
+  review (per the tiers above) before work moves on to the next slice in the stack.
+- **Do not stall a passing stack for sign-off.** Once a slice's adversarial review
+  passes and it raises no blocking design, UX, or security question that needs human
+  input, move straight on to the next slice — there is no need to stop and wait
+  between slices. Stop only when a slice surfaces a blocking design, UX, or security
+  issue that requires input.
+
 ## PR and CI discipline
 
 - Prefer fewer coherent PRs over many small PRs that each pay fixed CI cost and
