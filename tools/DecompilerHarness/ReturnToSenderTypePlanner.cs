@@ -409,7 +409,8 @@ internal sealed record ExplicitInterfaceEventInfo(
 
 internal sealed record ExternalExplicitInterfaceMethodInfo(
     string InterfaceDisplayName,
-    string ExplicitInterfaceMemberName);
+    string ExplicitInterfaceMemberName,
+    IReadOnlyList<CompileBackMemberRequirement> AdditionalInterfaceStubs);
 
 internal sealed record ExternalInterfaceReferenceInfo(
     string MetadataFullName,
@@ -1459,18 +1460,16 @@ public static class CompileBackSourceComposer
             if (!string.Equals(interfaceReference.MetadataFullName, interfaceMetadataName, StringComparison.Ordinal))
                 continue;
 
+            // The full transitive required surface of the external interface. #3112 Increment 1
+            // engaged only when this was exactly the single target member; Increment 2 also
+            // engages on multi-member interfaces by synthesizing `throw null` explicit-interface
+            // stubs for every non-target member (below). An empty surface cannot contain the
+            // target member, so decline to the ContextFail floor.
             if (!TryReadExternalInterfaceSurface(
                     assemblyPath,
                     interfaceReference,
                     out var requiredMethods)
-                || requiredMethods.Count != 1)
-            {
-                return null;
-            }
-
-            var requiredMethod = requiredMethods[0];
-            if (!string.Equals(requiredMethod.Name, declarationName, StringComparison.Ordinal)
-                || requiredMethod.GenericArity != targetMethodGenericArity)
+                || requiredMethods.Count == 0)
             {
                 return null;
             }
@@ -1510,11 +1509,28 @@ public static class CompileBackSourceComposer
             {
                 return null;
             }
-            if (!string.Equals(targetSignature.ReturnType, requiredMethod.ReturnType, StringComparison.Ordinal)
-                || !targetSignature.ParameterTypes.SequenceEqual(requiredMethod.ParameterTypes, StringComparer.Ordinal))
+
+            // Identify which required interface method the target implements: it must agree by
+            // name, generic arity, and full decoded signature. Interface methods are unique by
+            // signature, so exactly one required method may match; zero (the target's spelling
+            // is not part of the resolved surface -> CS0539) or more than one (ambiguous)
+            // declines to the ContextFail floor.
+            int matchIndex = -1;
+            for (int index = 0; index < requiredMethods.Count; index++)
             {
-                return null;
+                var candidate = requiredMethods[index];
+                if (string.Equals(candidate.Name, declarationName, StringComparison.Ordinal)
+                    && candidate.GenericArity == targetMethodGenericArity
+                    && string.Equals(candidate.ReturnType, targetSignature.ReturnType, StringComparison.Ordinal)
+                    && candidate.ParameterTypes.SequenceEqual(targetSignature.ParameterTypes, StringComparer.Ordinal))
+                {
+                    if (matchIndex >= 0)
+                        return null;
+                    matchIndex = index;
+                }
             }
+            if (matchIndex < 0)
+                return null;
 
             // A reconstructed sibling type (or sibling sub-namespace) in the recompile
             // closure can intercept the leading identifier of the external interface
@@ -1536,15 +1552,101 @@ public static class CompileBackSourceComposer
                 return null;
             }
 
+            // Naming the interface in the base list forces the reconstructed type to satisfy
+            // its ENTIRE required surface (CS0535). The target method reconstructs the matched
+            // member with its real body; every OTHER required member is synthesized here as a
+            // `throw null` explicit-interface stub. If any such member cannot be spelled as
+            // valid, bindable C# (a member name that does not round-trip, or a signature type
+            // SignatureDecoder renders unbindably), decline the WHOLE engagement and keep the
+            // sanitized ContextFail floor rather than emit a partial surface (CS0535) or an
+            // unbindable stub (CS0246 = RecompileFail).
+            var additionalInterfaceStubs = new List<CompileBackMemberRequirement>(requiredMethods.Count - 1);
+            for (int index = 0; index < requiredMethods.Count; index++)
+            {
+                if (index == matchIndex)
+                    continue;
+                if (SynthesizeExternalInterfaceStub(interfaceReference.DisplayFullName, requiredMethods[index]) is not { } stub)
+                    return null;
+                additionalInterfaceStubs.Add(stub);
+            }
+
             string explicitInterfaceMemberName =
                 $"{interfaceReference.DisplayFullName}.{Identifier(declarationName)}";
             return new ExternalExplicitInterfaceMethodInfo(
                 interfaceReference.DisplayFullName,
-                explicitInterfaceMemberName);
+                explicitInterfaceMemberName,
+                additionalInterfaceStubs);
         }
 
         return null;
     }
+
+    // Synthesizes a `throw null` explicit-interface stub for a NON-target member of an external
+    // interface, so the reconstructed type satisfies the interface's full required surface
+    // (CS0535) after the interface is named in the base list. Returns null when the member
+    // cannot be spelled as valid, bindable C#, in which case the caller declines the whole
+    // engagement and keeps the ContextFail floor. Only arity-0 methods reach here
+    // (TryCollectRequiredInterfaceMethods declines every generic/property/event/non-public
+    // member and every by-ref/pointer/array/function-pointer/modifier signature), so the stub
+    // has no type parameters and its decoded signature strings are a faithful C# spelling — the
+    // same strings the target signature match above already trusts.
+    static CompileBackMemberRequirement? SynthesizeExternalInterfaceStub(
+        string interfaceDisplayName,
+        ExternalInterfaceRequiredMethod method)
+    {
+        // The stub names the member via `IType.<member>()`; a name that does not round-trip
+        // through a C# identifier binds to no interface member (CS0539), leaving the interface
+        // member unimplemented (CS0535). Re-defend arity here even though the surface is
+        // arity-0: a generic stub would need to restate constraints it cannot see.
+        if (method.GenericArity != 0 || !MetadataIdentifierRoundTrips(method.Name))
+            return null;
+
+        // SignatureDecoder spells nested types with the metadata separator (`Outer+Inner`),
+        // which is not bindable C#, and degrades a generic-parameter-bearing type to a bare
+        // `object` (via CleanTypeDisplay's `!` guard) that would silently mis-satisfy the
+        // member. The required surface already declined generics and unrepresentable detail, so
+        // neither marker should survive; decline defensively if one does rather than emit an
+        // unbindable (CS0246) or drifted (CS0535) stub.
+        if (SignatureTypeIsUnspellable(method.ReturnType)
+            || method.ParameterTypes.Any(SignatureTypeIsUnspellable))
+        {
+            return null;
+        }
+
+        string explicitName = $"{interfaceDisplayName}.{Identifier(method.Name)}";
+        var returnType = CompileBackTypeSignature.Display(method.ReturnType);
+        var parameters = method.ParameterTypes
+            .Select((type, index) => new CompileBackParameter(
+                $"arg{index}",
+                CompileBackTypeSignature.Display(type)))
+            .ToArray();
+        string declarationSignature = ExplicitInterfaceMethodDeclarationSignature(
+            explicitName,
+            returnType,
+            [],
+            parameters);
+        return new CompileBackMemberRequirement(
+            new CompileBackMethodIdentity(interfaceDisplayName, method.Name, 0, declarationSignature),
+            CompileBackMemberKind.Method,
+            false,
+            parameters,
+            returnType,
+            [],
+            CompileBackStubBodyKind.Throw,
+            null,
+            [new CompileBackFact("metadata", "external-interface-stub", explicitName)],
+            ExplicitInterfaceMemberName: explicitName,
+            DeclarationSignature: declarationSignature);
+    }
+
+    // A decoded signature type is unspellable when it carries a metadata artifact that
+    // SignatureDecoder/CleanTypeDisplay cannot turn into bindable C#: `+` (a nested type's
+    // metadata separator, e.g. `Outer+Inner`) or `!` (a generic parameter, which CleanTypeDisplay
+    // collapses to `object`). Neither character can appear in a legal C# type spelling, so
+    // rejecting them never declines a spellable type — it only preserves the floor.
+    static bool SignatureTypeIsUnspellable(string decodedType)
+        => decodedType.Contains('+', StringComparison.Ordinal)
+           || decodedType.Contains('!', StringComparison.Ordinal);
 
     // True when every dotted segment of the external interface's raw metadata full name
     // round-trips through the display spelling the reconstruction emits. Clean(metadataFullName)
@@ -2511,6 +2613,17 @@ public static class CompileBackSourceComposer
                 DeclarationSignature: explicitInterfaceDeclarationSignature,
                 RequiresUnsafeModifier: ContainsFixedBufferElementAccess(function))
         ];
+        if (externalExplicitInterfaceMethod is { AdditionalInterfaceStubs.Count: > 0 })
+        {
+            // Naming a multi-member external interface in the base list requires the
+            // reconstructed type to implement its full required surface (CS0535). Supply every
+            // non-target member as a `throw null` explicit-interface stub. The gate excluded the
+            // matched target member from these stubs, so none duplicates the target's own
+            // explicit implementation (CS0111), and external interface members are never closure
+            // members (they live outside the target assembly), so none collides with the record
+            // or closure surface added below.
+            targetMembers.AddRange(externalExplicitInterfaceMethod.AdditionalInterfaceStubs);
+        }
         bool includeRecordSurface = false;
         if (!isConstructor && IsRecordGeneratedFieldReadHelper(reader, targetTypeDef, targetIdentity, methodName, signature, function))
         {

@@ -1625,7 +1625,7 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
-    public void CompileBackTargets_MultiMemberExternalExplicitInterfaceFallsBackWithoutRecompileFail()
+    public void CompileBackTargets_RoundTripsExternalMultiMemberExplicitInterfaceMethod()
     {
         var assemblyPath = CompileFixture("""
             using System;
@@ -1660,11 +1660,130 @@ public class ReturnToSenderPrototypeTests
                     "System.IConvertible.ToBoolean",
                     0)]));
 
+            // #3112 Increment 2: a multi-member external interface engages by reconstructing the
+            // target member with its real body and synthesizing `throw null` explicit-interface
+            // stubs for every OTHER required member, so the full surface satisfies CS0535 and the
+            // fidelity lookup finds the correctly-named explicit member (Exact, not the sanitized
+            // `System_IConvertible_ToBoolean` ContextFail floor).
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.Source.Contains(": System.IConvertible", StringComparison.Ordinal)
+                || result.Source.Contains(": IConvertible", StringComparison.Ordinal),
+                result.Source);
+            // The target member reconstructs as a real explicit implementation.
+            Assert.Contains("IConvertible.ToBoolean(", result.Source, StringComparison.Ordinal);
+            // A non-target member is synthesized as a `throw null` explicit-interface stub so the
+            // interface's full required surface is satisfied.
+            Assert.Contains("IConvertible.GetTypeCode(", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("System_IConvertible_ToBoolean", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_MultiMemberExternalExplicitInterfaceWithUnspellableSiblingFallsBackWithoutRecompileFail()
+    {
+        // #3112 Increment 2 whole-surface atomicity: engaging a multi-member external interface
+        // names it in the base list, which forces the reconstructed type to implement EVERY
+        // required member (CS0535). The target member (`Target`) is perfectly representable, but
+        // a SIBLING member (`Sibling(ref int)`) carries by-ref detail SignatureDecoder cannot
+        // spell unambiguously. Synthesizing a stub for it (or omitting it) would leave the
+        // surface unsatisfied or drifted (CS0535/CS0539 = RecompileFail). The gate must decline
+        // the WHOLE interface when ANY member is unspellable and keep the sanitized ContextFail
+        // floor, even though the requested target member itself is fine.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            "namespace RtsMulti { public interface IProbe { void Target(); void Sibling(ref int value); } }",
+            directory: fixtureDir,
+            assemblyName: "RtsMultiContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class MultiImpl : RtsMulti.IProbe
+            {
+                void RtsMulti.IProbe.Target() { }
+                void RtsMulti.IProbe.Sibling(ref int value) => value = 0;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "MultiImpl",
+                    "RtsMulti.IProbe.Target",
+                    0)]));
+
             Assert.True(
                 result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
-            Assert.Contains("System_IConvertible_ToBoolean", result.Source, StringComparison.Ordinal);
-            Assert.DoesNotContain("System.IConvertible.ToBoolean", result.Source, StringComparison.Ordinal);
+            Assert.Contains("RtsMulti_IProbe_Target", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsMulti.IProbe.Target", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_MultiMemberExternalExplicitInterfaceWithOverloadedSiblingsRoundTrips()
+    {
+        // #3112 Increment 2 overload robustness: a real corpus interface such as
+        // System.ComponentModel.ICustomTypeDescriptor carries same-name overloads
+        // (`GetProperties()` / `GetProperties(Attribute[])`). Every non-target member is
+        // synthesized as a `throw null` explicit-interface stub, and two overloads share one
+        // explicit member name (`RtsOv.IProbe.Overloaded`) while differing only by signature.
+        // The reconstructed members must NOT be deduplicated by name (that would drop one
+        // overload, leaving the interface surface unsatisfied, CS0535). Both stubs must emit as
+        // distinct explicit implementations so the type compiles and the target reconstructs
+        // Exact.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var contractsPath = CompileFixture(
+            "namespace RtsOv { public interface IProbe { void Target(); int Overloaded(); int Overloaded(string label); } }",
+            directory: fixtureDir,
+            assemblyName: "RtsOvContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class OvImpl : RtsOv.IProbe
+            {
+                void RtsOv.IProbe.Target() { }
+                int RtsOv.IProbe.Overloaded() => 0;
+                int RtsOv.IProbe.Overloaded(string label) => 0;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(contractsPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "OvImpl",
+                    "RtsOv.IProbe.Target",
+                    0)]));
+
+            Assert.True(
+                result.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.False(result.UsedCompileBackFloor, result.Detail);
+            Assert.True(
+                result.Source.Contains(": RtsOv.IProbe", StringComparison.Ordinal)
+                || result.Source.Contains(": IProbe", StringComparison.Ordinal),
+                result.Source);
+            // Both overloads must be present as distinct explicit-interface stubs.
+            Assert.Contains("RtsOv.IProbe.Overloaded()", result.Source, StringComparison.Ordinal);
+            Assert.Contains("RtsOv.IProbe.Overloaded(string", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsOv_IProbe_Target", result.Source, StringComparison.Ordinal);
         }
         finally
         {
