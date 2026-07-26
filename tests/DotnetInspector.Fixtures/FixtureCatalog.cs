@@ -87,6 +87,7 @@ public static class FixtureIds
     public const string DecompilerUnsafeChainA = "decompiler.unsafe.chain-a";
     public const string DecompilerUnsafeChainB = "decompiler.unsafe.chain-b";
     public const string DecompilerUnsafeChainC = "decompiler.unsafe.chain-c";
+    public const string DecompilerVbFinalizer = "decompiler.vb-finalizer";
 
     public const string RunFasterAllocation = "runfaster.allocation";
 }
@@ -342,6 +343,13 @@ public static class FixtureCatalog
         Boundaries(FixtureBoundary.CrossAssemblyBoundary, FixtureBoundary.ModuleAttribute, FixtureBoundary.OutputKind),
         "decompiler", "unsafe", "chain", "legacy-memory-safety", "executable");
 
+    public static readonly FixtureDefinition DecompilerVbFinalizer = Fixture(
+        FixtureIds.DecompilerVbFinalizer,
+        "ILInspector.Decompiler.Fixtures.VbFinalizer",
+        "ILInspector.Decompiler.Fixtures.VbFinalizer.dll",
+        Boundaries(FixtureBoundary.CompilerLowering),
+        "decompiler", "vb", "finalizer");
+
     public static readonly FixtureDefinition RunFasterAllocation = Fixture(
         FixtureIds.RunFasterAllocation,
         "RunFaster.AllocationFixture",
@@ -389,6 +397,7 @@ public static class FixtureCatalog
         DecompilerUnsafeChainA,
         DecompilerUnsafeChainB,
         DecompilerUnsafeChainC,
+        DecompilerVbFinalizer,
         RunFasterAllocation,
     ];
 
