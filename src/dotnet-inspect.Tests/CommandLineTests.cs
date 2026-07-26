@@ -31,6 +31,38 @@ public class CommandLineTests
         Assert.Empty(result.Errors);
     }
 
+    // --taste is the one-invocation form of the config's full-taste aggregate
+    // (#3191). It is an api-surface gesture: only the commands that render member
+    // source consume RenderOptions.
+
+    [Theory]
+    [InlineData("member")]
+    [InlineData("type")]
+    public void ApiCommands_AcceptTasteGesture(string command)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse([command, "System.Math", "--taste"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void NonApiCommand_DoesNotDeclareTasteGesture()
+    {
+        // --taste only means something where RenderOptions is consumed, so it must
+        // not appear on commands that never render member source.
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        Assert.True(DeclaresTaste(root, "member"));
+        Assert.True(DeclaresTaste(root, "type"));
+        Assert.False(DeclaresTaste(root, "package"));
+
+        static bool DeclaresTaste(Command root, string name) =>
+            root.Subcommands
+                .Single(c => c.Name == name)
+                .Options
+                .Any(o => o.Name == "--taste");
+    }
+
     [Fact]
     public void RootCommand_WithInvalidVerbosity_ReportsParseError()
     {

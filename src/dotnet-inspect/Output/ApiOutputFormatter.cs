@@ -1555,7 +1555,8 @@ public static class ApiOutputFormatter
                 code.MethodGenericParameters,
                 annotatedResult,
                 requiresAsyncBodyModifier: code.RequiresAsyncBodyModifier,
-                includeCustomAttributes: true);
+                includeCustomAttributes: true,
+                declarationTrailingComment: BuildTasteAnnotation(annotatedResult.Decisions));
             hasCode = true;
         }
 
@@ -1641,6 +1642,38 @@ public static class ApiOutputFormatter
                     failed.Error.Reason)
             ],
         };
+
+    // The inline taste annotation for the Annotated view: one trailing side
+    // comment on the member's signature, in the same shape the fact overlay uses
+    // for analysis ("// alloc.new(object; path=branch)"), so a reader scans style
+    // and analysis the same way. Anchored to the signature rather than to a
+    // statement because a style decision carries a subject but no IL offset; the
+    // Applied Taste section remains the full account.
+    //
+    // Nothing is annotated by default: no style decision is recorded unless a
+    // knob was requested, so this comment appears exactly when the reader asked
+    // for taste. A byte-divergent lens reports its fidelity instead of its
+    // subject (the subject is the enclosing method, already on this line) — that
+    // is also the only signal explaining why the interleaved IL is absent.
+    internal static string? BuildTasteAnnotation(
+        IReadOnlyList<Decompiler.DecompilerDecision> decisions)
+    {
+        var parts = decisions
+            // Same exclusion as the Applied Taste rows: the framework-import
+            // rewrite is always-on, not a configurable taste choice.
+            .Where(static d => d.RuleId != "type-name.framework-imported")
+            .Select(static d => d.Category == Decompiler.DecompilerDecisionCategories.StyleLens
+                ? $"taste.{TrimLensPrefix(d.RuleId)}(fidelity=byte-divergent)"
+                : $"taste.{d.RuleId}({d.Subject})")
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        return parts.Count == 0 ? null : string.Join("; ", parts);
+    }
+
+    static string TrimLensPrefix(string ruleId)
+        => ruleId.StartsWith("style-lens.", StringComparison.Ordinal)
+            ? ruleId["style-lens.".Length..]
+            : ruleId;
 
     internal static List<AppliedTasteRow> BuildAppliedTasteRows(
         IReadOnlyList<Decompiler.DecompilerDecision> decisions)
@@ -2274,7 +2307,8 @@ public static class ApiOutputFormatter
         bool preferExpressionBodied = false,
         IReadOnlyList<string>? leadingBodyComments = null,
         bool requiresAsyncBodyModifier = false,
-        bool includeCustomAttributes = false)
+        bool includeCustomAttributes = false,
+        string? declarationTrailingComment = null)
     {
         if (!result.Succeeded)
             return new CodeSection("csharp", DiagnosticComment(result));
@@ -2291,7 +2325,8 @@ public static class ApiOutputFormatter
                     preferExpressionBodied,
                     leadingBodyComments,
                     requiresAsyncBodyModifier,
-                    includeCustomAttributes));
+                    includeCustomAttributes,
+                    declarationTrailingComment));
         }
         catch (Exception ex)
         {
@@ -2309,7 +2344,8 @@ public static class ApiOutputFormatter
         bool preferExpressionBodied = false,
         IReadOnlyList<string>? leadingBodyComments = null,
         bool requiresAsyncBodyModifier = false,
-        bool includeCustomAttributes = false)
+        bool includeCustomAttributes = false,
+        string? declarationTrailingComment = null)
     {
         var lowered = result.Output
             ?? throw new ArgumentException("A successful decompiler result is required.", nameof(result));
@@ -2337,12 +2373,27 @@ public static class ApiOutputFormatter
         }
         var body = lowered.TrimEnd();
 
+        // The trailing side comment rides the signature line, so it has to be
+        // appended after every declaration suffix (the constructor chain above)
+        // and after the terminating ';' of an expression-bodied render, never
+        // inside the expression. A member with no declaration to hang it on
+        // (a bare body projection) keeps the signal as a single leading line
+        // rather than dropping it.
+        string Annotate(string line)
+            => declarationTrailingComment is { Length: > 0 } comment
+                ? $"{line}  // {comment}"
+                : line;
+
         if (string.IsNullOrWhiteSpace(declaration))
-            return body;
+        {
+            return declarationTrailingComment is { Length: > 0 } bareComment
+                ? $"// {bareComment}{Environment.NewLine}{body}"
+                : body;
+        }
 
         bool hasLeadingComments = leadingBodyComments is { Count: > 0 };
         if (!hasLeadingComments && preferExpressionBodied && CSharpExpressionBody.FromSingleStatement(body) is { } expressionBody)
-            return $"{declaration} => {expressionBody};";
+            return Annotate($"{declaration} => {expressionBody};");
 
         // A multi-line single-statement expression body renders expression-bodied
         // too (a raised switch return, issue #3088; a wrapped fluent chain in
@@ -2364,7 +2415,7 @@ public static class ApiOutputFormatter
                 if (i == multilineExpression.Count - 1)
                     expression.Append(';');
             }
-            return expression.ToString();
+            return Annotate(expression.ToString());
         }
 
         var formattedBodyLines = body.ReplaceLineEndings("\n").Split('\n');
@@ -2375,7 +2426,7 @@ public static class ApiOutputFormatter
             Environment.NewLine,
             lines.Select(line => line.Length == 0 ? "" : $"    {line}"));
 
-        return $"{declaration}{Environment.NewLine}{{{Environment.NewLine}{indentedBody}{Environment.NewLine}}}";
+        return $"{Annotate(declaration)}{Environment.NewLine}{{{Environment.NewLine}{indentedBody}{Environment.NewLine}}}";
     }
 
     private static string FormatMemberDeclaration(

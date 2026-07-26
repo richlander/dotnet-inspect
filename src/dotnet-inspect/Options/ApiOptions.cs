@@ -48,6 +48,16 @@ public partial record ApiOptions
     public PrinterOptions? RenderOptions { get; init; }
 
     /// <summary>
+    /// The <c>--taste</c> gesture: request the whole oracle-endorsed style set for
+    /// this run, equivalent to <c>dotnet_inspect_style_full_taste = true</c> in
+    /// <c>.dotnet-inspectconfig</c> but scoped to one invocation. Applied on top of
+    /// the resolved config, so a per-knob line in a config file still refines it.
+    /// Includes byte-divergent lenses, so the Annotated view drops its interleaved
+    /// IL for any member a lens actually rewrites.
+    /// </summary>
+    public bool RequestAllTaste { get; init; }
+
+    /// <summary>
     /// Pending <c>.dotnet-inspectconfig</c> parse/read warnings, emitted to stderr
     /// exactly once at the point a decompiled-source render consumes
     /// <see cref="RenderOptions"/> (see

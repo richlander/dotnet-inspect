@@ -38,12 +38,6 @@ public class AnnotatedSourceTasteTests
             .Select(line => line.Trim())
             .Where(line => line.StartsWith("// IL_", StringComparison.Ordinal))];
 
-    static string[] CSharpLines(string annotated) =>
-        [.. annotated
-            .Split('\n')
-            .Select(line => line.Trim())
-            .Where(line => !line.StartsWith("//", StringComparison.Ordinal))];
-
     [Fact]
     public void ByteReservingKnob_ChangesCSharpSpelling_AndLeavesInterleavedIlIdentical()
     {
@@ -80,26 +74,23 @@ public class AnnotatedSourceTasteTests
 
         // The lens shaped the render...
         Assert.Contains("return a ? b : c;", lensed);
-        // ...so the raw IL is gone, and the reader is told why and by which knob
-        // rather than being left with a view that silently lost half its content.
+        // ...so the raw IL is gone: anchoring it beneath a render that no longer
+        // reproduces these opcodes would assert a correspondence that does not hold.
         Assert.Empty(IlLines(lensed));
-        Assert.Contains("Interleaved IL suppressed", lensed);
-        Assert.Contains("style-lens.prefer-conditional-return", lensed);
-        Assert.Contains("Applied Taste", lensed);
     }
 
     [Fact]
-    public void ByteDivergentLens_WhenApplied_KeepsTheSuppressedRenderValidCSharp()
+    public void ByteDivergentLens_WhenApplied_ReturnsBodyWithoutExplanatoryProse()
     {
         string lensed = Annotated(
             nameof(AnnotatedTasteFixture.GuardBothVariable),
             new PrinterOptions { PreferConditionalExpressionReturn = true });
 
-        // The note is spelled as comments, so the body is still a C# block: no
-        // stray prose leaks into the code the section presents as source.
-        Assert.All(
-            CSharpLines(lensed).Where(line => line.Length > 0),
-            line => Assert.DoesNotContain("suppressed", line, StringComparison.OrdinalIgnoreCase));
+        // This layer returns source, not commentary about source: the applied lens
+        // travels as a typed decision so a host can render it as a light side
+        // comment on the signature it owns, and a host that wants none of it is
+        // not stuck with a paragraph baked into the body.
+        Assert.Equal("return a ? b : c;", lensed.Trim());
     }
 
     [Fact]
@@ -117,7 +108,6 @@ public class AnnotatedSourceTasteTests
         Assert.Equal(
             IlLines(Annotated(nameof(AnnotatedTasteFixture.Compute), options: null)),
             IlLines(requested));
-        Assert.DoesNotContain("Interleaved IL suppressed", requested);
     }
 
     [Fact]
@@ -165,7 +155,9 @@ public class AnnotatedSourceTasteTests
         var withAnnotated = Project(annotated: true);
 
         // The lens did fire, so this is a live test and not a vacuous one.
-        Assert.Contains("Interleaved IL suppressed", Assert.IsType<string>(withAnnotated.AnnotatedSource?.Output));
+        Assert.Contains(
+            "return a ? b : c;",
+            Assert.IsType<string>(withAnnotated.AnnotatedSource?.Output));
 
         Assert.Equal(overlaysOnly.CostOverlay?.Body.Output, withAnnotated.CostOverlay?.Body.Output);
         Assert.Equal(overlaysOnly.SemanticsOverlay?.Output, withAnnotated.SemanticsOverlay?.Output);

@@ -225,43 +225,22 @@ public static partial class ResearchViews
         // longer reproduces the member's original opcodes. Interleaving the raw IL
         // beneath it would assert a statement-to-opcode correspondence that does
         // not hold, which is the one claim this view exists to make. Drop the IL
-        // and say why rather than rendering a correspondence we cannot stand
-        // behind. The fact overlay stays: a fact is a property of the member, not
-        // a claim about which opcodes a printed statement reproduces.
-        var appliedLenses = csResult.Metadata.Decisions
-            .Where(decision => decision.Category == DecompilerDecisionCategories.StyleLens)
-            .Select(decision => decision.RuleId)
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(id => id, StringComparer.Ordinal)
-            .ToList();
-        if (appliedLenses.Count > 0)
-        {
-            var lensOnly = CorrelateMixedSource(imported, csText, statementLines, annotations, []);
-            return csResult with { Output = LensSuppressionNote(appliedLenses) + RenderMixedStream(lensOnly) };
-        }
-
-        var annotatedInstrLines = methodToken is null
-            ? IlProjection.RenderIlBodyLines(source, type, method, overloadIndex, publicOnly)
-            : IlProjection.RenderIlBodyLines(source, methodToken.Value);
+        // rather than rendering a correspondence we cannot stand behind. The
+        // applied lens stays on the result as a typed decision, so a host can say
+        // which knob shaped the render without this layer baking prose into the
+        // source it returns. The fact overlay stays too: a fact is a property of
+        // the member, not a claim about which opcodes a printed statement
+        // reproduces.
+        bool lensApplied = csResult.Metadata.Decisions
+            .Any(decision => decision.Category == DecompilerDecisionCategories.StyleLens);
+        var annotatedInstrLines = lensApplied
+            ? []
+            : methodToken is null
+                ? IlProjection.RenderIlBodyLines(source, type, method, overloadIndex, publicOnly)
+                : IlProjection.RenderIlBodyLines(source, methodToken.Value);
 
         var stream = CorrelateMixedSource(imported, csText, statementLines, annotations, annotatedInstrLines);
         return csResult with { Output = RenderMixedStream(stream) };
-    }
-
-    // The suppression note, spelled as C# comments so the annotated body stays a
-    // valid C# block in every render mode. It names the applied lens rule ids
-    // rather than restating their descriptions, and points at Applied Taste for
-    // the full account of what shaped the render.
-    static string LensSuppressionNote(IReadOnlyList<string> appliedLenses)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("// Interleaved IL suppressed: a byte-divergent style lens shaped this render.");
-        sb.AppendLine($"// Applied lens: {string.Join(", ", appliedLenses)}.");
-        sb.AppendLine("// The C# below is behavior-faithful but no longer reproduces this member's");
-        sb.AppendLine("// original opcodes, so the raw IL cannot be anchored to it. Run the member");
-        sb.AppendLine("// without the lens for the interleaved IL, or -S \"Applied Taste\" for the");
-        sb.AppendLine("// full list of style choices applied to this render.");
-        return sb.ToString();
     }
 
     // The correlation layer: fold the printed C# body, its statement-line map, the
