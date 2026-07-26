@@ -398,7 +398,7 @@ public class SectionPipelineTests
         IReadOnlyCollection<string> discoverable)
     {
         var expected = command == "library"
-            ? registered.Except(["Source Location", "Member Context", "Instruction Context", "Exception Context", "Callsite Context", "Return Address Context", "Allocation Context", "Safety Context", "Cost Context"], StringComparer.OrdinalIgnoreCase)
+            ? registered.Except(["Source Location", "Inspection Failures", "Member Context", "Instruction Context", "Exception Context", "Callsite Context", "Return Address Context", "Allocation Context", "Safety Context", "Cost Context"], StringComparer.OrdinalIgnoreCase)
             : registered;
         var missing = expected
             .Where(name => !discoverable.Contains(name, StringComparer.OrdinalIgnoreCase))
@@ -939,8 +939,9 @@ public class SectionPipelineTests
             [
                 SectionNames.UnsafeMembers,
                 "P/Invoke Methods",
-                "Switches",
-                "Non-normalized Paths"
+                "Non-normalized Paths",
+                "Signals",
+                "Symbols"
             ],
             sections);
     }

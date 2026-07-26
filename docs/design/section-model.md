@@ -139,8 +139,8 @@ standalone set, `@Hidden` is its complement, and neither is a user-facing door
 | Section kind | Size class | Cost | Auto-renders at | Topical door |
 | --- | --- | --- | --- | --- |
 | Target (Library Info) | — (`Info`) | `NetworkFree` | `-v:m` | — |
-| Hero (Signals) | `Informative` | `NetworkFree` | `-v:n` | — |
-| Surface (Symbols, Type Forwarders) | `Terse` | `NetworkFree` | `-v:n` | `@Source` / `@Surface` |
+| Hero (Signals) | `Informative` | `NetworkFree` | `-v:n` | `@Audit` |
+| Surface (Symbols, Type Forwarders) | `Terse` | `NetworkFree` | `-v:n` | `@Audit` / `@Surface` |
 | Noisy-but-cheap (Custom Attributes) | `Terse` | `NetworkFree` | `-v:n` | `@Surface` |
 | Large surface (Extension Methods, `Performance:` buckets, Async Methods) | `Verbose` | `NetworkFree` | `-v:d` | `@Surface` / `@Performance` |
 | Networked (SourceLink Availability) | `Terse` | `Moderated` | `-v:d` | `@Source` |

@@ -35,7 +35,7 @@ public static class LibrarySections
         return new SectionPipeline<LibraryInspection>()
             .UseCuratedCatalog()
             .Add<LibraryInfo>()
-            .Add<InspectionFailures>(_ => true)
+            .Add<InspectionFailures>()
             .Add<ILOffset>()
             .Add<MemberContext>()
             .Add<InstructionContext>()
@@ -91,8 +91,9 @@ public static class LibrarySections
             .AddCategory(SectionCategoryNames.Audit,
                 SectionNames.UnsafeMembers,
                 "P/Invoke Methods",
-                "Switches",
-                "Non-normalized Paths")
+                "Non-normalized Paths",
+                "Signals",
+                "Symbols")
             .AddCategory(SectionCategoryNames.Performance,
                 PerformanceKinds.Sections)
             .AddCategory(SectionCategoryNames.Surface,
@@ -100,6 +101,7 @@ public static class LibrarySections
                 "Custom Attributes",
                 "Extension Methods",
                 "Resources",
+                "Switches",
                 "Type Forwarders",
                 "Union Types",
                 "P/Invoke Methods")

@@ -7118,7 +7118,7 @@ public class CommandExecutionTests
     public async Task LibraryCommand_DiscoverSwitchesCategory_ListsSwitchesSection()
     {
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-D", "@Audit", "--table");
+            "library", "System.Text.Json", "-D", "@Surface", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Switches", output);
@@ -7135,7 +7135,7 @@ public class CommandExecutionTests
             Assert.Empty(SwitchScanner.Scan(peReader));
 
         var (exit, output, error) = await RunAppAsync(
-            "library", assemblyPath, "-D", "@Audit", "--table");
+            "library", assemblyPath, "-D", "@Surface", "--table");
 
         Assert.Equal(0, exit);
         Assert.Contains("Switches", output);
@@ -7182,8 +7182,9 @@ public class CommandExecutionTests
             "library", "System.Text.Json", "-D", "@Audit", "--table");
 
         Assert.Equal(0, exit);
-        Assert.Contains("Switches", output);
-        Assert.DoesNotContain("Signals", output);
+        Assert.Contains("Signals", output);
+        Assert.Contains("Symbols", output);
+        Assert.DoesNotContain("Switches", output);
         Assert.DoesNotContain("Integrations", output);
         Assert.DoesNotContain("Tip:", error);
     }
