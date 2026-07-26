@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Reflection.Metadata;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Security.Cryptography;
@@ -233,6 +234,22 @@ public sealed record BrowserTypeGraphNode(string Id, string DisplayName, string 
 
 public sealed record BrowserTypeGraphEdge(string FromId, string ToId, string Kind);
 
+public sealed record BrowserPackageDependencies(
+    string Package,
+    string Version,
+    string ActiveFramework,
+    BrowserPackageDependencyGroup[] DependencyGroups,
+    BrowserAssemblyReference[] AssemblyReferences);
+
+public sealed record BrowserPackageDependencyGroup(
+    string Framework,
+    bool IsActive,
+    BrowserPackageDependency[] Dependencies);
+
+public sealed record BrowserPackageDependency(string Id, string VersionRange);
+
+public sealed record BrowserAssemblyReference(string Name, string Version);
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserMemberSource))]
@@ -240,6 +257,7 @@ public sealed record BrowserTypeGraphEdge(string FromId, string ToId, string Kin
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
 [JsonSerializable(typeof(BrowserMemberFacts))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
+[JsonSerializable(typeof(BrowserPackageDependencies))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(typeof(BrowserTypeCandidate[]))]
 [JsonSerializable(typeof(BrowserTypeSearchHit[]))]
@@ -827,6 +845,178 @@ public static partial class BrowserInspectionEngine
             try { Directory.Delete(tempRoot, recursive: true); }
             catch { }
         }
+    }
+
+    // Projects package-scoped dependency evidence: the NuGet .nuspec dependency groups
+    // (per target framework, kept as-declared so the reality of "no group for this exact
+    // TFM" stays visible) plus the referenced assemblies read straight from the active
+    // framework's implementation assembly. The .nuspec is untrusted feed content, so it is
+    // parsed with DTD processing prohibited to block XXE and entity-expansion attacks.
+    [JSExport]
+    public static async Task<string> QueryPackageDependencies(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyName)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+
+        var groups = new List<BrowserPackageDependencyGroup>();
+        string packageName = packageId;
+        string packageVersion = version;
+        var assemblyReferences = new List<BrowserAssemblyReference>();
+
+        using (var stream = new MemoryStream(packageBytes, writable: false))
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
+        {
+            var nuspec = archive.Entries.FirstOrDefault(entry =>
+                !entry.FullName.Contains('/') && entry.Name.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase));
+            if (nuspec is not null)
+            {
+                using var nuspecStream = nuspec.Open();
+                var readerSettings = new System.Xml.XmlReaderSettings
+                {
+                    DtdProcessing = System.Xml.DtdProcessing.Prohibit,
+                    XmlResolver = null,
+                    MaxCharactersFromEntities = 1024
+                };
+                using var xmlReader = System.Xml.XmlReader.Create(nuspecStream, readerSettings);
+                var document = XDocument.Load(xmlReader, LoadOptions.None);
+
+                var metadata = document.Root?.Elements().FirstOrDefault(e => e.Name.LocalName == "metadata");
+                packageName = metadata?.Elements().FirstOrDefault(e => e.Name.LocalName == "id")?.Value ?? packageId;
+                packageVersion = metadata?.Elements().FirstOrDefault(e => e.Name.LocalName == "version")?.Value ?? version;
+
+                var dependencies = metadata?.Elements().FirstOrDefault(e => e.Name.LocalName == "dependencies");
+                if (dependencies is not null)
+                {
+                    var groupElements = dependencies.Elements().Where(e => e.Name.LocalName == "group").ToList();
+                    if (groupElements.Count > 0)
+                    {
+                        foreach (var group in groupElements)
+                        {
+                            var tfm = NormalizeFrameworkMoniker(group.Attribute("targetFramework")?.Value ?? "any");
+                            groups.Add(new BrowserPackageDependencyGroup(
+                                tfm,
+                                string.Equals(tfm, targetFramework, StringComparison.OrdinalIgnoreCase),
+                                ReadDependencies(group)));
+                        }
+                    }
+                    else
+                    {
+                        var flat = ReadDependencies(dependencies);
+                        if (flat.Length > 0)
+                            groups.Add(new BrowserPackageDependencyGroup("any", true, flat));
+                    }
+                }
+            }
+
+            var implementation = archive.Entries.FirstOrDefault(entry =>
+                entry.FullName.Equals($"lib/{targetFramework}/{assemblyName}", StringComparison.OrdinalIgnoreCase));
+            if (implementation is not null)
+            {
+                using var assemblyStream = implementation.Open();
+                using var buffer = new MemoryStream();
+                await assemblyStream.CopyToAsync(buffer);
+                buffer.Position = 0;
+                try
+                {
+                    using var peReader = new System.Reflection.PortableExecutable.PEReader(buffer);
+                    if (peReader.HasMetadata)
+                    {
+                        var reader = peReader.GetMetadataReader();
+                        foreach (var handle in reader.AssemblyReferences)
+                        {
+                            var reference = reader.GetAssemblyReference(handle);
+                            var name = reader.GetString(reference.Name);
+                            if (!string.IsNullOrEmpty(name))
+                                assemblyReferences.Add(new BrowserAssemblyReference(name, reference.Version.ToString()));
+                        }
+                    }
+                }
+                catch
+                {
+                    // A malformed assembly should not sink the whole dependency view; the
+                    // nuspec groups still render. Leave assemblyReferences empty.
+                }
+            }
+        }
+
+        var distinctReferences = assemblyReferences
+            .GroupBy(reference => reference.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .OrderBy(reference => reference.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var result = new BrowserPackageDependencies(
+            packageName,
+            packageVersion,
+            targetFramework,
+            [.. groups],
+            distinctReferences);
+
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageDependencies);
+    }
+
+    private static BrowserPackageDependency[] ReadDependencies(XElement container) =>
+        container.Elements()
+            .Where(e => e.Name.LocalName == "dependency")
+            .Select(dependency => new BrowserPackageDependency(
+                dependency.Attribute("id")?.Value ?? "",
+                dependency.Attribute("version")?.Value ?? ""))
+            .Where(dependency => dependency.Id.Length > 0)
+            .ToArray();
+
+    // Collapses long .NET framework monikers (".NETStandard,Version=v2.0") to the short
+    // folder form the lib/ layout and the UI use ("netstandard2.0"); short forms pass
+    // through unchanged.
+    private static string NormalizeFrameworkMoniker(string moniker)
+    {
+        if (string.IsNullOrWhiteSpace(moniker) || !moniker.StartsWith('.'))
+            return moniker;
+
+        // Two long forms appear in nuspec groups: the comma form
+        // (".NETFramework,Version=v4.6.2") and the compact form (".NETFramework4.6.2").
+        string family;
+        string version;
+        var comma = moniker.IndexOf(',');
+        if (comma >= 0)
+        {
+            family = moniker[..comma];
+            var versionMarker = moniker.IndexOf("Version=v", comma, StringComparison.OrdinalIgnoreCase);
+            version = versionMarker < 0 ? "" : moniker[(versionMarker + "Version=v".Length)..];
+        }
+        else
+        {
+            var firstDigit = -1;
+            for (var index = 0; index < moniker.Length; index++)
+            {
+                if (char.IsDigit(moniker[index])) { firstDigit = index; break; }
+            }
+            if (firstDigit < 0)
+                return moniker;
+            family = moniker[..firstDigit];
+            version = moniker[firstDigit..];
+        }
+
+        var prefix = family switch
+        {
+            ".NETStandard" => "netstandard",
+            ".NETCoreApp" => "net",
+            ".NETFramework" => "net",
+            _ => null
+        };
+        if (prefix is null)
+            return moniker;
+
+        if (family == ".NETFramework")
+            version = version.Replace(".", "");
+        else if (!version.Contains('.'))
+            version += ".0";
+
+        return prefix + version;
     }
 
     // Decompiles a member the caller only knows by declaring type and name — used by the
@@ -1634,10 +1824,52 @@ public static partial class BrowserInspectionEngine
 
     static int FrameworkPriority(string framework)
     {
-        var digits = new string(framework.SkipWhile(character => !char.IsDigit(character)).ToArray());
-        var segments = digits.Split('.', StringSplitOptions.RemoveEmptyEntries);
-        var major = segments.Length > 0 && int.TryParse(segments[0], out var parsedMajor) ? parsedMajor : 0;
-        var minor = segments.Length > 1 && int.TryParse(segments[1], out var parsedMinor) ? parsedMinor : 0;
-        return major * 100 + minor;
+        var moniker = framework.ToLowerInvariant();
+
+        // Family tiers dominate version so a modern .NET moniker always outranks an older
+        // .NET Framework one, even though "net462" carries larger raw digits than "net10.0".
+        // Modern .NET is spelled "net{major}.{minor}" (with a dot); .NET Framework is
+        // "net{digits}" (no dot, e.g. net462, net48).
+        int familyBase;
+        int version;
+        if (moniker.StartsWith("netcoreapp"))
+        {
+            familyBase = 300_000;
+            version = DottedVersion(moniker);
+        }
+        else if (moniker.StartsWith("netstandard"))
+        {
+            familyBase = 200_000;
+            version = DottedVersion(moniker);
+        }
+        else if (moniker.StartsWith("net") && moniker.Length > 3 && char.IsDigit(moniker[3]))
+        {
+            if (moniker.Contains('.'))
+            {
+                familyBase = 400_000;
+                version = DottedVersion(moniker);
+            }
+            else
+            {
+                familyBase = 100_000;
+                version = int.TryParse(new string(moniker.Where(char.IsDigit).ToArray()), out var raw) ? raw : 0;
+            }
+        }
+        else
+        {
+            familyBase = 0;
+            version = 0;
+        }
+
+        return familyBase + version;
+
+        static int DottedVersion(string value)
+        {
+            var digits = new string(value.SkipWhile(character => !char.IsDigit(character)).ToArray());
+            var segments = digits.Split('.', StringSplitOptions.RemoveEmptyEntries);
+            var major = segments.Length > 0 && int.TryParse(segments[0], out var parsedMajor) ? parsedMajor : 0;
+            var minor = segments.Length > 1 && int.TryParse(segments[1], out var parsedMinor) ? parsedMinor : 0;
+            return major * 100 + minor;
+        }
     }
 }

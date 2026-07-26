@@ -1,5 +1,5 @@
 import { lenses, packageLenses, rootCommands } from "./data.js";
-import { initializeEngine, inspectListStyleOptions, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
+import { initializeEngine, inspectListStyleOptions, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageDependencies, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
 
 function loadStoredTaste() {
   try {
@@ -38,6 +38,10 @@ const state = {
   typeMetadataLoading: false,
   typeMetadataError: "",
   typeMetadataKey: "",
+  packageDependencies: null,
+  packageDependenciesLoading: false,
+  packageDependenciesError: "",
+  packageDependenciesKey: "",
   memberCallGraph: null,
   memberCallGraphLoading: false,
   memberCallGraphError: "",
@@ -622,6 +626,7 @@ function render() {
   syncUrl();
   maybeAutoLoadTypeSource();
   maybeAutoLoadTypeMetadata();
+  maybeAutoLoadPackageDependencies();
 }
 
 function maybeAutoLoadTypeSource() {
@@ -762,7 +767,85 @@ function packageLensPlaceholder(lensId) {
 
 function renderPackageView() {
   if (state.packageLens === "overview") return `${packageHeading()}${renderPackageOverview()}`;
+  if (state.packageLens === "dependencies") return `${packageHeading()}${renderPackageDependencies()}`;
   return `${packageHeading()}${packageLensPlaceholder(state.packageLens)}`;
+}
+
+function packageDependenciesSignature() {
+  const pkg = state.package;
+  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}`;
+}
+
+function renderPackageDependencies() {
+  const current = packageDependenciesSignature();
+  const fresh = state.packageDependenciesKey === current;
+  if (state.packageDependenciesLoading && fresh) {
+    return `<section class="document-section source-progress"><span class="loader"></span><h2>Reading dependencies…</h2><p>Parsing the package manifest and assembly references.</p></section>`;
+  }
+  if (fresh && state.packageDependenciesError) {
+    return `<section class="document-section empty-document"><span class="large-glyph">⌘</span><h2>Dependency query failed</h2><p>${escapeHtml(state.packageDependenciesError)}</p></section>`;
+  }
+  const data = fresh ? state.packageDependencies : null;
+  if (!data) {
+    return `<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
+  }
+
+  const activeFramework = state.package.activeFramework;
+  const groups = data.dependencyGroups || [];
+  const orderedGroups = [...groups].sort((a, b) => (b.isActive ? 1 : 0) - (a.isActive ? 1 : 0));
+  const groupBlocks = orderedGroups.length
+    ? orderedGroups.map(group => `
+        <section class="document-section">
+          <div class="section-title"><h2>NuGet dependencies${group.isActive ? " · active" : ""}</h2><span>${escapeHtml(group.framework)} · ${group.dependencies.length} package${group.dependencies.length === 1 ? "" : "s"}</span></div>
+          ${group.dependencies.length
+            ? `<dl class="fact-rows">${group.dependencies.map(dependency => `<div><dt>${escapeHtml(dependency.id)}</dt><dd><code>${escapeHtml(dependency.versionRange || "*")}</code></dd></div>`).join("")}</dl>`
+            : `<div class="empty-list">No package dependencies declared for ${escapeHtml(group.framework)}.</div>`}
+        </section>`).join("")
+    : `<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No package dependencies</h2><p>The manifest declares no NuGet dependencies — a self-contained package.</p></section>`;
+
+  const references = data.assemblyReferences || [];
+  const referenceBlock = `
+    <section class="document-section">
+      <div class="section-title"><h2>Assembly references</h2><span>${references.length} from ${escapeHtml(state.package.assembly)} · ${escapeHtml(activeFramework)}</span></div>
+      ${references.length
+        ? `<div class="type-chip-list">${references.map(reference => `<code class="attr-chip" title="${escapeHtml(reference.name)} ${escapeHtml(reference.version)}">${escapeHtml(reference.name)} <span class="ref-version">${escapeHtml(reference.version)}</span></code>`).join("")}</div>`
+        : `<div class="empty-list">No assembly references read from the implementation assembly.</div>`}
+    </section>`;
+
+  return `${groupBlocks}${referenceBlock}`;
+}
+
+async function loadPackageDependencies() {
+  const signature = packageDependenciesSignature();
+  if (state.packageDependenciesKey === signature && (state.packageDependencies || state.packageDependenciesError)) {
+    render();
+    return;
+  }
+  state.packageDependenciesKey = signature;
+  state.packageDependencies = null;
+  state.packageDependenciesError = "";
+  state.packageDependenciesLoading = true;
+  render();
+  try {
+    const result = await inspectPackageDependencies({
+      packageId: state.package.id,
+      version: state.package.version,
+      framework: state.package.activeFramework,
+      assembly: state.package.assembly
+    });
+    if (state.packageDependenciesKey === signature) state.packageDependencies = result;
+  } catch (error) {
+    if (state.packageDependenciesKey === signature) state.packageDependenciesError = String(error?.message || error);
+  } finally {
+    if (state.packageDependenciesKey === signature) state.packageDependenciesLoading = false;
+    render();
+  }
+}
+
+function maybeAutoLoadPackageDependencies() {
+  if (!state.atPackageRoot || state.packageLens !== "dependencies") return;
+  if (state.packageDependenciesKey === packageDependenciesSignature()) return;
+  loadPackageDependencies();
 }
 
 function renderPackageOverview() {

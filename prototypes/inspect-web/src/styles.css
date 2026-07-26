@@ -686,6 +686,7 @@ kbd {
 .assembly-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
 .type-chip-list .type-chip .ns-count { display: inline-block; min-width: 18px; margin-right: 6px; padding: 0 5px; border-radius: 999px; background: var(--panel-active); color: var(--dim); font-size: 11px; text-align: center; }
 .type-chip-list .type-chip.active { border-color: var(--accent); color: var(--accent); }
+.type-chip-list .attr-chip .ref-version { color: var(--muted); margin-left: 4px; }
 .ns-overflow { align-self: center; color: var(--muted); font-size: 12px; padding: 0 6px; }
 .composition-flags { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 10px; border-bottom: 1px solid var(--line); }
 .count-flag { font: 12px var(--mono); padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line-strong); color: var(--dim); background: var(--panel); }
