@@ -65,6 +65,18 @@ harness output.)
   fallback (e.g. the sanitized ContextFail floor) when the shape is declined
   rather than raised.
 
+When a block IS a declined-to-floor shape, render the ACTUAL floor, not the
+shape that was declined — a decline changes the member's IDENTITY, not its body.
+It is not a skeleton: the real reconstructed body is kept. What changes is that
+the interface is dropped from the base list and the member is demoted from an
+explicit implementation to a plain method whose name is the sanitized MethodDef
+name (dots become underscores, `IType.Member` -> `IType_Member`). Its verdict is
+`ContextFail` ("method-not-found"): the plain shape compiles, but the original
+explicit-member identity no longer exists in the recompiled assembly to
+opcode-compare — it is chosen precisely because it is strictly safer than the
+`RecompileFail` the explicit spelling would have produced. Do not draw the floor
+still carrying the interface base entry or the explicit qualifier.
+
 Record the compile-back verdict next to the code it judges (never inferred from
 prose):
 
