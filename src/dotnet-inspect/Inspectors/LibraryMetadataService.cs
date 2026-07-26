@@ -201,17 +201,20 @@ internal static class LibraryMetadataService
             inspection.FileSize = pdbContext.FileSize;
             inspection.LastModified = pdbContext.LastWriteTimeUtc;
 
-            var sourcePlan = LibrarySourcePlans.For(
-                options.UserVerbosity,
-                options.IncludeSections);
-
             // Effective-section discovery (-D) must be network-free regardless of
-            // verbosity or -S filters: the SourceLink family is listed from the
+            // verbosity or -S filters. The SourceLink family is listed from the
             // network-free ProbeLocalSourceLinkAsync gate, so a discovery inspection
-            // never downloads a PDB. This keeps -D listings verbosity-independent and
-            // keeps the effective cache token (probe-driven) consistent with what the
-            // inspection records for HasSourceLink.
-            bool allowPdbDownload = sourcePlan.AllowPdbDownload && !discoveryOnly;
+            // runs no network-capable source stage: no PDB download, no source-URL
+            // HEAD audit, no integrity GET, and no source-file collection. (For an
+            // embedded/adjacent PDB the local audit stages would otherwise fire.)
+            // This keeps -D listings verbosity-independent and keeps the effective
+            // cache token (probe-driven) consistent with what the inspection records
+            // for HasSourceLink.
+            var sourcePlan = discoveryOnly
+                ? default
+                : LibrarySourcePlans.For(
+                    options.UserVerbosity,
+                    options.IncludeSections);
 
             await AuditAsync(
                 service,
@@ -222,7 +225,7 @@ internal static class LibraryMetadataService
                 logger,
                 httpClient,
                 isPlatformAssembly,
-                allowPdbDownload: allowPdbDownload);
+                allowPdbDownload: sourcePlan.AllowPdbDownload);
 
             var sourceSubject = FindingSubjectFor(path);
             inspection.SourceDocumentInspection = MetadataFindings.InspectSourceDocuments(
