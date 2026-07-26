@@ -1764,6 +1764,16 @@ public static class CompileBackSourceComposer
         if (AttributeReader.TryGetObsoleteAttribute(reader, interfaceDef.GetCustomAttributes(), out _))
             return false;
 
+        // Naming the interface in the base list (`: DisplayName`) forces the recompile to bind to
+        // it, which requires every feature the interface demands via [CompilerFeatureRequired]. If
+        // the resolved interface carries an unsatisfiable feature marker, binding it is a hard
+        // CS9041 (feature not supported), turning the sanitized ContextFail floor (which never
+        // names the interface, so never triggers the requirement) into a RecompileFail. This
+        // attribute is not emittable from C# source and appears only on hand-authored or
+        // future/downlevel-drifted IL, so decline any interface that carries it and keep the floor.
+        if (AttributeReader.HasAttribute(reader, interfaceDef.GetCustomAttributes(), KnownAttributeNames.CompilerFeatureRequiredAttribute))
+            return false;
+
         if (interfaceDef.GetProperties().Count != 0 || interfaceDef.GetEvents().Count != 0)
             return false;
 

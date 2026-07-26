@@ -10,6 +10,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using System.Reflection;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Decompiler.Tests;
@@ -1673,6 +1674,64 @@ public class ReturnToSenderPrototypeTests
                 $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
             Assert.Contains("RtsObs_IProbe_M", result.Source, StringComparison.Ordinal);
             Assert.DoesNotContain("RtsObs.IProbe.M", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            if (Directory.Exists(referenceDir))
+                Directory.Delete(referenceDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceWithCompilerFeatureRequiredInterfaceFallsBackWithoutRecompileFail()
+    {
+        // Regression guard: naming the interface in the reconstructed base list (`: N.IProbe`)
+        // forces the recompile to bind to it, which demands every feature the interface requires
+        // via [CompilerFeatureRequired]. If the resolved interface carries an unsatisfiable feature
+        // marker, binding it is a hard CS9041, turning the sanitized ContextFail floor (which never
+        // names the interface, so never triggers the requirement) into a RecompileFail. This
+        // attribute is not emittable from C# source (CS8335), so the poison sibling is authored
+        // directly as metadata: a target built against a clean single-member interface, whose
+        // sibling resolved at reconstruction demands an unknown compiler feature.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var referenceDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var referencePath = CompileFixture(
+            "namespace RtsCfr { public interface IProbe { void M(); } }",
+            directory: referenceDir,
+            assemblyName: "RtsCfrContracts");
+        Directory.CreateDirectory(fixtureDir);
+        File.WriteAllBytes(
+            Path.Combine(fixtureDir, "RtsCfrContracts.dll"),
+            BuildCompilerFeatureRequiredInterfaceImage(
+                assemblyName: "RtsCfrContracts",
+                namespaceName: "RtsCfr",
+                typeName: "IProbe",
+                methodName: "M"));
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class CfrImpl : RtsCfr.IProbe
+            {
+                void RtsCfr.IProbe.M() { }
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(referencePath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "CfrImpl",
+                    "RtsCfr.IProbe.M",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsCfr_IProbe_M", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsCfr.IProbe.M", result.Source, StringComparison.Ordinal);
         }
         finally
         {
@@ -7201,6 +7260,106 @@ public class ReturnToSenderPrototypeTests
         {
             DeleteFixture(assemblyPath);
         }
+    }
+
+    // Emits a loadable IL-only assembly containing a single-member public interface whose type
+    // definition carries [CompilerFeatureRequired("<unknown feature>")]. The attribute is not
+    // authorable from C# source (CS8335 even when self-defined), so it is written directly as
+    // metadata: a TypeReference to the real corelib CompilerFeatureRequiredAttribute, a
+    // MemberReference to its (string) constructor, and a CustomAttribute naming an unknown feature
+    // with IsOptional defaulting to false — the shape a downlevel/hand-authored producer emits and
+    // that raises CS9041 when a consumer binds to the interface.
+    static byte[] BuildCompilerFeatureRequiredInterfaceImage(
+        string assemblyName,
+        string namespaceName,
+        string typeName,
+        string methodName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString($"{assemblyName}.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: AssemblyHashAlgorithm.None);
+
+        var coreLib = typeof(object).Assembly.GetName();
+        var coreLibRef = metadata.AddAssemblyReference(
+            metadata.GetOrAddString(coreLib.Name!),
+            coreLib.Version!,
+            culture: default,
+            publicKeyOrToken: metadata.GetOrAddBlob(coreLib.GetPublicKeyToken()!),
+            flags: default,
+            hashValue: default);
+        var cfrTypeRef = metadata.AddTypeReference(
+            coreLibRef,
+            metadata.GetOrAddString("System.Runtime.CompilerServices"),
+            metadata.GetOrAddString("CompilerFeatureRequiredAttribute"));
+        var cfrCtorSig = new BlobBuilder();
+        cfrCtorSig.WriteByte(0x20); // HASTHIS, default calling convention
+        cfrCtorSig.WriteCompressedInteger(1); // one parameter
+        cfrCtorSig.WriteByte(0x01); // return type: void
+        cfrCtorSig.WriteByte(0x0e); // parameter type: string
+        var cfrCtorRef = metadata.AddMemberReference(
+            cfrTypeRef,
+            metadata.GetOrAddString(".ctor"),
+            metadata.GetOrAddBlob(cfrCtorSig));
+
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        var interfaceHandle = metadata.AddTypeDefinition(
+            TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract,
+            metadata.GetOrAddString(namespaceName),
+            metadata.GetOrAddString(typeName),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var methodSig = new BlobBuilder();
+        methodSig.WriteByte(0x20); // HASTHIS, default calling convention
+        methodSig.WriteCompressedInteger(0); // no parameters
+        methodSig.WriteByte(0x01); // return type: void
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public
+                | MethodAttributes.HideBySig
+                | MethodAttributes.NewSlot
+                | MethodAttributes.Abstract
+                | MethodAttributes.Virtual,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString(methodName),
+            metadata.GetOrAddBlob(methodSig),
+            bodyOffset: -1,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        var attributeValue = new BlobBuilder();
+        attributeValue.WriteUInt16(0x0001); // custom attribute prolog
+        attributeValue.WriteSerializedString("TotallyUnknownFeature");
+        attributeValue.WriteUInt16(0); // zero named arguments
+        metadata.AddCustomAttribute(
+            interfaceHandle,
+            cfrCtorRef,
+            metadata.GetOrAddBlob(attributeValue));
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata, suppressValidation: true),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 
     static string CompileFixture(
