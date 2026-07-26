@@ -1,4 +1,4 @@
-import { lenses, rootCommands } from "./data.js";
+import { lenses, packageLenses, rootCommands } from "./data.js";
 import { initializeEngine, inspectListStyleOptions, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
 
 function loadStoredTaste() {
@@ -47,6 +47,8 @@ const state = {
   memberDocumentationLoading: false,
   memberDocumentationError: "",
   lens: "api",
+  packageLens: "overview",
+  atPackageRoot: false,
   typeFilter: "",
   namespaceFilter: "",
   kindFilter: "",
@@ -82,7 +84,9 @@ function viewSignature() {
     t: state.selectedTypeId,
     m: state.selectedMemberKey,
     o: state.selectedOverloadIndex,
-    s: state.memberSection
+    s: state.memberSection,
+    pr: state.atPackageRoot,
+    pl: state.packageLens
   });
 }
 
@@ -93,7 +97,9 @@ function captureView() {
     selectedTypeId: state.selectedTypeId,
     selectedMemberKey: state.selectedMemberKey,
     selectedOverloadIndex: state.selectedOverloadIndex,
-    memberSection: state.memberSection
+    memberSection: state.memberSection,
+    atPackageRoot: state.atPackageRoot,
+    packageLens: state.packageLens
   };
 }
 
@@ -114,6 +120,8 @@ function applyView(view) {
   state.selectedMemberKey = view.selectedMemberKey;
   state.selectedOverloadIndex = view.selectedOverloadIndex;
   state.memberSection = view.memberSection;
+  state.atPackageRoot = view.atPackageRoot ?? false;
+  state.packageLens = view.packageLens ?? "overview";
   state.memberSource = null;
   state.memberSourceError = "";
   state.memberCallGraph = null;
@@ -123,7 +131,7 @@ function applyView(view) {
   state.memberAnnotated = null;
   state.memberAnnotatedError = "";
   const type = selectedType();
-  if (state.lens === "api" && state.selectedMemberKey && selectedMember(type)) {
+  if (!state.atPackageRoot && state.lens === "api" && state.selectedMemberKey && selectedMember(type)) {
     if (state.memberSection === "source") loadSelectedMemberSource();
     else if (state.memberSection === "annotated") loadSelectedMemberAnnotatedSource();
     else if (state.memberSection === "call-graph") loadSelectedMemberCallGraph();
@@ -161,7 +169,11 @@ function parseLocation() {
     member: params.get("member"),
     overload: params.get("overload"),
     section: params.get("section"),
-    lens: lenses.some(([id]) => id === hashLens) ? hashLens : null
+    lens: lenses.some(([id]) => id === hashLens) ? hashLens : null,
+    atPackageRoot: hashLens === "pkg" || hashLens.startsWith("pkg:"),
+    packageLens: (hashLens === "pkg" || hashLens.startsWith("pkg:"))
+      ? (packageLenses.some(([id]) => id === hashLens.split(":")[1]) ? hashLens.split(":")[1] : "overview")
+      : null
   };
 }
 
@@ -172,6 +184,10 @@ if (initialLocation.package) {
 }
 if (initialLocation.framework) state.requestedFramework = initialLocation.framework;
 if (initialLocation.lens) state.lens = initialLocation.lens;
+if (initialLocation.atPackageRoot) {
+  state.atPackageRoot = true;
+  state.packageLens = initialLocation.packageLens || "overview";
+}
 
 // Deep-link selection to restore once the first package model is available. Consumed
 // (and cleared) by the first loadPackage so later package switches start fresh.
@@ -262,10 +278,23 @@ function selectedMember(type) {
   return memberGroups(type).find(group => group.key === state.selectedMemberKey);
 }
 
+// Selection sits on a scope ladder: package (a whole NuGet package / its assemblies),
+// type (one public type), or member (a member + its overloads under the API lens). The
+// lens strip, detail pane, and arrow keys all react to the active scope.
+function scope() {
+  if (state.atPackageRoot) return "package";
+  return state.lens === "api" && state.selectedMemberKey ? "member" : "type";
+}
+
+function activeLenses() {
+  return scope() === "package" ? packageLenses : lenses;
+}
+
 // The nav pane reacts to context: types at the top level, or the current type's
 // members (with the active member's overloads nested) once a member is open under
 // the API lens. Both modes render into #type-list so keyboard/scroll logic is shared.
 function navMode() {
+  if (state.atPackageRoot) return "type";
   return state.lens === "api" && state.selectedMemberKey ? "member" : "type";
 }
 
@@ -353,6 +382,12 @@ function stepNav(delta) {
 // ←/→ act on the horizontal tab strip at your depth: sections when a concrete
 // overload is open, otherwise the lens strip.
 function stepHorizontal(delta) {
+  if (state.atPackageRoot) {
+    const index = packageLenses.findIndex(([id]) => id === state.packageLens);
+    state.packageLens = packageLenses[(index + delta + packageLenses.length) % packageLenses.length][0];
+    render();
+    return;
+  }
   const type = selectedType();
   const member = state.lens === "api" ? selectedMember(type) : null;
   const overloadOpen = member && !(member.overloads.length > 1 && state.selectedOverloadIndex == null);
@@ -375,6 +410,11 @@ function stepHorizontal(delta) {
 
 // Enter drills one level deeper; Escape/Backspace pops back out.
 function drillIn() {
+  if (state.atPackageRoot) {
+    state.atPackageRoot = false;
+    render();
+    return;
+  }
   const type = selectedType();
   if (!type) return;
   if (navMode() === "type") {
@@ -393,16 +433,23 @@ function drillIn() {
 }
 
 function drillOut() {
-  if (navMode() !== "member") return false;
-  const member = selectedMember(selectedType());
-  if (member && member.overloads.length > 1 && state.selectedOverloadIndex != null) {
-    state.selectedOverloadIndex = null;
-  } else {
-    state.selectedMemberKey = "";
-    state.selectedOverloadIndex = null;
+  if (navMode() === "member") {
+    const member = selectedMember(selectedType());
+    if (member && member.overloads.length > 1 && state.selectedOverloadIndex != null) {
+      state.selectedOverloadIndex = null;
+    } else {
+      state.selectedMemberKey = "";
+      state.selectedOverloadIndex = null;
+    }
+    render();
+    return true;
   }
-  render();
-  return true;
+  if (!state.atPackageRoot) {
+    state.atPackageRoot = true;
+    render();
+    return true;
+  }
+  return false;
 }
 
 
@@ -500,12 +547,17 @@ function render() {
       </section>
 
       <nav class="lensbar" aria-label="Inspection lenses">
-        <button class="home-lens active-static"><span>⌘</span> Types</button>
+        <button class="home-lens ${state.atPackageRoot ? "active" : ""}" id="package-root" title="Package scope"><span>⌘</span> Types</button>
         <span class="lens-separator"></span>
-        ${lenses.map(([id, label], index) => `
-          <button class="lens ${state.lens === id ? "active" : ""}" data-lens="${id}">
-            ${escapeHtml(label)}<kbd>${index + 1}</kbd>
-          </button>`).join("")}
+        ${state.atPackageRoot
+          ? packageLenses.map(([id, label], index) => `
+            <button class="lens ${state.packageLens === id ? "active" : ""}" data-package-lens="${id}">
+              ${escapeHtml(label)}<kbd>${index + 1}</kbd>
+            </button>`).join("")
+          : lenses.map(([id, label], index) => `
+            <button class="lens ${state.lens === id ? "active" : ""}" data-lens="${id}">
+              ${escapeHtml(label)}<kbd>${index + 1}</kbd>
+            </button>`).join("")}
       </nav>
 
       <main class="workspace">
@@ -518,8 +570,10 @@ function render() {
               <button id="nav-forward" ${nav.index < nav.stack.length - 1 ? "" : "disabled"} title="Forward (Alt+→)" aria-label="Forward">›</button>
             </div>
             <div class="breadcrumbs">
-              <span>${escapeHtml(state.package.id)}</span><b>/</b><span>${escapeHtml(current.namespace)}</span><b>/</b><strong>${escapeHtml(current.name)}</strong>
-              ${state.selectedMemberKey ? `<b>/</b><strong>${escapeHtml(selectedMember(current)?.name ?? "")}</strong>` : ""}
+              ${state.atPackageRoot
+                ? `<strong>${escapeHtml(state.package.id)}</strong><b>/</b><span>${escapeHtml(packageLenses.find(([id]) => id === state.packageLens)?.[1] || "Overview")}</span>`
+                : `<span>${escapeHtml(state.package.id)}</span><b>/</b><span>${escapeHtml(current.namespace)}</span><b>/</b><strong>${escapeHtml(current.name)}</strong>
+              ${state.selectedMemberKey ? `<b>/</b><strong>${escapeHtml(selectedMember(current)?.name ?? "")}</strong>` : ""}`}
             </div>
             <div class="detail-actions"><button id="copy-name" type="button">copy name</button><button id="taste-btn" class="${state.taste.length ? "active" : ""}" title="Decompiler style (taste)">taste${state.taste.length ? ` · ${state.taste.length}` : ""}</button></div>
           </header>
@@ -679,7 +733,93 @@ function renderMemberNav(type) {
     </aside>`;
 }
 
+function packageHeading() {
+  const pkg = state.package;
+  return `<header class="type-heading">
+    <div class="type-badge">⬡</div>
+    <div>
+      <div class="type-namespace">NuGet package</div>
+      <h1>${escapeHtml(pkg.id)}</h1>
+      <code class="type-signature">${escapeHtml(pkg.id)}@${escapeHtml(pkg.version)}</code>
+    </div>
+    <div class="type-metrics"><span><strong>${pkg.totalTypes}</strong> types</span><span><strong>${pkg.totalMembers.toLocaleString()}</strong> members</span></div>
+    <dl class="definition-list">
+      <div><dt>Active TFM:</dt><dd>${escapeHtml(pkg.activeFramework)}</dd></div>
+      <div><dt>Assemblies:</dt><dd>${pkg.assemblies?.length ?? 0}</dd></div>
+      <div><dt>Frameworks:</dt><dd>${pkg.frameworks.length}</dd></div>
+    </dl>
+  </header>`;
+}
+
+function packageLensPlaceholder(lensId) {
+  const copy = {
+    dependencies: ["⌘", "Dependencies", "Package NuGet dependencies and assembly references. Wiring the engine export in a follow-up pass."],
+    integrations: ["◈", "Integrations", "Known ecosystem integrations (DI, logging, OpenTelemetry, …) this package participates in. Coming in a follow-up pass."],
+    analysis: ["△", "Analysis", "Ranked allocation and performance opportunities across the package, each drilling to its member. Coming in a follow-up pass."]
+  }[lensId] || ["△", "Not available", "This package lens is not wired yet."];
+  return `<section class="document-section empty-document"><span class="large-glyph">${copy[0]}</span><h2>${escapeHtml(copy[1])}</h2><p>${escapeHtml(copy[2])}</p></section>`;
+}
+
+function renderPackageView() {
+  if (state.packageLens === "overview") return `${packageHeading()}${renderPackageOverview()}`;
+  return `${packageHeading()}${packageLensPlaceholder(state.packageLens)}`;
+}
+
+function renderPackageOverview() {
+  const pkg = state.package;
+
+  const frameworks = pkg.frameworks
+    .map(framework => `<button class="type-chip ${framework === pkg.activeFramework ? "active" : ""}" data-framework-chip="${escapeHtml(framework)}">${escapeHtml(framework)}</button>`)
+    .join("");
+
+  const assemblies = (pkg.assemblies || [])
+    .map(assembly => `<div class="count-cell"><strong>${assembly.publicTypes}</strong><span>${escapeHtml(assembly.name)}</span><em>${assembly.publicMembers.toLocaleString()} members</em></div>`)
+    .join("") || '<div class="count-cell"><strong>0</strong><span>assemblies</span></div>';
+
+  const kindCounts = new Map();
+  for (const type of pkg.types) {
+    const kind = typeKind(type.kind);
+    kindCounts.set(kind, (kindCounts.get(kind) || 0) + 1);
+  }
+  const kindPlural = { class: "classes", struct: "structs", interface: "interfaces", enum: "enums", delegate: "delegates" };
+  const kinds = KIND_ORDER
+    .filter(kind => kindCounts.has(kind))
+    .map(kind => `<button class="count-cell as-button" data-kind-jump="${kind}"><strong>${kindCounts.get(kind)}</strong><span>${kindPlural[kind] || kind}</span></button>`)
+    .join("");
+
+  const nsCounts = new Map();
+  for (const type of pkg.types) {
+    const ns = type.namespace || "global";
+    nsCounts.set(ns, (nsCounts.get(ns) || 0) + 1);
+  }
+  const namespaces = [...nsCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12)
+    .map(([ns, count]) => `<button class="type-chip" data-namespace-jump="${escapeHtml(ns)}"><span class="ns-count">${count}</span>${escapeHtml(ns)}</button>`)
+    .join("");
+  const nsOverflow = nsCounts.size > 12 ? `<span class="ns-overflow">+${nsCounts.size - 12} more</span>` : "";
+
+  return `
+    <section class="document-section">
+      <div class="section-title"><h2>Target frameworks</h2><span>${pkg.frameworks.length} · active highlighted</span></div>
+      <div class="type-chip-list">${frameworks}</div>
+    </section>
+    <section class="document-section">
+      <div class="section-title"><h2>Assemblies</h2><span>${(pkg.assemblies || []).length} in lib/${escapeHtml(pkg.activeFramework)}</span></div>
+      <div class="composition-grid assembly-grid">${assemblies}</div>
+    </section>
+    <section class="document-section">
+      <div class="section-title"><h2>Types by kind</h2><span>${pkg.totalTypes} public types — click to browse</span></div>
+      <div class="composition-grid">${kinds}</div>
+    </section>
+    <section class="document-section">
+      <div class="section-title"><h2>Namespaces</h2><span>${nsCounts.size} — click to filter</span></div>
+      <div class="type-chip-list">${namespaces}${nsOverflow}</div>
+    </section>`;
+}
+
 function renderLens(item) {
+  if (state.atPackageRoot) return renderPackageView();
   const member = selectedMember(item);
   if (state.lens === "api" && member) return renderMember(item, member);
   if (state.lens === "source") {
@@ -689,14 +829,6 @@ function renderLens(item) {
   }
   if (state.lens === "metadata") {
     return `${typeHeading(item)}${renderTypeMetadata(item)}`;
-  }
-  if (state.lens === "findings") {
-    return `${typeHeading(item)}
-      <section class="document-section empty-document"><span class="large-glyph">△</span><h2>Findings not queried</h2><p>Analysis remains an explicit facet and has not run for this package session.</p></section>`;
-  }
-  if (state.lens === "dependencies") {
-    return `${typeHeading(item)}
-      <section class="document-section empty-document"><span class="large-glyph">⌘</span><h2>Dependencies not queried</h2><p>Type relationship analysis is outside the current public API query.</p></section>`;
   }
   const groups = memberGroups(item);
   const kindOrder = ["constructor", "method", "property", "field", "event"];
@@ -1136,12 +1268,46 @@ function bindEvents() {
     state.kindFilter = "";
     render();
   }));
+  document.querySelector("#package-root")?.addEventListener("click", () => {
+    state.atPackageRoot = true;
+    render();
+  });
+  document.querySelectorAll("[data-package-lens]").forEach(button => button.addEventListener("click", () => {
+    state.packageLens = button.dataset.packageLens;
+    render();
+  }));
+  document.querySelectorAll("[data-framework-chip]").forEach(button => button.addEventListener("click", () => {
+    loadPackage(state.package.id, state.package.version, button.dataset.frameworkChip);
+  }));
+  document.querySelectorAll("[data-kind-jump]").forEach(button => button.addEventListener("click", () => {
+    state.atPackageRoot = false;
+    state.kindFilter = button.dataset.kindJump;
+    state.namespaceFilter = "";
+    state.typeFilter = "";
+    state.selectedMemberKey = "";
+    state.typeCursor = 0;
+    const first = filteredTypes()[0];
+    if (first) state.selectedTypeId = first.id;
+    render();
+  }));
+  document.querySelectorAll("[data-namespace-jump]").forEach(button => button.addEventListener("click", () => {
+    state.atPackageRoot = false;
+    state.namespaceFilter = button.dataset.namespaceJump;
+    state.kindFilter = "";
+    state.typeFilter = "";
+    state.selectedMemberKey = "";
+    state.typeCursor = 0;
+    const first = filteredTypes()[0];
+    if (first) state.selectedTypeId = first.id;
+    render();
+  }));
   document.querySelectorAll("[data-lens]").forEach(button => button.addEventListener("click", () => {
     state.lens = button.dataset.lens;
     state.selectedMemberKey = "";
     render();
   }));
   document.querySelectorAll("[data-type]").forEach(button => button.addEventListener("click", () => {
+    state.atPackageRoot = false;
     state.selectedTypeId = button.dataset.type;
     state.selectedMemberKey = "";
     state.memberKindFilter = "all";
@@ -1765,7 +1931,9 @@ function buildStateUrl(base = location.href) {
   if (state.selectedOverloadIndex != null) params.set("overload", String(state.selectedOverloadIndex));
   if (state.memberSection && state.memberSection !== "overview") params.set("section", state.memberSection);
   url.search = params.toString();
-  url.hash = state.lens && state.lens !== "api" ? state.lens : "";
+  url.hash = state.atPackageRoot
+    ? (state.packageLens && state.packageLens !== "overview" ? `pkg:${state.packageLens}` : "pkg")
+    : (state.lens && state.lens !== "api" ? state.lens : "");
   return url;
 }
 
@@ -1812,6 +1980,7 @@ function applyDeepLink(deep) {
 // Kick off the async data load implied by the current lens/section so a restored or
 // history-navigated view fills in its content.
 function loadSelectionData() {
+  if (state.atPackageRoot) return;
   if (state.lens === "source") {
     loadSelectedTypeSource();
     return;
@@ -2811,7 +2980,7 @@ document.addEventListener("keydown", event => {
   } else if (event.key === "Escape" && state.graphSourceOpen) {
     event.preventDefault();
     closeGraphSource();
-  } else if (event.key === "Escape" && !typing && navMode() === "member") {
+  } else if (event.key === "Escape" && !typing && (navMode() === "member" || !state.atPackageRoot)) {
     event.preventDefault();
     drillOut();
   } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -2829,9 +2998,14 @@ document.addEventListener("keydown", event => {
   } else if (event.altKey && event.key === "ArrowRight") {
     event.preventDefault();
     navForward();
-  } else if (!typing && !event.metaKey && !event.ctrlKey && /^[1-5]$/.test(event.key)) {
-    state.lens = lenses[Number(event.key) - 1][0];
-    render();
+  } else if (!typing && !event.metaKey && !event.ctrlKey && /^[1-9]$/.test(event.key)) {
+    const set = activeLenses();
+    const index = Number(event.key) - 1;
+    if (index < set.length) {
+      if (state.atPackageRoot) state.packageLens = set[index][0];
+      else state.lens = set[index][0];
+      render();
+    }
   } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
       && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
     event.preventDefault();
@@ -2845,7 +3019,7 @@ document.addEventListener("keydown", event => {
     event.preventDefault();
     drillIn();
   } else if (!typing && !event.defaultPrevented && !event.metaKey && !event.ctrlKey && !event.altKey
-      && event.key === "Backspace" && navMode() === "member") {
+      && event.key === "Backspace" && (navMode() === "member" || !state.atPackageRoot)) {
     event.preventDefault();
     drillOut();
   } else if (!typing && event.key === "/") {
@@ -2872,6 +3046,8 @@ window.addEventListener("popstate", () => {
   if (!state.package) return;
   const loc = parseLocation();
   state.lens = loc.lens || "api";
+  state.atPackageRoot = loc.atPackageRoot || false;
+  state.packageLens = loc.packageLens || "overview";
   const samePackage = loc.package
     && loc.package.toLowerCase() === state.package.id.toLowerCase()
     && (!loc.version || loc.version.toLowerCase() === state.package.version.toLowerCase());

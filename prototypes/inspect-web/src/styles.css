@@ -242,7 +242,8 @@ body {
 }
 .lensbar button:hover { color: var(--text); background: rgba(255,255,255,.015); }
 .lensbar button.active { color: var(--text); border-bottom-color: var(--accent); }
-.home-lens { color: var(--text) !important; font-weight: 600; }
+.home-lens { color: var(--text) !important; font-weight: 600; cursor: pointer; }
+.home-lens.active { border-bottom-color: var(--accent); }
 .home-lens span { color: var(--accent); margin-right: 6px; }
 .lens-separator { width: 1px; height: 17px; background: var(--line); margin: 0 5px; }
 .lens kbd { margin-left: 8px; color: var(--dim); font: 10px var(--mono); }
@@ -678,6 +679,14 @@ kbd {
 .composition-grid .count-cell { display: flex; flex-direction: column; gap: 4px; padding: 14px 12px; background: var(--panel); }
 .composition-grid .count-cell strong { font: 22px var(--mono); color: var(--text); line-height: 1; }
 .composition-grid .count-cell span { font-size: 12px; color: var(--dim); }
+.composition-grid .count-cell em { font: 11px var(--mono); color: var(--muted); font-style: normal; }
+.composition-grid .count-cell.as-button { border: 0; cursor: pointer; text-align: left; align-items: flex-start; font: inherit; }
+.composition-grid .count-cell.as-button:hover { background: var(--panel-active); }
+.composition-grid .count-cell.as-button:hover strong { color: var(--accent); }
+.assembly-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.type-chip-list .type-chip .ns-count { display: inline-block; min-width: 18px; margin-right: 6px; padding: 0 5px; border-radius: 999px; background: var(--panel-active); color: var(--dim); font-size: 11px; text-align: center; }
+.type-chip-list .type-chip.active { border-color: var(--accent); color: var(--accent); }
+.ns-overflow { align-self: center; color: var(--muted); font-size: 12px; padding: 0 6px; }
 .composition-flags { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 10px; border-bottom: 1px solid var(--line); }
 .count-flag { font: 12px var(--mono); padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line-strong); color: var(--dim); background: var(--panel); }
 .count-flag.flag-unsafe { color: #d97757; border-color: #d9775766; }
