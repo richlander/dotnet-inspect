@@ -277,11 +277,15 @@ model offers** — e.g. if both Opus 4.8 and Opus 5 are available, use Opus 5.
 For a two-model review, do not review with your own model when another listed
 family is available.
 
-**Single-vendor harnesses.** A harness that only exposes its own vendor's models —
-for example Claude Code or Codex — cannot run a cross-model review itself. It must
-first pass adversarial review with its own model (using independent passes on the
-fixed head), then **request a subsequent review with another roster model from the
-user.** Do not mark the PR ready until that different-model review is obtained.
+**Single-vendor harnesses.** The tiers above set how many reviews and which models
+a PR requires; a harness's capabilities change only *how* those reviews are
+obtained, not the bar. Most harnesses expose only their own vendor's models — for
+example Claude Code or Codex — and cannot run a cross-model review themselves. Such
+a harness first reviews with its own model (independent passes on the fixed head),
+then **requests the tier's required roster-model review from the user**: the
+MAI-Code review for the single-review tier, or the second, different-family review
+for the two-model tier. Its own-model pass is a precondition, not a substitute — do
+not mark the PR ready until the required different-model review is obtained.
 
 Give each reviewer the same self-contained prompt: exact base and head, design
 intent, relevant diff, concrete attack points, and required real-run evidence.
