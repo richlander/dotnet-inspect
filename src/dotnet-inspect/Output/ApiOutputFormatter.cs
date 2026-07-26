@@ -1667,7 +1667,15 @@ public static class ApiOutputFormatter
                 : $"taste.{d.RuleId}({d.Subject})")
             .Distinct(StringComparer.Ordinal)
             .ToList();
-        return parts.Count == 0 ? null : string.Join("; ", parts);
+        if (parts.Count == 0)
+            return null;
+
+        // A subject is a metadata name, and metadata strings are untrusted: a name
+        // carrying any C# line terminator would end the // comment and leave the
+        // rest of the annotation as active code in output a reader may compile or
+        // paste. ReplaceLineEndings folds every terminator C# recognizes (CR, LF,
+        // CRLF, FF, NEL, LS, PS), so the annotation cannot leave its own line.
+        return string.Join("; ", parts).ReplaceLineEndings(" ");
     }
 
     static string TrimLensPrefix(string ruleId)

@@ -132,6 +132,37 @@ public class AppliedTasteSectionTests
         Assert.Null(ApiOutputFormatter.BuildTasteAnnotation([frameworkImport]));
     }
 
+    [Theory]
+    [InlineData("\n")]
+    [InlineData("\r")]
+    [InlineData("\r\n")]
+    [InlineData("\u0085")]
+    [InlineData("\u2028")]
+    [InlineData("\u2029")]
+    public void TasteAnnotation_SubjectCarryingALineTerminator_CannotEscapeTheComment(string terminator)
+    {
+        // Subjects are metadata names, and metadata is untrusted. A name carrying
+        // any terminator C# recognizes would close the // comment and leave the
+        // remainder of the annotation as active code in source a reader may paste
+        // or compile, so the annotation must always stay on one line.
+        var hostile = $"field{terminator}    public int Injected() => 42; //";
+        var decision = new DecompilerDecision(
+            "qualify-field-access",
+            DecompilerDecisionCategories.Taste,
+            hostile,
+            "Qualified instance member with 'this.'.");
+
+        var annotation = ApiOutputFormatter.BuildTasteAnnotation([decision]);
+
+        Assert.NotNull(annotation);
+        Assert.DoesNotContain('\n', annotation);
+        Assert.DoesNotContain('\r', annotation);
+        Assert.DoesNotContain('\u0085', annotation);
+        Assert.DoesNotContain('\u2028', annotation);
+        Assert.DoesNotContain('\u2029', annotation);
+        Assert.Contains("Injected", annotation, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void TasteAnnotation_NoDecisions_YieldsNothing()
         => Assert.Null(ApiOutputFormatter.BuildTasteAnnotation([]));

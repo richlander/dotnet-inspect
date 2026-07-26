@@ -228,9 +228,14 @@ public static partial class ResearchViews
         // rather than rendering a correspondence we cannot stand behind. The
         // applied lens stays on the result as a typed decision, so a host can say
         // which knob shaped the render without this layer baking prose into the
-        // source it returns. The fact overlay stays too: a fact is a property of
-        // the member, not a claim about which opcodes a printed statement
-        // reproduces.
+        // source it returns. That is the contract for suppression here: this layer
+        // returns source, and the StyleLens decisions on Metadata.Decisions are the
+        // whole signal for why the IL is absent, so a host that renders this Output
+        // without reading those decisions is responsible for the missing
+        // explanation. The CLI honors it by naming applied taste, including
+        // fidelity=byte-divergent, on the member signature. The fact overlay stays
+        // too: a fact is a property of the member, not a claim about which opcodes
+        // a printed statement reproduces.
         bool lensApplied = csResult.Metadata.Decisions
             .Any(decision => decision.Category == DecompilerDecisionCategories.StyleLens);
         var annotatedInstrLines = lensApplied
