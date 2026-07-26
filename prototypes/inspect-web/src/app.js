@@ -177,8 +177,8 @@ function navForward() {
 
 const memberSections = ["overview", "source", "annotated", "call-graph", "facts"];
 
-// URL-safe base64 over UTF-8 bytes. Used for the opaque workspace bucket so a shared or
-// duplicated link can carry the full open-tab set without bloating the visible query.
+// URL-safe base64 over UTF-8 bytes. Used for the opaque share packet so a shared or
+// duplicated link can carry the full session state without bloating the visible query.
 function base64UrlEncode(text) {
   const bytes = new TextEncoder().encode(text);
   let binary = "";
@@ -194,51 +194,132 @@ function base64UrlDecode(value) {
   return new TextDecoder().decode(bytes);
 }
 
-// Encodes the open-tab set as a compact [id, version, framework] tuple list. Type/member
-// detail is intentionally omitted — tabs are re-fetched on restore, only their identity
-// needs to travel in the link.
-function encodeWorkspace(packages) {
-  const tuples = packages.map(item => [item.id, item.version, item.activeFramework || ""]);
-  return base64UrlEncode(JSON.stringify(tuples));
+// Compact, opaque share packet. Carries everything needed to fully restore a session — the
+// open-tab set, which tab is active, the current view, and (only in type view) the selected
+// type/member — so the visible query stays down to a human-readable ?package=<id>. Keys are
+// terse to keep the encoded string short:
+//   t = tabs [[id, version, framework], …]   a = active tab index   v = view token
+//   y/m/o/c = selected type / member / overload / member section (type view only)
+function encodeShareState() {
+  const packet = {
+    t: state.packages.map(item => [item.id, item.version, item.activeFramework || ""]),
+    a: Math.max(0, state.packages.indexOf(state.package))
+  };
+  if (state.atPackageRoot) {
+    packet.v = state.packageLens && state.packageLens !== "overview" ? `pkg:${state.packageLens}` : "pkg";
+  } else {
+    // Package identity/view is enough for a package-root link; a selected type only belongs
+    // to type view, so it is captured here and nowhere else.
+    if (state.lens && state.lens !== "api") packet.v = state.lens;
+    if (state.selectedTypeId) packet.y = state.selectedTypeId;
+    if (state.selectedMemberKey) packet.m = state.selectedMemberKey;
+    if (state.selectedOverloadIndex != null) packet.o = state.selectedOverloadIndex;
+    if (state.memberSection && state.memberSection !== "overview") packet.c = state.memberSection;
+  }
+  return base64UrlEncode(JSON.stringify(packet));
 }
 
-function decodeWorkspace(value) {
-  if (!value) return [];
+function tabsFromTuples(list) {
+  return (Array.isArray(list) ? list : [])
+    .filter(Array.isArray)
+    .map(tuple => ({
+      id: String(tuple[0] || ""),
+      version: String(tuple[1] || "latest"),
+      framework: String(tuple[2] || "")
+    }))
+    .filter(tab => tab.id);
+}
+
+function decodeShareState(value) {
+  if (!value) return null;
   try {
-    const parsed = JSON.parse(base64UrlDecode(value));
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter(Array.isArray)
-      .map(tuple => ({
-        id: String(tuple[0] || ""),
-        version: String(tuple[1] || "latest"),
-        framework: String(tuple[2] || "")
-      }))
-      .filter(tab => tab.id);
+    const raw = JSON.parse(base64UrlDecode(value));
+    // Legacy form: a bare tuple array of tabs, carrying no view or selection.
+    if (Array.isArray(raw)) {
+      return { tabs: tabsFromTuples(raw), active: 0, view: "", rich: false, type: null, member: null, overload: null, section: null };
+    }
+    if (raw && Array.isArray(raw.t)) {
+      return {
+        tabs: tabsFromTuples(raw.t),
+        active: Number.isInteger(raw.a) ? raw.a : 0,
+        view: typeof raw.v === "string" ? raw.v : "",
+        rich: true,
+        type: raw.y != null ? String(raw.y) : null,
+        member: raw.m != null ? String(raw.m) : null,
+        overload: raw.o != null ? String(raw.o) : null,
+        section: raw.c != null ? String(raw.c) : null
+      };
+    }
+    return null;
   } catch {
-    return [];
+    return null;
   }
+}
+
+// Maps a view token ("pkg", "pkg:dependencies", "source", "call-graph", …) to the lens fields.
+function resolveView(token) {
+  const atPackageRoot = token === "pkg" || token.startsWith("pkg:");
+  return {
+    lens: lenses.some(([id]) => id === token) ? token : null,
+    atPackageRoot,
+    packageLens: atPackageRoot
+      ? (packageLenses.some(([id]) => id === token.split(":")[1]) ? token.split(":")[1] : "overview")
+      : null
+  };
 }
 
 function parseLocation() {
   const params = new URLSearchParams(location.search);
   const route = location.pathname.split("/").filter(Boolean);
   const packageAt = route.findIndex(part => part.toLowerCase() === "packages");
-  const hashLens = location.hash.slice(1);
+  const share = decodeShareState(params.get("w"));
+
+  // Visible fallbacks for legacy/hand-typed links (?package=…, path form, bare params).
+  let pkg = packageAt >= 0 ? decodeURIComponent(route[packageAt + 1] || "") : params.get("package");
+  let version = packageAt >= 0 ? decodeURIComponent(route[packageAt + 2] || "") : params.get("version");
+  let framework = params.get("framework");
+  let type = params.get("type");
+  let member = params.get("member");
+  let overload = params.get("overload");
+  let section = params.get("section");
+  let viewToken = location.hash.slice(1);
+  let tabs = [];
+  let active = 0;
+
+  if (share) {
+    tabs = share.tabs;
+    if (share.rich) {
+      // Rich packet is fully authoritative: identity, view, and selection all come from it.
+      active = Math.min(Math.max(0, share.active), Math.max(0, tabs.length - 1));
+      const target = tabs[active];
+      if (target) { pkg = target.id; version = target.version; framework = target.framework; }
+      if (share.view) viewToken = share.view;
+      type = share.type;
+      member = share.member;
+      overload = share.overload;
+      section = share.section;
+    } else {
+      // Legacy array packet carries only the extra tab set; the visible params stay the
+      // target. Point the active index at the visible package so it opens focused.
+      const idx = tabs.findIndex(tab => pkg && tab.id.toLowerCase() === pkg.toLowerCase());
+      active = idx >= 0 ? idx : 0;
+    }
+  }
+
+  const view = resolveView(viewToken);
   return {
-    package: packageAt >= 0 ? decodeURIComponent(route[packageAt + 1] || "") : params.get("package"),
-    version: packageAt >= 0 ? decodeURIComponent(route[packageAt + 2] || "") : params.get("version"),
-    framework: params.get("framework"),
-    type: params.get("type"),
-    member: params.get("member"),
-    overload: params.get("overload"),
-    section: params.get("section"),
-    lens: lenses.some(([id]) => id === hashLens) ? hashLens : null,
-    atPackageRoot: hashLens === "pkg" || hashLens.startsWith("pkg:"),
-    packageLens: (hashLens === "pkg" || hashLens.startsWith("pkg:"))
-      ? (packageLenses.some(([id]) => id === hashLens.split(":")[1]) ? hashLens.split(":")[1] : "overview")
-      : null,
-    workspace: decodeWorkspace(params.get("w"))
+    package: pkg,
+    version,
+    framework,
+    type,
+    member,
+    overload,
+    section,
+    lens: view.lens,
+    atPackageRoot: view.atPackageRoot,
+    packageLens: view.packageLens,
+    tabs,
+    active
   };
 }
 
@@ -2452,20 +2533,13 @@ function buildStateUrl(base = location.href) {
   // like /packages/{id} would 404. The client restores selection from the query.
   url.pathname = "/";
   const params = new URLSearchParams();
+  // Only the target package id is clear text — it makes the link human-readable at a glance.
+  // Everything else (version, framework, view, selection, and the full open-tab set) rides in
+  // the opaque share packet, so the visible query stays ?package=<id>&w=<packet>.
   params.set("package", state.package.id);
-  params.set("version", state.package.version);
-  if (state.package.activeFramework) params.set("framework", state.package.activeFramework);
-  if (state.selectedTypeId) params.set("type", state.selectedTypeId);
-  if (state.selectedMemberKey) params.set("member", state.selectedMemberKey);
-  if (state.selectedOverloadIndex != null) params.set("overload", String(state.selectedOverloadIndex));
-  if (state.memberSection && state.memberSection !== "overview") params.set("section", state.memberSection);
-  // Opaque workspace bucket: carries the full open-tab set so a shared or duplicated link
-  // reopens every tab, not just the active one. Omitted for a lone tab to keep links clean.
-  if (state.packages.length > 1) params.set("w", encodeWorkspace(state.packages));
+  params.set("w", encodeShareState());
   url.search = params.toString();
-  url.hash = state.atPackageRoot
-    ? (state.packageLens && state.packageLens !== "overview" ? `pkg:${state.packageLens}` : "pkg")
-    : (state.lens && state.lens !== "api" ? state.lens : "");
+  url.hash = "";
   return url;
 }
 
@@ -3740,8 +3814,8 @@ async function restoreInitialWorkspace() {
     version: state.requestedVersion,
     framework: state.requestedFramework
   };
-  const tabs = (initialLocation.workspace && initialLocation.workspace.length)
-    ? initialLocation.workspace.slice()
+  const tabs = (initialLocation.tabs && initialLocation.tabs.length)
+    ? initialLocation.tabs.slice()
     : [target];
   const matchesTarget = tab =>
     tab.id.toLowerCase() === target.id.toLowerCase()
