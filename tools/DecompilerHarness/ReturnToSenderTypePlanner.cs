@@ -1509,7 +1509,7 @@ public static class CompileBackSourceComposer
                     reader,
                     targetType,
                     closureRoots,
-                    interfaceReference.DisplayFullName))
+                    interfaceReference.MetadataFullName))
             {
                 return null;
             }
@@ -1525,8 +1525,8 @@ public static class CompileBackSourceComposer
     }
 
     // True when a type declared in the recompile closure would intercept the leading
-    // identifier of <paramref name="interfaceDisplayFullName"/> as spelled from inside the
-    // target type's namespace. The external-interface spelling appears in two positions —
+    // identifier of the external interface spelling as spelled from inside the target type's
+    // namespace. The external-interface spelling appears in two positions —
     // the base-list entry and the explicit-member qualifier — and only its FIRST segment can
     // ever be shadowed into a compile error. The explicit-member qualifier is always emitted
     // fully qualified (e.g. `System.Collections.IEnumerable.GetEnumerator`), so its head is
@@ -1542,13 +1542,19 @@ public static class CompileBackSourceComposer
     // scope, so under RoundTripScope.Cluster (which does not reconstruct the shadowing sibling)
     // this returns false and engagement proceeds; under RoundTripScope.All it declines the
     // crafted-IL first-segment shadow shape.
+    //
+    // The leading segment is taken from the raw METADATA full name, not the C# display name,
+    // so it compares raw-to-raw against the closure types' metadata names/namespaces. A
+    // namespace segment that is a C# keyword (e.g. `class`) is escaped to `@class` in the
+    // display name but stored raw in metadata; deriving the segment from the display name here
+    // would miss a real `N.class`-shadows-`class.IProbe` collision and emit a new RecompileFail.
     static bool ExternalInterfaceSpellingShadowedByClosure(
         MetadataReader reader,
         TypeDefinition targetType,
         IReadOnlySet<TypeDefinitionHandle> closureRoots,
-        string interfaceDisplayFullName)
+        string interfaceMetadataFullName)
     {
-        string leadingSegment = interfaceDisplayFullName.Split('.', 2)[0];
+        string leadingSegment = interfaceMetadataFullName.Split('.', 2)[0];
         string targetNamespace = reader.GetString(targetType.Namespace);
 
         foreach (var handle in closureRoots)

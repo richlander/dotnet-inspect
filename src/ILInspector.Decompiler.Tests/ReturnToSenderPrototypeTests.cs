@@ -1354,6 +1354,54 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    // Regression for #3112 review (escaped-identifier shadow): a hand-authored external
+    // interface can live in a namespace whose segment is a C# keyword (`class`), so its raw
+    // metadata full name is `class.IProbe` but its C# display name is `@class.IProbe`. A
+    // sibling type `N.class` (raw) is emitted as `class @class` and shadows the `@class` root
+    // of the spelling under RoundTripScope.All (CS0426). The shadow check must compare the
+    // leading segment against the raw metadata name (`class`), not the escaped display name
+    // (`@class`) — otherwise the collision is missed and a new RecompileFail escapes. The gate
+    // must decline to the sanitized ContextFail floor. Uses two IL assemblies (an external
+    // contract plus the target) resolved as siblings.
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenKeywordNamespaceSiblingShadowsSpelling()
+    {
+        var ilasm = TryLocateIlasm();
+        if (ilasm is null)
+        {
+            Assert.Skip("ilasm not available; skipping hand-authored IL keyword-shadow regression.");
+            return;
+        }
+
+        var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        AssembleIlFixture(ilasm, KeywordContractsIl, directory, "KeywordContracts");
+        var assemblyPath = AssembleIlFixture(ilasm, KeywordShadowFixtureIl, directory, "keywordfixture");
+        try
+        {
+            var target = new ReturnToSender.RequestedTarget("N.Seq", "class.IProbe.M", 0);
+
+            // All reconstructs the sibling N.class (emitted `class @class`), which shadows the
+            // escaped `@class` root of the spelling. The gate must decline to the sanitized
+            // shape rather than emit a new RecompileFail (CS0426). The raw-metadata-name
+            // comparison is what catches this; the escaped display name would miss it.
+            var all = Assert.Single(
+                ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
+            Assert.True(
+                all.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"all {all.Status}: {all.Detail}{Environment.NewLine}{all.Source}");
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
     [Fact]
     public void CompileBackTargets_MultiMemberExternalExplicitInterfaceFallsBackWithoutRecompileFail()
     {
@@ -7523,6 +7571,58 @@ public class ReturnToSenderPrototypeTests
               call instance void [System.Runtime]System.Object::.ctor()
               ret
             }
+          }
+        }
+        """;
+
+    // External contract for the keyword-namespace shadow regression: an interface in a
+    // namespace whose segment is the C# keyword `class` (raw metadata `class.IProbe`).
+    const string KeywordContractsIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly KeywordContracts { }
+        .module KeywordContracts.dll
+
+        .class interface public abstract auto ansi 'class'.IProbe
+        {
+          .method public hidebysig newslot abstract virtual instance void M() cil managed {}
+        }
+        """;
+
+    // Target for the keyword-namespace shadow regression: N.Seq explicitly implements the
+    // external `class.IProbe` with a clean metadata override name (`class.IProbe.M`), and a
+    // sibling type N.'class' shadows the `class` root of the spelling once reconstructed.
+    const string KeywordShadowFixtureIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly extern KeywordContracts { }
+        .assembly keywordfixture { }
+        .module keywordfixture.dll
+
+        .class public auto ansi sealed beforefieldinit N.Seq
+            extends [System.Runtime]System.Object
+            implements [KeywordContracts]'class'.IProbe
+        {
+          .method private final hidebysig newslot virtual
+              instance void 'class.IProbe.M'() cil managed
+          {
+            .override [KeywordContracts]'class'.IProbe::M
+            ret
+          }
+          .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+          {
+            ldarg.0
+            call instance void [System.Runtime]System.Object::.ctor()
+            ret
+          }
+        }
+
+        .class public auto ansi sealed beforefieldinit N.'class'
+            extends [System.Runtime]System.Object
+        {
+          .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+          {
+            ldarg.0
+            call instance void [System.Runtime]System.Object::.ctor()
+            ret
           }
         }
         """;
