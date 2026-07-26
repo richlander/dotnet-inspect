@@ -1424,6 +1424,63 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceWithByRefKindDriftFallsBackWithoutRecompileFail()
+    {
+        // Regression guard: a decoded-signature string cannot distinguish by-ref kinds.
+        // SignatureDecoder renders `ref T`, `out T`, and `in T` identically as "ref T", so a
+        // name + arity + decoded-string gate would treat `void M(ref int)` and
+        // `void M(out int)` as equal. The target here is compiled against a reference
+        // interface method `void M(ref int)`, but the copy resolved at reconstruction time
+        // (the sibling on disk) declares `void M(out int)`. Engaging would emit
+        // `void RtsRef.IProbe.M(ref int)`, which binds to no member of the resolved
+        // interface (CS0539 = RecompileFail). The gate must decline any signature carrying
+        // by-ref detail and keep the sanitized ContextFail floor.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var referenceDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        // Reference build the target compiles against: M takes a ref int.
+        var referencePath = CompileFixture(
+            "namespace RtsRef { public interface IProbe { void M(ref int value); } }",
+            directory: referenceDir,
+            assemblyName: "RtsRefContracts");
+        // Drifted build placed next to the target: same type, but M takes an out int.
+        CompileFixture(
+            "namespace RtsRef { public interface IProbe { void M(out int value); } }",
+            directory: fixtureDir,
+            assemblyName: "RtsRefContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class RefImpl : RtsRef.IProbe
+            {
+                void RtsRef.IProbe.M(ref int value) => value = 0;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(referencePath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "RefImpl",
+                    "RtsRef.IProbe.M",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsRef_IProbe_M", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsRef.IProbe.M", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            if (Directory.Exists(referenceDir))
+                Directory.Delete(referenceDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RoundTripsGenericExplicitInterfaceMethod()
     {
         // A generic method on a non-generic interface implemented explicitly keeps its method

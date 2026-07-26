@@ -1465,15 +1465,20 @@ public static class CompileBackSourceComposer
 
             // Name + arity alone are signature-blind: a resolved interface method whose
             // parameter or return types differ from what the target actually implements
-            // (e.g. a rolled-forward dependency, or a reference resolved to a different
-            // build than the target was compiled against) would still match here, and the
-            // reconstructed explicit member would bind to no interface member (CS0539 =
-            // RecompileFail). Require the full decoded signatures to agree; on any mismatch
-            // (or a signature we cannot decode) decline and keep the ContextFail floor.
+            // (e.g. a reference resolved to a different build than the target was compiled
+            // against) would still match here, and the reconstructed explicit member would
+            // bind to no interface member (CS0539 = RecompileFail). Require the full decoded
+            // signatures to agree. SignatureDecoder renders by-ref kinds, custom modifiers,
+            // and multidimensional arrays ambiguously, so the decoded-string comparison is
+            // only sound when neither signature carries such detail; the interface surface
+            // already declined any required method that does, so decline the target here too.
+            var targetMethodDefinition = reader.GetMethodDefinition(targetMethod);
+            if (SignatureHasUnrepresentableDetail(reader, targetMethodDefinition))
+                return null;
+
             MethodSignature<string> targetSignature;
             try
             {
-                var targetMethodDefinition = reader.GetMethodDefinition(targetMethod);
                 targetSignature = targetMethodDefinition.DecodeSignature(
                     SignatureDecoder.Instance,
                     GenericContext.ForMethod(reader, targetType, targetMethodDefinition));
@@ -1487,15 +1492,6 @@ public static class CompileBackSourceComposer
             {
                 return null;
             }
-
-            // The interface is named in the reconstructed base list by its display full name
-            // only. C# resolves that name against the whole recompile reference set with no
-            // way to disambiguate (RTS does not emit extern aliases), so if more than one
-            // referenced assembly defines that type the emitted source is ambiguous (CS0433 =
-            // RecompileFail). Engage only when the interface has a single definition across
-            // the recompile closure; otherwise decline and keep the ContextFail floor.
-            if (!ExternalInterfaceDefinitionIsUnique(assemblyPath, interfaceReference))
-                return null;
 
             string explicitInterfaceMemberName =
                 $"{interfaceReference.DisplayFullName}.{Identifier(declarationName)}";
@@ -1512,34 +1508,84 @@ public static class CompileBackSourceComposer
         ExternalInterfaceReferenceInfo interfaceReference,
         out IReadOnlyList<ExternalInterfaceRequiredMethod> requiredMethods)
     {
-        // Reading a referenced interface's transitive surface opens and scans its
-        // defining assembly (often CoreLib). The same interface (e.g.
-        // System.Collections.IEnumerable) recurs across many targets in a single run,
-        // so memoize per (target assembly, interface): rescanning CoreLib for every
-        // explicit-impl target is an unbounded slowdown. The resolver itself is also
-        // cached per target assembly, and negative results are cached so an
-        // unresolvable interface is not retried.
+        // Read the interface surface from the SAME filename-deduplicated dependency closure
+        // the recompile references (ReturnToSender.CompilationReferences: resolver.ResolveAll()
+        // with ExcludeTargetAssembly, deduplicated by simple assembly name). Reading from that
+        // exact closure — rather than an identity/platform resolution that can select a
+        // different file than the recompile ends up referencing — guarantees the members
+        // validated here are precisely the members C# will require against the reconstructed
+        // `: DisplayName`, and lets us prove the interface is defined by exactly one assembly
+        // in the closure (otherwise the unqualified base-list name is ambiguous, CS0433).
+        // Memoize per (target assembly, interface identity, interface full name): the same
+        // interface recurs across many targets and rescanning the closure per target is an
+        // unbounded slowdown. Negative results (unresolvable, ambiguous, or unrepresentable)
+        // are cached so they are not retried.
         string cacheKey = $"{assemblyPath}|{interfaceReference.AssemblyIdentity}|{interfaceReference.MetadataFullName}";
         var cached = _externalInterfaceSurfaces.GetOrAdd(cacheKey, _ =>
         {
             var resolver = _externalInterfaceResolvers.GetOrAdd(assemblyPath, static path =>
                 new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(path)
                 {
-                    AllowPlatformAssemblyVersionRollForward = true,
                     ExcludeTargetAssembly = true,
                 }));
-            if (ResolveExternalAssembly(resolver, interfaceReference.AssemblyIdentity) is not { } assembly)
+
+            // Locate the single closure assembly that defines the interface as a
+            // TypeDefinition. Type forwarders are ExportedType rows (FindType returns null),
+            // so a BCL interface defined once in CoreLib and forwarded elsewhere resolves to
+            // exactly one definition. Zero, or more than one, definition declines.
+            string? definitionPath = null;
+            foreach (var dependency in resolver.ResolveAll())
+            {
+                if (!ManagedReferenceFilter.IsManagedAssembly(dependency.Path))
+                    continue;
+                try
+                {
+                    using var probeStream = File.OpenRead(dependency.Path);
+                    using var probeReader = new PEReader(probeStream);
+                    if (!probeReader.HasMetadata)
+                        continue;
+                    if (TypeProducer.FindType(probeReader.GetMetadataReader(), interfaceReference.MetadataFullName) is null)
+                        continue;
+                }
+                catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException or ArgumentException)
+                {
+                    // A dependency we cannot inspect cannot be shown to define the type; skip it.
+                    continue;
+                }
+
+                if (definitionPath is not null)
+                    return null;
+                definitionPath = dependency.Path;
+            }
+
+            if (definitionPath is null)
                 return null;
 
-            var collected = new List<ExternalInterfaceRequiredMethod>();
-            return TryCollectExternalInterfaceMethods(
-                    assembly,
-                    interfaceReference.MetadataFullName,
-                    resolver,
-                    new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                    collected)
-                ? collected
-                : null;
+            try
+            {
+                using var stream = File.OpenRead(definitionPath);
+                using var peReader = new PEReader(stream);
+                if (!peReader.HasMetadata)
+                    return null;
+                var reader = peReader.GetMetadataReader();
+                if (TypeProducer.FindType(reader, interfaceReference.MetadataFullName) is not { } interfaceHandle)
+                    return null;
+
+                var collected = new List<ExternalInterfaceRequiredMethod>();
+                return TryCollectRequiredInterfaceMethods(
+                        reader,
+                        interfaceHandle,
+                        resolver,
+                        Path.GetFullPath(definitionPath),
+                        new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                        collected)
+                    ? collected
+                    : null;
+            }
+            catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+            {
+                return null;
+            }
         });
 
         if (cached is null)
@@ -1558,57 +1604,44 @@ public static class CompileBackSourceComposer
     static readonly ConcurrentDictionary<string, IReadOnlyList<ExternalInterfaceRequiredMethod>?> _externalInterfaceSurfaces =
         new(StringComparer.Ordinal);
 
-    static readonly ConcurrentDictionary<string, bool> _externalInterfaceDefinitionUnique =
-        new(StringComparer.Ordinal);
-
-    // The reconstructed base list names the external interface by display name only. C#
-    // resolves that name against the entire recompile reference set (the same closure
-    // ReturnToSender.CompilationReferences builds from resolver.ResolveAll(), deduplicated
-    // by simple assembly name), with no way to disambiguate two assemblies that define the
-    // same full type name (CS0433). Engage only when exactly one distinct-simple-name
-    // managed assembly in that closure actually defines the interface as a TypeDefinition;
-    // type forwarders are ExportedType rows (not definitions) and so never count. Any
-    // ambiguity, or an inability to prove a single definition, declines to keep the floor.
-    static bool ExternalInterfaceDefinitionIsUnique(
-        string assemblyPath,
-        ExternalInterfaceReferenceInfo interfaceReference)
+    // Probes whether a method signature carries detail that SignatureDecoder renders
+    // ambiguously, making a decoded-string comparison unsound: by-ref parameters (in/out/ref
+    // all decode to "ref T"), custom modifiers (dropped by GetModifiedType), multidimensional
+    // arrays (a rank-1 MDArray decodes identically to an SZArray), and function pointers
+    // (calling-convention modopts). When a signature is free of all of these, its decoded
+    // string form is a faithful identity and string equality is an exact signature check.
+    sealed class UnrepresentableSignatureProbe : ISignatureTypeProvider<bool, object?>
     {
-        string cacheKey = $"{assemblyPath}|{interfaceReference.AssemblyIdentity}|{interfaceReference.MetadataFullName}";
-        return _externalInterfaceDefinitionUnique.GetOrAdd(cacheKey, _ =>
+        public static readonly UnrepresentableSignatureProbe Instance = new();
+        public bool GetPrimitiveType(PrimitiveTypeCode typeCode) => false;
+        public bool GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => false;
+        public bool GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) => false;
+        public bool GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
+            => reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+        public bool GetSZArrayType(bool elementType) => elementType;
+        public bool GetArrayType(bool elementType, ArrayShape shape) => true;
+        public bool GetByReferenceType(bool elementType) => true;
+        public bool GetPointerType(bool elementType) => elementType;
+        public bool GetGenericInstantiation(bool genericType, ImmutableArray<bool> typeArguments)
+            => genericType || typeArguments.Any(argument => argument);
+        public bool GetGenericMethodParameter(object? genericContext, int index) => false;
+        public bool GetGenericTypeParameter(object? genericContext, int index) => false;
+        public bool GetFunctionPointerType(MethodSignature<bool> signature) => true;
+        public bool GetModifiedType(bool modifier, bool unmodifiedType, bool isRequired) => true;
+        public bool GetPinnedType(bool elementType) => elementType;
+    }
+
+    static bool SignatureHasUnrepresentableDetail(MetadataReader reader, MethodDefinition method)
+    {
+        try
         {
-            var resolver = _externalInterfaceResolvers.GetOrAdd(assemblyPath, static path =>
-                new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(path)
-                {
-                    AllowPlatformAssemblyVersionRollForward = true,
-                    ExcludeTargetAssembly = true,
-                }));
-
-            var definingSimpleNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var dependency in resolver.ResolveAll())
-            {
-                if (!ManagedReferenceFilter.IsManagedAssembly(dependency.Path))
-                    continue;
-                try
-                {
-                    using var stream = File.OpenRead(dependency.Path);
-                    using var peReader = new PEReader(stream);
-                    if (!peReader.HasMetadata)
-                        continue;
-                    var dependencyReader = peReader.GetMetadataReader();
-                    if (TypeProducer.FindType(dependencyReader, interfaceReference.MetadataFullName) is null)
-                        continue;
-                    definingSimpleNames.Add(Path.GetFileNameWithoutExtension(dependency.Path));
-                    if (definingSimpleNames.Count > 1)
-                        return false;
-                }
-                catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException or ArgumentException)
-                {
-                    // A dependency we cannot inspect cannot be shown to define the type; skip it.
-                }
-            }
-
-            return definingSimpleNames.Count == 1;
-        });
+            var signature = method.DecodeSignature(UnrepresentableSignatureProbe.Instance, (object?)null);
+            return signature.ReturnType || signature.ParameterTypes.Any(parameter => parameter);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return true;
+        }
     }
 
     static bool TryCollectExternalInterfaceMethods(
@@ -1690,6 +1723,12 @@ public static class CompileBackSourceComposer
                 return false;
             }
 
+            // A required method whose signature SignatureDecoder cannot represent faithfully
+            // (by-ref kinds, custom modifiers, multidimensional arrays, function pointers)
+            // cannot be safely signature-compared against the target, so decline the whole
+            // surface and keep the ContextFail floor rather than risk a CS0535/CS0539 emit.
+            if (SignatureHasUnrepresentableDetail(reader, method))
+                return false;
             var requiredSignature = method.DecodeSignature(
                 SignatureDecoder.Instance,
                 GenericContext.ForMethod(reader, interfaceDef, method));
