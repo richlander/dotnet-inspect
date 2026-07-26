@@ -210,13 +210,13 @@ public sealed class StructuringPass : IIrPass
                 scatteredReturnDispatchTargets.Add(offset);
         }
 
+        var snapshots = BuildTerminatorSnapshots(
+            blocks, unconditionalTargets, conditionalTargetCounts, fallenInto, isComparisonTree, scatteredReturnDispatchTargets);
         var droppable = new HashSet<int>();
-        var snapshots = new Dictionary<int, IReadOnlyList<IrNode>>();
         for (int i = 0; i < blocks.Count; i++)
         {
-            if (!IsSharedTerminator(blocks[i], unconditionalTargets, conditionalTargetCounts, fallenInto, isComparisonTree, scatteredReturnDispatchTargets))
+            if (!snapshots.ContainsKey(i))
                 continue;
-            snapshots[i] = blocks[i].Children.ToList();
             // A scattered dispatch target reached by a forward-goto trampoline
             // (issue #2973) is inlined into its conditional guards but must stay
             // in place: the trampoline arm reaches it by falling through the
@@ -988,6 +988,15 @@ public sealed class StructuringPass : IIrPass
             if (FallsThrough(blocks[i - 1]))
                 fallenInto.Add(blocks[i].StartOffset);
 
+        // The inline context carries no comparison-tree or scattered-dispatch
+        // classification, so build its terminator snapshots from exactly the
+        // inputs the returned Ctx exposes: IsInlinableTerminator must never
+        // report a block whose snapshot is absent (BuildRegion indexes it).
+        var isComparisonTree = false;
+        var scatteredReturnDispatchTargets = new HashSet<int>();
+        var snapshots = BuildTerminatorSnapshots(
+            blocks, unconditionalTargets, conditionalTargetCounts, fallenInto, isComparisonTree, scatteredReturnDispatchTargets);
+
         return new Ctx
         {
             Blocks = blocks,
@@ -996,10 +1005,10 @@ public sealed class StructuringPass : IIrPass
             ConditionalTargetCounts = conditionalTargetCounts,
             BranchTargets = branchTargets,
             DroppableBlocks = [],
-            TerminatorSnapshots = new Dictionary<int, IReadOnlyList<IrNode>>(),
+            TerminatorSnapshots = snapshots,
             FallenInto = fallenInto,
-            IsComparisonTree = false,
-            ScatteredReturnDispatchTargets = [],
+            IsComparisonTree = isComparisonTree,
+            ScatteredReturnDispatchTargets = scatteredReturnDispatchTargets,
             RegionExitLeaveTarget = null,
             Recorder = null,
         };
@@ -1309,9 +1318,35 @@ public sealed class StructuringPass : IIrPass
         return false;
     }
 
-    /// <summary>A terminator block that may be inlined into a guard at <paramref name="index"/>.</summary>
+    /// <summary>
+    /// Snapshots the statements of every block <see cref="IsInlinableTerminator"/> will
+    /// report for these inputs. Both <see cref="Ctx"/> factories must build the table
+    /// this way: <c>BuildRegion</c> indexes it directly, so a context whose predicate and
+    /// snapshot table disagree crashes instead of declining to inline.
+    /// </summary>
+    static Dictionary<int, IReadOnlyList<IrNode>> BuildTerminatorSnapshots(
+        IReadOnlyList<Block> blocks,
+        HashSet<int> unconditionalTargets,
+        Dictionary<int, int> conditionalTargetCounts,
+        HashSet<int> fallenInto,
+        bool isComparisonTree,
+        HashSet<int> scatteredReturnDispatchTargets)
+    {
+        var snapshots = new Dictionary<int, IReadOnlyList<IrNode>>();
+        for (int i = 0; i < blocks.Count; i++)
+            if (IsSharedTerminator(blocks[i], unconditionalTargets, conditionalTargetCounts, fallenInto, isComparisonTree, scatteredReturnDispatchTargets))
+                snapshots[i] = blocks[i].Children.ToList();
+        return snapshots;
+    }
+
+    /// <summary>
+    /// Whether block <paramref name="index"/> is a shared terminator that may be inlined
+    /// into its conditional guards. This reads the precomputed snapshot table rather than
+    /// re-deriving the predicate: <c>BuildRegion</c> indexes that table directly, so the
+    /// guard and the data it gates must be the same source of truth.
+    /// </summary>
     static bool IsInlinableTerminator(Ctx ctx, int index) =>
-        IsSharedTerminator(ctx.Blocks[index], ctx.UnconditionalTargets, ctx.ConditionalTargetCounts, ctx.FallenInto, ctx.IsComparisonTree, ctx.ScatteredReturnDispatchTargets);
+        ctx.TerminatorSnapshots.ContainsKey(index);
 
     /// <summary>Whether control reaching the end of this block continues into its successor (vs. returning, throwing, or branching away).</summary>
     static bool FallsThrough(Block block) =>
