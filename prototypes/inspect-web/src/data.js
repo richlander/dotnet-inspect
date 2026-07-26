@@ -8,6 +8,7 @@ export const packageLenses = [
   ["overview", "Overview"],
   ["dependencies", "Dependencies"],
   ["integrations", "Integrations"],
+  ["opportunities", "Opportunities"],
   ["analysis", "Analysis"]
 ];
 

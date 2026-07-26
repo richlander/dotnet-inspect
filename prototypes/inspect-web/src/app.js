@@ -1,5 +1,5 @@
 import { lenses, packageLenses, rootCommands } from "./data.js";
-import { initializeEngine, inspectListStyleOptions, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageDependencies, inspectPackageIntegrations, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
+import { initializeEngine, inspectListStyleOptions, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageDependencies, inspectPackageIntegrations, inspectPackageOpportunities, inspectPackagePerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
 
 function loadStoredTaste() {
   try {
@@ -46,6 +46,14 @@ const state = {
   packageIntegrationsLoading: false,
   packageIntegrationsError: "",
   packageIntegrationsKey: "",
+  packageOpportunities: null,
+  packageOpportunitiesLoading: false,
+  packageOpportunitiesError: "",
+  packageOpportunitiesKey: "",
+  packagePerformance: null,
+  packagePerformanceLoading: false,
+  packagePerformanceError: "",
+  packagePerformanceKey: "",
   memberCallGraph: null,
   memberCallGraphLoading: false,
   memberCallGraphError: "",
@@ -632,6 +640,8 @@ function render() {
   maybeAutoLoadTypeMetadata();
   maybeAutoLoadPackageDependencies();
   maybeAutoLoadPackageIntegrations();
+  maybeAutoLoadPackageOpportunities();
+  maybeAutoLoadPackagePerformance();
 }
 
 function maybeAutoLoadTypeSource() {
@@ -763,8 +773,7 @@ function packageHeading() {
 
 function packageLensPlaceholder(lensId) {
   const copy = {
-    dependencies: ["⌘", "Dependencies", "Package NuGet dependencies and assembly references. Wiring the engine export in a follow-up pass."],
-    analysis: ["△", "Analysis", "Ranked allocation and performance opportunities across the package, each drilling to its member. Coming in a follow-up pass."]
+    dependencies: ["⌘", "Dependencies", "Package NuGet dependencies and assembly references. Wiring the engine export in a follow-up pass."]
   }[lensId] || ["△", "Not available", "This package lens is not wired yet."];
   return `<section class="document-section empty-document"><span class="large-glyph">${copy[0]}</span><h2>${escapeHtml(copy[1])}</h2><p>${escapeHtml(copy[2])}</p></section>`;
 }
@@ -773,6 +782,8 @@ function renderPackageView() {
   if (state.packageLens === "overview") return `${packageHeading()}${renderPackageOverview()}`;
   if (state.packageLens === "dependencies") return `${packageHeading()}${renderPackageDependencies()}`;
   if (state.packageLens === "integrations") return `${packageHeading()}${renderPackageIntegrations()}`;
+  if (state.packageLens === "opportunities") return `${packageHeading()}${renderPackageOpportunities()}`;
+  if (state.packageLens === "analysis") return `${packageHeading()}${renderPackagePerformance()}`;
   return `${packageHeading()}${packageLensPlaceholder(state.packageLens)}`;
 }
 
@@ -926,6 +937,189 @@ function maybeAutoLoadPackageIntegrations() {
   if (!state.atPackageRoot || state.packageLens !== "integrations") return;
   if (state.packageIntegrationsKey === packageIntegrationsSignature()) return;
   loadPackageIntegrations();
+}
+
+function packageScopeSignature() {
+  const pkg = state.package;
+  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}`;
+}
+
+function renderPackageOpportunities() {
+  const current = packageScopeSignature();
+  const fresh = state.packageOpportunitiesKey === current;
+  if (state.packageOpportunitiesLoading && fresh) {
+    return `<section class="document-section source-progress"><span class="loader"></span><h2>Scanning opportunities…</h2><p>Comparing the public surface against ecosystem integration patterns.</p></section>`;
+  }
+  if (fresh && state.packageOpportunitiesError) {
+    return `<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Opportunity scan failed</h2><p>${escapeHtml(state.packageOpportunitiesError)}</p></section>`;
+  }
+  const data = fresh ? state.packageOpportunities : null;
+  if (!data) {
+    return `<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
+  }
+
+  const categories = data.categories || [];
+  const warning = data.inspectionError
+    ? `<section class="document-section metadata-warning"><strong>⚠ Some assemblies could not be scanned</strong><ul><li><code>${escapeHtml(data.inspectionError)}</code></li></ul></section>`
+    : "";
+
+  if (!categories.length) {
+    return `${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No integration opportunities</h2><p>The public surface of ${escapeHtml(state.package.activeFramework)} shows no obvious auth, cloud-client, configuration, database, or AI-client patterns that suggest a missing ecosystem integration.</p></section>`;
+  }
+
+  const summary = `
+    <section class="document-section">
+      <div class="section-title"><h2>Integration opportunities</h2><span>${categories.length} area${categories.length === 1 ? "" : "s"} · ${data.totalOpportunities} suggestion${data.totalOpportunities === 1 ? "" : "s"} · ${escapeHtml(state.package.activeFramework)}</span></div>
+      <p class="lens-note">Ecosystem areas this package's surface suggests but does not yet integrate with. Each row points at what to look for.</p>
+    </section>`;
+
+  const blocks = categories.map(category => `
+    <section class="document-section">
+      <div class="section-title"><h2>${escapeHtml(category.integration)}</h2><span>${category.items.length} suggestion${category.items.length === 1 ? "" : "s"}</span></div>
+      <dl class="fact-rows">${category.items.map(item => `<div><dt><code>${escapeHtml(item.api)}</code></dt><dd>${escapeHtml(item.integrationType)} · <span class="dim">look for</span> <code>${escapeHtml(item.lookFor)}</code></dd></div>`).join("")}</dl>
+    </section>`).join("");
+
+  return `${warning}${summary}${blocks}`;
+}
+
+async function loadPackageOpportunities() {
+  const signature = packageScopeSignature();
+  if (state.packageOpportunitiesKey === signature && (state.packageOpportunities || state.packageOpportunitiesError)) {
+    render();
+    return;
+  }
+  state.packageOpportunitiesKey = signature;
+  state.packageOpportunities = null;
+  state.packageOpportunitiesError = "";
+  state.packageOpportunitiesLoading = true;
+  render();
+  try {
+    const result = await inspectPackageOpportunities({
+      packageId: state.package.id,
+      version: state.package.version,
+      framework: state.package.activeFramework
+    });
+    if (state.packageOpportunitiesKey === signature) state.packageOpportunities = result;
+  } catch (error) {
+    if (state.packageOpportunitiesKey === signature) state.packageOpportunitiesError = String(error?.message || error);
+  } finally {
+    if (state.packageOpportunitiesKey === signature) state.packageOpportunitiesLoading = false;
+    render();
+  }
+}
+
+function maybeAutoLoadPackageOpportunities() {
+  if (!state.atPackageRoot || state.packageLens !== "opportunities") return;
+  if (state.packageOpportunitiesKey === packageScopeSignature()) return;
+  loadPackageOpportunities();
+}
+
+function renderPackagePerformance() {
+  const current = packageScopeSignature();
+  const fresh = state.packagePerformanceKey === current;
+  if (state.packagePerformanceLoading && fresh) {
+    return `<section class="document-section source-progress"><span class="loader"></span><h2>Analyzing allocations…</h2><p>Classifying allocation and performance opportunities across every method body.</p></section>`;
+  }
+  if (fresh && state.packagePerformanceError) {
+    return `<section class="document-section empty-document"><span class="large-glyph">△</span><h2>Analysis failed</h2><p>${escapeHtml(state.packagePerformanceError)}</p></section>`;
+  }
+  const data = fresh ? state.packagePerformance : null;
+  if (!data) {
+    return `<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
+  }
+
+  const members = data.members || [];
+  const warning = data.inspectionError
+    ? `<section class="document-section metadata-warning"><strong>⚠ Some assemblies could not be analyzed</strong><ul><li><code>${escapeHtml(data.inspectionError)}</code></li></ul></section>`
+    : "";
+  const nonPublicNote = data.nonPublicOpportunities > 0
+    ? ` · ${data.nonPublicOpportunities} in non-public members`
+    : "";
+
+  if (!members.length) {
+    return `${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No public allocation hot spots</h2><p>${data.totalOpportunities} allocation/performance opportunit${data.totalOpportunities === 1 ? "y was" : "ies were"} classified, but none surface on a public member of ${escapeHtml(state.package.activeFramework)}${nonPublicNote}. Open a member's Facts lens to inspect its body directly.</p></section>`;
+  }
+
+  const rows = members.map(member => {
+    const display = `${shortTypeName(member.typeId)}.${escapeHtml(member.memberName)}`;
+    const shapes = member.shapes.map(shape => `<span class="perf-shape">${escapeHtml(shape)}</span>`).join("");
+    const loopBadge = member.inLoopCount > 0 ? `<span class="perf-loop" title="${member.inLoopCount} in a loop">↻ ${member.inLoopCount}</span>` : "";
+    return `
+      <button class="perf-row" data-perf-token="${member.metadataToken}" title="${escapeHtml(member.typeId)}.${escapeHtml(member.memberName)} — open Facts">
+        <span class="perf-count">${member.opportunityCount}</span>
+        <span class="perf-member"><span class="perf-name">${display}</span><span class="perf-shapes">${shapes}</span></span>
+        <span class="perf-meta">${loopBadge}<span class="perf-confidence perf-${escapeHtml((member.confidence || "").toLowerCase())}">${escapeHtml(member.confidence || "—")}</span></span>
+      </button>`;
+  }).join("");
+
+  const summary = `
+    <section class="document-section">
+      <div class="section-title"><h2>Allocation &amp; performance triage</h2><span>${members.length} public member${members.length === 1 ? "" : "s"} · ${data.totalOpportunities} opportunit${data.totalOpportunities === 1 ? "y" : "ies"}${nonPublicNote} · ${escapeHtml(state.package.activeFramework)}</span></div>
+      <p class="lens-note">Ranked by in-loop opportunities, then count. Static IL classification — confirm impact with a benchmark or profiler. Select a member to open its Facts lens.</p>
+    </section>`;
+
+  return `${warning}${summary}<section class="document-section"><div class="perf-list">${rows}</div></section>`;
+}
+
+async function loadPackagePerformance() {
+  const signature = packageScopeSignature();
+  if (state.packagePerformanceKey === signature && (state.packagePerformance || state.packagePerformanceError)) {
+    render();
+    return;
+  }
+  state.packagePerformanceKey = signature;
+  state.packagePerformance = null;
+  state.packagePerformanceError = "";
+  state.packagePerformanceLoading = true;
+  render();
+  try {
+    const result = await inspectPackagePerformance({
+      packageId: state.package.id,
+      version: state.package.version,
+      framework: state.package.activeFramework
+    });
+    if (state.packagePerformanceKey === signature) state.packagePerformance = result;
+  } catch (error) {
+    if (state.packagePerformanceKey === signature) state.packagePerformanceError = String(error?.message || error);
+  } finally {
+    if (state.packagePerformanceKey === signature) state.packagePerformanceLoading = false;
+    render();
+  }
+}
+
+function maybeAutoLoadPackagePerformance() {
+  if (!state.atPackageRoot || state.packageLens !== "analysis") return;
+  if (state.packagePerformanceKey === packageScopeSignature()) return;
+  loadPackagePerformance();
+}
+
+// Drills from a perf-triage row to the member's Facts lens by metadata token: the token
+// is joined against the same public API surface the nav pane renders, so the member,
+// its overload, and its declaring type are all resolvable client-side.
+function drillToPerfMember(token) {
+  const numeric = Number(token);
+  const targetType = state.package.types.find(type =>
+    (type.api || []).some(member => member.metadataToken === numeric));
+  if (!targetType) return;
+  const member = targetType.api.find(candidate => candidate.metadataToken === numeric);
+  if (!member) return;
+
+  state.atPackageRoot = false;
+  state.selectedTypeId = targetType.id;
+  state.namespaceFilter = "";
+  state.memberKindFilter = "all";
+  state.lens = "api";
+  const key = `${member.kind}:${member.name}`;
+  state.selectedMemberKey = key;
+  const group = memberGroups(targetType).find(candidate => candidate.key === key);
+  const overloadIndex = group && group.overloads.length > 1
+    ? group.overloads.findIndex(overload => overload.metadataToken === numeric)
+    : -1;
+  state.selectedOverloadIndex = overloadIndex >= 0 ? overloadIndex : null;
+  resetMemberSectionState();
+  state.memberSection = "facts";
+  state.typeCursor = filteredTypes().findIndex(candidate => candidate.id === targetType.id);
+  loadSelectedMemberFacts();
 }
 
 function renderPackageOverview() {
@@ -1479,6 +1673,9 @@ function bindEvents() {
   }));
   document.querySelectorAll("[data-graph-type]").forEach(button => button.addEventListener("click", () => {
     navigateToTypeByName(button.dataset.graphType);
+  }));
+  document.querySelectorAll("[data-perf-token]").forEach(button => button.addEventListener("click", () => {
+    drillToPerfMember(button.dataset.perfToken);
   }));
   document.querySelectorAll(".member-filter .member-kind").forEach(button => button.addEventListener("click", () => {
     state.memberKindFilter = button.dataset.kind;

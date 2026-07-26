@@ -6,6 +6,8 @@ let queryMemberAnnotatedSource;
 let queryTypeProjection;
 let queryPackageDependencies;
 let queryPackageIntegrations;
+let queryPackageOpportunities;
+let queryPackagePerformance;
 let queryTypeMemberSource;
 let queryTypeSource;
 let queryMemberCallGraph;
@@ -25,6 +27,8 @@ export async function initializeEngine(onStatus = () => {}) {
   queryTypeProjection = exports.BrowserInspectionEngine.QueryTypeProjection;
   queryPackageDependencies = exports.BrowserInspectionEngine.QueryPackageDependencies;
   queryPackageIntegrations = exports.BrowserInspectionEngine.QueryPackageIntegrations;
+  queryPackageOpportunities = exports.BrowserInspectionEngine.QueryPackageOpportunities;
+  queryPackagePerformance = exports.BrowserInspectionEngine.QueryPackagePerformance;
   queryTypeMemberSource = exports.BrowserInspectionEngine.QueryTypeMemberSource;
   queryTypeSource = exports.BrowserInspectionEngine.QueryTypeSource;
   queryMemberCallGraph = exports.BrowserInspectionEngine.QueryMemberCallGraph;
@@ -107,6 +111,24 @@ export async function inspectPackageDependencies(request) {
 export async function inspectPackageIntegrations(request) {
   if (!queryPackageIntegrations) throw new Error("The browser inspection engine is not initialized.");
   const json = await queryPackageIntegrations(
+    request.packageId,
+    request.version,
+    request.framework);
+  return JSON.parse(json);
+}
+
+export async function inspectPackageOpportunities(request) {
+  if (!queryPackageOpportunities) throw new Error("The browser inspection engine is not initialized.");
+  const json = await queryPackageOpportunities(
+    request.packageId,
+    request.version,
+    request.framework);
+  return JSON.parse(json);
+}
+
+export async function inspectPackagePerformance(request) {
+  if (!queryPackagePerformance) throw new Error("The browser inspection engine is not initialized.");
+  const json = await queryPackagePerformance(
     request.packageId,
     request.version,
     request.framework);

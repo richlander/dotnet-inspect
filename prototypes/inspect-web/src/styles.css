@@ -687,6 +687,21 @@ kbd {
 .type-chip-list .type-chip .ns-count { display: inline-block; min-width: 18px; margin-right: 6px; padding: 0 5px; border-radius: 999px; background: var(--panel-active); color: var(--dim); font-size: 11px; text-align: center; }
 .type-chip-list .type-chip.active { border-color: var(--accent); color: var(--accent); }
 .type-chip-list .attr-chip .ref-version { color: var(--muted); margin-left: 4px; }
+.lens-note { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+.fact-rows .dim { color: var(--muted); }
+.perf-list { display: flex; flex-direction: column; gap: 6px; }
+.perf-row { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--fg); cursor: pointer; }
+.perf-row:hover { border-color: var(--accent); background: var(--panel-active); }
+.perf-count { flex: 0 0 auto; min-width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; background: var(--panel-active); color: var(--accent); font-weight: 600; font-size: 13px; }
+.perf-member { flex: 1 1 auto; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.perf-name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.perf-shapes { display: flex; flex-wrap: wrap; gap: 4px; }
+.perf-shape { font-size: 11px; padding: 1px 6px; border-radius: 999px; background: var(--panel-active); color: var(--dim); }
+.perf-meta { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+.perf-loop { font-size: 11px; color: #d97757; }
+.perf-confidence { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); text-transform: capitalize; }
+.perf-confidence.perf-high { color: #4a9d5b; border-color: color-mix(in srgb, #4a9d5b 45%, var(--line)); }
+.perf-confidence.perf-medium { color: #c99a3a; border-color: color-mix(in srgb, #c99a3a 45%, var(--line)); }
 .ns-overflow { align-self: center; color: var(--muted); font-size: 12px; padding: 0 6px; }
 .composition-flags { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 10px; border-bottom: 1px solid var(--line); }
 .count-flag { font: 12px var(--mono); padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line-strong); color: var(--dim); background: var(--panel); }

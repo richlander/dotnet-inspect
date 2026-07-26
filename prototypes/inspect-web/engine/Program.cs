@@ -266,6 +266,40 @@ public sealed record BrowserIntegrationCategory(
 
 public sealed record BrowserIntegrationSignal(string Kind, string Name, string Shape);
 
+public sealed record BrowserPackageOpportunities(
+    string Package,
+    string Version,
+    string ActiveFramework,
+    BrowserOpportunityCategory[] Categories,
+    int TotalOpportunities,
+    string? InspectionError);
+
+public sealed record BrowserOpportunityCategory(
+    string Integration,
+    BrowserOpportunityItem[] Items);
+
+public sealed record BrowserOpportunityItem(string Api, string IntegrationType, string LookFor);
+
+public sealed record BrowserPackagePerformance(
+    string Package,
+    string Version,
+    string ActiveFramework,
+    BrowserPerfMember[] Members,
+    int TotalOpportunities,
+    int NonPublicOpportunities,
+    string? InspectionError);
+
+public sealed record BrowserPerfMember(
+    string Assembly,
+    string TypeId,
+    string MemberName,
+    string MemberSignature,
+    int MetadataToken,
+    int OpportunityCount,
+    int InLoopCount,
+    string[] Shapes,
+    string Confidence);
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserMemberSource))]
@@ -275,6 +309,8 @@ public sealed record BrowserIntegrationSignal(string Kind, string Name, string S
 [JsonSerializable(typeof(BrowserTypeMetadata))]
 [JsonSerializable(typeof(BrowserPackageDependencies))]
 [JsonSerializable(typeof(BrowserPackageIntegrations))]
+[JsonSerializable(typeof(BrowserPackageOpportunities))]
+[JsonSerializable(typeof(BrowserPackagePerformance))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(typeof(BrowserTypeCandidate[]))]
 [JsonSerializable(typeof(BrowserTypeSearchHit[]))]
@@ -1064,6 +1100,238 @@ public static partial class BrowserInspectionEngine
 
         return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageIntegrations);
     }
+
+    // Integration opportunities are the complement of the Integrations lens: types on the
+    // public surface that suggest an ecosystem area (auth, cloud clients, configuration,
+    // database, AI clients) the package does not yet integrate with. The set of integrations
+    // it already ships is computed first (union across all active-framework assemblies) so a
+    // package that already covers an area is not flagged for it.
+    [JSExport]
+    public static async Task<string> QueryPackageOpportunities(
+        string packageId,
+        string version,
+        string targetFramework)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+
+        var opportunities = new Dictionary<string, IntegrationOpportunityInfo>(StringComparer.Ordinal);
+        var failures = new List<string>();
+
+        using (var stream = new MemoryStream(packageBytes, writable: false))
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
+        {
+            var prefix = $"lib/{targetFramework}/";
+            var assemblyBytes = new List<byte[]>();
+            foreach (var entry in archive.Entries.Where(entry =>
+                entry.FullName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
+                entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
+            {
+                try
+                {
+                    using var assemblyStream = entry.Open();
+                    using var buffer = new MemoryStream();
+                    await assemblyStream.CopyToAsync(buffer);
+                    assemblyBytes.Add(buffer.ToArray());
+                }
+                catch (Exception exception)
+                {
+                    failures.Add($"{entry.Name}: {exception.Message}");
+                }
+            }
+
+            var existing = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var bytes in assemblyBytes)
+            {
+                try
+                {
+                    using var peReader = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(bytes, writable: false));
+                    foreach (var signal in EcosystemIntegrationScanner.Scan(peReader))
+                        existing.Add(signal.Integration);
+                }
+                catch (Exception exception)
+                {
+                    failures.Add(exception.Message);
+                }
+            }
+
+            foreach (var bytes in assemblyBytes)
+            {
+                try
+                {
+                    using var peReader = new System.Reflection.PortableExecutable.PEReader(new MemoryStream(bytes, writable: false));
+                    foreach (var opportunity in IntegrationOpportunityScanner.Scan(peReader, existing))
+                    {
+                        var key = $"{opportunity.Integration}|{opportunity.Api}|{opportunity.IntegrationType}";
+                        opportunities.TryAdd(key, opportunity);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    failures.Add(exception.Message);
+                }
+            }
+        }
+
+        var categories = opportunities.Values
+            .GroupBy(opportunity => opportunity.Integration, StringComparer.Ordinal)
+            .OrderBy(group => group.Key, StringComparer.Ordinal)
+            .Select(group => new BrowserOpportunityCategory(
+                group.Key,
+                group
+                    .OrderBy(opportunity => opportunity.Api, StringComparer.Ordinal)
+                    .Select(opportunity => new BrowserOpportunityItem(
+                        opportunity.Api, opportunity.IntegrationType, opportunity.LookFor))
+                    .ToArray()))
+            .ToArray();
+
+        var result = new BrowserPackageOpportunities(
+            packageId,
+            version,
+            targetFramework,
+            categories,
+            categories.Sum(category => category.Items.Length),
+            failures.Count > 0 ? string.Join("; ", failures) : null);
+
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageOpportunities);
+    }
+
+    // Ranks the package's public members by the allocation/performance opportunities the
+    // Analysis layer classifies over their method bodies. The whole-assembly LibraryBodyIndex
+    // pass computes opportunities once; they are joined back to public API members by method
+    // token so each ranked row drills to its member. Opportunities in non-public members are
+    // counted (NonPublicOpportunities) rather than dropped, so their absence stays visible.
+    [JSExport]
+    public static async Task<string> QueryPackagePerformance(
+        string packageId,
+        string version,
+        string targetFramework)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-perf-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+
+        var members = new List<BrowserPerfMember>();
+        var failures = new List<string>();
+        var totalOpportunities = 0;
+        var nonPublicOpportunities = 0;
+
+        try
+        {
+            var assemblyNames = new List<string>();
+            using (var stream = new MemoryStream(packageBytes, writable: false))
+            using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
+            {
+                foreach (var entry in archive.Entries.Where(entry =>
+                    entry.FullName.StartsWith($"lib/{targetFramework}/", StringComparison.OrdinalIgnoreCase) &&
+                    entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
+                {
+                    await WriteEntryAsync(entry, Path.Combine(tempRoot, entry.Name));
+                    if (!assemblyNames.Contains(entry.Name))
+                        assemblyNames.Add(entry.Name);
+                }
+            }
+
+            foreach (var assemblyName in assemblyNames)
+            {
+                var assemblyPath = Path.Combine(tempRoot, assemblyName);
+                try
+                {
+                    var tokenMap = new Dictionary<int, (string TypeId, string Name, string Signature)>();
+                    using (var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
+                        new AssemblyReferenceIdentity(assemblyName, null, null, null),
+                        assemblyPath,
+                        () => File.OpenRead(assemblyPath),
+                        Provenance: $"lib/{targetFramework}/{assemblyName}")))
+                    {
+                        foreach (var type in inspection.ApiSurface().Types)
+                        {
+                            foreach (var member in type.Members)
+                            {
+                                if (member.MetadataToken is int memberToken)
+                                    tokenMap[memberToken] = (type.FullName, member.Name, member.Signature ?? "");
+                            }
+                        }
+                    }
+
+                    var index = Analysis.LibraryBodyIndex.Open(
+                        assemblyPath,
+                        Analysis.LibraryBodyAnalysisFeatures.OptimizationOpportunities);
+
+                    foreach (var group in index.OptimizationOpportunities.GroupBy(opportunity => opportunity.Method.MetadataToken))
+                    {
+                        var count = group.Count();
+                        totalOpportunities += count;
+                        if (!tokenMap.TryGetValue(group.Key, out var target))
+                        {
+                            nonPublicOpportunities += count;
+                            continue;
+                        }
+
+                        var shapes = group
+                            .Select(opportunity => opportunity.Shape)
+                            .Distinct(StringComparer.Ordinal)
+                            .OrderBy(shape => shape, StringComparer.Ordinal)
+                            .ToArray();
+                        var confidence = group
+                            .Select(opportunity => opportunity.Confidence)
+                            .OrderByDescending(RankConfidence)
+                            .FirstOrDefault() ?? "";
+
+                        members.Add(new BrowserPerfMember(
+                            assemblyName,
+                            target.TypeId,
+                            target.Name,
+                            target.Signature,
+                            group.Key,
+                            count,
+                            group.Count(opportunity => opportunity.InLoop),
+                            shapes,
+                            confidence));
+                    }
+                }
+                catch (Exception exception)
+                {
+                    failures.Add($"{assemblyName}: {exception.Message}");
+                }
+            }
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); }
+            catch { /* Best-effort scratch cleanup. */ }
+        }
+
+        var ranked = members
+            .OrderByDescending(member => member.InLoopCount)
+            .ThenByDescending(member => member.OpportunityCount)
+            .ThenBy(member => member.TypeId, StringComparer.Ordinal)
+            .ThenBy(member => member.MemberSignature, StringComparer.Ordinal)
+            .Take(200)
+            .ToArray();
+
+        var result = new BrowserPackagePerformance(
+            packageId,
+            version,
+            targetFramework,
+            ranked,
+            totalOpportunities,
+            nonPublicOpportunities,
+            failures.Count > 0 ? string.Join("; ", failures) : null);
+
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackagePerformance);
+    }
+
+    private static int RankConfidence(string confidence) => confidence?.ToLowerInvariant() switch
+    {
+        "high" => 3,
+        "medium" => 2,
+        "low" => 1,
+        _ => 0
+    };
 
     // Collapses long .NET framework monikers (".NETStandard,Version=v2.0") to the short
     // folder form the lib/ layout and the UI use ("netstandard2.0"); short forms pass
