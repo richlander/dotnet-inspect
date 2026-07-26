@@ -1414,7 +1414,8 @@ public static class CompileBackSourceComposer
         TypeDefinition targetType,
         MethodDefinitionHandle targetMethod,
         string metadataMethodName,
-        int targetMethodGenericArity)
+        int targetMethodGenericArity,
+        IReadOnlySet<TypeDefinitionHandle> closureRoots)
     {
         if (!TrySplitExplicitInterfaceMetadataName(metadataMethodName, out var interfaceMetadataName, out var targetMemberName))
             return null;
@@ -1493,11 +1494,113 @@ public static class CompileBackSourceComposer
                 return null;
             }
 
+            // A reconstructed sibling type (or sibling sub-namespace) in the recompile
+            // closure can intercept the leading identifier of the external interface
+            // spelling when the target lives inside a namespace, binding the clean
+            // `Namespace.IType.Member` spelling against the sibling instead of the external
+            // interface (CS0426/CS0535/CS0540 = RecompileFail). Roslyn cannot author such a
+            // shape (a shadowing sibling forces `global::` into the explicit override's
+            // metadata name, which the equality check above already declines), but
+            // hand-rolled IL can, and RoundTripScope.All reconstructs every sibling into its
+            // namespace. When any closure type would shadow a spelling segment in a namespace
+            // in scope of the target, decline to the plain sanitized shape (the pre-#3112
+            // ContextFail floor) rather than emit a new RecompileFail.
+            if (ExternalInterfaceSpellingShadowedByClosure(
+                    reader,
+                    targetType,
+                    closureRoots,
+                    interfaceReference.DisplayFullName))
+            {
+                return null;
+            }
+
             string explicitInterfaceMemberName =
                 $"{interfaceReference.DisplayFullName}.{Identifier(declarationName)}";
             return new ExternalExplicitInterfaceMethodInfo(
                 interfaceReference.DisplayFullName,
                 explicitInterfaceMemberName);
+        }
+
+        return null;
+    }
+
+    // True when a type declared in the recompile closure would intercept the leading
+    // identifier of <paramref name="interfaceDisplayFullName"/> as spelled from inside the
+    // target type's namespace. The external-interface spelling appears both as a base-list
+    // entry and as the explicit-member qualifier; the using-directive collapser can shorten
+    // it to any of its segments, so every segment is treated as a potential leading
+    // identifier. <paramref name="closureRoots"/> already reflects the active scope, so under
+    // RoundTripScope.Cluster (which does not reconstruct the shadowing sibling) this returns
+    // false and engagement proceeds; under RoundTripScope.All it declines the crafted-IL
+    // shadow shape.
+    static bool ExternalInterfaceSpellingShadowedByClosure(
+        MetadataReader reader,
+        TypeDefinition targetType,
+        IReadOnlySet<TypeDefinitionHandle> closureRoots,
+        string interfaceDisplayFullName)
+    {
+        var segments = new HashSet<string>(
+            interfaceDisplayFullName.Split('.'),
+            StringComparer.Ordinal);
+        string targetNamespace = reader.GetString(targetType.Namespace);
+
+        foreach (var handle in closureRoots)
+        {
+            var candidate = reader.GetTypeDefinition(handle);
+            string candidateNamespace = reader.GetString(candidate.Namespace);
+
+            // Type collision: a reconstructed top-level type whose simple name matches a
+            // spelling segment and that sits in the target's namespace, an ancestor
+            // namespace, or the global namespace is nearer than the external namespace
+            // chain and intercepts the identifier.
+            if (segments.Contains(reader.GetString(candidate.Name))
+                && NamespaceIsInScope(candidateNamespace, targetNamespace))
+            {
+                return true;
+            }
+
+            // Sub-namespace collision: a reconstructed type declared beneath a non-global
+            // in-scope namespace introduces a nearer namespace whose leading segment can
+            // intercept the identifier. Types beneath the global namespace merge with the
+            // external namespace chain instead of shadowing it, so global is excluded here.
+            if (LeadingSegmentBelowInScopeNonGlobalNamespace(candidateNamespace, targetNamespace) is { } childSegment
+                && segments.Contains(childSegment))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // True when a type declared in <paramref name="candidateNamespace"/> is visible by its
+    // simple name from inside <paramref name="targetNamespace"/>: the same namespace, an
+    // ancestor namespace, or the global namespace.
+    static bool NamespaceIsInScope(string candidateNamespace, string targetNamespace)
+        => candidateNamespace.Length == 0
+           || string.Equals(candidateNamespace, targetNamespace, StringComparison.Ordinal)
+           || targetNamespace.StartsWith(candidateNamespace + ".", StringComparison.Ordinal);
+
+    // When <paramref name="candidateNamespace"/> is strictly nested under the target
+    // namespace or one of its non-global ancestors, returns the single namespace segment
+    // introduced directly beneath the nearest such in-scope namespace (which becomes a name
+    // visible unqualified from the target). Returns null otherwise.
+    static string? LeadingSegmentBelowInScopeNonGlobalNamespace(string candidateNamespace, string targetNamespace)
+    {
+        if (targetNamespace.Length == 0 || candidateNamespace.Length == 0)
+            return null;
+
+        for (string scope = targetNamespace; scope.Length > 0;)
+        {
+            if (candidateNamespace.StartsWith(scope + ".", StringComparison.Ordinal))
+            {
+                string rest = candidateNamespace[(scope.Length + 1)..];
+                int dot = rest.IndexOf('.');
+                return dot < 0 ? rest : rest[..dot];
+            }
+
+            int lastDot = scope.LastIndexOf('.');
+            scope = lastDot < 0 ? "" : scope[..lastDot];
         }
 
         return null;
@@ -2287,7 +2390,8 @@ public static class CompileBackSourceComposer
                     targetTypeDef,
                     targetMethod,
                     methodName,
-                    targetTypeParameters.Count)
+                    targetTypeParameters.Count,
+                    closureRoots)
                 : null;
         string? explicitInterfaceMemberName =
             sameAssemblyExplicitInterfaceMemberName

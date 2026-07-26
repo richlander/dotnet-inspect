@@ -1233,6 +1233,66 @@ public class ReturnToSenderPrototypeTests
         }
     }
 
+    // Regression for #3112 review: a hand-authored IL assembly can carry a *clean*
+    // explicit-interface metadata name (`System.Collections.IEnumerable.GetEnumerator`)
+    // while also declaring a sibling type `N.System` that shadows the `System` namespace
+    // root of that spelling. No conformant C# compiler can emit this shape — a shadowing
+    // sibling forces `global::` into the explicit override's metadata name, which the gate
+    // declines — but IL is not bound by that rule. Under RoundTripScope.All the sibling is
+    // reconstructed into namespace N, so the unrooted `System.Collections.IEnumerable`
+    // spelling binds to the sibling (CS0426). The gate must decline to the sanitized shape
+    // rather than introduce that new RecompileFail. Under RoundTripScope.Cluster the sibling
+    // is not reconstructed, so engagement must be preserved (round-trips Exact): the decline
+    // is scope-aware, not a blanket stand-down.
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceDeclinesWhenClosureSiblingShadowsSpelling()
+    {
+        var ilasm = TryLocateIlasm();
+        if (ilasm is null)
+        {
+            Assert.Skip("ilasm not available; skipping hand-authored IL shadow regression.");
+            return;
+        }
+
+        var directory = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var assemblyPath = AssembleIlFixture(ilasm, ShadowingSiblingIl, directory, "shadowrepro");
+        try
+        {
+            var target = new ReturnToSender.RequestedTarget(
+                "N.Seq",
+                "System.Collections.IEnumerable.GetEnumerator",
+                0);
+
+            // Cluster does not reconstruct the shadowing sibling N.System, so the external
+            // explicit-interface reconstruction engages and round-trips Exact.
+            var cluster = Assert.Single(
+                ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.Cluster));
+            Assert.True(
+                cluster.Status == FidelityCheck.CompileBackStatus.Exact,
+                $"cluster {cluster.Status}: {cluster.Detail}");
+
+            // All reconstructs N.System, which shadows the `System` root of the spelling.
+            // The gate must decline to the sanitized shape (the pre-#3112 ContextFail floor)
+            // rather than emit a new RecompileFail (CS0426). Strictly better or identical,
+            // never worse.
+            var all = Assert.Single(
+                ReturnToSender.CompileBackTargets(assemblyPath, [target], RoundTripScope.All));
+            Assert.True(
+                all.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"all {all.Status}: {all.Detail}");
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+            catch (IOException)
+            {
+            }
+        }
+    }
+
     [Fact]
     public void CompileBackTargets_MultiMemberExternalExplicitInterfaceFallsBackWithoutRecompileFail()
     {
@@ -7360,6 +7420,118 @@ public class ReturnToSenderPrototypeTests
         var image = new BlobBuilder();
         pe.Serialize(image);
         return image.ToArray();
+    }
+
+    // Hand-authored IL exercising the shadowing-sibling regression: a class with a clean
+    // explicit-interface metadata name for System.Collections.IEnumerable.GetEnumerator plus
+    // a sibling type `N.System` in the same namespace. Assembled with ilasm because no C#
+    // compiler can produce a clean explicit-override name alongside an in-scope shadow.
+    const string ShadowingSiblingIl = """
+        .assembly extern System.Runtime { .ver 0:0:0:0 }
+        .assembly shadowrepro { }
+        .module shadowrepro.dll
+
+        .namespace N
+        {
+          .class public auto ansi sealed beforefieldinit Seq
+              extends [System.Runtime]System.Object
+              implements [System.Runtime]System.Collections.IEnumerable
+          {
+            .method private hidebysig newslot virtual final
+                instance class [System.Runtime]System.Collections.IEnumerator
+                'System.Collections.IEnumerable.GetEnumerator'() cil managed
+            {
+              .override [System.Runtime]System.Collections.IEnumerable::GetEnumerator
+              ldnull
+              throw
+            }
+            .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+            {
+              ldarg.0
+              call instance void [System.Runtime]System.Object::.ctor()
+              ret
+            }
+          }
+
+          .class public auto ansi sealed beforefieldinit System
+              extends [System.Runtime]System.Object
+          {
+            .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
+            {
+              ldarg.0
+              call instance void [System.Runtime]System.Object::.ctor()
+              ret
+            }
+          }
+        }
+        """;
+
+    // Locates a usable ilasm: an ILASM_PATH override, then PATH, then the restored
+    // runtime.<rid>.microsoft.netcore.ilasm NuGet package cache. Returns null when none is
+    // available so the caller can skip.
+    static string? TryLocateIlasm()
+    {
+        string exe = OperatingSystem.IsWindows() ? "ilasm.exe" : "ilasm";
+
+        var overridePath = Environment.GetEnvironmentVariable("ILASM_PATH");
+        if (!string.IsNullOrEmpty(overridePath) && File.Exists(overridePath))
+            return overridePath;
+
+        foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator))
+        {
+            if (dir.Length == 0)
+                continue;
+            var candidate = Path.Combine(dir, exe);
+            if (File.Exists(candidate))
+                return candidate;
+        }
+
+        var nuget = Environment.GetEnvironmentVariable("NUGET_PACKAGES")
+            ?? Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".nuget",
+                "packages");
+        if (Directory.Exists(nuget))
+        {
+            foreach (var pkg in Directory.EnumerateDirectories(nuget)
+                .Where(d => Path.GetFileName(d).Contains("microsoft.netcore.ilasm", StringComparison.OrdinalIgnoreCase)))
+            {
+                var hit = Directory.EnumerateFiles(pkg, exe, SearchOption.AllDirectories).FirstOrDefault();
+                if (hit is not null)
+                    return hit;
+            }
+        }
+
+        return null;
+    }
+
+    static string AssembleIlFixture(string ilasm, string il, string directory, string assemblyName)
+    {
+        Directory.CreateDirectory(directory);
+        var ilPath = Path.Combine(directory, assemblyName + ".il");
+        var dllPath = Path.Combine(directory, assemblyName + ".dll");
+        File.WriteAllText(ilPath, il);
+
+        var psi = new System.Diagnostics.ProcessStartInfo(ilasm)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            WorkingDirectory = directory,
+        };
+        psi.ArgumentList.Add(ilPath);
+        psi.ArgumentList.Add("-dll");
+        psi.ArgumentList.Add("-output=" + dllPath);
+
+        using var process = System.Diagnostics.Process.Start(psi)!;
+        string stdout = process.StandardOutput.ReadToEnd();
+        string stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+
+        Assert.True(
+            File.Exists(dllPath),
+            $"ilasm did not produce an assembly:{Environment.NewLine}{stdout}{Environment.NewLine}{stderr}");
+        return dllPath;
     }
 
     static string CompileFixture(
