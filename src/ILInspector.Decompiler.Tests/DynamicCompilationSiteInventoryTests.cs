@@ -53,6 +53,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["ClosureDiagnosticEvidenceTests.cs"] = (6, "Input matrix + semantic-model seam: many compile-error/closure sources across a Theory."),
             ["FidelityCheckGeneratedFilterTests.cs"] = (2, "Seam isolation: exercises the generated-code filter over constructed compilations."),
             ["ValidityShellNoiseTests.cs"] = (1, "Seam isolation: injects deliberate shell noise into a validity compilation."),
+            ["AnnotatedCompileBackFailureTests.cs"] = (1, "Seam isolation: compiles a synthesized invisible-rune source to obtain a real Roslyn diagnostic for the annotated compile-back failure caret render (#3238)."),
 
             // Optimization / parse-option matrices intrinsic to the claim.
             ["IteratorReconstructionPassTests.cs"] = (1, "Optimization matrix: compiles the same source under Debug and Release."),
@@ -99,9 +100,12 @@ public sealed class DynamicCompilationSiteInventoryTests
     //     to the span-attribution classifier. #3231 also adds a second site to
     //     ReturnToSenderPrototypeTests.cs (1 -> 2): the fault-isolation helper
     //     compiles composed decompiled source to obtain its diagnostics.
-    //   Combined: 36 files, 45 sites.
-    const int ExpectedDynamicFiles = 36;
-    const int ExpectedDynamicSites = 45;
+    //   #3238 adds AnnotatedCompileBackFailureTests.cs (1 site): compiles a
+    //     synthesized invisible-rune source to obtain a real diagnostic for the
+    //     annotated compile-back failure caret render.
+    //   Combined: 37 files, 46 sites.
+    const int ExpectedDynamicFiles = 37;
+    const int ExpectedDynamicSites = 46;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

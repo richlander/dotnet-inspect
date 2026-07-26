@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Globalization;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
@@ -288,7 +289,8 @@ static class FidelityCheck
         string OriginalOpcodes, string RecompiledOpcodes, string? Detail,
         CaptureMode Capture = CaptureMode.WholeModule,
         string? CaptureDetail = null,
-        IlBodyDiffResult? FidelityDiff = null);
+        IlBodyDiffResult? FidelityDiff = null,
+        string? Annotated = null);
 
     internal static CompileBackStatus ClassifyStatus(
         bool isFull,
@@ -935,8 +937,15 @@ static class FidelityCheck
         foreach (var row in examples)
         {
             Console.WriteLine($"  {row.Target.DisplayMethod}");
-            if (!string.IsNullOrWhiteSpace(row.Result.Detail))
+            if (!string.IsNullOrWhiteSpace(row.Result.Annotated))
+            {
+                foreach (var annotatedLine in row.Result.Annotated.Split('\n'))
+                    Console.WriteLine($"    {annotatedLine}");
+            }
+            else if (!string.IsNullOrWhiteSpace(row.Result.Detail))
+            {
                 Console.WriteLine($"    {row.Result.Detail}");
+            }
             if (includeOpcodes)
             {
                 Console.WriteLine($"    orig : {row.Result.OriginalOpcodes}");
@@ -1372,7 +1381,7 @@ static class FidelityCheck
                 File.WriteAllText(path, unit);
                 Console.Error.WriteLine($"{path}: {err}");
             }
-            return new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.RecompileFail, e.OrigText, "", FormatDiagnostic(err));
+            return new(fullType, e.Name, e.Overload, e.Signature, CompileBackStatus.RecompileFail, e.OrigText, "", FormatDiagnostic(err), Annotated: RenderAnnotatedFailure(unit, err));
         }
         ms.Position = 0;
         using var rpe = new PEReader(ms);
@@ -2020,6 +2029,75 @@ static class FidelityCheck
         if (!string.IsNullOrWhiteSpace(message))
             parts.Add(message);
         return parts.Count == 0 ? null : string.Join(": ", parts);
+    }
+
+    /// <summary>
+    /// Renders the failing emitted line with a caret underline under the
+    /// diagnostic span — the compiler's own squiggle, and the "act on this"
+    /// gesture for a recompile failure. Invisible/format runes on the line are
+    /// revealed (e.g. U+200C becomes &lt;ZWNJ&gt;) so the caret points at
+    /// something the reader can see, and the caret sits on a <c>//</c> comment so
+    /// the whole block stays valid C# inside a code fence. Null when the
+    /// diagnostic carries no in-source location (nothing to point at).
+    /// </summary>
+    internal static string? RenderAnnotatedFailure(string source, Diagnostic? diagnostic)
+    {
+        if (diagnostic is null || !diagnostic.Location.IsInSource)
+            return null;
+
+        var span = diagnostic.Location.GetLineSpan().Span;
+        int lineIndex = span.Start.Line;
+        string[] lines = source.Replace("\r\n", "\n").Split('\n');
+        if (lineIndex < 0 || lineIndex >= lines.Length)
+            return null;
+
+        string raw = lines[lineIndex];
+
+        // Reveal invisible runes, mapping each raw column to its revealed column
+        // so the caret aligns under what the reader actually sees, not the raw
+        // (possibly zero-width) span.
+        var revealed = new StringBuilder();
+        int[] map = new int[raw.Length + 1];
+        for (int i = 0; i < raw.Length; i++)
+        {
+            map[i] = revealed.Length;
+            revealed.Append(RevealRune(raw[i]));
+        }
+        map[raw.Length] = revealed.Length;
+
+        int startCol = Math.Clamp(span.Start.Character, 0, raw.Length);
+        int endCol = span.End.Line == lineIndex ? Math.Clamp(span.End.Character, 0, raw.Length) : raw.Length;
+        int caretStart = map[startCol];
+        int caretLen = Math.Max(1, map[endCol] - caretStart);
+
+        string indent = raw[..(raw.Length - raw.AsSpan().TrimStart().Length)];
+        int pad = Math.Max(1, caretStart - indent.Length - 2); // 2 == "//"
+
+        var sb = new StringBuilder();
+        sb.Append(revealed).Append('\n');
+        sb.Append(indent).Append("//").Append(' ', pad).Append('^', caretLen)
+          .Append(' ').Append(diagnostic.Id).Append(": ").Append(diagnostic.GetMessage());
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Substitutes a visible token for a rune that would otherwise be invisible
+    /// or ambiguous in the rendered source — format characters (e.g. the U+200C
+    /// zero-width non-joiner that silently breaks an identifier match), controls,
+    /// and non-spacing combining marks. Everything else passes through unchanged.
+    /// </summary>
+    static string RevealRune(char c)
+    {
+        if (c == '\t')
+            return "\t";
+        if (c == '\u200C')
+            return "\u2039ZWNJ\u203A";
+        if (c == '\u200D')
+            return "\u2039ZWJ\u203A";
+        return CharUnicodeInfo.GetUnicodeCategory(c)
+            is UnicodeCategory.Format or UnicodeCategory.Control or UnicodeCategory.NonSpacingMark
+            ? $"\u2039U+{(int)c:X4}\u203A"
+            : c.ToString();
     }
 
     static string DiagnosticCode(string? detail)
