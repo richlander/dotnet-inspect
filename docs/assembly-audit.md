@@ -4,12 +4,12 @@ The `Signals` section reports package and library observations. It is an evidenc
 
 ```bash
 dotnet-inspect library System.Text.Json -S Signals
-dotnet-inspect library System.Text.Json -S "Signals,SourceLink Availability,SourceLink Missing Files"
-dotnet-inspect library System.Text.Json -S "SourceLink Integrity"
+dotnet-inspect library System.Text.Json -S "Signals,Source Link: Availability,Source Link: Missing Files"
+dotnet-inspect library System.Text.Json -S "Source Link: Integrity"
 dotnet-inspect package System.Text.Json -S Signals
 ```
 
-Cost is governed by verbosity (the cost ceiling) and explicit section selection. `library X -S Signals` reports metadata/provenance signals and acquires a missing library PDB to resolve SourceLink. The per-source-file reachability pass (the `SourceLink Availability` and `SourceLink Missing Files` sections, which issue one HTTP HEAD per tracked source URL) is selected explicitly via `-S`. It does not run in a plain `library X -v:d` flow, because its cost scales with source-file count. The exhaustive content check — downloading every tracked source file and comparing its hash to the PDB checksum — is the opt-in `SourceLink Integrity` section, selected explicitly via `library X -S "SourceLink Integrity"`; it never runs in a default flow and exits non-zero on a checksum mismatch. For packages, `Signals` is opt-in and includes registry-backed signals.
+Cost is governed by verbosity (the cost ceiling) and explicit section selection. `library X -S Signals` reports metadata/provenance signals and acquires a missing library PDB to resolve SourceLink. The per-source-file reachability pass (the `Source Link: Availability` and `Source Link: Missing Files` sections, which issue one HTTP HEAD per tracked source URL) is selected explicitly via `-S`. It does not run in a plain `library X -v:d` flow, because its cost scales with source-file count. The exhaustive content check — downloading every tracked source file and comparing its hash to the PDB checksum — is the opt-in `Source Link: Integrity` section, selected explicitly via `library X -S "Source Link: Integrity"`; it never runs in a default flow and exits non-zero on a checksum mismatch. For packages, `Signals` is opt-in and includes registry-backed signals.
 
 See [SourceLink Exposure](sourcelink-exposure.md) for the product surfaces,
 PDB dependency, and network policy behind these sections.

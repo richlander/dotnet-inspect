@@ -6,7 +6,19 @@ namespace DotnetInspector.Sections;
 public static class SectionCategoryNames
 {
     public const string Audit = "@Audit";
+
+    /// <summary>
+    /// Actual source content: decompiled, original, and annotated source views plus source diffs
+    /// (API/member scope). Distinct from <see cref="SourceLink"/>, which is about SourceLink/PDB
+    /// provenance and availability rather than the source text itself.
+    /// </summary>
     public const string Source = "@Source";
+
+    /// <summary>
+    /// SourceLink / PDB provenance sections (library scope): the source-file listing derived from
+    /// the PDB plus the <c>Source Link: &lt;X&gt;</c> availability/integrity audit sections.
+    /// </summary>
+    public const string SourceLink = "@SourceLink";
 
     /// <summary>Cheap-but-verbose surface sections (Async Methods, Custom Attributes, Resources, etc.).</summary>
     public const string Surface = "@Surface";

@@ -49,7 +49,7 @@ Two orthogonal facts round out a section's placement:
   Info`). It is the only thing `-v:m` renders; it is described by fields, not a
   size class.
 - **Topical category membership** — which visible doors (`@Surface`,
-  `@Performance`, `@Audit`, `@Source`, `@Escape`, `@Integrations`) surface
+  `@Performance`, `@Audit`, `@SourceLink`, `@Escape`, `@Integrations`) surface
   the section. `@All`/`@Hidden` remain internal computed poles (below); they are
   not user-facing doors.
 
@@ -91,9 +91,9 @@ requires `-v:m`; every other bounded network-free section first renders at
   - **Known footgun (deferred hardening):** because a topical door is a render
     selector, rooting an `Unbounded` member in it means `-S @Category` fans out
     to that unbounded work. This is inherited from the pre-curated model:
-    `@Source` roots Source Files / SourceLink Availability / SourceLink Missing
-    Files, and `@Audit` roots Unsafe Members. `-D @Source` / `-D @Audit` never
-    execute them, but `-S @Source` / `-S @Audit` do. Gating door *render*
+    `@SourceLink` roots Source Files / Source Link: Availability / Source Link:
+    Missing Files, and `@Audit` roots Unsafe Members. `-D @SourceLink` / `-D @Audit` never
+    execute them, but `-S @SourceLink` / `-S @Audit` do. Gating door *render*
     expansion to skip `Unbounded` members (a "discovery-listed, exact-name-run"
     nuance) is a deferred follow-up; today `ExplicitOnly` only keeps them out of
     the verbosity ladder, not out of door expansion.
@@ -129,7 +129,7 @@ standalone set, `@Hidden` is its complement, and neither is a user-facing door
 - No **render-selectable** category roots an `Unbounded` member *for the
   verbosity ladder* — `Unbounded` sections are `ExplicitOnly`, so no `-v` level
   auto-runs them. They remain reachable by exact name and, as a known deferred
-  footgun, by `-S @Source` / `-S @Audit` door expansion (see the cost gate).
+  footgun, by `-S @SourceLink` / `-S @Audit` door expansion (see the cost gate).
 - The `-v` ladder is cumulative and never auto-runs an `Unbounded` section.
 - Every visible section is reachable from at least one topical door or the flat
   `@All` set; internal-only sections fall into the computed `@Hidden` complement.
@@ -143,8 +143,8 @@ standalone set, `@Hidden` is its complement, and neither is a user-facing door
 | Surface (Symbols, Type Forwarders) | `Terse` | `NetworkFree` | `-v:n` | `@Audit` / `@Surface` |
 | Noisy-but-cheap (Custom Attributes) | `Terse` | `NetworkFree` | `-v:n` | `@Surface` |
 | Large surface (Extension Methods, `Performance:` buckets, Async Methods) | `Verbose` | `NetworkFree` | `-v:d` | `@Surface` / `@Performance` |
-| Networked (SourceLink Availability) | `Terse` | `Moderated` | `-v:d` | `@Source` |
-| Footgun (Unsafe Members, Top Leverage, Source Files, SourceLink Integrity) | `Verbose` | `Unbounded` | never (exact name only) | — / `@Source` |
+| Networked (Source Link: Availability) | `Terse` | `Moderated` | `-v:d` | `@SourceLink` |
+| Footgun (Unsafe Members, Top Leverage, Source Files, Source Link: Integrity) | `Verbose` | `Unbounded` | never (exact name only) | — / `@SourceLink` |
 
 ## Query paths
 

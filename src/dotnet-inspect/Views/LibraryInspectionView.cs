@@ -665,7 +665,7 @@ public class LibraryInspectionView
                 context.Evidence))
             .ToList();
 
-    [MarkoutSection(Name = "SourceLink Availability", ShowWhenProperty = nameof(HasSourceLinkAudit))]
+    [MarkoutSection(Name = SectionNames.SourceLinkAvailability, ShowWhenProperty = nameof(HasSourceLinkAudit))]
     public SourceLinkAuditSection? SourceLinkAuditSection => !HasSourceLinkAudit ? null : new SourceLinkAuditSection
     {
         Status = _data.AllSourcesAccessible == true ? "Complete" : "Partial",
@@ -677,7 +677,7 @@ public class LibraryInspectionView
     [MarkoutIgnore]
     public bool HasSourceIntegrity => _data.SourceIntegrityChecked;
 
-    [MarkoutSection(Name = "SourceLink Integrity", ShowWhenProperty = nameof(HasSourceIntegrity))]
+    [MarkoutSection(Name = SectionNames.SourceLinkIntegrity, ShowWhenProperty = nameof(HasSourceIntegrity))]
     public SourceIntegritySection? SourceIntegritySection => !HasSourceIntegrity ? null : new SourceIntegritySection
     {
         CrlfMismatch = _data.SourceIntegrityLineEndingNormalized > 0
@@ -696,7 +696,7 @@ public class LibraryInspectionView
     [MarkoutIgnore]
     public bool HasMissingSourceFiles => _data.MissingSourceFiles is { Count: > 0 };
 
-    [MarkoutSection(Name = "SourceLink Missing Files", ShowWhenProperty = nameof(HasMissingSourceFiles))]
+    [MarkoutSection(Name = SectionNames.SourceLinkMissingFiles, ShowWhenProperty = nameof(HasMissingSourceFiles))]
     public List<string>? MissingSourceFilesSection =>
         _data.MissingSourceFiles?
             .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)

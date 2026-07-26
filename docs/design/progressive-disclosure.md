@@ -98,8 +98,8 @@ Examples:
 ```bash
 dotnet-inspect library System.Diagnostics.DiagnosticSource -S Integrations
 dotnet-inspect library System.Diagnostics.DiagnosticSource -S OpenTelemetry
-dotnet-inspect library System.Text.Json -S "SourceLink Availability"
-dotnet-inspect library System.Text.Json -S "SourceLink Integrity"
+dotnet-inspect library System.Text.Json -S "Source Link: Availability"
+dotnet-inspect library System.Text.Json -S "Source Link: Integrity"
 ```
 
 These sections do not run from normal verbosity or broad default output. Select them explicitly, or use `-S @All` when you intentionally want every selectable section, including opt-in sections.

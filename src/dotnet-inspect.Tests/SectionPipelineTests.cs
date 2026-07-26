@@ -324,9 +324,9 @@ public class SectionPipelineTests
         Assert.Contains("OpenTelemetry", pipeline.AllSectionNames);
         Assert.Contains("Options", pipeline.AllSectionNames);
         Assert.Contains("Source Files", pipeline.AllSectionNames);
-        Assert.Contains("SourceLink Availability", pipeline.AllSectionNames);
-        Assert.Contains("SourceLink Missing Files", pipeline.AllSectionNames);
-        Assert.Contains("SourceLink Integrity", pipeline.AllSectionNames);
+        Assert.Contains("Source Link: Availability", pipeline.AllSectionNames);
+        Assert.Contains("Source Link: Missing Files", pipeline.AllSectionNames);
+        Assert.Contains("Source Link: Integrity", pipeline.AllSectionNames);
         Assert.Contains("Switches", pipeline.AllSectionNames);
         Assert.Contains("Top Leverage", pipeline.AllSectionNames);
         Assert.Contains("Performance: Boxing", pipeline.AllSectionNames);
@@ -375,8 +375,8 @@ public class SectionPipelineTests
             Assert.Contains(kind, hidden);
         foreach (var footgun in new[]
                  {
-                     "Top Leverage", "Unsafe Members", "SourceLink Integrity",
-                     "Source Files", "SourceLink Availability", "SourceLink Missing Files",
+                     "Top Leverage", "Unsafe Members", "Source Link: Integrity",
+                     "Source Files", "Source Link: Availability", "Source Link: Missing Files",
                      "Member Context"
                  })
         {
@@ -636,12 +636,12 @@ public class SectionPipelineTests
 
         // Even at Detailed, an ExplicitOnly section must not be auto-selected.
         var detailed = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
-        Assert.DoesNotContain("SourceLink Integrity", detailed);
+        Assert.DoesNotContain("Source Link: Integrity", detailed);
 
         // It renders only when explicitly included.
         var included = pipeline.GetEffectiveSections(model, Verbosity.Normal,
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SourceLink Integrity" });
-        Assert.Contains("SourceLink Integrity", included);
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Source Link: Integrity" });
+        Assert.Contains("Source Link: Integrity", included);
     }
 
     [Fact]
@@ -657,12 +657,12 @@ public class SectionPipelineTests
         var applicable = pipeline.GetApplicableSections(model);
         var renderable = pipeline.GetAvailableSections(model);
 
-        Assert.Contains("SourceLink Availability", applicable);
-        Assert.Contains("SourceLink Missing Files", applicable);
-        Assert.Contains("SourceLink Integrity", applicable);
-        Assert.DoesNotContain("SourceLink Availability", renderable);
-        Assert.DoesNotContain("SourceLink Missing Files", renderable);
-        Assert.DoesNotContain("SourceLink Integrity", renderable);
+        Assert.Contains("Source Link: Availability", applicable);
+        Assert.Contains("Source Link: Missing Files", applicable);
+        Assert.Contains("Source Link: Integrity", applicable);
+        Assert.DoesNotContain("Source Link: Availability", renderable);
+        Assert.DoesNotContain("Source Link: Missing Files", renderable);
+        Assert.DoesNotContain("Source Link: Integrity", renderable);
     }
 
     [Fact]
@@ -720,7 +720,7 @@ public class SectionPipelineTests
     [Fact]
     public void LibrarySourcePlan_SourceIntegrityAuthorizedOnlyByExplicitSelection()
     {
-        var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SourceLink Integrity" };
+        var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Source Link: Integrity" };
 
         Assert.False(LibrarySourcePlans.For(Verbosity.Detailed, null).RunIntegrity);
         Assert.True(LibrarySourcePlans.For(Verbosity.Normal, include).RunIntegrity);
@@ -756,9 +756,9 @@ public class SectionPipelineTests
             "Source Files",
             "Symbols",
             "Signals",
-            "SourceLink Availability",
-            "SourceLink Missing Files",
-            "SourceLink Integrity",
+            "Source Link: Availability",
+            "Source Link: Missing Files",
+            "Source Link: Integrity",
         ];
 
         foreach (var verbosity in Enum.GetValues<Verbosity>())
@@ -781,8 +781,8 @@ public class SectionPipelineTests
                 bool expectedAudit = include is null
                     ? verbosity >= Verbosity.Detailed
                     : include.Overlaps(
-                        ["Signals", "SourceLink Availability", "SourceLink Missing Files"]);
-                bool expectedIntegrity = include?.Contains("SourceLink Integrity") == true;
+                        ["Signals", "Source Link: Availability", "Source Link: Missing Files"]);
+                bool expectedIntegrity = include?.Contains("Source Link: Integrity") == true;
 
                 Assert.Equal(
                     expectedPdb,
@@ -851,7 +851,7 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        var verbosity = pipeline.GetRequiredVerbosity(new HashSet<string> { "SourceLink Availability" });
+        var verbosity = pipeline.GetRequiredVerbosity(new HashSet<string> { "Source Link: Availability" });
 
         Assert.Equal(Verbosity.Detailed, verbosity);
     }

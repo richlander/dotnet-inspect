@@ -41,6 +41,9 @@ public static class SelectResolver
         ["IL Offset"] = SectionNames.ILOffset,
         ["Package README"] = DotnetInspector.Views.PackageSections.PackageReadme,
         ["Resource Triage"] = SectionNames.EscapeArrayPool,
+        ["SourceLink Availability"] = SectionNames.SourceLinkAvailability,
+        ["SourceLink Missing Files"] = SectionNames.SourceLinkMissingFiles,
+        ["SourceLink Integrity"] = SectionNames.SourceLinkIntegrity,
     };
 
     /// <summary>
@@ -57,6 +60,8 @@ public static class SelectResolver
         ["Optimization Opportunities"] = SectionCategoryNames.Performance,
         ["Escape"] = SectionCategoryNames.Escape,
         ["Resource Escape Triage"] = SectionCategoryNames.Escape,
+        ["SourceLink"] = SectionCategoryNames.SourceLink,
+        ["Source Link"] = SectionCategoryNames.SourceLink,
     };
 
     public static bool IsAllSelector(string[]? select)

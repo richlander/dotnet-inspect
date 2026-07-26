@@ -107,11 +107,10 @@ public static class LibrarySections
                 "P/Invoke Methods")
             .AddCategory(SectionCategoryNames.Escape,
                 SectionNames.EscapeArrayPool)
-            .AddCategory(SectionCategoryNames.Source,
+            .AddCategory(SectionCategoryNames.SourceLink,
                 "Source Files",
-                "SourceLink Availability",
-                "SourceLink Missing Files",
-                "Symbols")
+                SectionNames.SourceLinkAvailability,
+                SectionNames.SourceLinkMissingFiles)
             .AddCategory("@Integrations", [.. LibraryIntegrationCatalog.CategorySections, "Integration Opportunities"]);
     }
 
@@ -455,7 +454,7 @@ public static class LibrarySections
 
     public sealed class SourceLinkAudit : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "SourceLink Availability";
+        public static string Name => SectionNames.SourceLinkAvailability;
         public static bool IsExpensive => true;
         // Opt-in only: issues one HEAD per source file, which scales with source count and is too
         // slow to render as a full default section. Signals may still summarize this high-value audit.
@@ -468,7 +467,7 @@ public static class LibrarySections
 
     public sealed class MissingSourceFiles : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "SourceLink Missing Files";
+        public static string Name => SectionNames.SourceLinkMissingFiles;
         public static bool IsExpensive => true;
         // Opt-in only: derived from the same per-file HEAD pass as SourceLink Availability.
         public static bool ExplicitOnly => true;
@@ -480,7 +479,7 @@ public static class LibrarySections
 
     public sealed class SourceIntegrity : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "SourceLink Integrity";
+        public static string Name => SectionNames.SourceLinkIntegrity;
         public static bool IsExpensive => true;
         public static bool ExplicitOnly => true;
         public static SectionCost Cost => SectionCost.Unbounded;

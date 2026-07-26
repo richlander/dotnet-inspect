@@ -6168,7 +6168,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("@Audit (category)", output);
-        Assert.Contains("@Source (category)", output);
+        Assert.Contains("@SourceLink (category)", output);
         Assert.DoesNotContain("(opt-in)", output);
         Assert.DoesNotContain("(verbose)", output);
         Assert.DoesNotContain("@All", output);
@@ -6239,7 +6239,7 @@ public class CommandExecutionTests
         int exitCode,
         string output)
         => command is ["library", ..]
-           && section == "SourceLink Integrity"
+           && section == "Source Link: Integrity"
            && exitCode == 1
            && output.Contains("Status", StringComparison.Ordinal);
 
@@ -6325,46 +6325,48 @@ public class CommandExecutionTests
     ];
 
     [Fact]
-    public async Task LibraryCommand_DiscoverEffective_GroupsSourceLinkUnderSourceAndHidden()
+    public async Task LibraryCommand_DiscoverEffective_GroupsSourceLinkUnderSourceLinkAndHidden()
     {
         // Curated catalog: SourceLink audit sections are not @All members, so bare -D lists
-        // them under the @Source door (Availability/Missing/Files) and the @Hidden pole (Integrity),
-        // never at the top level.
+        // them under the @SourceLink door (Availability/Missing Files) and the @Hidden pole
+        // (Integrity, the unbounded GET+hash check), never at the top level.
         var (exit, output, error) = await RunAppAsync(
             "library", "--package", "Newtonsoft.Json", "-D", "--table", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("Tip:", error);
-        Assert.DoesNotContain("SourceLink Availability", output);
-        Assert.DoesNotContain("SourceLink Missing Files", output);
-        Assert.DoesNotContain("SourceLink Integrity", output);
-        Assert.Contains("@Source", output);
+        Assert.DoesNotContain("Source Link: Availability", output);
+        Assert.DoesNotContain("Source Link: Missing Files", output);
+        Assert.DoesNotContain("Source Link: Integrity", output);
+        Assert.Contains("@SourceLink", output);
         // @Hidden is a schema-only pole: it never appears as a bare -D category row.
         Assert.DoesNotContain("@Hidden", output);
 
         var (sourceExit, sourceOutput, sourceError) = await RunAppAsync(
-            "library", "--package", "Newtonsoft.Json", "-D", "@Source", "--table", "--tips", "q");
+            "library", "--package", "Newtonsoft.Json", "-D", "@SourceLink", "--table", "--tips", "q");
 
         Assert.Equal(0, sourceExit);
         Assert.DoesNotContain("Tip:", sourceError);
         Assert.Contains("Source Files", sourceOutput);
-        Assert.Contains("SourceLink Availability", sourceOutput);
-        Assert.Contains("SourceLink Missing Files", sourceOutput);
+        Assert.Contains("Source Link: Availability", sourceOutput);
+        Assert.Contains("Source Link: Missing Files", sourceOutput);
+        // Integrity stays behind the @Hidden pole, not the @SourceLink door.
+        Assert.DoesNotContain("Source Link: Integrity", sourceOutput);
 
         var (hiddenExit, hiddenOutput, hiddenError) = await RunAppAsync(
             "library", "--package", "Newtonsoft.Json", "-D", "@Hidden", "--table", "--tips", "q");
 
         Assert.Equal(0, hiddenExit);
         Assert.DoesNotContain("Tip:", hiddenError);
-        Assert.Contains("SourceLink Integrity", hiddenOutput);
+        Assert.Contains("Source Link: Integrity", hiddenOutput);
     }
 
     [Fact]
     public async Task LibraryCommand_RenderSelectHidden_IsRejectedAsDiscoveryOnly()
     {
         // @Hidden is a discovery-only pole: -S @Hidden must be rejected (exit 1) so it cannot
-        // fan out to the unbounded SourceLink Integrity check as a group. Discovery (-D @Hidden)
-        // and exact-name render (-S "SourceLink Integrity") remain the supported entrypoints.
+        // fan out to the unbounded Source Link: Integrity check as a group. Discovery (-D @Hidden)
+        // and exact-name render (-S "Source Link: Integrity") remain the supported entrypoints.
         var (exit, _, error) = await RunAppAsync(
             "library", TestAssemblyPath, "-S", "@Hidden", "--tips", "q");
 
@@ -6376,7 +6378,7 @@ public class CommandExecutionTests
             "library", TestAssemblyPath, "-D", "@Hidden", "--table", "--tips", "q");
 
         Assert.Equal(0, discoverExit);
-        Assert.Contains("SourceLink Integrity", discoverOutput);
+        Assert.Contains("Source Link: Integrity", discoverOutput);
     }
 
     [Fact]
@@ -6404,8 +6406,8 @@ public class CommandExecutionTests
                  {
                      "Async Methods", "Custom Attributes", "Extension Methods", "Type Forwarders",
                      "Union Types", "P/Invoke Methods", "Non-normalized Paths", "Top Leverage",
-                     "Unsafe Members", "Source Files", "SourceLink Availability",
-                     "SourceLink Missing Files", "SourceLink Integrity", "Member Context",
+                     "Unsafe Members", "Source Files", "Source Link: Availability",
+                     "Source Link: Missing Files", "Source Link: Integrity", "Member Context",
                      "Integration Opportunities"
                  })
         {
@@ -6421,7 +6423,7 @@ public class CommandExecutionTests
             .ToArray();
         var categoryNames = categoryLines.Select(ExtractSectionName).ToArray();
         Assert.Equal(
-            new[] { "@Audit", "@Escape", "@Integrations", "@Performance", "@Source", "@Surface" },
+            new[] { "@Audit", "@Escape", "@Integrations", "@Performance", "@SourceLink", "@Surface" },
             categoryNames);
 
         var raw = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
@@ -8147,11 +8149,11 @@ public class CommandExecutionTests
         // (SDK 8+ auto-enables SourceLink only when building inside a git repo), so it cannot
         // reliably exercise the section (#675).
         var (exit, output, error) = await RunAppAsync(
-            "library", "System.Text.Json", "-S", "Signals,SourceLink Availability,SourceLink Missing Files");
+            "library", "System.Text.Json", "-S", "Signals,Source Link: Availability,Source Link: Missing Files");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Signals", output);
-        Assert.Contains("## SourceLink Availability", output);
+        Assert.Contains("## Source Link: Availability", output);
         Assert.Contains("Source Files", output);
         Assert.DoesNotContain("Tip:", error);
     }

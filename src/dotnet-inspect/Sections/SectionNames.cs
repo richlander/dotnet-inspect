@@ -108,6 +108,18 @@ public static class SectionNames
     /// <summary>Section for SourceLink source file URLs for a type.</summary>
     public const string SourceFiles = "Source Files";
 
+    /// <summary>
+    /// SourceLink availability audit (library scope): per-source-file HEAD probe results. Part of
+    /// the <c>@SourceLink</c> family; prefixed <c>Source Link:</c> so the family sorts together.
+    /// </summary>
+    public const string SourceLinkAvailability = "Source Link: Availability";
+
+    /// <summary>SourceLink audit rows for source files that failed their availability probe.</summary>
+    public const string SourceLinkMissingFiles = "Source Link: Missing Files";
+
+    /// <summary>SourceLink integrity audit (library scope): content hash verification of sources.</summary>
+    public const string SourceLinkIntegrity = "Source Link: Integrity";
+
     /// <summary>Section for SourceLink source locations for member signatures.</summary>
     public const string SourceLocations = "Source Locations";
 
