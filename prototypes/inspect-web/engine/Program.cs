@@ -417,22 +417,35 @@ public static partial class BrowserInspectionEngine
     [JSExport]
     public static string ListStyleOptions()
     {
-        var options = Pipeline.StyleOptionCatalog.Options
-            .Select(descriptor => new BrowserStyleOption(
-                descriptor.Id,
-                descriptor.Title,
-                descriptor.Summary,
-                descriptor.Tier.ToString(),
-                descriptor.ByteDivergent,
-                descriptor.OracleEndorsed,
-                descriptor.ConflictGroup))
-            .ToArray();
-        return JsonSerializer.Serialize(options, BrowserJsonContext.Default.BrowserStyleOptionArray);
+        var options = new List<BrowserStyleOption>();
+        foreach (var descriptor in Pipeline.StyleOptionCatalog.Options)
+        {
+            // A knob is an axis of values; the default/off value is not selectable taste.
+            // Boolean knobs expose one non-default value and keep the descriptor id so
+            // stored selections stay stable; multi-value axes expose one option per value
+            // and share a conflict group so the client single-selects within the axis.
+            var choices = descriptor.Values
+                .Where(value => !string.Equals(value.Token, descriptor.DefaultValue, StringComparison.Ordinal))
+                .ToArray();
+            var multiValue = choices.Length > 1;
+            foreach (var value in choices)
+            {
+                options.Add(new BrowserStyleOption(
+                    multiValue ? $"{descriptor.Id}:{value.Token}" : descriptor.Id,
+                    multiValue ? $"{descriptor.Title} · {value.Title ?? value.Token}" : descriptor.Title,
+                    descriptor.Summary,
+                    descriptor.Tier.ToString(),
+                    descriptor.ByteDivergent,
+                    value.OracleEndorsed,
+                    multiValue ? descriptor.Id : null));
+            }
+        }
+        return JsonSerializer.Serialize(options.ToArray(), BrowserJsonContext.Default.BrowserStyleOptionArray);
     }
 
-    // Builds PrinterOptions from a JSON array of enabled catalog ids by applying each
-    // descriptor's own With delegate — no knob-specific code, so new taste options flow
-    // through automatically.
+    // Builds PrinterOptions from a JSON array of enabled option ids by single-selecting the
+    // chosen value on each descriptor's axis — no knob-specific code, so new taste options
+    // flow through automatically.
     static Pipeline.PrinterOptions BuildPrinterOptions(string? styleOptionsJson)
     {
         var options = Pipeline.PrinterOptions.Default;
@@ -448,8 +461,19 @@ public static partial class BrowserInspectionEngine
         var enabled = new HashSet<string>(ids, StringComparer.Ordinal);
         foreach (var descriptor in Pipeline.StyleOptionCatalog.Options)
         {
-            if (enabled.Contains(descriptor.Id))
-                options = descriptor.With(options, true);
+            var choices = descriptor.Values
+                .Where(value => !string.Equals(value.Token, descriptor.DefaultValue, StringComparison.Ordinal))
+                .ToArray();
+            var multiValue = choices.Length > 1;
+            foreach (var value in choices)
+            {
+                var id = multiValue ? $"{descriptor.Id}:{value.Token}" : descriptor.Id;
+                if (enabled.Contains(id))
+                {
+                    options = descriptor.WithValue(options, value.Token);
+                    break;
+                }
+            }
         }
         return options;
     }
