@@ -60,7 +60,7 @@ public sealed record DecompilerOptions
     /// Expression-bodied members keep the arrow on the declaration line by
     /// default; callers may opt into wrapping it onto the next line.
     /// </summary>
-    public ExpressionBodyArrowPlacement ExpressionBodyArrowPlacement { get; init; } = ExpressionBodyArrowPlacement.SameLine;
+    public bool WrapExpressionBodyArrow { get; init; }
 
     /// <summary>
     /// Long splittable expressions (short-circuit <c>&amp;&amp;</c>/<c>||</c>
@@ -69,6 +69,14 @@ public sealed record DecompilerOptions
     /// tokens and IL unchanged.
     /// </summary>
     public bool WrapSplittableExpressions { get; init; }
+
+    /// <summary>
+    /// The always-on width-based wrappers (long fluent chains, long member
+    /// signatures) may be suppressed so a wide construct stays on one physical
+    /// line. Off by default; wrapping is the shipped house style. A whitespace-only
+    /// user compactness preference that leaves the tokens and IL unchanged.
+    /// </summary>
+    public bool DisableOneLinerWrapping { get; init; }
 
     /// <summary>
     /// Instance fields accessed through <c>this</c> may render the explicit
@@ -322,6 +330,17 @@ public sealed record DecompilerResult(
     public bool BodyIsSingleExpressionBody { get; init; }
 
     /// <summary>
+    /// True when the printed body was recovered as a canonical C# destructor —
+    /// a <c>Finalize</c> override whose <c>try { … } finally { base.Finalize(); }</c>
+    /// scaffold the destructor pass stripped (<c>IrFunction.IsDestructor</c>).
+    /// A body-shape fact: full-body consumers render the header as <c>~Type()</c>
+    /// only when this is set, so a finalizer whose body did not match the
+    /// scaffold keeps the literal <c>void Finalize()</c> rather than silently
+    /// re-injecting the compiler's mandatory base call on recompile.
+    /// </summary>
+    public bool BodyIsDestructor { get; init; }
+
+    /// <summary>
     /// A telemetry-free record of what the decompilation observed — its fidelity
     /// outcome, the symbol source it used, and its diagnostics — for a host to
     /// convert into its own diagnostics. Null for projections that do not build
@@ -359,6 +378,7 @@ public sealed record DecompilerResult(
             && RequiresUnsafeBodyModifier == other.RequiresUnsafeBodyModifier
             && ContainsAwaitExpression == other.ContainsAwaitExpression
             && BodyIsSingleExpressionBody == other.BodyIsSingleExpressionBody
+            && BodyIsDestructor == other.BodyIsDestructor
             && EqualityComparer<DecompilerTrace?>.Default.Equals(Trace, other.Trace);
 
     public override int GetHashCode()
@@ -373,6 +393,7 @@ public sealed record DecompilerResult(
         hash.Add(RequiresUnsafeBodyModifier);
         hash.Add(ContainsAwaitExpression);
         hash.Add(BodyIsSingleExpressionBody);
+        hash.Add(BodyIsDestructor);
         hash.Add(Trace);
         return hash.ToHashCode();
     }

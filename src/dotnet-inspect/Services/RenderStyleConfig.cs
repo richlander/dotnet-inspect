@@ -43,21 +43,34 @@ internal static class RenderStyleConfig
 
     // The recognized style keys and how they set PrinterOptions come from the
     // library-owned StyleOptionCatalog — the single source of truth — so this
-    // resolver never drifts from the option surface. Every catalog knob with a
+    // resolver never drifts from the option surface. Every catalog VALUE with a
     // config key is honored here (the four byte-preserving this.-qualification
-    // spellings, the oracle-endorsed conditional-expression lens, and the
-    // tool-owned branchless "bool hack" lens); knobs with no config key are
-    // API-only and simply do not appear in the file vocabulary.
-    private static readonly IReadOnlyDictionary<string, StyleOptionDescriptor> KnobsByKey =
+    // spellings, the oracle-endorsed conditional-expression lens value, and the
+    // tool-owned branchless "bool hack" value); values with no config key — the
+    // off/default value of a knob and any API-only knob — simply do not appear in
+    // the file vocabulary. A key = true selects its value; key = false deselects
+    // it (setting only that value's own backing state, so, exactly as before, two
+    // members of a multi-value axis set independently and the printer resolves any
+    // overlap deterministically).
+    private static readonly IReadOnlyDictionary<string, StyleOptionValue> KnobsByKey =
         StyleOptionCatalog.Options
-            .Where(o => o.ConfigKey is not null)
-            .ToDictionary(o => o.ConfigKey!, StringComparer.Ordinal);
+            .SelectMany(o => o.Values)
+            .Where(v => v.ConfigKey is not null)
+            .ToDictionary(v => v.ConfigKey!, StringComparer.Ordinal);
 
     // The editorconfig boundary marker. Discovery is nearest-wins, so the nearest
     // file is already a hard boundary (nothing above it is read); 'root' is
     // recognized so a file copied from a real .editorconfig does not warn, and it
     // is the conventional way to declare that boundary explicitly.
     private const string RootKey = "root";
+
+    // The tool-owned aggregate key. It maps to no single catalog descriptor;
+    // instead it enables (or, when false, disables) the whole oracle-endorsed
+    // subset at once via StyleOptionCatalog.ApplyFullTaste. It uses the
+    // tool-owned dotnet_inspect_style_* vocabulary because it is a convenience
+    // aggregate with no editorconfig equivalent. Applied in file order like every
+    // other key, so a later explicit per-knob line overrides it (last write wins).
+    private const string FullTasteKey = "dotnet_inspect_style_full_taste";
 
     /// <summary>
     /// Walks up from <paramref name="startDirectory"/> to the filesystem root and
@@ -171,11 +184,20 @@ internal static class RenderStyleConfig
                     if (!TryParseBool(value, out _))
                         Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
                     break;
+                case FullTasteKey:
+                    // The "full taste" aggregate: enable (or disable) the whole
+                    // oracle-endorsed subset at once. Deterministic — the enabled
+                    // subset shares no conflict group.
+                    if (TryParseBool(value, out var fullTaste))
+                        options = StyleOptionCatalog.ApplyFullTaste(options, fullTaste);
+                    else
+                        Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
+                    break;
                 default:
                     if (KnobsByKey.TryGetValue(key, out var knob))
                     {
                         if (TryParseBool(value, out var on))
-                            options = knob.With(options, on);
+                            options = knob.SetSelected(options, on);
                         else
                             Warn($"line {i + 1}: key '{key}' expects true/false, got '{value}' (ignored)");
                     }

@@ -43,6 +43,184 @@ public sealed class CSharpDeclarationWriterTests
     }
 
     [Fact]
+    public void FinalizerMember_RendersDestructorSyntaxWithoutModifiers()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Handle", Kind = "class" };
+        var finalizer = new ApiMember
+        {
+            Name = "Finalize",
+            // Roslyn emits the finalizer with an explicit .override MethodImpl, so
+            // it surfaces as an explicit-interface-implementation kind; IsFinalizer
+            // is the metadata fact that drives the ~Type() spelling.
+            Kind = "explicit-interface-implementation",
+            Signature = "void Finalize()",
+            IsVirtual = true,
+            IsFinalizer = true,
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, finalizer);
+
+        Assert.Equal("~Handle()", declaration);
+    }
+
+    [Fact]
+    public void UnsafeFinalizerMember_KeepsUnsafeModifierOnly()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Handle", Kind = "class" };
+        var finalizer = new ApiMember
+        {
+            Name = "Finalize",
+            Kind = "explicit-interface-implementation",
+            Signature = "void Finalize()",
+            IsVirtual = true,
+            IsFinalizer = true,
+            IsUnsafe = true,
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, finalizer);
+
+        Assert.Equal("unsafe ~Handle()", declaration);
+    }
+
+    [Fact]
+    public void FinalizerMember_OnGenericType_DropsTypeArity()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Box`1", Kind = "class" };
+        var finalizer = new ApiMember
+        {
+            Name = "Finalize",
+            Kind = "explicit-interface-implementation",
+            Signature = "void Finalize()",
+            IsVirtual = true,
+            IsFinalizer = true,
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, finalizer);
+
+        Assert.Equal("~Box()", declaration);
+    }
+
+    [Fact]
+    public void FinalizerMember_OnTypeNestedInGeneric_UsesInnermostSegment()
+    {
+        // Regression guard (adversarial review): the destructor spelling must
+        // isolate the innermost nested-type segment before stripping generic
+        // arity. A type nested in a generic outer carries a dotted metadata name
+        // like "Outer`1.Nested"; stripping the backtick first yields "~Outer()".
+        var type = new ApiType { Namespace = "Samples", Name = "Outer`1.Nested", Kind = "class" };
+        var finalizer = new ApiMember
+        {
+            Name = "Finalize",
+            Kind = "finalizer",
+            Signature = "void Finalize()",
+            IsVirtual = true,
+            IsFinalizer = true,
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, finalizer);
+
+        Assert.Equal("~Nested()", declaration);
+    }
+
+    [Fact]
+    public void ConstructorMember_OnTypeNestedInGeneric_UsesInnermostSegment()
+    {
+        // Same root cause as the finalizer case: FormatConstructorTypeName must
+        // isolate the innermost segment so a constructor on a type nested in a
+        // generic outer spells the nested type, not the outer.
+        var type = new ApiType { Namespace = "Samples", Name = "Outer`1.Nested", Kind = "class" };
+        var ctor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            Signature = "void .ctor()",
+            Accessibility = "public",
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(type, ctor);
+
+        Assert.Equal("public Nested()", declaration);
+    }
+
+    [Fact]
+    public void FinalizerMember_WithSuppressFinalizerSpelling_KeepsLiteralFinalize()
+    {
+        // Issue #3157 (fidelity hardening): the '~Type()' spelling assumes the
+        // recompiled destructor re-emits the mandatory 'base.Finalize()'. When the
+        // decompiled body did NOT recover the canonical destructor scaffold, the
+        // full-body path suppresses the destructor spelling so recompiling keeps
+        // the observed body instead of silently re-injecting the base call.
+        var type = new ApiType { Namespace = "Samples", Name = "Handle", Kind = "class" };
+        var finalizer = new ApiMember
+        {
+            Name = "Finalize",
+            Kind = "explicit-interface-implementation",
+            Signature = "void Finalize()",
+            IsVirtual = true,
+            IsFinalizer = true,
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+            type, finalizer, new CSharpDeclarationOptions { SuppressFinalizerSpelling = true });
+
+        Assert.Equal("void Finalize()", declaration);
+        Assert.DoesNotContain("~Handle", declaration);
+    }
+
+    [Fact]
+    public void FinalizerMember_NeverGetsAsyncModifier_EvenWhenForced()
+    {
+        // Defensive guard (adversarial review of #3168): a finalizer must never
+        // acquire the 'async' modifier. Even under ForceAsync and an async-eligible
+        // Kind (explicit-interface-implementation), 'async ~Handle()' is not legal
+        // C#. The '!member.IsFinalizer' clause on the async gate locks this shut
+        // independently of the Kind classification, so a future Kind change cannot
+        // re-open it.
+        var type = new ApiType { Namespace = "Samples", Name = "Handle", Kind = "class" };
+        var finalizer = new ApiMember
+        {
+            Name = "Finalize",
+            Kind = "explicit-interface-implementation",
+            Signature = "void Finalize()",
+            IsVirtual = true,
+            IsFinalizer = true,
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+            type, finalizer, new CSharpDeclarationOptions { ForceAsync = true });
+
+        Assert.Equal("~Handle()", declaration);
+        Assert.DoesNotContain("async", declaration);
+    }
+
+    [Fact]
+    public void FinalizerMember_WithFinalizerKindAndSuppression_StaysModifierFree()
+    {
+        // Regression guard (adversarial review): with the dedicated
+        // Kind = "finalizer" (#3186), a suppressed finalizer must NOT fall through
+        // to the normal modifier path and pick up 'public virtual', which would
+        // render 'public virtual void Finalize()' — a new virtual slot (CS0465)
+        // instead of the object-finalizer override. The suppressed fallback stays
+        // modifier-free, matching the explicit-interface-kind case above.
+        var type = new ApiType { Namespace = "Samples", Name = "Handle", Kind = "class" };
+        var finalizer = new ApiMember
+        {
+            Name = "Finalize",
+            Kind = "finalizer",
+            Signature = "void Finalize()",
+            IsVirtual = true,
+            IsFinalizer = true,
+        };
+
+        var declaration = CSharpDeclarationWriter.RenderMemberDeclaration(
+            type, finalizer, new CSharpDeclarationOptions { SuppressFinalizerSpelling = true });
+
+        Assert.Equal("void Finalize()", declaration);
+        Assert.DoesNotContain("public", declaration);
+        Assert.DoesNotContain("virtual", declaration);
+    }
+
+    [Fact]
     public void ShortWithUsingsMemberUnit_GeneratesImportsAndShortensTypes()
     {
         var type = CreateSampleType();

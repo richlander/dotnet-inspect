@@ -157,9 +157,9 @@ public class SourceLinkService : IDisposable
     /// <summary>
     /// Resolves source file and line range for a specific method overload.
     /// </summary>
-    public SourceLinkResolver.MethodSourceInfo? ResolveMethodSource(string typeName, string methodName, int overloadIndex, bool publicOnly = false)
+    public SourceLinkResolver.MethodSourceInfo? ResolveMethodSource(string typeName, string methodName, int overloadIndex, bool publicOnly = false, int metadataToken = 0)
     {
-        return _context.ResolveMethodSource(typeName, methodName, overloadIndex, publicOnly);
+        return _context.ResolveMethodSource(typeName, methodName, overloadIndex, publicOnly, metadataToken);
     }
 
     /// <summary>

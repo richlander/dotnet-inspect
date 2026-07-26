@@ -105,6 +105,127 @@ public class RenderStyleConfigTests
     }
 
     [Fact]
+    public void Parse_VarKeys_MapToTheirIndependentBackingBools()
+    {
+        // Each csharp_style_var_* key selects only its own bucket; the three are
+        // independent (a site falls into exactly one, so any subset can be on).
+        var builtIn = RenderStyleConfig.Parse("csharp_style_var_for_built_in_types = true", origin: null);
+        Assert.True(builtIn.Options.PreferVarForBuiltInTypes);
+        Assert.False(builtIn.Options.PreferVarWhenTypeApparent);
+        Assert.False(builtIn.Options.PreferVarElsewhere);
+        Assert.Empty(builtIn.Warnings);
+
+        var apparent = RenderStyleConfig.Parse("csharp_style_var_when_type_is_apparent = true", origin: null);
+        Assert.True(apparent.Options.PreferVarWhenTypeApparent);
+        Assert.False(apparent.Options.PreferVarForBuiltInTypes);
+
+        var elsewhere = RenderStyleConfig.Parse("csharp_style_var_elsewhere = true", origin: null);
+        Assert.True(elsewhere.Options.PreferVarElsewhere);
+    }
+
+    [Fact]
+    public void Parse_VarKeys_DefaultOff_TolerateSeverity_AndClearWithFalse()
+    {
+        // Shipped default: explicit everywhere (matches dotnet/runtime).
+        var empty = RenderStyleConfig.Parse("", origin: null).Options;
+        Assert.False(empty.PreferVarForBuiltInTypes);
+        Assert.False(empty.PreferVarWhenTypeApparent);
+        Assert.False(empty.PreferVarElsewhere);
+
+        // The editorconfig value:severity form copied straight from a real file parses.
+        var withSeverity = RenderStyleConfig.Parse("csharp_style_var_elsewhere = true:suggestion", origin: null);
+        Assert.True(withSeverity.Options.PreferVarElsewhere);
+        Assert.Empty(withSeverity.Warnings);
+
+        // = false clears its own bucket only.
+        var mixed = RenderStyleConfig.Parse(
+            "csharp_style_var_for_built_in_types = true\n" +
+            "csharp_style_var_elsewhere = true\n" +
+            "csharp_style_var_for_built_in_types = false\n",
+            origin: null);
+        Assert.False(mixed.Options.PreferVarForBuiltInTypes);
+        Assert.True(mixed.Options.PreferVarElsewhere);
+        Assert.Empty(mixed.Warnings);
+    }
+
+    [Fact]
+    public void Parse_FullTaste_DoesNotEnableVar()
+    {
+        // var is opt-in only (the runtime endorses explicit), so the "full taste"
+        // aggregate must never turn it on.
+        var result = RenderStyleConfig.Parse("dotnet_inspect_style_full_taste = true", origin: null);
+        Assert.False(result.Options.PreferVarForBuiltInTypes);
+        Assert.False(result.Options.PreferVarWhenTypeApparent);
+        Assert.False(result.Options.PreferVarElsewhere);
+    }
+
+    [Fact]
+    public void Parse_FullTasteKey_EnablesTheOracleEndorsedSubset()
+    {
+        // The "full taste" aggregate turns on the whole oracle-endorsed subset with
+        // one key — the four this.-qualifications and the ternary lens — and never
+        // the non-endorsed branchless "bool hack".
+        var result = RenderStyleConfig.Parse("dotnet_inspect_style_full_taste = true", origin: "cfg");
+
+        Assert.True(result.Options.QualifyFieldAccess);
+        Assert.True(result.Options.QualifyPropertyAccess);
+        Assert.True(result.Options.QualifyMethodAccess);
+        Assert.True(result.Options.QualifyEventAccess);
+        Assert.True(result.Options.PreferConditionalExpressionReturn);
+        Assert.False(result.Options.PreferBranchlessBoolean);
+        Assert.Empty(result.Warnings);
+    }
+
+    [Fact]
+    public void Parse_FullTasteKey_DefaultsOffAndToleratesSeverity()
+    {
+        Assert.False(RenderStyleConfig.Parse("", origin: null).Options.QualifyFieldAccess);
+
+        var withSeverity = RenderStyleConfig.Parse(
+            "dotnet_inspect_style_full_taste = true:suggestion",
+            origin: null);
+        Assert.True(withSeverity.Options.QualifyFieldAccess);
+        Assert.True(withSeverity.Options.PreferConditionalExpressionReturn);
+        Assert.Empty(withSeverity.Warnings);
+    }
+
+    [Fact]
+    public void Parse_FullTasteFalse_IsRecognizedAndLeavesSubsetOff()
+    {
+        var result = RenderStyleConfig.Parse("dotnet_inspect_style_full_taste = false", origin: null);
+
+        Assert.False(result.Options.QualifyFieldAccess);
+        Assert.False(result.Options.PreferConditionalExpressionReturn);
+        Assert.Empty(result.Warnings);
+    }
+
+    [Fact]
+    public void Parse_FullTasteThenExplicitOverride_LastWriteWins()
+    {
+        // A later explicit per-knob line overrides the aggregate (file order is
+        // last-write-wins), so a user can take "full taste" minus one knob.
+        var result = RenderStyleConfig.Parse(
+            "dotnet_inspect_style_full_taste = true\n" +
+            "dotnet_style_qualification_for_field = false\n",
+            origin: null);
+
+        Assert.False(result.Options.QualifyFieldAccess);
+        Assert.True(result.Options.QualifyPropertyAccess);
+        Assert.True(result.Options.PreferConditionalExpressionReturn);
+        Assert.Empty(result.Warnings);
+    }
+
+    [Fact]
+    public void Parse_FullTasteKey_NonBoolValue_Warns()
+    {
+        var result = RenderStyleConfig.Parse("dotnet_inspect_style_full_taste = maybe", origin: null);
+
+        var warning = Assert.Single(result.Warnings);
+        Assert.Contains("expects true/false", warning);
+        Assert.False(result.Options.QualifyFieldAccess);
+    }
+
+    [Fact]
     public void Parse_ToleratesEditorConfigSeveritySuffix()
     {
         var result = RenderStyleConfig.Parse("dotnet_style_qualification_for_field = true:suggestion", origin: null);
@@ -140,14 +261,14 @@ public class RenderStyleConfigTests
     public void Parse_UnknownKey_WarnsButKeepsRecognizedKeys()
     {
         var result = RenderStyleConfig.Parse(
-            "csharp_style_var_when_type_is_apparent = true\n" +
+            "csharp_style_expression_bodied_methods = true\n" +
             "dotnet_style_qualification_for_field = true\n",
             origin: null);
 
         Assert.True(result.Options.QualifyFieldAccess);
         var warning = Assert.Single(result.Warnings);
         Assert.Contains("unknown key", warning);
-        Assert.Contains("csharp_style_var_when_type_is_apparent", warning);
+        Assert.Contains("csharp_style_expression_bodied_methods", warning);
     }
 
     [Fact]
@@ -491,6 +612,10 @@ public class RenderStyleConfigTests
         Assert.Null(withDefault.DecompiledResult);
         Assert.NotNull(withConfig.FidelityCauses);
         Assert.NotNull(withDefault.FidelityCauses);
+        // A fidelity-only projection consumes no config, so it never marks the
+        // warning latch regardless of whether a config was resolved.
+        Assert.False(withConfig.StyledProjectionProduced);
+        Assert.False(withDefault.StyledProjectionProduced);
     }
 
     [Fact]
@@ -506,6 +631,28 @@ public class RenderStyleConfigTests
 
         Assert.NotNull(code.DecompiledResult?.Output);
         Assert.Contains("this._count", code.DecompiledResult!.Output);
+        Assert.True(code.StyledProjectionProduced);
+    }
+
+    // The Applied-Taste-only path (#3158): `member <M> -S "Applied Taste"` without
+    // Decompiled Source still renders the styled projection to extract the applied
+    // decisions, so the config IS consumed -- but DecompiledResult stays null. The
+    // old latch keyed off DecompiledResult and silently swallowed a bad config
+    // here; StyledProjectionProduced is the independent signal that fixes it.
+    [Fact]
+    public void AppliedTasteOnlyRequest_MarksStyledProjectionProduced_ThoughNoDecompiledResult()
+    {
+        var appliedTasteOnly = new MemberCodeProvider.Request(
+            DecompiledSource: false, AnnotatedSource: false, CostOverlay: false,
+            SemanticsOverlay: false, IL: false, Attributes: false, Calls: false,
+            Callers: false, CallGraph: false, UnsafeOperations: false,
+            AppliedTaste: true);
+
+        var code = CollectSpecimenCompute(
+            appliedTasteOnly, PrinterOptions.Default with { QualifyFieldAccess = true });
+
+        Assert.Null(code.DecompiledResult);
+        Assert.True(code.StyledProjectionProduced);
     }
 
     // MAI review finding (head a25e01d9): `member <Type> --directory <dir>
@@ -580,6 +727,36 @@ public class RenderStyleConfigTests
         var (_, code) = Assert.Single(results);
         Assert.NotNull(code.DecompiledResult);
         Assert.Null(code.DecompiledResult!.Output);
+        // The printer never ran (no IL body), so no config was consumed: the latch
+        // stays unmarked even though Decompiled Source was requested.
+        Assert.False(code.StyledProjectionProduced);
+    }
+
+    // The bodyless-method invariant must also hold for an Applied-Taste-only run:
+    // no printed body means no config consumption, so no warning, matching the
+    // Decompiled Source behavior above.
+    [Fact]
+    public void AppliedTasteOnly_NoBodyMethod_DoesNotMarkStyledProjection()
+    {
+        var appliedTasteOnly = new MemberCodeProvider.Request(
+            DecompiledSource: false, AnnotatedSource: false, CostOverlay: false,
+            SemanticsOverlay: false, IL: false, Attributes: false, Calls: false,
+            Callers: false, CallGraph: false, UnsafeOperations: false,
+            AppliedTaste: true);
+
+        string assemblyPath = typeof(SamplePInvokeClass).Assembly.Location;
+        using var pe = new PEReader(File.OpenRead(assemblyPath));
+        var surface = ApiSurfaceExtractor.Extract(pe, includeAll: false);
+        var type = surface.Types.Single(t => t.FullName == typeof(SamplePInvokeClass).FullName);
+        var methods = type.Members
+            .Where(m => m.Name == nameof(SamplePInvokeClass.GetCurrentProcessId)).ToList();
+
+        var results = MemberCodeProvider.Collect(
+            type, methods, assemblyPath, overloadIndex: 0, appliedTasteOnly,
+            renderOptions: PrinterOptions.Default with { QualifyFieldAccess = true });
+
+        var (_, code) = Assert.Single(results);
+        Assert.False(code.StyledProjectionProduced);
     }
 
     private static MemberCodeProvider.Item CollectSpecimenCompute(

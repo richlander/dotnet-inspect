@@ -289,6 +289,7 @@ public static class SharedParsers
     {
         "prop" or "props" or "property" or "properties" => "property",
         "ctor" or "ctors" or "constructor" or "constructors" => "constructor",
+        "finalizer" or "finalizers" or "destructor" or "destructors" => "finalizer",
         "method" or "methods" => "method",
         "op" or "ops" or "operator" or "operators" => "operator",
         "explicit" or "explicit-interface" or "explicit-interface-implementation" or "explicit-interface-implementations" => "explicit-interface-implementation",

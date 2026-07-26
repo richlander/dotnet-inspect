@@ -41,6 +41,17 @@ public sealed record MethodRef(
     public ImmutableArray<TypeRef> TypeArguments { get; init; } = [];
 
     /// <summary>
+    /// The generic method DEFINITION's parameter types, with its own type
+    /// parameters left as <c>!!N</c> placeholders (before the MethodSpec
+    /// substitution that produces <see cref="ParameterTypes"/>). Populated only
+    /// for a generic method instantiation; empty otherwise. Lets a consumer
+    /// identify the source member independent of the instantiation — two calls to
+    /// <c>G&lt;int&gt;</c> and <c>G&lt;string&gt;</c> of one <c>G&lt;T&gt;(T)</c>
+    /// share this signature though their <see cref="ParameterTypes"/> differ.
+    /// </summary>
+    public ImmutableArray<TypeRef> DefinitionParameterTypes { get; init; } = [];
+
+    /// <summary>
     /// Per-parameter call-site ref-kind (ref/out/in), aligned 1:1 with
     /// <see cref="ParameterTypes"/>. Populated for callees resolved as a
     /// MethodDef, from the parameter rows (IsReadOnlyAttribute / the Out flag),
@@ -422,6 +433,18 @@ public sealed class IrFunction : IrNode
     /// a <c>T t</c> pattern over it is illegal (CS8121).
     /// </summary>
     public IReadOnlySet<TypeRef> ByRefLikeTypes { get; set; }
+        = ImmutableHashSet<TypeRef>.Empty;
+
+    /// <summary>
+    /// Definition-keyed types this function references that resolved to a C#
+    /// <c>interface</c>, materialized at import (the printer is metadata-free).
+    /// Definition-backed and cross-assembly-aware, but a type whose interface-ness
+    /// cannot be proven is <em>absent</em>, never guessed. Lets the printer
+    /// re-insert the <c>((I)this)</c> cast an implicit class→interface (or
+    /// variant) upcast erases from the IL, so a default-interface-member access
+    /// through <c>this</c> spells back to valid, opcode-faithful C#.
+    /// </summary>
+    public IReadOnlySet<TypeRef> InterfaceTypes { get; set; }
         = ImmutableHashSet<TypeRef>.Empty;
 
     public override IEnumerable<TypeRef> DirectTypes

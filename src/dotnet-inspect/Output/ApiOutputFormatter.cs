@@ -332,12 +332,17 @@ public static class ApiOutputFormatter
             ? $" ({packageName} {packageVersion})"
             : packageName != null ? $" ({packageName})" : "";
 
-        var modifiers = BuildTypeModifiers(type);
+        // One source of truth for type-level modifiers, base type, and interface ordering: the
+        // presentation-neutral projection in ILInspector.Research. C# constraint spelling for
+        // type parameters stays in this layer (ConstraintSummary) because Research is Roslyn-free
+        // and does not own C# rendering.
+        var projection = ILInspector.Research.ResearchViews.ProjectType(
+            type,
+            surface: null,
+            new ILInspector.Research.ResearchViews.TypeProjectionOptions(Composition: false, RelationshipGraph: false));
 
-        // Base type (filter out trivial bases)
-        string? baseType = null;
-        if (!string.IsNullOrEmpty(type.BaseType) && type.BaseType != "System.Object" && type.BaseType != "System.ValueType" && type.BaseType != "System.Enum")
-            baseType = type.BaseType;
+        var modifiers = projection.Identity.Modifiers;
+        string? baseType = projection.BaseType;
 
         // Type parameters inline (Quiet only — at Minimal+ the section replaces this)
         string? typeParamsInline = null;
@@ -373,7 +378,7 @@ public static class ApiOutputFormatter
         List<InterfaceRow>? interfaceRows = null;
         if (!memberFilterActive && type.Interfaces.Count > 0)
         {
-            interfaceRows = type.Interfaces.Order()
+            interfaceRows = projection.Interfaces
                 .Select(i => new InterfaceRow { Interface = i })
                 .ToList();
         }
@@ -412,6 +417,7 @@ public static class ApiOutputFormatter
             SamplesInfo = topFieldsOnly ? samplesInfo : null,
             // Member stats for quiet verbosity
             Constructors = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "constructor")) : null,
+            Finalizer = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "finalizer")) : null,
             Fields = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "field" && !m.EnumValue.HasValue)) : null,
             Properties = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "property")) : null,
             Methods = topFieldsOnly ? NullIfZero(type.Members.Count(m => m.Kind == "method")) : null,
@@ -486,7 +492,7 @@ public static class ApiOutputFormatter
             foreach (var group in membersByKind)
             {
                 var membersInGroup = group.ToList();
-                var children = BuildShapeMemberNodes(group.Key, membersInGroup, expandOverloads);
+                var children = BuildShapeMemberNodes(group.Key, membersInGroup, expandOverloads, type.Name);
                 var logicalCount = IsOverloadGroupedKind(group.Key)
                     ? membersInGroup.Select(m => m.Name).Distinct(StringComparer.Ordinal).Count()
                     : membersInGroup.Count;
@@ -495,7 +501,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        static List<TreeNode> BuildShapeMemberNodes(string kind, IEnumerable<ApiMember> members, bool expandOverloads)
+        static List<TreeNode> BuildShapeMemberNodes(string kind, IEnumerable<ApiMember> members, bool expandOverloads, string declaringTypeName)
         {
             if (IsOverloadGroupedKind(kind))
             {
@@ -529,8 +535,32 @@ public static class ApiOutputFormatter
 
             return members
                 .OrderBy(m => m.Name, StringComparer.Ordinal)
-                .Select(m => new TreeNode(m.Signature ?? OperatorNames.FormatDisplayName(m.Name)))
+                .Select(m => new TreeNode(
+                    m.IsFinalizer
+                        ? ShapeDestructorSpelling(declaringTypeName)
+                        : m.Signature ?? OperatorNames.FormatDisplayName(m.Name)))
                 .ToList();
+        }
+
+        // A finalizer renders as the C# destructor `~Type()` rather than its raw
+        // metadata signature (`void Finalize()`).
+        static string ShapeDestructorSpelling(string typeName)
+        {
+            var name = typeName;
+            // Isolate the innermost nested-type segment BEFORE stripping generic
+            // arity, so a finalizer on a type nested inside a generic outer
+            // (e.g. "Outer`1.Nested" or "Outer`1+Nested") spells "~Nested()"
+            // rather than "~Outer()".
+            int sep = name.LastIndexOfAny(['.', '+']);
+            if (sep >= 0)
+                name = name[(sep + 1)..];
+            int angle = name.IndexOf('<');
+            if (angle >= 0)
+                name = name[..angle];
+            int tick = name.IndexOf('`');
+            if (tick >= 0)
+                name = name[..tick];
+            return $"~{name}()";
         }
 
         static bool IsOverloadGroupedKind(string kind)
@@ -585,7 +615,7 @@ public static class ApiOutputFormatter
             }
         }
 
-        var modifiers = BuildTypeModifiers(type);
+        var modifiers = ILInspector.Research.ResearchViews.TypeModifiers(type);
 
         var packageInfo = packageName != null && packageVersion != null
             ? $" ({packageName} {packageVersion})"
@@ -610,24 +640,6 @@ public static class ApiOutputFormatter
     // unavailable (see CSharpDeclarationWriter.FormatConstraintList).
     private static string ConstraintSummary(IReadOnlyList<TypeParameter> typeParameters, TypeParameter typeParameter)
         => CSharpFormatter.FormatTypeParameterConstraints(typeParameter, typeParameters.Select(p => p.Name));
-
-    private static List<string> BuildTypeModifiers(ApiType type)
-    {
-        List<string> modifiers = [];
-        if (type.IsStatic)
-        {
-            modifiers.Add("static");
-        }
-        else
-        {
-            if (type.IsAbstract && type.Kind == "class") modifiers.Add("abstract");
-            if (type.IsSealed && type.Kind == "class") modifiers.Add("sealed");
-        }
-
-        if (type.IsReadOnly && type.Kind == "struct") modifiers.Add("readonly");
-        if (type.IsByRefLike && type.Kind == "struct") modifiers.Add("ref");
-        return modifiers;
-    }
 
     // ===== Internal Rendering Methods =====
 
@@ -757,6 +769,12 @@ public static class ApiOutputFormatter
                     { if (hasDocs) view.ConstructorSelectRowsWithDocs = rows; else view.ConstructorSelectRows = rows; }
                     else
                     { if (hasDocs) view.ConstructorRowsWithDocs = rows; else view.ConstructorRows = rows; }
+                    break;
+                case "finalizer":
+                    if (showSelect)
+                    { if (hasDocs) view.FinalizerSelectRowsWithDocs = rows; else view.FinalizerSelectRows = rows; }
+                    else
+                    { if (hasDocs) view.FinalizerRowsWithDocs = rows; else view.FinalizerRows = rows; }
                     break;
                 case "field":
                     if (showSelect)
@@ -1007,6 +1025,16 @@ public static class ApiOutputFormatter
                         view.ConstructorSummaryRowsWithOverloads = rows;
                     else
                         view.ConstructorSummaryRows = rows;
+                    break;
+                }
+                case "finalizer":
+                {
+                    var rows = byName.Select(e =>
+                        new ConstructorSummaryRow(
+                            OperatorNames.FormatDisplayName(e.members[0].Name),
+                            e.members.Count.ToString(),
+                            SignatureDecodeMarker(e.members))).ToList();
+                    view.FinalizerSummaryRows = rows;
                     break;
                 }
                 case "method":
@@ -1443,14 +1471,14 @@ public static class ApiOutputFormatter
 
             hasCode |= PopulateCSharpSections(memberCode, type, member, code);
 
-            // The resolved config is consumed only when styled C# is actually
-            // printed. Collect returns a decompiled result only for a selected
-            // overload (never callers-only aggregation or a fidelity-only
-            // projection), and even then its Output is null when the method has no
-            // IL body (e.g. a P/Invoke) -- the printer never ran, so no styling
-            // occurred. Key the warning latch off a produced Output so a member
-            // run that requests but does not render styled source stays silent.
-            if (code.DecompiledResult?.Output is not null)
+            // The resolved config is consumed whenever a styled projection prints a
+            // body -- Decompiled Source or Applied Taste (both render with the
+            // config), but never a callers-only aggregation, a fidelity-only
+            // projection (style-invariant), or a bodyless method whose printer never
+            // ran. Key the warning latch off that produced styled projection so an
+            // Applied-Taste-only run still surfaces a bad .dotnet-inspectconfig,
+            // while a run that consumes no config stays silent.
+            if (code.StyledProjectionProduced)
                 options?.RenderConfigWarnings?.EmitOnce();
 
             if (code.FidelityCauses is not null)
@@ -1619,11 +1647,10 @@ public static class ApiOutputFormatter
         =>
         [
             // Projects the configurable choices the decompiler RECORDED as
-            // decisions -- currently the byte-divergent style lenses and the
-            // opt-in chain-wrap. Some byte-preserving knobs (this.-qualification)
-            // do not yet record a decision, so they will not appear here until
-            // issue #3156 lands; the empty-state wording is scoped to "recorded"
-            // choices to avoid over-claiming completeness.
+            // decisions -- the byte-divergent style lenses, the opt-in chain-wrap,
+            // and the byte-preserving this.-qualification knobs (#3156). Only
+            // knob-attributed qualification is recorded; a mandatory shadow
+            // disambiguation this. never appears here.
             .. decisions
                 // The framework-import rewrite (List<T> for the mangled metadata
                 // name) is always-on and universally expected, not a configurable
@@ -2289,7 +2316,13 @@ public static class ApiOutputFormatter
         var bodyShape = new CSharpBlockBody(lowered)
         {
             RequiresAsyncModifier = requiresAsyncBodyModifier,
-            RequiresUnsafeModifier = result.RequiresUnsafeBodyModifier
+            RequiresUnsafeModifier = result.RequiresUnsafeBodyModifier,
+            // Only spell '~Type()' when the destructor pass recovered the
+            // canonical try/finally { base.Finalize(); } scaffold (issue #3157).
+            // A Finalize override whose body did not match keeps the literal
+            // 'void Finalize()' so recompiling this selected-member source does
+            // not silently re-inject the compiler's mandatory base.Finalize().
+            SuppressDestructorSyntax = member.IsFinalizer && !result.BodyIsDestructor
         };
         var formatter = includeCustomAttributes ? AnnotatedCSharpFormatter : DefaultCSharpFormatter;
         var declaration = formatter.FormatMemberWithBody(
@@ -2415,6 +2448,7 @@ public static class ApiOutputFormatter
         "field" => "Fields",
         "event" => "Events",
         "constructor" => "Constructors",
+        "finalizer" => "Finalizer",
         _ => char.ToUpper(kind[0]) + kind[1..] + "s"
     };
 
@@ -2423,6 +2457,7 @@ public static class ApiOutputFormatter
     private static readonly string[] MemberKinds =
     [
         "constructor",
+        "finalizer",
         "field",
         "property",
         "method",
@@ -2476,7 +2511,7 @@ public static class ApiOutputFormatter
             var m = e.members[0];
             var returnType = e.kind switch
             {
-                "constructor" => "",
+                "constructor" or "finalizer" => "",
                 "event" => m.ReturnType ?? m.Signature ?? "",
                 _ => MemberReturnType(m)
             };
@@ -2572,14 +2607,15 @@ public static class ApiOutputFormatter
     private static int GetTreeKindOrder(string kind) => kind switch
     {
         "constructor" => 0,
-        "field" => 1,
-        "property" => 2,
-        "method" => 3,
-        "operator" => 4,
-        "explicit-interface-implementation" => 5,
-        "extension-method" => 6,
-        "event" => 7,
-        _ => 8
+        "finalizer" => 1,
+        "field" => 2,
+        "property" => 3,
+        "method" => 4,
+        "operator" => 5,
+        "explicit-interface-implementation" => 6,
+        "extension-method" => 7,
+        "event" => 8,
+        _ => 9
     };
 
     private static string GetTreeKindLabel(string kind, int count)
@@ -2592,6 +2628,7 @@ public static class ApiOutputFormatter
             "explicit-interface-implementation" => "Explicit Interface Implementations",
             "extension-method" => "Extension Methods",
             "constructor" => "Constructors",
+            "finalizer" => "Finalizer",
             "event" => "Events",
             "field" => "Fields",
             _ => kind + "s"
@@ -2611,6 +2648,9 @@ public static class ApiOutputFormatter
             {
                 case "Constructors":
                     kinds.Add("constructor");
+                    break;
+                case "Finalizer":
+                    kinds.Add("finalizer");
                     break;
                 case "Fields":
                     kinds.Add("field");

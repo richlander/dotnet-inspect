@@ -6,6 +6,7 @@ public enum MemberTargetKind
 {
     Unknown,
     Constructor,
+    Finalizer,
     Field,
     Property,
     Method,
@@ -361,6 +362,7 @@ public static class MemberTargetResolver
         => kind switch
         {
             "constructor" => MemberTargetKind.Constructor,
+            "finalizer" => MemberTargetKind.Finalizer,
             "field" => MemberTargetKind.Field,
             "property" => MemberTargetKind.Property,
             "method" => MemberTargetKind.Method,

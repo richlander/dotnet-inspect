@@ -48,6 +48,9 @@ public static class SectionNames
     /// <summary>Section for constructors.</summary>
     public const string Constructors = "Constructors";
 
+    /// <summary>Section for the class finalizer (destructor).</summary>
+    public const string Finalizer = "Finalizer";
+
     /// <summary>Section for fields.</summary>
     public const string Fields = "Fields";
 

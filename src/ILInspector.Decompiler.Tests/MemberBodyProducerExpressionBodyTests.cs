@@ -222,6 +222,114 @@ public class MemberBodyProducerExpressionBodyTests
         Assert.Contains("return (int*)__stackalloc;", source);
     }
 
+    [Fact]
+    public void Finalizer_RendersDestructorSyntaxExpressionBodied()
+    {
+        // Issue #3157: a C# finalizer (`~Type()`) lowers to an `object.Finalize`
+        // override that Roslyn emits with an explicit `.override` MethodImpl, so it
+        // otherwise surfaces as a modifier-less `void Finalize()`. The metadata
+        // `IsFinalizer` fact drives the destructor spelling, and the single-statement
+        // body folds to an expression-bodied destructor.
+        using var assembly = Compile("""
+            public class Handle
+            {
+                private int _n;
+                ~Handle() { _n = 0; }
+            }
+            """);
+
+        string source = ComposeType(assembly.Path, "Handle");
+
+        Assert.Contains("~Handle() => _n = 0;", source);
+        Assert.DoesNotContain("void Finalize", source);
+        Assert.DoesNotContain("Finalize()", source);
+    }
+
+    [Fact]
+    public void Finalizer_WithBlockBody_RendersDestructorBraceBlock()
+    {
+        using var assembly = Compile("""
+            public class Handle
+            {
+                private int _n;
+                ~Handle() { _n = 0; _n = 1; }
+            }
+            """);
+
+        string source = ComposeType(assembly.Path, "Handle");
+
+        Assert.Contains("~Handle()\n    {", source);
+        Assert.DoesNotContain("void Finalize", source);
+    }
+
+    [Fact]
+    public void ExplicitInterfaceFinalize_IsNotTreatedAsDestructor()
+    {
+        // Close negative: an explicit interface implementation of a method that
+        // happens to be named `Finalize` is NOT the object.Finalize override. Its
+        // metadata name is dot-qualified (`IThing.Finalize`), so it must keep the
+        // `void IThing.Finalize()` spelling and never fold to `~Impl()`.
+        using var assembly = Compile("""
+            public interface IThing { void Finalize(); }
+            public class Impl : IThing
+            {
+                void IThing.Finalize() { }
+            }
+            """);
+
+        string source = ComposeType(assembly.Path, "Impl");
+
+        Assert.Contains("void IThing.Finalize()", source);
+        Assert.DoesNotContain("~Impl", source);
+    }
+
+    [Fact]
+    public void Finalizer_IsClassifiedAsFinalizerKind()
+    {
+        // The object.Finalize override is surfaced as its own member Kind
+        // ("finalizer"), symmetric with constructors — NOT folded under
+        // "explicit-interface-implementation" (its metadata slot carries a
+        // .override MethodImpl targeting System.Object::Finalize).
+        using var assembly = Compile("""
+            public class Handle
+            {
+                private int _n;
+                ~Handle() { _n = 0; }
+            }
+            """);
+
+        var member = ExtractMember(assembly.Path, "Handle", "Finalize");
+        Assert.Equal("finalizer", member.Kind);
+        Assert.True(member.IsFinalizer);
+    }
+
+    [Fact]
+    public void ExplicitInterfaceFinalize_KeepsExplicitInterfaceKind()
+    {
+        // Close negative: an explicit interface method named Finalize is NOT the
+        // object.Finalize override, so it retains Kind
+        // "explicit-interface-implementation".
+        using var assembly = Compile("""
+            public interface IThing { void Finalize(); }
+            public class Impl : IThing
+            {
+                void IThing.Finalize() { }
+            }
+            """);
+
+        var member = ExtractMember(assembly.Path, "Impl", "IThing.Finalize");
+        Assert.Equal("explicit-interface-implementation", member.Kind);
+        Assert.False(member.IsFinalizer);
+    }
+
+    static ApiMember ExtractMember(string path, string typeName, string memberName)
+    {
+        using var pe = new PEReader(File.OpenRead(path));
+        var surface = ApiSurfaceExtractor.Extract(pe);
+        var type = Assert.Single(surface.Types, t => t.FullName == typeName);
+        return Assert.Single(type.Members, m => m.Name == memberName);
+    }
+
     static string ComposeType(string path, string fullName)
     {
         using var pe = new PEReader(File.OpenRead(path));

@@ -38,7 +38,8 @@ public sealed record MemberSourceObservation(
     string? ResolvedUrl,
     int StartLine,
     int EndLine,
-    bool IsPrimaryDocument);
+    bool IsPrimaryDocument,
+    bool IsFinalizer = false);
 
 public static partial class MetadataFindings
 {
@@ -421,7 +422,8 @@ public static partial class MetadataFindings
                     mapping.ResolvedUrl,
                     mapping.StartLine,
                     mapping.EndLine,
-                    mapping.IsPrimaryDocument);
+                    mapping.IsPrimaryDocument,
+                    mapping.IsFinalizer);
             }),
             subject,
             MemberSourceDescriptor,

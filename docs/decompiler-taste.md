@@ -28,6 +28,21 @@ Two reasons:
 
 Two clarifications on scope. First, the oracle is a **default**, not a reconstruction of the input's own style: real assemblies — runtime included — are stylistically mixed, and an `.editorconfig` is *directional* (it names where a codebase is converging over time, not what its current text says), so "match the source style" is not a well-defined target. Picking a published, versioned community default is the honest substitute. Second, the oracle settles only **class-3 no-anchor cosmetics** (below); it never overrides a class-1 or class-2 IL distinction. Where a no-anchor choice is not yet a stable default it is exposed opt-in rather than imposed — see [Line wrapping](#line-wrapping) and [Names](#names).
 
+The oracle has two facets, and it matters which one a given decision rests on.
+Its primary voice is **declared** — the rules `dotnet/runtime`'s `.editorconfig`
+and the enabled IDE fixers write down explicitly (the `dotnet_style_*` /
+`csharp_style_*` keys). Where the declared oracle is *silent* — it has no rule for
+the shape in question — the **revealed** oracle breaks the tie: the dominant style
+of the runtime's own source. Both are the same authority (the runtime's taste);
+they differ only in whether that taste is written down as a config rule or merely
+practiced in the code. Several class-3 tiebreaks already rest on the revealed
+facet precisely because `.editorconfig` says nothing about them — pointer member
+access renders `p->Member`, and query syntax comes back as a fluent chain, because
+that is what runtime code writes. So "the oracle is silent" always means the
+*declared* oracle; the revealed oracle is silent only when the corpus itself shows
+no dominant form. A shape can be declared-silent yet revealed-endorsed — which is
+exactly the status of the fidelity-neutral formatting/synthesis knobs below.
+
 ## The three-class rule
 
 Every proposed rendering falls into one of three classes, and the class decides the answer:
@@ -174,6 +189,82 @@ public int Compute() => _count + Extra;          // shipped default: bare
 public int Compute() => this._count + this.Extra; // both knobs on
 ```
 
+When a knob adds `this.`, the printer records a byte-preserving taste decision
+(category `taste`, keyed by the knob's `StyleOptionCatalog` id, e.g.
+`qualify-field-access`) so the CLI **Applied Taste** section reports the opt-in
+spelling. Only knob-attributed qualification is recorded: a mandatory `this.`
+that disambiguates a shadow or type-name collision would appear with the knob off
+too, so it is never attributed to the knob as a taste choice. Recording therefore
+applies only to a genuine instance receiver — a static or extension method whose
+first parameter is spelled `@this` (IL name `this`) reaches the same site but has
+no implicit receiver, so it records nothing.
+
+All four knobs also require the member to be declared on the **enclosing type at
+its own instantiation** before recording. A base-declared member reached through
+`this` — a field hidden by a `new` field of the same name (whose `base.X` load a
+pre-existing emit gap mis-spells `this.X`, but `this.X` binds to the *derived*
+field), or a merely-inherited field/property/event — is not a byte-preserving
+self-type opt-in, so it records nothing. This uniformly under-records a legitimate
+`this.` on an inherited member; a false-negative is safe, a false-positive is not.
+Method qualification is the most guarded because a bare method name binds through
+more rules than a field or property; it records a decision only when every one of
+these holds:
+
+- **enclosing type at its own instantiation.** The callee's declaring type must
+  be the enclosing type at its exact instantiation, not merely the same generic
+  definition. A callee that is not the exact self-type is one of: an inherited
+  base method (whose bare/`this.` form would rebind — the non-virtual case
+  already renders `base.M`); an **explicit interface implementation** invoked
+  through `this`, which does not bind via `this.` at all (it requires a cast); or
+  a **different instantiation** of the enclosing generic type — e.g.
+  `((I<object>)this).M()` from within `I<T>`, where bare/`this.` `M()` binds to
+  `I<T>::M`, not `I<object>::M`, so the qualifier is not byte-preserving.
+  Definition-only equality is too loose for the last case, so the guard reuses
+  the exact-instantiation test the static-call qualifier uses. This deliberately
+  under-records a legitimate `this.BaseMethod()`; a false-negative is safe, a
+  false-positive is not.
+- **not shadowed.** A name shadowed by an in-scope local, parameter, or nested
+  lambda binder makes the `this.` mandatory disambiguation, not a choice.
+- **speakable target.** A compiler-generated group target — an unspeakable
+  `<M>b__N` lambda or `<Outer>g__Local|N_M` local-function name — is never
+  authored. The unspeakable check runs against the **raw** IL metadata name,
+  before `CSharpNaming.SourceMethodName` strips its `<...>` decoration (a lifted
+  local function otherwise arrives spelled as a plain identifier and would slip
+  past the check).
+- **not a generic method group.** A method *group* over a generic instance method
+  (`this.Make<int>` bound to a `Func<int>`) is not recorded: `MethodGroupText`
+  renders only the bare name, dropping the type arguments (a pre-existing emit gap
+  the call and `&`-of paths avoid), so the emitted `this.Make` fails delegate
+  return-type inference (CS0411) and does not round-trip. A generic method *call*
+  (`this.Make<int>()`) still records normally.
+
+Same-named overloads are recorded as distinct decisions; the dedup discriminator
+is a structurally complete per-overload key (generic arity — so `M()` and `M<T>()`
+stay two rows despite sharing an empty parameter list — generic instantiation,
+array element type and rank, by-ref/pointer decoration, generic-parameter slot,
+function-pointer return type / calling convention / parameter ref-kinds, plus the
+full assembly-qualified namespace) so `M(List<int>)` and `M(List<string>)`,
+`M(NsA.Widget)` and `M(NsB.Widget)`, or `M(delegate*<int>)` and
+`M(delegate*<string>)`, stay two rows rather than collapsing into one. For a
+generic method the key uses the DEFINITION signature (its type parameter left as
+`!!0`) plus arity, not the MethodSpec-substituted parameters, so two
+instantiations of one generic method — `this.Echo<int>(1)` and
+`this.Echo<string>("s")` of `Echo<T>(T)` — collapse into a single row (they are
+one source member) even when a parameter mentions the type parameter.
+Qualifications inside a locals-bearing lambda body, which renders through an
+isolated nested printer, are not currently surfaced as taste rows.
+
+A method call the compiler lowered and the decompiler did **not** re-sugar — for
+example a `this.GetEnumerator()` left behind when a `foreach` over `this` is not
+raised back to `foreach` syntax — is still recorded when its qualifier is a valid,
+byte-preserving, same-member choice on the rendered lowered code. This is
+consistent with the decompiler rendering *what the IL does*: the row honestly
+annotates the `this.` the knob applied to the faithfully-rendered call, and the
+bare name binds to the same member. It is distinct from the suppressed cases
+above, where the emitted `this.M()` would not compile, would not bind bare, or
+would rebind to a different member. When the pattern *is* raised (the common
+case), no such call is printed and nothing is recorded.
+
 ### Expression-bodied members
 
 Rendering a value-returning member as `head => <expr>;` instead of a brace block
@@ -245,8 +336,8 @@ representative is unchanged, only its layout differs. Wrapping therefore sits be
 brace style, with a single input from the oracle: `dotnet/runtime`'s 120-column
 maximum line width decides *when* a single-line rendering is too wide to keep.
 
-Two chain shapes wrap one element per continuation line when the flat form would
-exceed that width and the chain has at least two elements:
+Three constructs wrap one element per continuation line when the flat form would
+exceed that width:
 
 - **Fluent method chains — always on.** The runtime routinely breaks a long
   fluent chain one `.Member(args)` call per line, and the transform is
@@ -261,6 +352,27 @@ exceed that width and the chain has at least two elements:
       .Select(projection)
       .OrderBy(key)
       .ToList();
+  ```
+
+- **Member signatures — always on (issue #3185).** When a member declaration's
+  first physical line — its head plus whatever trails the closing `)` on that
+  line (`=> expr;`, `{`, or `;`) — would exceed the width, the parameter list
+  breaks one parameter per line under a four-space continuation indent, with the
+  closing `)` (and any trailing `where`/base-`: this(...)` clause) kept on the
+  last parameter's line and the `=>`/`{`/`;` staying on that line. This mirrors
+  the corpus, which wraps a wide signature's parameters rather than the arrow.
+  The rewrite is whitespace-only and token-identical, so it is applied
+  unconditionally like the fluent wrapper. The parameter list is located
+  conservatively — a signature whose parameter group cannot be unambiguously
+  identified (e.g. a symbolic `operator +(...)`, or an indexer's `[...]` list)
+  stays on today's single line rather than risk a mangled declaration.
+
+  ```csharp
+  public static JsonElement Parse([StringSyntax("Json")] ReadOnlySpan<byte> utf8Json, JsonDocumentOptions options = default) => JsonDocument.ParseValue(utf8Json, options).RootElement;
+  // wraps to:
+  public static JsonElement Parse(
+      [StringSyntax("Json")] ReadOnlySpan<byte> utf8Json,
+      JsonDocumentOptions options = default) => JsonDocument.ParseValue(utf8Json, options).RootElement;
   ```
 
 - **Short-circuit `&&` / `||` chains — opt-in.** The boolean analog breaks each
@@ -288,8 +400,18 @@ The asymmetry is deliberate and matches how this doc treats every cosmetic lens
 that isn't yet a default: like readable name synthesis under [Names](#names), the
 boolean-chain wrapper changes only layout, so it is introduced opt-in to keep
 default output byte-for-byte stable until the choice proves out, rather than
-churning every wide boolean `return` in the corpus. The always-on fluent wrapper
-predates it and stays on.
+churning every wide boolean `return` in the corpus. The always-on fluent and
+signature wrappers reproduce the corpus and stay on.
+
+**General one-liner opt-out.** A single knob,
+`PrinterOptions.DisableOneLinerWrapping` (catalog id `disable-one-liner-wrapping`,
+off by default), suppresses *all* always-on width wrapping — both the fluent-chain
+and the member-signature wrappers — so a caller who wants wide constructs to stay
+on one physical line gets true one-liners. It deliberately does **not** touch the
+opt-in `WrapSplittableExpressions` wrappers, which are already off unless
+explicitly enabled. Keeping a wide construct inline diverges from the corpus
+(which wraps), so this knob is a user compactness preference endorsed by neither
+the oracle nor the corpus — classified like the branchless-boolean lens.
 
 ### Range indexer
 
@@ -445,6 +567,15 @@ dotnet_style_prefer_conditional_expression_over_return = true
   ternary [style lens](#style-lenses-behavior-faithful-byte-divergent)), and
   `dotnet_inspect_style_prefer_branchless_boolean` (the non-oracle-endorsed
   branchless lens, under a tool-owned key). The set grows as more knobs ship.
+- `dotnet_inspect_style_full_taste = true` is a tool-owned **aggregate** key: it
+  enables the whole oracle-endorsed subset at once (the four `this`-qualifications
+  and the ternary lens — everything the runtime `.editorconfig`/IDE oracle
+  prefers) so a user need not copy each `dotnet_style_*` line. It deliberately
+  excludes the non-endorsed branchless lens, so the guarded-boolean-return
+  axis resolves to the ternary deterministically. It applies in file
+  order like any other key, so a later explicit per-knob line overrides it
+  (last-write-wins) — `full_taste = true` then
+  `dotnet_style_qualification_for_field = false` is "full taste minus one knob".
 - The recognized keys are not hand-maintained in the resolver: they come from the
   library-owned `StyleOptionCatalog` (see [Option catalog](#option-catalog)), so
   the CLI vocabulary and the option surface cannot drift.
@@ -491,21 +622,74 @@ The recognized knobs are described once, in the library, by
 `StyleOptionCatalog` (`ILInspector.Decompiler.Pipeline`). Each
 `StyleOptionDescriptor` carries a knob's stable id, human-facing title and
 summary, its tier (`Formatting`, `Spelling`, `Lens`, or `Synthesis`), whether it
-is `ByteDivergent`, whether it is `OracleEndorsed`, its `.dotnet-inspectconfig`
-key (`null` for API-only formatting/synthesis knobs), a `ConflictGroup` for
-mutually-exclusive knobs, and NativeAOT-safe `Get`/`With` delegates that read and
-set the knob on a `PrinterOptions` without reflection.
+is `ByteDivergent`, and the **value domain** it ranges over — its ordered list of
+`StyleOptionValue`s. Most knobs are two-state (a `false`/`true` domain); the
+guarded-boolean-return knob is a single multi-value axis
+(`flat` / `conditional-expression` / `branchless`). Each `StyleOptionValue`
+carries its stable token, optional title, whether that value is `OracleEndorsed`
+(declared) and `CorpusEndorsed` (revealed),
+its `.dotnet-inspectconfig` key (`null` for the off/default value and for API-only
+formatting/synthesis knobs), and NativeAOT-safe `IsSelected`/`SetSelected`
+delegates that read and drive that value's backing state without reflection. The
+descriptor reads and single-selects the whole axis through
+`GetValue`/`WithValue`.
+
+`OracleEndorsed` records **declared**-oracle endorsement specifically — the value
+has a `.editorconfig` rule behind it. `CorpusEndorsed` records **revealed**
+endorsement — the runtime's own source corpus reveals a dominant practice for the
+value (typically where the declared oracle is silent, though the two facets are
+independent). The two flags are independent (a value may be endorsed by both
+facets, one, or neither), and each `CorpusEndorsed = true` is a deliberate,
+documented judgment, never a silently-inferred or measured-heat claim. Today
+exactly one knob is revealed-endorsed — `wrap-splittable-expressions`, because
+runtime code wraps long boolean chains in line with its 120-column practice. The
+other formatting/synthesis knobs are left un-endorsed on both axes: wrapping the
+expression-body arrow actually *diverges* from the corpus (the runtime keeps `=>`
+on the same line, which the shipped default already does), suppressing the
+always-on width wrappers (`disable-one-liner-wrapping`) diverges too (the runtime
+wraps wide constructs, which the shipped default also does), and a synthesized
+local name is our own invention, not a corpus spelling. The catalog exposes the
+revealed subset as `CorpusEndorsedOptions`; a future "house style" aggregate would
+fold declared ∪ revealed while "full taste" stays declared-only
+([#3179](https://github.com/richlander/dotnet-inspect/issues/3179)).
 
 This makes the option surface discoverable and drift-proof for every host, not
-just the CLI: the config resolver derives its recognized keys from the catalog,
-a Wasm UI can enumerate the knobs (grouping the mutually-exclusive lenses by
-`ConflictGroup` and toggling each through `Get`/`With`), and the future "full
-taste" aggregate is exactly the `OracleEndorsed` subset. The two guarded-boolean
-lenses share the `guarded-boolean-return` conflict group, so a picker offers at
-most one (the printer still resolves any overlap deterministically, preferring the
-oracle-endorsed ternary). The single non-boolean knob
-(`ExpressionBodyArrowPlacement`) is not yet modeled in the catalog, which
-currently describes boolean toggles.
+just the CLI: the config resolver derives its recognized keys from every value's
+`ConfigKey`, a Wasm UI can enumerate the knobs (presenting each axis's `Values` as
+a mutually-exclusive choice and driving it through `GetValue`/`WithValue`), and the
+"full taste" aggregate is exactly the endorsed value of each participating axis.
+The catalog exposes the participating knobs as `OracleEndorsedOptions` and applies
+the aggregate with `ApplyFullTaste(PrinterOptions, enabled)` — selecting each
+axis's `EndorsedValue`; the CLI surfaces it as the
+`dotnet_inspect_style_full_taste` config key. Because a multi-value axis is
+single-select by construction — `GetValue` reports the first selected value in
+`Values` order, so the oracle-endorsed `conditional-expression` wins over
+`branchless` when both are set, exactly as the printer resolves it — the aggregate
+selects the ternary and the axis never resolves ambiguously.
+
+Every opt-in knob's value domain is carried by the descriptor directly: the
+two-state knobs (including the expression-body arrow wrap, `WrapExpressionBodyArrow`)
+have a `false`/`true` domain, and the guarded-boolean-return family is one
+three-token axis rather than two coupled booleans. The catalog is exhaustive: a
+test-only drift guard asserts every backing `PrinterOptions` boolean is reachable
+through some descriptor value, so a new knob cannot land without a catalog entry.
+
+The `var`-spelling family is a second multi-value axis, modeled as one
+`var-spelling-style` descriptor with four tokens — `explicit` (the default) plus
+the three site categories `var-for-built-in-types`, `var-when-type-apparent`, and
+`var-elsewhere`, one per editorconfig key (`csharp_style_var_for_built_in_types`,
+`csharp_style_var_when_type_is_apparent`, `csharp_style_var_elsewhere`). Because a
+declaration site falls into exactly one category, the three category values back
+*independent* booleans (a host may enable any subset), while the axis stays
+single-select for display: `GetValue` reports the coarse first-enabled category
+and `WithValue` selects one exclusively. `var` is byte-neutral — it erases the
+declared type spelling but never changes the IL — so the family sits in the
+`Spelling` tier with `ByteDivergent = false`. Every category value is
+`OracleEndorsed = false` and `CorpusEndorsed = false`: dotnet/runtime's
+`.editorconfig` sets all three `csharp_style_var_*` keys to `false` (prefer
+explicit types), so no `var` value is endorsed by either facet. The family is
+therefore **opt-in only** and never part of the "full taste" aggregate — the
+shipped default spells explicit types everywhere, matching the runtime.
 
 ## Verification and soundness
 

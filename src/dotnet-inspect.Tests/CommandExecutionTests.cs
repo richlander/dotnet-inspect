@@ -3192,7 +3192,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var lines = output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.Equal(2, lines.Length);
         Assert.Contains(lines, line => line.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", StringComparison.Ordinal));
         Assert.Contains(lines, line => line.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", StringComparison.Ordinal));
@@ -5645,6 +5645,93 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Contains("JsonSerializer", output);
+    }
+
+    [Fact]
+    public async Task Find_Members_ExplicitFlag_RendersMembersSection()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", "Serialize", "--members", "--platform", "System.Text.Json");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Members", output);
+        Assert.Contains("Find member: Serialize", output);
+        Assert.Contains("System.Text.Json.JsonSerializer", output);
+    }
+
+    [Fact]
+    public async Task Find_Members_LeadingDotShortcut_MatchesExplicitFlag()
+    {
+        var (dotExit, dotOutput, _) = await RunAppAsync(
+            "find", ".Serialize", "--platform", "System.Text.Json");
+        var (flagExit, flagOutput, _) = await RunAppAsync(
+            "find", "Serialize", "--members", "--platform", "System.Text.Json");
+
+        Assert.Equal(0, dotExit);
+        Assert.Equal(0, flagExit);
+        // The leading-dot sentinel enables the member lens and strips the dot, so both spellings
+        // produce identical output.
+        Assert.Equal(flagOutput, dotOutput);
+    }
+
+    [Fact]
+    public async Task Find_Members_Count_EmitsPositiveCount()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "find", ".Serialize", "--platform", "System.Text.Json", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.True(int.TryParse(output.Trim(), out var count));
+        Assert.True(count >= 1, $"expected at least one member, got {count}");
+    }
+
+    [Fact]
+    public async Task Find_Members_Json_EmitsMemberFields()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "find", ".Serialize", "--platform", "System.Text.Json", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("\"member\":\"Serialize\"", output);
+        Assert.Contains("\"declaring_type\":\"System.Text.Json.JsonSerializer\"", output);
+    }
+
+    [Fact]
+    public async Task Find_Members_NoMatches_ReportsNoMembers()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "find", ".ZzzNoSuchMemberName", "--platform", "System.Text.Json");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("No members found", error);
+    }
+
+    [Fact]
+    public async Task Find_Members_LeadingDotCtor_FindsConstructors()
+    {
+        // ".ctor"/".cctor" are the only real metadata member names beginning with a dot; the
+        // leading-dot sentinel must preserve an exact (case-insensitive) match for them (not strip
+        // to a non-matching "ctor"), while any leading-dot glob is treated purely as the member-lens
+        // sentinel and stripped — so ".c*" searches members named c* rather than only constructors.
+        var ctor = await RunAppAsync("find", ".ctor", "--platform", "System.Text.Json", "--count");
+        var upper = await RunAppAsync("find", ".CTOR", "--platform", "System.Text.Json", "--count");
+        var dotGlob = await RunAppAsync("find", ".c*", "--platform", "System.Text.Json", "--count");
+        var memberGlob = await RunAppAsync("find", "c*", "--members", "--platform", "System.Text.Json", "--count");
+
+        Assert.Equal(0, ctor.Item1);
+        Assert.Empty(ctor.Item3);
+        Assert.True(int.TryParse(ctor.Item2.Trim(), out var count));
+        Assert.True(count >= 1, $"expected at least one constructor, got {count}");
+
+        // Exact constructor preservation is case-insensitive.
+        Assert.Equal(ctor.Item2.Trim(), upper.Item2.Trim());
+
+        // A leading-dot glob is a member-lens shortcut, not a constructor-only query: ".c*" must
+        // resolve to the same set as the explicit "c*" member search, not collapse to constructors.
+        Assert.Equal(memberGlob.Item2.Trim(), dotGlob.Item2.Trim());
+        Assert.True(int.TryParse(dotGlob.Item2.Trim(), out var dotGlobCount));
+        Assert.True(dotGlobCount > count, $"expected .c* ({dotGlobCount}) to exceed constructors ({count})");
     }
 
     [Fact]
@@ -8666,7 +8753,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var lines = output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.Equal(2, lines.Length);
         Assert.Contains(lines, line => line.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", StringComparison.Ordinal));
         Assert.Contains(lines, line => line.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", StringComparison.Ordinal));
@@ -9960,7 +10047,7 @@ public class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal(["skills/SKILL.md", "skills/two/SKILL.md"], output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+            Assert.Equal(["skills/SKILL.md", "skills/two/SKILL.md"], output.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries));
         }
         finally
         {

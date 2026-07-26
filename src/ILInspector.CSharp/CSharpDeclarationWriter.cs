@@ -30,6 +30,15 @@ internal sealed record CSharpDeclarationOptions
     public bool IncludeObsoleteAttribute { get; init; } = true;
     public bool OmitInterfaceMemberModifiers { get; init; }
     public bool OmitPropertyAccessors { get; init; }
+
+    /// <summary>
+    /// When true, a finalizer member (<see cref="ApiMember.IsFinalizer"/>) is
+    /// rendered as the literal <c>void Finalize()</c> method rather than the
+    /// <c>~Type()</c> destructor syntax. Set on body-bearing renders whose body
+    /// was not recovered as a canonical destructor, so the emitted source does
+    /// not silently re-inject the compiler's mandatory <c>base.Finalize()</c>.
+    /// </summary>
+    public bool SuppressFinalizerSpelling { get; init; }
 }
 
 internal sealed record CSharpRenderedDeclaration(
@@ -324,6 +333,10 @@ internal static class CSharpDeclarationWriter
         {
             signature = $"{FormatConstructorTypeName(type.Name)}()";
         }
+        else if (member.IsFinalizer && !options.SuppressFinalizerSpelling)
+        {
+            signature = $"~{FormatConstructorTypeName(type.Name)}()";
+        }
         else if (member.Kind == "constructor")
         {
             var typeName = FormatConstructorTypeName(type.Name);
@@ -377,6 +390,18 @@ internal static class CSharpDeclarationWriter
             if (member.IsUnsafe || options.ForceUnsafe)
                 modifiers.Add("unsafe");
         }
+        else if (member.IsFinalizer)
+        {
+            // A finalizer carries no accessibility or override modifiers. In the
+            // destructor spelling (`~Type()`) only `unsafe` is legal. In the
+            // suppressed fallback (literal `void Finalize()`, used when the
+            // recovered body did not reconstruct the destructor scaffold), adding
+            // `public`/`virtual` would misrepresent it as a new virtual slot
+            // (CS0465) rather than the object-finalizer override it is, so keep
+            // the fallback modifier-free too.
+            if (member.IsUnsafe || options.ForceUnsafe)
+                modifiers.Add("unsafe");
+        }
         else if (member.Kind != "explicit-interface-implementation")
         {
             var omitInterfaceModifiers = options.OmitInterfaceMemberModifiers
@@ -415,6 +440,7 @@ internal static class CSharpDeclarationWriter
         }
 
         if ((options.ForceAsync || member.IsAsync)
+            && !member.IsFinalizer
             && member.Kind is "method" or "extension-method" or "explicit-interface-implementation")
             modifiers.Add("async");
 
@@ -1197,6 +1223,12 @@ internal static class CSharpDeclarationWriter
 
     static string FormatConstructorTypeName(string name)
     {
+        // Isolate the innermost nested-type segment before stripping generic arity,
+        // so a constructor/finalizer on a type nested inside a generic outer
+        // (name "Outer`1.Nested" or "Outer`1+Nested") spells "Nested", not "Outer".
+        int sep = name.LastIndexOfAny(['.', '+']);
+        if (sep >= 0)
+            name = name[(sep + 1)..];
         var arityIndex = name.IndexOf('`');
         var typeName = arityIndex < 0 ? name : name[..arityIndex];
         return EscapeIdentifier(typeName);

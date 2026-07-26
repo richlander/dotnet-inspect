@@ -297,6 +297,7 @@ public sealed partial class CSharpPrinter
             RequiresUnsafeBodyModifier = function.Descendants.Prepend(function).Any(NeedsUnsafeContext),
             ContainsAwaitExpression = function.Descendants.OfType<AwaitExpression>().Any(),
             BodyIsSingleExpressionBody = BodyIsSingleExpressionBody(function, output),
+            BodyIsDestructor = function.IsDestructor,
             Metadata = new DecompilerResultMetadata(EffectiveDecompilerOptions(), [.. _decisions]),
         };
 
@@ -369,17 +370,18 @@ public sealed partial class CSharpPrinter
         {
             ReadableLocalNames = _options.ReadableLocalNames,
             PreferFrameworkTypeImports = true,
-            ExpressionBodyArrowPlacement = _options.ExpressionBodyArrowPlacement,
+            WrapExpressionBodyArrow = _options.WrapExpressionBodyArrow,
             WrapSplittableExpressions = _options.WrapSplittableExpressions,
+            DisableOneLinerWrapping = _options.DisableOneLinerWrapping,
             QualifyFieldAccess = _options.QualifyFieldAccess,
             QualifyPropertyAccess = _options.QualifyPropertyAccess,
             QualifyMethodAccess = _options.QualifyMethodAccess,
             QualifyEventAccess = _options.QualifyEventAccess,
         };
 
-    void AddDecision(string ruleId, string category, string subject, string detail, string? oldValue = null, string? newValue = null)
+    void AddDecision(string ruleId, string category, string subject, string detail, string? oldValue = null, string? newValue = null, string? dedupDiscriminator = null)
     {
-        string key = $"{ruleId}\0{category}\0{subject}\0{detail}\0{oldValue}\0{newValue}";
+        string key = $"{ruleId}\0{category}\0{subject}\0{detail}\0{oldValue}\0{newValue}\0{dedupDiscriminator}";
         if (_decisionKeys.Add(key))
         {
             _decisions.Add(new DecompilerDecision(ruleId, category, subject, detail)
@@ -2264,6 +2266,8 @@ public sealed partial class CSharpPrinter
     /// </summary>
     bool TryAppendFluentChain(StringBuilder sb, IrNode node, string line, int indent)
     {
+        if (_options.DisableOneLinerWrapping)
+            return false;
         if (!TryFluentChainStatement(node, out var root, out var prefix))
             return false;
         if (line != prefix + CallText(root) + ";")
@@ -4204,13 +4208,49 @@ public sealed partial class CSharpPrinter
             || MultiDimArrayCreationText(creation) is not null
             || IsSystemObjectType(creation.Constructor.DeclaringType)
             || !IsTargetTypedNewEligible(target)
-            || !target.Equals(creation.Constructor.DeclaringType))
+            || !TypeIsApparent(target, creation))
         {
             return null;
         }
 
         return $"new({Arguments(creation.Arguments, creation.Constructor.ParameterTypes, creation.Constructor.ParameterRefKinds)})";
     }
+
+    /// <summary>
+    /// Whether the declared type of a declaration/creation site is <em>apparent</em>
+    /// from the initializer's syntax — the notion dotnet/runtime's editorconfig keys
+    /// <c>csharp_style_var_when_type_is_apparent</c> and
+    /// <c>csharp_style_implicit_object_creation_when_type_is_apparent</c> both hinge
+    /// on. A type is apparent when the right-hand side names it directly: object
+    /// creation of exactly that type (<c>new T(...)</c>), a single-dimension array
+    /// creation of that type (<c>new T[n]</c>), or an explicit reference cast to it
+    /// (<c>(T)x</c>). Deliberately conservative — a form is treated as apparent only
+    /// when its <em>rendered</em> spelling is guaranteed to name the type, so a future
+    /// opt-in <c>var</c> lens never spells <c>var</c> where the type would silently
+    /// vanish. That is why numeric conversions and a target-typed <c>default</c> are
+    /// declined here.
+    /// <para>
+    /// Several further shapes are genuinely apparent in C# but are declined by this v1
+    /// because they are modeled by other IR nodes whose rendered form still needs
+    /// confirming before a consumer relies on them: a value-type cast
+    /// (<see cref="UnboxAny"/>, e.g. <c>(int)obj</c>), an object/collection initializer
+    /// (<see cref="ObjectInitializerExpression"/> wrapping the creation), and an
+    /// array/span literal (<see cref="ArrayLiteral"/>/<see cref="SpanLiteral"/>, e.g.
+    /// <c>new int[] { 1, 2 }</c>). They are extension points for the <c>var</c> slice,
+    /// not defects — declining is always output-safe.
+    /// </para>
+    /// Pure over the typed IR (SRM-only, Roslyn-free); the target-typed-<c>new</c>
+    /// shortener (<see cref="TargetTypedNewText"/>) consumes it today, and the planned
+    /// <c>var</c> lens will consult the same predicate so the two axes share one
+    /// apparency judgment.
+    /// </summary>
+    internal static bool TypeIsApparent(TypeRef declaredType, IrExpression initializer) => initializer switch
+    {
+        NewObject creation => declaredType.Equals(creation.Constructor.DeclaringType),
+        NewArray array => declaredType.Equals(TypeRef.SzArray(array.ElementType)),
+        CastClass cast => declaredType.Equals(cast.Type),
+        _ => false,
+    };
 
     /// <summary>
     /// The bare <c>System.Object</c> type, by name — assembly-agnostic so a facade or
@@ -5323,6 +5363,16 @@ public sealed partial class CSharpPrinter
         => ns == "System" || ns.StartsWith("System.", StringComparison.Ordinal);
 
     string DeclarationTypeText(TypeRef type, IrExpression initializer)
+        // An anonymous type has no spellable name, so `var` is mandatory here — not a
+        // taste call. Every other declaration keeps its explicit type on the byte-stable
+        // default. A future opt-in `var` lens will consult `TypeIsApparent(type,
+        // initializer)` to decide whether to spell `var`. Note that `var` and the
+        // target-typed-`new` shortener are *mutually exclusive* spellings of the same
+        // apparent site, not simultaneous: dropping both ends of `List<int> x = new
+        // List<int>()` at once yields `var x = new()`, which is CS8754 (no target type
+        // for `new()`). The shared predicate is only the apparency input; that lens must
+        // own the either/or decision (keep the RHS type when spelling `var`, or keep the
+        // LHS type when shortening to `new()`).
         => initializer is AnonymousObject anonymous && type.Equals(anonymous.Type)
             ? "var"
             : TypeText(type);

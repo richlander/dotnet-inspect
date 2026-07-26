@@ -2510,7 +2510,7 @@ internal static class CorpusSensor
             new Source(
                 "Change",
                 new Change<int>(baseline, current),
-                new MarkoutCellFormat { Goal = goal, Delta = countDeltaKnown ? Markout.Delta.Absolute : Markout.Delta.None }));
+                new MarkoutCellFormat { Goal = goal, Delta = countDeltaKnown ? Markout.Delta.Absolute : Markout.Delta.None, NumberFormat = "N0" }));
 
     static MultiSourceRow ShareChangeRow(
         string metric,
@@ -2525,7 +2525,7 @@ internal static class CorpusSensor
             new Source(
                 "Change",
                 new Change<QualityRate>(new QualityRate(baseline, baselineTotal), new QualityRate(current, currentTotal)),
-                new MarkoutCellFormat { Goal = goal, DeltaNoun = countDeltaKnown ? "methods" : null }));
+                new MarkoutCellFormat { Goal = goal, DeltaNoun = countDeltaKnown ? "methods" : null, NumberFormat = "N0" }));
 
     static bool HaveSameMethodSample(
         IReadOnlyList<CorpusMethodSnapshot>? baselineMethods,

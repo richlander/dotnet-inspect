@@ -85,7 +85,8 @@ public sealed class CSharpFormatter
             _declarationOptions with
             {
                 ForceAsync = _declarationOptions.ForceAsync || body.RequiresAsyncModifier,
-                ForceUnsafe = _declarationOptions.ForceUnsafe || body.RequiresUnsafeModifier
+                ForceUnsafe = _declarationOptions.ForceUnsafe || body.RequiresUnsafeModifier,
+                SuppressFinalizerSpelling = body.SuppressDestructorSyntax
             },
             methodParameters);
     }

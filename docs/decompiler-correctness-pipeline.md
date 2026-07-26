@@ -184,6 +184,36 @@ keys on `Speed` (`-trait- "Speed=Slow"`) and Deep Inspect/release run the whole
 slow set — so every area's slow gates already run before merge without any
 per-area CI wiring.
 
+### `--gate` preset flag: discoverable trait bundles
+
+Memorizing the `Speed`/`Area` trait spellings above is friction, and an
+*unfiltered* `ILInspector.Decompiler.Tests` run includes the multi-hour
+`Corpus` sweep. The executable therefore accepts a first-class
+`--gate <preset>` flag that expands to the corresponding `-trait`/`-trait-`
+arguments before delegating to the runner. Run `--gate list` for the table:
+
+```bash
+dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate list
+dotnet run --project src/ILInspector.Decompiler.Tests -c Release -- --gate no-corpus
+```
+
+| Preset | Expands to | Use |
+| --- | --- | --- |
+| `all` | *(no filter)* | the full slow suite (same as no flag) |
+| `fast` | `-trait- "Speed=Slow"` | the fast lane the PR CI test job runs |
+| `slow` | `-trait "Speed=Slow"` | only the slow gates |
+| `no-corpus` | `-trait- "Area=Corpus"` | everything except the multi-hour corpus sweep |
+| `corpus` | `-trait "Area=Corpus"` | only the corpus sweep |
+| `roundtrip` | `-trait "Area=RoundTrip"` | the compile-back / ReturnToSender seam |
+| `fidelity` | `-trait "Area=Fidelity"` | the changed-method fidelity gates |
+| `validity` | `-trait "Area=Validity"` | the validity / ladder gates |
+
+The flag is a naming convenience over the traits, not a new selection axis:
+presets compose with any additional xUnit arguments (e.g.
+`--gate fast -class …`), and omitting `--gate` leaves invocation behavior
+unchanged. The preset table lives in the test executable's entry point; keep it
+in sync with the areas above when an area is added or renamed.
+
 ## Vocabulary
 
 Use these names in issues and PRs when selecting evidence:

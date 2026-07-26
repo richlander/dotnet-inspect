@@ -166,6 +166,108 @@ public sealed class ThisQualificationTests
         Assert.Contains("this.ReadField", text);
     }
 
+    // A default-interface-member call reached through `this` must render the
+    // erased `((I)this)` cast (#3128): the DIM is not a member of the implementing
+    // class, so bare `Value()` / `this.Value()` is CS1061. The default (knob-off)
+    // render was already invalid before this fix; it is now the faithful spelling
+    // that recompiles to `ldarg.0; callvirt IDimFace::Value()`.
+    [Fact]
+    public void DefaultInterfaceMemberCall_RendersInterfaceCast_ByDefault()
+    {
+        var text = RenderMember(typeof(DimConsumer), nameof(DimConsumer.DimCall));
+        Assert.Contains("((IDimFace)this).Value()", text);
+        Assert.DoesNotContain("this.Value()", text);
+    }
+
+    // The `((I)this)` cast is a validity fix, not a `this.`-qualification opt-in:
+    // it is present with the qualify-method knob off and unchanged with it on (the
+    // knob's `this.` arm never runs for an interface-declared callee).
+    [Fact]
+    public void DefaultInterfaceMemberCall_RendersInterfaceCast_UnderMethodQualification()
+    {
+        var text = RenderMember(typeof(DimConsumer), nameof(DimConsumer.DimCall),
+            new PrinterOptions { QualifyMethodAccess = true });
+        Assert.Contains("((IDimFace)this).Value()", text);
+        Assert.DoesNotContain("this.Value()", text);
+    }
+
+    // A DIM method group over `this` must likewise cast: `((IDimFace)this).Value`
+    // recompiles to `ldarg.0; dup; ldvirtftn IDimFace::Value; newobj Func`, where
+    // bare `Value` (CS1061) or `this.Value` would not bind.
+    [Fact]
+    public void DefaultInterfaceMemberGroup_RendersInterfaceCast_ByDefault()
+    {
+        var text = RenderMember(typeof(DimConsumer), nameof(DimConsumer.DimGroup));
+        Assert.Contains("((IDimFace)this).Value", text);
+        Assert.DoesNotContain("(Value)", text);
+    }
+
+    // An explicit interface implementation invoked through `this` reaches the call
+    // site with the interface as declaring type; the member does not bind on the
+    // implementing class, so it must render `((I)this).FaceMethod()` — the faithful
+    // spelling of the fixture's own source (#3128).
+    [Fact]
+    public void ExplicitInterfaceCall_RendersInterfaceCast()
+    {
+        var text = RenderMember(typeof(ThisQualificationExplicitFace),
+            nameof(ThisQualificationExplicitFace.CallExplicitInterface));
+        Assert.Contains("((IThisQualificationFace)this).FaceMethod()", text);
+        Assert.DoesNotContain("this.FaceMethod()", text);
+    }
+
+    // The value-type sibling of the #3128 arms (#3201). A struct reaches an
+    // interface member through `this` by BOXING — `((IDimSFace)this).Value()`
+    // lowers to `ldarg.0; ldobj Struct; box Struct; callvirt IDimSFace::Value()`,
+    // so the IR receiver is a Box over the this value, not a bare LoadArgument.
+    // The printer must still re-insert the `((I)this)` cast; bare `(this).Value()`
+    // is CS1061. Faithful: the cast re-emits exactly the `ldobj; box` the struct
+    // boxing produced.
+    [Fact]
+    public void StructDefaultInterfaceMemberCall_RendersInterfaceCast_ByDefault()
+    {
+        var text = RenderMember(typeof(StructDimConsumer), nameof(StructDimConsumer.DimCall));
+        Assert.Contains("((IDimSFace)this).Value()", text);
+        Assert.DoesNotContain("(this).Value()", text);
+    }
+
+    // A struct DIM method group over `this` boxes the same way:
+    // `((IDimSFace)this).Value` recompiles to `ldarg.0; ldobj S; box S; dup;
+    // ldvirtftn IDimSFace::Value; newobj Func`. Bare `(this).Value` (CS1061) or the
+    // knob's `this.Value` would not bind.
+    [Fact]
+    public void StructDefaultInterfaceMemberGroup_RendersInterfaceCast_ByDefault()
+    {
+        var text = RenderMember(typeof(StructDimConsumer), nameof(StructDimConsumer.DimGroup));
+        Assert.Contains("((IDimSFace)this).Value", text);
+        Assert.DoesNotContain("(this).Value", text);
+    }
+
+    // An explicit interface implementation on a struct invoked through `this`
+    // reaches the call site with the interface as declaring type and a boxed
+    // receiver; it must render `((IStructFace)this).FaceMethod()` — bare
+    // `(this).FaceMethod()` is CS1061 (#3201).
+    [Fact]
+    public void StructExplicitInterfaceCall_RendersInterfaceCast()
+    {
+        var text = RenderMember(typeof(StructExplicitFace),
+            nameof(StructExplicitFace.CallExplicitInterface));
+        Assert.Contains("((IStructFace)this).FaceMethod()", text);
+        Assert.DoesNotContain("(this).FaceMethod()", text);
+    }
+
+    // Negative guard: a boxed `this` that reaches a NON-interface member (here
+    // `object.ToString()` via `((object)this).ToString()`) must NOT be over-cast to
+    // the enclosing struct — `IsInterfaceCastThisReceiver` declines a non-interface
+    // callee, so the boxed-this arm never fires. The faithful render keeps the
+    // object cast the boxing spells and never writes `((StructBoxedObjectReceiver)this)`.
+    [Fact]
+    public void StructBoxedThis_NonInterfaceCallee_IsNotOverCast()
+    {
+        var text = RenderMember(typeof(StructBoxedObjectReceiver),
+            nameof(StructBoxedObjectReceiver.CallObjectToString));
+        Assert.DoesNotContain("StructBoxedObjectReceiver)this", text);
+    }
+
     [Fact]
     public void EventSubscription_DefaultsToBareName()
     {
@@ -289,10 +391,74 @@ public sealed class ThisQualificationSpecimen
 
     public int ReadField() => _value;
 
+    // Reads the field twice: with the qualify-field knob on, both accesses emit
+    // this._value, but AddDecision dedups them into a single recorded decision.
+    public int SumFieldTwice() => _value + _value;
+
+    // A parameter shadows the field, so the bare name binds to the parameter and
+    // reaching the field REQUIRES this._value. That this. is mandatory
+    // disambiguation, not the qualify-field knob, so it records no taste decision
+    // even when the knob is enabled.
+    public int ReadShadowedField(int _value) => this._value + _value;
+
     public int ReadProperty() => Count;
 
     // Instance method call on the implicit this receiver.
     public int CallMethod() => ReadField() + 1;
+
+    // Two overloads reachable through the implicit this receiver. Qualifying both
+    // must record TWO distinct decisions: their shared display name alone must not
+    // dedup them into one row (the callee parameter types disambiguate the key).
+    public void Overloaded(int x) { }
+    public void Overloaded(string x) { }
+    public void CallOverloads()
+    {
+        this.Overloaded(1);
+        this.Overloaded("a");
+    }
+
+    // Two overloads whose signatures differ ONLY by generic type argument
+    // (List<int> vs List<string>). The dedup discriminator must distinguish them
+    // structurally: a name-only or {Namespace}.{Name} key renders both parameter
+    // types as the same "System.Collections.Generic.List", collapsing two genuine
+    // taste applications into one row and HIDING one. Qualifying both must record
+    // TWO distinct decisions.
+    public void GenericOverloaded(System.Collections.Generic.List<int> x) { }
+    public void GenericOverloaded(System.Collections.Generic.List<string> x) { }
+    public void CallGenericOverloads()
+    {
+        this.GenericOverloaded(new System.Collections.Generic.List<int>());
+        this.GenericOverloaded(new System.Collections.Generic.List<string>());
+    }
+
+    // A local function that captures `this` (reads _value) is lifted to a
+    // compiler-generated instance method whose RAW metadata name is
+    // <CallsCapturingLocalFunction>g__Local|N_M — unspeakable, and never a member
+    // you can write `this.` in front of. The knob must record nothing. The
+    // unspeakable check must run against the raw name: CSharpNaming.SourceMethodName
+    // strips the <...> to a bare `Local`, which would slip past a post-sanitization
+    // check.
+    public int CallsCapturingLocalFunction()
+    {
+        int Local() => _value + 1;
+        return Local();
+    }
+
+    // A local delegate shadows an instance method name, so the bare call binds to
+    // the delegate and reaching the method REQUIRES this.ReadField(). That this. is
+    // mandatory disambiguation, not the qualify-method knob, so it records no taste
+    // decision even when the knob is enabled.
+    public int MethodShadowedByLocal()
+    {
+        System.Func<int> ReadField = () => 3;
+        return this.ReadField() + ReadField();
+    }
+
+    // A lambda that captures only `this` is lifted to a compiler-generated instance
+    // method and referenced as a method group `this.<...>b__N`. That synthetic
+    // target is unspeakable (never user-authored), so the qualify-method knob
+    // records no taste decision for it.
+    public System.Func<int> CapturedThisOnlyLambda() => () => _value + 1;
 
     // Method group over the implicit this receiver.
     public System.Func<int> MethodGroup() => ReadField;
@@ -333,4 +499,202 @@ public sealed class ThisQualificationDerived : ThisQualificationBase
 public static class ThisQualificationExtensions
 {
     public static int Extend(this ThisQualificationDerived value) => 42;
+}
+
+// The extension's first parameter is spelled `@this`, so its IL parameter name is
+// "this" — the same LoadArgument{Index:0, Name:"this"} shape an instance method's
+// implicit receiver produces. But this is a STATIC method with no implicit
+// receiver: a this.-qualified member access inside it is a compile error, never a
+// taste choice, so the qualify-method knob records no decision here.
+public static class ThisQualificationSpecimenExtensions
+{
+    public static int CallThroughThisParam(this ThisQualificationSpecimen @this)
+        => @this.ReadField();
+}
+
+// An explicit interface implementation: `int IThisQualificationFace.FaceMethod()`
+// can ONLY be reached through a cast (((IThisQualificationFace)this).FaceMethod()),
+// never through a bare `FaceMethod()` or `this.FaceMethod()` — the member does not
+// bind unqualified. csc emits `callvirt IThisQualificationFace::FaceMethod` on the
+// this receiver, whose declaring type is the interface (cross-type from the
+// implementing class). The qualify-method knob records no taste decision: a
+// cross-type callee is never a `this.` opt-in. The printer re-inserts the erased
+// cast (#3128), so the emit is the faithful ((IThisQualificationFace)this).FaceMethod().
+public interface IThisQualificationFace
+{
+    int FaceMethod();
+}
+
+public sealed class ThisQualificationExplicitFace : IThisQualificationFace
+{
+    int IThisQualificationFace.FaceMethod() => 7;
+
+    public int CallExplicitInterface() => ((IThisQualificationFace)this).FaceMethod();
+}
+
+// A constructed generic self-call. From within I<T>, ((I<object>)this).M() emits
+// `callvirt I<object>::M`. I<object> shares I<T>'s DEFINITION but is a DIFFERENT
+// instantiation, so bare/`this.` M() would bind to I<T>::M, not I<object>::M — the
+// qualifier is NOT byte-preserving. Definition-only equality would wrongly treat
+// this as same-type; the exact-instantiation guard records nothing. (`out T` +
+// `class` makes the covariant cast to I<object> legal.)
+public interface IThisQualificationGeneric<out T> where T : class
+{
+    int M() => 1;
+    int CallViaObjectInstantiation() => ((IThisQualificationGeneric<object>)this).M();
+}
+
+// Two overloads whose signatures differ only by a function pointer's RETURN type
+// (delegate*<int, int> vs delegate*<int, void>). The dedup discriminator must key
+// on the function pointer's return type, calling convention, and parameter
+// ref-kinds — not parameters alone — or the two collapse into one row and hide a
+// taste application.
+public unsafe class ThisQualificationFnPtr
+{
+    public void Select(delegate*<int, int> p) { }
+    public void Select(delegate*<int, void> p) { }
+    public void CallBoth(delegate*<int, int> a, delegate*<int, void> b)
+    {
+        this.Select(a);
+        this.Select(b);
+    }
+}
+
+// A derived type that HIDES a base field with a `new` field of the same name, so
+// the class holds two distinct `X` fields. ReadOwnField reads the derived field
+// (declaring type == the enclosing type) and is a genuine this. opt-in. But
+// ReadBaseField reads base.X — the load targets the BASE field
+// (ldarg.0; ldfld Base::X). A pre-existing emit gap mis-spells that as this.X,
+// yet this.X binds to the DERIVED field, not base.X, so it is NOT byte-preserving
+// and must record nothing. ReadInheritedField reads a merely-inherited (unhidden)
+// base field; its this. is safe but the exact-instantiation guard under-records it
+// (a false-negative is safe).
+public class ThisQualificationFieldBase
+{
+    public int Hidden;
+    public int Inherited;
+}
+
+public sealed class ThisQualificationFieldDerived : ThisQualificationFieldBase
+{
+    public new int Hidden;
+
+    public int ReadOwnField() => Hidden;
+    public int ReadBaseField() => base.Hidden;
+    public int ReadInheritedField() => Inherited;
+}
+
+// Two overloads that differ only by ARITY: M() and M<T>() share an empty parameter
+// list, so a parameter-types-only dedup key collapses them into one row and hides
+// a taste application. Qualifying both must record TWO decisions. CallTwoInstantiations
+// qualifies the SAME generic method at two different instantiations (G<int>, G<string>);
+// those are one source member and must collapse into ONE row (arity, not the specific
+// type arguments, is the key).
+public sealed class ThisQualificationArity
+{
+    public void M() { }
+    public void M<T>() { }
+    public void G<T>() { }
+
+    public void CallBothArities()
+    {
+        this.M();
+        this.M<int>();
+    }
+
+    public void CallTwoInstantiations()
+    {
+        this.G<int>();
+        this.G<string>();
+    }
+}
+
+// A generic method whose PARAMETER mentions its type parameter: Echo<T>(T). The
+// callee's ParameterTypes are substituted per MethodSpec (T -> int, T -> string),
+// so a key built from them would split this.Echo<int>(1) and this.Echo<string>("s")
+// into two rows for ONE source member. Keying on the DEFINITION signature (T left
+// as !!0) collapses them into a single row.
+public sealed class ThisQualificationGenericParam
+{
+    public T Echo<T>(T value) => value;
+
+    public void CallTwoInstantiations()
+    {
+        this.Echo<int>(1);
+        this.Echo<string>("s");
+    }
+}
+
+// A method GROUP over a generic instance method (this.Make<int> as a Func<int>).
+// MethodGroupText renders only the bare name, dropping the <int> (a pre-existing
+// emit gap; the group path never appends type arguments the way call and &-of
+// paths do). The emitted this.Make does not round-trip — delegate return-type
+// inference cannot recover T (CS0411) — so it must record nothing.
+public sealed class ThisQualificationGenericGroup
+{
+    public T Make<T>() => default!;
+
+    public System.Func<int> Build() => this.Make<int>;
+}
+
+// A default interface member (DIM) reached from an implementing class. The DIM is
+// NOT a member of DimConsumer, so the source must write the ((IDimFace)this) cast;
+// a class→interface upcast emits no IL, so csc lowers ((IDimFace)this).Value() to
+// `ldarg.0; callvirt IDimFace::Value()` and the method group ((IDimFace)this).Value
+// to `ldarg.0; dup; ldvirtftn IDimFace::Value; newobj Func`. Both leave the IR
+// target a bare LoadArgument{0,"this"} with the callee declared on the interface,
+// so the printer must re-insert the erased cast — bare Value()/this.Value() is
+// CS1061 (#3128).
+public interface IDimFace
+{
+    int Value() => 7;
+}
+
+public sealed class DimConsumer : IDimFace
+{
+    public int DimCall() => ((IDimFace)this).Value();
+
+    public System.Func<int> DimGroup() => ((IDimFace)this).Value;
+}
+
+// The value-type siblings of DimConsumer/ThisQualificationExplicitFace (#3201).
+// A struct reaches an interface member through `this` by BOXING: ((IDimSFace)this)
+// / ((IStructFace)this) lowers to `ldarg.0; ldobj Struct; box Struct; callvirt
+// IFace::M()` (a boxing conversion that DOES emit `box`, unlike the no-IL class
+// upcast of #3128). The IR receiver is therefore a Box over the this value, not a
+// bare LoadArgument{0,"this"}, so the printer must recognise the boxed-this shape
+// and re-insert the ((I)this) cast — bare (this).M() is CS1061.
+public interface IDimSFace
+{
+    int Value() => 7;
+}
+
+public struct StructDimConsumer : IDimSFace
+{
+    public int DimCall() => ((IDimSFace)this).Value();
+
+    public System.Func<int> DimGroup() => ((IDimSFace)this).Value;
+}
+
+public interface IStructFace
+{
+    int FaceMethod();
+}
+
+public struct StructExplicitFace : IStructFace
+{
+    int IStructFace.FaceMethod() => 7;
+
+    public int CallExplicitInterface() => ((IStructFace)this).FaceMethod();
+}
+
+// Negative fixture (#3201): a struct that boxes `this` to reach a NON-interface
+// member. `((object)this).ToString()` also lowers to `ldarg.0; ldobj S; box S;
+// callvirt object::ToString()`, so its IR receiver is likewise a Box over this —
+// but the callee's declaring type is System.Object, not an interface, so the
+// boxed-this arm must decline and leave the object cast untouched. Guards the
+// arm against firing on every boxed-this receiver.
+public struct StructBoxedObjectReceiver
+{
+    public string CallObjectToString() => ((object)this).ToString()!;
 }

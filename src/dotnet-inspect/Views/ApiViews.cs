@@ -58,6 +58,7 @@ public class TypeView
 
     // Member stats (quiet verbosity only)
     [MarkoutSkipNull] public int? Constructors { get; set; }
+    [MarkoutSkipNull] public int? Finalizer { get; set; }
     [MarkoutSkipNull] public int? Fields { get; set; }
     [MarkoutSkipNull] public int? Properties { get; set; }
     [MarkoutSkipNull] public int? Methods { get; set; }
@@ -118,6 +119,13 @@ public class TypeView
     [JsonIgnore]
     public List<MemberRow>? ConstructorRowsWithDocs { get; set; }
 
+    [MarkoutSection(Name = "Finalizer", IgnoreProperty = "Description,Select")]
+    [JsonIgnore]
+    public List<MemberRow>? FinalizerRows { get; set; }
+    [MarkoutSection(Name = "Finalizer", IgnoreProperty = "Select")]
+    [JsonIgnore]
+    public List<MemberRow>? FinalizerRowsWithDocs { get; set; }
+
     [MarkoutSection(Name = "Fields", IgnoreProperty = "Description,Select")]
     [JsonIgnore]
     public List<MemberRow>? FieldRows { get; set; }
@@ -139,6 +147,13 @@ public class TypeView
     [MarkoutSection(Name = "Constructors")]
     [JsonIgnore]
     public List<MemberRow>? ConstructorSelectRowsWithDocs { get; set; }
+
+    [MarkoutSection(Name = "Finalizer", IgnoreProperty = "Description")]
+    [JsonIgnore]
+    public List<MemberRow>? FinalizerSelectRows { get; set; }
+    [MarkoutSection(Name = "Finalizer")]
+    [JsonIgnore]
+    public List<MemberRow>? FinalizerSelectRowsWithDocs { get; set; }
 
     [MarkoutSection(Name = "Fields", IgnoreProperty = "Description")]
     [JsonIgnore]
@@ -168,6 +183,11 @@ public class TypeView
     [MarkoutIgnoreColumnWhen(nameof(ConstructorSummaryDecodeIsEmpty), nameof(ConstructorSummaryRow.Decode))]
     [JsonIgnore]
     public List<ConstructorSummaryRow>? ConstructorSummaryRowsWithOverloads { get; set; }
+
+    [MarkoutSection(Name = "Finalizer", IgnoreProperty = nameof(ConstructorSummaryRow.Overloads))]
+    [MarkoutIgnoreColumnWhen(nameof(FinalizerSummaryDecodeIsEmpty), nameof(ConstructorSummaryRow.Decode))]
+    [JsonIgnore]
+    public List<ConstructorSummaryRow>? FinalizerSummaryRows { get; set; }
 
     [MarkoutSection(Name = "Fields")]
     [MarkoutIgnoreColumnWhen(nameof(FieldSummaryDecodeIsEmpty), nameof(FieldSummaryRow.Decode))]
@@ -241,6 +261,7 @@ public class TypeView
     // Same treatment for the compact member-summary tables: the Decode degradation
     // marker is null for well-formed metadata, so drop the column when nothing is degraded.
     public static bool ConstructorSummaryDecodeIsEmpty(List<ConstructorSummaryRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.Decode));
+    public static bool FinalizerSummaryDecodeIsEmpty(List<ConstructorSummaryRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.Decode));
     public static bool PropertySummaryDecodeIsEmpty(List<PropertySummaryRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.Decode));
     public static bool FieldSummaryDecodeIsEmpty(List<FieldSummaryRow>? rows) => rows is null || rows.All(row => string.IsNullOrEmpty(row.Decode));
 
