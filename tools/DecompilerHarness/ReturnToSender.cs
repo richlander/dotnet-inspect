@@ -1675,15 +1675,22 @@ static class ReturnToSender
                 ? compilationResult.FirstError
                 : compilationResult.Diagnostics.FirstOrDefault(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
                     ?? compilationResult.FirstError;
-            var faultIsolation = TryIsolateRecompileFailure(
-                sourceResult.Request,
-                unit,
-                compilationResult.Diagnostics,
-                spanAttributionEligible: compilationResult.Status != RoundTripCompilationStatus.IterationBudget,
-                sourceIndex,
-                parseOptions,
-                compileOptions,
-                references);
+            // On IterationBudget the engine returns a freshly composed final
+            // artifact but diagnostics from the prior iteration, and never emits
+            // the final artifact — so the failure is unconfirmed and the source
+            // and diagnostics do not correspond. Attribute nothing (neither the
+            // substitution control nor span attribution) to keep the body-defect
+            // count a sound lower bound.
+            var faultIsolation = compilationResult.Status == RoundTripCompilationStatus.IterationBudget
+                ? null
+                : TryIsolateRecompileFailure(
+                    sourceResult.Request,
+                    unit,
+                    compilationResult.Diagnostics,
+                    sourceIndex,
+                    parseOptions,
+                    compileOptions,
+                    references);
             return new Result(
                 plan,
                 unit,
@@ -2147,7 +2154,6 @@ static class ReturnToSender
         ArtifactRequest request,
         string decompiledSource,
         ImmutableArray<Diagnostic> decompiledDiagnostics,
-        bool spanAttributionEligible,
         ReturnToSenderSourceIndex? sourceIndex,
         CSharpParseOptions parseOptions,
         CSharpCompilationOptions compileOptions,
@@ -2186,11 +2192,8 @@ static class ReturnToSender
             // Shell is broken: the substitution control is blind. Recover the
             // additional signal by span attribution — but only credit a body
             // defect for a provably shell-independent in-body error (syntax or
-            // body-intrinsic semantic), and only when the diagnostics match the
-            // decompiled source (not the IterationBudget path, where the returned
-            // source and diagnostics come from different compose iterations).
-            if (spanAttributionEligible
-                && BuildTargetIdentity(request) is { } identity
+            // body-intrinsic semantic).
+            if (BuildTargetIdentity(request) is { } identity
                 && SpanAttribution.IsolatingBodyError(
                     decompiledSource,
                     decompiledDiagnostics,

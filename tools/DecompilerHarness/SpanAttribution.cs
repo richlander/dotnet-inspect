@@ -48,17 +48,24 @@ internal static class SpanAttribution
 
     // Error codes that are provably intrinsic to the decompiled body itself and
     // cannot be induced by a broken or incomplete reconstructed shell: they
-    // concern only the body's own local variables and control flow, never a
-    // shell-provided member, type, or reference. Resolution errors
+    // concern only the body's own local declarations, never a shell-provided
+    // member, type, or reference. Resolution errors
     // (CS0103/CS0246/CS1061/CS0234/CS1069/...) and conversion/overload/shape
-    // errors are deliberately excluded because a shell-reconstruction miss
-    // produces them identically to a genuine decompiler body defect, which would
-    // break the lower-bound guarantee (see adversarial review of PR #3231).
+    // errors are excluded because a shell-reconstruction miss produces them
+    // identically to a genuine decompiler body defect.
+    //
+    // CS0165 (use of unassigned local) is deliberately NOT included: definite
+    // assignment can hinge on a compile-time const whose value the shell
+    // reconstructor may fail to preserve (e.g. emitting a mutable field instead
+    // of `const`), so a shell miss can induce an in-body CS0165 with a clean
+    // authored body. That would break the lower-bound guarantee (PR #3231
+    // adversarial review). CS0128 has no such dependency: it requires two local
+    // declarations sharing a name inside the body, which no shell state can
+    // create.
     static readonly ImmutableHashSet<string> BodyIntrinsicSemanticErrorIds =
         ImmutableHashSet.Create(
             StringComparer.Ordinal,
-            "CS0128",  // duplicate local variable name (body-internal)
-            "CS0165"); // use of unassigned local variable (body-internal dataflow)
+            "CS0128"); // duplicate local variable name (strictly body-internal)
 
     /// <summary>
     /// Sound refinement of the substitution oracle for the case where the
@@ -90,7 +97,7 @@ internal static class SpanAttribution
     /// carry at least one in-body error that is provably <em>shell-independent</em>:
     /// either a syntax/parser error — the decompiler emitted body text that does
     /// not parse, which no shell state can cause — or a body-intrinsic semantic
-    /// error over the body's own locals/control flow (see
+    /// error over the body's own local declarations (see
     /// <see cref="BodyIntrinsicSemanticErrorIds"/>). Context-dependent errors
     /// (unresolved names/types/members, conversions, overloads) are never credited
     /// because a broken shell reconstructor produces them identically to a real

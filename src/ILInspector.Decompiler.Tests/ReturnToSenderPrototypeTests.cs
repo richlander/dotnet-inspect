@@ -4430,7 +4430,6 @@ public class ReturnToSenderPrototypeTests
             request,
             decompiledArtifact.Source,
             decompiledDiagnostics,
-            spanAttributionEligible: true,
             sourceIndex,
             parseOptions,
             compileOptions,

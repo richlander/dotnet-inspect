@@ -145,13 +145,13 @@ public class SpanAttributionTests
     [Fact]
     public void DecompiledBodyIsolated_TrueWhenDecompiledBodyHasIntrinsicSemanticError()
     {
-        // CS0165 (use of unassigned local) depends only on the body's own locals
-        // and control flow — never a shell member — so it is a sound attribution
-        // even though the shell is broken.
+        // CS0128 (duplicate local declaration) requires two local declarations
+        // sharing a name inside the body — no shell member, type, or reference
+        // can create it — so it is a sound attribution even under a broken shell.
         const string decompiled = """
             class C
             {
-                int M() { int x; return x; }
+                int M() { int x = 1; int x = 2; return x; }
                 int Filler = Shell.Broken;
             }
             """;
@@ -167,6 +167,35 @@ public class SpanAttributionTests
             decompiled, Compile(decompiled), authored, Compile(authored), Method("C", "M", 0));
 
         Assert.True(isolated);
+    }
+
+    [Fact]
+    public void DecompiledBodyIsolated_FalseWhenDecompiledBodyHasUnassignedLocalError()
+    {
+        // Close negative (PR #3231 adversarial review). CS0165 (use of unassigned
+        // local) can be induced by a shell-reconstruction miss of a compile-time
+        // const that drives definite assignment (e.g. `if (Const) x = 1;` where
+        // the shell dropped `const`), so it is NOT shell-independent and must be
+        // declined even though the authored body is clean.
+        const string decompiled = """
+            class C
+            {
+                int M() { int x; if (Always) x = 1; return x; }
+                int Filler = Shell.Broken;
+            }
+            """;
+        const string authored = """
+            class C
+            {
+                int M() { return 42; }
+                int Filler = Shell.Broken;
+            }
+            """;
+
+        bool isolated = SpanAttribution.DecompiledBodyIsolatedUnderBrokenShell(
+            decompiled, Compile(decompiled), authored, Compile(authored), Method("C", "M", 0));
+
+        Assert.False(isolated);
     }
 
     [Fact]
