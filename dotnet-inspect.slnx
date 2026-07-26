@@ -45,6 +45,7 @@
     <Project Path="src/ILInspector.Decompiler.Fixtures.UnsafeChainA/ILInspector.Decompiler.Fixtures.UnsafeChainA.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.UnsafeChainB/ILInspector.Decompiler.Fixtures.UnsafeChainB.csproj" />
     <Project Path="src/ILInspector.Decompiler.Fixtures.UnsafeChainC/ILInspector.Decompiler.Fixtures.UnsafeChainC.csproj" />
+    <Project Path="src/ILInspector.Decompiler.Fixtures.VbFinalizer/ILInspector.Decompiler.Fixtures.VbFinalizer.vbproj" />
     <Project Path="src/ILInspector.Decompiler.Tests/ILInspector.Decompiler.Tests.csproj" />
     <Project Path="src/ILInspector.Decompiler/ILInspector.Decompiler.csproj" />
     <Project Path="src/ILInspector.Instructions.Tests/ILInspector.Instructions.Tests.csproj" />
