@@ -1,5 +1,5 @@
 import { lenses, packageLenses, rootCommands } from "./data.js";
-import { initializeEngine, inspectListStyleOptions, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageDependencies, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
+import { initializeEngine, inspectListStyleOptions, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageDependencies, inspectPackageIntegrations, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
 
 function loadStoredTaste() {
   try {
@@ -42,6 +42,10 @@ const state = {
   packageDependenciesLoading: false,
   packageDependenciesError: "",
   packageDependenciesKey: "",
+  packageIntegrations: null,
+  packageIntegrationsLoading: false,
+  packageIntegrationsError: "",
+  packageIntegrationsKey: "",
   memberCallGraph: null,
   memberCallGraphLoading: false,
   memberCallGraphError: "",
@@ -627,6 +631,7 @@ function render() {
   maybeAutoLoadTypeSource();
   maybeAutoLoadTypeMetadata();
   maybeAutoLoadPackageDependencies();
+  maybeAutoLoadPackageIntegrations();
 }
 
 function maybeAutoLoadTypeSource() {
@@ -759,7 +764,6 @@ function packageHeading() {
 function packageLensPlaceholder(lensId) {
   const copy = {
     dependencies: ["⌘", "Dependencies", "Package NuGet dependencies and assembly references. Wiring the engine export in a follow-up pass."],
-    integrations: ["◈", "Integrations", "Known ecosystem integrations (DI, logging, OpenTelemetry, …) this package participates in. Coming in a follow-up pass."],
     analysis: ["△", "Analysis", "Ranked allocation and performance opportunities across the package, each drilling to its member. Coming in a follow-up pass."]
   }[lensId] || ["△", "Not available", "This package lens is not wired yet."];
   return `<section class="document-section empty-document"><span class="large-glyph">${copy[0]}</span><h2>${escapeHtml(copy[1])}</h2><p>${escapeHtml(copy[2])}</p></section>`;
@@ -768,6 +772,7 @@ function packageLensPlaceholder(lensId) {
 function renderPackageView() {
   if (state.packageLens === "overview") return `${packageHeading()}${renderPackageOverview()}`;
   if (state.packageLens === "dependencies") return `${packageHeading()}${renderPackageDependencies()}`;
+  if (state.packageLens === "integrations") return `${packageHeading()}${renderPackageIntegrations()}`;
   return `${packageHeading()}${packageLensPlaceholder(state.packageLens)}`;
 }
 
@@ -846,6 +851,81 @@ function maybeAutoLoadPackageDependencies() {
   if (!state.atPackageRoot || state.packageLens !== "dependencies") return;
   if (state.packageDependenciesKey === packageDependenciesSignature()) return;
   loadPackageDependencies();
+}
+
+function packageIntegrationsSignature() {
+  const pkg = state.package;
+  return `${pkg.id}@${pkg.version}/${pkg.activeFramework}`;
+}
+
+function renderPackageIntegrations() {
+  const current = packageIntegrationsSignature();
+  const fresh = state.packageIntegrationsKey === current;
+  if (state.packageIntegrationsLoading && fresh) {
+    return `<section class="document-section source-progress"><span class="loader"></span><h2>Scanning integrations…</h2><p>Reading the public surface of each assembly for ecosystem signals.</p></section>`;
+  }
+  if (fresh && state.packageIntegrationsError) {
+    return `<section class="document-section empty-document"><span class="large-glyph">◈</span><h2>Integration scan failed</h2><p>${escapeHtml(state.packageIntegrationsError)}</p></section>`;
+  }
+  const data = fresh ? state.packageIntegrations : null;
+  if (!data) {
+    return `<section class="document-section empty-document"><span class="loader"></span><h2>Loading…</h2></section>`;
+  }
+
+  const categories = data.categories || [];
+  const warning = data.inspectionError
+    ? `<section class="document-section metadata-warning"><strong>⚠ Some assemblies could not be scanned</strong><ul><li><code>${escapeHtml(data.inspectionError)}</code></li></ul></section>`
+    : "";
+
+  if (!categories.length) {
+    return `${warning}<section class="document-section empty-document"><span class="large-glyph">◇</span><h2>No ecosystem integrations detected</h2><p>The public surface of ${escapeHtml(state.package.activeFramework)} shows no known DI, logging, OpenTelemetry, ASP.NET Core, AI, or hosting signals.</p></section>`;
+  }
+
+  const summary = `
+    <section class="document-section">
+      <div class="section-title"><h2>Ecosystem integrations</h2><span>${categories.length} categor${categories.length === 1 ? "y" : "ies"} · ${data.totalSignals} signal${data.totalSignals === 1 ? "" : "s"} · ${escapeHtml(state.package.activeFramework)}</span></div>
+      <div class="type-chip-list">${categories.map(category => `<span class="type-chip">${escapeHtml(category.integration)} <span class="ns-count">${category.signals.length}</span></span>`).join("")}</div>
+    </section>`;
+
+  const blocks = categories.map(category => `
+    <section class="document-section">
+      <div class="section-title"><h2>${escapeHtml(category.integration)}</h2><span>${category.typeCount} type${category.typeCount === 1 ? "" : "s"} · ${category.apiCount} API${category.apiCount === 1 ? "" : "s"}</span></div>
+      <div class="type-chip-list">${category.signals.map(signal => `<code class="attr-chip" title="${escapeHtml(signal.shape)} · ${escapeHtml(signal.kind)}">${escapeHtml(signal.name)} <span class="ref-version">${escapeHtml(signal.kind)}</span></code>`).join("")}</div>
+    </section>`).join("");
+
+  return `${warning}${summary}${blocks}`;
+}
+
+async function loadPackageIntegrations() {
+  const signature = packageIntegrationsSignature();
+  if (state.packageIntegrationsKey === signature && (state.packageIntegrations || state.packageIntegrationsError)) {
+    render();
+    return;
+  }
+  state.packageIntegrationsKey = signature;
+  state.packageIntegrations = null;
+  state.packageIntegrationsError = "";
+  state.packageIntegrationsLoading = true;
+  render();
+  try {
+    const result = await inspectPackageIntegrations({
+      packageId: state.package.id,
+      version: state.package.version,
+      framework: state.package.activeFramework
+    });
+    if (state.packageIntegrationsKey === signature) state.packageIntegrations = result;
+  } catch (error) {
+    if (state.packageIntegrationsKey === signature) state.packageIntegrationsError = String(error?.message || error);
+  } finally {
+    if (state.packageIntegrationsKey === signature) state.packageIntegrationsLoading = false;
+    render();
+  }
+}
+
+function maybeAutoLoadPackageIntegrations() {
+  if (!state.atPackageRoot || state.packageLens !== "integrations") return;
+  if (state.packageIntegrationsKey === packageIntegrationsSignature()) return;
+  loadPackageIntegrations();
 }
 
 function renderPackageOverview() {

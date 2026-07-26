@@ -250,6 +250,22 @@ public sealed record BrowserPackageDependency(string Id, string VersionRange);
 
 public sealed record BrowserAssemblyReference(string Name, string Version);
 
+public sealed record BrowserPackageIntegrations(
+    string Package,
+    string Version,
+    string ActiveFramework,
+    BrowserIntegrationCategory[] Categories,
+    int TotalSignals,
+    string? InspectionError);
+
+public sealed record BrowserIntegrationCategory(
+    string Integration,
+    int TypeCount,
+    int ApiCount,
+    BrowserIntegrationSignal[] Signals);
+
+public sealed record BrowserIntegrationSignal(string Kind, string Name, string Shape);
+
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageSurface))]
 [JsonSerializable(typeof(BrowserMemberSource))]
@@ -258,6 +274,7 @@ public sealed record BrowserAssemblyReference(string Name, string Version);
 [JsonSerializable(typeof(BrowserMemberFacts))]
 [JsonSerializable(typeof(BrowserTypeMetadata))]
 [JsonSerializable(typeof(BrowserPackageDependencies))]
+[JsonSerializable(typeof(BrowserPackageIntegrations))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(typeof(BrowserTypeCandidate[]))]
 [JsonSerializable(typeof(BrowserTypeSearchHit[]))]
@@ -968,6 +985,85 @@ public static partial class BrowserInspectionEngine
                 dependency.Attribute("version")?.Value ?? ""))
             .Where(dependency => dependency.Id.Length > 0)
             .ToArray();
+
+    // Scans every implementation assembly under the active framework for ecosystem
+    // integration signals (DI, logging, OpenTelemetry, ASP.NET Core, AI, Aspire, …) using
+    // the shared SRM-only EcosystemIntegrationScanner, then groups the signals by
+    // integration. A per-assembly decode failure is recorded in InspectionError rather than
+    // silently dropped, so a partial or empty result stays visible as such.
+    [JSExport]
+    public static async Task<string> QueryPackageIntegrations(
+        string packageId,
+        string version,
+        string targetFramework)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+
+        var signals = new List<EcosystemIntegrationSignalInfo>();
+        var failures = new List<string>();
+
+        using (var stream = new MemoryStream(packageBytes, writable: false))
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
+        {
+            var prefix = $"lib/{targetFramework}/";
+            var assemblies = archive.Entries
+                .Where(entry =>
+                    entry.FullName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
+                    entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+
+            foreach (var entry in assemblies)
+            {
+                try
+                {
+                    using var assemblyStream = entry.Open();
+                    using var buffer = new MemoryStream();
+                    await assemblyStream.CopyToAsync(buffer);
+                    buffer.Position = 0;
+                    using var peReader = new System.Reflection.PortableExecutable.PEReader(buffer);
+                    signals.AddRange(EcosystemIntegrationScanner.Scan(peReader));
+                }
+                catch (Exception exception)
+                {
+                    failures.Add($"{entry.Name}: {exception.Message}");
+                }
+            }
+        }
+
+        var categories = signals
+            .GroupBy(signal => signal.Integration, StringComparer.Ordinal)
+            .OrderBy(group => group.Key, StringComparer.Ordinal)
+            .Select(group =>
+            {
+                var distinct = group
+                    .GroupBy(signal => (signal.Shape, signal.Kind, signal.Name))
+                    .Select(inner => inner.First())
+                    .OrderBy(signal => signal.Shape, StringComparer.Ordinal)
+                    .ThenBy(signal => signal.Name, StringComparer.Ordinal)
+                    .Select(signal => new BrowserIntegrationSignal(signal.Kind, signal.Name, signal.Shape))
+                    .ToArray();
+                var typeCount = distinct.Count(signal =>
+                    signal.Shape.Equals(IntegrationSignalShape.Type, StringComparison.Ordinal));
+                return new BrowserIntegrationCategory(
+                    group.Key,
+                    typeCount,
+                    distinct.Length - typeCount,
+                    distinct);
+            })
+            .ToArray();
+
+        var result = new BrowserPackageIntegrations(
+            packageId,
+            version,
+            targetFramework,
+            categories,
+            categories.Sum(category => category.Signals.Length),
+            failures.Count > 0 ? string.Join("; ", failures) : null);
+
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageIntegrations);
+    }
 
     // Collapses long .NET framework monikers (".NETStandard,Version=v2.0") to the short
     // folder form the lib/ layout and the UI use ("netstandard2.0"); short forms pass

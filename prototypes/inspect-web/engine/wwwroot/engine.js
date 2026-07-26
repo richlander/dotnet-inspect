@@ -5,6 +5,7 @@ let queryMemberSource;
 let queryMemberAnnotatedSource;
 let queryTypeProjection;
 let queryPackageDependencies;
+let queryPackageIntegrations;
 let queryTypeMemberSource;
 let queryTypeSource;
 let queryMemberCallGraph;
@@ -23,6 +24,7 @@ export async function initializeEngine(onStatus = () => {}) {
   queryMemberAnnotatedSource = exports.BrowserInspectionEngine.QueryMemberAnnotatedSource;
   queryTypeProjection = exports.BrowserInspectionEngine.QueryTypeProjection;
   queryPackageDependencies = exports.BrowserInspectionEngine.QueryPackageDependencies;
+  queryPackageIntegrations = exports.BrowserInspectionEngine.QueryPackageIntegrations;
   queryTypeMemberSource = exports.BrowserInspectionEngine.QueryTypeMemberSource;
   queryTypeSource = exports.BrowserInspectionEngine.QueryTypeSource;
   queryMemberCallGraph = exports.BrowserInspectionEngine.QueryMemberCallGraph;
@@ -99,6 +101,15 @@ export async function inspectPackageDependencies(request) {
     request.version,
     request.framework,
     request.assembly);
+  return JSON.parse(json);
+}
+
+export async function inspectPackageIntegrations(request) {
+  if (!queryPackageIntegrations) throw new Error("The browser inspection engine is not initialized.");
+  const json = await queryPackageIntegrations(
+    request.packageId,
+    request.version,
+    request.framework);
   return JSON.parse(json);
 }
 
