@@ -76,6 +76,17 @@ public sealed class InlineArrayCollectionPass : IIrPass
             if (stores is null)
                 continue;
 
+            // The collection expression materializes at the AsSpan call site and
+            // evaluates its elements there in ascending slot order, so the raise is
+            // only order-preserving when the init and element stores are a
+            // contiguous run of statements in the AsSpan's own block, in ascending
+            // slot order, immediately before the statement that consumes the span.
+            // csc always emits exactly that; arbitrary IL can interleave a statement
+            // between the stores or emit them out of slot order, which would
+            // silently re-sequence element side effects — leave those flat.
+            if (!ElementStoresPreserveOrder(init, stores, span))
+                continue;
+
             // Shape proven. Detach each element value from its store, build the
             // collection expression, replace the span source, then drop the init
             // and every consumed store/spill statement.
@@ -788,6 +799,68 @@ public sealed class InlineArrayCollectionPass : IIrPass
         }
 
         return byIndex.Count == count ? byIndex.Values.ToList() : null;
+    }
+
+    /// <summary>
+    /// Verifies that the collection's <paramref name="init"/> and element
+    /// <paramref name="stores"/> can be lifted to the <paramref name="span"/> call
+    /// site without re-sequencing any observable side effect.
+    ///
+    /// <para>The raise removes the init and store statements and evaluates the
+    /// element values, in ascending slot order, at the position of the span call.
+    /// That preserves program order only when those statements form a contiguous
+    /// run in the span-consuming statement's own block, in ascending slot order,
+    /// immediately before that statement — the exact shape csc emits (default the
+    /// buffer, fill slots 0..N-1 in order, then read the span). Arbitrary IL
+    /// (ilasm, obfuscators, other front ends) can interleave an unrelated statement
+    /// within the fill or between the fill and the span, or store the slots out of
+    /// order; lifting either would move element side effects across a statement or
+    /// invert their evaluation order, silently emitting wrong C#. Anything but the
+    /// canonical run returns false so the shape is left flat.</para>
+    /// </summary>
+    static bool ElementStoresPreserveOrder(IrNode init, List<InlineArrayElementStore> stores, Call span)
+    {
+        // The span-consuming statement: the innermost ancestor of the span call
+        // that is a direct child of a block.
+        IrNode consumer = span;
+        while (consumer.Parent is { } parent and not Block)
+            consumer = parent;
+        if (consumer.Parent is not Block block)
+            return false;
+        int consumerIndex = consumer.ChildIndex;
+
+        // Every consumed statement (the init and each store's statements) keyed to
+        // its owning slot; the init sorts first with a sentinel slot.
+        var run = new List<(int Index, int Slot)>(1 + stores.Sum(s => s.Consumed.Count));
+        if (init.Parent != block || init.ChildIndex >= consumerIndex)
+            return false;
+        run.Add((init.ChildIndex, -1));
+        foreach (var store in stores)
+            foreach (var statement in store.Consumed)
+            {
+                if (statement.Parent != block || statement.ChildIndex >= consumerIndex)
+                    return false;
+                run.Add((statement.ChildIndex, store.Slot));
+            }
+
+        run.Sort((a, b) => a.Index.CompareTo(b.Index));
+
+        // Contiguous run of distinct statements ending immediately before the
+        // consuming statement: no unrelated statement sits within the fill or
+        // between the fill and the span.
+        if (run[^1].Index != consumerIndex - 1)
+            return false;
+        for (int i = 1; i < run.Count; i++)
+            if (run[i].Index != run[i - 1].Index + 1)
+                return false;
+
+        // Slots non-decreasing across the run (init's sentinel sorts first): the
+        // block order of the element writes matches ascending slot = source order.
+        for (int i = 1; i < run.Count; i++)
+            if (run[i].Slot < run[i - 1].Slot)
+                return false;
+
+        return true;
     }
 
     /// <summary>

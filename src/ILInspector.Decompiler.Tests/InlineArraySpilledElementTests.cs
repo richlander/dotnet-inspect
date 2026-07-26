@@ -103,6 +103,106 @@ public class InlineArraySpilledElementTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void InterleavedStatementBetweenStores_StaysFlat()
+    {
+        // An unrelated side-effecting statement sits between the two element
+        // stores. The raise lifts the elements to the AsSpan site, which would move
+        // their side effects past that statement and silently re-sequence the
+        // program; the shape must stay flat.
+        var function = BuildOrderingCollection(OrderingShape.InterleavedStatement);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<CollectionExpression>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InlineArrayAsReadOnlySpan");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void DescendingSlotOrderStores_StaysFlat()
+    {
+        // The element stores are emitted in descending slot order. The raise
+        // re-sequences them into ascending (source) order, inverting the evaluation
+        // order of the two element values; the shape must stay flat.
+        var function = BuildOrderingCollection(OrderingShape.DescendingSlotOrder);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<CollectionExpression>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InlineArrayAsReadOnlySpan");
+        function.CheckInvariant();
+    }
+
+    enum OrderingShape
+    {
+        InterleavedStatement,
+        DescendingSlotOrder,
+    }
+
+    /// <summary>
+    /// Builds a two-element params ReadOnlySpan&lt;object&gt; collection with direct
+    /// element stores, perturbed to prove the statement-ordering guard.
+    /// <see cref="OrderingShape.InterleavedStatement"/> drops an unrelated
+    /// side-effecting call between the two stores;
+    /// <see cref="OrderingShape.DescendingSlotOrder"/> emits the stores in
+    /// descending slot order. Each is a shape csc never emits but arbitrary IL can,
+    /// and lifting either would re-sequence element side effects — so both must
+    /// leave the collection flat.
+    /// </summary>
+    static IrFunction BuildOrderingCollection(OrderingShape shape)
+    {
+        var block = new Block();
+
+        // <>y__InlineArray2<object> buffer = default; (local 0)
+        block.Add(new InitObject(Buffer, new LoadLocalAddress(0, Buffer)));
+
+        if (shape == OrderingShape.DescendingSlotOrder)
+        {
+            // Store slot 1 before slot 0.
+            block.Add(new StoreIndirect(Object, ElementRef(1), BoxInt(2)));
+            block.Add(new StoreIndirect(Object, ElementRef(0), BoxInt(1)));
+        }
+        else
+        {
+            // Store slot 0, an unrelated side-effecting statement, then slot 1.
+            block.Add(new StoreIndirect(Object, ElementRef(0), BoxInt(1)));
+            block.Add(new ExpressionStatement(Separator()));
+            block.Add(new StoreIndirect(Object, ElementRef(1), BoxInt(2)));
+        }
+
+        // ReadOnlySpan<object> span = InlineArrayAsReadOnlySpan<...>(ref buffer, 2); (local 1)
+        block.Add(new StoreLocal(1, SpanObject, new Call(
+            AsReadOnlySpan(),
+            isVirtual: false,
+            [new LoadLocalAddress(0, Buffer), new Constant(2, Int32)])));
+        block.Add(new Return(null));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(
+            Void,
+            [],
+            HasThis: false,
+            GenericParameterCount: 0);
+        var declaringType = TypeRef.Definition("Synthetic", "", "T");
+        return new IrFunction("M", declaringType, signature, [Buffer, SpanObject], body);
+    }
+
+    static Box BoxInt(int value) => new(Int32, new Constant(value, Int32));
+
+    // A void call with no buffer reference — a standalone side-effecting statement.
+    static Call Separator()
+        => new(
+            new MethodRef(
+                TypeRef.Definition("Synthetic", "", "Fx"),
+                "Separator",
+                Void,
+                [],
+                HasThis: false),
+            isVirtual: false,
+            []);
+
     /// <summary>
     /// Builds the two-element params ReadOnlySpan&lt;object&gt; collection shape:
     /// element 0 is a direct indirect store of <c>box a</c>; element 1's value
