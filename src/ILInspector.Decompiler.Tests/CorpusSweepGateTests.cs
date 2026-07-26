@@ -13,6 +13,9 @@ namespace ILInspector.Decompiler.Tests;
 /// <list type="bullet">
 /// <item>zero pass-bugs — pins the "exception-safe by construction" guarantee
 /// across the whole corpus, not just the curated fixtures;</item>
+/// <item>zero semantic-invariant violations — every method's final IR satisfies
+/// the semantic invariants (local-slot range) that only hold on fully-formed
+/// output, so a pass that leaves a dangling local slot fails here (#3241);</item>
 /// <item><c>Full</c>-fidelity % above a floor — a broad import/print regression
 /// drops it;</item>
 /// <item>fully-raised % above a floor — a broad structuring regression drops it.</item>
@@ -41,6 +44,7 @@ public class CorpusSweepGateTests
     {
         long total = 0, full = 0, fullyRaised = 0;
         var passBugs = new List<string>();
+        var semanticViolations = new List<string>();
 
         using (var source = MetadataSource.Open(CoreLibPath))
         {
@@ -68,6 +72,27 @@ public class CorpusSweepGateTests
                     continue;
                 }
 
+                // Semantic teeth over the corpus (#3241). The suite-wide invariant
+                // level is structural only (fixture-safe); semantic invariants —
+                // e.g. local-slot range — hold only on fully-formed output, so we
+                // assert them here, over real importer+pass output, where they are
+                // true invariants. Call the level explicitly rather than flipping
+                // IrInvariants.CheckSemantics: xUnit runs collections in parallel,
+                // and the global flag would false-positive the minimal-fixture pass
+                // tests. This validates the FINAL tree of every method; per-pass
+                // semantic sweeping (which also catches transient mid-pass shapes)
+                // is available for debugging via the harness with
+                // DOTNET_INSPECT_IR_INVARIANTS=full.
+                try
+                {
+                    function.CheckInvariant(includeSemantics: true);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    if (semanticViolations.Count < 20)
+                        semanticViolations.Add($"{typeName}::{methodName} — {ex.Message}");
+                }
+
                 if (function.Fidelity == DecompilationFidelity.Full)
                     full++;
                 if (Completeness.Residual(function) is null)
@@ -80,6 +105,10 @@ public class CorpusSweepGateTests
         Assert.True(passBugs.Count == 0,
             $"Pipeline must be exception-safe by construction over the whole corpus, but {passBugs.Count} method(s) failed:\n  "
                 + string.Join("\n  ", passBugs));
+
+        Assert.True(semanticViolations.Count == 0,
+            $"Every method's final IR must satisfy the semantic invariants (local-slot range), but {semanticViolations.Count} method(s) violated them:\n  "
+                + string.Join("\n  ", semanticViolations));
 
         double fullPercent = 100.0 * full / total;
         Assert.True(fullPercent >= FullFidelityFloor,
