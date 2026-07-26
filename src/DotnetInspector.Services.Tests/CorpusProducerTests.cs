@@ -189,7 +189,7 @@ public class CorpusProducerTests
 
         Assert.Equal(2, manifest.Entries.Count);
         Assert.Equal(new CorpusManifestEntry(AssemblySetSourceKind.Package, "Pkg", "1.0.0", "net8.0"), manifest.Entries[0]);
-        Assert.Equal(new CorpusManifestEntry(AssemblySetSourceKind.Assembly, @"C:\loose\Local.dll"), manifest.Entries[1]);
+        Assert.Equal(new CorpusManifestEntry(AssemblySetSourceKind.Assembly, Path.GetFullPath(@"C:\loose\Local.dll")), manifest.Entries[1]);
     }
 
     [Fact]
