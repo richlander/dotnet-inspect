@@ -199,14 +199,19 @@ public sealed class ByteNeutralityGateTests
                 [AssemblyPath], [.. specimens.Select(Target)], lowered: false, options)
             .ToDictionary(r => $"{r.Type}::{r.Method}", r => r, StringComparer.Ordinal);
 
-    // Insignificant-whitespace normalization: keep a whitespace run only where it
-    // separates two word characters (so `int alpha` never collapses to `intalpha`, which
-    // would mask a token change), and drop it everywhere else. Two renders that differ
-    // only in layout normalize equal; a render that moved a real token does not.
+    // Insignificant-whitespace normalization: keep a single space only where removing it
+    // would fuse two tokens of the same class — two word characters (so `int alpha` never
+    // collapses to `intalpha`) or two operator characters (so `+ +` never collapses to
+    // `++`) — and drop all other whitespace. A sentinel protects the kept spaces from the
+    // strip that removes the rest, so two renders that differ only in layout normalize
+    // equal while a render that fused a real token does not.
     static string NormalizeWhitespace(string text)
     {
-        var significant = System.Text.RegularExpressions.Regex.Replace(text, @"(?<=\w)\s+(?=\w)", " ");
-        return System.Text.RegularExpressions.Regex.Replace(significant, @"\s+", "").Trim();
+        const string keep = "\u0001";
+        var guarded = System.Text.RegularExpressions.Regex.Replace(
+            text, @"(?<=\w)\s+(?=\w)|(?<=[-+*/%&|^!=<>?:])\s+(?=[-+*/%&|^!=<>?:])", keep);
+        var stripped = System.Text.RegularExpressions.Regex.Replace(guarded, @"\s+", "");
+        return stripped.Replace(keep, " ").Trim();
     }
 
     // Every non-default value token of a byte-neutral knob, across all tiers — the
