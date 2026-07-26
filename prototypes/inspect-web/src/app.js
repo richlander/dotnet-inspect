@@ -3319,20 +3319,49 @@ async function loadSelectedMemberCallGraph() {
         }))
       });
       if (seq !== state.memberCallGraphSeq) return;
+      const previousMermaid = state.memberCallGraph?.mermaid;
       state.memberCallGraph = full;
       state.memberCallGraphExpanding = false;
-      render();
-      renderMermaidCallGraph();
+      patchCallGraphSection(previousMermaid);
     }
   } catch (error) {
     if (seq !== state.memberCallGraphSeq) return;
-    // Keep a good stage-1 graph if the cross-library pass fails; only the expansion is lost.
-    if (!state.memberCallGraph) state.memberCallGraphError = String(error?.message || error);
     state.memberCallGraphLoading = false;
     state.memberCallGraphExpanding = false;
-    render();
-    if (state.memberCallGraph) renderMermaidCallGraph();
+    if (state.memberCallGraph) {
+      // Stage 1 already produced a graph; drop the banner in place rather than
+      // clobbering the page with an error or a full re-render.
+      patchCallGraphSection(state.memberCallGraph.mermaid);
+    } else {
+      state.memberCallGraphError = String(error?.message || error);
+      render();
+    }
   }
+}
+
+// Update just the call-graph section in place so the stage-2 result doesn't flash
+// the whole page. Leaves the stage-1 diagram untouched unless the graph changed.
+function patchCallGraphSection(previousMermaid) {
+  const section = document.querySelector(".call-graph-section");
+  if (!section) return; // not on the call-graph view; state is cached for re-entry.
+  const graph = state.memberCallGraph;
+  const callers = graph?.callers?.children ?? [];
+  const callees = graph?.callees?.children ?? [];
+  const scope = graph?.scope;
+  const countSpan = section.querySelector(".section-title span");
+  if (countSpan) {
+    countSpan.textContent =
+      `${callers.length} caller${callers.length === 1 ? "" : "s"} · ${callees.length} callee${callees.length === 1 ? "" : "s"}`;
+  }
+  section.querySelector(".graph-expanding")?.remove();
+  const scopeEl = section.querySelector(".graph-scope");
+  if (scopeEl && scope) {
+    scopeEl.innerHTML =
+      `<strong>Workspace callers</strong><span>${scope.packages} loaded packages · ${scope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(scope.calleeScope)} · depth 2</span>`;
+  }
+  const sourceCode = section.querySelector(".graph-source pre code");
+  if (sourceCode) sourceCode.textContent = graph?.mermaid ?? "";
+  if (graph?.mermaid && graph.mermaid !== previousMermaid) renderMermaidCallGraph();
 }
 
 async function renderMermaidCallGraph() {
