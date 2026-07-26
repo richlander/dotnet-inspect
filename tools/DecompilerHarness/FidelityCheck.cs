@@ -2146,12 +2146,22 @@ static class FidelityCheck
                 .Select(r => r.ToString()));
 
             // invisible-rune: the Cf broke lexing; dropping it lexes again.
+            // IsValidIdentifier is a character-rules check only (identifier-start
+            // plus identifier-parts) — it says nothing about keywords, and returns
+            // true for 'class'. So when stripping leaves a keyword, dropping alone
+            // would swap a lex error for a bare keyword (measurably worse); the
+            // honest proposal composes both causes: drop the rune *and* escape.
             if (LexErrorIds.Contains(diagnosticId) && SyntaxFacts.IsValidIdentifier(stripped))
             {
+                bool strippedIsKeyword = SyntaxFacts.GetKeywordKind(stripped) != SyntaxKind.None;
+                string to = strippedIsKeyword ? "@" + stripped : stripped;
+                string note = strippedIsKeyword
+                    ? "   (drop the format-category rune, and escape the keyword it exposes)"
+                    : "   (drop the format-category rune)";
                 return new(
                     $"invisible-rune — a format-category rune (Cf) in '{reveal}' breaks the token; C# accepts Cf as an identifier-part but not an identifier-start.",
-                    $"emit  {reveal} → {stripped}   (drop the format-category rune)",
-                    identifier, stripped);
+                    $"emit  {reveal} → {to}{note}",
+                    identifier, to);
             }
 
             // Cf that lexed but failed to bind → unspeakable (non-C# producer).

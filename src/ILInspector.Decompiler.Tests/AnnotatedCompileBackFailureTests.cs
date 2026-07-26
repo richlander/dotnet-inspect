@@ -87,12 +87,16 @@ public class AnnotatedCompileBackFailureTests
 
     // ---- Concrete fixes, held to their claim (apply -> recompile -> clean) ----
 
-    [Fact]
-    public void InvisibleRuneFixIsVerifiedByRecompile()
+    [Theory]
+    // ordinary stem — dropping the rune is sufficient
+    [InlineData("class \u200CFoo { }\n")]
+    // keyword stem — dropping alone would expose the bare keyword 'class', which
+    // is *worse* than the original lex error, so the fix must also escape it
+    [InlineData("class \u200Cclass { }\n")]
+    public void InvisibleRuneFixIsVerifiedByRecompile(string source)
     {
         // A leading Cf is a valid identifier-part but not an identifier-start, so
         // it breaks *lexing* (CS1001). Dropping it is a real fix.
-        string source = "class " + Zwnj + "Foo { }\n";
         Diagnostic err = FirstError(source);
         Assert.Contains(err.Id, new[] { "CS1001", "CS1056" });
 
@@ -101,6 +105,13 @@ public class AnnotatedCompileBackFailureTests
         Assert.StartsWith("invisible-rune", cf!.Value.Cause);
         Assert.NotNull(cf.Value.From);
         Assert.NotNull(cf.Value.To);
+
+        // The proposal must never be a bare reserved keyword. IsValidIdentifier is
+        // a character-rules check and returns true for 'class', so it cannot serve
+        // as the keyword filter.
+        Assert.False(
+            SyntaxFacts.IsReservedKeyword(SyntaxFacts.GetKeywordKind(cf.Value.To!)),
+            $"fix proposed a bare keyword: '{cf.Value.To}'");
 
         string patched = source.Replace(cf.Value.From!, cf.Value.To!);
         Assert.DoesNotContain(Zwnj, patched);
@@ -145,18 +156,20 @@ public class AnnotatedCompileBackFailureTests
     // ---- The former harmful precedence case, now correct ----
 
     [Fact]
-    public void KeywordStemCarryingCfIsNeverConvertedIntoAKeyword()
+    public void LeadingCfOverAKeywordStemProposesTheEscapedForm()
     {
-        // 'class\u200C' is a *legal identifier* - the rune is what makes it legal.
-        // The classifier must never propose `class\u200C -> class`, which would
-        // manufacture a keyword error.
-        FidelityCheck.CauseFix? cf = FidelityCheck.ClassifyCause("class" + Zwnj, 0, 6, "CS0103");
+        // Stripping the rune from '\u200Cclass' leaves 'class'. SyntaxFacts
+        // .IsValidIdentifier("class") is true - it checks character rules only and
+        // knows nothing about keywords - so the proposal must be composed from both
+        // causes: drop the rune *and* escape the keyword it exposes.
+        string source = "class " + Zwnj + "class { }\n";
 
-        if (cf is { } value)
-        {
-            Assert.DoesNotContain("keyword-escape", value.Cause);
-            Assert.NotEqual("class", value.To);
-        }
+        FidelityCheck.CauseFix? cf = Classify(source, FirstError(source));
+
+        Assert.NotNull(cf);
+        Assert.Equal(Zwnj + "class", cf!.Value.From);
+        Assert.Equal("@class", cf.Value.To);
+        Assert.Contains("escape", cf.Value.Fix);
     }
 
     // ---- Fall-through: not every span is a classifiable identifier ----
