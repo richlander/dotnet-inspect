@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Reflection;
 using ILInspector.Decompiler.Pipeline;
 
@@ -67,5 +68,46 @@ public sealed class IrInvariantCheckTests
         ChildIndexField.SetValue(leaf, 7);
 
         Assert.Throws<InvalidOperationException>(root.CheckInvariant);
+    }
+
+    /// <summary>
+    /// The end-to-end teeth test: it does NOT set <see cref="IrInvariants.Enabled"/>
+    /// itself. It relies on the test host's module initializer having turned the
+    /// flag on, and on the pipeline runner honoring it after every pass. A
+    /// corrupting pass breaks the tree; running it through <see cref="IrPasses.Run"/>
+    /// must throw. This is the only test that fails if the module initializer is
+    /// removed, the per-pass gate is deleted, or the runner stops calling
+    /// CheckInvariant — the direct-call tests above would all still pass.
+    /// </summary>
+    [Fact]
+    public void PipelineRunner_UnderTestHost_ThrowsWhenAPassCorruptsTheTree()
+    {
+        Assert.True(IrInvariants.Enabled,
+            "Test host module initializer should have enabled IR invariants for the suite.");
+
+        var (function, block) = MinimalFunction();
+        var passes = ImmutableArray.Create<IIrPass>(new SlotCorruptingPass(block));
+
+        Assert.Throws<InvalidOperationException>(() => IrPasses.Run(function, passes));
+    }
+
+    static (IrFunction Function, Block Block) MinimalFunction()
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var container = new BlockContainer();
+        var block = new Block(0);
+        block.Add(new Return(new Constant(0, intType)));
+        container.Add(block);
+        var signature = new MethodSignature(intType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
+        return (function, block);
+    }
+
+    sealed class SlotCorruptingPass(Block target) : IIrPass
+    {
+        public string Name => "SlotCorrupting(test)";
+
+        public void Run(IrFunction function, PassContext context) =>
+            ChildIndexField.SetValue(target, 99);
     }
 }
