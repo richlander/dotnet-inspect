@@ -430,12 +430,13 @@ public sealed partial class CSharpPrinter
     /// <c>LoadArgument{0,"this"}</c> a reference-type upcast (no IL) leaves. Only a
     /// value type produces this shape (a class <c>this</c> is already a reference).
     /// The <see cref="Box"/> is itself the evidence of the cast, so no interface
-    /// metadata is needed: callers re-spell it as <c>base.M</c> only when the
-    /// non-virtual callee is declared on <see cref="System.ValueType"/> (the
-    /// struct's guaranteed immediate base, where base-suppression binds the exact
-    /// token), and as the erased <c>((T)this).M</c> cast otherwise — a virtual
-    /// call, or a non-virtual call to a base <see cref="System.Object"/> or
-    /// interface member (#3201, #3213). See <see cref="IsSystemValueType"/>.
+    /// metadata is needed: callers re-spell it as <c>base.M</c> when the
+    /// non-virtual callee is declared on one of the struct's base classes
+    /// (<see cref="System.ValueType"/> or <see cref="System.Object"/>, where
+    /// base-suppression reaches the base member and <c>base</c> is the only valid
+    /// spelling for a <c>protected</c> member), and as the erased
+    /// <c>((T)this).M</c> cast otherwise — a virtual call, or a non-virtual call to
+    /// an interface member (#3201, #3213). See <see cref="IsStructBaseClass"/>.
     /// <para>
     /// Gated on the enclosing method having an implicit <c>this</c>: a
     /// <c>static</c> method (or extension method) whose first parameter is spelled
@@ -450,21 +451,29 @@ public sealed partial class CSharpPrinter
             && receiver is Box { Operand: LoadIndirect { Address: LoadArgument { Index: 0, Name: "this" } } };
 
     /// <summary>
-    /// True when <paramref name="type"/> is <c>System.ValueType</c>, a struct's
-    /// guaranteed immediate base. A non-virtual boxed-<c>this</c> call to a member
-    /// declared here is the ONE case a struct can re-spell as <c>base.M()</c>: the
-    /// base is exactly <c>ValueType</c>, so base-suppression (<c>call</c>, no
-    /// virtual dispatch) binds the exact callee token. A non-virtual call to a
-    /// <c>System.Object</c> member instead has no faithful <c>base.</c> spelling
-    /// (base lookup would rebind <c>GetHashCode</c>/<c>Equals</c>/<c>ToString</c>
-    /// to <c>ValueType</c>'s override), and a call to an interface member (a sealed
-    /// default interface member emits a non-virtual <c>call I::M</c>) has no
-    /// <c>base</c> at all (CS0117); both take the erased <c>((T)this).M()</c> cast,
-    /// which is <c>ldobj; box; call T::M</c> — opcode-faithful for a non-virtual
-    /// method like <c>object::GetType</c> and a sealed DIM (#3213 review).
+    /// True when <paramref name="type"/> is one of a struct's two base classes,
+    /// <c>System.ValueType</c> or <c>System.Object</c>. A non-virtual boxed-
+    /// <c>this</c> call to a member declared on a base class re-spells as
+    /// <c>base.M()</c>: base-suppression (<c>call</c>, no virtual dispatch) reaches
+    /// the base member, and <c>base</c> is the ONLY spelling that stays valid for a
+    /// <c>protected</c> base member like <c>object::MemberwiseClone</c> — an
+    /// <c>((object)this).MemberwiseClone()</c> cast is CS1540 (protected access
+    /// through a base-typed qualifier). An interface callee is excluded (a sealed
+    /// default interface member emits a non-virtual <c>call I::M</c>, yet has no
+    /// <c>base</c>: CS0117); it takes the erased <c>((I)this).M()</c> cast, which is
+    /// opcode-faithful <c>ldobj; box; call I::M</c> (#3213 review).
+    /// <para>
+    /// Residual: a non-virtual <c>call</c> to an <em>overridable</em> base member
+    /// that <c>ValueType</c> overrides (e.g. a hand-emitted <c>call
+    /// object::GetHashCode</c>) has no faithful spelling either way — <c>base.</c>
+    /// rebinds to <c>ValueType</c>'s override and a cast re-dispatches
+    /// (<c>callvirt</c>). C# cannot express it, and csc never emits it; the
+    /// <c>base.</c> form here (matching a real <c>base.GetType()</c> call) is a
+    /// best-effort, valid-C# render of that synthetic shape.
+    /// </para>
     /// </summary>
-    static bool IsSystemValueType(TypeRef type)
-        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "ValueType" };
+    static bool IsStructBaseClass(TypeRef type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "ValueType" or "Object" };
 
     /// <summary>Member-access receivers: value-type receivers arrive by address in IL; C# spells the place itself, not its address.</summary>
     string ReceiverText(IrExpression receiver) => receiver switch
@@ -554,16 +563,17 @@ public sealed partial class CSharpPrinter
             return name;
         }
         // A method group through a boxed this to a type the struct was cast to
-        // (base class or interface). Only a non-virtual (ldftn) group to a
-        // ValueType member is base.M — the struct's immediate base, so `base.M`
-        // lowers to exactly `ldobj; box; ldftn ValueType::M` and binds the exact
-        // token. A virtual (ldvirtftn) group, and a non-virtual group to a base
-        // System.Object member (e.g. GetType) or a sealed interface member, are
-        // the erased ((T)this).M upcast — `((T)this).M` lowers to `ldobj; box;
-        // [dup;] ld[virt]ftn T::M`, opcode-faithful for each. Bare (this).M /
-        // this.M would be CS1061 or rebind to the derived override; a base.M to an
-        // interface would be CS0117. Subsumes the struct interface-cast case
-        // (#3201) and the base-class case (#3213).
+        // (base class or interface). A non-virtual (ldftn) group to a base-class
+        // member (ValueType or Object) is base.M — base-suppression reaches the
+        // base member, so `base.M` lowers to `ldobj; box; ldftn T::M`, and base. is
+        // the only valid spelling for a protected base member like
+        // object::MemberwiseClone. A virtual (ldvirtftn) group, and a non-virtual
+        // group to a sealed interface member, are the erased ((T)this).M upcast —
+        // `((T)this).M` lowers to `ldobj; box; [dup;] ld[virt]ftn T::M`,
+        // opcode-faithful for each. Bare (this).M / this.M would be CS1061 or
+        // rebind to the derived override; a base.M to an interface would be CS0117.
+        // Subsumes the struct interface-cast case (#3201) and the base-class case
+        // (#3213).
         // HasThis gates the whole branch: a closed static extension method group
         // (`((object)this).Ext`) shares the `ldobj; box; ldftn` shape but binds the
         // boxed this as its first argument, so its DeclaringType is the static
@@ -572,7 +582,7 @@ public sealed partial class CSharpPrinter
         // receiver ((object)this) the extension already carries.
         if (method.HasThis && IsBoxedThisReceiver(target))
         {
-            if (!isVirtual && IsCrossType(method.DeclaringType) && IsSystemValueType(method.DeclaringType))
+            if (!isVirtual && IsCrossType(method.DeclaringType) && IsStructBaseClass(method.DeclaringType))
                 return $"base.{name}";
             return $"(({TypeText(method.DeclaringType)})this).{name}";
         }
@@ -679,27 +689,26 @@ public sealed partial class CSharpPrinter
         if (IsBoxedThisReceiver(receiver))
         {
             string boxedMethodName = CSharpNaming.SourceMethodName(call.Callee.Name);
-            // A non-virtual call through a boxed this to a System.ValueType member
-            // is base.M(): ValueType is the struct's immediate base, so `base.M()`
-            // lowers to exactly `ldobj; box; call ValueType::M` and base-suppression
-            // binds the exact token. Bare (this).M() here re-dispatches virtually to
-            // the struct's own override — self-recursion or a wrong target (e.g.
-            // GetHashCode calling itself) (#3213). Stays base. even under the
-            // qualify knob. A non-virtual call to a base System.Object member (e.g.
-            // GetType) or a sealed interface member takes the cast arm below, not
-            // base.: base would rebind an object virtual to ValueType's override, or
-            // be CS0117 for an interface — `((object)this).GetType()` /
-            // `((I)this).M()` re-emit the same non-virtual `call T::M` (#3213 review).
-            if (!call.IsVirtual && IsCrossType(call.Callee.DeclaringType) && IsSystemValueType(call.Callee.DeclaringType))
+            // A non-virtual call through a boxed this to a base-class member
+            // (System.ValueType or System.Object) is base.M(): base-suppression
+            // (`call`, no dispatch) reaches the base member and `base.M()` lowers to
+            // `ldobj; box; call T::M`. Bare (this).M() here re-dispatches virtually
+            // to the struct's own override — self-recursion or a wrong target (e.g.
+            // GetHashCode calling itself) (#3213). base. is also the ONLY valid
+            // spelling for a protected base member like object::MemberwiseClone —
+            // ((object)this).MemberwiseClone() is CS1540. Stays base. even under the
+            // qualify knob. A non-virtual call to a sealed interface member takes
+            // the cast arm below, not base.: base would be CS0117 for an interface —
+            // `((I)this).M()` re-emits the same non-virtual `call I::M` (#3213
+            // review).
+            if (!call.IsVirtual && IsCrossType(call.Callee.DeclaringType) && IsStructBaseClass(call.Callee.DeclaringType))
                 return $"base.{boxedMethodName}{typeArguments}({rest})";
-            // A call through a boxed this to a type the struct was cast to (a base
-            // class like object/ValueType, or an interface): ((T)this).M(). The
-            // explicit box is the source's upcast; ((T)this).M() re-emits `ldobj;
-            // box; call[virt] T::M` — callvirt for a virtual callee, call for a
-            // non-virtual one (object::GetType, a sealed DIM). A bare this.M() would
-            // instead emit `constrained. callvirt` (no box) — not opcode-faithful.
-            // Subsumes the struct interface-cast case (#3201) and the base-class
-            // case (#3213).
+            // A call through a boxed this to an interface the struct was cast to:
+            // ((I)this).M(). The explicit box is the source's upcast; ((I)this).M()
+            // re-emits `ldobj; box; call[virt] I::M` — callvirt for a virtual
+            // callee, call for a non-virtual one (a sealed DIM). A bare this.M()
+            // would instead emit `constrained. callvirt` (no box) — not
+            // opcode-faithful. Subsumes the struct interface-cast case (#3201).
             return $"(({TypeText(call.Callee.DeclaringType)})this).{boxedMethodName}{typeArguments}({rest})";
         }
         if (receiver is LoadArgument { Index: 0, Name: "this" })

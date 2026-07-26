@@ -391,22 +391,44 @@ public sealed class ThisQualificationTests
         Assert.DoesNotContain("base.", text);
     }
 
-    // Regression (#3213 review, GPT): a boxed `this` reaching a NON-VIRTUAL
-    // `System.Object` member (`base.GetType()`) renders the `((object)this)` cast,
-    // not `base.`. `base.GetType()` lowers to `ldobj; box; call object::GetType` —
-    // the callee's declaring type is `System.Object`, not the struct's immediate
-    // base `System.ValueType`, so `base.` is not guaranteed token-exact. Because
-    // `GetType` is non-virtual, the cast `((object)this).GetType()` re-emits the
-    // identical `ldobj; box; call object::GetType` (verified IL-equal to the
-    // `base.GetType()` source), so the ValueType-gated arm routes it to the cast
-    // form. Both spellings round-trip; the printer picks the cast.
+    // A boxed `this` reaching a NON-VIRTUAL `System.Object` member
+    // (`base.GetType()`) renders `base.GetType()`. `System.Object` is a struct's
+    // (transitive) base class, so `base.GetType()` lowers to `ldobj; box; call
+    // object::GetType`, matching the source; the printer whitelists both a struct's
+    // base classes (ValueType and Object) for the base arm. `GetType` is public and
+    // non-virtual, so `((object)this).GetType()` would ALSO round-trip, but the
+    // printer prefers `base.` (the source spelling, and the only valid spelling for
+    // a protected base member — see the MemberwiseClone regression) (#3213 review).
     [Fact]
-    public void StructBoxedThis_ObjectNonVirtualCallee_RendersObjectCast()
+    public void StructBoxedThis_ObjectNonVirtualCallee_RendersBaseCall()
     {
         var text = RenderMember(typeof(StructBaseGetType),
             nameof(StructBaseGetType.CallBaseGetType));
-        Assert.Contains("((object)this).GetType()", text);
-        Assert.DoesNotContain("base.", text);
+        Assert.Contains("base.GetType()", text);
+        Assert.DoesNotContain(")this).GetType()", text);
+        Assert.DoesNotContain("(this).GetType()", text);
+    }
+
+    // Regression (#3213 review, Gemini + GPT): a boxed `this` reaching the PROTECTED
+    // `System.Object.MemberwiseClone` renders `base.MemberwiseClone()` — the ONLY
+    // valid spelling. `base.MemberwiseClone()` lowers to `ldobj; box; call
+    // object::MemberwiseClone`; the cast `((object)this).MemberwiseClone()` is
+    // CS1540 (a protected member cannot be accessed through a base-typed qualifier),
+    // so the object-cast fallback that serves public members like `GetType` must NOT
+    // apply here. The base arm whitelisting both base classes (ValueType and Object)
+    // keeps this valid. The method-group form must likewise stay `base.`.
+    [Fact]
+    public void StructBoxedThis_ProtectedObjectCallee_RendersBaseCall()
+    {
+        var call = RenderMember(typeof(StructMemberwiseCloneReceiver),
+            nameof(StructMemberwiseCloneReceiver.CloneCall));
+        Assert.Contains("base.MemberwiseClone()", call);
+        Assert.DoesNotContain(")this).MemberwiseClone", call);
+
+        var group = RenderMember(typeof(StructMemberwiseCloneReceiver),
+            nameof(StructMemberwiseCloneReceiver.CloneGroup));
+        Assert.Contains("base.MemberwiseClone", group);
+        Assert.DoesNotContain(")this).MemberwiseClone", group);
     }
 
     [Fact]
@@ -916,13 +938,26 @@ public struct StructSealedDimReceiver : ISealedDim
 }
 
 // A boxed struct `this` reaching a NON-VIRTUAL `System.Object` member via `base.`
-// (#3213 review, GPT). `base.GetType()` lowers to `ldobj; box; call
-// object::GetType` — the callee's declaring type is `System.Object`, not the
-// struct's immediate base `System.ValueType`. Because `GetType` is non-virtual,
-// `((object)this).GetType()` re-emits the identical `ldobj; box; call
-// object::GetType`, so the ValueType-gated base arm routes it to the cast form
-// (both spellings round-trip; only `System.ValueType` callees stay `base.`).
+// (#3213 review). `base.GetType()` lowers to `ldobj; box; call object::GetType` —
+// `System.Object` is one of a struct's two base classes (with `System.ValueType`),
+// both whitelisted for the `base.` arm, so this renders `base.GetType()`. `GetType`
+// is public and non-virtual, so `((object)this).GetType()` would also round-trip,
+// but the printer prefers the source `base.` spelling.
 public struct StructBaseGetType
 {
     public System.Type CallBaseGetType() => base.GetType();
+}
+
+// A boxed struct `this` reaching the PROTECTED `System.Object.MemberwiseClone` via
+// `base.` (#3213 review, Gemini + GPT). `base.MemberwiseClone()` lowers to `ldobj;
+// box; call object::MemberwiseClone`; the group is `ldobj; box; ldftn
+// object::MemberwiseClone; newobj`. `MemberwiseClone` is protected, so the
+// `((object)this).MemberwiseClone()` cast that serves a public member like
+// `GetType` is CS1540 here — only `base.` compiles, which is why the base arm must
+// whitelist `System.Object` (not just `System.ValueType`).
+public struct StructMemberwiseCloneReceiver
+{
+    public object CloneCall() => base.MemberwiseClone();
+
+    public System.Func<object> CloneGroup() => base.MemberwiseClone;
 }
