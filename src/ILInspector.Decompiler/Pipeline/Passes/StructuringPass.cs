@@ -1318,7 +1318,6 @@ public sealed class StructuringPass : IIrPass
         return false;
     }
 
-    /// <summary>A terminator block that may be inlined into a guard at <paramref name="index"/>.</summary>
     /// <summary>
     /// Snapshots the statements of every block <see cref="IsInlinableTerminator"/> will
     /// report for these inputs. Both <see cref="Ctx"/> factories must build the table
