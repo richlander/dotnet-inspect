@@ -21,6 +21,7 @@ public class ImplicitFinalizerDetectionTests
     static readonly byte[] VoidNullary = [0x20, 0x00, 0x01];       // void Finalize()
     static readonly byte[] VoidOneParam = [0x20, 0x01, 0x01, 0x08]; // void Finalize(int)
     static readonly byte[] IntNullary = [0x20, 0x00, 0x08];         // int Finalize()
+    static readonly byte[] VarargNullary = [0x25, 0x00, 0x01];      // vararg void Finalize()
 
     const MethodAttributes ReuseSlot =
         MethodAttributes.Family | MethodAttributes.Virtual | MethodAttributes.HideBySig;
@@ -112,6 +113,33 @@ public class ImplicitFinalizerDetectionTests
         Assert.False(member.IsFinalizer);
     }
 
+    [Fact]
+    public void VarargFinalize_IsNotClassifiedAsFinalizer()
+    {
+        // A vararg calling convention cannot bind object.Finalize's default-convention
+        // slot, so even a virtual reuse-slot `vararg void Finalize()` over System.Object
+        // must reject — a name-only collision on a different convention is not a finalizer.
+        var member = ExtractMember(
+            BuildImage(new TypeSpec("Handle", BaseKind.Object, new MethodSpec("Finalize", ReuseSlot, VarargNullary))),
+            "Handle",
+            "Finalize");
+
+        Assert.False(member.IsFinalizer);
+    }
+
+    [Fact]
+    public void InAssemblyObjectRoot_DerivedFinalize_IsClassifiedAsFinalizer()
+    {
+        // Inspecting the core library that defines System.Object itself: the genuine
+        // object.Finalize is a NewSlot virtual, so the walk must recognize the in-assembly
+        // System.Object root BEFORE applying the custom-slot rejection.
+        byte[] image = BuildImage(
+            new TypeSpec("Object", BaseKind.Nil, new MethodSpec("Finalize", NewSlot, VoidNullary), Namespace: "System"),
+            new TypeSpec("Derived", BaseKind.Def("Object"), new MethodSpec("Finalize", ReuseSlot, VoidNullary)));
+
+        Assert.True(ExtractMember(image, "Derived", "Finalize").IsFinalizer);
+    }
+
     static ApiMember ExtractMember(byte[] image, string typeName, string memberName)
     {
         using var stream = new MemoryStream(image);
@@ -121,18 +149,19 @@ public class ImplicitFinalizerDetectionTests
         return Assert.Single(type.Members, m => m.Name == memberName);
     }
 
-    enum BaseTag { Object, Exception, Def }
+    enum BaseTag { Object, Exception, Def, Nil }
 
     readonly record struct BaseKind(BaseTag Tag, string? DefName)
     {
         public static readonly BaseKind Object = new(BaseTag.Object, null);
         public static readonly BaseKind Exception = new(BaseTag.Exception, null);
+        public static readonly BaseKind Nil = new(BaseTag.Nil, null);
         public static BaseKind Def(string name) => new(BaseTag.Def, name);
     }
 
     sealed record MethodSpec(string Name, MethodAttributes Attributes, byte[] Signature);
 
-    sealed record TypeSpec(string Name, BaseKind Base, MethodSpec Method);
+    sealed record TypeSpec(string Name, BaseKind Base, MethodSpec Method, string? Namespace = null);
 
     static byte[] BuildImage(params TypeSpec[] types)
     {
@@ -198,7 +227,7 @@ public class ImplicitFinalizerDetectionTests
             };
             var handle = metadata.AddTypeDefinition(
                 TypeAttributes.Public | TypeAttributes.Class,
-                default,
+                types[i].Namespace is { } ns ? metadata.GetOrAddString(ns) : default,
                 metadata.GetOrAddString(types[i].Name),
                 baseHandle,
                 fieldList: MetadataTokens.FieldDefinitionHandle(1),

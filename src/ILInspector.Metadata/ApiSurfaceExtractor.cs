@@ -942,11 +942,15 @@ public static class ApiSurfaceExtractor
                     var baseTypeHandle = (TypeDefinitionHandle)baseHandle;
                     if (!visited.Add(baseTypeHandle))
                         return false; // cyclic base chain in malformed metadata
+                    // Recognize the in-assembly System.Object root before the custom-slot rejection:
+                    // the genuine object.Finalize is itself a NewSlot virtual, so testing
+                    // DeclaresNewVirtualFinalize first would wrongly reject the real root when
+                    // inspecting the core library that defines System.Object.
+                    if (IsSystemObjectType(reader, baseTypeHandle))
+                        return true; // in-assembly System.Object (inspecting the core library itself)
                     var baseType = reader.GetTypeDefinition(baseTypeHandle);
                     if (DeclaresNewVirtualFinalize(reader, baseType))
                         return false; // custom Finalize slot introduced below object — not a destructor
-                    if (IsSystemObjectType(reader, baseTypeHandle))
-                        return true; // in-assembly System.Object (inspecting the core library itself)
                     currentType = baseType;
                     continue;
                 default:
@@ -985,25 +989,40 @@ public static class ApiSurfaceExtractor
     }
 
     /// <summary>
-    /// True when <paramref name="method"/>'s signature is an instance <c>void Method()</c>: a method
-    /// (not property/field) calling convention, no parameters, and a plain <c>void</c> return with no
-    /// custom modifiers or by-ref. This matches the fixed <c>object.Finalize</c> slot signature; a
-    /// mismatch (extra parameters, a non-void return, or a modified return) cannot bind that slot, so
-    /// it rejects — a name-only collision cannot masquerade as a finalizer.
+    /// True when <paramref name="method"/>'s signature is exactly the fixed <c>object.Finalize</c>
+    /// slot signature: an instance (<c>HASTHIS</c>, no explicit <c>this</c>), default-calling-convention,
+    /// non-generic method with no parameters and a plain <c>void</c> return (no custom modifiers or
+    /// by-ref). A vararg or generic calling convention, an explicit-this or static signature, extra
+    /// parameters, or a non-void/modified return cannot bind that slot and rejects — so a name-only
+    /// collision cannot masquerade as a finalizer. A malformed or truncated signature blob is treated
+    /// as a non-match (returns false) rather than throwing.
     /// </summary>
     private static bool HasVoidNullaryInstanceSignature(MetadataReader reader, MethodDefinition method)
     {
-        var blob = reader.GetBlobReader(method.Signature);
-        var header = blob.ReadSignatureHeader();
-        if (header.Kind != SignatureKind.Method)
+        try
+        {
+            var blob = reader.GetBlobReader(method.Signature);
+            var header = blob.ReadSignatureHeader();
+            // object.Finalize is `instance void ()` with the default managed calling convention.
+            // Reject anything else: field/property sigs, vararg/unmanaged conventions, generic
+            // methods, static signatures, and explicit-this.
+            if (header.Kind != SignatureKind.Method
+                || header.CallingConvention != SignatureCallingConvention.Default
+                || header.IsGeneric
+                || !header.IsInstance
+                || header.HasExplicitThis)
+                return false;
+            if (blob.ReadCompressedInteger() != 0) // parameter count
+                return false;
+            // Return type: a plain ELEMENT_TYPE_VOID. Any leading custom modifier or by-ref token is
+            // read here instead of Void and correctly rejects.
+            return blob.ReadSignatureTypeCode() == SignatureTypeCode.Void;
+        }
+        catch (BadImageFormatException)
+        {
+            // A truncated or otherwise malformed signature blob is not the object.Finalize slot.
             return false;
-        if (header.IsGeneric)
-            blob.ReadCompressedInteger(); // generic parameter count
-        if (blob.ReadCompressedInteger() != 0) // parameter count
-            return false;
-        // Return type: a plain ELEMENT_TYPE_VOID. Any leading custom modifier or by-ref token is
-        // read here instead of Void and correctly rejects.
-        return blob.ReadSignatureTypeCode() == SignatureTypeCode.Void;
+        }
     }
 
     /// <summary>
