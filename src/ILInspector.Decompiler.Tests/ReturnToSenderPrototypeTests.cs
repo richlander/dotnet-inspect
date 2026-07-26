@@ -1319,6 +1319,111 @@ public class ReturnToSenderPrototypeTests
     }
 
     [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceWithSignatureDriftFallsBackWithoutRecompileFail()
+    {
+        // Regression guard: the external explicit-interface gate must compare full
+        // signatures, not just name + generic arity. The target is compiled against a
+        // reference interface method `int M(int)`, but the copy of that interface resolved
+        // at reconstruction time (the sibling on disk) declares `int M(string)`. A
+        // name+arity-only gate would engage and emit `int RtsDrift.IProbe.M(int)`, which
+        // binds to no member of the resolved interface (CS0539 = RecompileFail). The gate
+        // must decline and keep the sanitized ContextFail floor.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        var referenceDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        // Reference build the target compiles against: M takes an int.
+        var referencePath = CompileFixture(
+            "namespace RtsDrift { public interface IProbe { int M(int value); } }",
+            directory: referenceDir,
+            assemblyName: "RtsDriftContracts");
+        // Drifted build placed next to the target: same type, but M takes a string.
+        CompileFixture(
+            "namespace RtsDrift { public interface IProbe { int M(string value); } }",
+            directory: fixtureDir,
+            assemblyName: "RtsDriftContracts");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class DriftImpl : RtsDrift.IProbe
+            {
+                int RtsDrift.IProbe.M(int value) => value;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(referencePath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "DriftImpl",
+                    "RtsDrift.IProbe.M",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsDrift_IProbe_M", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsDrift.IProbe.M", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+            if (Directory.Exists(referenceDir))
+                Directory.Delete(referenceDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CompileBackTargets_ExternalExplicitInterfaceWithAmbiguousDefinitionFallsBackWithoutRecompileFail()
+    {
+        // Regression guard: the reconstructed base list names the interface by display name
+        // only, with no extern alias, so it must be defined by exactly one assembly across
+        // the recompile closure. Here two sibling assemblies both define `RtsDup.IShape`.
+        // Engaging would emit `: RtsDup.IShape`, which the recompile cannot disambiguate
+        // (CS0433 = RecompileFail). The gate must decline and keep the sanitized floor.
+        var fixtureDir = Path.Combine(Path.GetTempPath(), $"return-to-sender-{Guid.NewGuid():N}");
+        const string interfaceSource =
+            "namespace RtsDup { public interface IShape { int M(int value); } }";
+        var primaryPath = CompileFixture(
+            interfaceSource,
+            directory: fixtureDir,
+            assemblyName: "RtsDupPrimary");
+        CompileFixture(
+            interfaceSource,
+            directory: fixtureDir,
+            assemblyName: "RtsDupSecondary");
+        var assemblyPath = CompileFixture(
+            """
+            public sealed class DupImpl : RtsDup.IShape
+            {
+                int RtsDup.IShape.M(int value) => value;
+            }
+            """,
+            directory: fixtureDir,
+            assemblyName: "fixture",
+            additionalReferences: [MetadataReference.CreateFromFile(primaryPath)]);
+        try
+        {
+            var result = Assert.Single(ReturnToSender.CompileBackTargets(
+                assemblyPath,
+                [new ReturnToSender.RequestedTarget(
+                    "DupImpl",
+                    "RtsDup.IShape.M",
+                    0)]));
+
+            Assert.True(
+                result.Status != FidelityCheck.CompileBackStatus.RecompileFail,
+                $"{result.Status}: {result.Detail}{Environment.NewLine}{result.Source}");
+            Assert.Contains("RtsDup_IShape_M", result.Source, StringComparison.Ordinal);
+            Assert.DoesNotContain("RtsDup.IShape.M", result.Source, StringComparison.Ordinal);
+        }
+        finally
+        {
+            DeleteFixture(assemblyPath);
+        }
+    }
+
+    [Fact]
     public void CompileBackTargets_RoundTripsGenericExplicitInterfaceMethod()
     {
         // A generic method on a non-generic interface implemented explicitly keeps its method

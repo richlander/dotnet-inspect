@@ -416,7 +416,11 @@ internal sealed record ExternalInterfaceReferenceInfo(
     string DisplayFullName,
     AssemblyReferenceIdentity AssemblyIdentity);
 
-internal sealed record ExternalInterfaceRequiredMethod(string Name, int GenericArity);
+internal sealed record ExternalInterfaceRequiredMethod(
+    string Name,
+    int GenericArity,
+    string ReturnType,
+    ImmutableArray<string> ParameterTypes);
 
 public static class CompileBackSourceComposer
 {
@@ -1459,6 +1463,40 @@ public static class CompileBackSourceComposer
                 return null;
             }
 
+            // Name + arity alone are signature-blind: a resolved interface method whose
+            // parameter or return types differ from what the target actually implements
+            // (e.g. a rolled-forward dependency, or a reference resolved to a different
+            // build than the target was compiled against) would still match here, and the
+            // reconstructed explicit member would bind to no interface member (CS0539 =
+            // RecompileFail). Require the full decoded signatures to agree; on any mismatch
+            // (or a signature we cannot decode) decline and keep the ContextFail floor.
+            MethodSignature<string> targetSignature;
+            try
+            {
+                var targetMethodDefinition = reader.GetMethodDefinition(targetMethod);
+                targetSignature = targetMethodDefinition.DecodeSignature(
+                    SignatureDecoder.Instance,
+                    GenericContext.ForMethod(reader, targetType, targetMethodDefinition));
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                return null;
+            }
+            if (!string.Equals(targetSignature.ReturnType, requiredMethod.ReturnType, StringComparison.Ordinal)
+                || !targetSignature.ParameterTypes.SequenceEqual(requiredMethod.ParameterTypes, StringComparer.Ordinal))
+            {
+                return null;
+            }
+
+            // The interface is named in the reconstructed base list by its display full name
+            // only. C# resolves that name against the whole recompile reference set with no
+            // way to disambiguate (RTS does not emit extern aliases), so if more than one
+            // referenced assembly defines that type the emitted source is ambiguous (CS0433 =
+            // RecompileFail). Engage only when the interface has a single definition across
+            // the recompile closure; otherwise decline and keep the ContextFail floor.
+            if (!ExternalInterfaceDefinitionIsUnique(assemblyPath, interfaceReference))
+                return null;
+
             string explicitInterfaceMemberName =
                 $"{interfaceReference.DisplayFullName}.{Identifier(declarationName)}";
             return new ExternalExplicitInterfaceMethodInfo(
@@ -1481,7 +1519,7 @@ public static class CompileBackSourceComposer
         // explicit-impl target is an unbounded slowdown. The resolver itself is also
         // cached per target assembly, and negative results are cached so an
         // unresolvable interface is not retried.
-        string cacheKey = $"{assemblyPath}|{interfaceReference.MetadataFullName}";
+        string cacheKey = $"{assemblyPath}|{interfaceReference.AssemblyIdentity}|{interfaceReference.MetadataFullName}";
         var cached = _externalInterfaceSurfaces.GetOrAdd(cacheKey, _ =>
         {
             var resolver = _externalInterfaceResolvers.GetOrAdd(assemblyPath, static path =>
@@ -1519,6 +1557,59 @@ public static class CompileBackSourceComposer
 
     static readonly ConcurrentDictionary<string, IReadOnlyList<ExternalInterfaceRequiredMethod>?> _externalInterfaceSurfaces =
         new(StringComparer.Ordinal);
+
+    static readonly ConcurrentDictionary<string, bool> _externalInterfaceDefinitionUnique =
+        new(StringComparer.Ordinal);
+
+    // The reconstructed base list names the external interface by display name only. C#
+    // resolves that name against the entire recompile reference set (the same closure
+    // ReturnToSender.CompilationReferences builds from resolver.ResolveAll(), deduplicated
+    // by simple assembly name), with no way to disambiguate two assemblies that define the
+    // same full type name (CS0433). Engage only when exactly one distinct-simple-name
+    // managed assembly in that closure actually defines the interface as a TypeDefinition;
+    // type forwarders are ExportedType rows (not definitions) and so never count. Any
+    // ambiguity, or an inability to prove a single definition, declines to keep the floor.
+    static bool ExternalInterfaceDefinitionIsUnique(
+        string assemblyPath,
+        ExternalInterfaceReferenceInfo interfaceReference)
+    {
+        string cacheKey = $"{assemblyPath}|{interfaceReference.AssemblyIdentity}|{interfaceReference.MetadataFullName}";
+        return _externalInterfaceDefinitionUnique.GetOrAdd(cacheKey, _ =>
+        {
+            var resolver = _externalInterfaceResolvers.GetOrAdd(assemblyPath, static path =>
+                new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(path)
+                {
+                    AllowPlatformAssemblyVersionRollForward = true,
+                    ExcludeTargetAssembly = true,
+                }));
+
+            var definingSimpleNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var dependency in resolver.ResolveAll())
+            {
+                if (!ManagedReferenceFilter.IsManagedAssembly(dependency.Path))
+                    continue;
+                try
+                {
+                    using var stream = File.OpenRead(dependency.Path);
+                    using var peReader = new PEReader(stream);
+                    if (!peReader.HasMetadata)
+                        continue;
+                    var dependencyReader = peReader.GetMetadataReader();
+                    if (TypeProducer.FindType(dependencyReader, interfaceReference.MetadataFullName) is null)
+                        continue;
+                    definingSimpleNames.Add(Path.GetFileNameWithoutExtension(dependency.Path));
+                    if (definingSimpleNames.Count > 1)
+                        return false;
+                }
+                catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException or ArgumentException)
+                {
+                    // A dependency we cannot inspect cannot be shown to define the type; skip it.
+                }
+            }
+
+            return definingSimpleNames.Count == 1;
+        });
+    }
 
     static bool TryCollectExternalInterfaceMethods(
         ResolvedAssemblyReference assembly,
@@ -1599,9 +1690,14 @@ public static class CompileBackSourceComposer
                 return false;
             }
 
+            var requiredSignature = method.DecodeSignature(
+                SignatureDecoder.Instance,
+                GenericContext.ForMethod(reader, interfaceDef, method));
             methods.Add(new ExternalInterfaceRequiredMethod(
                 methodName,
-                method.GetGenericParameters().Count));
+                method.GetGenericParameters().Count,
+                requiredSignature.ReturnType,
+                requiredSignature.ParameterTypes));
         }
 
         foreach (var implementationHandle in interfaceDef.GetInterfaceImplementations())
