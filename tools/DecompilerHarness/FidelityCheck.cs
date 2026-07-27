@@ -2039,6 +2039,8 @@ static class FidelityCheck
     /// something the reader can see, and the caret sits on a <c>//</c> comment so
     /// the whole block stays valid C# inside a code fence. Null when the
     /// diagnostic carries no in-source location (nothing to point at).
+    /// When the failure matches an enumerated cause (see <see cref="ClassifyCause"/>),
+    /// a <c>cause:</c> and paired <c>fix:</c> line follow on the caret gutter.
     /// </summary>
     internal static string? RenderAnnotatedFailure(string source, Diagnostic? diagnostic)
     {
@@ -2077,7 +2079,147 @@ static class FidelityCheck
         sb.Append(revealed).Append('\n');
         sb.Append(indent).Append("//").Append(' ', pad).Append('^', caretLen)
           .Append(' ').Append(diagnostic.Id).Append(": ").Append(diagnostic.GetMessage());
+
+        // Layer 3 (#3256): classify the failure into a cause + paired fix on the
+        // same gutter as the caret, when the fix is derivable from the failing
+        // token and holds against the compiler. Falls through silently otherwise.
+        if (ClassifyCause(raw, startCol, endCol, diagnostic.Id) is { } classified)
+        {
+            sb.Append('\n').Append(indent).Append("//  cause: ").Append(classified.Cause);
+            sb.Append('\n').Append(indent).Append("//  fix:   ").Append(classified.Fix);
+        }
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// A classified recompile failure: a <c>cause</c> and a paired <c>fix</c>, and
+    /// (for a concrete <c>emit A → B</c> fix) the raw <see cref="From"/>/<see cref="To"/>
+    /// tokens so the claim is checkable — applying <c>From → To</c> to the emitted
+    /// source and recompiling must clear the diagnostic. A policy fix (no exact
+    /// source form) leaves both null.
+    /// </summary>
+    internal readonly record struct CauseFix(string Cause, string Fix, string? From, string? To);
+
+    // Lexer/parser diagnostics: the failing rune broke *tokenization* (as opposed
+    // to a binding error, where the token lexed fine but resolved wrong). IDs are
+    // locale-stable, unlike GetMessage(), so gating on them keeps the classifier
+    // free of message parsing.
+    static readonly HashSet<string> LexErrorIds = new(StringComparer.Ordinal) { "CS1001", "CS1056" };
+
+    /// <summary>
+    /// Layer 3 (#3256): maps a recompile-failure span to an enumerated
+    /// <c>(cause, fix)</c> pair, or null to fall through to the bare layer 1–2
+    /// render. Honesty rule: classify only what holds against the shipped compiler.
+    /// C# treats a Unicode format rune (Cf, e.g. U+200C) as an identifier-<em>part</em>
+    /// but not an identifier-<em>start</em>, and it strips Cf when comparing
+    /// identifiers and when emitting metadata names. So:
+    /// <list type="bullet">
+    /// <item>A Cf that broke <em>lexing</em> (leading Cf → a lex-error id) is
+    /// <c>invisible-rune</c>: dropping it yields a legal identifier — a concrete,
+    /// recompile-verifiable fix.</item>
+    /// <item>A Cf that lexed but failed to <em>bind</em> is <c>unspeakable-name</c>:
+    /// Roslyn strips Cf from emitted metadata, so a bound name carrying one came
+    /// from a non-C# producer and no C# spelling reaches it (policy fix, no delta).</item>
+    /// <item>An exact reserved keyword written bare is <c>keyword-escape</c>: the
+    /// verbatim <c>@</c> is the fix.</item>
+    /// </list>
+    /// namespace-shadow and signature-drift need the ground-truth original for the
+    /// specific failing token (not available here) and are intentionally omitted.
+    /// </summary>
+    internal static CauseFix? ClassifyCause(string lineText, int spanStart, int spanEnd, string diagnosticId)
+    {
+        spanStart = Math.Clamp(spanStart, 0, lineText.Length);
+        spanEnd = Math.Clamp(spanEnd, spanStart, lineText.Length);
+        string spanToken = lineText[spanStart..spanEnd];
+
+        // The span often points at a single offending char (a leading Cf), not the
+        // whole token, so widen it to the enclosing identifier for Cf reasoning.
+        string identifier = EnclosingIdentifier(lineText, spanStart, spanEnd);
+        bool hasFormatRune = identifier.EnumerateRunes()
+            .Any(r => Rune.GetUnicodeCategory(r) == UnicodeCategory.Format);
+
+        if (hasFormatRune)
+        {
+            string reveal = RevealToken(identifier);
+            string stripped = string.Concat(identifier.EnumerateRunes()
+                .Where(r => Rune.GetUnicodeCategory(r) != UnicodeCategory.Format)
+                .Select(r => r.ToString()));
+
+            // invisible-rune: the Cf broke lexing; dropping it lexes again.
+            // IsValidIdentifier is a character-rules check only (identifier-start
+            // plus identifier-parts) — it says nothing about keywords, and returns
+            // true for 'class'. So when stripping leaves a keyword, dropping alone
+            // would swap a lex error for a bare keyword (measurably worse); the
+            // honest proposal composes both causes: drop the rune *and* escape.
+            if (LexErrorIds.Contains(diagnosticId) && SyntaxFacts.IsValidIdentifier(stripped))
+            {
+                bool strippedIsKeyword = SyntaxFacts.GetKeywordKind(stripped) != SyntaxKind.None;
+                string to = strippedIsKeyword ? "@" + stripped : stripped;
+                string note = strippedIsKeyword
+                    ? "   (drop the format-category rune, and escape the keyword it exposes)"
+                    : "   (drop the format-category rune)";
+                return new(
+                    $"invisible-rune — a format-category rune (Cf) in '{reveal}' breaks the token; C# accepts Cf as an identifier-part but not an identifier-start.",
+                    $"emit  {reveal} → {to}{note}",
+                    identifier, to);
+            }
+
+            // Cf that lexed but failed to bind → unspeakable (non-C# producer).
+            return new(
+                $"unspeakable-name — '{reveal}' carries a format-category rune (Cf) that C# strips from identifiers, so no source spelling matches the metadata name.",
+                "no exact source form — emit a speakable alias or exclude from round-trip.",
+                null, null);
+        }
+
+        // keyword-escape: keyword recognition uses the raw lexeme, so this fires
+        // only on an exact reserved keyword — 'class', not 'class\u200C'.
+        if (SyntaxFacts.IsReservedKeyword(SyntaxFacts.GetKeywordKind(spanToken)))
+        {
+            return new(
+                $"keyword-escape — emitted identifier '{spanToken}' is a C# keyword written bare.",
+                $"emit  {spanToken} → @{spanToken}",
+                spanToken, "@" + spanToken);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Widens a diagnostic span to the identifier that encloses it. C# identifier
+    /// spans in recompile diagnostics frequently point at a single character (a
+    /// leading Cf, or the <c>&lt;</c> of a generated name) rather than the whole
+    /// token; the cause classifier needs the surrounding identifier to reason about
+    /// it. Returns the span text unchanged when it is not inside an identifier.
+    /// </summary>
+    static string EnclosingIdentifier(string lineText, int spanStart, int spanEnd)
+    {
+        int start = spanStart, end = spanEnd;
+        while (start > 0 && SyntaxFacts.IsIdentifierPartCharacter(lineText[start - 1]))
+            start--;
+        while (end < lineText.Length && SyntaxFacts.IsIdentifierPartCharacter(lineText[end]))
+            end++;
+        return lineText[start..end];
+    }
+
+    static string RevealToken(string token) =>
+        string.Concat(token.EnumerateRunes().Select(RevealRune));
+
+    /// <summary>
+    /// Rune-aware sibling of the char-based caret-line reveal: substitutes a
+    /// visible token for a format/control/non-spacing rune, handling non-BMP runes
+    /// (whose surrogate halves the char overload would miss) so the <c>fix:</c>
+    /// line never prints the very character it is meant to expose.
+    /// </summary>
+    static string RevealRune(Rune r)
+    {
+        if (r.Value == 0x200C)
+            return "\u2039ZWNJ\u203A";
+        if (r.Value == 0x200D)
+            return "\u2039ZWJ\u203A";
+        return Rune.GetUnicodeCategory(r)
+            is UnicodeCategory.Format or UnicodeCategory.Control or UnicodeCategory.NonSpacingMark
+            ? $"\u2039U+{r.Value:X4}\u203A"
+            : r.ToString();
     }
 
     /// <summary>
