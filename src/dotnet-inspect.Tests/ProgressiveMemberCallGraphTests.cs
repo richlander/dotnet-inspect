@@ -57,6 +57,21 @@ public class ProgressiveMemberCallGraphTests
         Assert.Empty(ping.Children);
     }
 
+    // The scoped first paint decodes only the target body, so an in-assembly callee whose own body
+    // is not yet decoded must read as bounded/unknown (DepthLimited), never as a proven Leaf that
+    // would falsely claim the callee is terminal.
+    [Fact]
+    public void Callees_ScopedFirstPaint_MarksInAssemblyCalleeBounded()
+    {
+        int runOuter = MemberToken(CallerPath, "Entry", "RunOuter");
+        var graph = ProgressiveMemberCallGraph.Open(CallerPath, runOuter, NullResolver, [TargetPath]);
+
+        var view = graph.Callees();
+
+        var run = Child(view.CalleeRoot!, "Run");
+        Assert.Equal(Analysis.CallTreeStatus.DepthLimited, run.Status);
+    }
+
     // A consumer that wants the whole graph calls a later tier directly and pays exactly one full
     // build — the scoped build is never made — and gets both roots.
     [Fact]
@@ -184,5 +199,26 @@ public class ProgressiveMemberCallGraphTests
             [CallGraphTier.Callees, CallGraphTier.Callers, CallGraphTier.CrossLibrary],
             layers);
         Assert.Equal(1, completed);
+    }
+
+    // Cancellation is observed BEFORE each tier is acquired: cancelling in the first LayerReady
+    // handler must stop the next (more expensive) tier from building at all.
+    [Fact]
+    public void RunAsync_CancelInFirstLayer_DoesNotBuildNextTier()
+    {
+        int runOuter = MemberToken(CallerPath, "Entry", "RunOuter");
+        var graph = ProgressiveMemberCallGraph.Open(CallerPath, runOuter, NullResolver, [TargetPath]);
+
+        using var cts = new CancellationTokenSource();
+        var layers = new List<CallGraphTier>();
+        graph.LayerReady += (_, view) => { layers.Add(view.Tier); cts.Cancel(); };
+
+        MethodBodyInspectionSession.OpenCountForTests = 0;
+        var task = graph.RunAsync(cts.Token);
+        Assert.ThrowsAny<OperationCanceledException>(() => task.GetAwaiter().GetResult());
+
+        Assert.Equal([CallGraphTier.Callees], layers);
+        // Only the scoped first-paint build ran; Callers() was never reached.
+        Assert.Equal(1, MethodBodyInspectionSession.OpenCountForTests);
     }
 }

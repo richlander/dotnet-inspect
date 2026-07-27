@@ -12,6 +12,15 @@ namespace Shared
         // (a package boundary), proving the forward map deepens a callee chain across assemblies.
         public static void RunOuter() => Run();
 
+        // #3266 fan-out fixture: two call sites to the same callee. The cross-assembly callee tree
+        // dedups to one Echo child but must still report a fan-out of 2 (true call-site count).
+        // Echo is used so this does not perturb the exact-count caller-graph tests rooted at Ping.
+        public static void RunTwice()
+        {
+            Target.GenericApi.Echo(1);
+            Target.GenericApi.Echo(1);
+        }
+
         // Distinct callers of the int and string Ping overloads. A caller graph rooted at one
         // overload must report only its own caller; a CallerGraphKey that drops parameter
         // types would collapse these onto Ping and cross-link them (#1623 rung 1).

@@ -691,6 +691,43 @@ public class LibraryBodyIndexTests
         Assert.Equal(FlattenCallTree(single), FlattenCallTree(fallback));
     }
 
+    // #3266 (review): a callee whose defining assembly is not in scope stays External even with a
+    // non-empty scope list — Run -> Ping with only an unrelated caller assembly scoped keeps Ping
+    // External (its own body was never decoded), not a false Leaf.
+    [Fact]
+    public void BuildCallTree_WithScope_MarksUndecodedExternalCalleeAsExternal()
+    {
+        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var twinIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCallerTwin.AssemblyPath());
+        var targetAssemblyName = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath())
+            .Methods.First().AssemblyName;
+
+        var run = callerIndex.Methods.First(method =>
+            method.DeclaringType.Name == "Entry" && method.Name == "Run" && method.ParameterTypes.Length == 0);
+
+        // The twin scope does not define Target.Api.Ping, so Ping's body is never decoded.
+        var tree = callerIndex.BuildCallTree(run.MetadataToken, new[] { twinIndex }, maxDepth: 3, maxNodes: 50);
+
+        var ping = Assert.Single(tree.Children, child => child.Member.Name == "Ping");
+        Assert.Equal(CallTreeStatus.External, ping.Status);
+        Assert.Equal(targetAssemblyName, ping.Perf?.Source);
+    }
+
+    // #3266 (review): fan-out reports the true outbound call-site count, independent of the
+    // deduplication that collapses repeat call sites to one child — RunTwice calls Echo twice.
+    [Fact]
+    public void BuildCallTree_WithScope_ReportsCallSiteFanoutForRepeatedCallee()
+    {
+        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+
+        var runTwice = callerIndex.Methods.First(method => method.Name == "RunTwice");
+        var tree = callerIndex.BuildCallTree(runTwice.MetadataToken, new[] { targetIndex }, maxDepth: 2, maxNodes: 50);
+
+        Assert.Single(tree.Children, child => child.Member.Name == "Echo");
+        Assert.Equal(2, tree.Perf?.Fanout);
+    }
+
     static List<string> FlattenCallTree(CallTreeNode root)
     {
         var lines = new List<string>();

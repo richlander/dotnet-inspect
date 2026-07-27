@@ -1732,7 +1732,11 @@ public sealed class LibraryBodyIndex
 
             if (key.Length == 0 || !forward.TryGetValue(key, out var rawEdges))
             {
-                var leafStatus = key.Length == 0 && depth > 0 ? CallTreeStatus.External : CallTreeStatus.Leaf;
+                // A callee whose defining assembly was never decoded (Unsupported, or a real member
+                // whose home assembly is not in scope) is an unexpandable boundary, not a proven
+                // leaf. Only a decoded definition (present in the definitions map) with no outbound
+                // edges is a genuine leaf.
+                var leafStatus = depth > 0 && def is null ? CallTreeStatus.External : CallTreeStatus.Leaf;
                 return new CallTreeNode(member, kind, leafStatus, [], new CallTreePerf(0, fanin, 1, inLoop, loopHint, null, sig, source));
             }
 
@@ -1745,7 +1749,9 @@ public sealed class LibraryBodyIndex
                 .OrderBy(edge => edge.CalleeKey, StringComparer.Ordinal)
                 .ToList();
 
-            var fanout = edges.Count;
+            // Fan-out is the true outbound call-site count (matching the single-assembly builder),
+            // independent of the deduplication that collapses repeat call sites into one child.
+            var fanout = rawEdges.Count;
             if (depth >= maxDepth)
                 return new CallTreeNode(member, kind, CallTreeStatus.DepthLimited, [], new CallTreePerf(fanout, fanin, 1, inLoop, loopHint, null, sig, source));
             if (!expanded.Add(key))

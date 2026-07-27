@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using ILInspector.Metadata;
@@ -138,10 +140,35 @@ public sealed class ProgressiveMemberCallGraph
     /// </summary>
     public MemberCallGraphView Callees()
     {
-        var index = ScopedOrFullIndex;
-        int calleeDepth = _fullSession is not null ? _depth : 1;
-        var calleeRoot = index.BuildCallTree(_memberToken, maxDepth: calleeDepth, maxNodes: _maxNodes);
-        return new MemberCallGraphView(CallGraphTier.Callees, calleeRoot, CallerRoot: null);
+        if (_fullSession is not null)
+        {
+            var full = _fullSession.BodyIndex.BuildCallTree(_memberToken, maxDepth: _depth, maxNodes: _maxNodes);
+            return new MemberCallGraphView(CallGraphTier.Callees, full, CallerRoot: null);
+        }
+
+        // Scoped first paint: only the target body was decoded, so its immediate callees appear but
+        // their own bodies are unknown. A single-body build reports an undecoded in-assembly callee
+        // as a Leaf (no outbound edges found), which would falsely claim the callee is terminal;
+        // restamp those depth-1 callees as DepthLimited (bounded/unknown) until a fuller tier
+        // decodes them.
+        var scopedRoot = ScopedOrFullIndex.BuildCallTree(_memberToken, maxDepth: 1, maxNodes: _maxNodes);
+        return new MemberCallGraphView(CallGraphTier.Callees, MarkImmediateCalleesBounded(scopedRoot), CallerRoot: null);
+    }
+
+    // The scoped single-body build cannot see any callee's own body, so it reports every immediate
+    // callee that resolves in-assembly as a Leaf. Restamp those as DepthLimited so the first paint
+    // never asserts a callee is terminal; External and other boundary statuses are already correct.
+    static Analysis.CallTreeNode MarkImmediateCalleesBounded(Analysis.CallTreeNode root)
+    {
+        if (root.Children.IsDefaultOrEmpty)
+            return root;
+
+        var children = root.Children
+            .Select(child => child.Status == Analysis.CallTreeStatus.Leaf
+                ? child with { Status = Analysis.CallTreeStatus.DepthLimited }
+                : child)
+            .ToImmutableArray();
+        return root with { Children = children };
     }
 
     /// <summary>
@@ -197,12 +224,21 @@ public sealed class ProgressiveMemberCallGraph
         => Task.Run(
             () =>
             {
-                foreach (var view in Tiers())
+                // Observe cancellation before requesting each tier, so a cancelling LayerReady
+                // handler stops the next (more expensive) build from running.
+                cancellationToken.ThrowIfCancellationRequested();
+                LayerReady?.Invoke(this, Callees());
+
+                cancellationToken.ThrowIfCancellationRequested();
+                LayerReady?.Invoke(this, Callers());
+
+                if (HasCrossLibraryScope)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    LayerReady?.Invoke(this, view);
+                    LayerReady?.Invoke(this, CrossLibrary());
                 }
 
+                cancellationToken.ThrowIfCancellationRequested();
                 Completed?.Invoke(this, EventArgs.Empty);
             },
             cancellationToken);
@@ -242,18 +278,14 @@ public sealed class ProgressiveMemberCallGraph
         var scopes = new List<Analysis.LibraryBodyIndex>();
         foreach (var scopePath in _crossLibraryAssemblies)
         {
-            try
-            {
-                scopes.Add(MethodBodyInspectionSession.Open(
-                    scopePath,
-                    _resolverFactory(scopePath),
-                    includeAllocations: true,
-                    includeOpportunities: false).BodyIndex);
-            }
-            catch
-            {
-                // Cross-library scope is best-effort; an unreadable package contributes no edges.
-            }
+            // Surface acquisition failures instead of swallowing them: an unreadable or missing
+            // cross-library package must fail the request, not silently yield a success-shaped graph
+            // that hides the boundary-crossing edges it should have contributed.
+            scopes.Add(MethodBodyInspectionSession.Open(
+                scopePath,
+                _resolverFactory(scopePath),
+                includeAllocations: true,
+                includeOpportunities: false).BodyIndex);
         }
 
         return scopes;
