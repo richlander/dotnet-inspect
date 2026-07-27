@@ -698,6 +698,33 @@ function completions() {
   return entries.filter(entry => entry.value.toLowerCase().includes(needle)).slice(0, 8);
 }
 
+function commandSuggestionsHtml(items) {
+  return `${items.map((item, index) => `
+      <button class="suggestion ${index === state.completionIndex ? "selected" : ""}" data-completion="${escapeHtml(item.value)}">
+        <strong>${escapeHtml(item.value)}</strong><span>${escapeHtml(item.hint)}</span><small>${escapeHtml(item.kind)}</small>
+      </button>`).join("")}
+      <div class="suggestion-help"><span>↑↓ select</span><span>tab complete</span><span>enter run</span><span>esc dismiss</span></div>`;
+}
+
+function bindCommandCompletionClicks(root) {
+  root.querySelectorAll("[data-completion]").forEach(button => button.addEventListener("mousedown", event => {
+    event.preventDefault();
+    applyCompletion(button.dataset.completion);
+  }));
+}
+
+// Repaint just the completion list. The command <input> is left untouched so the caret
+// and native editing state survive (a full render() forced the caret to the end every
+// keystroke), and nothing outside the command panel is rebuilt.
+function updateCommandSuggestions() {
+  const container = document.querySelector("#command-suggestions");
+  if (!container) return;
+  state.completionIndex = Math.min(state.completionIndex, Math.max(completions().length - 1, 0));
+  container.innerHTML = commandSuggestionsHtml(completions());
+  bindCommandCompletionClicks(container);
+  container.querySelector(".suggestion.selected")?.scrollIntoView({ block: "nearest" });
+}
+
 function render() {
   if (state.loading || state.error || !state.package) {
     renderLoading();
@@ -803,12 +830,8 @@ function render() {
 
       <section class="command-area">
         <div class="command-panel ${state.promptOpen ? "open" : ""}">
-          <div class="suggestions" role="listbox">
-            ${suggestions.map((item, index) => `
-              <button class="suggestion ${index === state.completionIndex ? "selected" : ""}" data-completion="${escapeHtml(item.value)}">
-                <strong>${escapeHtml(item.value)}</strong><span>${escapeHtml(item.hint)}</span><small>${escapeHtml(item.kind)}</small>
-              </button>`).join("")}
-            <div class="suggestion-help"><span>↑↓ select</span><span>tab complete</span><span>enter run</span><span>esc dismiss</span></div>
+          <div class="suggestions" id="command-suggestions" role="listbox">
+            ${commandSuggestionsHtml(suggestions)}
           </div>
           <div class="command-line">
             <span class="command-scope">${escapeHtml(state.package.id)}:${escapeHtml(state.package.activeFramework)}</span>
@@ -2233,10 +2256,7 @@ function bindEvents() {
     state.selectedMemberKey = "";
     render();
   }));
-  document.querySelectorAll("[data-completion]").forEach(button => button.addEventListener("mousedown", event => {
-    event.preventDefault();
-    applyCompletion(button.dataset.completion);
-  }));
+  bindCommandCompletionClicks(document);
 
   document.querySelector("#framework").addEventListener("change", event => {
     loadPackage(state.package.id, state.package.version, event.target.value);
@@ -2309,8 +2329,7 @@ function bindEvents() {
     state.command = event.target.value;
     state.promptOpen = true;
     state.completionIndex = 0;
-    render();
-    focusCommand();
+    updateCommandSuggestions();
   });
   command.addEventListener("keydown", handleCommandKeys);
   document.querySelector("#package-query").addEventListener("submit", event => {
@@ -2940,6 +2959,36 @@ function spotlightFocusInput() {
   focusSpotlight();
 }
 
+// Repaint only the selected-row highlight over the already-rendered result rows. Crucially
+// this does NOT recompute spotlightResults() (which runs a synchronous WASM type search and
+// a full member scan), so holding an arrow key no longer floods the single-threaded main
+// loop and stays smooth.
+function highlightSpotlightSelection() {
+  const container = document.querySelector("#spotlight-results");
+  if (!container) return 0;
+  const items = container.querySelectorAll(".spotlight-item");
+  items.forEach((el, i) => {
+    const selected = i === state.spotlightIndex;
+    el.classList.toggle("selected", selected);
+    el.setAttribute("aria-selected", selected ? "true" : "false");
+  });
+  items[state.spotlightIndex]?.scrollIntoView({ block: "nearest" });
+  return items.length;
+}
+
+// Move the result selection by delta without wrapping. Returns false when the move would
+// step above the first row (so the caller can hand focus back up to the chip row).
+function moveSpotlightSelection(delta) {
+  const container = document.querySelector("#spotlight-results");
+  const count = container ? container.querySelectorAll(".spotlight-item").length : 0;
+  if (!count) return false;
+  const next = state.spotlightIndex + delta;
+  if (next < 0) return false;
+  state.spotlightIndex = Math.min(count - 1, next);
+  highlightSpotlightSelection();
+  return true;
+}
+
 function handleSpotlightKeys(event) {
   if (event.key === "Escape") {
     event.preventDefault();
@@ -2973,14 +3022,14 @@ function handleSpotlightKeys(event) {
       event.preventDefault();
       state.spotlightIndex = 0;
       spotlightFocusInput();
-      updateSpotlightResults();
+      highlightSpotlightSelection();
     }
     return;
   }
 
   // Text zone: Right at the caret's right edge hands focus to the chips; otherwise the
-  // usual result navigation applies.
-  const results = spotlightResults();
+  // usual result navigation applies. Result computation is deferred to Enter so arrow
+  // navigation never triggers the WASM type search.
   if (event.key === "ArrowRight") {
     const input = event.target;
     const atEnd = input.selectionStart === input.selectionEnd && input.selectionStart === input.value.length;
@@ -2992,15 +3041,19 @@ function handleSpotlightKeys(event) {
     }
   } else if (event.key === "ArrowDown") {
     event.preventDefault();
-    state.spotlightIndex = results.length ? (state.spotlightIndex + 1) % results.length : 0;
-    updateSpotlightResults();
+    moveSpotlightSelection(1);
   } else if (event.key === "ArrowUp") {
     event.preventDefault();
-    state.spotlightIndex = results.length ? (state.spotlightIndex - 1 + results.length) % results.length : 0;
-    updateSpotlightResults();
+    // At the top of the list, step back up to the chip row (which can then step up to
+    // the search text) instead of wrapping around within the results.
+    if (!moveSpotlightSelection(-1)) {
+      state.spotlightFocus = "chips";
+      state.spotlightChipIndex = spotlightScopeIndex();
+      updateSpotlightChips();
+    }
   } else if (event.key === "Enter") {
     event.preventDefault();
-    pickSpotlightResult(results[state.spotlightIndex]);
+    pickSpotlightResult(spotlightResults()[state.spotlightIndex]);
   }
 }
 
@@ -3009,13 +3062,11 @@ function handleCommandKeys(event) {
   if (event.key === "ArrowDown") {
     event.preventDefault();
     state.completionIndex = (state.completionIndex + 1) % Math.max(1, items.length);
-    render();
-    focusCommand();
+    updateCommandSuggestions();
   } else if (event.key === "ArrowUp") {
     event.preventDefault();
     state.completionIndex = (state.completionIndex - 1 + Math.max(1, items.length)) % Math.max(1, items.length);
-    render();
-    focusCommand();
+    updateCommandSuggestions();
   } else if (event.key === "Tab" && items.length) {
     event.preventDefault();
     applyCompletion(items[state.completionIndex].value);
@@ -3040,7 +3091,11 @@ function applyCompletion(value) {
   }
   state.completionIndex = 0;
   state.promptOpen = true;
-  render();
+  // We rewrote the command programmatically, so push it into the live input and
+  // repaint only the suggestion list (no full render / caret reset needed elsewhere).
+  const input = document.querySelector("#command");
+  if (input) input.value = state.command;
+  updateCommandSuggestions();
   focusCommand();
 }
 
