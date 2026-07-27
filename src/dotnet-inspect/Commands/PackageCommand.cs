@@ -2070,7 +2070,7 @@ public class PackageCommand
         if (options.Select?.Any(value => value.StartsWith("@", StringComparison.Ordinal)) == true)
         {
             Console.Error.WriteLine("Error: --all-libraries row output requires one concrete section; category selectors such as @Integrations produce multi-section documents.");
-            Console.Error.WriteLine("Use Markdown output for categories, or select a section such as Integrations, Configuration, or Library Info.");
+            Console.Error.WriteLine("Use Markdown output for categories, or select a section such as \"Integration: Configuration\" or Library Info.");
             return false;
         }
 

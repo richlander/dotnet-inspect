@@ -317,7 +317,7 @@ public class LibraryFindingConsumerTests
         Assert.True(LibraryCommand.FailureAffectsSection("Switches", "Library Info"));
         Assert.True(LibraryCommand.FailureAffectsSection(
             LibraryIntegrationCatalog.RollupName,
-            EcosystemIntegrationNames.AI));
+            IntegrationSectionNames.AI));
         Assert.False(LibraryCommand.FailureAffectsSection("Custom Attributes", "Type Forwarders"));
     }
 
