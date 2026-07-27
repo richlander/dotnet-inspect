@@ -148,14 +148,19 @@ public sealed class IrInvariantsHostContractTests
     /// call shape, so an aliased <c>Inv.DisableForShippedTool()</c>, a bare call
     /// under <c>using static</c>, and a method group handed to a delegate
     /// (<c>Action a = IrInvariants.DisableForShippedTool; a();</c>) are all
-    /// caught. A new harness, sweep, or benchmark that quietly declines
-    /// validation fails here instead of shipping silent non-coverage.
+    /// caught. Every preprocessor configuration of a file is matched, not just
+    /// the one that survives parsing with no symbols defined, so a decline
+    /// hidden behind <c>#if</c> is caught too. A new harness, sweep, or
+    /// benchmark that quietly declines validation fails here instead of shipping
+    /// silent non-coverage.
     /// <para>
-    /// Residual gap, stated rather than papered over: reflection onto the
-    /// private setter or the method is beyond sound static analysis. It is not a
-    /// spelling anyone reaches by accident, and the string-literal check below
-    /// catches the straightforward <c>GetMethod("DisableForShippedTool")</c>
-    /// form.
+    /// Residual gaps, stated rather than papered over. Reflection onto the
+    /// private setter or the method is beyond sound static analysis; the
+    /// string-literal check catches the straightforward
+    /// <c>GetMethod("DisableForShippedTool")</c> form but not a computed name.
+    /// A <c>.cs</c> file living outside the repository and pulled in with
+    /// <c>&lt;Compile Include="../../.."/&gt;</c> is outside the scan. Neither
+    /// is a spelling anyone reaches by accident.
     /// </para>
     /// </summary>
     [Fact]
@@ -197,18 +202,64 @@ public sealed class IrInvariantsHostContractTests
         return sites;
     }
 
+    /// <summary>
+    /// Holds every configuration of a file to the same rule, not just the one
+    /// that parses with no symbols defined. Roslyn parses without preprocessor
+    /// symbols, so a decline spelled inside <c>#if DECLINE_VALIDATION</c> would
+    /// otherwise sit in disabled trivia and never reach the matcher — while a
+    /// host that defines that constant declines for real. Each disabled region
+    /// is re-parsed and matched the same way, so <c>#if</c>, <c>#else</c>, and
+    /// nested combinations are all covered without having to guess which
+    /// symbols a host defines.
+    /// </summary>
     static bool ReferencesOptOut(string text, string path)
     {
-        var tree = CSharpSyntaxTree.ParseText(text, path: path, cancellationToken: TestContext.Current.CancellationToken);
-        var root = tree.GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+        Queue<string> configurations = new();
+        configurations.Enqueue(text);
+
+        while (configurations.Count > 0)
+        {
+            string configuration = configurations.Dequeue();
+            var tree = CSharpSyntaxTree.ParseText(configuration, path: path, cancellationToken: TestContext.Current.CancellationToken);
+            var root = tree.GetCompilationUnitRoot(TestContext.Current.CancellationToken);
+
+            if (NamesOptOut(root))
+                return true;
+
+            foreach (var disabled in root.DescendantTrivia(descendIntoTrivia: true))
+            {
+                // A disabled region is a proper substring of the text it came
+                // from — the directive lines that delimit it are lexed away — so
+                // the length guard makes the walk provably terminating.
+                if (disabled.IsKind(SyntaxKind.DisabledTextTrivia) && disabled.FullSpan.Length < configuration.Length)
+                    configurations.Enqueue(disabled.ToFullString());
+            }
+        }
+
+        return false;
+    }
+
+    static bool NamesOptOut(SyntaxNode root)
+    {
+        // nameof(...) names the method without reaching it, which is how this
+        // test refers to it — but only when nameof is the operator. A file that
+        // declares its own member called nameof turns that spelling back into a
+        // real call, so the exclusion is withdrawn for that file.
+        bool nameOfIsTheOperator = !DeclaresNameOf(root);
 
         // Any identifier reference, not just an invocation: a method group
         // assigned to a delegate reaches the opt-out just as well as a call.
-        // nameof(...) is excluded — it names the method without reaching it,
-        // which is how this test refers to it.
         bool names = root.DescendantNodes()
             .OfType<SimpleNameSyntax>()
-            .Any(name => name.Identifier.ValueText == OptOutMethod && !IsInsideNameOf(name));
+            .Any(name => name.Identifier.ValueText == OptOutMethod
+                && !(nameOfIsTheOperator && IsInsideNameOf(name)));
+
+        // Error recovery in a re-parsed disabled region can leave the reference
+        // as a skipped token rather than a name node, so those are read too.
+        names |= root.DescendantTokens(descendIntoTrivia: true)
+            .Any(token => token.IsKind(SyntaxKind.IdentifierToken)
+                && token.ValueText == OptOutMethod
+                && token.Parent is SkippedTokensTriviaSyntax);
 
         bool spellsItAsAString = root.DescendantNodes()
             .OfType<LiteralExpressionSyntax>()
@@ -217,6 +268,20 @@ public sealed class IrInvariantsHostContractTests
 
         return names || spellsItAsAString;
     }
+
+    /// <summary>
+    /// <c>nameof</c> is a contextual keyword, so a member may be named after it
+    /// and <c>nameof(IrInvariants.DisableForShippedTool)</c> then compiles to a
+    /// call that hands over the method group.
+    /// </summary>
+    static bool DeclaresNameOf(SyntaxNode root) =>
+        root.DescendantNodes().Any(static node => node switch
+        {
+            MethodDeclarationSyntax method => method.Identifier.ValueText == "nameof",
+            LocalFunctionStatementSyntax local => local.Identifier.ValueText == "nameof",
+            DelegateDeclarationSyntax @delegate => @delegate.Identifier.ValueText == "nameof",
+            _ => false,
+        });
 
     static bool IsInsideNameOf(SyntaxNode node) =>
         node.Ancestors()
