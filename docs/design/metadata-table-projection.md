@@ -345,8 +345,8 @@ inspector), a standalone tool that renders the tables the way `mdv` does:
   (`ToolCommandName=mdi`) whose System.CommandLine front-end maps flags onto
   `MetadataProjectionOptions` and delegates all output to the renderer below.
   Surface: `mdi <assembly> [--table|-t <Names>] [--format|-f md|tsv|jsonl]
-  [--max-rows|-n N] [--max-bytes N] [--max-chars N]`. Missing files, native
-  images, and unreadable metadata surface as visible errors, never
+  [--max-rows|-n N] [--start-row|-s N] [--max-bytes N] [--max-chars N]`. Missing
+  files, native images, and unreadable metadata surface as visible errors, never
   success-shaped empty output.
 - **`src/DotnetInspector.MetadataRendering`** — a small reusable library holding
   `MetadataProjectionRenderer` (projection → Markout tables). It lives in the
@@ -373,6 +373,41 @@ projection **model** (not `mdi`'s rendered text), the renderer is free to be
 human-friendly without weakening the oracle. Supported-table coverage is kept in
 step with the tables `mdv` dumps, so every supported table's physical row count
 is cross-validated against `mdv` for free on the product assembly.
+
+## Implemented: random access for a browser host
+
+The projection's other planned consumer is the wasm **Metadata Explorer** (issue
+#3341), which browses tables interactively rather than dumping them. That host
+imposes three constraints a batch dump does not, all met without changing the
+model:
+
+- **No filesystem.** `MetadataTableProjector.Project(PEReader, options)` is the
+  entry point; a browser host constructs `new PEReader(new MemoryStream(bytes))`
+  and never supplies a path. `AssemblyInspectionSession` stays the desktop-shaped
+  convenience over the same projector.
+- **No whole-table materialization.** `MetadataProjectionOptions.StartRowId`
+  pairs with `MaxRowsPerTable` to form a **row window**, so a table of 5,000 rows
+  is browsed a page at a time. A window changes coverage, never content: rows
+  keep their absolute `RowId`, `MetadataTableView.RowCount` stays the physical
+  count, and any partial coverage is marked by `Truncation`. A window past the
+  end of a populated table yields that table with zero rows rather than dropping
+  it, so paging cannot make a table look absent.
+- **No dead-end handles.** A `HandleRef` is the click-through primitive, and its
+  target frequently lies outside the current window.
+  `MetadataTableProjector.ProjectRow(peReader, table, rowId)` reads that one row
+  on demand and returns it inside its table's view, so the caller also gets the
+  column schema and the table's real size. It is a one-row window over the same
+  reader, not a second row path, so malformed-row containment and every budget
+  behave identically.
+
+Because a window can start anywhere, presentation must **name** the window
+rather than only its size: `mdi` renders `showing rows 4–6 of 366`, and its
+machine formats report the same range on stderr. Reporting `3 of 366` alone
+would read as the first three rows.
+
+Allocation shape — windowed or lazy materialization, and `ReadOnlySpan<T>` views
+over the current `ImmutableArray<T>` — remains open and **measurement-gated**;
+the browser's memory ceiling is the real constraint, and no benchmark exists yet.
 
 ## Layer placement
 

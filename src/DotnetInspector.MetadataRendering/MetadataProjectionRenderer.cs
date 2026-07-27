@@ -92,9 +92,21 @@ public static class MetadataProjectionRenderer
     }
 
     static string HeadingText(MetadataTableView table)
-        => table.Truncation is { } truncation
+    {
+        if (table.Truncation is not { } truncation)
+            return $"{table.Name} ({table.RowCount} {(table.RowCount == 1 ? "row" : "rows")})";
+
+        if (table.Rows.IsEmpty)
+            return $"{table.Name} (showing 0 of {truncation.RowCount} rows)";
+
+        // A row window that does not start at row 1 must say where it sits:
+        // "showing 4 of 100 rows" alone would read as the first four rows.
+        int first = table.Rows[0].RowId;
+        int last = table.Rows[^1].RowId;
+        return first == 1
             ? $"{table.Name} (showing {truncation.ProjectedRows} of {truncation.RowCount} rows)"
-            : $"{table.Name} ({table.RowCount} {(table.RowCount == 1 ? "row" : "rows")})";
+            : $"{table.Name} (showing rows {first}\u2013{last} of {truncation.RowCount})";
+    }
 
     static void WriteTable(MarkoutWriter writer, MetadataTableView table, bool identifyTable)
     {

@@ -135,7 +135,49 @@ public class MdiCommandTests
         // Machine output stays a pure stream on stdout; the truncation stays
         // visible as a diagnostic on stderr rather than being silently dropped.
         Assert.False(string.IsNullOrWhiteSpace(output.ToString()));
-        Assert.Contains("truncated to 1 of", error.ToString());
+        Assert.Contains("shows rows 1 to 1 of", error.ToString());
+    }
+
+    [Fact]
+    public void Execute_WindowedTable_MachineFormat_NamesTheWindowNotJustItsSize()
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+        int code = MdiCommand.Execute(
+            SelfPath,
+            new MetadataProjectionOptions { StartRowId = 3, MaxRowsPerTable = 2 },
+            MetadataTableFormat.Jsonl,
+            output,
+            error);
+
+        Assert.Equal(0, code);
+        // "2 of N rows" would read as the first two rows; the note must locate the window.
+        Assert.Contains("shows rows 3 to 4 of", error.ToString());
+    }
+
+    [Fact]
+    public void Execute_WindowedTable_Markdown_HeadingNamesTheRowRange()
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+        int code = MdiCommand.Execute(
+            SelfPath,
+            new MetadataProjectionOptions { Tables = [TableIndex.TypeDef], StartRowId = 3, MaxRowsPerTable = 2 },
+            MetadataTableFormat.Markdown,
+            output,
+            error);
+
+        Assert.Equal(0, code);
+        Assert.Contains("showing rows 3\u20134 of", output.ToString());
+        Assert.True(string.IsNullOrWhiteSpace(error.ToString()));
+    }
+
+    [Fact]
+    public void CreateRootCommand_RejectsAStartRowBelowOne()
+    {
+        int code = MdiCommand.CreateRootCommand().Parse([SelfPath, "--start-row", "0"]).Invoke();
+
+        Assert.NotEqual(0, code);
     }
 
     [Fact]

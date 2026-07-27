@@ -46,6 +46,13 @@ public static class MdiCommand
         };
         maxRowsOption.Aliases.Add("-n");
 
+        var startRowOption = new Option<int>("--start-row")
+        {
+            Description = $"1-based row id each table starts at, forming a row window with --max-rows (default {MetadataProjectionOptions.DefaultStartRowId}).",
+            DefaultValueFactory = _ => MetadataProjectionOptions.DefaultStartRowId,
+        };
+        startRowOption.Aliases.Add("-s");
+
         var maxBytesOption = new Option<int>("--max-bytes")
         {
             Description = $"Maximum blob-preview bytes per cell (default {MetadataProjectionOptions.DefaultMaxPreviewBytes}).",
@@ -63,6 +70,7 @@ public static class MdiCommand
         root.Options.Add(tableOption);
         root.Options.Add(formatOption);
         root.Options.Add(maxRowsOption);
+        root.Options.Add(startRowOption);
         root.Options.Add(maxBytesOption);
         root.Options.Add(maxCharsOption);
 
@@ -72,6 +80,7 @@ public static class MdiCommand
             string? tableSpec = parseResult.GetValue(tableOption);
             string formatText = parseResult.GetValue(formatOption)!;
             int maxRows = parseResult.GetValue(maxRowsOption);
+            int startRow = parseResult.GetValue(startRowOption);
             int maxBytes = parseResult.GetValue(maxBytesOption);
             int maxChars = parseResult.GetValue(maxCharsOption);
 
@@ -87,6 +96,12 @@ public static class MdiCommand
                 return 1;
             }
 
+            if (startRow < 1)
+            {
+                Console.Error.WriteLine("Error: --start-row must be 1 or greater (row ids are 1-based).");
+                return 1;
+            }
+
             if (!TryParseTables(tableSpec, out var tables, out var badName))
             {
                 Console.Error.WriteLine(
@@ -97,6 +112,7 @@ public static class MdiCommand
             var options = new MetadataProjectionOptions
             {
                 MaxRowsPerTable = maxRows,
+                StartRowId = startRow,
                 MaxPreviewBytes = maxBytes,
                 MaxStringChars = maxChars,
                 Tables = tables,
@@ -165,9 +181,17 @@ public static class MdiCommand
         {
             foreach (var table in projection.Tables)
             {
-                if (table.Truncation is { } truncation)
-                    error.WriteLine(
-                        $"Note: table {table.Name} truncated to {truncation.ProjectedRows} of {truncation.RowCount} rows; raise --max-rows to include more.");
+                if (table.Truncation is not { } truncation)
+                    continue;
+
+                // Name the window, not just its size: "4 of 100 rows" would read as
+                // the first four rows even when --start-row moved the window.
+                string window = table.Rows.IsEmpty
+                    ? "no rows"
+                    : $"rows {table.Rows[0].RowId} to {table.Rows[^1].RowId}";
+
+                error.WriteLine(
+                    $"Note: table {table.Name} shows {window} of {truncation.RowCount}; raise --max-rows or move --start-row to include more.");
             }
         }
 
