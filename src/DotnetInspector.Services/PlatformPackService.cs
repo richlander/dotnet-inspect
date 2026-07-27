@@ -5,13 +5,23 @@ namespace DotnetInspector.Services;
 
 /// <summary>
 /// Downloads and caches .NET platform ref/runtime packs from NuGet.
-/// Packs are cached in the app cache directory mirroring the SDK packs layout:
-/// {cache}/dotnet-inspect/packs/{PackName}/{Version}/ref/net{TFM}/*.dll
+/// Packs are cached in the app cache directory mirroring the SDK packs layout under a
+/// versioned category directory:
+/// {cache}/dotnet-inspect/packs-v2/{PackName}/{Version}/ref/net{TFM}/*.dll
 /// </summary>
 public static class PlatformPackService
 {
-    private const string PacksCategory = "packs-v2";
-    private const string PacksCategoryPrefix = "packs-v";
+    /// <summary>
+    /// The current app cache category directory name for platform packs.
+    /// Unlike SDK-installed packs, this is versioned and does not equal <c>packs</c>.
+    /// </summary>
+    public const string PacksCategory = "packs-v2";
+
+    /// <summary>
+    /// The prefix shared by every app cache packs category directory name.
+    /// </summary>
+    public const string PacksCategoryPrefix = "packs-v";
+
     private const string CommitMarkerFileName = ".dotnet-inspect.pack.complete";
 
     static PlatformPackService()

@@ -332,19 +332,43 @@ public class PlatformResolverTests
     }
 
     /// <summary>
-    /// Verifies GetPacksDirectory returns the app cache packs path.
+    /// Verifies GetPacksDirectory returns an existing packs directory: either the app cache
+    /// packs category (preferred, versioned as <c>packs-v*</c>) or an SDK-installed
+    /// <c>packs</c> directory. Skips, rather than silently passing, when neither exists.
     /// </summary>
     [Fact]
     public void GetPacksDirectory_ReturnsValidPath()
     {
         var result = PlatformResolver.GetPacksDirectory();
 
-        // Must return a packs directory (app cache or SDK-installed)
-        if (result != null)
-        {
-            Assert.EndsWith("packs", result);
-            Assert.True(Directory.Exists(result), $"Packs directory should exist: {result}");
-        }
+        Assert.SkipWhen(
+            result is null,
+            "No packs directory exists on this machine: the app cache packs category is absent and no SDK-installed packs directory was found.");
+
+        Assert.True(Directory.Exists(result), $"Packs directory should exist: {result}");
+
+        // The app cache category is versioned (packs-v2), so a bare "packs" suffix only
+        // describes the SDK-installed branch.
+        var name = Path.GetFileName(result!.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        var isAppCachePacks = name.StartsWith(PlatformPackService.PacksCategoryPrefix, StringComparison.Ordinal);
+        Assert.True(
+            isAppCachePacks || name == "packs",
+            $"Expected the app cache packs category ('{PlatformPackService.PacksCategoryPrefix}*') or an SDK-installed 'packs' directory, but got: {result}");
+    }
+
+    /// <summary>
+    /// Pins the invariant that makes GetPacksDirectory's suffix contract two-shaped: the app cache
+    /// packs category is versioned and never the bare "packs" name used by SDK installs. If this
+    /// ever changes, GetPacksDirectory_ReturnsValidPath's suffix check must be revisited.
+    /// </summary>
+    [Fact]
+    public void PacksCacheCategory_IsVersioned_AndNotBarePacks()
+    {
+        Assert.StartsWith(
+            PlatformPackService.PacksCategoryPrefix,
+            PlatformPackService.PacksCategory,
+            StringComparison.Ordinal);
+        Assert.NotEqual("packs", PlatformPackService.PacksCategory);
     }
 
     /// <summary>
