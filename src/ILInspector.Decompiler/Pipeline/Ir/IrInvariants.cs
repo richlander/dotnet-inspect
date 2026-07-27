@@ -68,14 +68,29 @@ public static class IrInvariants
     /// default even in validating hosts, because hand-built test fixtures
     /// legitimately omit the local table these checks validate against; enabling
     /// it suite-wide would false-positive on ~120 minimal-fixture tests. The
-    /// harness corpus sweep sets it (directly or via
+    /// harness corpus sweep arms it (via <see cref="EnableSemanticChecks"/> or
     /// <c>DOTNET_INSPECT_IR_INVARIANTS=full</c>) so semantic checks run over real
     /// importer output, where they are true invariants (verified zero-violation
     /// over CoreLib's 41,952 methods). Requires <see cref="Enabled"/> to take
-    /// effect at the per-pass hooks. Process-global: set it during host startup,
-    /// not inside a test, which would race the parallel collections.
+    /// effect at the per-pass hooks.
+    /// <para>
+    /// Like <see cref="Enabled"/>, the setter is private: this level can be
+    /// armed (<see cref="EnableSemanticChecks"/>) but never disarmed in-process,
+    /// so a host cannot quietly drop coverage an operator asked for with
+    /// <c>full</c>, and no test can race the parallel collections by toggling
+    /// it.
+    /// </para>
     /// </summary>
-    public static bool CheckSemantics { get; set; } = RequestsSemantics(EnvValue);
+    public static bool CheckSemantics { get; private set; } = RequestsSemantics(EnvValue);
+
+    /// <summary>
+    /// Arms the semantic level for a host that runs the pipeline over
+    /// fully-formed importer output (the corpus sweeps), as
+    /// <c>DOTNET_INSPECT_IR_INVARIANTS=full</c> does. Arming only — there is no
+    /// in-process way back down, because every way back down is a way to lose
+    /// coverage silently.
+    /// </summary>
+    public static void EnableSemanticChecks() => CheckSemantics = true;
 
     /// <summary>
     /// The one sanctioned opt-out: the shipped CLI's decompile hot path, where

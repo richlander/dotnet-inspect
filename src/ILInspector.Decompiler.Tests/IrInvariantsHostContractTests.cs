@@ -56,18 +56,21 @@ public sealed class IrInvariantsHostContractTests
     }
 
     /// <summary>
-    /// The structural half of the enforcement: declining validation cannot be
-    /// spelled as an assignment at all, so no census, review habit, or naming
-    /// convention has to catch that spelling.
+    /// The structural half of the enforcement: neither level can be lowered by
+    /// assignment, so no census, review habit, or naming convention has to catch
+    /// that spelling. <see cref="IrInvariants.CheckSemantics"/> can still be
+    /// armed, through a method whose only direction is up.
     /// </summary>
     [Fact]
-    public void EnabledHasNoPubliclyWritableSetter()
+    public void NeitherLevelHasAPubliclyWritableSetter()
     {
-        var setter = typeof(IrInvariants)
-            .GetProperty(nameof(IrInvariants.Enabled), BindingFlags.Public | BindingFlags.Static)!
-            .GetSetMethod(nonPublic: false);
+        Assert.Null(PublicSetter(nameof(IrInvariants.Enabled)));
+        Assert.Null(PublicSetter(nameof(IrInvariants.CheckSemantics)));
 
-        Assert.Null(setter);
+        static MethodInfo? PublicSetter(string name) =>
+            typeof(IrInvariants)
+                .GetProperty(name, BindingFlags.Public | BindingFlags.Static)!
+                .GetSetMethod(nonPublic: false);
     }
 
     /// <summary>
@@ -169,25 +172,27 @@ public sealed class IrInvariantsHostContractTests
         string declaringFile = Path.Combine(
             root, "src", "ILInspector.Decompiler", "Pipeline", "Ir", "IrInvariants.cs");
 
+        // Scan the whole repository rather than a list of source roots: a new
+        // top-level directory (benchmarks/, samples/, a future sweep tool) is
+        // exactly the kind of new host this guard exists for, and it must not be
+        // able to appear outside the scan.
         List<string> sites = [];
-        foreach (string area in new[] { "src", "tools", "tests" })
+        foreach (string path in Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories))
         {
-            string areaPath = Path.Combine(root, area);
-            Assert.True(Directory.Exists(areaPath), $"Expected source area '{area}' beneath {root}.");
+            if (IsExcluded(root, path) || PathsEqual(path, declaringFile))
+                continue;
 
-            foreach (string path in Directory.EnumerateFiles(areaPath, "*.cs", SearchOption.AllDirectories))
-            {
-                if (IsBuildOutput(path) || PathsEqual(path, declaringFile))
-                    continue;
+            string text = File.ReadAllText(path);
+            if (!text.Contains(OptOutMethod, StringComparison.Ordinal))
+                continue;
 
-                string text = File.ReadAllText(path);
-                if (!text.Contains(OptOutMethod, StringComparison.Ordinal))
-                    continue;
-
-                if (ReferencesOptOut(text, path))
-                    sites.Add(Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/'));
-            }
+            if (ReferencesOptOut(text, path))
+                sites.Add(Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/'));
         }
+
+        Assert.True(
+            sites.Count > 0,
+            $"Scanned no opt-out sites beneath {root}; the census would pass vacuously.");
 
         return sites;
     }
@@ -218,11 +223,17 @@ public sealed class IrInvariantsHostContractTests
             .OfType<InvocationExpressionSyntax>()
             .Any(invocation => invocation.Expression is IdentifierNameSyntax { Identifier.ValueText: "nameof" });
 
-    static bool IsBuildOutput(string path)
+    /// <summary>
+    /// Build output and version control only. Anything else under the repo root
+    /// is a candidate host, including directories that do not exist yet.
+    /// </summary>
+    static bool IsExcluded(string root, string path)
     {
-        string separator = Path.DirectorySeparatorChar.ToString();
-        return path.Contains($"{separator}bin{separator}", StringComparison.Ordinal)
-            || path.Contains($"{separator}obj{separator}", StringComparison.Ordinal);
+        string relative = Path.GetRelativePath(root, path);
+        string[] segments = relative.Split(Path.DirectorySeparatorChar);
+
+        return segments.Any(static segment =>
+            segment is "bin" or "obj" or ".git" or "artifacts" or "node_modules");
     }
 
     static bool PathsEqual(string left, string right) =>
