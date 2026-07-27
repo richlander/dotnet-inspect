@@ -121,8 +121,17 @@ public static class MetadataTableProjector
     /// The row is returned inside its table's <see cref="MetadataTableView"/> so
     /// the caller also gets the column schema and the table's physical
     /// <see cref="MetadataTableView.RowCount"/>, which a single row cannot carry.
-    /// Returns <see langword="null"/> when the image has no metadata, the table
-    /// is not projected, or <paramref name="rowId"/> is past the table's end.
+    ///
+    /// <paramref name="table"/> names the target directly, so
+    /// <see cref="MetadataProjectionOptions.Tables"/> and
+    /// <see cref="MetadataProjectionOptions.StartRowId"/> are deliberately
+    /// ignored here; only the cell budgets apply. Honouring the table selection
+    /// would dead-end the very edges this method exists to follow — a caller
+    /// browsing TypeRef could not follow a TypeRef row into TypeDef.
+    ///
+    /// Returns <see langword="null"/> when the image has no metadata, when
+    /// <paramref name="table"/> is not one this projector supports, or when
+    /// <paramref name="rowId"/> is past the table's last row.
     /// </summary>
     public static MetadataTableView? ProjectRow(
         PEReader peReader,

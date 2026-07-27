@@ -237,6 +237,57 @@ public class MetadataProjectionWindowTests
     }
 
     [Fact]
+    public void ProjectRow_IgnoresTheTableSelection_SoCrossTableEdgesStillResolve()
+    {
+        using var peReader = OpenSelfFromBytes();
+
+        // A caller browsing only TypeRef must still be able to follow a TypeRef
+        // row's edge into TypeDef. Honouring Tables here would dead-end exactly
+        // the navigation this method exists to serve.
+        var view = MetadataTableProjector.ProjectRow(
+            peReader,
+            TableIndex.TypeDef,
+            1,
+            new MetadataProjectionOptions { Tables = [TableIndex.TypeRef] });
+
+        Assert.NotNull(view);
+        Assert.Equal(TableIndex.TypeDef, view!.Index);
+        Assert.Equal(1, Assert.Single(view.Rows).RowId);
+    }
+
+    [Fact]
+    public void ProjectRow_IgnoresTheWindowStart_ButKeepsTheCellBudgets()
+    {
+        using var peReader = OpenSelfFromBytes();
+
+        // StartRowId belongs to the window, not to a targeted lookup: rowId wins.
+        var view = MetadataTableProjector.ProjectRow(
+            peReader,
+            TableIndex.TypeDef,
+            2,
+            new MetadataProjectionOptions { StartRowId = 900, MaxStringChars = 4 });
+
+        var row = Assert.Single(view!.Rows);
+        Assert.Equal(2, row.RowId);
+
+        // The budget the caller did supply still applies to the row's cells.
+        var name = Assert.IsType<MetadataValue.HeapReference>(
+            row.Cells[ColumnIndexOf(view, "Name")]);
+        Assert.True(name.Truncated, "Expected a 4-character budget to bound the type name.");
+    }
+
+    static int ColumnIndexOf(MetadataTableView table, string name)
+    {
+        for (int i = 0; i < table.Columns.Length; i++)
+        {
+            if (table.Columns[i].Name == name)
+                return i;
+        }
+
+        throw new Xunit.Sdk.XunitException($"Column '{name}' not found in table '{table.Name}'.");
+    }
+
+    [Fact]
     public void ProjectRow_ReturnsNull_ForARowIdPastTheEnd()
     {
         var full = FullTable(TableIndex.TypeDef);
