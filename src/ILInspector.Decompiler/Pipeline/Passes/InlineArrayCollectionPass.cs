@@ -934,28 +934,49 @@ public sealed class InlineArrayCollectionPass : IIrPass
     }
 
     /// <summary>
-    /// Whether <paramref name="parent"/> evaluates <paramref name="child"/> on every
-    /// path <paramref name="parent"/> is itself evaluated on.
+    /// Whether <paramref name="parent"/> evaluates <paramref name="child"/> exactly
+    /// once, unconditionally, on every path <paramref name="parent"/> is itself
+    /// evaluated on.
     ///
     /// <para>Sound by default: this is a <b>whitelist</b> of the container nodes that
-    /// evaluate every child exactly once, unconditionally, left to right, mirroring
-    /// the whitelist walk in <see cref="StackAllocSpanPass"/>
-    /// (<c>ReachesAsOnlyPrecedingEffect</c> descends only <see cref="Call"/>/<see
-    /// cref="NewObject"/> arguments and rejects every other shape). A blacklist of the
-    /// known short-circuiting nodes would be unsound: any conditional or repeatedly
-    /// evaluated node not enumerated — and any such node added to the IR later —
-    /// would silently fall through as "unconditional" and let the element side
-    /// effects be lifted into a branch that may not run, or a loop condition that
-    /// runs them many times. Because an unrecognized shape only costs fidelity (the
-    /// collection is left flat), and a missed conditional/repeated shape emits
+    /// evaluate a given child exactly once, unconditionally, mirroring the whitelist
+    /// walk in <see cref="StackAllocSpanPass"/>. A blacklist of the known
+    /// short-circuiting / repeating nodes would be unsound: any conditional or
+    /// repeatedly evaluated node not enumerated — and any such node added to the IR
+    /// later — would silently fall through as "unconditional" and let the element
+    /// side effects be lifted into a branch that may not run, or a loop condition
+    /// that runs them many times. Because an unrecognized shape only costs fidelity
+    /// (the collection is left flat) while a missed conditional/repeated shape emits
     /// confidently-wrong C#, the default is <c>false</c>.</para>
     ///
-    /// <para>The whitelisted nodes are exactly those on the real csc inline-array
-    /// params-span consumer paths: the statement wrapper / store that consumes the
-    /// span, and the call / constructor / pass-through conversion it is nested in.
-    /// A short-circuit, coalesce, ternary, switch-expression arm, null-conditional
-    /// member, <c>??=</c> right operand, lambda body, or any other shape is not on
-    /// that list, so the span reached through one is left flat.</para>
+    /// <para>Two families are whitelisted. First, the container / operator nodes that
+    /// evaluate every child exactly once, left to right: the statement and store
+    /// wrappers, call/constructor argument lists (C# never short-circuits an argument
+    /// list), pass-through conversions, and the non-short-circuiting operator
+    /// expressions — the bitwise/arithmetic <see cref="Binary"/>,
+    /// <see cref="Comparison"/>, <see cref="Unary"/>, <see cref="LogicalNot"/>, tuple
+    /// construction/comparison, <see cref="Throw"/>, and <see cref="YieldReturn"/>.
+    /// Second, the scrutinee edge of a forward selection statement — the
+    /// <c>if</c>/<c>switch</c> condition — which is evaluated exactly once each time
+    /// the statement is reached; the arms/sections are the conditional parts and are
+    /// rejected by the per-edge <see cref="object.ReferenceEquals(object?,object?)"/>
+    /// check.</para>
+    ///
+    /// <para>Loops are deliberately excluded. This pass runs after loop structuring
+    /// (<c>DoWhileLoopPass</c>/<c>ForLoopPass</c>/<c>StructuringPass</c>/
+    /// <c>ForeachStatementPass</c>), so back edges are already
+    /// <see cref="WhileLoop"/>/<see cref="ForLoop"/>/etc. A loop node evaluates its
+    /// condition many times per single evaluation of the node while the element
+    /// stores — earlier siblings of the loop in the same block — run once; lifting
+    /// them into a loop condition would call each element function once per iteration.
+    /// The low-level <see cref="ConditionalBranch"/>/<see cref="SwitchBranch"/> are
+    /// also excluded: a residual back edge would only be safe under a single-entry
+    /// basic-block invariant this guard does not assert, and the real csc <c>if</c>/
+    /// <c>switch</c> span consumers are already the structured
+    /// <see cref="IfStatement"/>/<see cref="Switch"/> after loop structuring.
+    /// Short-circuit, coalesce, ternary, switch-expression arm, null-conditional
+    /// member, <c>??=</c> right operand, <c>with</c> initializer, and lambda bodies
+    /// are likewise not whitelisted.</para>
     /// </summary>
     static bool EvaluatesChildUnconditionally(IrNode parent, IrNode child) => parent switch
     {
@@ -971,6 +992,18 @@ public sealed class InlineArrayCollectionPass : IIrPass
         // A conversion / box wrapping the span passes it through unconditionally.
         Convert or Coerce or CastClass or Box or Unbox or UnboxAny
             or InlineArraySpanConversion => true,
+        // Non-short-circuiting operator expressions evaluate every operand exactly
+        // once. These are the bitwise/arithmetic forms — the short-circuiting
+        // LogicalBinary (&&/||), Coalesce (??), Conditional (?:) and NullConditional
+        // (?.) are NOT here and are left flat by the default.
+        Binary or Comparison or Unary or LogicalNot or TupleExpression
+            or TupleBinaryExpression or Throw or YieldReturn => true,
+        // Forward selection statements evaluate their scrutinee exactly once each
+        // time they are reached; only the condition edge qualifies (the arms /
+        // sections are conditional). Loops re-evaluate their condition per iteration
+        // and are excluded by falling through to the default.
+        IfStatement ifStatement => ReferenceEquals(child, ifStatement.Condition),
+        Switch @switch => ReferenceEquals(child, @switch.Value),
         _ => false,
     };
 

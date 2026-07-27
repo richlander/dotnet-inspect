@@ -235,6 +235,80 @@ public class InlineArraySpilledElementTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void BinaryOperandSpanConsumer_RaisesToCollectionExpression()
+    {
+        // The span-consuming call is the left operand of `IntFromSpan(span) + 1` — a
+        // non-short-circuiting Binary that evaluates it exactly once, unconditionally.
+        // The whitelist recognizes Binary, so the fidelity a Call-only whitelist would
+        // lose is recovered: the collection still raises.
+        var function = BuildOrderingCollection(OrderingShape.BinaryOperandSpan);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        var collection = Assert.Single(function.Descendants.OfType<CollectionExpression>());
+        Assert.Equal(2, collection.Children.Count);
+        Assert.DoesNotContain(
+            function.Descendants.OfType<Call>(),
+            c => c.Callee.Name.Contains("InlineArray", StringComparison.Ordinal));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void IfConditionSpanConsumer_RaisesToCollectionExpression()
+    {
+        // The span sits in a forward `if (Predicate(span))` condition — evaluated
+        // exactly once when the statement is reached (this pass runs after loop
+        // structuring, so an if-statement is never a back edge). The per-edge whitelist
+        // accepts the condition edge, so the collection raises.
+        var function = BuildOrderingCollection(OrderingShape.IfConditionSpan);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        var collection = Assert.Single(function.Descendants.OfType<CollectionExpression>());
+        Assert.Equal(2, collection.Children.Count);
+        Assert.DoesNotContain(
+            function.Descendants.OfType<Call>(),
+            c => c.Callee.Name.Contains("InlineArray", StringComparison.Ordinal));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SwitchValueSpanConsumer_RaisesToCollectionExpression()
+    {
+        // The span sits in a forward `switch (IntFromSpan(span))` scrutinee —
+        // evaluated exactly once. The per-edge whitelist accepts the Switch value edge
+        // (the sections are the conditional parts), so the collection raises.
+        var function = BuildOrderingCollection(OrderingShape.SwitchValueSpan);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        var collection = Assert.Single(function.Descendants.OfType<CollectionExpression>());
+        Assert.Equal(2, collection.Children.Count);
+        Assert.DoesNotContain(
+            function.Descendants.OfType<Call>(),
+            c => c.Callee.Name.Contains("InlineArray", StringComparison.Ordinal));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ThrowValueSpanConsumer_RaisesToCollectionExpression()
+    {
+        // The span-consuming call is the `throw MakeException(span)` value — evaluated
+        // exactly once, unconditionally. The whitelist recognizes Throw, so the
+        // collection raises (matching the vetted peer StackAllocSpanPass consumer set).
+        var function = BuildOrderingCollection(OrderingShape.ThrowValueSpan);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        var collection = Assert.Single(function.Descendants.OfType<CollectionExpression>());
+        Assert.Equal(2, collection.Children.Count);
+        Assert.DoesNotContain(
+            function.Descendants.OfType<Call>(),
+            c => c.Callee.Name.Contains("InlineArray", StringComparison.Ordinal));
+        function.CheckInvariant();
+    }
+
     enum OrderingShape
     {
         InterleavedStatement,
@@ -245,6 +319,10 @@ public class InlineArraySpilledElementTests
         NullCoalescingAssignmentValue,
         UnionSwitchArmValue,
         WhileConditionSpan,
+        BinaryOperandSpan,
+        IfConditionSpan,
+        SwitchValueSpan,
+        ThrowValueSpan,
     }
 
     /// <summary>
@@ -352,6 +430,43 @@ public class InlineArraySpilledElementTests
                     new Call(PredicateSpanMethod(), isVirtual: false, [span]),
                     new Block()));
                 break;
+            case OrderingShape.BinaryOperandSpan:
+                // local = IntFromSpan(span) + 1: the span-consuming call is the left
+                // operand of a non-short-circuiting Binary, evaluated exactly once and
+                // unconditionally. The whitelist recognizes Binary, so the collection
+                // still raises (recovering fidelity a Call-only whitelist would lose).
+                block.Add(new StoreLocal(2, Int32,
+                    new Binary(
+                        BinaryKind.Add,
+                        isChecked: false,
+                        isUnsigned: false,
+                        new Call(IntFromSpanMethod(), isVirtual: false, [span]),
+                        new Constant(1, Int32))));
+                break;
+            case OrderingShape.IfConditionSpan:
+                // if (Predicate(span)) { }: the span sits in a forward if-statement
+                // condition, evaluated exactly once when the statement is reached. The
+                // per-edge whitelist accepts the condition edge, so the collection raises.
+                block.Add(new IfStatement(
+                    new Call(PredicateSpanMethod(), isVirtual: false, [span]),
+                    new Block(),
+                    null));
+                break;
+            case OrderingShape.SwitchValueSpan:
+                // switch (IntFromSpan(span)) { }: the span sits in a forward switch
+                // scrutinee, evaluated exactly once. The per-edge whitelist accepts the
+                // Switch value edge, so the collection raises.
+                block.Add(new Switch(
+                    new Call(IntFromSpanMethod(), isVirtual: false, [span]),
+                    []));
+                break;
+            case OrderingShape.ThrowValueSpan:
+                // throw MakeException(span): the span-consuming call is the throw value,
+                // evaluated exactly once and unconditionally. The whitelist recognizes
+                // Throw, so the collection raises.
+                block.Add(new Throw(
+                    new Call(ThrowableFromSpanMethod(), isVirtual: false, [span])));
+                break;
             default:
                 // ReadOnlySpan<object> span = InlineArrayAsReadOnlySpan(ref buffer, 2); (local 1)
                 block.Add(new StoreLocal(1, SpanObject, span));
@@ -421,6 +536,25 @@ public class InlineArraySpilledElementTests
             TypeRef.Definition("Synthetic", "", "Fx"),
             "Predicate",
             Bool,
+            [SpanObject],
+            HasThis: false);
+
+    // int IntFromSpan(ReadOnlySpan<object> span)
+    static MethodRef IntFromSpanMethod()
+        => new(
+            TypeRef.Definition("Synthetic", "", "Fx"),
+            "IntFromSpan",
+            Int32,
+            [SpanObject],
+            HasThis: false);
+
+    // object MakeException(ReadOnlySpan<object> span) — a reference-returning call
+    // used as a throw value; the pass never type-checks throwability.
+    static MethodRef ThrowableFromSpanMethod()
+        => new(
+            TypeRef.Definition("Synthetic", "", "Fx"),
+            "MakeException",
+            Object,
             [SpanObject],
             HasThis: false);
 
