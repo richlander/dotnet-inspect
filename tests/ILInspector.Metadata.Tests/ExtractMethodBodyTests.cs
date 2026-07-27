@@ -396,4 +396,563 @@ public class ExtractMethodBodyTests
     {
         Assert.Equal(expected, SourceLinkResolver.SimpleTypeName(fullName));
     }
+
+    [Fact]
+    public void AutoPropertyAccessor_SequencePointOnDeclaration_ExcludesPrecedingMember()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public string? Before { get; set; }",       // 3
+            "",                                             // 4
+            "    public string? Target { get; set; }",       // 5  <- StartLine/EndLine
+            "",                                             // 6
+            "    public string? After { get; set; }",        // 7
+            "}");                                           // 8
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Target");
+
+        Assert.Equal("public string? Target { get; set; }", body);
+    }
+
+    [Fact]
+    public void ExpressionBodiedMember_FirstInType_ExcludesEnclosingTypeHeader()
+    {
+        var source = Lines(
+            "public sealed record R(int Value)",             // 1
+            "{",                                            // 2
+            "    public int Doubled => Value * 2;",          // 3  <- StartLine/EndLine
+            "}");                                           // 4
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "get_Doubled");
+
+        Assert.Equal("public int Doubled => Value * 2;", body);
+    }
+
+    [Fact]
+    public void BlockBodiedPropertyAccessor_WalksBackwardToPropertyDeclaration()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public string? Tfm",                       // 3
+            "    {",                                        // 4
+            "        get => _override ?? Compute();",        // 5  <- StartLine/EndLine
+            "        set => _override = value;",             // 6
+            "    }",                                        // 7
+            "}");                                           // 8
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Tfm");
+
+        Assert.Equal(
+            "public string? Tfm\n{\n    get => _override ?? Compute();",
+            body);
+    }
+
+    [Fact]
+    public void RecursiveFirstStatement_SpellingMethodName_StillCapturesSignature()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public int Fact(int n)",                    // 3
+            "    {",                                        // 4
+            "        return n <= 1 ? 1 : n * Fact(n - 1);",  // 5  <- StartLine/EndLine
+            "    }",                                         // 6
+            "}");                                            // 7
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Fact");
+
+        Assert.Equal(
+            "public int Fact(int n)\n{\n    return n <= 1 ? 1 : n * Fact(n - 1);\n}",
+            body);
+    }
+
+    [Theory]
+    [InlineData("unsafe")]
+    [InlineData("extern")]
+    [InlineData("async")]
+    [InlineData("partial")]
+    [InlineData("sealed override")]
+    [InlineData("required")]
+    public void ModifierLedDeclaration_SequencePointOnDeclaration_ExcludesPrecedingMember(string modifiers)
+    {
+        var declaration = $"    {modifiers} int Target => 1;";
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public int Before() => 0;",                 // 3
+            "",                                             // 4
+            declaration,                                    // 5  <- StartLine/EndLine
+            "}");                                           // 6
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Target");
+
+        Assert.Equal(declaration.TrimStart(), body);
+    }
+
+    [Fact]
+    public void TupleReturningDeclaration_SequencePointOnDeclaration_ExcludesPrecedingMember()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public int Before() => 0;",                 // 3
+            "",                                             // 4
+            "    public (int X, int Y) Target => (1, 2);",   // 5  <- StartLine/EndLine
+            "}");                                           // 6
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Target");
+
+        Assert.Equal("public (int X, int Y) Target => (1, 2);", body);
+    }
+
+    [Fact]
+    public void UnsafeBlockStatement_IsNotMistakenForDeclaration_SignatureStillCaptured()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public void Target()",                      // 3
+            "    {",                                        // 4
+            "        unsafe { Poke(); }",                    // 5  <- StartLine/EndLine
+            "    }",                                         // 6
+            "}");                                            // 7
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+
+        Assert.Equal(
+            "public void Target()\n{\n    unsafe { Poke(); }\n}",
+            body);
+    }
+
+    [Fact]
+    public void IdentifierSharingModifierPrefix_IsNotMistakenForDeclaration()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public void Target()",                      // 3
+            "    {",                                        // 4
+            "        internalCounter = 1;",                  // 5  <- StartLine/EndLine
+            "    }",                                         // 6
+            "}");                                            // 7
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+
+        Assert.Equal(
+            "public void Target()\n{\n    internalCounter = 1;\n}",
+            body);
+    }
+
+    [Fact]
+    public void ModifierlessInterfaceMember_SequencePointOnDeclaration_ExcludesPrecedingMember()
+    {
+        var source = Lines(
+            "public interface IDefault",                     // 1
+            "{",                                            // 2
+            "    int Before => 0;",                          // 3
+            "    int Target => 1;",                          // 4  <- StartLine/EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Target");
+
+        Assert.Equal("int Target => 1;", body);
+    }
+
+    [Fact]
+    public void ImplicitlyPrivateAutoProperty_SequencePointOnDeclaration_ExcludesPrecedingMember()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    string? Before { get; set; }",              // 3
+            "    string? Target { get; set; }",              // 4  <- StartLine/EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "set_Target");
+
+        Assert.Equal("string? Target { get; set; }", body);
+    }
+
+    [Fact]
+    public void ExplicitInterfaceImplementation_SequencePointOnDeclaration_ExcludesPrecedingMember()
+    {
+        var source = Lines(
+            "class C : IDefault",                           // 1
+            "{",                                            // 2
+            "    int Before => 0;",                          // 3
+            "    int IDefault.Target => 1;",                 // 4  <- StartLine/EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(
+            source, startLine: 4, endLine: 4, methodName: "IDefault.get_Target");
+
+        Assert.Equal("int IDefault.Target => 1;", body);
+    }
+
+    [Theory]
+    [InlineData("return Target(n - 1);")]
+    [InlineData("_cache = Target();")]
+    [InlineData("var next = Target();")]
+    public void BodyLineSpellingMemberName_IsNotMistakenForDeclaration(string firstStatement)
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    int Target(int n)",                         // 3
+            "    {",                                        // 4
+            $"        {firstStatement}",                     // 5  <- StartLine/EndLine
+            "    }",                                         // 6
+            "}");                                            // 7
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+
+        Assert.Equal(
+            $"int Target(int n)\n{{\n    {firstStatement}\n}}",
+            body);
+    }
+
+    [Fact]
+    public void LocalDeclarationSpellingMemberName_IsNotMistakenForDeclaration()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public void Run()",                         // 3
+            "    {",                                        // 4
+            "        Widget Target;",                        // 5  <- StartLine/EndLine
+            "    }",                                         // 6
+            "}");                                            // 7
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+
+        Assert.Equal(
+            "public void Run()\n{\n    Widget Target;\n}",
+            body);
+    }
+
+    [Theory]
+    [InlineData("Helper.Target();")]
+    [InlineData("_helper.Target();")]
+    [InlineData("Factory<int>.Target();")]
+    [InlineData("Outer.Inner.Target();")]
+    public void QualifiedCallSpellingMemberName_IsNotMistakenForDeclaration(string firstStatement)
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    void Target()",                             // 3
+            "    {",                                        // 4
+            $"        {firstStatement}",                     // 5  <- StartLine/EndLine
+            "    }",                                         // 6
+            "}");                                            // 7
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+
+        Assert.Equal(
+            $"void Target()\n{{\n    {firstStatement}\n}}",
+            body);
+    }
+
+    [Fact]
+    public void ExplicitInterfaceImplementation_IsStillRecognized_DespiteQualifiedNameGuard()
+    {
+        var source = Lines(
+            "class C : IDefault",                           // 1
+            "{",                                            // 2
+            "    int Before => 0;",                          // 3
+            "    int IDefault.Target => 1;",                 // 4  <- StartLine/EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(
+            source, startLine: 4, endLine: 4, methodName: "IDefault.get_Target");
+
+        Assert.Equal("int IDefault.Target => 1;", body);
+    }
+
+    [Fact]
+    public void ModifierlessIndexer_SequencePointOnDeclaration_ExcludesPrecedingMember()
+    {
+        var source = Lines(
+            "public interface IDefault",                     // 1
+            "{",                                            // 2
+            "    int Before => 0;",                          // 3
+            "    int this[int index] => index;",             // 4  <- StartLine/EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Item");
+
+        Assert.Equal("int this[int index] => index;", body);
+    }
+
+    [Fact]
+    public void ExplicitInterfaceIndexer_SequencePointOnDeclaration_ExcludesPrecedingMember()
+    {
+        var source = Lines(
+            "class C : IDefault",                           // 1
+            "{",                                            // 2
+            "    int Before => 0;",                          // 3
+            "    int IDefault.this[int index] => index;",    // 4  <- StartLine/EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(
+            source, startLine: 4, endLine: 4, methodName: "IDefault.set_Item");
+
+        Assert.Equal("int IDefault.this[int index] => index;", body);
+    }
+
+    [Fact]
+    public void IndexerAccessInBody_IsNotMistakenForIndexerDeclaration()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public int this[int index]",                // 3
+            "    {",                                        // 4
+            "        get => _items[index];",                 // 5  <- StartLine/EndLine
+            "    }",                                         // 6
+            "}");                                            // 7
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Item");
+
+        Assert.Equal(
+            "public int this[int index]\n{\n    get => _items[index];\n}",
+            body);
+    }
+
+    [Fact]
+    public void GenericModifierlessMethod_SequencePointOnDeclaration_ExcludesPrecedingMember()
+    {
+        var source = Lines(
+            "public interface IDefault",                     // 1
+            "{",                                            // 2
+            "    int Before => 0;",                          // 3
+            "    T Target<T>(T value) => value;",            // 4  <- StartLine/EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "Target");
+
+        Assert.Equal("T Target<T>(T value) => value;", body);
+    }
+
+    [Fact]
+    public void GenericReturnTypeDeclaration_IsRecognized()
+    {
+        var source = Lines(
+            "public interface IDefault",                     // 1
+            "{",                                            // 2
+            "    int Before => 0;",                          // 3
+            "    Dictionary<string, int> Target => new();",  // 4  <- StartLine/EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Target");
+
+        Assert.Equal("Dictionary<string, int> Target => new();", body);
+    }
+
+    [Fact]
+    public void ReturnTypeSpelledLikeMemberName_IsStillRecognizedAsDeclaration()
+    {
+        var source = Lines(
+            "public interface IDefault",                     // 1
+            "{",                                            // 2
+            "    int Before => 0;",                          // 3
+            "    CancellationToken CancellationToken => default;", // 4  <- StartLine/EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(
+            source, startLine: 4, endLine: 4, methodName: "get_CancellationToken");
+
+        Assert.Equal("CancellationToken CancellationToken => default;", body);
+    }
+
+    [Fact]
+    public void BlockOpeningOnDeclarationLine_StillRecoversClosingBrace()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public int Target() {",                     // 3  <- StartLine
+            "        return 1;",                             // 4  <- EndLine
+            "    }",                                         // 5
+            "}");                                            // 6
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
+
+        Assert.Equal(
+            "public int Target() {\n    return 1;\n}",
+            body);
+    }
+
+    [Fact]
+    public void SelfTerminatingSingleLineDeclaration_StillSuppressesForwardScan()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public int Target() { return 1; }",         // 3  <- StartLine/EndLine
+            "}");                                           // 4
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "Target");
+
+        Assert.Equal("public int Target() { return 1; }", body);
+    }
+
+    [Fact]
+    public void ModifierlessTupleReturnDeclaration_ExcludesPrecedingMember()
+    {
+        var source = Lines(
+            "public interface IDefault",                     // 1
+            "{",                                            // 2
+            "    int Before => 0;",                          // 3
+            "    (int X, int Y) Target => (1, 2);",          // 4  <- StartLine/EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Target");
+
+        Assert.Equal("(int X, int Y) Target => (1, 2);", body);
+    }
+
+    [Fact]
+    public void DeconstructionAssignment_IsNotMistakenForTupleDeclaration()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public void Run()",                         // 3
+            "    {",                                        // 4
+            "        (var a, var b) = Target();",            // 5  <- StartLine/EndLine
+            "    }",                                         // 6
+            "}");                                            // 7
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+
+        Assert.Equal(
+            "public void Run()\n{\n    (var a, var b) = Target();\n}",
+            body);
+    }
+
+    [Theory]
+    [InlineData("ref int Target() => ref _value;")]
+    [InlineData("new int Target => 1;")]
+    [InlineData("ref readonly int Target() => ref _value;")]
+    public void RefOrNewLedDeclaration_ExcludesPrecedingMember(string declaration)
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public int Before => 0;",                   // 3
+            $"    {declaration}",                            // 4  <- StartLine/EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Target");
+
+        Assert.Equal(declaration, body);
+    }
+
+    [Theory]
+    [InlineData("new Widget().Configure();")]
+    [InlineData("ref var slot = ref _items[0];")]
+    public void RefOrNewLedStatement_IsNotMistakenForDeclaration(string firstStatement)
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public void Target()",                      // 3
+            "    {",                                        // 4
+            $"        {firstStatement}",                     // 5  <- StartLine/EndLine
+            "    }",                                         // 6
+            "}");                                            // 7
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+
+        Assert.Equal(
+            $"public void Target()\n{{\n    {firstStatement}\n}}",
+            body);
+    }
+
+    [Fact]
+    public void BraceInsideStringLiteral_DoesNotLookLikeAnOpenBlock()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public string Target =>",                   // 3  <- StartLine
+            "        \"{\";",                                // 4  <- EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "get_Target");
+
+        Assert.Equal("public string Target =>\n    \"{\";", body);
+    }
+
+    [Fact]
+    public void BraceInsideComment_DoesNotLookLikeAnOpenBlock()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public string Target => /* { */",           // 3  <- StartLine
+            "        \"x\";",                                // 4  <- EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "get_Target");
+
+        Assert.Equal("public string Target => /* { */\n    \"x\";", body);
+    }
+
+    [Fact]
+    public void ClosingBraceInsideStringLiteral_DoesNotLookLikeAClosedBlock()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public int Before() { return 0; }",         // 3
+            "    public string Target() {",                  // 4  <- StartLine
+            "        return \"}\";",                          // 5  <- EndLine
+            "    }",                                         // 6
+            "}");                                            // 7
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 5, methodName: "Target");
+
+        Assert.Equal(
+            "public string Target() {\n    return \"}\";\n}",
+            body);
+    }
+
+    [Fact]
+    public void ClosingBraceInsideVerbatimString_DoesNotLookLikeAClosedBlock()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public string Target() {",                  // 3  <- StartLine
+            "        return @\"}\";",                         // 4  <- EndLine
+            "    }",                                         // 5
+            "}");                                            // 6
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
+
+        Assert.Equal(
+            "public string Target() {\n    return @\"}\";\n}",
+            body);
+    }
+
+    [Fact]
+    public void OpeningBraceInsideVerbatimInterpolatedString_DoesNotLookLikeAnOpenBlock()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public string Target() => @$\"first",       // 3  <- StartLine
+            "        {{\";",                                 // 4  <- EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
+
+        Assert.Equal(
+            "public string Target() => @$\"first\n    {{\";",
+            body);
+    }
 }
