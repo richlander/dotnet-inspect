@@ -42,9 +42,10 @@ public enum CallGraphNodeKind
 /// </param>
 /// <param name="Kind">The strongest classification observed across every occurrence.</param>
 /// <param name="Perf">
-/// The analysis cues (fanout, fanin, depth, loop, signals, caller scope) carried by the first
-/// occurrence that had them, or null when no occurrence did. These are facts about the member, not
-/// presentation: a host projects whichever it was asked for and ignores the rest.
+/// The analysis cues (fanout, fanin, depth, loop, signals, caller scope) observed for this
+/// member, merged across both walk directions, or null when neither observed any. These are
+/// facts about the member, not presentation: a host projects whichever it was asked for and
+/// ignores the rest.
 /// </param>
 public sealed record CallGraphNode(int Id, MemberRef Member, string Label, CallGraphNodeKind Kind, CallTreePerf? Perf = null);
 
@@ -143,9 +144,10 @@ public sealed class CallGraphProjection
         // The selected overload is the single centered node shared by both trees; each
         // tree's root *is* that focus, so map both roots to the same id. This keeps a
         // bodiless placeholder root from becoming a second, stray "?" node.
-        // The callee root carries the selected member's own cues when it has a body; the
-        // caller root is the fallback for a bodiless target.
-        int focusId = builder.RegisterFocus(focus, calleeRoot?.Perf ?? callerRoot?.Perf);
+        // Each tree measured half of the focus: the callee root owns fan-out, the caller
+        // root owns fan-in and the root classification. Merge them rather than picking one,
+        // or the focus reports a direction it never measured.
+        int focusId = builder.RegisterFocus(focus, MergePerf(calleeRoot?.Perf, callerRoot?.Perf));
         if (callerRoot is not null)
             builder.WalkCallers(callerRoot, focusId);
         if (calleeRoot is not null)
@@ -232,9 +234,9 @@ public sealed class CallGraphProjection
             var info = _nodes[id];
             if (candidate > info.Kind)
                 info.Kind = candidate;
-            // Boundary occurrences carry no cues, so the first occurrence that has them wins
-            // rather than a later bare one erasing them.
-            info.Perf ??= perf;
+            // A member reached by both walks was measured twice, each time by a walk that
+            // only indexes one direction, so merge the observations field by field.
+            info.Perf = MergePerf(info.Perf, perf);
             return id;
         }
 
@@ -306,4 +308,41 @@ public sealed class CallGraphProjection
         => perf is { InLoop: true } p
             ? string.IsNullOrEmpty(p.LoopHint) ? "loop" : p.LoopHint
             : null;
+
+    /// <summary>
+    /// Combines two observations of the same member, one per walk direction.
+    /// </summary>
+    /// <remarks>
+    /// Neither walk sees the whole member. A caller tree indexes the caller scope and reports
+    /// fan-in, the root classification, and cross-assembly source, but hard-codes fan-out to 0.
+    /// A callee tree indexes the callee scope and reports fan-out, but never classifies a root.
+    /// Picking one record therefore publishes a direction that was never measured, so each field
+    /// is merged by the side that actually measured it. Degrees and depth are lower bounds over
+    /// whichever scope set that walk indexed, so the larger observation is the better-informed
+    /// one and a direction that does not measure a degree reports 0 and can never win.
+    /// </remarks>
+    private static CallTreePerf? MergePerf(CallTreePerf? first, CallTreePerf? second)
+    {
+        if (first is null)
+            return second;
+        if (second is null)
+            return first;
+
+        return first with
+        {
+            Fanout = Math.Max(first.Fanout, second.Fanout),
+            Fanin = Math.Max(first.Fanin, second.Fanin),
+            MaxDepth = Math.Max(first.MaxDepth, second.MaxDepth),
+            InLoop = first.InLoop || second.InLoop,
+            LoopHint = first.InLoop ? first.LoopHint : second.LoopHint,
+            RootKind = first.RootKind ?? second.RootKind,
+            Signals = PreferMeasured(first.Signals, second.Signals),
+            Source = first.Source ?? second.Source,
+        };
+
+        // Both walks default a member they could not resolve to the None singleton, so a
+        // by-reference test distinguishes "no signals were measured" from "none were found".
+        static MethodSignals? PreferMeasured(MethodSignals? first, MethodSignals? second)
+            => first is not null && !ReferenceEquals(first, MethodSignals.None) ? first : second ?? first;
+    }
 }

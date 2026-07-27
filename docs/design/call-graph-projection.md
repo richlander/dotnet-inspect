@@ -97,8 +97,33 @@ The projection owns everything a host must not re-invent in JavaScript:
 - **Per-node analysis facts.** `CallTreePerf` (fanout, fanin, depth, loop, source
   assembly, and the `MethodSignals` cost/exception cues) travels on the node, so a
   host can project any subset without re-walking the tree. Perf is analysis data,
-  not presentation; the first non-null occurrence wins, because a boundary
-  occurrence carries no cues.
+  not presentation.
+
+  Both walks observe the same member, but neither observes all of it: a caller
+  tree indexes the caller scope and reports fan-in, the root classification and
+  cross-assembly source while hard-coding fan-out to `0`; a callee tree indexes
+  the callee scope and reports fan-out but never classifies a root. Merging the
+  two observations therefore happens field by field, keeping the side that
+  actually measured each fact. Degrees and depth are lower bounds over whichever
+  scope set that walk indexed, so the larger observation wins and a direction
+  that never measures a degree can never pin it to zero.
+
+### Lowering a bidirectional graph to a tree
+
+The projection is a graph, and a graph containing a cycle through the focus
+cannot be drawn as a tree without breaking it somewhere. Markout's tree lowering
+roots at the focus, follows outbound edges, and appends anything still unvisited
+as an additional root; a member that is both an inbound caller and an outbound
+callee is therefore printed under whichever side reached it first, with the
+other side pointing at it through a `↩` revisit leaf.
+
+No node and no edge is lost — the revisit leaf carries the edge — but a caller
+chain that re-enters through the callee side reads as two fragments rather than
+one path. That is a property of tree lowering, not of the projection, and the
+edge-table lowering (`--table`, `--tsv`, `--jsonl`) shows every edge in one
+place for readers who need it. Splitting the model back into two graphs to make
+the tree prettier would reintroduce exactly the duplicated walk this design
+removes, so the projection stays single and the lowering stays lossy-by-shape.
 
 Escaping is *not* the projection's job. Labels are member spellings; making them
 safe for a given output grammar belongs to the renderer that knows the grammar

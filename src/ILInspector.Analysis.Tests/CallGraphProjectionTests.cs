@@ -352,4 +352,75 @@ public class CallGraphProjectionTests
         Assert.All(projection.Edges, e => Assert.Equal(0, e.From));
         Assert.Equal(2, projection.Edges.Select(e => e.To).Distinct().Count());
     }
+
+    [Fact]
+    public void FocusKeepsFanOutFromTheCalleeWalkAndRootKindFromTheCallerWalk()
+    {
+        var focus = Member("Ns.Target", "Run");
+        var callerRoot = new CallTreeNode(
+            focus, null, CallTreeStatus.Expanded, [Leaf(Member("Ns.Up", "CallsIn"))],
+            new CallTreePerf(0, 7, 2, false, null, "target"));
+        var calleeRoot = new CallTreeNode(
+            focus, null, CallTreeStatus.Expanded, [Leaf(Member("Ns.Down", "CalledBy"))],
+            new CallTreePerf(9, 0, 3, false));
+
+        var projection = CallGraphProjection.Create(callerRoot, calleeRoot);
+        var perf = projection.Nodes[0].Perf;
+
+        Assert.NotNull(perf);
+        // Each direction measures one degree and hard-codes the other to zero, so the focus
+        // must publish the caller walk's fan-in and the callee walk's fan-out, not one record.
+        Assert.Equal(9, perf.Fanout);
+        Assert.Equal(7, perf.Fanin);
+        Assert.Equal(3, perf.MaxDepth);
+        Assert.Equal("target", perf.RootKind);
+    }
+
+    [Fact]
+    public void MemberSeenByBothWalksKeepsTheDegreeEachWalkMeasured()
+    {
+        var focus = Member("Ns.Target", "Run");
+        var shared = Member("Ns.Both", "Cycles");
+        // The caller walk runs first and reports fan-out 0 for every node it sees; without a
+        // merge its zero would pin the shared node and erase the callee walk's real fan-out.
+        var callerRoot = new CallTreeNode(
+            focus, null, CallTreeStatus.Expanded,
+            [new CallTreeNode(shared, null, CallTreeStatus.Leaf, [], new CallTreePerf(0, 4, 1, false))],
+            new CallTreePerf(0, 4, 2, false, null, "target"));
+        var calleeRoot = new CallTreeNode(
+            focus, null, CallTreeStatus.Expanded,
+            [new CallTreeNode(shared, null, CallTreeStatus.Leaf, [], new CallTreePerf(5, 0, 1, false))],
+            new CallTreePerf(2, 0, 2, false));
+
+        var projection = CallGraphProjection.Create(callerRoot, calleeRoot);
+        var sharedNode = Assert.Single(projection.Nodes, n => n.Member.Name == "Cycles");
+
+        Assert.NotNull(sharedNode.Perf);
+        Assert.Equal(5, sharedNode.Perf.Fanout);
+        Assert.Equal(4, sharedNode.Perf.Fanin);
+    }
+
+    [Fact]
+    public void MergingCuesNeverErasesAnObservationWithABareBoundaryOccurrence()
+    {
+        var focus = Member("Ns.Target", "Run");
+        var external = Member("Ns.Far", "Boundary");
+        var callerRoot = new CallTreeNode(
+            focus, null, CallTreeStatus.Expanded,
+            [new CallTreeNode(external, null, CallTreeStatus.External, [], new CallTreePerf(0, 3, 1, true, "loop call", null, null, "Other.dll"))],
+            new CallTreePerf(0, 0, 1, false));
+        var calleeRoot = new CallTreeNode(
+            focus, null, CallTreeStatus.Expanded,
+            [new CallTreeNode(external, null, CallTreeStatus.External, [], new CallTreePerf(0, 0, 1, false))],
+            new CallTreePerf(0, 0, 1, false));
+
+        var projection = CallGraphProjection.Create(callerRoot, calleeRoot);
+        var node = Assert.Single(projection.Nodes, n => n.Member.Name == "Boundary");
+
+        Assert.NotNull(node.Perf);
+        Assert.Equal(3, node.Perf.Fanin);
+        Assert.Equal("Other.dll", node.Perf.Source);
+        Assert.True(node.Perf.InLoop);
+        Assert.Equal("loop call", node.Perf.LoopHint);
+    }
 }
