@@ -94,6 +94,7 @@ public class PdbContext : IDisposable
     private MetadataReaderProvider? _pdbProvider;
     private MetadataReader? _pdbReader;
     private SourceLinkResolver? _resolver;
+    private bool? _isReferenceAssembly;
     private SourceDocumentPathResolver _sourceDocumentPathResolver = SourceDocumentPathResolver.Empty;
     private readonly List<IDisposable> _disposables = [];
     private MethodBodySource? _methodBodies;
@@ -340,6 +341,76 @@ public class PdbContext : IDisposable
 
         var metadataReader = _peReader.GetMetadataReader();
         return _resolver.ResolveTypeSource(metadataReader, _pdbReader, typeName);
+    }
+
+    /// <summary>
+    /// Whether the MethodDef <paramref name="methodToken"/> addresses carries an IL body:
+    /// <see langword="true"/> when it does, <see langword="false"/> when it does not — an
+    /// abstract, interface, extern, or runtime-implemented method — and <see langword="null"/>
+    /// when the token cannot be read as a MethodDef in this assembly, which is not the same
+    /// answer as "no body" and must not be reported as one (issue #3299).
+    /// </summary>
+    /// <remarks>
+    /// A reference assembly answers <see langword="null"/> for every token: it strips all IL, so
+    /// its RVAs report the image's surface-only nature rather than anything about the method.
+    /// </remarks>
+    public bool? MethodHasBody(int methodToken)
+    {
+        if (!_peReader.HasMetadata)
+            return null;
+
+        var handle = MetadataTokens.Handle(methodToken);
+        if (handle.Kind != HandleKind.MethodDefinition)
+            return null;
+
+        try
+        {
+            var reader = _peReader.GetMetadataReader();
+            if (IsReferenceAssembly(reader))
+                return null;
+
+            return reader.GetMethodDefinition((MethodDefinitionHandle)handle).RelativeVirtualAddress != 0;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Whether the assembly carries <c>ReferenceAssemblyAttribute</c>, cached because the answer
+    /// is fixed for the image.
+    /// </summary>
+    private bool IsReferenceAssembly(MetadataReader reader)
+    {
+        if (_isReferenceAssembly is { } cached)
+            return cached;
+
+        bool result = false;
+        if (reader.IsAssembly)
+        {
+            foreach (var handle in reader.GetAssemblyDefinition().GetCustomAttributes())
+            {
+                var attribute = reader.GetCustomAttribute(handle);
+                if (attribute.Constructor.Kind != HandleKind.MemberReference)
+                    continue;
+
+                var parent = reader.GetMemberReference((MemberReferenceHandle)attribute.Constructor).Parent;
+                if (parent.Kind != HandleKind.TypeReference)
+                    continue;
+
+                var typeRef = reader.GetTypeReference((TypeReferenceHandle)parent);
+                if (reader.StringComparer.Equals(typeRef.Name, "ReferenceAssemblyAttribute")
+                    && reader.StringComparer.Equals(typeRef.Namespace, "System.Runtime.CompilerServices"))
+                {
+                    result = true;
+                    break;
+                }
+            }
+        }
+
+        _isReferenceAssembly = result;
+        return result;
     }
 
     public ILOffsetMemberContextInfo? ResolveMemberContext(int methodToken, int ilOffset)

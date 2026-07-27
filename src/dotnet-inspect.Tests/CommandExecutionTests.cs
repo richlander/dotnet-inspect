@@ -3191,6 +3191,63 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_OriginalSource_BodylessMember_ExplainsWhyThereIsNoSource()
+    {
+        // An abstract method has no IL body, so it has no authored source to resolve. That is a
+        // complete answer, not a failure: say so and keep exit 0 rather than rendering nothing
+        // and leaving the caller unable to tell success from silent failure (#3299).
+        var (abstractExit, abstractOutput, abstractError) = await RunAppAsync(
+            "member", "JsonConverter<T>", "--platform", "System.Text.Json",
+            "Read", "-S", "Original Source", "--tips", "q");
+
+        Assert.Equal(0, abstractExit);
+        Assert.Empty(abstractError);
+        Assert.Contains("## Original Source", abstractOutput);
+        Assert.Contains("has no IL body", abstractOutput);
+
+        // An interface method is bodyless for a different metadata reason and gets the same answer.
+        var (interfaceExit, interfaceOutput, interfaceError) = await RunAppAsync(
+            "member", "IJsonOnDeserialized", "--platform", "System.Text.Json",
+            "OnDeserialized", "-S", "Original Source", "--tips", "q");
+
+        Assert.Equal(0, interfaceExit);
+        Assert.Empty(interfaceError);
+        Assert.Contains("## Original Source", interfaceOutput);
+        Assert.Contains("has no IL body", interfaceOutput);
+    }
+
+    [Fact]
+    public async Task Member_OriginalSource_MemberWithBody_DoesNotClaimTheMemberIsBodyless()
+    {
+        // Close negative: a member that does have a body still renders its authored source, so
+        // the bodyless explanation never displaces real source (#3299).
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
+            "MaxDepth:1", "-S", "Original Source", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("get => _maxDepth;", output);
+        Assert.DoesNotContain("has no IL body", output);
+    }
+
+    [Fact]
+    public async Task Member_SourceDiff_BodylessMember_ReportsOriginalSourceUnavailable()
+    {
+        // The bodyless explanation is prose about the member, not source text, so the diff must
+        // report its "before" side unavailable rather than diffing the explanation (#3299).
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConverter<T>", "--platform", "System.Text.Json",
+            "Read", "-S", "Source Diff", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Source Diff", output);
+        Assert.Contains("Original Source unavailable", output);
+        Assert.DoesNotContain("has no IL body", output);
+    }
+
+    [Fact]
     public async Task Member_SourceDiff_PropertyAccessor_ComparesAuthoredSourceToAccessorBody()
     {
         var (exit, output, error) = await RunAppAsync(

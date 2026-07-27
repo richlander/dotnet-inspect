@@ -554,7 +554,16 @@ public class ApiCommand
 
     // ===== Method Source Resolution =====
 
-    internal sealed record ResolvedMethodSource(MethodSourceContext? Source, string? PdbPath);
+    /// <param name="Source">Resolved source, or null when none could be resolved.</param>
+    /// <param name="PdbPath">The acquired portable PDB path, when one was acquired.</param>
+    /// <param name="MemberHasNoBody">
+    /// True when the member carries no IL body, so <paramref name="Source"/> is absent because
+    /// there is nothing to show rather than because resolution failed (issue #3299).
+    /// </param>
+    internal sealed record ResolvedMethodSource(
+        MethodSourceContext? Source,
+        string? PdbPath,
+        bool MemberHasNoBody = false);
 
     internal static async Task<ResolvedMethodSource> ResolveMethodSourceAsync(
         string dllPath, string typeName, string methodName, int overloadIndex,
@@ -582,12 +591,18 @@ public class ApiCommand
             // names even when SourceLink/source resolution below fails (PDB available, source not).
             string? pdbPath = context.PortablePdbPath;
 
+            // A member with no IL body has no authored source to resolve, whatever the PDB and
+            // SourceLink situation is. Ask metadata for that fact before the resolution attempt,
+            // so an empty result can say why instead of looking like a silent failure
+            // (issue #3299). Only a definite "no" counts; an unreadable token stays unknown.
+            bool memberHasNoBody = metadataToken != 0 && context.MethodHasBody(metadataToken) == false;
+
             if (!fetchSource || !service.HasPdb || !service.HasSourceLink)
-                return new ResolvedMethodSource(null, pdbPath);
+                return new ResolvedMethodSource(null, pdbPath, memberHasNoBody);
 
             var methodInfo = service.ResolveMethodSource(typeName, methodName, overloadIndex, publicOnly, metadataToken);
             if (methodInfo == null)
-                return new ResolvedMethodSource(null, pdbPath);
+                return new ResolvedMethodSource(null, pdbPath, memberHasNoBody);
 
             // Honor the source the portable PDB records when it is present locally: a non-reproducible
             // (local dev) build keeps a real local path whose exact compiled bytes may exist only here,
@@ -620,7 +635,7 @@ public class ApiCommand
             }
 
             if (content == null)
-                return new ResolvedMethodSource(null, pdbPath);
+                return new ResolvedMethodSource(null, pdbPath, memberHasNoBody);
 
             var sourceCode = SourceLinkResolver.ExtractMethodBody(
                 content, methodInfo.StartLine, methodInfo.EndLine, methodName, isDestructor,
@@ -795,11 +810,20 @@ public class ApiCommand
             }
 
             // Source code (already resolved in command layer)
-            if (options is MemberOptions { MethodSource: not null } mo5
+            if (options is MemberOptions mo5
                 && GetRequestedMemberSections(type, mo5).Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
             {
-                view.MemberCode ??= new MemberCodeView();
-                view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", mo5.MethodSource.SourceCode);
+                if (mo5.MethodSource is { } resolvedSource)
+                {
+                    view.MemberCode ??= new MemberCodeView();
+                    view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", resolvedSource.SourceCode);
+                }
+                else if (mo5.MemberHasNoBody)
+                {
+                    view.MemberCode ??= new MemberCodeView();
+                    view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", BodylessMemberNote);
+                    view.MemberCode.OriginalSourceUnavailable = true;
+                }
             }
 
             PopulateSourceDiff(view, GetRequestedMemberSections(type, options));
@@ -1422,10 +1446,19 @@ public class ApiCommand
                         memberOptions.IncludeSections, memberOptions);
                 }
 
-                if (memberOptions.MethodSource != null && requestedSections.Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
+                if (requestedSections.Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
                 {
-                    view.MemberCode ??= new MemberCodeView();
-                    view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", memberOptions.MethodSource.SourceCode);
+                    if (memberOptions.MethodSource is { } resolvedSource)
+                    {
+                        view.MemberCode ??= new MemberCodeView();
+                        view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", resolvedSource.SourceCode);
+                    }
+                    else if (memberOptions.MemberHasNoBody)
+                    {
+                        view.MemberCode ??= new MemberCodeView();
+                        view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", BodylessMemberNote);
+                        view.MemberCode.OriginalSourceUnavailable = true;
+                    }
                 }
                 PopulateSourceDiff(view, requestedSections);
             }
@@ -1517,6 +1550,14 @@ public class ApiCommand
                 writer);
     }
 
+    /// <summary>
+    /// Stands in for Original Source when the selected member carries no IL body. A C# comment
+    /// so it reads naturally inside the section's <c>csharp</c> fence, mirroring how
+    /// <see cref="SourceTextDiffRenderer"/> reports an unavailable diff input (issue #3299).
+    /// </summary>
+    internal const string BodylessMemberNote =
+        "// This member has no IL body, so it has no authored source to show.";
+
     private static void PopulateSourceDiff(TypeView view, IReadOnlySet<string> requestedSections)
     {
         if (!requestedSections.Contains(SectionNames.SourceDiff))
@@ -1526,7 +1567,9 @@ public class ApiCommand
         view.MemberCode.SourceDiffCode = new Markout.CodeSection(
             "diff",
             SourceTextDiffRenderer.CreateUnifiedDiff(
-                view.MemberCode.OriginalSourceCode.Content,
+                // The bodyless note is an explanation, not source text: leave the diff's
+                // "before" side unavailable so it reports that rather than diffing the note.
+                view.MemberCode.OriginalSourceUnavailable ? null : view.MemberCode.OriginalSourceCode.Content,
                 view.MemberCode.DecompiledSourceCode.Content,
                 "Original Source",
                 "Decompiled Source"));
