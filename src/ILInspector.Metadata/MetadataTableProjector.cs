@@ -42,6 +42,18 @@ public static class MetadataTableProjector
         TableIndex.GenericParamConstraint, TableIndex.MethodSpec,
     ];
 
+    static readonly ImmutableArray<TableIndex> HasConstantTargets =
+        [TableIndex.Field, TableIndex.Param, TableIndex.Property];
+
+    static readonly ImmutableArray<TableIndex> MethodDefOrRefTargets =
+        [TableIndex.MethodDef, TableIndex.MemberRef];
+
+    static readonly ImmutableArray<TableIndex> ImplementationTargets =
+        [TableIndex.File, TableIndex.ExportedType, TableIndex.AssemblyRef];
+
+    static readonly ImmutableArray<TableIndex> TypeOrMethodDefTargets =
+        [TableIndex.TypeDef, TableIndex.MethodDef];
+
     static readonly ImmutableArray<TableSpec> SupportedTables =
     [
         new(TableIndex.Module, "Module", ModuleColumns, ReadModuleRow),
@@ -51,8 +63,16 @@ public static class MetadataTableProjector
         new(TableIndex.MethodDef, "MethodDef", MethodDefColumns, ReadMethodDefRow),
         new(TableIndex.Param, "Param", ParamColumns, ReadParamRow),
         new(TableIndex.MemberRef, "MemberRef", MemberRefColumns, ReadMemberRefRow),
+        new(TableIndex.Constant, "Constant", ConstantColumns, ReadConstantRow),
         new(TableIndex.CustomAttribute, "CustomAttribute", CustomAttributeColumns, ReadCustomAttributeRow),
+        new(TableIndex.StandAloneSig, "StandAloneSig", StandAloneSigColumns, ReadStandAloneSigRow),
+        new(TableIndex.MethodImpl, "MethodImpl", MethodImplColumns, ReadMethodImplRow),
+        new(TableIndex.TypeSpec, "TypeSpec", TypeSpecColumns, ReadTypeSpecRow),
+        new(TableIndex.Assembly, "Assembly", AssemblyColumns, ReadAssemblyRow),
         new(TableIndex.AssemblyRef, "AssemblyRef", AssemblyRefColumns, ReadAssemblyRefRow),
+        new(TableIndex.ExportedType, "ExportedType", ExportedTypeColumns, ReadExportedTypeRow),
+        new(TableIndex.GenericParam, "GenericParam", GenericParamColumns, ReadGenericParamRow),
+        new(TableIndex.MethodSpec, "MethodSpec", MethodSpecColumns, ReadMethodSpecRow),
     ];
 
     /// <summary>
@@ -184,6 +204,13 @@ public static class MetadataTableProjector
         new("Signature", MetadataColumnKind.Heap),
     ];
 
+    static ImmutableArray<MetadataColumn> ConstantColumns =>
+    [
+        new("Type", MetadataColumnKind.Scalar),
+        new("Parent", MetadataColumnKind.Handle, HasConstantTargets),
+        new("Value", MetadataColumnKind.Heap),
+    ];
+
     static ImmutableArray<MetadataColumn> CustomAttributeColumns =>
     [
         new("Parent", MetadataColumnKind.Handle, HasCustomAttributeTargets),
@@ -202,6 +229,59 @@ public static class MetadataTableProjector
         new("Name", MetadataColumnKind.Heap),
         new("Culture", MetadataColumnKind.Heap),
         new("HashValue", MetadataColumnKind.Heap),
+    ];
+
+    static ImmutableArray<MetadataColumn> StandAloneSigColumns =>
+    [
+        new("Signature", MetadataColumnKind.Heap),
+    ];
+
+    static ImmutableArray<MetadataColumn> MethodImplColumns =>
+    [
+        new("Class", MetadataColumnKind.Handle, [TableIndex.TypeDef]),
+        new("MethodBody", MetadataColumnKind.Handle, MethodDefOrRefTargets),
+        new("MethodDeclaration", MetadataColumnKind.Handle, MethodDefOrRefTargets),
+    ];
+
+    static ImmutableArray<MetadataColumn> TypeSpecColumns =>
+    [
+        new("Signature", MetadataColumnKind.Heap),
+    ];
+
+    static ImmutableArray<MetadataColumn> AssemblyColumns =>
+    [
+        new("HashAlgId", MetadataColumnKind.Scalar),
+        new("MajorVersion", MetadataColumnKind.Scalar),
+        new("MinorVersion", MetadataColumnKind.Scalar),
+        new("BuildNumber", MetadataColumnKind.Scalar),
+        new("RevisionNumber", MetadataColumnKind.Scalar),
+        new("Flags", MetadataColumnKind.Flags),
+        new("PublicKey", MetadataColumnKind.Heap),
+        new("Name", MetadataColumnKind.Heap),
+        new("Culture", MetadataColumnKind.Heap),
+    ];
+
+    static ImmutableArray<MetadataColumn> ExportedTypeColumns =>
+    [
+        new("Attributes", MetadataColumnKind.Flags),
+        new("TypeDefId", MetadataColumnKind.Scalar),
+        new("Name", MetadataColumnKind.Heap),
+        new("Namespace", MetadataColumnKind.Heap),
+        new("Implementation", MetadataColumnKind.Handle, ImplementationTargets),
+    ];
+
+    static ImmutableArray<MetadataColumn> GenericParamColumns =>
+    [
+        new("Number", MetadataColumnKind.Scalar),
+        new("Attributes", MetadataColumnKind.Flags),
+        new("Owner", MetadataColumnKind.Handle, TypeOrMethodDefTargets),
+        new("Name", MetadataColumnKind.Heap),
+    ];
+
+    static ImmutableArray<MetadataColumn> MethodSpecColumns =>
+    [
+        new("Method", MetadataColumnKind.Handle, MethodDefOrRefTargets),
+        new("Instantiation", MetadataColumnKind.Heap),
     ];
 
     // ---- Per-table row readers -------------------------------------------
@@ -292,6 +372,17 @@ public static class MetadataTableProjector
         ];
     }
 
+    static ImmutableArray<MetadataValue> ReadConstantRow(MetadataReader reader, int rid, MetadataProjectionOptions options)
+    {
+        var constant = reader.GetConstant(MetadataTokens.ConstantHandle(rid));
+        return
+        [
+            new MetadataValue.Scalar((long)constant.TypeCode, constant.TypeCode.ToString()),
+            HandleCell(reader, constant.Parent, options),
+            BlobCell(reader, constant.Value, options),
+        ];
+    }
+
     static ImmutableArray<MetadataValue> ReadCustomAttributeRow(MetadataReader reader, int rid, MetadataProjectionOptions options)
     {
         var attribute = reader.GetCustomAttribute(MetadataTokens.CustomAttributeHandle(rid));
@@ -318,6 +409,89 @@ public static class MetadataTableProjector
             StringCell(reader, assemblyRef.Name, options),
             StringCell(reader, assemblyRef.Culture, options),
             BlobCell(reader, assemblyRef.HashValue, options),
+        ];
+    }
+
+    static ImmutableArray<MetadataValue> ReadStandAloneSigRow(MetadataReader reader, int rid, MetadataProjectionOptions options)
+    {
+        var signature = reader.GetStandaloneSignature(MetadataTokens.StandaloneSignatureHandle(rid));
+        return
+        [
+            BlobCell(reader, signature.Signature, options),
+        ];
+    }
+
+    static ImmutableArray<MetadataValue> ReadMethodImplRow(MetadataReader reader, int rid, MetadataProjectionOptions options)
+    {
+        var methodImpl = reader.GetMethodImplementation(MetadataTokens.MethodImplementationHandle(rid));
+        return
+        [
+            HandleCell(reader, methodImpl.Type, options),
+            HandleCell(reader, methodImpl.MethodBody, options),
+            HandleCell(reader, methodImpl.MethodDeclaration, options),
+        ];
+    }
+
+    static ImmutableArray<MetadataValue> ReadTypeSpecRow(MetadataReader reader, int rid, MetadataProjectionOptions options)
+    {
+        var typeSpec = reader.GetTypeSpecification(MetadataTokens.TypeSpecificationHandle(rid));
+        return
+        [
+            BlobCell(reader, typeSpec.Signature, options),
+        ];
+    }
+
+    static ImmutableArray<MetadataValue> ReadAssemblyRow(MetadataReader reader, int rid, MetadataProjectionOptions options)
+    {
+        var assembly = reader.GetAssemblyDefinition();
+        var version = assembly.Version;
+        return
+        [
+            new MetadataValue.Scalar((long)assembly.HashAlgorithm, assembly.HashAlgorithm.ToString()),
+            new MetadataValue.Scalar(version.Major, version.Major.ToString()),
+            new MetadataValue.Scalar(version.Minor, version.Minor.ToString()),
+            new MetadataValue.Scalar(version.Build, version.Build.ToString()),
+            new MetadataValue.Scalar(version.Revision, version.Revision.ToString()),
+            FlagsCell((long)assembly.Flags, assembly.Flags.ToString()),
+            BlobCell(reader, assembly.PublicKey, options),
+            StringCell(reader, assembly.Name, options),
+            StringCell(reader, assembly.Culture, options),
+        ];
+    }
+
+    static ImmutableArray<MetadataValue> ReadExportedTypeRow(MetadataReader reader, int rid, MetadataProjectionOptions options)
+    {
+        var exportedType = reader.GetExportedType(MetadataTokens.ExportedTypeHandle(rid));
+        int typeDefId = exportedType.GetTypeDefinitionId();
+        return
+        [
+            FlagsCell((long)exportedType.Attributes, exportedType.Attributes.ToString()),
+            new MetadataValue.Scalar(typeDefId, $"0x{typeDefId:X8}"),
+            StringCell(reader, exportedType.Name, options),
+            StringCell(reader, exportedType.Namespace, options),
+            HandleCell(reader, exportedType.Implementation, options),
+        ];
+    }
+
+    static ImmutableArray<MetadataValue> ReadGenericParamRow(MetadataReader reader, int rid, MetadataProjectionOptions options)
+    {
+        var genericParam = reader.GetGenericParameter(MetadataTokens.GenericParameterHandle(rid));
+        return
+        [
+            new MetadataValue.Scalar(genericParam.Index, genericParam.Index.ToString()),
+            FlagsCell((long)genericParam.Attributes, genericParam.Attributes.ToString()),
+            HandleCell(reader, genericParam.Parent, options),
+            StringCell(reader, genericParam.Name, options),
+        ];
+    }
+
+    static ImmutableArray<MetadataValue> ReadMethodSpecRow(MetadataReader reader, int rid, MetadataProjectionOptions options)
+    {
+        var methodSpec = reader.GetMethodSpecification(MetadataTokens.MethodSpecificationHandle(rid));
+        return
+        [
+            HandleCell(reader, methodSpec.Method, options),
+            BlobCell(reader, methodSpec.Signature, options),
         ];
     }
 

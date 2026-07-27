@@ -132,8 +132,10 @@ tools); it is not a dependency *of the planner*.
 ## Scope
 
 Given an assembly image, enumerate the ECMA-335 metadata tables (`Module`,
-`TypeRef`, `TypeDef`, `Field`, `MethodDef`, `Param`, `MemberRef`,
-`CustomAttribute`, `AssemblyRef`, …) and produce, per table, its rows with:
+`TypeRef`, `TypeDef`, `Field`, `MethodDef`, `Param`, `MemberRef`, `Constant`,
+`CustomAttribute`, `StandAloneSig`, `MethodImpl`, `TypeSpec`, `Assembly`,
+`AssemblyRef`, `ExportedType`, `GenericParam`, `MethodSpec`, …) and produce, per
+table, its rows with:
 
 1. **Each column value in raw form**, plus a friendly decode where cheap (flag
    enums, a name/namespace pulled from the string heap, well-known GUIDs). The
@@ -368,7 +370,9 @@ machine-readable streams (one `WriteTable` block per table).
 
 The `mdv` oracle is a follow-up increment: because it diffs against the
 projection **model** (not `mdi`'s rendered text), the renderer is free to be
-human-friendly without weakening the oracle.
+human-friendly without weakening the oracle. Supported-table coverage is kept in
+step with the tables `mdv` dumps, so every supported table's physical row count
+is cross-validated against `mdv` for free on the product assembly.
 
 ## Layer placement
 
