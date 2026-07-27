@@ -44,7 +44,9 @@ static class SlotResidualCensus
                     totals.PassBugs++;
                     if (examples.Count < maxExamples)
                         examples.Add(
-                            PassBugDiagnostic.Format(ex, assemblyPath, typeName, methodName, function.Signature));
+                            PassBugDiagnostic.Format(
+                                ex, assemblyPath, typeName, methodName,
+                                function.Signature, function.MetadataToken));
                     continue;
                 }
 

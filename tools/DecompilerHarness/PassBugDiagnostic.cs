@@ -9,10 +9,12 @@ static class PassBugDiagnostic
         string assemblyPath,
         string typeName,
         string methodName,
-        MethodSignature signature)
+        MethodSignature signature,
+        int metadataToken)
     {
         string identity =
-            $"{assemblyPath}!{typeName}::{methodName}{CorpusMethodIdentity.SignatureText(signature)}";
+            $"{assemblyPath}!{typeName}::{methodName}{CorpusMethodIdentity.SignatureText(signature)} " +
+            $"[token 0x{metadataToken:X8}]";
         return $"PASS BUG: {exception.GetType().Name}: {exception.Message} ({identity})";
     }
 }

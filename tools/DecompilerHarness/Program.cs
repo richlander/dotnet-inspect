@@ -845,7 +845,9 @@ static class Program
                 {
                     crashes++;
                     Console.Error.WriteLine(
-                        PassBugDiagnostic.Format(ex, assemblyPath, typeName, methodName, function.Signature));
+                        PassBugDiagnostic.Format(
+                            ex, assemblyPath, typeName, methodName,
+                            function.Signature, function.MetadataToken));
                     continue;
                 }
 
@@ -959,7 +961,9 @@ static class Program
                 {
                     crashes++;
                     Console.Error.WriteLine(
-                        PassBugDiagnostic.Format(ex, assemblyPath, typeName, methodName, function.Signature));
+                        PassBugDiagnostic.Format(
+                            ex, assemblyPath, typeName, methodName,
+                            function.Signature, function.MetadataToken));
                     continue;
                 }
                 var fidelityCensus = FidelityCauseBuckets.Inspect(function, id);
@@ -1035,7 +1039,9 @@ static class Program
                 {
                     crashes++;
                     Console.Error.WriteLine(
-                        PassBugDiagnostic.Format(ex, assemblyPath, typeName, methodName, function.Signature));
+                        PassBugDiagnostic.Format(
+                            ex, assemblyPath, typeName, methodName,
+                            function.Signature, function.MetadataToken));
                     continue;
                 }
                 var changed = StageDump.PassesThatChanged(stages);
@@ -1115,7 +1121,9 @@ static class Program
                 {
                     crashes++;
                     Console.Error.WriteLine(
-                        PassBugDiagnostic.Format(ex, assemblyPath, typeName, methodName, function.Signature));
+                        PassBugDiagnostic.Format(
+                            ex, assemblyPath, typeName, methodName,
+                            function.Signature, function.MetadataToken));
                     continue;
                 }
 

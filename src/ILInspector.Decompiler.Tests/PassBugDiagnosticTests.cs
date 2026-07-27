@@ -17,13 +17,32 @@ public class PassBugDiagnosticTests
         Assert.NotNull(directory);
 
         string harnessDirectory = Path.Combine(directory.FullName, "tools", "DecompilerHarness");
-        string[] offenders = Directory.EnumerateFiles(harnessDirectory, "*.cs")
+        string[] files = Directory.EnumerateFiles(harnessDirectory, "*.cs").ToArray();
+        string[] callSites = files
+            .SelectMany(path => Enumerable.Repeat(
+                Path.GetFileName(path)!,
+                File.ReadAllText(path).Split(
+                    "PassBugDiagnostic.Format(",
+                    StringSplitOptions.None).Length - 1))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        Assert.Equal(
+            [
+                "Program.cs",
+                "Program.cs",
+                "Program.cs",
+                "Program.cs",
+                "SlotResidualCensus.cs",
+                "SlotUnifierCensus.cs",
+            ],
+            callSites);
+
+        string[] offenders = files
             .Where(path => Path.GetFileName(path) != "PassBugDiagnostic.cs")
             .Where(path => File.ReadAllText(path).Contains("PASS BUG", StringComparison.Ordinal))
             .Select(path => Path.GetFileName(path)!)
             .Order(StringComparer.Ordinal)
             .ToArray();
-
         Assert.Empty(offenders);
     }
 
@@ -46,24 +65,34 @@ public class PassBugDiagnosticTests
             "/packages/example/1.0.0/lib/Example.dll",
             "Example.Parser",
             "Parse",
-            stringOverload);
+            stringOverload,
+            0x0600002A);
         string otherAssembly = PassBugDiagnostic.Format(
             exception,
             "/packages/example/2.0.0/lib/Example.dll",
             "Example.Parser",
             "Parse",
-            stringOverload);
+            stringOverload,
+            0x0600002A);
         string otherOverload = PassBugDiagnostic.Format(
             exception,
             "/packages/example/1.0.0/lib/Example.dll",
             "Example.Parser",
             "Parse",
-            integerOverload);
+            integerOverload,
+            0x0600002A);
+        string otherToken = PassBugDiagnostic.Format(
+            exception,
+            "/packages/example/1.0.0/lib/Example.dll",
+            "Example.Parser",
+            "Parse",
+            stringOverload,
+            0x0600002B);
 
         Assert.Equal(
             "PASS BUG: KeyNotFoundException: missing block 3 " +
             "(/packages/example/1.0.0/lib/Example.dll!Example.Parser::Parse" +
-            "(corelib:System.String) -> corelib:System.String)",
+            "(corelib:System.String) -> corelib:System.String [token 0x0600002A])",
             first);
         Assert.NotEqual(first, otherAssembly);
         Assert.Contains("/packages/example/2.0.0/lib/Example.dll", otherAssembly);
@@ -71,5 +100,7 @@ public class PassBugDiagnosticTests
         Assert.Contains(
             "Parse(corelib:System.Int32) -> corelib:System.String",
             otherOverload);
+        Assert.NotEqual(first, otherToken);
+        Assert.Contains("[token 0x0600002B]", otherToken);
     }
 }
