@@ -134,10 +134,47 @@ public class InlineArraySpilledElementTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void InlineEffectBeforeSpanInConsumer_StaysFlat()
+    {
+        // The consumer evaluates a side-effecting call inline before the span
+        // (Consume(PrefixEffect(), span)). Block order is canonical, but lifting the
+        // elements to the span's position would move them past PrefixEffect(),
+        // inverting their order; the shape must stay flat.
+        var function = BuildOrderingCollection(OrderingShape.InlineEffectBeforeSpan);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<CollectionExpression>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InlineArrayAsReadOnlySpan");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void SpilledPrefixBeforeSpanInConsumer_RaisesToCollectionExpression()
+    {
+        // The canonical csc shape: a prefix effect evaluated before the collection is
+        // spilled to a stack slot ahead of the fill, so the consumer loads that slot
+        // (Consume(spilledPrefix, span)) and only a side-effect-free load precedes the
+        // span. The within-consumer guard must not over-tighten this — it still raises.
+        var function = BuildOrderingCollection(OrderingShape.SpilledPrefixBeforeSpan);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        var collection = Assert.Single(function.Descendants.OfType<CollectionExpression>());
+        Assert.Equal(2, collection.Children.Count);
+        Assert.DoesNotContain(
+            function.Descendants.OfType<Call>(),
+            c => c.Callee.Name.Contains("InlineArray", StringComparison.Ordinal));
+        function.CheckInvariant();
+    }
+
     enum OrderingShape
     {
         InterleavedStatement,
         DescendingSlotOrder,
+        InlineEffectBeforeSpan,
+        SpilledPrefixBeforeSpan,
     }
 
     /// <summary>
@@ -146,13 +183,24 @@ public class InlineArraySpilledElementTests
     /// <see cref="OrderingShape.InterleavedStatement"/> drops an unrelated
     /// side-effecting call between the two stores;
     /// <see cref="OrderingShape.DescendingSlotOrder"/> emits the stores in
-    /// descending slot order. Each is a shape csc never emits but arbitrary IL can,
-    /// and lifting either would re-sequence element side effects — so both must
-    /// leave the collection flat.
+    /// descending slot order;
+    /// <see cref="OrderingShape.InlineEffectBeforeSpan"/> evaluates an effectful
+    /// call inline before the span inside the consumer;
+    /// <see cref="OrderingShape.SpilledPrefixBeforeSpan"/> spills that prefix effect
+    /// to a stack slot ahead of the fill (exactly what csc emits) so only a
+    /// side-effect-free load precedes the span. The first three are shapes csc never
+    /// emits but arbitrary IL can, and lifting any would re-sequence element side
+    /// effects — so all must leave the collection flat; the last is the canonical
+    /// csc shape and must still raise.
     /// </summary>
     static IrFunction BuildOrderingCollection(OrderingShape shape)
     {
         var block = new Block();
+
+        // csc spills a prefix effect evaluated before the collection to a stack slot
+        // ahead of the fill; the consumer then loads that slot (side-effect free).
+        if (shape == OrderingShape.SpilledPrefixBeforeSpan)
+            block.Add(new StoreStackSlot(0, PrefixEffect()));
 
         // <>y__InlineArray2<object> buffer = default; (local 0)
         block.Add(new InitObject(Buffer, new LoadLocalAddress(0, Buffer)));
@@ -163,19 +211,45 @@ public class InlineArraySpilledElementTests
             block.Add(new StoreIndirect(Object, ElementRef(1), BoxInt(2)));
             block.Add(new StoreIndirect(Object, ElementRef(0), BoxInt(1)));
         }
-        else
+        else if (shape == OrderingShape.InterleavedStatement)
         {
             // Store slot 0, an unrelated side-effecting statement, then slot 1.
             block.Add(new StoreIndirect(Object, ElementRef(0), BoxInt(1)));
             block.Add(new ExpressionStatement(Separator()));
             block.Add(new StoreIndirect(Object, ElementRef(1), BoxInt(2)));
         }
+        else
+        {
+            block.Add(new StoreIndirect(Object, ElementRef(0), BoxInt(1)));
+            block.Add(new StoreIndirect(Object, ElementRef(1), BoxInt(2)));
+        }
 
-        // ReadOnlySpan<object> span = InlineArrayAsReadOnlySpan<...>(ref buffer, 2); (local 1)
-        block.Add(new StoreLocal(1, SpanObject, new Call(
+        var span = new Call(
             AsReadOnlySpan(),
             isVirtual: false,
-            [new LoadLocalAddress(0, Buffer), new Constant(2, Int32)])));
+            [new LoadLocalAddress(0, Buffer), new Constant(2, Int32)]);
+
+        switch (shape)
+        {
+            case OrderingShape.InlineEffectBeforeSpan:
+                // Consume(PrefixEffect(), span): an effect evaluated inline before
+                // the span in the same statement — lifting the elements to the span
+                // would move them past that effect.
+                block.Add(new ExpressionStatement(
+                    new Call(ConsumeMethod(), isVirtual: false, [PrefixEffect(), span])));
+                break;
+            case OrderingShape.SpilledPrefixBeforeSpan:
+                // Consume(spilledPrefix, span): only a side-effect-free load precedes
+                // the span, so the raise is order preserving.
+                block.Add(new ExpressionStatement(
+                    new Call(ConsumeMethod(), isVirtual: false, [new LoadStackSlot(0, Object), span])));
+                break;
+            default:
+                // ReadOnlySpan<object> span = InlineArrayAsReadOnlySpan(ref buffer, 2); (local 1)
+                block.Add(new StoreLocal(1, SpanObject, span));
+                break;
+        }
+
         block.Add(new Return(null));
 
         var body = new BlockContainer();
@@ -202,6 +276,27 @@ public class InlineArraySpilledElementTests
                 HasThis: false),
             isVirtual: false,
             []);
+
+    // An object-returning side-effecting call, used as a consumer prefix argument.
+    static Call PrefixEffect()
+        => new(
+            new MethodRef(
+                TypeRef.Definition("Synthetic", "", "Fx"),
+                "PrefixEffect",
+                Object,
+                [],
+                HasThis: false),
+            isVirtual: false,
+            []);
+
+    // void Consume(object prefix, ReadOnlySpan<object> span)
+    static MethodRef ConsumeMethod()
+        => new(
+            TypeRef.Definition("Synthetic", "", "Fx"),
+            "Consume",
+            Void,
+            [Object, SpanObject],
+            HasThis: false);
 
     /// <summary>
     /// Builds the two-element params ReadOnlySpan&lt;object&gt; collection shape:
