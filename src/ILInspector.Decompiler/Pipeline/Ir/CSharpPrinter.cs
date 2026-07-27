@@ -1657,7 +1657,9 @@ public sealed partial class CSharpPrinter
         }
     }
 
-    static bool NeedsNestedLocalFunctionScope(LocalFunctionStatement localFunction)
+    // internal so IrFunction.MarkLocalEliminated can reuse the exact shared-vs-isolated
+    // nested-scope discriminator this printer uses, keeping the two from drifting (#3295).
+    internal static bool NeedsNestedLocalFunctionScope(LocalFunctionStatement localFunction)
         => !localFunction.Locals.IsEmpty
             || localFunction.Body.Descendants.Any(node => node is LoadStackSlot or StoreStackSlot);
 

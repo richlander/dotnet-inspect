@@ -173,7 +173,7 @@ public sealed class IteratorReconstructionPass : IIrPass
     {
         context.Stepper.StepOver(description, handoff);
 
-        function.ResetLocals(work.Locals, work.LocalNames);
+        function.ResetLocals(work.Locals, work.LocalNames, work.EliminatedLocalSlots);
         function.Body.DetachChildren();
         foreach (var block in reconstructed.Blocks.ToList())
         {

@@ -113,13 +113,11 @@ static class AuthoredCorpusBenchmark
         int corpusAssemblies,
         int unmatchedRows)
     {
-        int match = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.ValidMatch);
-        int different = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.ValidDifferent);
-        int invalid = results.Count(result => ClassifyTaste(result) == TasteBucket.Invalid);
-        int notFull = results.Count(result => ClassifyTaste(result) == TasteBucket.NotFull);
-        int drift = results.Count(result => ClassifyTaste(result) == TasteBucket.Drift);
-        int unsupported = results.Count(result => ClassifyTaste(result) == TasteBucket.Unsupported);
-        int evaluated = results.Count;
+        var census = Census(results);
+        int match = census.Correct;
+        int different = census.ValidDifferent;
+        int invalid = census.Invalid;
+        int evaluated = census.Evaluated;
         int valid = match + different;
         var invalidBreakdown = InvalidBreakdown(results);
 
@@ -132,34 +130,23 @@ static class AuthoredCorpusBenchmark
         Console.WriteLine($"  targets evaluated  : {evaluated}");
         if (evaluated == 0)
             Console.WriteLine($"  (BLOCKER: no targets evaluated — nothing was checked)");
-        int lowering = results.Count(result => ClassifyTaste(result) == TasteBucket.Lowering);
-        int knownTaste = results.Count(result => ClassifyTaste(result) == TasteBucket.KnownTaste);
-        int frontierExact = results.Count(result => ClassifyTaste(result) == TasteBucket.FrontierIlExact);
-        int frontierDiff = results.Count(result => ClassifyTaste(result) == TasteBucket.FrontierIlDiff);
-        int frontierUnknown = results.Count(result => ClassifyTaste(result) == TasteBucket.FrontierIlUnknown);
 
         Console.WriteLine();
         Console.WriteLine($"  Correct  (valid, matches authored)  : {match}");
         Console.WriteLine($"  Valid    (valid, differs)           : {different}");
-        Console.WriteLine($"    lowering (inherent, unrecoverable): {lowering}");
-        Console.WriteLine($"    known taste (documented decision) : {knownTaste}");
-        Console.WriteLine($"    frontier, IL-exact (cosmetic)     : {frontierExact}");
-        Console.WriteLine($"    frontier, IL-diff (semantic)      : {frontierDiff}");
-        if (frontierUnknown > 0)
-            Console.WriteLine($"    frontier, IL-unknown              : {frontierUnknown}");
+        Console.WriteLine($"    lowering (inherent, unrecoverable): {census.Lowering}");
+        Console.WriteLine($"    known taste (documented decision) : {census.KnownTaste}");
+        Console.WriteLine($"    frontier, IL-exact (cosmetic)     : {census.FrontierIlExact}");
+        Console.WriteLine($"    frontier, IL-diff (semantic)      : {census.FrontierIlDiff}");
+        Console.WriteLine($"    UNMEASURED (oracle no verdict)    : {census.FrontierIlNoVerdict}");
         Console.WriteLine($"  Invalid  (does not round-trip)      : {invalid}");
-        if (invalid > 0)
-        {
-            Console.WriteLine($"    product body defects              : {invalidBreakdown.ProductBodyDefect}");
-            Console.WriteLine($"    harness shell reconstruction      : {invalidBreakdown.HarnessShellReconstruction}");
-            Console.WriteLine($"    unclassified invalid              : {invalidBreakdown.Unclassified}");
-        }
-        if (notFull > 0)
-            Console.WriteLine($"  Not-Full (uncheckable at Full)      : {notFull}");
-        if (drift > 0)
-            Console.WriteLine($"  Drift    (corpus source unresolved) : {drift}");
-        if (unsupported > 0)
-            Console.WriteLine($"  Unsupported (rts-target)            : {unsupported}");
+        Console.WriteLine($"    product body defects              : {invalidBreakdown.ProductBodyDefect}");
+        Console.WriteLine($"    harness shell reconstruction      : {invalidBreakdown.HarnessShellReconstruction}");
+        Console.WriteLine($"    unclassified invalid              : {invalidBreakdown.Unclassified}");
+        Console.WriteLine($"  Not-Full (uncheckable at Full)      : {census.NotFull}");
+        Console.WriteLine($"  Drift    (corpus source unresolved) : {census.Drift}");
+        Console.WriteLine($"  Unsupported (rts-target)            : {census.Unsupported}");
+        Console.WriteLine($"  Unknown outcome (unclassified)      : {census.UnknownOutcome}");
         Console.WriteLine();
         if (valid + invalid > 0)
         {
@@ -178,14 +165,113 @@ static class AuthoredCorpusBenchmark
         WriteReasonBuckets("Drift reasons", results, result => ClassifyTaste(result) == TasteBucket.Drift);
         WriteReasonBuckets("Unsupported reasons", results, result => ClassifyTaste(result) == TasteBucket.Unsupported);
 
-        // Nonzero exit if any target failed to round-trip (Invalid) or the corpus
-        // no longer corresponds to the pinned assembly (Drift/Unsupported). Not-Full
-        // is a surfaced decompiler limitation, not a corpus problem, so it does not
-        // fail the run on its own. Honest-exit contract: an empty or partially
-        // unmatched run is never a success — every corpus row must be checked, so
-        // unmatched rows (assembly not supplied) and a zero-target run also fail.
-        bool honest = unmatchedRows == 0 && evaluated > 0;
-        return honest && invalid == 0 && drift == 0 && unsupported == 0 ? 0 : 1;
+        // Both output modes share one exit contract and one partition check, so a
+        // malformed run cannot pass in text mode and fail in --json mode.
+        if (!census.PartitionClosed)
+            Console.Error.WriteLine(census.PartitionFailureMessage);
+
+        return ExitCode(census, unmatchedRows);
+    }
+
+    /// <summary>
+    /// One pass over the probe results, counting every bucket exactly once. Both the
+    /// text-report and <c>--json</c> paths render from this same census so the two
+    /// modes cannot disagree about what a run contained, and both apply the same
+    /// partition check and exit contract.
+    /// </summary>
+    internal sealed record BucketCensus(
+        int Evaluated,
+        int Correct,
+        int ValidDifferent,
+        int Lowering,
+        int KnownTaste,
+        int FrontierIlExact,
+        int FrontierIlDiff,
+        int FrontierIlNoVerdict,
+        int Invalid,
+        int NotFull,
+        int Drift,
+        int Unsupported,
+        int UnknownOutcome)
+    {
+        public int ValidDifferentSum
+            => Lowering + KnownTaste + FrontierIlExact + FrontierIlDiff + FrontierIlNoVerdict;
+
+        public int TopLevelSum
+            => Correct + ValidDifferent + Invalid + NotFull + Drift + Unsupported + UnknownOutcome;
+
+        /// <summary>
+        /// Both partitions close exactly. A shortfall means a row was counted in a
+        /// bucket the schema cannot represent, which is how measurement silently
+        /// turns into arithmetic.
+        /// </summary>
+        public bool PartitionClosed => ValidDifferentSum == ValidDifferent && TopLevelSum == Evaluated;
+
+        public string PartitionFailureMessage
+            => $"BLOCKER: emitted buckets do not partition the run — validDifferent {ValidDifferentSum} vs {ValidDifferent}, top-level {TopLevelSum} vs {Evaluated}.";
+    }
+
+    static BucketCensus Census(IReadOnlyList<ReturnToSenderSourceProbeResult> results)
+    {
+        int correct = 0, lowering = 0, knownTaste = 0, frontierIlExact = 0, frontierIlDiff = 0;
+        int frontierIlNoVerdict = 0, invalid = 0, notFull = 0, drift = 0, unsupported = 0, unknownOutcome = 0;
+
+        foreach (var result in results)
+        {
+            switch (ClassifyTaste(result))
+            {
+                case TasteBucket.Correct: correct++; break;
+                case TasteBucket.Lowering: lowering++; break;
+                case TasteBucket.KnownTaste: knownTaste++; break;
+                case TasteBucket.FrontierIlExact: frontierIlExact++; break;
+                case TasteBucket.FrontierIlDiff: frontierIlDiff++; break;
+                case TasteBucket.FrontierIlNoVerdict: frontierIlNoVerdict++; break;
+                case TasteBucket.Invalid: invalid++; break;
+                case TasteBucket.NotFull: notFull++; break;
+                case TasteBucket.Drift: drift++; break;
+                case TasteBucket.Unsupported: unsupported++; break;
+                default: unknownOutcome++; break;
+            }
+        }
+
+        // ValidDifferent is counted from the outcome, not from the sub-buckets, so
+        // that PartitionClosed compares two independently derived numbers rather
+        // than a sum against itself.
+        return new BucketCensus(
+            Evaluated: results.Count,
+            Correct: correct,
+            ValidDifferent: results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.ValidDifferent),
+            Lowering: lowering,
+            KnownTaste: knownTaste,
+            FrontierIlExact: frontierIlExact,
+            FrontierIlDiff: frontierIlDiff,
+            FrontierIlNoVerdict: frontierIlNoVerdict,
+            Invalid: invalid,
+            NotFull: notFull,
+            Drift: drift,
+            Unsupported: unsupported,
+            UnknownOutcome: unknownOutcome);
+    }
+
+    /// <summary>
+    /// The single exit contract for both output modes. Nonzero if any target failed
+    /// to round-trip (Invalid) or the corpus no longer corresponds to the pinned
+    /// assembly (Drift/Unsupported). Not-Full is a surfaced decompiler limitation,
+    /// not a corpus problem, so it does not fail the run on its own. Inputs-complete:
+    /// an empty or partially unmatched run is never a success. An unrecognized
+    /// outcome or a non-closing partition is a measurement failure, not a result.
+    /// </summary>
+    static int ExitCode(BucketCensus census, int unmatchedRows)
+    {
+        bool inputsComplete = unmatchedRows == 0 && census.Evaluated > 0;
+        return inputsComplete
+            && census.PartitionClosed
+            && census.Invalid == 0
+            && census.Drift == 0
+            && census.Unsupported == 0
+            && census.UnknownOutcome == 0
+            ? 0
+            : 1;
     }
 
     enum TasteBucket
@@ -195,11 +281,27 @@ static class AuthoredCorpusBenchmark
         KnownTaste,
         FrontierIlExact,
         FrontierIlDiff,
-        FrontierIlUnknown,
+
+        /// <summary>
+        /// A valid-different row the compile-back oracle returned no verdict for.
+        /// This is instrument failure, not a classification: the row's IL
+        /// correspondence is <em>unmeasured</em>, not "neither exact nor diff".
+        /// It is reported and serialized unconditionally so a shortfall can never
+        /// be mistaken for data.
+        /// </summary>
+        FrontierIlNoVerdict,
         Invalid,
         NotFull,
         Drift,
         Unsupported,
+
+        /// <summary>
+        /// A probe outcome this classifier does not recognize. Unreachable while
+        /// every <see cref="ReturnToSenderSourceOutcome"/> member is handled above;
+        /// it exists so that adding an outcome without classifying it surfaces as
+        /// its own failure rather than silently inflating a real bucket.
+        /// </summary>
+        UnknownOutcome,
     }
 
     /// <summary>
@@ -229,9 +331,9 @@ static class AuthoredCorpusBenchmark
             {
                 FidelityCheck.CompileBackStatus.Exact => TasteBucket.FrontierIlExact,
                 FidelityCheck.CompileBackStatus.OpcodeDiff or FidelityCheck.CompileBackStatus.OperandDiff => TasteBucket.FrontierIlDiff,
-                _ => TasteBucket.FrontierIlUnknown,
+                _ => TasteBucket.FrontierIlNoVerdict,
             },
-            _ => TasteBucket.FrontierIlUnknown,
+            _ => TasteBucket.UnknownOutcome,
         };
 
     // A SourceUnavailable row whose reason names a decompiler fidelity drop
@@ -300,17 +402,24 @@ static class AuthoredCorpusBenchmark
         int corpusAssemblies,
         int unmatchedRows)
     {
-        int match = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.ValidMatch);
-        int different = results.Count(result => result.Outcome == ReturnToSenderSourceOutcome.ValidDifferent);
-        int invalid = results.Count(result => ClassifyTaste(result) == TasteBucket.Invalid);
-        int notFull = results.Count(result => ClassifyTaste(result) == TasteBucket.NotFull);
-        int drift = results.Count(result => ClassifyTaste(result) == TasteBucket.Drift);
-        int unsupported = results.Count(result => ClassifyTaste(result) == TasteBucket.Unsupported);
-        int evaluated = results.Count;
+        var census = Census(results);
         var invalidBreakdown = InvalidBreakdown(results);
-        // Honest-exit contract: an empty or partially unmatched run is never a
+        // Inputs-complete contract: an empty or partially unmatched run is never a
         // success — unmatched rows (assembly not supplied) and a zero-target run fail.
-        bool honest = unmatchedRows == 0 && evaluated > 0;
+        // This flag reports only that the inputs were all present; it makes no claim
+        // that every evaluated row's product status was measured (see
+        // frontierIlNoVerdict and invalidBreakdown.harnessShellReconstruction, both
+        // of which are unmeasured rather than clean).
+        bool inputsComplete = unmatchedRows == 0 && census.Evaluated > 0;
+
+        var validBreakdown = new
+        {
+            lowering = census.Lowering,
+            knownTaste = census.KnownTaste,
+            frontierIlExact = census.FrontierIlExact,
+            frontierIlDiff = census.FrontierIlDiff,
+            frontierIlNoVerdict = census.FrontierIlNoVerdict,
+        };
 
         var payload = new
         {
@@ -318,29 +427,23 @@ static class AuthoredCorpusBenchmark
             matchedAssemblies,
             corpusAssemblies,
             unmatchedRows,
-            targetsEvaluated = evaluated,
+            targetsEvaluated = census.Evaluated,
             methodologyVersion = MethodologyVersion,
-            honest,
-            correct = match,
-            validDifferent = different,
-            validBreakdown = new
-            {
-                lowering = results.Count(result => ClassifyTaste(result) == TasteBucket.Lowering),
-                knownTaste = results.Count(result => ClassifyTaste(result) == TasteBucket.KnownTaste),
-                frontierIlExact = results.Count(result => ClassifyTaste(result) == TasteBucket.FrontierIlExact),
-                frontierIlDiff = results.Count(result => ClassifyTaste(result) == TasteBucket.FrontierIlDiff),
-                frontierIlUnknown = results.Count(result => ClassifyTaste(result) == TasteBucket.FrontierIlUnknown),
-            },
-            invalid,
+            inputsComplete,
+            correct = census.Correct,
+            validDifferent = census.ValidDifferent,
+            validBreakdown,
+            invalid = census.Invalid,
             invalidBreakdown = new
             {
                 productBodyDefect = invalidBreakdown.ProductBodyDefect,
                 harnessShellReconstruction = invalidBreakdown.HarnessShellReconstruction,
                 unclassified = invalidBreakdown.Unclassified,
             },
-            notFull,
-            drift,
-            unsupported,
+            notFull = census.NotFull,
+            drift = census.Drift,
+            unsupported = census.Unsupported,
+            unknownOutcome = census.UnknownOutcome,
             rows = results.Select(result => new
             {
                 type = result.Target.Type,
@@ -359,6 +462,11 @@ static class AuthoredCorpusBenchmark
         };
 
         Console.WriteLine(JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
-        return honest && invalid == 0 && drift == 0 && unsupported == 0 ? 0 : 1;
+
+        // Same partition check and exit contract as the text-report path.
+        if (!census.PartitionClosed)
+            Console.Error.WriteLine(census.PartitionFailureMessage);
+
+        return ExitCode(census, unmatchedRows);
     }
 }

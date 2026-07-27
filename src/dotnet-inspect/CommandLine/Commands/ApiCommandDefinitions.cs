@@ -244,6 +244,7 @@ public static class ApiCommandDefinitions
         memberCommand.Options.Add(opts.PlainText);
         memberCommand.Options.Add(opts.Bare);
         memberCommand.Options.Add(opts.Taste);
+        memberCommand.Options.Add(opts.Focus);
         opts.AddOutputOptionsTo(memberCommand);
         opts.AddNuGetOptionsTo(memberCommand);
 

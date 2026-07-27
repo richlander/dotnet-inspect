@@ -77,6 +77,62 @@ settle:
 - **Semantics Overlay** — inter-method behavior/safety facts, such as callees
   with known exception paths or unsafe implementation evidence.
 
+### Two gestures: side and caret
+
+*Where* a fact is drawn is a reporting decision, not a property of the fact. The
+[positive-only contract](#the-positive-only-contract) forbids severity on an
+annotation, and calling a fact "actionable" is a grade — so the choice cannot
+live on `IAnnotation`. It lives in `AnnotationGestureSelector`, chosen per render.
+
+- **Side** (default) — a trailing `//` comment to the right of the statement.
+  Reads as ambient context: "here is something interesting about this line."
+- **Caret** — a `^^^^` underline on `//` lines beneath the statement. Reads as
+  focus: "look *here*." Long details wrap into a readable block instead of the
+  far-right sliver a 190-column trailing comment produces.
+
+`--focus <category|id|id-prefix>` promotes matching facts to the caret gesture;
+prefixes match on a dotted-segment boundary, so `alloc` selects `alloc.box` but
+not `allocator.x`. With no `--focus`, every fact takes the side gesture and the
+output is byte-identical to the pre-gesture renderer.
+
+Promotion never removes a fact, so a `--focus` that matches nothing renders
+exactly like no `--focus` at all. That would make a typo indistinguishable from
+an honest absence, so an unmatched focus reports the families the member does
+have. `--focus` is member-scoped: the sections that carry a caret block —
+Annotated Source, Cost Overlay, Semantics Overlay — are all member sections.
+
+An annotation carries an IL offset and no character span, so a caret underlines
+the **whole trimmed statement** — exactly what the fact is known to be about.
+
+That is the only mode `AnnotationCaret` implements, and deliberately so: no
+annotation can carry a span, so a narrower underline has no data to draw from
+here. A span-carrying datum — a compiler diagnostic — wants a narrow caret, and
+`FidelityCheck.RenderAnnotatedFailure` draws one today with its own geometry.
+These are **two caret renderers, not one substrate**. Unifying them into a
+single span-aware renderer ("no span ⇒ underline the whole statement") is
+tracked as the open question on the follow-up issue; until that is decided,
+neither claims to be the shared one.
+
+Likewise, the gesture here is chosen by `--focus`, not by the shape of the data.
+A data-driven rule ("span-carrying ⇒ caret") cannot exist inside the annotation
+model, because the positive-only contract forbids the span that such a rule
+would key on.
+
+#### One gutter, at the declaration column
+
+Injected comments anchor to the **member declaration** column rather than to the
+annotated statement's own indent, so the eye tracks a single gutter instead of a
+staircase that follows nesting depth.
+
+That column is below the projected body: the body is member-relative, and the
+declaration line and a uniform four-column indent are added downstream when the
+member is formatted. A caret comment needs three columns to the left of its
+first caret for `"// "`, which a statement on the body's base column cannot
+supply — its carets would sit three columns right of what they point at. So
+`AnnotationCaret` marks its lines with `HoistMarker` and the body formatter
+renders them un-indented. This buys the columns back at *every* depth, which is
+why it is a marker rather than a clamp.
+
 ## Validation: the oracle problem
 
 The decompiler earns trust from **independent ground truth at corpus scale** —

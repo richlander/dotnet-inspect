@@ -220,7 +220,29 @@ static class AuthoredCorpusHistoryCard
     static string FormatPct(double value) => value.ToString("F1", CultureInfo.InvariantCulture) + "%";
 }
 
-internal sealed record HistoryRunValidDifferent(int Total, int FrontierIlExact, int FrontierIlDiff);
+/// <summary>
+/// The valid-different partition for one run. <see cref="Total"/> must equal the sum
+/// of the five sub-buckets; the three added after the store's first rows are nullable
+/// so that a row predating them reads as <em>not recorded</em> rather than as zero.
+/// <see cref="AuthoredCorpusHistoryCardTests"/> enforces both the sum and the rule
+/// that only grandfathered rows may omit them.
+/// </summary>
+internal sealed record HistoryRunValidDifferent(
+    int Total,
+    int FrontierIlExact,
+    int FrontierIlDiff,
+    int? Lowering = null,
+    int? KnownTaste = null,
+    int? FrontierIlNoVerdict = null)
+{
+    /// <summary>True when every sub-bucket was recorded, so the partition is checkable.</summary>
+    public bool IsComplete => Lowering is not null && KnownTaste is not null && FrontierIlNoVerdict is not null;
+
+    /// <summary>Sum of the recorded sub-buckets, or null when the partition is incomplete.</summary>
+    public int? SubBucketSum => IsComplete
+        ? Lowering!.Value + KnownTaste!.Value + FrontierIlExact + FrontierIlDiff + FrontierIlNoVerdict!.Value
+        : null;
+}
 
 internal sealed record HistoryRunInvalidBreakdown(
     [property: JsonRequired] int ProductBodyDefect,
@@ -240,13 +262,26 @@ internal sealed record HistoryRun(
     HistoryRunInvalidBreakdown? InvalidBreakdown,
     int Unsupported,
     int Drift,
-    bool Honest,
+    [property: JsonPropertyName("inputsComplete")] bool InputsComplete,
     [property: JsonPropertyName("sweepManifestSha256")] string? SweepManifestSha256,
-    int? MethodologyVersion = null)
+    int? MethodologyVersion = null,
+    int? NotFull = null,
+    int? UnknownOutcome = null)
 {
     // Rows predating the span-attribution change carry no methodologyVersion;
     // treat them as v1 (substitution lower bound).
     public int Methodology => MethodologyVersion ?? 1;
+
+    /// <summary>
+    /// True when every top-level bucket was recorded, so
+    /// <see cref="TopLevelSum"/> can be compared against <see cref="Evaluated"/>.
+    /// </summary>
+    public bool TopLevelIsComplete => ValidDifferent is not null && NotFull is not null && UnknownOutcome is not null;
+
+    /// <summary>Sum of the recorded top-level buckets, or null when any is unrecorded.</summary>
+    public int? TopLevelSum => TopLevelIsComplete
+        ? Correct + ValidDifferent!.Total + Invalid + NotFull!.Value + Drift + Unsupported + UnknownOutcome!.Value
+        : null;
 }
 
 [MarkoutSerializable(TitleProperty = nameof(Title), DescriptionProperty = nameof(WindowNote), AutoFields = false)]

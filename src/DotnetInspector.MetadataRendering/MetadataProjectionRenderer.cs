@@ -1,0 +1,184 @@
+using System.Reflection.Metadata.Ecma335;
+using ILInspector.Metadata;
+using Markout;
+
+namespace DotnetInspector.MetadataRendering;
+
+/// <summary>The table serialization used when rendering a projection.</summary>
+public enum MetadataTableFormat
+{
+    /// <summary>GitHub-flavored Markdown pipe tables (default, human-readable).</summary>
+    Markdown,
+
+    /// <summary>Tab-separated values.</summary>
+    Tsv,
+
+    /// <summary>JSON Lines: one self-describing object per row.</summary>
+    Jsonl,
+}
+
+/// <summary>
+/// Renders a <see cref="MetadataTableProjection"/> as a document of per-table
+/// Markout tables, one section per table.
+///
+/// This is the product-side presentation of the raw metadata projection. The
+/// Metadata layer stays presentation-free (see
+/// <c>docs/design/metadata-table-projection.md</c>), so this renderer is a
+/// sibling of that layer — reused by the <c>mdi</c> tool now and, later, a
+/// <c>dotnet-inspect metadata</c> lens.
+///
+/// Rendering is deliberately lossy: it is a human/inspection view, and the
+/// projection model remains the lossless source of truth (for example for an
+/// oracle diff). Even so, three invariants hold: every cell is rendered from
+/// exactly one <see cref="MetadataValue"/> case; a
+/// <see cref="MetadataValue.Malformed"/> cell stays visibly marked and is never
+/// rendered as a success-shaped empty value; and a bounded preview is suffixed
+/// with an ellipsis so it is never mistaken for a whole value.
+///
+/// The two format families identify a row's table differently. Markdown
+/// introduces each table with a <c>## &lt;Name&gt; (rows)</c> heading; TSV and
+/// JSONL carry a leading <c>Table</c> column so every row self-identifies,
+/// keeping those outputs pure machine-readable streams.
+/// </summary>
+public static class MetadataProjectionRenderer
+{
+    const string Ellipsis = "\u2026";
+
+    /// <summary>Renders <paramref name="projection"/> to <paramref name="output"/>.</summary>
+    public static void Render(
+        MetadataTableProjection projection,
+        TextWriter output,
+        MetadataTableFormat format = MetadataTableFormat.Markdown)
+    {
+        ArgumentNullException.ThrowIfNull(projection);
+        ArgumentNullException.ThrowIfNull(output);
+
+        if (format == MetadataTableFormat.Markdown)
+            RenderMarkdown(projection, output);
+        else
+            RenderTabular(projection, output, format);
+    }
+
+    static void RenderMarkdown(MetadataTableProjection projection, TextWriter output)
+    {
+        var writer = new MarkoutWriter(output, new MarkdownFormatter(), new MarkoutWriterOptions());
+
+        bool first = true;
+        foreach (var table in projection.Tables)
+        {
+            if (!first)
+                writer.WriteBlankLine();
+            first = false;
+
+            writer.WriteHeading(2, HeadingText(table));
+            WriteTable(writer, table, identifyTable: false);
+        }
+
+        writer.Flush();
+    }
+
+    static void RenderTabular(MetadataTableProjection projection, TextWriter output, MetadataTableFormat format)
+    {
+        var options = new MarkoutWriterOptions
+        {
+            TableMode = format == MetadataTableFormat.Tsv ? MarkoutTableMode.Tsv : MarkoutTableMode.Jsonl,
+        };
+        var writer = new MarkoutWriter(output, new TableFormatter(showHeader: true), options);
+
+        foreach (var table in projection.Tables)
+            WriteTable(writer, table, identifyTable: true);
+
+        writer.Flush();
+    }
+
+    static string HeadingText(MetadataTableView table)
+        => table.Truncation is { } truncation
+            ? $"{table.Name} (showing {truncation.ProjectedRows} of {truncation.RowCount} rows)"
+            : $"{table.Name} ({table.RowCount} {(table.RowCount == 1 ? "row" : "rows")})";
+
+    static void WriteTable(MarkoutWriter writer, MetadataTableView table, bool identifyTable)
+    {
+        // Markdown identifies the table with a heading; the machine formats carry
+        // a leading Table column instead so every row self-identifies. Both add a
+        // row-id column so a resolved handle target (for example TypeRef[5]) can be
+        // cross-referenced back to that row's number in its table.
+        int prefix = identifyTable ? 2 : 1;
+        var headers = new string[table.Columns.Length + prefix];
+        var headerNames = new string[table.Columns.Length + prefix];
+
+        int slot = 0;
+        if (identifyTable)
+        {
+            headers[slot] = "Table";
+            headerNames[slot] = "table";
+            slot++;
+        }
+
+        headers[slot] = "#";
+        headerNames[slot] = "rid";
+        slot++;
+
+        for (int i = 0; i < table.Columns.Length; i++)
+        {
+            headers[slot + i] = table.Columns[i].Name;
+            headerNames[slot + i] = table.Columns[i].Name;
+        }
+
+        var rows = new List<string[]>(table.Rows.Length);
+        foreach (var row in table.Rows)
+        {
+            var cells = new string[row.Cells.Length + prefix];
+            int cellSlot = 0;
+            if (identifyTable)
+                cells[cellSlot++] = table.Name;
+            cells[cellSlot++] = row.RowId.ToString();
+            for (int i = 0; i < row.Cells.Length; i++)
+                cells[cellSlot + i] = FormatCell(row.Cells[i]);
+            rows.Add(cells);
+        }
+
+        writer.WriteTable(headers, headerNames, rows);
+    }
+
+    static string FormatCell(MetadataValue value) => value switch
+    {
+        MetadataValue.Nil => "nil",
+        MetadataValue.Scalar scalar => scalar.Display,
+        MetadataValue.Flags flags => flags.Decoded,
+        MetadataValue.HeapReference heap => FormatHeap(heap),
+        MetadataValue.Handle handle => FormatHandle(handle.Reference),
+        MetadataValue.Range range => FormatRange(range.Reference),
+        MetadataValue.Malformed malformed => $"!malformed: {malformed.Detail}",
+        _ => throw new InvalidOperationException($"Unhandled metadata value: {value.GetType().Name}"),
+    };
+
+    static string FormatHeap(MetadataValue.HeapReference heap)
+    {
+        // The Blob heap carries no decoded text; its bounded hex preview stands in.
+        string body = heap.Text ?? heap.Preview;
+        return heap.Truncated ? body + Ellipsis : body;
+    }
+
+    static string FormatHandle(HandleRef reference)
+    {
+        if (reference.TargetRowId == 0)
+            return "nil";
+
+        string target = $"{reference.TargetTable}[{reference.TargetRowId}]";
+
+        // A truncated display must always carry the ellipsis so it is never
+        // mistaken for a whole value — even when the budget clipped it to empty,
+        // which must still render as "(…)" rather than a bare target that looks
+        // like an unavailable display.
+        if (reference.DisplayTruncated)
+            return $"{target} ({reference.Display}{Ellipsis})";
+
+        if (string.IsNullOrEmpty(reference.Display))
+            return target;
+
+        return $"{target} ({reference.Display})";
+    }
+
+    static string FormatRange(HandleRange range)
+        => $"{range.TargetTable}[{range.StartRowId}..{range.EndRowId})";
+}

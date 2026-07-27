@@ -56,7 +56,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["AnnotatedCompileBackFailureTests.cs"] = (1, "Seam isolation: compiles a synthesized invisible-rune source to obtain a real Roslyn diagnostic for the annotated compile-back failure caret render (#3238)."),
 
             // Optimization / parse-option matrices intrinsic to the claim.
-            ["IteratorReconstructionPassTests.cs"] = (1, "Optimization matrix: compiles the same source under Debug and Release."),
+            ["IteratorReconstructionPassTests.cs"] = (2, "Optimization matrix + reconstruction seams: compiles the complex-iterator source under Debug and Release, and a parameterized Release inline-array-collection iterator (single-loop and conditional-yield shapes) whose dead buffer local must stay eliminated across the two seams that carry MoveNext locals into the kickoff (#3221)."),
             ["CompilerFeatureOptionsTests.cs"] = (1, "Parse-option matrix: varies LanguageVersion/feature flags across compilations."),
 
             // Cross-assembly reference seam.
@@ -95,6 +95,11 @@ public sealed class DynamicCompilationSiteInventoryTests
     //     rendering.
     //   #3009 sub-part 3 adds BitwiseChainWrapTests.cs (1 site): recompiles the
     //     printer's wrapped bitwise |/&/^ chain output.
+    //   #3221 adds a second site to IteratorReconstructionPassTests.cs (1 -> 2
+    //     sites): a parameterized Release inline-array-collection iterator that
+    //     exercises the dead-buffer eliminated marking across both iterator
+    //     reconstruction seams (the ResetLocals transplant and the
+    //     MultiYieldReconstruction offset copy).
     //   #3231 adds SpanAttributionTests.cs (1 site): compiles synthesized
     //     decompiled/authored source per case to feed real compiler diagnostics
     //     to the span-attribution classifier. #3231 also adds a second site to
@@ -103,9 +108,9 @@ public sealed class DynamicCompilationSiteInventoryTests
     //   #3238 adds AnnotatedCompileBackFailureTests.cs (1 site): compiles a
     //     synthesized invisible-rune source to obtain a real diagnostic for the
     //     annotated compile-back failure caret render.
-    //   Combined: 37 files, 46 sites.
+    //   Combined: 37 files, 47 sites.
     const int ExpectedDynamicFiles = 37;
-    const int ExpectedDynamicSites = 46;
+    const int ExpectedDynamicSites = 47;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

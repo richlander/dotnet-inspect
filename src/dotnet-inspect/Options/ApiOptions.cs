@@ -48,6 +48,24 @@ public partial record ApiOptions
     public PrinterOptions? RenderOptions { get; init; }
 
     /// <summary>
+    /// The <c>--focus</c> gesture: promote a fact family from the default side
+    /// comment to the caret gesture, so the facts worth acting on are underlined
+    /// beneath the statement instead of trailing it. Accepts a category
+    /// (<c>allocation</c>), a descriptor id (<c>alloc.box</c>), or a dotted id
+    /// prefix (<c>alloc</c>). Null leaves every fact on the side gesture, which is
+    /// byte-for-byte the historical render. This is a reporting choice only: the
+    /// facts collected are identical either way, because annotations describe and
+    /// never grade.
+    /// </summary>
+    /// <remarks>
+    /// Member-scoped only. The caret gesture renders into an annotated source
+    /// view, and the only sections that carry one — Annotated Source, Cost
+    /// Overlay, Semantics Overlay — are member sections. Registering the option
+    /// on <c>type</c> would offer a switch that cannot change any output there.
+    /// </remarks>
+    public string? Focus { get; init; }
+
+    /// <summary>
     /// The <c>--taste</c> gesture: request the whole oracle-endorsed style set for
     /// this run, equivalent to <c>dotnet_inspect_style_full_taste = true</c> in
     /// <c>.dotnet-inspectconfig</c> but scoped to one invocation. Applied after the
@@ -216,6 +234,14 @@ public record MemberOptions : ApiOptions
     public string? MemberDigest { get; init; }
     public int? MemberGenericArity { get; init; }
     public MethodSourceContext? MethodSource { get; init; }
+
+    /// <summary>
+    /// True when the selected member carries no IL body — an abstract, interface, extern, or
+    /// runtime-implemented member — so <see cref="MethodSource"/> is absent because there is
+    /// nothing to show, not because resolution failed. Lets the source sections say so instead
+    /// of rendering success-shaped empty output (issue #3299).
+    /// </summary>
+    public bool MemberHasNoBody { get; init; }
 
     /// <summary>
     /// Output directories (<c>--bin</c>/<c>--directory</c>) to scan for inbound callers of the
