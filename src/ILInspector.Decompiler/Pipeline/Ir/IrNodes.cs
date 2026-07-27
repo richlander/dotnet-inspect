@@ -413,10 +413,13 @@ public sealed class IrFunction : IrNode
     /// (<c>using</c> / <c>fixed</c> / <c>foreach</c>, <c>is</c>-patterns, switch-expression
     /// arm patterns, deconstruction, and catch clauses). Under-counting here marks a
     /// still-rendered slot eliminated and reports a false Full, so any new node kind
-    /// that carries a local index must be added here; the
-    /// <c>MarkLocalEliminated_CoversEveryLocalSlotBindingNodeKind</c> guard test fails
+    /// that carries a local index must be added here. Two guard tests enforce this:
+    /// <c>MarkLocalEliminated_RefusesEveryLocalSlotBindingNodeKind</c> builds a method
+    /// whose only local is bound by each carrier kind and asserts the slot survives
+    /// elimination — deleting a case below fails that kind's row — and
+    /// <c>MarkLocalEliminated_HasABehavioralCaseForEveryLocalSlotCarrierKind</c> fails
     /// when a <c>LocalIndex</c>/<c>LocalIndices</c>/<c>VariableIndex</c> carrier is
-    /// added to the IR without being accounted for here. Argument (<c>ldarg</c>) and
+    /// added to the IR without a behavioral case. Argument (<c>ldarg</c>) and
     /// stack-slot indices live in separate pools and are intentionally excluded — a
     /// <c>fixed</c> over a stack slot names a stack-slot index, not a local, so it is
     /// matched only when it binds a metadata local.

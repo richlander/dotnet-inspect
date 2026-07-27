@@ -539,42 +539,100 @@ public class InlineArraySpilledElementTests
         Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(function));
     }
 
-    [Fact]
-    public void MarkLocalEliminated_CoversEveryLocalSlotBindingNodeKind()
+    // Property getter used by the pattern carriers (RecursivePropertyDeclarationPattern
+    // and PropertySubpattern) — its name must start with `get_` because both derive
+    // PropertyName by trimming that prefix.
+    static readonly MethodRef PatternAccessor = new(Object, "get_Value", Object, [], HasThis: true);
+
+    // One IrFunction factory per local-slot-binding carrier kind. Each builds a method
+    // whose only metadata local (slot 0) is the unspellable inline-array buffer, bound
+    // by a node of that kind, so MarkLocalEliminated must refuse to drop the slot —
+    // dropping it would hide the buffer's unspellable type and report a false Full
+    // (#3295). Aggregation-only carriers are bound through the parent that owns their
+    // index, matching how NodeBindsLocalSlot reaches them: DeconstructionTarget through
+    // DeconstructionAssignment, PropertySubpattern through PatternSwitchExpressionArm.Subpattern.
+    static readonly IReadOnlyDictionary<Type, Func<IrFunction>> LocalSlotCarrierFactories =
+        new Dictionary<Type, Func<IrFunction>>
+        {
+            [typeof(NullCoalescingAssignment)] = () => BufferBoundBy(new NullCoalescingAssignment(0, Object, BoxInt(7))),
+            [typeof(ForeachStatement)] = () => BufferBoundBy(new ForeachStatement(0, Object, BoxInt(0), new Block())),
+            [typeof(UsingStatement)] = () => BufferBoundBy(new UsingStatement(0, Object, BoxInt(0), new BlockContainer())),
+            [typeof(Fixed)] = () => BufferBoundBy(new Fixed(Object, 0, BoxInt(0), new BlockContainer())),
+            [typeof(IsPattern)] = () => BufferBoundBy(new IsPattern(BoxInt(0), Object, 0)),
+            [typeof(RecursivePropertyDeclarationPattern)] = () => BufferBoundBy(new RecursivePropertyDeclarationPattern(BoxInt(0), PatternAccessor, Object, 0)),
+            [typeof(UnionSwitchExpressionArm)] = () => BufferBoundBy(new UnionSwitchExpressionArm(Object, localIndex: 0, BoxInt(1))),
+            [typeof(PatternSwitchExpressionArm)] = () => BufferBoundBy(new PatternSwitchExpressionArm(Object, localIndex: 0, subpattern: null, BoxInt(1))),
+            [typeof(PropertySubpattern)] = () => BufferBoundBy(new PatternSwitchExpressionArm(Object, localIndex: null, new PropertySubpattern(PatternAccessor, Object, 0), BoxInt(1))),
+            [typeof(CatchClause)] = () => BufferBoundBy(new CatchClause(Object, new BlockContainer()) { VariableIndex = 0 }),
+            [typeof(DeconstructionAssignment)] = () => BufferBoundBy(new DeconstructionAssignment([0], [Object], BoxInt(0), [true])),
+            [typeof(DeconstructionTarget)] = () => BufferBoundBy(new DeconstructionAssignment([0], [Object], BoxInt(0), [true])),
+        };
+
+    static IrFunction BufferBoundBy(IrNode carrier)
     {
-        // Drift tripwire: IrFunction.NodeBindsLocalSlot must account for every IR node
-        // that carries a local-slot index, because under-counting marks a still-rendered
-        // slot eliminated and reports a false Full (#3295). Load/Store/LoadLocalAddress
-        // use `Index` (shared with arguments) and are handled separately; this guards the
-        // LocalIndex / LocalIndices / VariableIndex family whose growth caused the misses.
-        // When this fails, a new carrier was added: decide whether it renders a local —
-        // then handle it in NodeBindsLocalSlot — and update this inventory.
-        var carrierMembers = new[] { "LocalIndex", "LocalIndices", "VariableIndex" };
+        var block = new Block();
+        block.Add(carrier);
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [Buffer], body);
+    }
+
+    public static IEnumerable<object[]> LocalSlotCarrierKinds =>
+        LocalSlotCarrierFactories.Keys.Select(type => new object[] { type.Name });
+
+    [Theory]
+    [MemberData(nameof(LocalSlotCarrierKinds))]
+    public void MarkLocalEliminated_RefusesEveryLocalSlotBindingNodeKind(string carrierKind)
+    {
+        // Behavioral guard for IrFunction.NodeBindsLocalSlot (#3295). For every IR node
+        // kind that can bind a local slot, the factory above builds a method whose only
+        // local (slot 0) is the unspellable buffer, bound by that kind. MarkLocalEliminated
+        // must leave the slot in place so its type keeps capping fidelity. Deleting a
+        // NodeBindsLocalSlot case makes its kind's row fail here — unlike an inventory
+        // check, this actually runs the switch.
+        var function = LocalSlotCarrierFactories.Single(entry => entry.Key.Name == carrierKind).Value();
+
+        function.MarkLocalEliminated(0);
+
+        Assert.DoesNotContain(0, function.EliminatedLocalSlots);
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(function));
+    }
+
+    [Fact]
+    public void MarkLocalEliminated_HasABehavioralCaseForEveryLocalSlotCarrierKind()
+    {
+        // Drift tripwire: every IR node that carries a local-slot index (by the
+        // LocalIndex / LocalIndices / VariableIndex naming convention this codebase uses)
+        // must have a behavioral factory above so the refusal Theory exercises
+        // NodeBindsLocalSlot for it. A new carrier grows the discovered set and fails
+        // here until a factory is added; because the factory binds slot 0 through that
+        // carrier, the Theory then forces the carrier to be handled in NodeBindsLocalSlot
+        // (merely adding a name to a list would leave slot 0 eliminated and fail the
+        // Theory). Load/Store/LoadLocalAddress use `Index` (shared with arguments) and
+        // are handled separately. Discovery is name-based, so a carrier that spells its
+        // index differently would slip through — keep to the convention.
+        var carrierNames = new[] { "LocalIndex", "LocalIndices", "VariableIndex" };
         var discovered = typeof(IrFunction).Assembly.GetTypes()
             .Where(type => typeof(IrNode).IsAssignableFrom(type) || type == typeof(PropertySubpattern))
-            .Where(type => type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                .Any(property => carrierMembers.Contains(property.Name)))
+            .Where(type => HasCarrierMember(type, carrierNames))
             .Select(type => type.Name)
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToArray();
 
-        string[] expected =
-        [
-            nameof(CatchClause),
-            nameof(DeconstructionAssignment),
-            nameof(DeconstructionTarget),
-            nameof(Fixed),
-            nameof(ForeachStatement),
-            nameof(IsPattern),
-            nameof(NullCoalescingAssignment),
-            nameof(PatternSwitchExpressionArm),
-            nameof(PropertySubpattern),
-            nameof(RecursivePropertyDeclarationPattern),
-            nameof(UnionSwitchExpressionArm),
-            nameof(UsingStatement),
-        ];
+        var covered = LocalSlotCarrierFactories.Keys
+            .Select(type => type.Name)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
 
-        Assert.Equal(expected, discovered);
+        Assert.Equal(discovered, covered);
+    }
+
+    static bool HasCarrierMember(Type type, string[] carrierNames)
+    {
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance;
+        return type.GetProperties(flags).Any(member => carrierNames.Contains(member.Name))
+            || type.GetFields(flags).Any(member => carrierNames.Contains(member.Name));
     }
 
     enum OrderingShape
