@@ -20,10 +20,12 @@ namespace ILInspector.Decompiler.Tests;
 /// across the whole corpus, not just the curated fixtures;</item>
 /// <item>zero semantic-invariant violations — every method's final IR satisfies
 /// the semantic invariants (local-slot range) that only hold on fully-formed
-/// output, so a pass that leaves a dangling local slot fails here (#3241). This
-/// gate is the <em>only</em> place semantic invariants execute — the unit-test
-/// host runs the structural level only — so it must run per-PR, or a PR that
-/// breaks one would go green until the next weekly corpus run.</item>
+/// output, so a pass that leaves a dangling local slot fails here (#3241). Since
+/// #3302 the per-pass hooks check semantics by default too, so this is no longer
+/// the only place they execute; it remains the place they are checked over the
+/// whole corpus on a final tree, and the only one that reports a count rather
+/// than throwing. It must run per-PR, or a PR that breaks one would go green
+/// until the next weekly corpus run.</item>
 /// </list>
 /// <para>
 /// <b>Drifty health floors</b> (<see cref="CoreLibSweep_MeetsHealthFloors"/>) are
@@ -145,7 +147,8 @@ public class CorpusSweepGateTests
     /// Absolute properties that must hold on every commit, so this is deliberately
     /// NOT <c>Speed=Slow</c> and runs in the per-PR test lane. A ~12s corpus walk
     /// is a cheap price for per-PR teeth on the exception-safety guarantee and —
-    /// critically — the semantic invariants, which execute nowhere else.
+    /// critically — the semantic invariants, checked here over the whole corpus
+    /// on a final tree and reported as a count.
     /// </summary>
     [Fact]
     public void CoreLibSweep_IsExceptionSafeAndSemanticallyValid()
