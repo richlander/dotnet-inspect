@@ -1742,6 +1742,10 @@ function renderMember(type, member) {
   } else if (state.memberSection === "call-graph") {
     const active = currentCallGraph();
     const drilled = state.platformStack.length > 0;
+    // A resident runtime-pack member's base graph is itself a platform (callee-only) graph:
+    // there is no workspace to scan for callers, so present it as a platform view rather than
+    // a "Workspace callers · 0 loaded packages" line that reads as an empty/failed scan.
+    const platformView = drilled || Boolean(state.package?.isRuntimePack);
     const callers = active?.callers?.children ?? [];
     const callees = active?.callees?.children ?? [];
     const scope = active?.scope;
@@ -1753,8 +1757,8 @@ function renderMember(type, member) {
       : "";
     const scopeLine = !scope
       ? ""
-      : drilled
-      ? `<div class="graph-scope"><strong>Platform descent</strong><span>${escapeHtml(scope.calleeScope)} · CoreCLR runtime pack</span><strong>Callees</strong><span>depth 2</span></div>`
+      : platformView
+      ? `<div class="graph-scope"><strong>Platform${drilled ? " descent" : ""}</strong><span>${escapeHtml(scope.calleeScope)} · CoreCLR runtime pack</span><strong>Callees</strong><span>depth 2</span></div>`
       : `<div class="graph-scope"><strong>Workspace callers</strong><span>${scope.packages} loaded packages · ${scope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(scope.calleeScope)} · depth 2</span></div>`;
     content = state.memberCallGraphLoading
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Building workspace call graph…</h2><p>Scanning implementation IL across ${state.packages.length} loaded package${state.packages.length === 1 ? "" : "s"}.</p></section>`
@@ -4254,7 +4258,7 @@ function attachGraphPanZoom(container, viewport, bindCallGraphNodes = false) {
         node.style.cursor = "pointer";
         node.addEventListener("click", () => {
           if (moved) return;
-          drillPlatformNode(deeper);
+          navigateOrDrillPlatform(deeper);
         });
         return;
       }
@@ -4272,7 +4276,7 @@ function attachGraphPanZoom(container, viewport, bindCallGraphNodes = false) {
         if (moved) return;
         if (target) navigateToMember(target.pkg, target.type, target.group);
         else if (source) openGraphSource(source.request, source.title);
-        else drillPlatformNode(platform);
+        else navigateOrDrillPlatform(platform);
       });
     });
   }
@@ -4369,6 +4373,117 @@ function popPlatformDrill() {
   state.platformDrillError = "";
   render();
   renderMermaidCallGraph();
+}
+
+// A clicked platform (BCL) call-graph node should land the user *inside* the resident
+// runtime pack at that member — a first-class, refreshable location with its own header,
+// member list, breadcrumb, and URL — rather than an in-place descent that stays pinned to
+// the workspace package. The runtime pack is loaded on demand (its System.Private.CoreLib
+// types are resident); if the clicked type lives in a not-yet-resident sibling assembly we
+// fall back to the lightweight in-place descent so the callees still appear.
+async function navigateOrDrillPlatform(node) {
+  if (state.platformDrillLoading) return;
+  const framework = state.package?.activeFramework || "";
+  let pack = runtimePackPackage();
+  if (!pack) {
+    state.platformDrillLoading = true;
+    state.platformDrillError = "";
+    render();
+    pack = await loadRuntimePack(framework);
+    state.platformDrillLoading = false;
+    if (!pack) {
+      state.platformDrillError = state.runtimePackError || "Could not load the .NET runtime pack.";
+      render();
+      await renderMermaidCallGraph();
+      return;
+    }
+  }
+  const selection = findRuntimeMemberSelection(pack, node);
+  if (!selection) {
+    await drillPlatformNode(node);
+    return;
+  }
+  navigateToRuntimeMember(pack, selection.type, selection.group, selection.overloadIndex);
+}
+
+// Enter the resident runtime pack focused on one member's call graph. Mirrors
+// navigateToMember but targets the call-graph section (the reason the user clicked a graph
+// node) and clears any active platform descent so the new member's graph loads fresh.
+function navigateToRuntimeMember(pack, type, group, overloadIndex) {
+  state.package = pack;
+  state.atPackageRoot = false;
+  state.lens = "api";
+  state.selectedTypeId = type.id;
+  state.selectedMemberKey = group.key;
+  state.selectedOverloadIndex = overloadIndex ?? 0;
+  state.memberSection = "call-graph";
+  state.typeFilter = "";
+  state.namespaceFilter = "";
+  state.kindFilter = "";
+  state.platformStack = [];
+  state.platformDrillLoading = false;
+  state.platformDrillError = "";
+  state.memberSource = null;
+  state.memberSourceError = "";
+  state.memberCallGraph = null;
+  state.memberCallGraphError = "";
+  state.memberCallGraphExpanding = false;
+  state.memberFacts = null;
+  state.memberFactsError = "";
+  state.memberAnnotated = null;
+  state.memberAnnotatedError = "";
+  state.typeCursor = Math.max(0, filteredTypes().findIndex(item => item.id === type.id));
+  loadSelectedMemberCallGraph();
+}
+
+// Resolve a platform call-graph node's structured identity (typeFullName / memberName /
+// paramSig) to a concrete type + member group + overload in the resident runtime pack.
+// Overload disambiguation mirrors the engine's SelectPlatformMember: match by name, then by
+// parameter arity, preferring an exact simplified-type-name match as a tie-breaker. Returns
+// null when the type isn't resident so the caller can fall back to an in-place descent.
+function findRuntimeMemberSelection(pack, node) {
+  if (!pack || !node?.typeFullName) return null;
+  const type = pack.types.find(item => item.id === node.typeFullName);
+  if (!type) return null;
+  const named = memberGroups(type).filter(group => group.name === node.memberName);
+  if (!named.length) return null;
+  const want = paramNamesFromSig(node.paramSig);
+  let arityMatch = null;
+  for (const group of named) {
+    for (let i = 0; i < group.overloads.length; i++) {
+      const params = group.overloads[i].parameters ?? [];
+      if (params.length !== want.length) continue;
+      if (!arityMatch) arityMatch = { type, group, overloadIndex: i };
+      if (params.every((parameter, idx) => simpleTypeName(parameter.type) === want[idx])) {
+        return { type, group, overloadIndex: i };
+      }
+    }
+  }
+  return arityMatch ?? { type, group: named[0], overloadIndex: 0 };
+}
+
+function paramNamesFromSig(sig) {
+  return sig
+    ? String(sig).split(",").map(part => part.trim()).filter(Boolean).map(simpleTypeName)
+    : [];
+}
+
+// Client-side mirror of the engine's SimpleTypeName: strip namespace, generic arguments,
+// arity, and the nullable-reference annotation so overload matching survives the display-
+// vs metadata-name gap (e.g. a callee's "string" against an overload's "string?").
+function simpleTypeName(type) {
+  if (!type) return "";
+  let name = String(type).trim();
+  const generic = name.indexOf("<");
+  if (generic >= 0) name = name.slice(0, generic);
+  const array = name.indexOf("[");
+  const suffix = array >= 0 ? name.slice(array) : "";
+  if (array >= 0) name = name.slice(0, array);
+  const tick = name.indexOf("`");
+  if (tick >= 0) name = name.slice(0, tick);
+  const dot = name.lastIndexOf(".");
+  if (dot >= 0) name = name.slice(dot + 1);
+  return (name.replace(/\?+$/, "") + suffix.replace(/\?+$/, "")).toLowerCase();
 }
 
 function stripArity(name) {
@@ -4758,6 +4873,14 @@ function runtimePackPackage() {
   return state.packages.find(item => item.isRuntimePack) || null;
 }
 
+// The resident runtime pseudo-package rides in the shared workspace/URL packet under the
+// display id "Microsoft.NETCore.App", but it has no NuGet nupkg — restoring it means
+// re-running LoadRuntimePack (per TFM), not GetPackageBytesAsync. This id test lets the
+// restore path route it correctly instead of 404-ing on a nupkg fetch.
+function isRuntimePackId(id) {
+  return String(id || "").toLowerCase() === "microsoft.netcore.app";
+}
+
 // Loads the platform runtime pack (System.Private.CoreLib for the given TFM) and adds it as
 // a resident pseudo-package flagged isRuntimePack, so its BCL types become searchable in
 // Spotlight and browsable/navigable like any package. SPC is fetched eagerly; sibling pack
@@ -4851,14 +4974,19 @@ async function restoreInitialWorkspace() {
     ? initialLocation.tabs.slice()
     : [target];
   const matchesTarget = tab =>
-    tab.id.toLowerCase() === target.id.toLowerCase()
-    && String(tab.version).toLowerCase() === String(target.version).toLowerCase();
+    isRuntimePackId(tab.id)
+      ? isRuntimePackId(target.id)
+      : (tab.id.toLowerCase() === target.id.toLowerCase()
+        && String(tab.version).toLowerCase() === String(target.version).toLowerCase());
   if (!tabs.some(matchesTarget)) tabs.push(target);
 
   const savedDeep = pendingDeepLink;
   pendingDeepLink = null;
   for (const tab of tabs) {
-    await loadPackage(tab.id, tab.version, tab.framework);
+    // The runtime pack has no nupkg; rebuild it from its TFM so a refreshed/shared link that
+    // landed inside a platform member restores instead of 404-ing on a NuGet fetch.
+    if (isRuntimePackId(tab.id)) await loadRuntimePack(tab.framework);
+    else await loadPackage(tab.id, tab.version, tab.framework);
   }
   pendingDeepLink = savedDeep;
 
