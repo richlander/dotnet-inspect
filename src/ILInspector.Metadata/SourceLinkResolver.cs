@@ -259,11 +259,11 @@ public class SourceLinkResolver
     /// forward scan in <see cref="ExtractMethodBody"/> has no trailing brace to recover.
     /// <para>
     /// Two conditions must hold. The range's last significant character — the last
-    /// non-whitespace character outside a comment, so a trailing <c>// note</c> cannot hide it
-    /// (issue #3300) — must be <c>;</c> or <c>}</c>, and that character must not sit inside a
-    /// still-open literal, where it terminates nothing. And the range must not leave a block
-    /// open, counting only braces outside comments and literals: a property such as
-    /// <c>public string M =&gt; "{";</c> opens nothing and owns no brace below it.
+    /// non-whitespace character outside a comment, so neither a trailing <c>// note</c> nor a
+    /// blank or comment-only line below the declaration can hide it (issue #3300) — must be
+    /// <c>;</c> or <c>}</c>. And the range must not leave a block open, counting only braces
+    /// outside comments and literals: a property such as <c>public string M =&gt; "{";</c>
+    /// opens nothing and owns no brace below it.
     /// </para>
     /// <para>
     /// A single-line range is never judged unclosed, and an untracked raw string literal is
@@ -285,7 +285,13 @@ public class SourceLinkResolver
         char terminator = '\0';
 
         for (int i = first; i < last; i++)
-            terminator = ScanLine(lines[i], ref inBlockComment, ref inVerbatimString, ref depth, ref untracked);
+        {
+            // A blank, whitespace-only, or comment-only line contributes no significant
+            // character, and must not erase the terminator an earlier line established.
+            char significant = ScanLine(lines[i], ref inBlockComment, ref inVerbatimString, ref depth, ref untracked);
+            if (significant != '\0')
+                terminator = significant;
+        }
 
         if (terminator != ';' && terminator != '}')
             return false;

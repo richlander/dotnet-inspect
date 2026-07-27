@@ -1031,4 +1031,34 @@ public class ExtractMethodBodyTests
 
         Assert.Equal("public string Target() => \"\"\"a\"\"\";", body);
     }
+
+    [Fact]
+    public void BlankLineBelowDeclaration_DoesNotEraseTheTerminator()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public int Target() => 0;",                 // 3  <- StartLine
+            "",                                             // 4  <- EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
+
+        Assert.Equal("public int Target() => 0;", body);
+    }
+
+    [Fact]
+    public void CommentOnlyLineBelowDeclaration_DoesNotEraseTheTerminator()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public int Target() => 0;",                 // 3  <- StartLine
+            "    // trailing note",                          // 4  <- EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
+
+        Assert.Equal("public int Target() => 0;\n// trailing note", body);
+    }
 }
