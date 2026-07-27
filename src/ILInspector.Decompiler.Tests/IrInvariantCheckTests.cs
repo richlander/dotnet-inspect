@@ -75,8 +75,9 @@ public sealed class IrInvariantCheckTests
     // These pass includeSemantics:true DIRECTLY, never reading the global
     // IrInvariants.CheckSemantics level, so they stay hermetic under xUnit's
     // parallel collections — raising that level process-wide would false-positive
-    // the ~120 minimal-fixture pass tests running concurrently, which is why it
-    // has no setter and moves only via DOTNET_INSPECT_IR_INVARIANTS=full.
+    // the 5 minimal-fixture pass tests that reference slots without populating
+    // Locals (#3302), which is why it has no setter and moves only via
+    // DOTNET_INSPECT_IR_INVARIANTS=full.
 
     [Fact]
     public void SemanticCheck_PassesWhenLocalSlotIsInRange()

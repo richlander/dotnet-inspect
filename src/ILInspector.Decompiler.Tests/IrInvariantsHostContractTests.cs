@@ -32,6 +32,15 @@ public sealed class IrInvariantsHostContractTests
     /// <summary>The one host allowed to decline validation, relative to the repo root.</summary>
     const string ShippedToolEntryPoint = "src/dotnet-inspect/Program.cs";
 
+    /// <summary>
+    /// Everything a host outside this assembly can reach. Instance members are
+    /// included even though <see cref="IrInvariants"/> is static: dropping the
+    /// <c>static</c> keyword is exactly how a public instance affordance would
+    /// arrive, and the pin should fail loudly rather than stop applying.
+    /// </summary>
+    const BindingFlags PublicSurface =
+        BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+
     static bool? EnvironmentRequest() =>
         IrInvariants.ParseRequest(Environment.GetEnvironmentVariable(EnvironmentVariable));
 
@@ -84,12 +93,30 @@ public sealed class IrInvariantsHostContractTests
     [Fact]
     public void AnEnvironmentOffRequestDoesNotSilentlyDisarmTheSuite()
     {
-        Assert.True(
-            IrInvariants.Enabled,
-            $"IR invariant validation is off for this run because {EnvironmentVariable} was set to "
-                + $"'{Environment.GetEnvironmentVariable(EnvironmentVariable)}'. That request is honored "
-                + "on purpose, but a disarmed run is not a passing run: every pipeline test below "
-                + "validates nothing. Unset the variable to restore coverage.");
+        Assert.True(IrInvariants.Enabled, WhyValidationIsOff());
+    }
+
+    /// <summary>
+    /// Reports the cause that actually applies. A run can be disarmed two ways,
+    /// and naming the wrong one is the same defect this test exists to fix: an
+    /// operator told to unset a variable they never set has been pointed away
+    /// from the code that declined for them.
+    /// </summary>
+    static string WhyValidationIsOff()
+    {
+        const string Consequence =
+            " A disarmed run is not a passing run: every pipeline test in this assembly validates nothing.";
+
+        if (EnvironmentRequest() is false)
+        {
+            string value = Environment.GetEnvironmentVariable(EnvironmentVariable) ?? string.Empty;
+            return $"IR invariant validation is off because {EnvironmentVariable} was set to '{value}'. "
+                + $"That request is honored on purpose.{Consequence} Unset the variable to restore coverage.";
+        }
+
+        return $"IR invariant validation is off with {EnvironmentVariable} unset, so it was declined in "
+            + $"code — either the default flipped back to off or a host in this assembly called "
+            + $"{OptOutMethod}(), which only {ShippedToolEntryPoint} may do.{Consequence}";
     }
 
     /// <summary>
@@ -112,9 +139,9 @@ public sealed class IrInvariantsHostContractTests
     }
 
     /// <summary>
-    /// Every public entry point on this type changes what a host validates, so
-    /// each one needs a host contract pinned here. Set equality, because the
-    /// failure this catches is an <em>addition</em>: #3303 found
+    /// Every public member on this type changes what a host validates, so each
+    /// one needs a host contract pinned here. Set equality, because the failure
+    /// this catches is an <em>addition</em>: #3303 found
     /// <c>EnableSemanticChecks()</c> shipped with zero call sites and a doc
     /// naming a consumer — the corpus sweep — that
     /// <see cref="CorpusSweepGateTests"/> documents deliberately avoiding. An
@@ -125,18 +152,38 @@ public sealed class IrInvariantsHostContractTests
     /// (<c>DOTNET_INSPECT_IR_INVARIANTS=full</c>) and threading it per call has
     /// another (<c>CheckInvariant(includeSemantics: true)</c>); neither needs a
     /// public mutator.
+    /// <para>
+    /// Members, not methods. A method is only one of the three ways to spell an
+    /// entry point, and the other two are the ones with history:
+    /// <c>public static bool Enabled { get; set; }</c> is exactly what this type
+    /// carried before #3289 narrowed it, and a public static field is the same
+    /// defect with less ceremony. Pinning only methods would let a future
+    /// <c>ValidateEverything { get; set; }</c> reintroduce the original problem
+    /// — a host moving validation with no census-visible call site — under a
+    /// green test named for the whole surface. Property accessors are folded
+    /// into the property they belong to so the pin reads as source, but nothing
+    /// else is filtered: an operator or a field appears under its own name.
+    /// </para>
     /// </summary>
     [Fact]
     public void ThePublicSurfaceIsExactlyTheShippedToolOptOut()
     {
-        var methods = typeof(IrInvariants)
-            .GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
-            .Where(static method => !method.IsSpecialName)
-            .Select(static method => method.Name)
+        var accessors = typeof(IrInvariants)
+            .GetProperties(PublicSurface)
+            .SelectMany(static property => property.GetAccessors(nonPublic: false))
+            .Select(static accessor => accessor.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var surface = typeof(IrInvariants)
+            .GetMembers(PublicSurface)
+            .Where(member => !accessors.Contains(member.Name))
+            .Select(static member => member.Name)
             .OrderBy(static name => name, StringComparer.Ordinal)
             .ToArray();
 
-        Assert.Equal(new[] { OptOutMethod }, methods);
+        Assert.Equal(
+            new[] { nameof(IrInvariants.CheckSemantics), OptOutMethod, nameof(IrInvariants.Enabled) },
+            surface);
     }
 
     /// <summary>

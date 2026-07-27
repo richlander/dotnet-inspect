@@ -67,8 +67,12 @@ public static class IrInvariants
     /// local-slot range (see <see cref="IrNode.CheckInvariant(bool)"/>). Off by
     /// default even in validating hosts, because hand-built test fixtures
     /// legitimately omit the local table these checks validate against; enabling
-    /// it suite-wide would false-positive on ~120 minimal-fixture tests.
-    /// Requires <see cref="Enabled"/> to take effect at the per-pass hooks.
+    /// it suite-wide false-positives 5 minimal-fixture tests (measured with
+    /// <c>DOTNET_INSPECT_IR_INVARIANTS=full --gate fast</c> — re-measure rather
+    /// than trust this figure; it read <c>~120</c> until #3303 corrected it, and
+    /// #3302 tracks populating those fixtures' locals so the level can be armed
+    /// by default). Requires <see cref="Enabled"/> to take effect at the
+    /// per-pass hooks.
     /// <para>
     /// <c>DOTNET_INSPECT_IR_INVARIANTS=full</c> is the one spelling that raises
     /// this level, resolved once at startup: the property has no setter at all,
