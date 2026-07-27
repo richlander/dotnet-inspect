@@ -2941,6 +2941,8 @@ public class CfgSampleClass
 
     static void SideEffect() { }
 
+    static int StaticTag { get; set; }
+
     // #3272 regression: the object initializer is the SECOND constructor argument,
     // so the first argument is evaluated first and stays live on the stack beneath
     // the dup chain. The stackifier cannot keep two values on the stack across the
@@ -2970,6 +2972,15 @@ public class CfgSampleClass
         t.X = a;
         return t;
     }
+
+    // #3272 provenance robustness: the leading constructor argument is a STATIC
+    // PROPERTY read (`get_StaticTag`). PropertySugarPass rewrites the getter Call
+    // into a zero-child LoadProperty; if that rewrite drops the Call's SourceOffset,
+    // the object-initializer skip guard cannot prove the spill ran before the
+    // `newobj` and declines the fold. The getter runs before the `newobj`, so this
+    // must fold to `new InitConsumer(StaticTag, new InitTarget { X = a })`.
+    public static InitConsumer MakeConsumerWithStaticPropertyArg(int a)
+        => new InitConsumer(StaticTag, new InitTarget { X = a });
 
     public static InitContainer MakeNestedObject(int a, int b)
         => new InitContainer { Inner = { X = a, Y = b } };
