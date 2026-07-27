@@ -1,5 +1,5 @@
 import { lenses, packageLenses, rootCommands } from "./data.js";
-import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageIntegrations, inspectPackageOpportunities, inspectPackagePerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
+import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectLoadRuntimePack, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageIntegrations, inspectPackageOpportunities, inspectPackagePerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
 
 function loadStoredTaste() {
   try {
@@ -88,6 +88,8 @@ const state = {
   spotlightPkgHits: [],
   spotlightPkgLoading: false,
   spotlightPkgQuery: "",
+  runtimePackLoading: false,
+  runtimePackError: "",
   graphSourceOpen: false,
   graphSource: null,
   graphSourceLoading: false,
@@ -2639,7 +2641,18 @@ const SPOTLIGHT_SCOPES = [
   { id: "packages", label: "Packages" },
   { id: "types", label: "Types" },
   { id: "members", label: "Members" },
+  { id: "runtime", label: "Runtime" },
 ];
+
+// Runtime-pack types as spotlight match items (empty-query listing for the Runtime scope).
+function runtimePackTypeList() {
+  const rt = runtimePackPackage();
+  if (!rt?.types) return [];
+  return rt.types
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(type => ({ pkg: rt, type, ranges: [] }));
+}
 
 // Blends the four targets into one ordered result list, honouring the active scope chip.
 // In "all" each group is capped so every target stays visible; a focused scope shows a
@@ -2650,6 +2663,28 @@ function spotlightResults() {
   const scope = state.spotlightScope;
   const all = scope === "all";
   const results = [];
+
+  if (scope === "runtime") {
+    if (state.runtimePackLoading) {
+      results.push({ kind: "rtpack-status", loading: true });
+      return results;
+    }
+    if (!runtimePackLoaded()) {
+      if (state.runtimePackError) results.push({ kind: "rtpack-status", error: state.runtimePackError });
+      results.push({ kind: "rtpack-suggest" });
+      return results;
+    }
+    const typeSource = query ? spotlightTypeMatches(query) : runtimePackTypeList();
+    for (const match of typeSource.filter(item => item.pkg?.isRuntimePack).slice(0, 50)) {
+      results.push({ ...match, kind: "type" });
+    }
+    if (query) {
+      for (const match of spotlightMemberMatches(query).filter(item => item.pkg?.isRuntimePack).slice(0, 50)) {
+        results.push({ ...match, kind: "member" });
+      }
+    }
+    return results;
+  }
 
   if (all || scope === "packages") {
     const loaded = spotlightLoadedPackageMatches(query).slice(0, all ? 3 : 20);
@@ -2669,6 +2704,11 @@ function spotlightResults() {
   }
   if ((all || scope === "members") && query) {
     for (const match of spotlightMemberMatches(query).slice(0, all ? 6 : 50)) results.push({ ...match, kind: "member" });
+  }
+  // Offer the runtime pack when the user is clearly hunting a platform type but it isn't
+  // loaded yet — one gesture makes BCL types (TextWriter, String…) searchable session-wide.
+  if ((all || scope === "types") && query.length >= 2 && !runtimePackLoaded() && !state.runtimePackLoading) {
+    results.push({ kind: "rtpack-suggest" });
   }
   return results;
 }
@@ -2691,6 +2731,23 @@ function spotlightRowHtml(result, index) {
       <span class="spotlight-item-ns">${escapeHtml(result.hit.version || "")} · nuget.org</span>
     </button>`;
   }
+  if (result.kind === "rtpack-suggest") {
+    const fw = state.package?.activeFramework || "runtime";
+    return `<button ${base} data-sl-load-runtime="1">
+      <span class="kind-icon sl-pkg-new">↓</span>
+      <span class="spotlight-item-name">Load .NET runtime pack</span>
+      <span class="spotlight-item-ns">Search platform types (TextWriter, String…) · ${escapeHtml(fw)}</span>
+    </button>`;
+  }
+  if (result.kind === "rtpack-status") {
+    const text = result.loading
+      ? "Loading .NET runtime pack — this can take a while…"
+      : `Runtime pack failed: ${result.error || "unknown error"}`;
+    return `<div class="spotlight-item spotlight-status ${selected}" data-sl-index="${index}">
+      <span class="kind-icon">${result.loading ? "◔" : "⚠"}</span>
+      <span class="spotlight-item-name">${escapeHtml(text)}</span>
+    </div>`;
+  }
   if (result.kind === "member") {
     return `<button ${base} data-sl-member="${escapeHtml(result.memberKey)}" data-sl-pkg="${escapeHtml(result.pkg.id)}" data-sl-type="${escapeHtml(result.type.id)}">
       <span class="kind-icon sl-member">ƒ</span>
@@ -2705,7 +2762,7 @@ function spotlightRowHtml(result, index) {
   </button>`;
 }
 
-const SPOTLIGHT_GROUP_LABELS = { "pkg-loaded": "Packages", "pkg-nuget": "Packages", type: "Types", member: "Members" };
+const SPOTLIGHT_GROUP_LABELS = { "pkg-loaded": "Packages", "pkg-nuget": "Packages", type: "Types", member: "Members", "rtpack-suggest": "Runtime", "rtpack-status": "Runtime" };
 
 function spotlightResultsHtml(results) {
   if (!results.length) {
@@ -2797,6 +2854,11 @@ function setSpotlightScope(scope) {
   if (!SPOTLIGHT_SCOPES.some(item => item.id === scope)) return;
   state.spotlightScope = scope;
   state.spotlightIndex = 0;
+  if (scope === "runtime" && !runtimePackLoaded() && !state.runtimePackLoading) {
+    activateRuntimePack();
+    focusSpotlight();
+    return;
+  }
   if (scope === "packages" || scope === "all") scheduleSpotlightPackageFetch();
   // Scope only affects the chip row and the results list, so repaint those in place
   // instead of re-rendering the whole app (which flashed the screen on every chip move).
@@ -2892,8 +2954,30 @@ function pickSpotlightResult(result) {
     case "pkg-loaded": pickSpotlightLoadedPackage(result.pkg); break;
     case "pkg-nuget": closeSpotlight(); loadPackage(result.hit.id, result.hit.version); break;
     case "member": pickSpotlightMember(result); break;
+    case "rtpack-suggest": state.spotlightScope = "runtime"; state.spotlightIndex = 0; activateRuntimePack(); break;
+    case "rtpack-status": break;
     default: pickSpotlight(result.pkg.id, result.type.id); break;
   }
+}
+
+// Kicks off the runtime-pack load (if not already loaded/loading) and repaints the
+// spotlight in place so the loading row and, once resolved, the platform types appear
+// without tearing down the dialog.
+function activateRuntimePack() {
+  if (runtimePackLoaded() || state.runtimePackLoading) {
+    updateSpotlightChips();
+    updateSpotlightResults();
+    return;
+  }
+  const framework = state.package?.activeFramework || "";
+  const pending = loadRuntimePack(framework); // sets runtimePackLoading synchronously
+  updateSpotlightChips();
+  updateSpotlightResults();
+  pending.then(() => {
+    if (!state.spotlightOpen) return;
+    updateSpotlightChips();
+    updateSpotlightResults();
+  });
 }
 
 function pickSpotlightLoadedPackage(pkg) {
@@ -3350,6 +3434,15 @@ async function loadSelectedMemberDocumentation() {
   }
   const overload = member.overloads[state.selectedOverloadIndex ?? 0];
   if (!overload?.documentationId || overload.documentationLoaded) {
+    render();
+    return;
+  }
+
+  // The runtime pseudo-package has no companion XML-documentation nupkg on nuget.org, so a
+  // doc fetch would 404. Skip it (rendering once) rather than firing a late async render()
+  // that would wipe an in-progress call-graph diagram back to its placeholder.
+  if (state.package?.isRuntimePack) {
+    overload.documentationLoaded = true;
     render();
     return;
   }
@@ -3855,6 +3948,14 @@ async function loadSelectedMemberCallGraph() {
     return;
   }
 
+  // A resident runtime pack has no NuGet workspace to scan for callers; its members'
+  // implementation lives in the range-fetched platform assembly. Route them through the
+  // same platform-descent path the BCL call-graph nodes use so the graph resolves.
+  if (state.package?.isRuntimePack) {
+    await loadRuntimeMemberCallGraph(type, overload);
+    return;
+  }
+
   // Progressive, two-stage load so live data prints quickly even with many libraries open.
   // Stage 1 (fast) scopes the query to the target assembly only — that yields the callees and
   // the intra-library callers without downloading/opening any other package. Stage 2 (slow)
@@ -3921,6 +4022,43 @@ async function loadSelectedMemberCallGraph() {
       state.memberCallGraphError = String(error?.message || error);
       render();
     }
+  }
+}
+
+// Builds a runtime-pack member's call graph via the platform-descent engine export (which
+// range-fetches the owning platform assembly) rather than the workspace call-graph path.
+// The result is itself a platform graph, so its callees descend further (see the
+// isRuntimePack branch in the node-binding block).
+async function loadRuntimeMemberCallGraph(type, overload) {
+  const seq = ++state.memberCallGraphSeq;
+  state.platformStack = [];
+  state.platformDrillLoading = false;
+  state.platformDrillError = "";
+  state.memberCallGraphLoading = true;
+  state.memberCallGraphExpanding = false;
+  state.memberCallGraphError = "";
+  render();
+  try {
+    const paramSig = (overload.parameters ?? []).map(parameter => parameter.type).join(",");
+    const graph = await inspectExpandPlatformCallGraph({
+      framework: state.package.activeFramework,
+      assembly: type.assembly,
+      type: type.id,
+      member: overload.name,
+      paramSig
+    });
+    if (seq !== state.memberCallGraphSeq) return;
+    state.memberCallGraph = graph;
+    state.memberCallGraphLoading = false;
+    state.memberCallGraphExpanding = false;
+    render();
+    await renderMermaidCallGraph();
+  } catch (error) {
+    if (seq !== state.memberCallGraphSeq) return;
+    state.memberCallGraphLoading = false;
+    state.memberCallGraphExpanding = false;
+    state.memberCallGraphError = String(error?.message || error);
+    render();
   }
 }
 
@@ -4104,7 +4242,9 @@ function attachGraphPanZoom(container, viewport, bindCallGraphNodes = false) {
     // workspace, so a clicked callee must resolve against the active platform graph
     // and descend further — routing it through the workspace resolvers would look the
     // type up in the loaded package and fail (e.g. "Type 'TextWriter' is not in Markout.dll").
-    const drilled = state.platformStack.length > 0;
+    // A resident runtime pack's base member graph is itself a platform graph, so its
+    // callees descend the same way from the start.
+    const drilled = state.platformStack.length > 0 || Boolean(state.package?.isRuntimePack);
     svg.querySelectorAll("g.node").forEach(node => {
       const label = (node.textContent || "").replace(/\s+/g, " ").trim();
       if (drilled) {
@@ -4606,6 +4746,54 @@ async function loadPackage(packageId, version, framework) {
       state.errorDetail = String(error?.stack || error);
       render();
     }
+    return null;
+  }
+}
+
+function runtimePackLoaded() {
+  return state.packages.some(item => item.isRuntimePack);
+}
+
+function runtimePackPackage() {
+  return state.packages.find(item => item.isRuntimePack) || null;
+}
+
+// Loads the platform runtime pack (System.Private.CoreLib for the given TFM) and adds it as
+// a resident pseudo-package flagged isRuntimePack, so its BCL types become searchable in
+// Spotlight and browsable/navigable like any package. SPC is fetched eagerly; sibling pack
+// assemblies load lazily as navigation reaches them. Does not switch the active package.
+async function loadRuntimePack(framework) {
+  if (state.runtimePackLoading) return runtimePackPackage();
+  const existing = runtimePackPackage();
+  if (existing) return existing;
+  state.runtimePackLoading = true;
+  state.runtimePackError = "";
+  try {
+    const result = await inspectLoadRuntimePack(framework || "");
+    refreshPackageStats();
+    const types = (result.types ?? []).map(type => ({ ...type, api: type.api ?? [] }));
+    const packageModel = {
+      id: result.package,
+      version: result.version,
+      frameworks: (result.frameworks ?? []).slice().sort(compareFrameworks),
+      activeFramework: result.activeFramework,
+      assembly: (result.assemblies ?? []).map(item => item.name).join(", "),
+      assemblies: result.assemblies ?? [],
+      types,
+      totalTypes: types.length,
+      totalMembers: result.totalMembers,
+      isRuntimePack: true
+    };
+    const at = state.packages.findIndex(item =>
+      item.id.toLowerCase() === packageModel.id.toLowerCase()
+      && item.version.toLowerCase() === packageModel.version.toLowerCase());
+    if (at >= 0) state.packages[at] = packageModel;
+    else state.packages.push(packageModel);
+    state.runtimePackLoading = false;
+    return packageModel;
+  } catch (error) {
+    state.runtimePackLoading = false;
+    state.runtimePackError = String(error?.message || error);
     return null;
   }
 }

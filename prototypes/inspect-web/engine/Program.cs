@@ -630,38 +630,13 @@ public static partial class BrowserInspectionEngine
     {
         var normalizedId = packageId.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
-        var packageBase =
-            $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(normalizedId)}/" +
-            $"{Uri.EscapeDataString(normalizedVersion)}/" +
-            $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}";
-        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-web-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
         try
         {
-            string? implementationPath;
-            using (var stream = new MemoryStream(packageBytes, writable: false))
-            using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
-            {
-                var implementation = archive.Entries.FirstOrDefault(entry =>
-                    entry.FullName.Equals($"lib/{targetFramework}/{assemblyName}", StringComparison.OrdinalIgnoreCase))
-                    ?? archive.Entries.FirstOrDefault(entry =>
-                        entry.FullName.Equals($"ref/{targetFramework}/{assemblyName}", StringComparison.OrdinalIgnoreCase))
-                    ?? throw new InvalidOperationException(
-                        $"No implementation asset for {assemblyName} at {targetFramework}.");
-
-                foreach (var entry in archive.Entries.Where(entry =>
-                    entry.FullName.StartsWith($"lib/{targetFramework}/", StringComparison.OrdinalIgnoreCase)
-                    && entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
-                {
-                    await WriteEntryAsync(entry, Path.Combine(tempRoot, entry.Name));
-                }
-
-                implementationPath = Path.Combine(tempRoot, implementation.Name);
-                if (!File.Exists(implementationPath))
-                    await WriteEntryAsync(implementation, implementationPath);
-            }
+            var implementationPath = await MaterializeImplementationAsync(
+                normalizedId, normalizedVersion, targetFramework, assemblyName, tempRoot, allowRefFallback: true);
 
             var pdbPath = Path.ChangeExtension(implementationPath, ".pdb");
             var symbolPackageUrl =
@@ -730,32 +705,13 @@ public static partial class BrowserInspectionEngine
         _ = styleOptionsJson;
         var normalizedId = packageId.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
-        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-web-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
         try
         {
-            string implementationPath;
-            using (var stream = new MemoryStream(packageBytes, writable: false))
-            using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
-            {
-                var implementation = archive.Entries.FirstOrDefault(entry =>
-                    entry.FullName.Equals($"lib/{targetFramework}/{assemblyName}", StringComparison.OrdinalIgnoreCase))
-                    ?? throw new InvalidOperationException(
-                        $"No implementation asset for {assemblyName} at {targetFramework}.");
-
-                foreach (var entry in archive.Entries.Where(entry =>
-                    entry.FullName.StartsWith($"lib/{targetFramework}/", StringComparison.OrdinalIgnoreCase)
-                    && entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
-                {
-                    await WriteEntryAsync(entry, Path.Combine(tempRoot, entry.Name));
-                }
-
-                implementationPath = Path.Combine(tempRoot, implementation.Name);
-                if (!File.Exists(implementationPath))
-                    await WriteEntryAsync(implementation, implementationPath);
-            }
+            var implementationPath = await MaterializeImplementationAsync(
+                normalizedId, normalizedVersion, targetFramework, assemblyName, tempRoot, allowRefFallback: false);
 
             var pdbPath = Path.ChangeExtension(implementationPath, ".pdb");
             var symbolPackageUrl =
@@ -830,32 +786,13 @@ public static partial class BrowserInspectionEngine
     {
         var normalizedId = packageId.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
-        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-web-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
         try
         {
-            string implementationPath;
-            using (var stream = new MemoryStream(packageBytes, writable: false))
-            using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
-            {
-                var implementation = archive.Entries.FirstOrDefault(entry =>
-                    entry.FullName.Equals($"lib/{targetFramework}/{assemblyName}", StringComparison.OrdinalIgnoreCase))
-                    ?? throw new InvalidOperationException(
-                        $"No implementation asset for {assemblyName} at {targetFramework}.");
-
-                foreach (var entry in archive.Entries.Where(entry =>
-                    entry.FullName.StartsWith($"lib/{targetFramework}/", StringComparison.OrdinalIgnoreCase)
-                    && entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
-                {
-                    await WriteEntryAsync(entry, Path.Combine(tempRoot, entry.Name));
-                }
-
-                implementationPath = Path.Combine(tempRoot, implementation.Name);
-                if (!File.Exists(implementationPath))
-                    await WriteEntryAsync(implementation, implementationPath);
-            }
+            var implementationPath = await MaterializeImplementationAsync(
+                normalizedId, normalizedVersion, targetFramework, assemblyName, tempRoot, allowRefFallback: false);
 
             var resolver = Pipeline.MetadataSource.DefaultAssemblyReferenceResolver(implementationPath);
             using var source = Pipeline.MetadataSource.Open(implementationPath, null, resolver);
@@ -1421,34 +1358,13 @@ public static partial class BrowserInspectionEngine
     {
         var normalizedId = packageId.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
-        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-web-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
         try
         {
-            string implementationPath;
-            using (var stream = new MemoryStream(packageBytes, writable: false))
-            using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
-            {
-                var implementation = archive.Entries.FirstOrDefault(entry =>
-                    entry.FullName.Equals($"lib/{targetFramework}/{assemblyName}", StringComparison.OrdinalIgnoreCase))
-                    ?? archive.Entries.FirstOrDefault(entry =>
-                        entry.FullName.Equals($"ref/{targetFramework}/{assemblyName}", StringComparison.OrdinalIgnoreCase))
-                    ?? throw new InvalidOperationException(
-                        $"No implementation asset for {assemblyName} at {targetFramework}.");
-
-                foreach (var entry in archive.Entries.Where(entry =>
-                    entry.FullName.StartsWith($"lib/{targetFramework}/", StringComparison.OrdinalIgnoreCase)
-                    && entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
-                {
-                    await WriteEntryAsync(entry, Path.Combine(tempRoot, entry.Name));
-                }
-
-                implementationPath = Path.Combine(tempRoot, implementation.Name);
-                if (!File.Exists(implementationPath))
-                    await WriteEntryAsync(implementation, implementationPath);
-            }
+            var implementationPath = await MaterializeImplementationAsync(
+                normalizedId, normalizedVersion, targetFramework, assemblyName, tempRoot, allowRefFallback: true);
 
             var pdbPath = Path.ChangeExtension(implementationPath, ".pdb");
             var symbolPackageUrl =
@@ -1519,34 +1435,13 @@ public static partial class BrowserInspectionEngine
     {
         var normalizedId = packageId.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
-        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-web-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
 
         try
         {
-            string? implementationPath;
-            using (var stream = new MemoryStream(packageBytes, writable: false))
-            using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
-            {
-                var implementation = archive.Entries.FirstOrDefault(entry =>
-                    entry.FullName.Equals($"lib/{targetFramework}/{assemblyName}", StringComparison.OrdinalIgnoreCase))
-                    ?? archive.Entries.FirstOrDefault(entry =>
-                        entry.FullName.Equals($"ref/{targetFramework}/{assemblyName}", StringComparison.OrdinalIgnoreCase))
-                    ?? throw new InvalidOperationException(
-                        $"No implementation asset for {assemblyName} at {targetFramework}.");
-
-                foreach (var entry in archive.Entries.Where(entry =>
-                    entry.FullName.StartsWith($"lib/{targetFramework}/", StringComparison.OrdinalIgnoreCase)
-                    && entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
-                {
-                    await WriteEntryAsync(entry, Path.Combine(tempRoot, entry.Name));
-                }
-
-                implementationPath = Path.Combine(tempRoot, implementation.Name);
-                if (!File.Exists(implementationPath))
-                    await WriteEntryAsync(implementation, implementationPath);
-            }
+            var implementationPath = await MaterializeImplementationAsync(
+                normalizedId, normalizedVersion, targetFramework, assemblyName, tempRoot, allowRefFallback: true);
 
             var pdbPath = Path.ChangeExtension(implementationPath, ".pdb");
             var symbolPackageUrl =
@@ -1715,23 +1610,12 @@ public static partial class BrowserInspectionEngine
     {
         var normalizedId = packageId.ToLowerInvariant();
         var normalizedVersion = version.ToLowerInvariant();
-        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
         var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-facts-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
         try
         {
-            using var stream = new MemoryStream(packageBytes, writable: false);
-            using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
-            foreach (var entry in archive.Entries.Where(entry =>
-                entry.FullName.StartsWith($"lib/{targetFramework}/", StringComparison.OrdinalIgnoreCase)
-                && entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
-            {
-                await WriteEntryAsync(entry, Path.Combine(tempRoot, entry.Name));
-            }
-
-            var implementationPath = Path.Combine(tempRoot, assemblyName);
-            if (!File.Exists(implementationPath))
-                throw new InvalidOperationException($"No implementation asset for {assemblyName} at {targetFramework}.");
+            var implementationPath = await MaterializeImplementationAsync(
+                normalizedId, normalizedVersion, targetFramework, assemblyName, tempRoot, allowRefFallback: false);
 
             using var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
                 new AssemblyReferenceIdentity(assemblyName, null, null, null),
@@ -2004,6 +1888,145 @@ public static partial class BrowserInspectionEngine
     // ref pack would leave every BCL call a dead leaf; the runtime pack carries IL.
     const string PlatformRuntimePackId = "microsoft.netcore.app.runtime.linux-x64";
 
+    // Display id of the runtime pseudo-package the client adds to its workspace when the
+    // user requests the platform pack from Spotlight. Its normalized form is the marker the
+    // shared image resolver keys on to fetch from the runtime pack rather than a lib/ layout.
+    const string RuntimePackDisplayId = "Microsoft.NETCore.App";
+    const string RuntimePackPackageId = "microsoft.netcore.app";
+
+    // The single assembly loaded eagerly when the runtime pack is requested: it carries the
+    // overwhelming majority of BCL surface (String, TextWriter, collections, Volatile,
+    // Unsafe, …). Sibling pack assemblies load lazily as navigation reaches them.
+    const string RuntimeCoreAssembly = "System.Private.CoreLib.dll";
+
+    // Session cache of runtime-pack file bytes keyed by "version/fileName" so repeat
+    // navigation into the pack does not re-range-fetch the same assembly.
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> RuntimeFileCache = new();
+
+    // Eagerly loads the runtime pack's core assembly (System.Private.CoreLib) for the
+    // workspace TFM and returns it as a package-shaped surface the client treats as a
+    // resident package: its types become searchable in Spotlight and browsable in the type
+    // nav, and per-type views resolve through the shared image seam. Latest pack version per
+    // TFM major is resolved from the flat container.
+    [JSExport]
+    public static async Task<string> LoadRuntimePack(string targetFramework)
+    {
+        var major = ParseTfmMajor(targetFramework);
+        var version = await ResolveRuntimePackVersionAsync(PlatformRuntimePackId, major);
+        var bytes = await AcquireRuntimeFileAsync(version, RuntimeCoreAssembly)
+            ?? throw new InvalidOperationException(
+                $"Could not acquire {RuntimeCoreAssembly} from {PlatformRuntimePackId} {version}.");
+
+        using var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
+            new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(RuntimeCoreAssembly), null, null, null),
+            Path: null,
+            OpenRead: () => new MemoryStream(bytes, writable: false),
+            Provenance: $"runtime-pack/{PlatformRuntimePackId}/{RuntimeCoreAssembly}"));
+        if (!inspection.HasMetadata)
+            throw new InvalidOperationException($"{RuntimeCoreAssembly} has no metadata.");
+
+        var assemblyTypes = inspection.ApiSurface().Types
+            .Select(type => ToBrowserType(type, RuntimeCoreAssembly))
+            .OrderBy(type => type.Namespace, StringComparer.Ordinal)
+            .ThenBy(type => type.Name, StringComparer.Ordinal)
+            .ToArray();
+
+        var tfm = string.IsNullOrWhiteSpace(targetFramework) ? $"net{major}.0" : targetFramework;
+        var result = new BrowserPackageSurface(
+            RuntimePackDisplayId,
+            version,
+            [tfm],
+            tfm,
+            [
+                new BrowserAssemblySurface(
+                    RuntimeCoreAssembly,
+                    $"runtimes/*/lib/{tfm}/{RuntimeCoreAssembly}",
+                    assemblyTypes.Length,
+                    assemblyTypes.Sum(type => type.Members)),
+            ],
+            assemblyTypes,
+            assemblyTypes.Sum(type => type.Members));
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageSurface);
+    }
+
+    // Materializes the implementation assembly for a per-type/member query into tempRoot and
+    // returns its path. For the runtime pseudo-package it range-extracts from the CoreCLR
+    // runtime pack's runtimes/ layout (session-cached); for ordinary packages it uses the
+    // lib/{tfm}/{assembly} asset (with an optional ref/ fallback), copying sibling lib
+    // assemblies alongside for the reference resolver.
+    static async Task<string> MaterializeImplementationAsync(
+        string normalizedId,
+        string normalizedVersion,
+        string targetFramework,
+        string assemblyName,
+        string tempRoot,
+        bool allowRefFallback)
+    {
+        if (normalizedId.Equals(RuntimePackPackageId, StringComparison.OrdinalIgnoreCase))
+        {
+            var bytes = await AcquireRuntimeFileAsync(normalizedVersion, assemblyName)
+                ?? throw new InvalidOperationException(
+                    $"No runtime-pack asset for {assemblyName} in {PlatformRuntimePackId} {normalizedVersion}.");
+            var runtimePath = Path.Combine(tempRoot, assemblyName);
+            await File.WriteAllBytesAsync(runtimePath, bytes);
+            return runtimePath;
+        }
+
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+        using var stream = new MemoryStream(packageBytes, writable: false);
+        using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
+        var implementation = archive.Entries.FirstOrDefault(entry =>
+            entry.FullName.Equals($"lib/{targetFramework}/{assemblyName}", StringComparison.OrdinalIgnoreCase))
+            ?? (allowRefFallback
+                ? archive.Entries.FirstOrDefault(entry =>
+                    entry.FullName.Equals($"ref/{targetFramework}/{assemblyName}", StringComparison.OrdinalIgnoreCase))
+                : null)
+            ?? throw new InvalidOperationException(
+                $"No implementation asset for {assemblyName} at {targetFramework}.");
+
+        foreach (var entry in archive.Entries.Where(entry =>
+            entry.FullName.StartsWith($"lib/{targetFramework}/", StringComparison.OrdinalIgnoreCase)
+            && entry.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
+        {
+            await WriteEntryAsync(entry, Path.Combine(tempRoot, entry.Name));
+        }
+
+        var implementationPath = Path.Combine(tempRoot, implementation.Name);
+        if (!File.Exists(implementationPath))
+            await WriteEntryAsync(implementation, implementationPath);
+        return implementationPath;
+    }
+
+    // Fetches one file from the CoreCLR runtime pack (runtimes/.../<file>), range-extracting
+    // just that entry from the ~38 MB nupkg with a full-download fallback, and caches the
+    // bytes for the session.
+    static async Task<byte[]?> AcquireRuntimeFileAsync(string version, string fileName)
+    {
+        var cacheKey = $"{version}/{fileName}";
+        if (RuntimeFileCache.TryGetValue(cacheKey, out var cached))
+            return cached;
+
+        var nupkgUrl =
+            $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(PlatformRuntimePackId)}/" +
+            $"{Uri.EscapeDataString(version)}/" +
+            $"{Uri.EscapeDataString(PlatformRuntimePackId)}.{Uri.EscapeDataString(version)}.nupkg";
+        bool IsWanted(string entryName) =>
+            entryName.StartsWith("runtimes/", StringComparison.OrdinalIgnoreCase)
+            && Path.GetFileName(entryName).Equals(fileName, StringComparison.OrdinalIgnoreCase);
+
+        byte[]? bytes = null;
+        try { bytes = await RangeExtractEntryAsync(nupkgUrl, IsWanted); }
+        catch { bytes = null; }
+        if (bytes is null)
+        {
+            var fullPack = await GetPackageBytesAsync(PlatformRuntimePackId, version);
+            bytes = ExtractEntryFromArchive(fullPack, IsWanted);
+        }
+        if (bytes is not null)
+            RuntimeFileCache[cacheKey] = bytes;
+        return bytes;
+    }
+
     [JSExport]
     public static async Task<string> ExpandPlatformCallGraph(
         string targetFramework,
@@ -2111,29 +2134,12 @@ public static partial class BrowserInspectionEngine
         string typeFullName)
     {
         var (ns, name) = SplitTypeName(typeFullName);
-        var nupkgUrl =
-            $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(PlatformRuntimePackId)}/" +
-            $"{Uri.EscapeDataString(version)}/" +
-            $"{Uri.EscapeDataString(PlatformRuntimePackId)}.{Uri.EscapeDataString(version)}.nupkg";
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        byte[]? fullPack = null;
         var current = startFile;
         for (int hop = 0; hop < 5 && visited.Add(current); hop++)
         {
-            bool IsWanted(string entryName) =>
-                entryName.StartsWith("runtimes/", StringComparison.OrdinalIgnoreCase)
-                && Path.GetFileName(entryName).Equals(current, StringComparison.OrdinalIgnoreCase);
-
-            // Range-extract just this assembly from the ~38 MB pack; fall back to a full
-            // download only if the range path cannot satisfy it (e.g. zip64).
-            byte[]? bytes = null;
-            try { bytes = await RangeExtractEntryAsync(nupkgUrl, IsWanted); }
-            catch { bytes = null; }
-            if (bytes is null)
-            {
-                fullPack ??= await GetPackageBytesAsync(PlatformRuntimePackId, version);
-                bytes = ExtractEntryFromArchive(fullPack, IsWanted);
-            }
+            // Range-extract (and session-cache) just this assembly from the ~38 MB pack.
+            var bytes = await AcquireRuntimeFileAsync(version, current);
             if (bytes is null)
                 return null;
 
