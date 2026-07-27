@@ -730,6 +730,15 @@ kbd {
 .perf-confidence { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); text-transform: capitalize; }
 .perf-confidence.perf-high { color: #4a9d5b; border-color: color-mix(in srgb, #4a9d5b 45%, var(--line)); }
 .perf-confidence.perf-medium { color: #c99a3a; border-color: color-mix(in srgb, #c99a3a 45%, var(--line)); }
+.signal-list { display: flex; flex-direction: column; gap: 6px; padding: 12px 10px; border-top: 1px solid var(--line); }
+.signal-row { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.signal-badge { flex: 0 0 auto; min-width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; background: var(--panel-active); font: 13px var(--mono); font-weight: 600; }
+.signal-badge.signal-type { color: var(--blue); }
+.signal-badge.signal-api { color: #4a9d5b; }
+.signal-body { flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.signal-name { font: 13px var(--mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.signal-ns { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.signal-kind { flex: 0 0 auto; font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); }
 .ns-overflow { align-self: center; color: var(--muted); font-size: 12px; padding: 0 6px; }
 .composition-flags { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 10px; border-bottom: 1px solid var(--line); }
 .count-flag { font: 12px var(--mono); padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line-strong); color: var(--dim); background: var(--panel); }

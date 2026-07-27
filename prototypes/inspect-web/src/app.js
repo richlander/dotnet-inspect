@@ -1240,11 +1240,27 @@ function renderPackageIntegrations() {
       <div class="type-chip-list">${categories.map(category => `<span class="type-chip">${escapeHtml(category.integration)} <span class="ns-count">${category.signals.length}</span></span>`).join("")}</div>
     </section>`;
 
-  const blocks = categories.map(category => `
+  const blocks = categories.map(category => {
+    const signals = [...category.signals].sort((a, b) => {
+      const rank = shape => /type/i.test(shape) ? 0 : 1;
+      return rank(a.shape) - rank(b.shape) || a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name);
+    });
+    const rows = signals.map(signal => {
+      const isType = /type/i.test(signal.shape);
+      const { short, qualifier } = splitSignalName(signal.name);
+      return `
+        <div class="signal-row" title="${escapeHtml(signal.name)} · ${escapeHtml(signal.shape)} · ${escapeHtml(signal.kind)}">
+          <span class="signal-badge signal-${isType ? "type" : "api"}">${isType ? "T" : "ƒ"}</span>
+          <span class="signal-body"><span class="signal-name">${escapeHtml(short)}</span>${qualifier ? `<span class="signal-ns">${escapeHtml(qualifier)}</span>` : ""}</span>
+          <span class="signal-kind">${escapeHtml(signal.kind)}</span>
+        </div>`;
+    }).join("");
+    return `
     <section class="document-section">
       <div class="section-title"><h2>${escapeHtml(category.integration)}</h2><span>${category.typeCount} type${category.typeCount === 1 ? "" : "s"} · ${category.apiCount} API${category.apiCount === 1 ? "" : "s"}</span></div>
-      <div class="type-chip-list">${category.signals.map(signal => `<code class="attr-chip" title="${escapeHtml(signal.shape)} · ${escapeHtml(signal.kind)}">${escapeHtml(signal.name)} <span class="ref-version">${escapeHtml(signal.kind)}</span></code>`).join("")}</div>
-    </section>`).join("");
+      <div class="signal-list">${rows}</div>
+    </section>`;
+  }).join("");
 
   return `${warning}${summary}${blocks}`;
 }
@@ -1919,6 +1935,23 @@ function shortTypeName(fullName) {
   const tail = generic < 0 ? "" : fullName.slice(generic);
   const dot = head.lastIndexOf(".");
   return (dot < 0 ? head : head.slice(dot + 1)) + tail;
+}
+
+// Split an integration signal's fully-qualified name into its short member/type name and a
+// declaring qualifier. Cuts off a method parameter list or generic argument list before the
+// last-dot split so a dot inside "(...)" or "<...>" never gets mistaken for the name boundary.
+function splitSignalName(fullName) {
+  const paren = fullName.indexOf("(");
+  const angle = fullName.indexOf("<");
+  const bounds = [paren, angle].filter(i => i >= 0);
+  const cut = bounds.length ? Math.min(...bounds) : -1;
+  const head = cut < 0 ? fullName : fullName.slice(0, cut);
+  const suffix = cut < 0 ? "" : fullName.slice(cut);
+  const dot = head.lastIndexOf(".");
+  return {
+    short: (dot < 0 ? head : head.slice(dot + 1)) + suffix,
+    qualifier: dot < 0 ? "" : head.slice(0, dot),
+  };
 }
 
 function typeSourceSignature(item) {
