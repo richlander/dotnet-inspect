@@ -50,10 +50,12 @@ public partial record ApiOptions
     /// <summary>
     /// The <c>--taste</c> gesture: request the whole oracle-endorsed style set for
     /// this run, equivalent to <c>dotnet_inspect_style_full_taste = true</c> in
-    /// <c>.dotnet-inspectconfig</c> but scoped to one invocation. Applied on top of
-    /// the resolved config, so a per-knob line in a config file still refines it.
-    /// Includes byte-divergent lenses, so the Annotated view drops its interleaved
-    /// IL for any member a lens actually rewrites.
+    /// <c>.dotnet-inspectconfig</c> but scoped to one invocation. Applied after the
+    /// config resolves and wins for the knobs the aggregate covers, so an explicit
+    /// gesture is not silently narrowed by a checked-in config; knobs outside the
+    /// oracle-endorsed set keep whatever the file selected. Includes byte-divergent
+    /// lenses, so the Annotated view drops its interleaved IL for any member a lens
+    /// actually rewrites.
     /// </summary>
     public bool RequestAllTaste { get; init; }
 
