@@ -32,6 +32,15 @@ public sealed class IrInvariantsHostContractTests
     /// <summary>The one host allowed to decline validation, relative to the repo root.</summary>
     const string ShippedToolEntryPoint = "src/dotnet-inspect/Program.cs";
 
+    /// <summary>
+    /// Everything a host outside this assembly can reach. Instance members are
+    /// included even though <see cref="IrInvariants"/> is static: dropping the
+    /// <c>static</c> keyword is exactly how a public instance affordance would
+    /// arrive, and the pin should fail loudly rather than stop applying.
+    /// </summary>
+    const BindingFlags PublicSurface =
+        BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+
     static bool? EnvironmentRequest() =>
         IrInvariants.ParseRequest(Environment.GetEnvironmentVariable(EnvironmentVariable));
 
@@ -39,6 +48,12 @@ public sealed class IrInvariantsHostContractTests
     /// This test project never arms the flag: it inherits the default. If the
     /// default is ever flipped back to off, this fails — and so does the
     /// end-to-end teeth test in <see cref="IrInvariantCheckTests"/>.
+    /// <para>
+    /// The environment branch below covers precedence only — that the flag
+    /// reports what the operator asked for. That an off request is <em>loud</em>
+    /// rather than silent is a separate claim, held by
+    /// <see cref="AnEnvironmentOffRequestDoesNotSilentlyDisarmTheSuite"/>.
+    /// </para>
     /// </summary>
     [Fact]
     public void ValidationIsOnByDefault_WithoutTheHostArmingIt()
@@ -56,10 +71,60 @@ public sealed class IrInvariantsHostContractTests
     }
 
     /// <summary>
+    /// The environment bypass, stated where someone reasoning about the host
+    /// contract will look (#3303). It is the cheapest decline of them all — one
+    /// line in a workflow <c>env:</c> block, no
+    /// <see cref="IrInvariants.DisableForShippedTool"/> call — so the source
+    /// census in <see cref="OnlyTheShippedToolEntryPointDeclinesValidation"/>
+    /// structurally cannot see it.
+    /// <para>
+    /// The guarantee is not that the bypass is impossible: an operator who asks
+    /// for off has asked for it, and the precedence rule honors that
+    /// deliberately. The guarantee is that a run which takes it cannot come back
+    /// green, so a CI job cannot quietly trade validation for wall-clock and
+    /// look healthy doing it. That was already true before this test, but only
+    /// as a side effect of one assertion inside
+    /// <c>IrInvariantCheckTests.PipelineRunner_ThrowsWhenAPassCorruptsTheTree</c>,
+    /// whose name gives a reader no reason to expect it. Asserting it here
+    /// names the job, and reports the cause instead of a confusing "should be
+    /// armed by default" when the run was disarmed on purpose.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void AnEnvironmentOffRequestDoesNotSilentlyDisarmTheSuite()
+    {
+        Assert.True(IrInvariants.Enabled, WhyValidationIsOff());
+    }
+
+    /// <summary>
+    /// Reports the cause that actually applies. A run can be disarmed two ways,
+    /// and naming the wrong one is the same defect this test exists to fix: an
+    /// operator told to unset a variable they never set has been pointed away
+    /// from the code that declined for them.
+    /// </summary>
+    static string WhyValidationIsOff()
+    {
+        const string Consequence =
+            " A disarmed run is not a passing run: every pipeline test in this assembly validates nothing.";
+
+        if (EnvironmentRequest() is false)
+        {
+            string value = Environment.GetEnvironmentVariable(EnvironmentVariable) ?? string.Empty;
+            return $"IR invariant validation is off because {EnvironmentVariable} was set to '{value}'. "
+                + $"That request is honored on purpose.{Consequence} Unset the variable to restore coverage.";
+        }
+
+        return $"IR invariant validation is off with {EnvironmentVariable} unset, so it was declined in "
+            + $"code — either the default flipped back to off or a host in this assembly called "
+            + $"{OptOutMethod}(), which only {ShippedToolEntryPoint} may do.{Consequence}";
+    }
+
+    /// <summary>
     /// The structural half of the enforcement: neither level can be lowered by
     /// assignment, so no census, review habit, or naming convention has to catch
-    /// that spelling. <see cref="IrInvariants.CheckSemantics"/> can still be
-    /// armed, through a method whose only direction is up.
+    /// that spelling. <see cref="IrInvariants.CheckSemantics"/> has no setter at
+    /// all — the environment resolves it once at startup — so it cannot be moved
+    /// in either direction in-process.
     /// </summary>
     [Fact]
     public void NeitherLevelHasAPubliclyWritableSetter()
@@ -71,6 +136,54 @@ public sealed class IrInvariantsHostContractTests
             typeof(IrInvariants)
                 .GetProperty(name, BindingFlags.Public | BindingFlags.Static)!
                 .GetSetMethod(nonPublic: false);
+    }
+
+    /// <summary>
+    /// Every public member on this type changes what a host validates, so each
+    /// one needs a host contract pinned here. Set equality, because the failure
+    /// this catches is an <em>addition</em>: #3303 found
+    /// <c>EnableSemanticChecks()</c> shipped with zero call sites and a doc
+    /// naming a consumer — the corpus sweep — that
+    /// <see cref="CorpusSweepGateTests"/> documents deliberately avoiding. An
+    /// affordance no host uses is the same coverage-shaped silence the census
+    /// exists to remove: it reads as a supported way to move the level while
+    /// nothing holds it to a contract, and it gives a future host a second
+    /// spelling to drift on. Raising the semantic level has one spelling
+    /// (<c>DOTNET_INSPECT_IR_INVARIANTS=full</c>) and threading it per call has
+    /// another (<c>CheckInvariant(includeSemantics: true)</c>); neither needs a
+    /// public mutator.
+    /// <para>
+    /// Members, not methods. A method is only one of the three ways to spell an
+    /// entry point, and the other two are the ones with history:
+    /// <c>public static bool Enabled { get; set; }</c> is exactly what this type
+    /// carried before #3289 narrowed it, and a public static field is the same
+    /// defect with less ceremony. Pinning only methods would let a future
+    /// <c>ValidateEverything { get; set; }</c> reintroduce the original problem
+    /// — a host moving validation with no census-visible call site — under a
+    /// green test named for the whole surface. Property accessors are folded
+    /// into the property they belong to so the pin reads as source, but nothing
+    /// else is filtered: an operator or a field appears under its own name.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ThePublicSurfaceIsExactlyTheShippedToolOptOut()
+    {
+        var accessors = typeof(IrInvariants)
+            .GetProperties(PublicSurface)
+            .SelectMany(static property => property.GetAccessors(nonPublic: false))
+            .Select(static accessor => accessor.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
+        var surface = typeof(IrInvariants)
+            .GetMembers(PublicSurface)
+            .Where(member => !accessors.Contains(member.Name))
+            .Select(static member => member.Name)
+            .OrderBy(static name => name, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(
+            new[] { nameof(IrInvariants.CheckSemantics), OptOutMethod, nameof(IrInvariants.Enabled) },
+            surface);
     }
 
     /// <summary>
@@ -154,7 +267,15 @@ public sealed class IrInvariantsHostContractTests
     /// benchmark that quietly declines validation fails here instead of shipping
     /// silent non-coverage.
     /// <para>
-    /// Residual gaps, stated rather than papered over. Reflection onto the
+    /// Residual gaps, stated rather than papered over. The cheapest decline is
+    /// not a call site at all: a host or CI job that sets
+    /// <c>DOTNET_INSPECT_IR_INVARIANTS=0</c> disarms validation with no
+    /// <see cref="IrInvariants.DisableForShippedTool"/> anywhere, so no source
+    /// census can see it. That one is covered by consequence rather than by
+    /// scanning — such a run cannot come back green, asserted by
+    /// <see cref="AnEnvironmentOffRequestDoesNotSilentlyDisarmTheSuite"/> and by
+    /// <c>IrInvariantCheckTests.PipelineRunner_ThrowsWhenAPassCorruptsTheTree</c>.
+    /// Of the spellings that <em>are</em> call sites, reflection onto the
     /// private setter or the method is beyond sound static analysis; the
     /// string-literal check catches the straightforward
     /// <c>GetMethod("DisableForShippedTool")</c> form but not a computed name.

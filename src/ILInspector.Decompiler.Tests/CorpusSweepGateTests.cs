@@ -113,9 +113,10 @@ public class CorpusSweepGateTests
             // level is structural only (fixture-safe); semantic invariants — e.g.
             // local-slot range — hold only on fully-formed output, so we assert
             // them here, over real importer+pass output, where they are true
-            // invariants. Call the level explicitly rather than flipping
-            // IrInvariants.CheckSemantics: xUnit runs collections in parallel, and
-            // the global flag would false-positive the minimal-fixture pass tests.
+            // invariants. Call the level explicitly rather than relying on the
+            // global IrInvariants.CheckSemantics: xUnit runs collections in
+            // parallel, and a process-wide level would false-positive the
+            // minimal-fixture pass tests.
             // This validates the FINAL tree of every method; per-pass semantic
             // sweeping (which also catches transient mid-pass shapes) is available
             // for debugging via the harness with DOTNET_INSPECT_IR_INVARIANTS=full.

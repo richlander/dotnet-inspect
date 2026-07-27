@@ -67,30 +67,27 @@ public static class IrInvariants
     /// local-slot range (see <see cref="IrNode.CheckInvariant(bool)"/>). Off by
     /// default even in validating hosts, because hand-built test fixtures
     /// legitimately omit the local table these checks validate against; enabling
-    /// it suite-wide would false-positive on ~120 minimal-fixture tests. The
-    /// harness corpus sweep arms it (via <see cref="EnableSemanticChecks"/> or
-    /// <c>DOTNET_INSPECT_IR_INVARIANTS=full</c>) so semantic checks run over real
-    /// importer output, where they are true invariants (verified zero-violation
-    /// over CoreLib's 41,952 methods). Requires <see cref="Enabled"/> to take
-    /// effect at the per-pass hooks.
+    /// it suite-wide false-positives 5 minimal-fixture tests (measured with
+    /// <c>DOTNET_INSPECT_IR_INVARIANTS=full --gate fast</c> — re-measure rather
+    /// than trust this figure; it read <c>~120</c> until #3303 corrected it, and
+    /// #3302 tracks populating those fixtures' locals so the level can be armed
+    /// by default). Requires <see cref="Enabled"/> to take effect at the
+    /// per-pass hooks.
     /// <para>
-    /// Like <see cref="Enabled"/>, the setter is private: this level can be
-    /// armed (<see cref="EnableSemanticChecks"/>) but never disarmed in-process,
-    /// so a host cannot quietly drop coverage an operator asked for with
-    /// <c>full</c>, and no test can race the parallel collections by toggling
-    /// it.
+    /// <c>DOTNET_INSPECT_IR_INVARIANTS=full</c> is the one spelling that raises
+    /// this level, resolved once at startup: the property has no setter at all,
+    /// so the level can be neither raised nor lowered in-process, and no test
+    /// can race the collections xUnit runs in parallel by toggling it. A host
+    /// that wants semantic coverage over real importer output threads the level
+    /// per call instead — <c>CheckInvariant(includeSemantics: true)</c>, as the
+    /// corpus gates do (<c>CorpusSweepGateTests</c>) — which keeps the coverage
+    /// hermetic. Over real output these are true invariants (verified
+    /// zero-violation over CoreLib's 41,952 methods); the environment spelling
+    /// additionally sweeps them after every pass, which also catches transient
+    /// mid-pass shapes the final-tree gates cannot see.
     /// </para>
     /// </summary>
-    public static bool CheckSemantics { get; private set; } = RequestsSemantics(EnvValue);
-
-    /// <summary>
-    /// Arms the semantic level for a host that runs the pipeline over
-    /// fully-formed importer output (the corpus sweeps), as
-    /// <c>DOTNET_INSPECT_IR_INVARIANTS=full</c> does. Arming only — there is no
-    /// in-process way back down, because every way back down is a way to lose
-    /// coverage silently.
-    /// </summary>
-    public static void EnableSemanticChecks() => CheckSemantics = true;
+    public static bool CheckSemantics { get; } = RequestsSemantics(EnvValue);
 
     /// <summary>
     /// The one sanctioned opt-out: the shipped CLI's decompile hot path, where
