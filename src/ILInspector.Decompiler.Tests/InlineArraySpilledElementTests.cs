@@ -373,6 +373,31 @@ public class InlineArraySpilledElementTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void ByValueBufferStoreAfterSpan_LeavesSlotCountedAtPartial()
+    {
+        // A by-value store reuses the dead buffer slot (0) after the span consumer.
+        // The pass's reference tally (LoadLocal bail + LoadLocalAddress count) never
+        // inspects a by-value StoreLocal, so the raise fires — soundly, since the
+        // store re-sequences no element effect.
+        var function = BuildOrderingCollection(OrderingShape.ByValueBufferStoreAfterSpan);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        // Raise stays sound: the collection expression is still recovered.
+        Assert.Single(function.Descendants.OfType<CollectionExpression>());
+
+        // But MarkLocalEliminated verifies deadness before marking: a StoreLocal still
+        // names slot 0, so the slot is NOT eliminated. Its unspellable buffer type
+        // keeps capping fidelity at Partial — an honest number rather than a false
+        // Full over output that still writes the slot (#3295). Without the liveness
+        // check the slot would be marked and the method would wrongly report Full.
+        Assert.DoesNotContain(0, function.EliminatedLocalSlots);
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(function));
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        function.CheckInvariant();
+    }
+
     enum OrderingShape
     {
         InterleavedStatement,
@@ -387,6 +412,7 @@ public class InlineArraySpilledElementTests
         IfConditionSpan,
         SwitchValueSpan,
         ThrowValueSpan,
+        ByValueBufferStoreAfterSpan,
     }
 
     /// <summary>
@@ -530,6 +556,19 @@ public class InlineArraySpilledElementTests
                 // Throw, so the collection raises.
                 block.Add(new Throw(
                     new Call(ThrowableFromSpanMethod(), isVirtual: false, [span])));
+                break;
+            case OrderingShape.ByValueBufferStoreAfterSpan:
+                // The canonical raising shape, then a by-value store that reuses the
+                // now-dead buffer slot (0) for a spellable value after the span is
+                // consumed. csc never emits this; obfuscated IL can. The store names
+                // slot 0 without being a load or an address, so the pass's reference
+                // tally misses it entirely and the raise still fires soundly (it
+                // re-sequences no element effect). But the slot is not actually dead:
+                // MarkLocalEliminated must verify liveness and refuse to mark it, or
+                // the buffer's unspellable type would be dropped from fidelity over
+                // output that still writes the slot — a false Full (#3295).
+                block.Add(new StoreLocal(1, SpanObject, span));
+                block.Add(new StoreLocal(0, Object, BoxInt(7)));
                 break;
             default:
                 // ReadOnlySpan<object> span = InlineArrayAsReadOnlySpan(ref buffer, 2); (local 1)

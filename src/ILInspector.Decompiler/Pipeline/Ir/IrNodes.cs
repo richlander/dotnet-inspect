@@ -351,14 +351,34 @@ public sealed class IrFunction : IrNode
     public IReadOnlySet<int> EliminatedLocalSlots => _eliminatedLocalSlots;
 
     /// <summary>
-    /// Records that slot <paramref name="index"/> is dead — the raising pass that
-    /// consumed its last reference retains the slot for index stability but the
-    /// printer emits no declaration for it. See <see cref="EliminatedLocalSlots"/>.
+    /// Records that slot <paramref name="index"/> is dead — a raising pass consumed
+    /// its last reference, so it renders nowhere and its (often unspellable) type
+    /// must not degrade method fidelity. Deadness is <em>verified, not trusted</em>:
+    /// the slot is marked only when no <see cref="LoadLocal"/>,
+    /// <see cref="StoreLocal"/>, or <see cref="LoadLocalAddress"/> for it survives in
+    /// the body. A caller's reference tally can miss a node kind (for example a
+    /// by-value store the raise never inspects) or a local-referencing node added to
+    /// the IR later; marking such a still-live slot would drop its type from the
+    /// fidelity view and report a false Full over output that still names the local.
+    /// When any reference survives this no-ops, leaving the slot counted so fidelity
+    /// stays honestly Partial. See <see cref="EliminatedLocalSlots"/> (#3221, #3295).
     /// </summary>
     public void MarkLocalEliminated(int index)
     {
         if (index < 0 || index >= Locals.Length)
             throw new ArgumentOutOfRangeException(nameof(index));
+        foreach (var node in Descendants)
+        {
+            var referencesSlot = node switch
+            {
+                LoadLocal load => load.Index == index,
+                StoreLocal store => store.Index == index,
+                LoadLocalAddress address => address.Index == index,
+                _ => false,
+            };
+            if (referencesSlot)
+                return;
+        }
         _eliminatedLocalSlots = _eliminatedLocalSlots.Add(index);
     }
 
