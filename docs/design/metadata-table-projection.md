@@ -45,7 +45,7 @@ the common ground truth. Two projections rise from that substrate along
 
 | Projection | Structural dimension | Semantic dimension |
 | --- | --- | --- |
-| **Raw table projection** (this note) | **lossless** — every table, row, column, coded index, token, and heap reference, exactly as encoded | **lossy** — computes no derived meaning |
+| **Raw table projection** (this note) | **lossless over the logical table/heap graph SRM exposes** — every table, row, column, coded index, token, and heap reference (scoped below) | **lossy** — computes no derived meaning |
 | **Typed extractors** (`ApiSurfaceExtractor`, Findings, C# views) | **lossy** — discards which rows, which tokens, the table topology | **lossless** *within the scope they curate* — API surface, spellable signatures, hierarchy, nullability, correspondences |
 
 Because each is lossless exactly where the other is lossy, **neither is
@@ -59,8 +59,19 @@ reconstructible from the other**, at least not efficiently:
   from raw rows means re-implementing all the cooking on top of a
   presentation-shaped intermediate — both slower and an inversion of ownership.
 
-The opposite-dimension lossiness is what *forces* the topology below. It is not a
-stylistic preference: it is a consequence of what each projection keeps.
+"Lossless" here is scoped to the *logical* table-and-heap graph SRM exposes — it
+is not a byte-exact image. PE/COFF headers, the `#~` vs `#-` metadata-stream
+choice, physical stream/row layout, exact heap byte offsets, and unreferenced or
+duplicated heap entries are out of scope, and bulk blob bytes are a bounded
+preview until explicitly requested (see [Scope](#scope) and [Safety](#safety)).
+The property the argument rests on holds at that logical-graph level: the
+projection drops no *table-graph* fact a typed extractor would otherwise need.
+
+The asymmetry does not make derivation across the two *impossible* — typed facts
+can, in the ordinary sense, be cooked from raw rows. What it does is make each
+direction **inefficient and an inversion of ownership**. So the topology below is
+a deliberate architectural boundary, not an arbitrary one: the lossless/lossy
+asymmetry is what makes that boundary cheap to keep and costly to violate.
 
 ### Sibling, not stack
 
@@ -128,7 +139,7 @@ Given an assembly image, enumerate the ECMA-335 metadata tables (`Module`,
    enums, a name/namespace pulled from the string heap, well-known GUIDs). The
    friendly decode is strictly **additive**: it is a convenience column *beside*
    the raw value, never a replacement for it. Replacing the raw value would
-   forfeit the structural-lossless property that is the projection's whole
+   forfeit the lossless-over-the-graph property that is the projection's whole
    reason to exist.
 2. **Handle-typed columns surfaced as resolvable references** (target table + row
    index / token) so a consumer can follow a coded index to the row it points
@@ -162,13 +173,18 @@ MetadataRow
 
 MetadataCell
   MetadataColumn Column
-  MetadataValue  Value        // discriminated: Raw | HeapRef | HandleRef | Flags
+  MetadataValue  Value        // discriminated: Raw | HeapRef | HandleRef | HandleRange | Flags
 
 HandleRef                     // the crux: a resolvable edge, not display text
   TableIndex   TargetTable
   int          TargetRowId
   int          Token
   string?      Display        // optional convenience label (via ILTokenResolver)
+
+HandleRange                   // a list/run column: TypeDef.FieldList, MethodList, …
+  TableIndex   TargetTable
+  int          StartRowId     // inclusive
+  int          EndRowId       // exclusive; end derived from the next owner's start
 ```
 
 A `HandleRef` is a *typed edge*, decoded from a coded index or entity handle. The
@@ -176,6 +192,21 @@ A `HandleRef` is a *typed edge*, decoded from a coded index or entity handle. Th
 off `TargetTable` + `TargetRowId` (or `Token`), never off display text. This is
 the same discipline the repo applies everywhere: identity and correspondence are
 separate concerns from presentation, and one is never inferred from the other.
+
+Two ECMA-335 shapes need first-class modeling, and are why the sketch is not just
+a flat `HandleRef`:
+
+- **Multi-target coded indices.** Many columns are coded indices whose target may
+  be one of several tables (for example `TypeDefOrRef`, `HasCustomAttribute`,
+  `MemberRefParent`). The column *schema* (`MetadataColumn`) declares the
+  candidate target-table set; each row's `HandleRef.TargetTable` names the one
+  concrete table it resolved to.
+- **List / range columns.** Some columns encode a contiguous *run* of target rows
+  rather than a single edge — `TypeDef.FieldList` / `MethodList`, `PropertyMap`,
+  `EventMap`. These are modeled as `HandleRange`, whose end is derived from the
+  next owner row's start (the standard ECMA "runs to the next owner" rule). The
+  first version must handle ranges: the `TypeDef → Field` / `Method`
+  relationships are core structure, not an edge case.
 
 Values that cross the inspection-session boundary are immutable tokens and
 shapes, never live SRM handles or reader-backed spans — consistent with the
