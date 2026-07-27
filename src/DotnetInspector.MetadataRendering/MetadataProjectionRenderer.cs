@@ -193,13 +193,14 @@ public static class MetadataProjectionRenderer
     /// trustworthy.
     /// </summary>
     public static IEnumerable<string> Caveats(MetadataRowReferenceSet references)
-    {        if (references.Truncated)
+    {
+        if (references.Truncated)
             yield return "The result budget stopped this scan before it finished, so more references may exist.";
 
         if (!references.UnreadableRows.IsEmpty)
         {
             int count = references.UnreadableRows.Length;
-            yield return $"{count} {(count == 1 ? "row" : "rows")} could not be decoded and {(count == 1 ? "was" : "were")} not searched, so a reference from {(count == 1 ? "it" : "them")} would have been missed.";
+            yield return $"{count} {(count == 1 ? "row" : "rows")} had {(count == 1 ? "an edge" : "edges")} that could not be read, so a reference from {(count == 1 ? "it" : "them")} would have been missed.";
         }
     }
 

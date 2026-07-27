@@ -181,18 +181,23 @@ public static class MetadataTableProjector
     /// <c>TypeDef</c> declares a given <c>Field</c>, <c>MethodDef</c>, or which
     /// <c>MethodDef</c> owns a given <c>Param</c>.
     ///
-    /// The scan always covers every supported table and ignores
-    /// <see cref="MetadataProjectionOptions.Tables"/>, because a reverse search
-    /// narrowed to part of the image could report "nothing points here" while a
-    /// pointer sat in an unsearched table. Its two blind spots are reported
-    /// instead of hidden: <see cref="MetadataRowReferenceSet.Truncated"/> when
+    /// The scan always covers every supported table. It takes no
+    /// <see cref="MetadataProjectionOptions"/> at all, and in particular offers
+    /// no equivalent of <see cref="MetadataProjectionOptions.Tables"/>, because
+    /// a reverse search narrowed to part of the image could report "nothing
+    /// points here" while a pointer sat in an unsearched table. Its two blind
+    /// spots are reported instead of hidden:
+    /// <see cref="MetadataRowReferenceSet.Truncated"/> when
     /// <paramref name="maxReferences"/> stopped the scan, and
-    /// <see cref="MetadataRowReferenceSet.UnreadableRows"/> for rows that could not
-    /// be decoded and so could not be inspected.
+    /// <see cref="MetadataRowReferenceSet.UnreadableRows"/> for rows whose edges
+    /// could not be fully determined.
     ///
     /// A dangling edge is not a reference: a handle whose row lies outside its
-    /// target table already projects as <see cref="MetadataValue.Malformed"/>,
-    /// so it cannot match.
+    /// target table projects as <see cref="MetadataValue.Malformed"/>, so it
+    /// cannot match. It does, however, make its row an
+    /// <see cref="MetadataRowReferenceSet.UnreadableRows"/> entry, because an
+    /// edge column the projection could not resolve is an edge this search
+    /// cannot account for.
     /// </summary>
     public static MetadataRowReferenceSet FindReferences(
         PEReader peReader,
@@ -241,8 +246,26 @@ public static class MetadataTableProjector
                     continue;
                 }
 
+                bool blind = false;
                 for (int column = 0; column < cells.Length; column++)
                 {
+                    // A cell that failed to decode in an *edge* column may have
+                    // been an edge onto the target. The cell-level readers
+                    // contain such failures as Malformed rather than throwing, so
+                    // ReadRow succeeds and the row would otherwise pass as fully
+                    // searched. Record the blind spot instead, or a missed
+                    // reference reads as an absent one.
+                    //
+                    // The column's declared kind decides, not the cell: a
+                    // Malformed heap, scalar, or flags cell was never an edge and
+                    // cannot hide a reference.
+                    if (cells[column] is MetadataValue.Malformed
+                        && spec.Columns[column].Kind is MetadataColumnKind.Handle or MetadataColumnKind.HandleRange)
+                    {
+                        blind = true;
+                        continue;
+                    }
+
                     if (!PointsAt(cells[column], targetTable, targetRowId, out var kind))
                         continue;
 
@@ -258,6 +281,11 @@ public static class MetadataTableProjector
                         spec.Columns[column].Name,
                         kind));
                 }
+
+                // Recorded once per row, and after the column loop, so a row with
+                // one broken edge still reports the good edges it does have.
+                if (blind)
+                    unreadable.Add(new MetadataRowLocation(spec.Index, rid));
             }
         }
 

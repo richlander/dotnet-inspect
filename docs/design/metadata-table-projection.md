@@ -436,11 +436,22 @@ oversights:
   could report "nothing points here" while a pointer sat in an unsearched table,
   which is worse than a slower answer.
 - **Blind spots are reported, not folded in.** `Truncated` marks a scan the
-  result budget stopped, and `UnreadableRows` lists rows that could not be
-  decoded and therefore could not be inspected. `IsComplete` is true only when
-  neither happened, which is what makes an empty result trustworthy. Unlike
-  `MetadataTableTruncation`, `Truncated` carries no total: a stopped scan never
-  learns how many references it did not reach.
+  result budget stopped, and `UnreadableRows` lists rows whose edges could not
+  be fully determined. `IsComplete` is true only when neither happened, which is
+  what makes an empty result trustworthy. Unlike `MetadataTableTruncation`,
+  `Truncated` carries no total: a stopped scan never learns how many references
+  it did not reach.
+
+`UnreadableRows` is subtler than "the row failed to read". The cell readers
+**contain** a decode failure as a `Malformed` cell rather than throwing, so a
+row holding a broken handle or list column reads back successfully and would
+otherwise pass as fully searched — a missed reference that reads as an absent
+one. A `Malformed` cell in an edge column therefore marks its row a blind spot.
+The **column's declared kind decides, not the cell**: a `Malformed` heap,
+scalar, or flags cell was never an edge and cannot hide a reference, so it is
+not counted. A row stays a blind spot only once, and after its good edges have
+been collected, so one broken column never costs the caller the edges that row
+does have.
 
 The search reuses the projection's single row-reading path rather than a faster
 private one, so a `HandleRef` or `HandleRange` means the same thing in a search

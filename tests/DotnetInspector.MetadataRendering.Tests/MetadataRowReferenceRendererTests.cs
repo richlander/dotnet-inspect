@@ -53,7 +53,7 @@ public class MetadataRowReferenceRendererTests
         Assert.Contains("No row points at TypeDef[5].", markdown);
         // Nothing was hidden, so no caveat may appear.
         Assert.DoesNotContain("budget", markdown);
-        Assert.DoesNotContain("could not be decoded", markdown);
+        Assert.DoesNotContain("could not be read", markdown);
     }
 
     [Fact]
@@ -73,7 +73,7 @@ public class MetadataRowReferenceRendererTests
 
         var markdown = Render(Set(unreadable: unreadable));
 
-        Assert.Contains("2 rows could not be decoded", markdown);
+        Assert.Contains("2 rows had edges that could not be read", markdown);
     }
 
     [Fact]
@@ -83,7 +83,7 @@ public class MetadataRowReferenceRendererTests
 
         var markdown = Render(Set(unreadable: unreadable));
 
-        Assert.Contains("1 row could not be decoded", markdown);
+        Assert.Contains("1 row had an edge that could not be read", markdown);
         Assert.DoesNotContain("1 rows", markdown);
     }
 

@@ -120,9 +120,14 @@ public sealed record MetadataRowReferenceSet
     public ImmutableArray<MetadataRowReference> References { get; }
 
     /// <summary>
-    /// Rows the scan could not decode. Each is a row whose edges could not be
-    /// inspected, so a reference from it would have been missed. Empty for
-    /// well-formed metadata.
+    /// Rows whose edges could not be fully determined, so a reference from one
+    /// of them would have been missed. This covers a row that failed to decode
+    /// outright and a row with an edge column the projection could only report
+    /// as <see cref="MetadataValue.Malformed"/> — the cell readers contain such
+    /// failures rather than throwing, so the row would otherwise pass as fully
+    /// searched. A malformed heap, scalar, or flags cell is not counted: it was
+    /// never an edge and cannot hide a reference. Empty for well-formed
+    /// metadata.
     /// </summary>
     public ImmutableArray<MetadataRowLocation> UnreadableRows { get; }
 

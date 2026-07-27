@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 
@@ -347,5 +349,153 @@ public class MetadataRowReferenceSearchTests
         using var session = AssemblyInspectionSession.Open(SelfPath);
 
         Assert.Null(session.MetadataTableRow(TableIndex.TypeDef, int.MaxValue));
+    }
+
+    /// <summary>
+    /// A synthetic image whose <c>TypeDef[2].Extends</c> names a <c>TypeRef</c>
+    /// row that does not exist, and whose <c>Module[1].Mvid</c> points past the
+    /// end of the GUID heap.
+    ///
+    /// Real compilers do not emit either, which is exactly why a blind spot here
+    /// has to be constructed: the cell readers contain both failures as
+    /// <see cref="MetadataValue.Malformed"/> rather than throwing, so the row
+    /// reads successfully and would otherwise pass as fully searched.
+    /// </summary>
+    static byte[] BuildImageWithMalformedCells()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Synthetic.dll"),
+            // A broken cell in a Heap column, which was never an edge: the GUID
+            // heap holds no such index.
+            mvid: MetadataTokens.GuidHandle(9999),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Synthetic"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+
+        // The <Module> pseudo-type must be row 1.
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        // Row 2: a dangling edge in a Handle column.
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("DanglingExtends"),
+            baseType: MetadataTokens.TypeReferenceHandle(9999),
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+
+        // One method, so TypeDef[2].MethodList is a real run rather than an
+        // empty one. TypeDef[1] and TypeDef[2] both start at MethodDef row 1, so
+        // TypeDef[1]'s run is empty and TypeDef[2]'s is [1, 2).
+        var signature = new BlobBuilder();
+        new BlobEncoder(signature).MethodSignature().Parameters(0, r => r.Void(), _ => { });
+        metadata.AddMethodDefinition(
+            MethodAttributes.Public | MethodAttributes.Abstract,
+            MethodImplAttributes.IL,
+            metadata.GetOrAddString("M"),
+            metadata.GetOrAddBlob(signature),
+            bodyOffset: -1,
+            parameterList: MetadataTokens.ParameterHandle(1));
+
+        var rootBuilder = new MetadataRootBuilder(metadata, suppressValidation: true);
+        var peBuilder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            rootBuilder,
+            ilStream: new BlobBuilder());
+        var image = new BlobBuilder();
+        peBuilder.Serialize(image);
+        return image.ToArray();
+    }
+
+    [Fact]
+    public void MalformedCells_AreOnlyProducedWhereThisFixtureIntends()
+    {
+        // Guards the two tests below: if SRM ever stops producing a malformed
+        // cell here, they would silently become vacuous.
+        using var peReader = new PEReader(new MemoryStream(BuildImageWithMalformedCells()));
+        var projection = FullProjection(peReader);
+
+        var typeDefs = Assert.Single(projection.Tables, t => t.Index == TableIndex.TypeDef);
+        Assert.Equal(2, typeDefs.Rows.Length);
+        int extends = Array.FindIndex(typeDefs.Columns.ToArray(), c => c.Kind == MetadataColumnKind.Handle);
+        Assert.IsType<MetadataValue.Malformed>(typeDefs.Rows[1].Cells[extends]);
+
+        // The Heap-column counterpart, which must not be treated as a lost edge.
+        var modules = Assert.Single(projection.Tables, t => t.Index == TableIndex.Module);
+        int mvid = Array.FindIndex(modules.Columns.ToArray(), c => c.Name == "Mvid");
+        Assert.Equal(MetadataColumnKind.Heap, modules.Columns[mvid].Kind);
+        Assert.IsType<MetadataValue.Malformed>(modules.Rows[0].Cells[mvid]);
+    }
+
+    [Fact]
+    public void FindReferences_MalformedEdgeColumn_IsReportedAsABlindSpot()
+    {
+        using var peReader = new PEReader(new MemoryStream(BuildImageWithMalformedCells()));
+        var set = MetadataTableProjector.FindReferences(peReader, TableIndex.TypeRef, 1);
+
+        // The Extends cell may or may not have been an edge onto TypeRef[1]; the
+        // search cannot tell, so it must not answer "nothing points here".
+        Assert.Empty(set.References);
+        Assert.False(set.IsComplete);
+
+        var blind = Assert.Single(set.UnreadableRows);
+        Assert.Equal(TableIndex.TypeDef, blind.Table);
+        Assert.Equal(2, blind.RowId);
+    }
+
+    [Fact]
+    public void FindReferences_MalformedHeapColumn_IsNotABlindSpot()
+    {
+        using var peReader = new PEReader(new MemoryStream(BuildImageWithMalformedCells()));
+        var set = MetadataTableProjector.FindReferences(peReader, TableIndex.TypeRef, 1);
+
+        // Module[1].Mvid is a Heap column. It was never an edge, so it cannot
+        // hide a reference and must not be reported as one lost.
+        Assert.DoesNotContain(set.UnreadableRows, r => r.Table == TableIndex.Module);
+    }
+
+    [Fact]
+    public void FindReferences_MalformedEdge_StillReportsTheGoodEdgesOnTheSameRow()
+    {
+        using var peReader = new PEReader(new MemoryStream(BuildImageWithMalformedCells()));
+
+        // TypeDef[2] has a broken Extends *and* a valid MethodList run. The row
+        // being a blind spot must not cost the caller the edges it does have.
+        var set = MetadataTableProjector.FindReferences(peReader, TableIndex.MethodDef, 1);
+
+        Assert.Contains(
+            set.References,
+            r => r.Source.Table == TableIndex.TypeDef && r.Source.RowId == 2 && r.Kind == MetadataRowReferenceKind.Range);
+        Assert.Single(set.UnreadableRows);
+    }
+
+    [Fact]
+    public void FindReferences_WellFormedImage_ReportsNoBlindSpots()
+    {
+        // The negative case for the check above: a real assembly must not start
+        // reporting blind spots just because malformed edge cells are now tracked.
+        using var peReader = OpenSelfFromBytes();
+
+        foreach (var table in new[] { TableIndex.TypeDef, TableIndex.MethodDef, TableIndex.Field, TableIndex.TypeRef })
+        {
+            var set = MetadataTableProjector.FindReferences(peReader, table, 1);
+            Assert.Empty(set.UnreadableRows);
+            Assert.True(set.IsComplete);
+        }
     }
 }
