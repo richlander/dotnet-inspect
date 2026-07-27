@@ -297,6 +297,43 @@ What is worth mining as a **reference** (not copied):
 - Its `BlobKind` / `StringKind` tagging — labeling a heap entry by its
   referencing context (what a blob *is*) — is a nice cheap-decode idea.
 
+### `mdv` as a future consumer, not just a reference
+
+In the fullness of time, an `mdv`-style text dump could be *rebuilt on top of*
+this projection. That is the sanctioned direction: such a dump is a
+**presentation consumer** (like the lens, the diff, and the explorer), never a
+dependency of the typed extractors, so it does not disturb the sibling topology.
+
+`mdv`'s output decomposes cleanly by where each part would come from:
+
+| `mdv` output | Rebuilt from |
+| --- | --- |
+| Per-table row/column dump; coded-index / handle rendering | **This projection**, via a fixed-width text formatter — free, and navigable |
+| Signature / blob **content** decode | Projection structure + the existing `SignatureDecoder` / `GuardedSignatureText` / `ILTokenResolver` as cell decoders |
+| Heap dumps + `BlobKind` / `StringKind` tagging | The projection's opt-in **heap enumeration** plus reverse-reference tagging (walk blob-typed columns) |
+| GUID → language / hash, custom-debug-info kinds | The projection's **additive friendly-decode** slot |
+| PE / COFF headers, debug directory, R2R | A **sibling** PE-header projection — not metadata-table facts (out of scope here) |
+| IL disassembly of method bodies | A **sibling** IL projection (Instructions / Analysis layer) |
+| EnC / multi-generation deltas | A **consumer** over per-generation projections + the `EncLog` / `EncMap` tables — a separate feature, today a non-goal |
+
+So the metadata-table and heap domain — the majority of `mdv`'s bytes — is a
+*formatter over this model*; the rest is peer projections composed alongside it.
+
+This is the renderer-over-model inversion made concrete, and a good future
+litmus test for the design: because the projection is **lossless over the
+metadata table/heap graph**, an `mdv`-style dump is a pure (lossy) rendering of
+it, and text becomes one formatter among many (text, JSON, explorer). If a
+faithful `mdv` text formatter can be produced from the model, the model is rich
+enough for the table domain.
+
+The honest caveat is the line between *functionally equivalent* and
+*byte-identical*. Reproducing `mdv`'s information is easy; reproducing its exact
+text needs a few **physical** details this scope defers — heap offsets, per-table
+byte sizes (its table title prints `size: rowCount × rowSize`), and exact
+enumeration order. All are cheap and SRM-available
+(`GetTableRowCount`, `GetTableRowSize`, `MetadataTokens.GetHeapOffset`), so they
+are a knob the model can expose, not a wall.
+
 ## Layer placement
 
 The projection lives in the **Metadata layer** (`ILInspector.Metadata`), beside
