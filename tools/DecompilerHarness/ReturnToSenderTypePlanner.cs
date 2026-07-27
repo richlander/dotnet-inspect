@@ -4539,7 +4539,7 @@ public static class CompileBackSourceComposer
                 return null;
             }
 
-            string identifierName = CSharpNaming.SourceMethodName(name);
+            string identifierName = isConstructor ? name : CSharpNaming.SourceMethodName(name);
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(typeIdentity.FullName, identifierName, DeclaringOverloadIndex(reader, typeDef, methodHandle, name), MethodSignatureText(identifierName, signature)),
                 isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method,
@@ -5300,7 +5300,7 @@ public static class CompileBackSourceComposer
                 }
 
                 bool isConstructor = name == ".ctor";
-                string identifierName = CSharpNaming.SourceMethodName(name);
+                string identifierName = isConstructor ? name : CSharpNaming.SourceMethodName(name);
                 int existingMethodIndex = members.FindIndex(member =>
                     member.Kind == (isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method)
                     && member.Identity.Method == identifierName);
