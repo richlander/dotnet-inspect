@@ -784,11 +784,8 @@ public class MemberCodeView
     public static bool CostFactMemberIsEmpty(List<CostFactRow>? rows)
         => rows is null || rows.All(row => string.IsNullOrEmpty(row.Member));
 
-    [MarkoutSection(Name = "Call Graph", EmptyText = "No outbound calls found in this method body.")]
-    public List<TreeNode>? CallGraphNodes { get; set; }
- 
-    [MarkoutSection(Name = "Caller Graph", EmptyText = "No inbound callers found for this method.")]
-    public List<TreeNode>? CallerGraphNodes { get; set; }
+    [MarkoutSection(Name = SectionNames.CallGraph, EmptyText = "No inbound callers or outbound calls found for this method.")]
+    public Markout.Graph? CallGraph { get; set; }
  
     [MarkoutSection(Name = "Unsafe Operations", EmptyText = "No unsafe operations found in this method body.")]
     public List<UnsafeOperationRow>? UnsafeOperationRows { get; set; }

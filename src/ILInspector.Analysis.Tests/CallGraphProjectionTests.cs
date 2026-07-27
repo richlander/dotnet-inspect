@@ -9,9 +9,9 @@ namespace ILInspector.Analysis.Tests;
 /// Covers the format-neutral call-graph projection (issue #3291) as typed data rather
 /// than as rendered text: edge inversion, generic-erased node identity, duplicate and
 /// cycle collapsing, node-kind precedence, loop-edge merging, and deterministic node and
-/// edge ordering. <see cref="CallGraphMermaidTests"/> covers the Mermaid emission on top
-/// of this; these tests exist so graph semantics are asserted directly and a future host
-/// that renders a table or a tree is not relying on Mermaid text to prove them.
+/// edge ordering. The projection is the only call-graph contract this layer offers: hosts
+/// render their own format from it, so graph semantics are asserted directly here rather
+/// than read back out of some rendering's text.
 /// Trees are constructed directly so the projection is exercised in isolation from IL
 /// decoding.
 /// </summary>
@@ -319,18 +319,37 @@ public class CallGraphProjectionTests
     }
 
     [Fact]
-    public void MermaidEmissionAgreesWithTheProjectionItRendersFrom()
+    public void LoopAnnotationSurvivesEdgeInversionOnTheCallerSide()
     {
-        // The seam itself: rendering a pre-built projection must produce exactly what
-        // rendering from the roots produces, so a host can hold the projection, render its
-        // own format, and still fall back to the shared Mermaid emitter.
-        var target = Member("Widget", "Build");
-        var callers = Node(target, CallTreeStatus.Expanded, [Leaf(Member("Program", "Main"))]);
-        var callees = Node(target, CallTreeStatus.Expanded, [Leaf(Member("Log", "Write"), CallTreeStatus.External)]);
+        // A caller that invokes the focus from inside a loop keeps its annotation when the
+        // edge is inverted to point into the focus — the label belongs to the edge, not to
+        // the direction it was discovered in.
+        var projection = CallGraphProjection.FromCallers(
+            Node(Member("Target", "Run"), CallTreeStatus.Expanded,
+            [Leaf(Member("Pump", "Tick"), inLoop: true, loopHint: "loop call")]));
 
-        var fromRoots = CallGraphMermaid.Render(callers, callees);
-        var fromProjection = CallGraphMermaid.Render(CallGraphProjection.Create(callers, callees));
+        Assert.Equal([(1, 0, "loop call")], EdgeTuples(projection));
+    }
 
-        Assert.Equal(fromRoots, fromProjection);
+    [Fact]
+    public void SameNameMembersFromDifferentAssembliesStayDistinct()
+    {
+        // Two callees whose declaring type has the same namespace + name but a different
+        // assembly must not collapse: the display spelling drops the assembly, but they are
+        // genuinely different members (#1741-class hazard). Identity is structural, so the
+        // projection must keep them apart even though both would render the same label.
+        var fromA = new MemberRef(
+            TypeRef.Definition("AsmA", "Shared", "Widget"), "Work", [], TypeRef.CoreLib("System", "Void"), MemberKind.Method);
+        var fromB = new MemberRef(
+            TypeRef.Definition("AsmB", "Shared", "Widget"), "Work", [], TypeRef.CoreLib("System", "Void"), MemberKind.Method);
+
+        var callees = Node(Member("Target", "Run"), CallTreeStatus.Expanded, [Leaf(fromA), Leaf(fromB)]);
+
+        var projection = CallGraphProjection.FromCallees(callees);
+
+        Assert.Equal(3, projection.Nodes.Length);
+        Assert.Equal(2, projection.Edges.Length);
+        Assert.All(projection.Edges, e => Assert.Equal(0, e.From));
+        Assert.Equal(2, projection.Edges.Select(e => e.To).Distinct().Count());
     }
 }

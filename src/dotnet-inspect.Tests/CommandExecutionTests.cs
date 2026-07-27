@@ -3793,17 +3793,17 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_BareNameCallerGraph_AutoSelectsSingleOverload()
+    public async Task Member_BareNameCallGraph_AutoSelectsSingleOverload()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(MemberCallGraphFixture.Inner), "-S", "Caller Graph", "--tips", "q");
+            nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Caller Graph", output);
+        Assert.Contains("## Call Graph", output);
         Assert.Contains(nameof(MemberCallGraphFixture.RootCall), output);
-        Assert.DoesNotContain("Select value 'Caller Graph' not found", error);
+        Assert.DoesNotContain("Select value 'Call Graph' not found", error);
     }
 
     [Fact]
@@ -6352,7 +6352,6 @@ public class CommandExecutionTests
         "Calls",
         "Callers",
         "Call Graph",
-        "Caller Graph",
         "Unsafe Operations",
         "Top Leverage",
         "Performance Triage",

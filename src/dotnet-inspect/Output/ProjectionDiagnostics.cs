@@ -37,7 +37,7 @@ public static class ProjectionDiagnostics
     /// that lack it simply don't project it. This matters when a section is implicitly added
     /// alongside an explicit one — for example a scope flag (<c>--bin</c>/<c>--project</c>/
     /// <c>--caller-package</c>) implies <c>-S Callers</c>, so projecting graph-only fields
-    /// such as <c>Fanin</c>/<c>Depth</c> over <c>-S "Caller Graph"</c> must not fail just
+    /// such as <c>Fanin</c>/<c>Depth</c> over <c>-S "Call Graph"</c> must not fail just
     /// because those fields don't exist on the companion <c>Callers</c> table. Returns false
     /// only when a projection matches no selected section at all.
     /// </summary>

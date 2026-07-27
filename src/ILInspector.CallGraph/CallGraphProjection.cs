@@ -41,7 +41,12 @@ public enum CallGraphNodeKind
 /// itself instead.
 /// </param>
 /// <param name="Kind">The strongest classification observed across every occurrence.</param>
-public sealed record CallGraphNode(int Id, MemberRef Member, string Label, CallGraphNodeKind Kind);
+/// <param name="Perf">
+/// The analysis cues (fanout, fanin, depth, loop, signals, caller scope) carried by the first
+/// occurrence that had them, or null when no occurrence did. These are facts about the member, not
+/// presentation: a host projects whichever it was asked for and ignores the rest.
+/// </param>
+public sealed record CallGraphNode(int Id, MemberRef Member, string Label, CallGraphNodeKind Kind, CallTreePerf? Perf = null);
 
 /// <summary>
 /// One directed call edge. The direction is always "caller calls callee", so an inbound
@@ -138,7 +143,9 @@ public sealed class CallGraphProjection
         // The selected overload is the single centered node shared by both trees; each
         // tree's root *is* that focus, so map both roots to the same id. This keeps a
         // bodiless placeholder root from becoming a second, stray "?" node.
-        int focusId = builder.RegisterFocus(focus);
+        // The callee root carries the selected member's own cues when it has a body; the
+        // caller root is the fallback for a bodiless target.
+        int focusId = builder.RegisterFocus(focus, calleeRoot?.Perf ?? callerRoot?.Perf);
         if (callerRoot is not null)
             builder.WalkCallers(callerRoot, focusId);
         if (calleeRoot is not null)
@@ -160,12 +167,13 @@ public sealed class CallGraphProjection
         return Create(null, calleeRoot);
     }
 
-    private sealed class MutableNode(int id, MemberRef member, string label, CallGraphNodeKind kind)
+    private sealed class MutableNode(int id, MemberRef member, string label, CallGraphNodeKind kind, CallTreePerf? perf)
     {
         public int Id { get; } = id;
         public MemberRef Member { get; } = member;
         public string Label { get; } = label;
         public CallGraphNodeKind Kind { get; set; } = kind;
+        public CallTreePerf? Perf { get; set; } = perf;
     }
 
     private sealed class Builder
@@ -175,14 +183,14 @@ public sealed class CallGraphProjection
         private readonly Dictionary<(int From, int To), int> _edgeIndex = [];
         private readonly List<CallGraphEdge> _edges = [];
 
-        public int RegisterFocus(MemberRef member) => GetOrAdd(member, CallGraphNodeKind.Focus);
+        public int RegisterFocus(MemberRef member, CallTreePerf? perf) => GetOrAdd(member, CallGraphNodeKind.Focus, perf);
 
         /// <summary>Walk a reverse (caller) tree: each child calls its parent, so edges point child → parent.</summary>
         public void WalkCallers(CallTreeNode node, int nodeId)
         {
             foreach (var child in node.Children)
             {
-                int childId = GetOrAdd(child.Member, KindFor(child.Status));
+                int childId = GetOrAdd(child.Member, KindFor(child.Status), child.Perf);
                 AddEdge(childId, nodeId, LoopLabel(child.Perf));
                 WalkCallers(child, childId);
             }
@@ -193,7 +201,7 @@ public sealed class CallGraphProjection
         {
             foreach (var child in node.Children)
             {
-                int childId = GetOrAdd(child.Member, KindFor(child.Status));
+                int childId = GetOrAdd(child.Member, KindFor(child.Status), child.Perf);
                 AddEdge(nodeId, childId, LoopLabel(child.Perf));
                 WalkCallees(child, childId);
             }
@@ -203,18 +211,18 @@ public sealed class CallGraphProjection
         {
             var nodes = ImmutableArray.CreateBuilder<CallGraphNode>(_nodes.Count);
             foreach (var node in _nodes)
-                nodes.Add(new CallGraphNode(node.Id, node.Member, node.Label, node.Kind));
+                nodes.Add(new CallGraphNode(node.Id, node.Member, node.Label, node.Kind, node.Perf));
             return new CallGraphProjection(nodes.MoveToImmutable(), [.. _edges]);
         }
 
-        private int GetOrAdd(MemberRef member, CallGraphNodeKind candidate)
+        private int GetOrAdd(MemberRef member, CallGraphNodeKind candidate, CallTreePerf? perf)
         {
             var key = IdentityKey(member);
             if (!_ids.TryGetValue(key, out var id))
             {
                 id = _nodes.Count;
                 _ids[key] = id;
-                _nodes.Add(new MutableNode(id, member, Label(member), candidate));
+                _nodes.Add(new MutableNode(id, member, Label(member), candidate, perf));
                 return id;
             }
 
@@ -224,6 +232,9 @@ public sealed class CallGraphProjection
             var info = _nodes[id];
             if (candidate > info.Kind)
                 info.Kind = candidate;
+            // Boundary occurrences carry no cues, so the first occurrence that has them wins
+            // rather than a later bare one erasing them.
+            info.Perf ??= perf;
             return id;
         }
 

@@ -9,7 +9,7 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>Host-neutral, format-neutral projection of Analysis call-graph facts into a deterministic directed graph, plus an optional Mermaid emitter (NativeAOT / browser-Wasm friendly)</Description>
+    <Description>Host-neutral, format-neutral projection of Analysis call-graph facts into a deterministic directed graph (NativeAOT / browser-Wasm friendly)</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 

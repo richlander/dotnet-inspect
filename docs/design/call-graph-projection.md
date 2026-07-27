@@ -1,8 +1,8 @@
-# Call-graph Mermaid projection
+# Call-graph projection
 
-How typed call-graph facts become one deterministic Mermaid document that any
-host — `dotnet-inspect` today, the browser-Wasm prototype next — can render
-without re-deriving graph semantics (issue #3120).
+How typed call-graph facts become one deterministic, format-neutral node/edge
+graph that any host — `dotnet-inspect` today, the browser-Wasm prototype next —
+can render without re-deriving graph semantics (issues #3120, #3291, #3280).
 
 Related docs:
 
@@ -15,21 +15,30 @@ Related docs:
 ```text
 ILInspector.Analysis            typed CallTreeNode facts + bounded traversal
         ↓ CallTreeNode roots
-ILInspector.CallGraph           host-neutral projection → Mermaid document
-        ↓ deterministic flowchart text
+ILInspector.CallGraph           host-neutral projection → nodes + edges
+        ↓ CallGraphProjection (no format vocabulary)
 dotnet-inspect        Browser Wasm
+  ↓ CallGraphSectionAdapter        ↓ its own renderer
+Markout Graph → tree | edge table | Mermaid
 ```
 
 `ILInspector.Analysis` stays presentation-free: it owns the graph evidence and
 the bounded traversal (`LibraryBodyIndex.BuildCallerTree` /
-`BuildCallTree`) but knows nothing about Mermaid. `ILInspector.CallGraph` is a
-focused new project that turns those `CallTreeNode` roots into text. It takes no
-dependency on Markout, the CLI, or inspected-assembly loading and stays SRM-only,
-NativeAOT-friendly, and browser-Wasm compatible.
+`BuildCallTree`). `ILInspector.CallGraph` turns those `CallTreeNode` roots into a
+deterministic node/edge set. It knows nothing about Mermaid, Markdown, tables, or
+any other format, takes no dependency on Markout, the CLI, or inspected-assembly
+loading, and stays SRM-only, NativeAOT-friendly, and browser-Wasm compatible.
+
+Each host owns its own rendering. `dotnet-inspect` lowers the projection to a
+Markout `Graph` in `CallGraphSectionAdapter`, which is where all call-graph
+vocabulary — member spelling, `(external)`, `…`, and the `--fields` cue
+annotations — lives; Markout then chooses a lowering per sink. The browser
+prototype generates its own Mermaid from the same projection. The two renderings
+need not agree, and neither layer below the host knows a format exists.
 
 ## What the projection owns
 
-`CallGraphMermaid.Render(callerRoot, calleeRoot)` produces one `flowchart LR`
+`CallGraphProjection.Create(callerRoot, calleeRoot)` produces one node/edge graph
 centered on the selected overload:
 
 ```text
@@ -69,25 +78,31 @@ The projection owns everything a host must not re-invent in JavaScript:
   types or by return type (C# conversion operators) and same-namespace/same-name
   types from *different assemblies* all stay separate. Shared callees, cycles, and
   the target-as-both-caller-and-callee collapse to one node.
-- **Deterministic ids/ordering.** The target is `n0`; remaining ids are assigned
+- **Deterministic ids/ordering.** The focus is id `0`; remaining ids are assigned
   in first-seen order over a caller depth-first walk, then a callee walk. Nodes
-  are declared in id order and edges in first-seen order, so the same input
-  always yields byte-identical output.
+  are emitted in id order and edges in first-seen order, so the same input
+  always yields an identical projection.
 - **Cycles and duplicates.** The bounded tree marks re-encountered members
   `AlreadyShown`; the projection collapses them onto the existing node and still
-  draws the edge, so a cycle `A → B → A` renders as two edges between two nodes.
-- **Boundary and external styling.** `External` callees get a dashed `external`
-  class; `DepthLimited` / `Truncated` nodes get a `truncated` class marking
-  "more beyond here". An occurrence expanded elsewhere outranks a boundary
-  occurrence of the same member, so a shared node is never mislabelled a dead
-  end. `classDef` blocks are emitted only for classes actually used.
-- **Loop-call annotations.** A call made inside a loop labels its edge (`-->|loop|`
-  outbound, `-->|loop call|` inbound), read from the child node's loop flag.
-- **Mermaid-safe escaping.** Hostile or unusual member names (quotes, angle
-  brackets, pipes, `#`) are escaped with Mermaid entity codes so they cannot
-  break out of the label or the flowchart grammar. Edge labels are unquoted, so
-  they additionally entity-encode the structural delimiters (`()[]{}`) that would
-  otherwise corrupt an edge label.
+  records the edge, so a cycle `A → B → A` is two edges between two nodes.
+- **Boundary and external classification.** `External` callees carry
+  `CallGraphNodeKind.External`; `DepthLimited` / `Truncated` nodes carry
+  `Truncated`, meaning "more beyond here". An occurrence expanded elsewhere
+  outranks a boundary occurrence of the same member, so a shared node is never
+  misclassified as a dead end. How a host *shows* those kinds is the host's
+  choice — the CLI groups external nodes and suffixes their labels; the browser
+  styles them with a CSS class.
+- **Loop-call annotations.** A call made inside a loop labels its edge (`loop`
+  outbound, `loop call` inbound), read from the child node's loop flag.
+- **Per-node analysis facts.** `CallTreePerf` (fanout, fanin, depth, loop, source
+  assembly, and the `MethodSignals` cost/exception cues) travels on the node, so a
+  host can project any subset without re-walking the tree. Perf is analysis data,
+  not presentation; the first non-null occurrence wins, because a boundary
+  occurrence carries no cues.
+
+Escaping is *not* the projection's job. Labels are member spellings; making them
+safe for a given output grammar belongs to the renderer that knows the grammar
+(Markout's `MermaidFormatter` for the CLI).
 
 ## Progressive acquisition
 
@@ -112,11 +127,11 @@ the `CrossLibrary` layer lets a caller chain *and* a callee chain each cross a
 package boundary. The seam yields presentation-free `CallTreeNode` roots as a
 `MemberCallGraphView` (`Tier`, `CalleeRoot`, `CallerRoot`), so a host renders
 them with its own per-section tree rendering *or* projects them with
-`CallGraphMermaid.Render(CallerRoot, CalleeRoot)` — "with or without mermaid."
+`CallGraphProjection.Create(CallerRoot, CalleeRoot)` — "with or without mermaid."
 
 **No duplicated work.** At most two target-assembly indexes are ever built — the
 scoped single-body build and the full build — plus one build per cross-library
-package, and each is built once and reused for callees, callers, and any Mermaid
+package, and each is built once and reused for callees, callers, and any
 projection. The scoped build exists only for the progressive first paint: a
 consumer that wants the whole graph calls `Callers()` or `CrossLibrary()`
 directly and pays exactly one full build, with callees derived for free from it.
@@ -135,16 +150,22 @@ source assembly.
 
 ## Consumers
 
-The browser engine is handed this exact Mermaid document and only asks Mermaid
-to convert it to SVG; it reconstructs no graph identity, direction, truncation,
-cycles, or labels. The CLI keeps its existing per-section tree rendering for
-now; the projection is the shared artifact a future combined `--mermaid`
-call-graph view and the browser prototype adopt.
+`dotnet-inspect` renders one bidirectional `Call Graph` section from the
+projection. `CallGraphSectionAdapter` lowers it to a Markout `Graph`, and Markout
+picks the lowering the sink can express: a tree in Markdown and plain text, an
+edge table under `--table`/`--tsv`/`--jsonl`, and a flowchart in Mermaid. The
+adapter is the only place that knows call-graph vocabulary; the section is a
+graph, not a pre-rendered tree, which is what lets one model serve every sink.
 
-Coverage lives in
-`src/ILInspector.Analysis.Tests/CallGraphMermaidTests.cs` (edge direction,
-escaping, edge-label structural encoding, duplicates/cycles,
-external/already-shown/depth-limited/truncated statuses, deterministic ids, loop
-annotations, cross-assembly / generic-recursion-collapse / return-type identity
-behavior, the bodiless-target combined view, the two-different-unsupported-roots
-rejection, and an exact combined caller/target/callee document).
+The browser engine consumes the same projection and generates its own Mermaid; it
+reconstructs no graph identity, direction, truncation, cycles, or labels. The CLI
+and the browser deliberately do not share a Mermaid generator — sharing the
+*graph* is the point, not sharing the *format*.
+
+Coverage lives in `src/ILInspector.Analysis.Tests/CallGraphProjectionTests.cs`
+(edge direction and inversion, duplicates/cycles, node-kind precedence,
+deterministic ids and ordering, loop annotations across collapse and inversion,
+cross-assembly / generic-recursion-collapse / return-type identity behavior, the
+bodiless-target combined view, and the two-different-unsupported-roots rejection)
+and in `src/dotnet-inspect.Tests/MemberCallGraphSectionTests.cs` for the CLI
+section, its lowerings, and its `--fields` projection.

@@ -375,21 +375,10 @@ public class ApiCommand
             detailSchema.Add(SectionNames.Callers, "column", "Caller", "IL Offset", "Opcode", "Call Kind", "Operand Token", "Return Address");
         if (detailSchema.GetSection(SectionNames.UnsafeOperations) == null)
             detailSchema.Add(SectionNames.UnsafeOperations, "column", "Reason", "Detail", "Kind", "IL", "Token");
+        // One bidirectional section, so one field list: the union of what the outbound and inbound
+        // halves each used to declare separately.
         detailSchema.Add(SectionNames.CallGraph, "field",
             "Fanout", "FanoutCount",
-            "Fanin", "FaninCount",
-            "Depth", "MaxDepth",
-            "Loop", "InLoop", "Looping",
-            "Alloc", "Allocations",
-            "Copy", "Copies",
-            "Unsafe",
-            "Reflection",
-            "Throw", "Throws", "ThrowSites",
-            "Exceptions", "ExceptionTypes", "ConstructedExceptions",
-            "Catch", "Catches",
-            "Finally", "Finallys",
-            "EvidenceIL", "Evidence", "IL");
-        detailSchema.Add(SectionNames.CallerGraph, "field",
             "Fanin", "FaninCount",
             "Depth", "MaxDepth",
             "Loop", "InLoop", "Looping",
