@@ -258,6 +258,7 @@ public static class MemberTargetResolver
         }
 
         MemberTargetCandidate selected;
+        int? accessorOrdinal = null;
         if (selector.DigestPrefix is { Length: > 0 } digest)
         {
             var matches = candidates
@@ -282,14 +283,29 @@ public static class MemberTargetResolver
         }
         else if (selector.OverloadIndex is { } index)
         {
-            if (index < 1 || index > candidates.Count)
+            // A property or event exposes no overloads of its own, but its accessors are
+            // addressable through the overload-index path (issue #3265): Name:1 = the
+            // getter/adder, Name:2 = the setter/remover. This applies only when the name
+            // resolves to a single property/event; overloaded indexers keep normal overload
+            // selection and default to the getter.
+            var accessorCount = candidates.Count == 1 ? AccessorCount(candidates[0].Member) : 0;
+            var maxIndex = Math.Max(candidates.Count, accessorCount);
+            if (index < 1 || index > maxIndex)
             {
                 return Failure(MemberTargetDiagnosticKind.OverloadOutOfRange,
-                    $"Error: {selector.Name}:{index} is out of range. Use {selector.Name}:1 through {selector.Name}:{candidates.Count}.",
+                    $"Error: {selector.Name}:{index} is out of range. Use {selector.Name}:1 through {selector.Name}:{maxIndex}.",
                     candidates);
             }
 
-            selected = candidates[index - 1];
+            if (accessorCount > 0)
+            {
+                selected = candidates[0];
+                accessorOrdinal = index;
+            }
+            else
+            {
+                selected = candidates[index - 1];
+            }
         }
         else
         {
@@ -305,7 +321,13 @@ public static class MemberTargetResolver
 
         var anchor = selected.Anchor;
         var member = selected.Member;
-        var body = CreateBodyTarget(type, member, anchor, selected.DeclaringOverloadIndex);
+        // A property/event addresses its body through an accessor ordinal (1 = getter/adder,
+        // 2 = setter/remover), defaulting to the getter/adder; a method uses its own overload
+        // position. This ordinal flows to the body sections as the selected overload index.
+        var bodyOverloadIndex = AccessorCount(member) > 0
+            ? accessorOrdinal ?? 1
+            : selected.DeclaringOverloadIndex;
+        var body = CreateBodyTarget(type, member, anchor, bodyOverloadIndex);
         var handle = ApiMemberIdentity.CreateHandle(type, member);
         return new MemberTargetResolution(
             new ResolvedMemberTarget(
@@ -346,6 +368,8 @@ public static class MemberTargetResolver
             && member.MetadataToken is null
             && member.GetterToken is null
             && member.SetterToken is null
+            && member.AdderToken is null
+            && member.RemoverToken is null
             && member.DeclaringOverloadIndex is null)
         {
             return null;
@@ -354,9 +378,22 @@ public static class MemberTargetResolver
         return new BodyTarget(
             declaringType,
             anchor.CanonicalSignature,
-            member.MetadataToken ?? member.GetterToken ?? member.SetterToken,
+            member.MetadataToken ?? member.GetterToken ?? member.SetterToken ?? member.AdderToken ?? member.RemoverToken,
             member.DeclaringOverloadIndex ?? declaringOverloadIndex);
     }
+
+    /// <summary>
+    /// The number of body-backed accessors a member exposes: get/set for a property or
+    /// indexer, add/remove for an event. Zero for methods, fields, and any member with no
+    /// accessor tokens. Used to address accessors through the overload-index path (#3265).
+    /// </summary>
+    static int AccessorCount(ApiMember member)
+        => member.Kind switch
+        {
+            "property" => (member.GetterToken is null ? 0 : 1) + (member.SetterToken is null ? 0 : 1),
+            "event" => (member.AdderToken is null ? 0 : 1) + (member.RemoverToken is null ? 0 : 1),
+            _ => 0
+        };
 
     static MemberTargetKind ToTargetKind(string kind)
         => kind switch

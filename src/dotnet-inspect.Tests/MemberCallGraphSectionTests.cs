@@ -168,6 +168,56 @@ public class MemberCallGraphSectionTests
         Assert.Contains("Call Graph\tsection (opt-in)", result.Output);
     }
 
+    [Fact]
+    public async Task CallGraphSection_ResolvesPropertyGetterAccessor()
+    {
+        // A property has no body of its own; the default accessor ordinal addresses the
+        // getter, and the graph roots at the getter's metadata name (#3265).
+        var result = await RunCallGraphAsync(
+            typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.Descriptor));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Call Graph", result.Output);
+        Assert.Contains("get_Descriptor", result.Output);
+        Assert.Contains(nameof(MemberCallGraphFixture.Inner), result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_ResolvesPropertySetterAccessorByOrdinal()
+    {
+        // Accessor ordinal 2 addresses the setter: its callee, distinct from the getter's.
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.Descriptor)],
+            OverloadIndex = 2,
+            IncludeSections = [SectionNames.CallGraph],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Call Graph", result.Output);
+        Assert.Contains("set_Descriptor", result.Output);
+        Assert.Contains("Consume", result.Output);
+        Assert.DoesNotContain("Describe", result.Output);
+    }
+
+    [Fact]
+    public async Task CallGraphSection_ResolvesEventAdderAccessor()
+    {
+        // An event target resolves to its adder accessor, whose field-like body combines
+        // delegates (#3265).
+        var result = await RunCallGraphAsync(
+            typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.Triggered));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Call Graph", result.Output);
+        Assert.Contains("add_Triggered", result.Output);
+        Assert.Contains("Combine", result.Output);
+    }
+
     static Task<(int ExitCode, string Output, string Error)> RunCallGraphAsync(
         string typeName, string memberName)
         => ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -200,6 +250,28 @@ public static class MemberCallGraphFixture
     public static void Mid() => Inner();
 
     public static void Inner() => Console.WriteLine("leaf");
+
+    // Property whose accessors have distinct, non-trivial bodies so accessor addressing
+    // (Descriptor:1 = getter, Descriptor:2 = setter) resolves to different call trees (#3265).
+    public static string Descriptor
+    {
+        get => Describe();
+        set => Consume(value);
+    }
+
+    static string Describe()
+    {
+        Inner();
+        return "descriptor";
+    }
+
+    static void Consume(string value) => Console.WriteLine(value);
+
+    // Field-like event: the compiler generates add/remove accessor bodies whose call graph
+    // an event target resolves to via its adder/remover accessor (#3265).
+    public static event Action? Triggered;
+
+    public static void Raise() => Triggered?.Invoke();
 
     public static void LoopHeavyCall()
     {

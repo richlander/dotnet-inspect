@@ -720,10 +720,7 @@ public class ApiCommand
                 && (mo4.OverloadIndex.HasValue || mo4.HasCallerScope))
             {
                 var requestedSections = GetRequestedMemberSections(type, mo4);
-                var methods = type.Members
-                    .Where(m => m.Kind is "method" or "constructor" or "finalizer" or "operator" or "explicit-interface-implementation" or "extension-method"
-                        && (!m.IsAbstract || requestedSections.Contains(SectionNames.UnsafeOperations)))
-                    .ToList();
+                var methods = ApiOutputFormatter.ResolveBodyMethods(type, requestedSections);
                 if (methods.Count > 0)
                 {
                     var analysisInspection = new ApiMemberAnalysisInspection(
@@ -1405,10 +1402,7 @@ public class ApiCommand
                 && (memberOptions.OverloadIndex.HasValue || memberOptions.HasCallerScope))
             {
                 var requestedSections = GetRequestedMemberSections(type, memberOptions);
-                var methods = type.Members
-                    .Where(m => m.Kind is "method" or "constructor" or "finalizer" or "operator" or "explicit-interface-implementation" or "extension-method"
-                        && (!m.IsAbstract || requestedSections.Contains(SectionNames.UnsafeOperations)))
-                    .ToList();
+                var methods = ApiOutputFormatter.ResolveBodyMethods(type, requestedSections);
                 if (methods.Count > 0)
                 {
                     var analysisInspection = new ApiMemberAnalysisInspection(
