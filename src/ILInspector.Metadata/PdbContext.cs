@@ -359,19 +359,21 @@ public class PdbContext : IDisposable
         if (!_peReader.HasMetadata)
             return null;
 
-        var handle = MetadataTokens.Handle(methodToken);
-        if (handle.Kind != HandleKind.MethodDefinition)
-            return null;
-
         try
         {
+            // Handle() rejects an invalid token by throwing, and an inspected assembly is
+            // untrusted input, so decode inside the guard rather than ahead of it.
+            var handle = MetadataTokens.Handle(methodToken);
+            if (handle.Kind != HandleKind.MethodDefinition)
+                return null;
+
             var reader = _peReader.GetMetadataReader();
             if (IsReferenceAssembly(reader))
                 return null;
 
             return reader.GetMethodDefinition((MethodDefinitionHandle)handle).RelativeVirtualAddress != 0;
         }
-        catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
             return null;
         }
@@ -391,17 +393,7 @@ public class PdbContext : IDisposable
         {
             foreach (var handle in reader.GetAssemblyDefinition().GetCustomAttributes())
             {
-                var attribute = reader.GetCustomAttribute(handle);
-                if (attribute.Constructor.Kind != HandleKind.MemberReference)
-                    continue;
-
-                var parent = reader.GetMemberReference((MemberReferenceHandle)attribute.Constructor).Parent;
-                if (parent.Kind != HandleKind.TypeReference)
-                    continue;
-
-                var typeRef = reader.GetTypeReference((TypeReferenceHandle)parent);
-                if (reader.StringComparer.Equals(typeRef.Name, "ReferenceAssemblyAttribute")
-                    && reader.StringComparer.Equals(typeRef.Namespace, "System.Runtime.CompilerServices"))
+                if (IsReferenceAssemblyAttribute(reader, reader.GetCustomAttribute(handle)))
                 {
                     result = true;
                     break;
@@ -411,6 +403,44 @@ public class PdbContext : IDisposable
 
         _isReferenceAssembly = result;
         return result;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="attribute"/> is <c>ReferenceAssemblyAttribute</c>. The constructor
+    /// is a MemberReference when the attribute type lives in another assembly and a MethodDef when
+    /// it is defined in this one — which is the common case, since the reference assemblies that
+    /// most need this test define the attribute themselves.
+    /// </summary>
+    private static bool IsReferenceAssemblyAttribute(MetadataReader reader, CustomAttribute attribute)
+    {
+        StringHandle name;
+        StringHandle @namespace;
+
+        switch (attribute.Constructor.Kind)
+        {
+            case HandleKind.MemberReference:
+                var parent = reader.GetMemberReference((MemberReferenceHandle)attribute.Constructor).Parent;
+                if (parent.Kind != HandleKind.TypeReference)
+                    return false;
+
+                var typeRef = reader.GetTypeReference((TypeReferenceHandle)parent);
+                name = typeRef.Name;
+                @namespace = typeRef.Namespace;
+                break;
+
+            case HandleKind.MethodDefinition:
+                var method = reader.GetMethodDefinition((MethodDefinitionHandle)attribute.Constructor);
+                var typeDef = reader.GetTypeDefinition(method.GetDeclaringType());
+                name = typeDef.Name;
+                @namespace = typeDef.Namespace;
+                break;
+
+            default:
+                return false;
+        }
+
+        return reader.StringComparer.Equals(name, "ReferenceAssemblyAttribute")
+            && reader.StringComparer.Equals(@namespace, "System.Runtime.CompilerServices");
     }
 
     public ILOffsetMemberContextInfo? ResolveMemberContext(int methodToken, int ilOffset)
