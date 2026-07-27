@@ -563,44 +563,7 @@ public static class MetadataTableProjector
     /// the preview within budget.
     /// </summary>
     static string EscapeText(string value, int maxChars, out bool truncated)
-    {
-        int limit = Math.Max(0, maxChars);
-        var builder = new System.Text.StringBuilder(Math.Min(value.Length, limit));
-        truncated = false;
-
-        for (int i = 0; i < value.Length; i++)
-        {
-            char c = value[i];
-            int width = c switch
-            {
-                '\\' or '"' or '\n' or '\r' or '\t' => 2,
-                _ => IsControl(c) ? 6 : 1,
-            };
-
-            if (builder.Length + width > limit)
-            {
-                truncated = true;
-                break;
-            }
-
-            switch (c)
-            {
-                case '\\': builder.Append("\\\\"); break;
-                case '"': builder.Append("\\\""); break;
-                case '\n': builder.Append("\\n"); break;
-                case '\r': builder.Append("\\r"); break;
-                case '\t': builder.Append("\\t"); break;
-                default:
-                    if (IsControl(c))
-                        builder.Append("\\u").Append(((int)c).ToString("X4"));
-                    else
-                        builder.Append(c);
-                    break;
-            }
-        }
-
-        return builder.ToString();
-    }
+        => EscapeCore(value, maxChars, escapeStructural: true, out truncated);
 
     /// <summary>
     /// Renders every control character in a display string as <c>\uXXXX</c>,
@@ -613,26 +576,85 @@ public static class MetadataTableProjector
     /// the text within budget.
     /// </summary>
     static string NeutralizeControls(string value, int maxChars, out bool truncated)
+        => EscapeCore(value, maxChars, escapeStructural: false, out truncated);
+
+    /// <summary>
+    /// Shared budget-bounded escaper. Walks the UTF-16 value one scalar at a
+    /// time so a well-formed surrogate pair is kept atomic — the budget boundary
+    /// can never retain a lone (malformed) surrogate — while an unpaired
+    /// surrogate is rendered as <c>\uXXXX</c> so it cannot corrupt the output on
+    /// UTF-8 conversion. When <paramref name="escapeStructural"/> is set,
+    /// <c>\ " \n \r \t</c> are escaped for use as data; either way every control
+    /// character is rendered as <c>\uXXXX</c>. The <paramref name="maxChars"/>
+    /// budget is enforced on the emitted length; <paramref name="truncated"/>
+    /// reports whether any input was dropped to stay within it.
+    /// </summary>
+    static string EscapeCore(string value, int maxChars, bool escapeStructural, out bool truncated)
     {
         int limit = Math.Max(0, maxChars);
         var builder = new System.Text.StringBuilder(Math.Min(value.Length, limit));
         truncated = false;
 
-        for (int i = 0; i < value.Length; i++)
+        int i = 0;
+        while (i < value.Length)
         {
             char c = value[i];
-            int width = IsControl(c) ? 6 : 1;
 
+            // A well-formed surrogate pair is one scalar; emit it atomically.
+            if (char.IsHighSurrogate(c) && i + 1 < value.Length && char.IsLowSurrogate(value[i + 1]))
+            {
+                if (builder.Length + 2 > limit)
+                {
+                    truncated = true;
+                    break;
+                }
+
+                builder.Append(c).Append(value[i + 1]);
+                i += 2;
+                continue;
+            }
+
+            // A lone surrogate is ill-formed text; escape it rather than emit it.
+            if (char.IsSurrogate(c))
+            {
+                if (builder.Length + 6 > limit)
+                {
+                    truncated = true;
+                    break;
+                }
+
+                builder.Append("\\u").Append(((int)c).ToString("X4"));
+                i++;
+                continue;
+            }
+
+            string? structural = escapeStructural
+                ? c switch
+                {
+                    '\\' => "\\\\",
+                    '"' => "\\\"",
+                    '\n' => "\\n",
+                    '\r' => "\\r",
+                    '\t' => "\\t",
+                    _ => null,
+                }
+                : null;
+
+            int width = structural is not null ? structural.Length : (IsControl(c) ? 6 : 1);
             if (builder.Length + width > limit)
             {
                 truncated = true;
                 break;
             }
 
-            if (IsControl(c))
+            if (structural is not null)
+                builder.Append(structural);
+            else if (IsControl(c))
                 builder.Append("\\u").Append(((int)c).ToString("X4"));
             else
                 builder.Append(c);
+
+            i++;
         }
 
         return builder.ToString();

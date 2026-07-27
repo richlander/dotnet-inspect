@@ -259,6 +259,38 @@ public class MetadataTableProjectionTests
     }
 
     [Fact]
+    public void EscapeText_KeepsSurrogatePairsAtomicAndEscapesLoneSurrogates()
+    {
+        // The budget is measured in UTF-16 code units, but a supplementary scalar
+        // is two of them; truncation must never retain a lone high surrogate, and
+        // an unpaired surrogate must be escaped rather than emitted raw.
+        var escape = typeof(MetadataTableProjector).GetMethod(
+            "EscapeText",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+
+        const string emoji = "\U0001F600"; // one scalar, two UTF-16 code units
+
+        // Budget 2: 'A' fits (1); the pair needs 2 more and is dropped as a unit.
+        var dropped = new object?[] { "A" + emoji, 2, null };
+        var droppedText = (string)escape.Invoke(null, dropped)!;
+        Assert.Equal("A", droppedText);
+        Assert.True((bool)dropped[2]!);
+        Assert.DoesNotContain(droppedText, char.IsSurrogate);
+
+        // Budget 3: 'A' plus the atomic pair fit exactly; nothing is truncated.
+        var kept = new object?[] { "A" + emoji, 3, null };
+        var keptText = (string)escape.Invoke(null, kept)!;
+        Assert.Equal("A" + emoji, keptText);
+        Assert.False((bool)kept[2]!);
+
+        // A lone (unpaired) surrogate is escaped, never emitted as raw text.
+        var lone = new object?[] { "\uD83D", 10, null };
+        var loneText = (string)escape.Invoke(null, lone)!;
+        Assert.Equal("\\uD83D", loneText);
+        Assert.DoesNotContain(loneText, char.IsSurrogate);
+    }
+
+    [Fact]
     public void EmptyImage_HasNoMetadataTables()
     {
         // The projector never fabricates a success-shaped table set; a metadata
