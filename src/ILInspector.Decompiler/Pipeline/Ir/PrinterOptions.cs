@@ -79,7 +79,6 @@ public sealed record PrinterOptions
     public bool QualifyPropertyAccess { get; init; }
 
     /// <summary>
-    /// <summary>
     /// When set, an instance method invoked through <c>this</c> renders the explicit
     /// <c>this.</c> qualifier even where the bare name is unambiguous. IL-identical —
     /// <c>this.M()</c> and <c>M()</c> both emit <c>ldarg.0; call/callvirt</c>. A

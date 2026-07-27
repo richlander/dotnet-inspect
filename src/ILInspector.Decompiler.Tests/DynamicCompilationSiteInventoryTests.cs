@@ -70,9 +70,10 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["TypeSourceCheckTests.cs"] = (1, "Runtime-varying validity gate: compiles per-case type source and checks binding."),
             ["UnsafeEmitterTests.cs"] = (1, "Runtime-varying validity gate: compiles per-case unsafe source with varying parse options."),
             ["DefaultParameterValidityTests.cs"] = (1, "Runtime-varying validity gate: compiles per-case default-parameter signatures."),
-            ["ReturnToSenderPrototypeTests.cs"] = (1, "Runtime construction: builds a shell input assembly asserting 30+ facts."),
+            ["ReturnToSenderPrototypeTests.cs"] = (2, "Runtime construction: builds a shell input assembly asserting 30+ facts; plus a fault-isolation oracle site compiling composed decompiled source for span attribution."),
             ["ReturnToSenderFixtureCatalogTests.cs"] = (1, "Input-generation seam: builds a temporary input assembly for the RTS catalog."),
             ["RoundTripComparisonTests.cs"] = (1, "Round-trip oracle seam: compiles an exact donor fixture for typed C# and IL comparison."),
+            ["SpanAttributionTests.cs"] = (1, "Product-output validity + oracle seam: compiles synthesized decompiled/authored source per case to feed real compiler diagnostics to the span-attribution classifier."),
         };
 
     // Fingerprint. Three independent +1 site additions stack on the 29 files /
@@ -93,9 +94,14 @@ public sealed class DynamicCompilationSiteInventoryTests
     //     rendering.
     //   #3009 sub-part 3 adds BitwiseChainWrapTests.cs (1 site): recompiles the
     //     printer's wrapped bitwise |/&/^ chain output.
-    //   Combined: 35 files, 43 sites.
-    const int ExpectedDynamicFiles = 35;
-    const int ExpectedDynamicSites = 43;
+    //   #3231 adds SpanAttributionTests.cs (1 site): compiles synthesized
+    //     decompiled/authored source per case to feed real compiler diagnostics
+    //     to the span-attribution classifier. #3231 also adds a second site to
+    //     ReturnToSenderPrototypeTests.cs (1 -> 2): the fault-isolation helper
+    //     compiles composed decompiled source to obtain its diagnostics.
+    //   Combined: 36 files, 45 sites.
+    const int ExpectedDynamicFiles = 36;
+    const int ExpectedDynamicSites = 45;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

@@ -51,10 +51,19 @@ static class FidelityCheck
     // view with the cross-method import seam bound (so lambda raising can reach
     // a synthesized body in the same module). The lowered view carries no seam
     // yet, so a lambda there stays a delegate creation.
+    // The default (byte-faithful) renderer threads no PrinterOptions, so every
+    // corpus/gate path renders the shipped output. The optional options overload
+    // is the opt-in-knob seam the byte-neutrality gate uses to render the raised
+    // view with a single knob on and prove it recompiles to the same IL. Options
+    // apply to the raised view (the view every opt-in knob targets); the lowered
+    // view has no opt-in knobs, so it keeps the shipped renderer.
     static Func<IrFunction, DecompilerResult> Renderer(MetadataSource source, bool lowered)
+        => Renderer(source, lowered, options: null);
+
+    static Func<IrFunction, DecompilerResult> Renderer(MetadataSource source, bool lowered, PrinterOptions? options)
         => lowered
             ? CSharpPrinter.PrintLowered
-            : function => CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method));
+            : function => CSharpPrinter.PrintRaised(function, method => IrImporter.Import(source, method), options);
 
     public static int Run(
         IReadOnlyList<string> assemblies,
@@ -663,6 +672,19 @@ static class FidelityCheck
         IReadOnlyList<string> assemblies,
         IReadOnlyList<CompileBackTarget> targets,
         bool lowered = false)
+        => EvaluateTargets(assemblies, targets, lowered, options: null);
+
+    /// <summary>
+    /// As <see cref="EvaluateTargets(IReadOnlyList{string}, IReadOnlyList{CompileBackTarget}, bool)"/>,
+    /// but renders the (raised) view with <paramref name="options"/> applied — the
+    /// seam the byte-neutrality gate uses to compile-back a single opt-in knob's
+    /// output and assert it recompiles to the same IL as the shipped default.
+    /// </summary>
+    internal static IReadOnlyList<CompileBackResult> EvaluateTargets(
+        IReadOnlyList<string> assemblies,
+        IReadOnlyList<CompileBackTarget> targets,
+        bool lowered,
+        PrinterOptions? options)
     {
         var methodTargets = targets
             .Select(target => new MethodTarget(
@@ -675,12 +697,15 @@ static class FidelityCheck
                 DisplayMethod: $"{target.Type}::{target.Method}"))
             .ToArray();
 
-        return EvaluateTargets(assemblies, methodTargets, lowered)
+        return EvaluateTargets(assemblies, methodTargets, lowered, options)
             .Select(row => row.Result)
             .ToArray();
     }
 
     static IReadOnlyList<TargetedCompileBackResult> EvaluateTargets(IReadOnlyList<string> assemblies, IReadOnlyList<MethodTarget> targets, bool lowered)
+        => EvaluateTargets(assemblies, targets, lowered, options: null);
+
+    static IReadOnlyList<TargetedCompileBackResult> EvaluateTargets(IReadOnlyList<string> assemblies, IReadOnlyList<MethodTarget> targets, bool lowered, PrinterOptions? options)
     {
         if (targets.Count == 0)
             return [];
@@ -720,7 +745,7 @@ static class FidelityCheck
                     if (assemblyTargets.Count == 0)
                         continue;
 
-                    var render = Renderer(source, lowered);
+                    var render = Renderer(source, lowered, options);
                     var references = RuntimeReferences(assemblyPath, assemblies);
                     foreach (var typeHandle in reader.TypeDefinitions)
                     {
