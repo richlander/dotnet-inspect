@@ -48,6 +48,24 @@ public partial record ApiOptions
     public PrinterOptions? RenderOptions { get; init; }
 
     /// <summary>
+    /// The <c>--focus</c> gesture: promote a fact family from the default side
+    /// comment to the caret gesture, so the facts worth acting on are underlined
+    /// beneath the statement instead of trailing it. Accepts a category
+    /// (<c>allocation</c>), a descriptor id (<c>alloc.box</c>), or a dotted id
+    /// prefix (<c>alloc</c>). Null leaves every fact on the side gesture, which is
+    /// byte-for-byte the historical render. This is a reporting choice only: the
+    /// facts collected are identical either way, because annotations describe and
+    /// never grade.
+    /// </summary>
+    /// <remarks>
+    /// Member-scoped only. The caret gesture renders into an annotated source
+    /// view, and the only sections that carry one — Annotated Source, Cost
+    /// Overlay, Semantics Overlay — are member sections. Registering the option
+    /// on <c>type</c> would offer a switch that cannot change any output there.
+    /// </remarks>
+    public string? Focus { get; init; }
+
+    /// <summary>
     /// The <c>--taste</c> gesture: request the whole oracle-endorsed style set for
     /// this run, equivalent to <c>dotnet_inspect_style_full_taste = true</c> in
     /// <c>.dotnet-inspectconfig</c> but scoped to one invocation. Applied after the

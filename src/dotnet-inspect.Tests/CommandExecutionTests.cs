@@ -4008,6 +4008,139 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_AnnotatedSource_WithoutFocus_UsesNoCaretGesture()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", "Annotated Source", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Annotated Source", output);
+        Assert.DoesNotContain("^^^^", output);
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSource_UnknownFocus_SaysSoAndNamesTheAvailableFamilies()
+    {
+        // Promotion never hides a fact, so an unmatched focus renders exactly
+        // like no focus at all. Without the note a typo is indistinguishable
+        // from an honest absence.
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", "Annotated Source", "--focus", "alocation", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("^^^^", output);
+        Assert.Contains("--focus 'alocation' matched no facts here", error);
+        Assert.Contains("allocation", error);
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSource_MatchedFocus_SaysNothing()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", "Annotated Source", "--focus", "allocation", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("matched no facts", error);
+    }
+
+    /// <summary>
+    /// Every projection that can carry a caret block, each through a different
+    /// formatting call. Two properties per case: the caret actually renders (so
+    /// the case is not vacuous), and the hoist marker — an in-band control
+    /// character — never survives into output.
+    /// </summary>
+    [Theory]
+    [InlineData("CommandCaretGestureFixture", "Pump:1", "Annotated Source", "allocation")]
+    [InlineData("CommandCaretGestureFixture", "Pump:1", "Annotated Source", "alloc")]
+    [InlineData("CommandCaretGestureFixture", "Make:1", "Annotated Source", "allocation")]
+    [InlineData("CostOverlayFixture", "Caller", "Cost Overlay", "cost")]
+    [InlineData("CostOverlayFixture", "CallsExceptionOnly", "Semantics Overlay", "semantics")]
+    public async Task Member_Focus_RendersCaretsAndNeverLeaksTheHoistMarker(
+        string fixture, string selector, string section, string focus)
+    {
+        string typeName = fixture == "CostOverlayFixture"
+            ? typeof(CostOverlayFixture).FullName!
+            : typeof(CommandCaretGestureFixture).FullName!;
+
+        var (exit, output, _) = await RunAppAsync(
+            "member", typeName, "--library", TestAssemblyPath,
+            selector, "--index", "1", "--all", "-S", section, "--focus", focus, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("^^^^", output);
+        Assert.DoesNotContain(ILInspector.Decompiler.Annotations.AnnotationCaret.HoistMarker, output);
+
+        var lines = output.ReplaceLineEndings("\n").Split('\n');
+        foreach (int i in Enumerable.Range(0, lines.Length)
+            .Where(i => lines[i].Contains("^^^^", StringComparison.Ordinal)))
+        {
+            string statement = lines[i - 1];
+            Assert.StartsWith("//", lines[i], StringComparison.Ordinal);
+            Assert.Equal(
+                statement.Length - statement.AsSpan().TrimStart().Length,
+                lines[i].IndexOf('^'));
+        }
+    }
+
+    [Fact]
+    public async Task Type_DoesNotOfferFocus()
+    {
+        // The caret gesture only renders into member sections (Annotated
+        // Source, Cost Overlay, Semantics Overlay). Offering --focus on `type`
+        // would be a switch that cannot change any output there.
+        var (exit, _, error) = await RunAppAsync(
+            "type", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "--focus", "allocation", "--tips", "q");
+
+        Assert.NotEqual(0, exit);
+        Assert.Contains("--focus", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSource_FocusPromotesFactsToAlignedCaretComments()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", "Annotated Source", "--focus", "allocation", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        var lines = output.ReplaceLineEndings("\n").Split('\n');
+        var caretIndexes = Enumerable.Range(0, lines.Length)
+            .Where(i => lines[i].Contains("^^^^", StringComparison.Ordinal))
+            .ToList();
+
+        // The fixture allocates at the body's base column and again inside a
+        // loop, so both depths are exercised.
+        Assert.True(caretIndexes.Count >= 2, $"expected carets at two depths, got {caretIndexes.Count}");
+        Assert.True(
+            caretIndexes.Select(i => lines[i].IndexOf('^')).Distinct().Count() >= 2,
+            "the two carets must sit at different columns");
+
+        foreach (int i in caretIndexes)
+        {
+            string line = lines[i];
+
+            // The block is spliced into a ```csharp fence, so it must stay
+            // comments, and it sits on the member declaration column.
+            Assert.StartsWith("//", line, StringComparison.Ordinal);
+
+            // Carets point at the statement on the preceding line, exactly.
+            string statement = lines[i - 1];
+            Assert.Equal(
+                statement.Length - statement.AsSpan().TrimStart().Length,
+                line.IndexOf('^'));
+            Assert.Equal(statement.Trim().Length, line.Count(c => c == '^'));
+        }
+
+        // The hoist marker is an internal layout signal; it must never survive
+        // into rendered output, where it would print as a control character.
+        Assert.DoesNotContain(ILInspector.Decompiler.Annotations.AnnotationCaret.HoistMarker, output);
+    }
+
+    [Fact]
     public async Task Member_SelectedOverload_SelectSourceDiff_RendersOriginalVsDecompiledDiff()
     {
         using var stream = File.OpenRead(TestAssemblyPath);
@@ -10878,6 +11011,26 @@ public sealed class CommandExecutionSourceDiffFixture
     {
         return value + 1;
     }
+}
+
+/// <summary>
+/// Two allocations at different depths: one on the body's own base column and
+/// one nested inside a loop. The caret gesture must point exactly at both, which
+/// is only possible because the caret block is hoisted out of the body indent.
+/// </summary>
+public sealed class CommandCaretGestureFixture
+{
+    public string Pump(int n)
+    {
+        var sink = new List<object>();
+        for (int i = 0; i < n; i++)
+        {
+            sink.Add(new object());
+        }
+        return sink.Count.ToString();
+    }
+
+    public string Make() => new object().ToString() ?? "";
 }
 
 public sealed class CommandInitializerOnlyFixture
