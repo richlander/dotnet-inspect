@@ -161,20 +161,22 @@ sources. RID companion-package verification follows the configured source list.
 
 ## Integrations
 
-`Integrations` is a library section for ecosystem support such as AI, ASP.NET
-Core, Aspire, Authentication, Configuration, Dependency Injection, Logging, Options, Hosting,
-Health Checks, HTTP Client, OpenAPI, and OpenTelemetry. It is a usability index, not a raw evidence report: focused
-integration sections list package-owned actionable types and starter APIs rather
-than assembly references.
+`@Integrations` is a library section category for ecosystem support such as AI,
+ASP.NET Core, Aspire, Authentication, Configuration, Dependency Injection,
+Logging, Options, Hosting, Health Checks, HTTP Client, OpenAPI, and
+OpenTelemetry. It is a usability index, not a raw evidence report: focused
+integration sections (named with an `Integration:` prefix, such as `Integration:
+Logging`) list package-owned actionable types and starter APIs rather than
+assembly references.
 
 Use `package Foo --library` to inspect one package DLL, or `package Foo
 --all-libraries` when the package contains multiple relevant libraries. In
 all-library mode, singular sections such as `Library Info` are rendered per
-library while aggregate sections such as `@Integrations` roll up rows across
-libraries and include library provenance when needed. Row formats (`--table`,
-`--tsv`, `--jsonl`) require one concrete section, such as `Library Info`,
-`Integrations`, `Switches`, or a focused integration section; use Markdown for
-category selectors such as `@Integrations`.
+library while aggregate sections roll up rows across libraries and include
+library provenance when needed. Row formats (`--table`, `--tsv`, `--jsonl`)
+require one concrete section, such as `Library Info`, `Switches`, or a focused
+`Integration:` section; use Markdown for category selectors such as
+`@Integrations`. Add `--count` to a category selector for per-section row counts.
 
 `Switches` is a peer library section for feature, compatibility, and runtime
 configuration switches such as `FeatureSwitchDefinitionAttribute` and

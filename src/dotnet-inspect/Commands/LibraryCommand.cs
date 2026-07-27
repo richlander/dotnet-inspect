@@ -1363,7 +1363,7 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    private const string EffectiveCategory = "effective-v17";
+    private const string EffectiveCategory = "effective-v18";
 
     static LibraryCommand()
     {
@@ -1526,15 +1526,14 @@ public class LibraryCommand
                 or EcosystemIntegrationNames.OpenTelemetry;
         }
 
-        if (section.Equals(LibraryIntegrationCatalog.RollupName, StringComparison.OrdinalIgnoreCase))
+        if (failureSection.Equals(EcosystemIntegrationNames.OpenTelemetry, StringComparison.Ordinal))
         {
-            return failureSection.Equals(LibraryIntegrationCatalog.RollupName, StringComparison.Ordinal)
-                   || failureSection.Equals(EcosystemIntegrationNames.OpenTelemetry, StringComparison.Ordinal);
+            return section.Equals(IntegrationSectionNames.OpenTelemetry, StringComparison.OrdinalIgnoreCase);
         }
 
         return failureSection.Equals(LibraryIntegrationCatalog.RollupName, StringComparison.Ordinal)
                && LibraryIntegrationCatalog.All.Any(
-                   descriptor => descriptor.Name.Equals(section, StringComparison.OrdinalIgnoreCase));
+                   descriptor => descriptor.SectionName.Equals(section, StringComparison.OrdinalIgnoreCase));
     }
 
     private static void ExtractResourcesIfRequested(string assemblyPath, LibraryOptions options)

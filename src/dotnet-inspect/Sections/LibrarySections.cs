@@ -52,7 +52,6 @@ public static class LibrarySections
             .Add<Symbols>()
             .Add<Signals>()
             .Add<Switches>()
-            .Add<Integrations>()
             .Add<IntegrationOpportunities>()
             .Add<AI>()
             .Add<AspNetCore>()
@@ -111,7 +110,7 @@ public static class LibrarySections
                 SectionNames.SourceLinkFiles,
                 SectionNames.SourceLinkAvailability,
                 SectionNames.SourceLinkMissingFiles)
-            .AddCategory("@Integrations", [.. LibraryIntegrationCatalog.CategorySections, "Integration Opportunities"]);
+            .AddCategory("@Integrations", [.. LibraryIntegrationCatalog.CategorySections, IntegrationSectionNames.Opportunities]);
     }
 
     /// <summary>Builds the scanner registry with all library scanners registered.</summary>
@@ -306,7 +305,7 @@ public static class LibrarySections
 
     public sealed class OpenTelemetry : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => LibraryIntegrationCatalog.OpenTelemetry.Name;
+        public static string Name => LibraryIntegrationCatalog.OpenTelemetry.SectionName;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         // @Integrations door member: kept behind the @Integrations door in -D (like the
@@ -319,19 +318,9 @@ public static class LibrarySections
             => LibraryIntegrationCatalog.OpenTelemetry.CanRender(model);
     }
 
-    public sealed class Integrations : ISectionDescriptor<LibraryInspection>
-    {
-        public static string Name => LibraryIntegrationCatalog.RollupName;
-        public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        public static bool ListedInCatalog => false;
-        public static string? ScannerKey => ScannerIntegrations;
-        public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.CanRenderAny(model);
-    }
-
     public sealed class IntegrationOpportunities : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Integration Opportunities";
+        public static string Name => IntegrationSectionNames.Opportunities;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static bool ListedInCatalog => false;
@@ -342,7 +331,7 @@ public static class LibrarySections
 
     public sealed class AI : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => LibraryIntegrationCatalog.AI.Name;
+        public static string Name => LibraryIntegrationCatalog.AI.SectionName;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static bool ListedInCatalog => false;
@@ -352,7 +341,7 @@ public static class LibrarySections
 
     public sealed class AspNetCore : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => LibraryIntegrationCatalog.AspNetCore.Name;
+        public static string Name => LibraryIntegrationCatalog.AspNetCore.SectionName;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static bool ListedInCatalog => false;
@@ -362,7 +351,7 @@ public static class LibrarySections
 
     public sealed class Authentication : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => LibraryIntegrationCatalog.Authentication.Name;
+        public static string Name => LibraryIntegrationCatalog.Authentication.SectionName;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static bool ListedInCatalog => false;
@@ -372,7 +361,7 @@ public static class LibrarySections
 
     public sealed class Aspire : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => LibraryIntegrationCatalog.Aspire.Name;
+        public static string Name => LibraryIntegrationCatalog.Aspire.SectionName;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static bool ListedInCatalog => false;
@@ -382,7 +371,7 @@ public static class LibrarySections
 
     public sealed class Configuration : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => LibraryIntegrationCatalog.Configuration.Name;
+        public static string Name => LibraryIntegrationCatalog.Configuration.SectionName;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static bool ListedInCatalog => false;
@@ -392,7 +381,7 @@ public static class LibrarySections
 
     public sealed class DependencyInjection : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => LibraryIntegrationCatalog.DependencyInjection.Name;
+        public static string Name => LibraryIntegrationCatalog.DependencyInjection.SectionName;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static bool ListedInCatalog => false;
@@ -403,7 +392,7 @@ public static class LibrarySections
 
     public sealed class Logging : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => LibraryIntegrationCatalog.Logging.Name;
+        public static string Name => LibraryIntegrationCatalog.Logging.SectionName;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static bool ListedInCatalog => false;
@@ -413,7 +402,7 @@ public static class LibrarySections
 
     public sealed class Options : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => LibraryIntegrationCatalog.Options.Name;
+        public static string Name => LibraryIntegrationCatalog.Options.SectionName;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static bool ListedInCatalog => false;
@@ -423,7 +412,7 @@ public static class LibrarySections
 
     public sealed class OpenAPI : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => LibraryIntegrationCatalog.OpenAPI.Name;
+        public static string Name => LibraryIntegrationCatalog.OpenAPI.SectionName;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static bool ListedInCatalog => false;
@@ -433,7 +422,7 @@ public static class LibrarySections
 
     public sealed class Hosting : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => LibraryIntegrationCatalog.Hosting.Name;
+        public static string Name => LibraryIntegrationCatalog.Hosting.SectionName;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static bool ListedInCatalog => false;
@@ -443,7 +432,7 @@ public static class LibrarySections
 
     public sealed class HealthChecks : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => LibraryIntegrationCatalog.HealthChecks.Name;
+        public static string Name => LibraryIntegrationCatalog.HealthChecks.SectionName;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static bool ListedInCatalog => false;
@@ -453,7 +442,7 @@ public static class LibrarySections
 
     public sealed class HttpClient : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => LibraryIntegrationCatalog.HttpClient.Name;
+        public static string Name => LibraryIntegrationCatalog.HttpClient.SectionName;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static bool ListedInCatalog => false;

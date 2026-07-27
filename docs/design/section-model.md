@@ -124,9 +124,10 @@ view.
   topical category doors (alpha) followed by one flat group of effective
   standalone sections. `ListedInCatalog=false` keeps a section out of that flat
   group while still letting it render at `-v:d` — used for the kind-scoped
-  `Performance:` buckets and the ecosystem `@Integrations` members (AI, Hosting,
-  Logging, …), which stay behind their `@Performance` / `@Integrations` door in
-  `-D` yet still render by size class.
+  `Performance:` buckets and the ecosystem `@Integrations` members
+  (`Integration: AI`, `Integration: Hosting`, `Integration: Logging`, …), which
+  stay behind their `@Performance` / `@Integrations` door in `-D` yet still
+  render by size class.
 
 ### Symbol-dependent discovery (SourceLink family)
 

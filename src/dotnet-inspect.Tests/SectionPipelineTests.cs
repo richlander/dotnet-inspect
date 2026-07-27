@@ -299,30 +299,29 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        Assert.Equal(54, pipeline.AllSectionNames.Length);
-        Assert.Contains("AI", pipeline.AllSectionNames);
-        Assert.Contains("ASP.NET Core", pipeline.AllSectionNames);
-        Assert.Contains("Aspire", pipeline.AllSectionNames);
-        Assert.Contains("Authentication", pipeline.AllSectionNames);
+        Assert.Equal(53, pipeline.AllSectionNames.Length);
+        Assert.Contains("Integration: AI", pipeline.AllSectionNames);
+        Assert.Contains("Integration: ASP.NET Core", pipeline.AllSectionNames);
+        Assert.Contains("Integration: Aspire", pipeline.AllSectionNames);
+        Assert.Contains("Integration: Authentication", pipeline.AllSectionNames);
         Assert.Contains("Callsite Context", pipeline.AllSectionNames);
         Assert.Contains("Allocation Context", pipeline.AllSectionNames);
         Assert.Contains("Safety Context", pipeline.AllSectionNames);
         Assert.Contains("Cost Context", pipeline.AllSectionNames);
-        Assert.Contains("Configuration", pipeline.AllSectionNames);
-        Assert.Contains("Dependency Injection", pipeline.AllSectionNames);
+        Assert.Contains("Integration: Configuration", pipeline.AllSectionNames);
+        Assert.Contains("Integration: Dependency Injection", pipeline.AllSectionNames);
         Assert.Contains("Exception Context", pipeline.AllSectionNames);
-        Assert.Contains("Health Checks", pipeline.AllSectionNames);
-        Assert.Contains("Hosting", pipeline.AllSectionNames);
-        Assert.Contains("HTTP Client", pipeline.AllSectionNames);
+        Assert.Contains("Integration: Health Checks", pipeline.AllSectionNames);
+        Assert.Contains("Integration: Hosting", pipeline.AllSectionNames);
+        Assert.Contains("Integration: HTTP Client", pipeline.AllSectionNames);
         Assert.Contains("Instruction Context", pipeline.AllSectionNames);
         Assert.Contains("Source Location", pipeline.AllSectionNames);
         Assert.Contains("Member Context", pipeline.AllSectionNames);
-        Assert.Contains("Integration Opportunities", pipeline.AllSectionNames);
-        Assert.Contains("Integrations", pipeline.AllSectionNames);
-        Assert.Contains("Logging", pipeline.AllSectionNames);
-        Assert.Contains("OpenAPI", pipeline.AllSectionNames);
-        Assert.Contains("OpenTelemetry", pipeline.AllSectionNames);
-        Assert.Contains("Options", pipeline.AllSectionNames);
+        Assert.Contains("Integration: Opportunities", pipeline.AllSectionNames);
+        Assert.Contains("Integration: Logging", pipeline.AllSectionNames);
+        Assert.Contains("Integration: OpenAPI", pipeline.AllSectionNames);
+        Assert.Contains("Integration: OpenTelemetry", pipeline.AllSectionNames);
+        Assert.Contains("Integration: Options", pipeline.AllSectionNames);
         Assert.Contains("Source Link: Files", pipeline.AllSectionNames);
         Assert.Contains("Source Link: Availability", pipeline.AllSectionNames);
         Assert.Contains("Source Link: Missing Files", pipeline.AllSectionNames);
@@ -374,7 +373,7 @@ public class SectionPipelineTests
         // catalog-hidden.
         foreach (var kind in PerformanceKinds.Sections)
             Assert.Contains(kind, hidden);
-        foreach (var integration in LibraryIntegrationCatalog.CategorySections.Append("Integration Opportunities"))
+        foreach (var integration in LibraryIntegrationCatalog.CategorySections.Append(IntegrationSectionNames.Opportunities))
             Assert.Contains(integration, hidden);
         foreach (var footgun in new[]
                  {
@@ -561,10 +560,10 @@ public class SectionPipelineTests
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Integration Opportunities" });
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Integration: Opportunities" });
 
-        Assert.Contains("Integration Opportunities", effective);
-        Assert.Contains("Integration Opportunities", selected);
+        Assert.Contains("Integration: Opportunities", effective);
+        Assert.Contains("Integration: Opportunities", selected);
     }
 
     [Fact]
@@ -1238,28 +1237,10 @@ public class SectionPipelineTests
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "OpenTelemetry" });
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Integration: OpenTelemetry" });
 
-        Assert.Contains("OpenTelemetry", effective);
-        Assert.Contains("OpenTelemetry", selected);
-    }
-
-    [Fact]
-    public void CanRender_Integrations_UsesPresenceFlag()
-    {
-        var pipeline = LibrarySections.CreatePipeline();
-        var model = new LibraryInspection
-        {
-            AssemblyInfo = new AssemblyInfo(),
-            HasOpenTelemetrySupport = true
-        };
-
-        var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
-        var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Integrations" });
-
-        Assert.Contains("Integrations", effective);
-        Assert.Contains("Integrations", selected);
+        Assert.Contains("Integration: OpenTelemetry", effective);
+        Assert.Contains("Integration: OpenTelemetry", selected);
     }
 
     [Theory]
@@ -1296,11 +1277,12 @@ public class SectionPipelineTests
         };
 
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
+        var prefixed = IntegrationSectionNames.Prefix + sectionName;
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { sectionName });
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { prefixed });
 
-        Assert.Contains(sectionName, effective);
-        Assert.Contains(sectionName, selected);
+        Assert.Contains(prefixed, effective);
+        Assert.Contains(prefixed, selected);
     }
 
     [Fact]

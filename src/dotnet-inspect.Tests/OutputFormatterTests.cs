@@ -1261,8 +1261,7 @@ public class OutputFormatterTests
             IncludeSections =
             [
                 "Library Info",
-                "Integrations",
-                "OpenTelemetry",
+                "Integration: OpenTelemetry",
                 "Source Link: Integrity"
             ]
         };
