@@ -282,8 +282,10 @@ Address them through the overload-index selector: `Name:1` is the getter/adder
 (the default) and `Name:2` the setter/remover, each rooted at its metadata
 accessor name (`get_Name`, `set_Name`, `add_Name`, `remove_Name`). Fields have
 no accessor and stay body-less. The SourceLink source-file sections
-(`Original Source`, `Source Diff`, `Source Locations`) remain method-only for
-now; accessor source-line mapping is a follow-up.
+(`Original Source`, `Source Diff`, `Source Locations`) follow the same
+addressing: they resolve through the accessor's PDB sequence points, so an
+auto-property maps to its declaration line and a hand-written accessor maps to
+its own authored lines.
 
 `allocation-fanout` is an opt-in aggregate view for construction-heavy
 registries, pipelines, and object graphs that do not match a local rewrite

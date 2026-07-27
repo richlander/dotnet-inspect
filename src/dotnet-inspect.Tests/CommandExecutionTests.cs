@@ -3152,6 +3152,64 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_SourceLocations_PropertyAccessor_ResolvesFromAccessorSequencePoints()
+    {
+        // A property has no MethodDef of its own; its authored source is located through its
+        // accessor's PDB sequence points, reported against the owning property (#3278).
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
+            "MaxDepth", "-S", "Source Locations", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Source Locations", output);
+        Assert.Contains("public int MaxDepth { get; set; }", output);
+        Assert.Contains("JsonSerializerOptions.cs", output);
+        Assert.Contains("raw.githubusercontent.com", output);
+    }
+
+    [Fact]
+    public async Task Member_OriginalSource_PropertyAccessorOrdinals_ResolveGetterAndSetterSeparately()
+    {
+        // Ordinal 1 addresses the getter and 2 the setter, matching the accessor addressing the
+        // body sections use, so each renders its own authored accessor source (#3278).
+        var (getterExit, getterOutput, getterError) = await RunAppAsync(
+            "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
+            "MaxDepth:1", "-S", "Original Source", "--tips", "q");
+
+        Assert.Equal(0, getterExit);
+        Assert.Empty(getterError);
+        Assert.Contains("## Original Source", getterOutput);
+        Assert.Contains("get => _maxDepth;", getterOutput);
+        Assert.DoesNotContain("_maxDepth = value;", getterOutput);
+
+        var (setterExit, setterOutput, setterError) = await RunAppAsync(
+            "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
+            "MaxDepth:2", "-S", "Original Source", "--tips", "q");
+
+        Assert.Equal(0, setterExit);
+        Assert.Empty(setterError);
+        Assert.Contains("## Original Source", setterOutput);
+        Assert.Contains("_maxDepth = value;", setterOutput);
+    }
+
+    [Fact]
+    public async Task Member_SourceDiff_PropertyAccessor_ComparesAuthoredSourceToAccessorBody()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
+            "MaxDepth:2", "-S", "Source Diff", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Source Diff", output);
+        Assert.Contains("--- Original Source", output);
+        Assert.Contains("+++ Decompiled Source", output);
+        // The decompiled side is the accessor's own body, spelled with its metadata name.
+        Assert.Contains("set_MaxDepth", output);
+    }
+
+    [Fact]
     public async Task Member_SourceLocations_BareSelectedSignature_EmitsSingleUrl()
     {
         var (exit, output, error) = await RunAppAsync(

@@ -446,6 +446,77 @@ public class ObjectInitializerPassTests
         Assert.Contains("return new InitContainer { @else = { X = value } };", output);
     }
 
+    // #3272: the initializer sits in a trailing constructor-argument position, so a
+    // preceding argument is evaluated first and spilled to a local by the stackifier,
+    // interleaving between `new()` and the first member store. The pass now skips that
+    // independent statement and folds via the use site, restoring the source spelling
+    // (which recompiles to the original dup-chain IL — byte-neutral).
+    [Fact]
+    public void TrailingInitializerWithLeadingArgument_FoldsViaUseSite()
+    {
+        var function = Raised(nameof(CfgSampleClass.MakeConsumerWithTrailingInitializer));
+
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.False(initializer.IsCollection);
+        Assert.Equal(["X", "Y"], initializer.Members);
+
+        // The whole dup chain and its version copies are gone: no residual slot store,
+        // property store, or spilled local survives.
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<StoreProperty>());
+        Assert.Empty(function.Descendants.OfType<StoreLocal>());
+
+        Assert.Contains(
+            "return new InitConsumer(Identity(tag), new InitTarget { X = a, Y = b });",
+            CSharpPrinter.Print(function).Output);
+    }
+
+    // #3272 breadth: two preceding arguments produce two interleaved statements before
+    // the first member store; both are skipped and the initializer still folds (the
+    // spilled arg locals are left for later inlining — orthogonal to this pass).
+    [Fact]
+    public void TrailingInitializerWithTwoLeadingArguments_FoldsViaUseSite()
+    {
+        var function = Raised(nameof(CfgSampleClass.MakeConsumerWithTwoLeadingArgs));
+
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.Equal(["X", "Y"], initializer.Members);
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<StoreProperty>());
+
+        Assert.Contains(
+            "new InitTarget { X = a, Y = b }",
+            CSharpPrinter.Print(function).Output);
+    }
+
+    // Close negative for the skip guard: an interleaved statement that READS the
+    // threaded reference before the first member store is not independent, so it must
+    // break the run (never be skipped) and leave the object lowered.
+    [Fact]
+    public void ForeignReadBeforeMembers_StaysLowered()
+    {
+        var function = FunctionWithForeignReadBeforeFirstMember();
+        IrPasses.Run(function);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<ObjectInitializerExpression>());
+    }
+
+    // #3272 provenance guard, real reachable case: `var t = new(); SideEffect(); t.X =
+    // a; return t;`. Roslyn erases `t` into the SAME stack-slot dup form as the
+    // trailing-argument fixtures, so the interleaved SideEffect() call is slot-
+    // independent and would be skipped on shape alone. But the `newobj` runs BEFORE
+    // SideEffect() in the original IL (offset 0 vs 5); folding via the use site would
+    // move the construction after the call, an observable reorder. The offset guard
+    // declines the skip, so the object must stay lowered.
+    [Fact]
+    public void ReorderingVoidCallBetween_StaysLowered()
+    {
+        var function = Raised(nameof(CfgSampleClass.MakeTargetWithVoidCallBetween));
+
+        Assert.Empty(function.Descendants.OfType<ObjectInitializerExpression>());
+    }
+
     static IrFunction FunctionWithSetter(bool generic, string propertyName = "set_Value")
     {
         var type = TypeRef.Definition("Synthetic", "Samples", "Owner");
@@ -549,6 +620,44 @@ public class ObjectInitializerPassTests
         body.Add(block);
         return new IrFunction(
             "ClobberedReceiver",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(type, [], HasThis: false, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    // A `new()` followed — before any member store — by a statement that reads the
+    // freshly-constructed reference (Observe(t)) and only then a member store. The read
+    // is not independent of the reference, so the pass must not skip it; the object
+    // stays lowered.
+    static IrFunction FunctionWithForeignReadBeforeFirstMember()
+    {
+        var type = TypeRef.Definition("Synthetic", "Samples", "InitTarget");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var ctor = new MethodRef(type, ".ctor", voidType, [], HasThis: true);
+        var setter = new MethodRef(type, "set_X", voidType, [intType], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+        var observe = new MethodRef(
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            "Observe",
+            voidType,
+            [type],
+            HasThis: false);
+
+        const int slot = 256;
+        var block = new Block();
+        block.Add(new StoreStackSlot(slot, new NewObject(ctor, [])));
+        block.Add(new ExpressionStatement(new Call(observe, isVirtual: false, [new LoadStackSlot(slot, type)])));
+        block.Add(new StoreProperty(setter, new LoadStackSlot(slot, type), [], new Constant(1, intType)));
+        block.Add(new Return(new LoadStackSlot(slot, type)));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "ForeignReadBeforeMembers",
             TypeRef.Definition("Synthetic", "Samples", "Owner"),
             new MethodSignature(type, [], HasThis: false, GenericParameterCount: 0),
             [],

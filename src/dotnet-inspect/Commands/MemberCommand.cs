@@ -277,8 +277,18 @@ public static class MemberCommand
                 bool fetchSource = ApiCommand.GetRequestedMemberSections(apiType, effectiveOptions)
                     .Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]);
                 var selectedMember = apiType.Members.Count == 1 ? apiType.Members[0] : null;
-                var sourceTypeName = selectedMember?.DeclaringType ?? apiType.FullName;
-                var sourceOverloadIndex = (selectedMember?.DeclaringOverloadIndex ?? effectiveOptions.OverloadIndex.Value) - 1;
+                // A property/event (including an indexer) has no body of its own: its authored
+                // source lives in the accessor the selected ordinal addresses, so resolve by that
+                // accessor's name and MethodDef token rather than the property's name and absent
+                // token, which would otherwise resolve nothing (issue #3278).
+                var sourceAccessor = ResolveSourceAccessor(apiType, selectedMember, effectiveOptions.OverloadIndex);
+                var sourceMember = sourceAccessor ?? selectedMember;
+                var sourceTypeName = sourceMember?.DeclaringType ?? apiType.FullName;
+                // Accessor names are unique within their declaring type, so the name fallback
+                // (used only when the token cannot be trusted) addresses the first match.
+                var sourceOverloadIndex = sourceAccessor is not null
+                    ? 0
+                    : (selectedMember?.DeclaringOverloadIndex ?? effectiveOptions.OverloadIndex.Value) - 1;
                 // A directly-requested single member (name + overload) is already explicitly named
                 // by the caller. When non-public members are in scope (--all), honor that request
                 // for Original Source / Source Diff regardless of accessibility; member inventories
@@ -296,14 +306,14 @@ public static class MemberCommand
                 // bodies), so fall back to name/overload resolution.
                 var tokenOriginAssembly = apiType.SourceAssemblyPath ?? apiDllPath;
                 var sourceMetadataToken = string.Equals(pdbLookupPath, tokenOriginAssembly, StringComparison.Ordinal)
-                    ? (selectedMember?.MetadataToken ?? 0)
+                    ? (sourceMember?.MetadataToken ?? 0)
                     : 0;
                 var resolved = await ApiCommand.ResolveMethodSourceAsync(
                     pdbLookupPath, sourceTypeName,
-                    effectiveOptions.MemberFilter.First(),
+                    sourceAccessor?.Name ?? effectiveOptions.MemberFilter.First(),
                     sourceOverloadIndex,
                     effectiveOptions, context.HttpClient, logger, fetchSource, publicOnly,
-                    sourceMetadataToken, selectedMember?.IsFinalizer ?? false);
+                    sourceMetadataToken, sourceMember?.IsFinalizer ?? false);
 
                 effectiveOptions = effectiveOptions with
                 {
@@ -568,4 +578,28 @@ public static class MemberCommand
 
     private static bool NeedsMemberSourceLocationResolution(MemberOptions options)
         => options.IncludeSections?.Contains(SectionNames.SourceLocations) == true;
+
+    /// <summary>
+    /// The accessor method that carries a selected property's or event's authored source, or
+    /// <see langword="null"/> when the selected member is already method-like (or is a field,
+    /// which has no accessor). The accessor ordinal follows the same addressing the body
+    /// sections use: 1 is the getter/adder and 2 the setter/remover, counting only accessors
+    /// that exist (issue #3278).
+    /// </summary>
+    private static ApiMember? ResolveSourceAccessor(ApiType apiType, ApiMember? selected, int? accessorOrdinal)
+    {
+        if (selected is null
+            || ApiMemberSectionDescriptors.IsMethodLike(selected)
+            || !ApiMemberSectionDescriptors.HasAccessorTokens(selected))
+        {
+            return null;
+        }
+
+        var accessors = ApiOutputFormatter.AccessorMethods(selected, apiType).ToList();
+        if (accessors.Count == 0)
+            return null;
+
+        var index = (accessorOrdinal ?? 1) - 1;
+        return index >= 0 && index < accessors.Count ? accessors[index] : accessors[0];
+    }
 }

@@ -2927,6 +2927,50 @@ public class CfgSampleClass
         public void Add(int value) => Total += value;
     }
 
+    public sealed class InitConsumer
+    {
+        public InitConsumer(int tag, InitTarget target) { }
+    }
+
+    public sealed class InitConsumer3
+    {
+        public InitConsumer3(int first, int second, InitTarget target) { }
+    }
+
+    static int Identity(int value) => value;
+
+    static void SideEffect() { }
+
+    // #3272 regression: the object initializer is the SECOND constructor argument,
+    // so the first argument is evaluated first and stays live on the stack beneath
+    // the dup chain. The stackifier cannot keep two values on the stack across the
+    // initializer's statement run, so it spills the dup temp into named locals with
+    // version copies (`t2 = t1; t2.X = ...`) — the shape the named-local matcher must
+    // now fold. Identity() keeps the first arg a computed value (as `Pipeline` was).
+    public static InitConsumer MakeConsumerWithTrailingInitializer(int tag, int a, int b)
+        => new InitConsumer(Identity(tag), new InitTarget { X = a, Y = b });
+
+    // #3272 breadth: TWO arguments precede the initializer, so two independent
+    // statements interleave before the first member store; both must be skipped.
+    public static InitConsumer3 MakeConsumerWithTwoLeadingArgs(int tag, int a, int b)
+        => new InitConsumer3(Identity(tag), Identity(a), new InitTarget { X = a, Y = b });
+
+    // #3272 adjudication probe: a side-effecting statement between new() and the
+    // first member store. Roslyn erases the local `t` and lowers this through the
+    // SAME stack-slot dup form as the trailing-argument fixtures, so the skip logic
+    // WOULD apply on shape alone — but folding via the use site would move the
+    // `newobj` after SideEffect(), reordering construction across an observable
+    // call. Here the `newobj` runs at IL offset 0 and SideEffect() at offset 5, so
+    // the offset guard (skip only statements that ran before the newobj) declines
+    // and the object stays lowered.
+    public static InitTarget MakeTargetWithVoidCallBetween(int a)
+    {
+        var t = new InitTarget();
+        SideEffect();
+        t.X = a;
+        return t;
+    }
+
     public static InitContainer MakeNestedObject(int a, int b)
         => new InitContainer { Inner = { X = a, Y = b } };
 

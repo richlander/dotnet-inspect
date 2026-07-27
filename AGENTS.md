@@ -136,6 +136,38 @@ Match evidence to the claim and use the smallest existing check that proves it:
   frequency, bytes, or impact; use a benchmark or profiler for runtime claims.
 - Documentation-only changes that make no measured behavior claim require
   Markdown validation, not product builds or tests.
+- A doc comment or README that asserts a safety, soundness, or faithfulness
+  property must name the gate that enforces it, or explicitly mark the
+  property as unverified.
+
+### Asserted properties name their gate
+
+"Unverified" is an acceptable answer; an unmarked, ungated claim is not. A
+green suite plus a confident comment reads exactly like a verified property,
+and a reviewer can only tell them apart by tampering with the code to see
+whether anything notices. Naming the gate moves that cost to the author, where
+it is a one-line answer.
+
+Prefer making the declaration *drive* the enforcement set over restating it, so
+that stale and missing entries both fail:
+
+- `ByteNeutralityGateTests` derives its coverage set from the style catalog
+  (`StyleOptionCatalog.Options.Where(o => !o.ByteDivergent)`) and asserts set
+  equality against the specimens.
+- `SpanAttributionTests` asserts set equality between the body-intrinsic error
+  allowlist and the pin for the current `MethodologyVersion`.
+
+When the property depends on wiring rather than on a set, write one named
+non-vacuity test that fails if the wiring dies, and say in its doc comment that
+it is that test —
+`IrInvariantCheckTests.PipelineRunner_UnderTestHost_ThrowsWhenAPassCorruptsTheTree`
+is the example.
+
+A gate only counts if it runs in the configuration the suite uses. The suite
+runs Release for fixture fidelity (see [Building and
+testing](#building-and-testing)), so a `[Conditional("DEBUG")]` check asserts
+nothing. Make such a check a runtime opt-in that the test host arms; do not
+switch the suite to Debug.
 
 ### Harness boundary
 
@@ -207,18 +239,25 @@ corpus consumes, so a Debug run would validate the decompiler against IL shapes
 users never see. Because the suite runs Release, correctness checks must not
 hide behind `[Conditional("DEBUG")]` — such a call is stripped from the Release
 test assembly and asserts nothing. The IR invariant check
-(`IrNode.CheckInvariant`) is instead a runtime opt-in (`IrInvariants.Enabled`,
-env var `DOTNET_INSPECT_IR_INVARIANTS`) that the decompiler test host turns on
-suite-wide, so the pipeline is validated after every pass in the same build
-users run, while the shipped tool pays nothing on the decompile hot path.
+(`IrNode.CheckInvariant`) is instead a runtime flag (`IrInvariants.Enabled`,
+env var `DOTNET_INSPECT_IR_INVARIANTS`) that is **on by default**, so any host
+that runs the pipeline — test suite, harness, sweep, benchmark — validates it
+after every pass in the same build users run. The shipped CLI is the one
+sanctioned opt-out (`IrInvariants.DisableForShippedTool()` in
+`src/dotnet-inspect/Program.cs`), so the tool pays nothing on the decompile hot
+path. Declining validation has exactly one form — `Enabled`'s setter is private,
+so the compiler rejects any other spelling — and `IrInvariantsHostContractTests`
+pins that one call site, so a new host cannot quietly decline. An explicit
+`DOTNET_INSPECT_IR_INVARIANTS` value (trimmed, case-insensitive) outranks the
+opt-out in both directions.
 
 The invariant check is **leveled**, because the two levels need different
 inputs to be sound:
 
 - **Structural** invariants (parent/child back-pointer consistency, tree
   shape) hold on *any* well-formed `IrNode` graph, including the deliberately
-  minimal `IrFunction`s that hand-built pass-unit fixtures construct. These run
-  suite-wide: the test host sets only `Enabled` (`DOTNET_INSPECT_IR_INVARIANTS=1`).
+  minimal `IrFunction`s that hand-built pass-unit fixtures construct. These are
+  the default level every host gets (`IrInvariants.Enabled`).
 - **Semantic** invariants (e.g. local-slot indices within the enclosing
   function/lambda's `Locals`) hold on *real importer output* but not on minimal
   fixtures, which routinely reference slots without populating `Locals`. These

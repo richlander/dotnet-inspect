@@ -241,18 +241,18 @@ public sealed class IrInvariantCheckTests
 
     /// <summary>
     /// The end-to-end teeth test: it does NOT set <see cref="IrInvariants.Enabled"/>
-    /// itself. It relies on the test host's module initializer having turned the
-    /// flag on, and on the pipeline runner honoring it after every pass. A
-    /// corrupting pass breaks the tree; running it through <see cref="IrPasses.Run"/>
-    /// must throw. This is the only test that fails if the module initializer is
-    /// removed, the per-pass gate is deleted, or the runner stops calling
-    /// CheckInvariant — the direct-call tests above would all still pass.
+    /// itself. It relies on the flag being armed <em>by default</em> (#3267) and on
+    /// the pipeline runner honoring it after every pass. A corrupting pass breaks
+    /// the tree; running it through <see cref="IrPasses.Run"/> must throw. This is
+    /// the only test that fails if the default is flipped back to off, the per-pass
+    /// gate is deleted, or the runner stops calling CheckInvariant — the direct-call
+    /// tests above would all still pass.
     /// </summary>
     [Fact]
-    public void PipelineRunner_UnderTestHost_ThrowsWhenAPassCorruptsTheTree()
+    public void PipelineRunner_ThrowsWhenAPassCorruptsTheTree()
     {
         Assert.True(IrInvariants.Enabled,
-            "Test host module initializer should have enabled IR invariants for the suite.");
+            "IR invariants should be armed by default for any host that does not explicitly opt out.");
 
         var (function, block) = MinimalFunction();
         var passes = ImmutableArray.Create<IIrPass>(new SlotCorruptingPass(block));
