@@ -261,8 +261,8 @@ public static partial class ResearchViews
 
         IrFunction? ImportMethodBody(MethodRef target) => IrImporter.Import(source, target);
         var csResult = stage == AnnotationStage.Lowered
-            ? CSharpPrinter.PrintLowered(imported, out var statementLines, importMethodBody: ImportMethodBody, options: printerOptions)
-            : CSharpPrinter.PrintRaised(imported, out statementLines, importMethodBody: ImportMethodBody, typesProvablyDisjoint: source.AreProvablyDisjoint, options: printerOptions);
+            ? CSharpPrinter.PrintLowered(imported, out var printedRanges, importMethodBody: ImportMethodBody, options: printerOptions)
+            : CSharpPrinter.PrintRaised(imported, out printedRanges, importMethodBody: ImportMethodBody, typesProvablyDisjoint: source.AreProvablyDisjoint, options: printerOptions);
         if (csResult.Output is not { } csText)
             return csResult;
 
@@ -289,7 +289,7 @@ public static partial class ResearchViews
                 ? IlProjection.RenderIlBodyLines(source, type, method, overloadIndex, publicOnly)
                 : IlProjection.RenderIlBodyLines(source, methodToken.Value);
 
-        var stream = CorrelateMixedSource(imported, csText, statementLines, annotations, annotatedInstrLines);
+        var stream = CorrelateMixedSource(imported, csText, printedRanges, annotations, annotatedInstrLines);
         return csResult with { Output = RenderMixedStream(stream, gestures ?? AnnotationGestureSelector.SideOnly) };
     }
 
@@ -303,7 +303,7 @@ public static partial class ResearchViews
     static IReadOnlyList<AnnotatedSourceLine> CorrelateMixedSource(
         IrFunction imported,
         string csText,
-        IReadOnlyDictionary<IrNode, int> statementLines,
+        PrintedRangeMap printedRanges,
         IReadOnlyList<IAnnotation> annotations,
         IReadOnlyList<SourceLine> annotatedInstrLines)
     {
@@ -314,7 +314,7 @@ public static partial class ResearchViews
         {
             if (AnnotationAnchor.Best(spans, annotation.SourceOffset) is not { } owner)
                 continue;
-            if (!AnnotationAnchor.TryGetPrintedLine(owner, statementLines, out int line))
+            if (!AnnotationAnchor.TryGetPrintedLine(owner, printedRanges, out int line))
                 continue;
             if (!annotationsByLine.TryGetValue(line, out var list))
                 annotationsByLine[line] = list = [];
@@ -327,14 +327,14 @@ public static partial class ResearchViews
         {
             if (AnnotationAnchor.Best(spans, instr.Offset) is not { } owner)
                 continue;
-            if (!AnnotationAnchor.TryGetPrintedLine(owner, statementLines, out int line))
+            if (!AnnotationAnchor.TryGetPrintedLine(owner, printedRanges, out int line))
                 continue;
             if (!ilByLine.TryGetValue(line, out var list))
                 ilByLine[line] = list = [];
             list.Add((instr.Offset, AddFactsToAnnotatedLine(instr.Text, factsByOffset.GetValueOrDefault(instr.Offset))));
         }
 
-        var csLines = RenderCSharpBodyLines(csText, statementLines);
+        var csLines = RenderCSharpBodyLines(csText, printedRanges);
         var stream = new List<AnnotatedSourceLine>(csLines.Count);
         for (int i = 0; i < csLines.Count; i++)
         {
@@ -363,12 +363,12 @@ public static partial class ResearchViews
     // it directly for line-addressable diff and body-subset anchoring.
     static IReadOnlyList<SourceLine> RenderCSharpBodyLines(
         string csText,
-        IReadOnlyDictionary<IrNode, int> statementLines)
+        PrintedRangeMap printedRanges)
     {
         var lineOffsets = new Dictionary<int, int>();
-        foreach (var (node, line) in statementLines)
+        foreach (var (node, _) in printedRanges)
         {
-            if (node.SourceOffset < 0)
+            if (node.SourceOffset < 0 || !printedRanges.TryGetLine(node, out int line))
                 continue;
             lineOffsets[line] = lineOffsets.TryGetValue(line, out int existing)
                 ? Math.Min(existing, node.SourceOffset)
@@ -414,12 +414,12 @@ public static partial class ResearchViews
 
     static DecompilerResult RenderRaisedOverlay(IrFunction imported, IReadOnlyList<IAnnotation> annotations, MetadataSource source, AnnotationGestureSelector? gestures = null)
     {
-        var result = CSharpPrinter.PrintRaised(imported, out var statementLines, importMethodBody: null, typesProvablyDisjoint: source.AreProvablyDisjoint);
+        var result = CSharpPrinter.PrintRaised(imported, out var printedRanges, importMethodBody: null, typesProvablyDisjoint: source.AreProvablyDisjoint);
         if (result.Output is not { } output)
             return result;
         var projected = annotations.Count == 0
             ? output
-            : AddTrailingComments(imported, output, statementLines, annotations, gestures ?? AnnotationGestureSelector.SideOnly);
+            : AddTrailingComments(imported, output, printedRanges, annotations, gestures ?? AnnotationGestureSelector.SideOnly);
         return result with { Output = projected };
     }
 
@@ -463,11 +463,11 @@ public static partial class ResearchViews
     static string AddTrailingComments(
         IrFunction raised,
         string output,
-        IReadOnlyDictionary<IrNode, int> statementLines,
+        PrintedRangeMap printedRanges,
         IReadOnlyList<IAnnotation> annotations,
         AnnotationGestureSelector gestures)
     {
-        var stream = CorrelateOverlay(raised, output, statementLines, annotations);
+        var stream = CorrelateOverlay(raised, output, printedRanges, annotations);
         return RenderOverlayStream(output, stream, gestures);
     }
 
@@ -480,18 +480,18 @@ public static partial class ResearchViews
     static IReadOnlyList<AnnotatedSourceLine> CorrelateOverlay(
         IrFunction raised,
         string output,
-        IReadOnlyDictionary<IrNode, int> statementLines,
+        PrintedRangeMap printedRanges,
         IReadOnlyList<IAnnotation> annotations)
     {
         var annotationsByLine = new Dictionary<int, IReadOnlyList<IAnnotation>>();
         foreach (var (statement, facts) in AnnotationAnchor.Anchor(raised, annotations))
-            if (AnnotationAnchor.TryGetPrintedLine(statement, statementLines, out int line))
+            if (AnnotationAnchor.TryGetPrintedLine(statement, printedRanges, out int line))
                 annotationsByLine[line] = facts;
 
         var lineOffsets = new Dictionary<int, int>();
-        foreach (var (node, line) in statementLines)
+        foreach (var (node, _) in printedRanges)
         {
-            if (node.SourceOffset < 0)
+            if (node.SourceOffset < 0 || !printedRanges.TryGetLine(node, out int line))
                 continue;
             lineOffsets[line] = lineOffsets.TryGetValue(line, out int existing)
                 ? Math.Min(existing, node.SourceOffset)
@@ -566,7 +566,7 @@ public static partial class ResearchViews
 
     static Dictionary<IAnnotation, int> CSharpLinesByFact(IrFunction imported, IReadOnlyList<IAnnotation> facts, MetadataSource source)
     {
-        var result = CSharpPrinter.PrintRaised(imported, out var statementLines, importMethodBody: null, typesProvablyDisjoint: source.AreProvablyDisjoint);
+        var result = CSharpPrinter.PrintRaised(imported, out var printedRanges, importMethodBody: null, typesProvablyDisjoint: source.AreProvablyDisjoint);
         if (result.Output is null || facts.Count == 0)
             return [];
         var spans = AnnotationAnchor.ComputeSpans(imported);
@@ -574,7 +574,7 @@ public static partial class ResearchViews
         foreach (var fact in facts)
         {
             if (AnnotationAnchor.Best(spans, fact.SourceOffset) is { } owner
-                && AnnotationAnchor.TryGetPrintedLine(owner, statementLines, out int line))
+                && AnnotationAnchor.TryGetPrintedLine(owner, printedRanges, out int line))
             {
                 lines[fact] = line;
             }

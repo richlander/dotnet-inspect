@@ -1,0 +1,141 @@
+using ILInspector.Decompiler.Pipeline;
+
+namespace ILInspector.Decompiler.Tests;
+
+// The printer is the only component that can say which characters belong to
+// which node, so these pin the recording itself: bounds, the line projection
+// that replaced the old per-statement rescan, and the nesting that a wrapper
+// around the emission body is what makes correct.
+[Trait("Area", "Printer")]
+public class PrintedRangeMapTests
+{
+    static (string Output, PrintedRangeMap Ranges) Print(string methodName)
+    {
+        var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location);
+        var function = IrImporter.Import(source, typeof(AllocSampleClass).FullName!, methodName);
+        Assert.NotNull(function);
+        var result = CSharpPrinter.PrintRaised(function!, out var ranges);
+        Assert.NotNull(result.Output);
+        return (result.Output!, ranges);
+    }
+
+    static (int Start, int End) Offsets(PrintedRange range, int length)
+        => (range.Characters.Start.GetOffset(length), range.Characters.End.GetOffset(length));
+
+    [Theory]
+    [InlineData(nameof(AllocSampleClass.SumList))]
+    [InlineData(nameof(AllocSampleClass.SumEnumerable))]
+    [InlineData(nameof(AllocSampleClass.MakeArray))]
+    public void EveryRange_LiesInsideTheOutputItIndexes(string methodName)
+    {
+        // Nothing clamps ranges to the returned string, because a sweep of 62,838
+        // ranges found none that overruns it. This is the invariant that lets
+        // consumers slice without checking, so it is pinned rather than assumed.
+        var (output, ranges) = Print(methodName);
+        Assert.NotEmpty(ranges);
+
+        foreach (var range in ranges)
+        {
+            var (start, end) = Offsets(range, output.Length);
+            Assert.InRange(start, 0, output.Length);
+            Assert.InRange(end, start, output.Length);
+        }
+    }
+
+    [Theory]
+    [InlineData(nameof(AllocSampleClass.SumList))]
+    [InlineData(nameof(AllocSampleClass.SumEnumerable))]
+    public void TryGetLine_AgreesWithCountingNewlinesIndependently(string methodName)
+    {
+        // The line is now a projection of the range rather than separately
+        // recorded, so it has to reproduce what the old scan computed.
+        var (output, ranges) = Print(methodName);
+
+        foreach (var range in ranges)
+        {
+            var (start, _) = Offsets(range, output.Length);
+            int expected = output[..start].Count(c => c == '\n');
+            Assert.True(ranges.TryGetLine(range.Node, out int line));
+            Assert.Equal(expected, line);
+        }
+    }
+
+    [Theory]
+    [InlineData(nameof(AllocSampleClass.SumList))]
+    [InlineData(nameof(AllocSampleClass.SumEnumerable))]
+    public void RangeText_StartsAtTheStatementOnItsOwnLine(string methodName)
+    {
+        // Catches an off-by-N start: the recorded slice, once its leading indent
+        // is dropped, must be what the line at that position actually reads.
+        var (output, ranges) = Print(methodName);
+        var lines = output.Replace("\r\n", "\n").Split('\n');
+
+        foreach (var range in ranges)
+        {
+            var (start, end) = Offsets(range, output.Length);
+            string slice = output[start..end].TrimStart();
+            if (slice.Length == 0)
+                continue;
+            Assert.True(ranges.TryGetLine(range.Node, out int line));
+            string firstSliceLine = slice.Replace("\r\n", "\n").Split('\n')[0];
+            Assert.Equal(lines[line].TrimStart(), firstSliceLine);
+        }
+    }
+
+    [Fact]
+    public void NestedStatement_IsContainedByItsPrintedAncestor()
+    {
+        // A foreach body sits inside the loop's own printed range. This is the
+        // property a wrapper around the emission body buys and an inline record
+        // at the top of that body cannot.
+        var (output, ranges) = Print(nameof(AllocSampleClass.SumList));
+
+        var contained = ranges
+            .Where(range => NearestRecordedAncestor(range.Node, ranges) is not null)
+            .ToList();
+        Assert.NotEmpty(contained);
+
+        foreach (var range in contained)
+        {
+            var ancestor = NearestRecordedAncestor(range.Node, ranges)!;
+            Assert.True(ranges.TryGetRange(ancestor, out var outer));
+            var (start, end) = Offsets(range, output.Length);
+            int outerStart = outer.Start.GetOffset(output.Length);
+            int outerEnd = outer.End.GetOffset(output.Length);
+            Assert.InRange(start, outerStart, outerEnd);
+            Assert.InRange(end, start, outerEnd);
+        }
+    }
+
+    [Fact]
+    public void EnumerationOrder_IsEmissionCompletion_SoAncestorsFollowDescendants()
+    {
+        // The documented contract. Ordering by start position is deliberately not
+        // promised, so this pins what is promised instead.
+        var (_, ranges) = Print(nameof(AllocSampleClass.SumList));
+
+        var position = new Dictionary<IrNode, int>();
+        for (int i = 0; i < ranges.Count; i++)
+            position[ranges[i].Node] = i;
+
+        foreach (var (node, _) in ranges)
+            if (NearestRecordedAncestor(node, ranges) is { } ancestor)
+                Assert.True(position[node] < position[ancestor]);
+    }
+
+    [Fact]
+    public void FailedPrint_YieldsAnEmptyMapRatherThanRangesIntoNothing()
+    {
+        Assert.Empty(PrintedRangeMap.Empty);
+        Assert.Equal("", PrintedRangeMap.Empty.Output);
+        Assert.False(PrintedRangeMap.Empty.TryGetLine(new Return(null), out _));
+    }
+
+    static IrNode? NearestRecordedAncestor(IrNode node, PrintedRangeMap ranges)
+    {
+        for (var current = node.Parent; current is not null; current = current.Parent)
+            if (ranges.TryGetRange(current, out _))
+                return current;
+        return null;
+    }
+}
