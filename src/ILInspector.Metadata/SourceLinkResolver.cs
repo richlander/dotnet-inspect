@@ -154,9 +154,11 @@ public class SourceLinkResolver
         // next "}" below it closes the enclosing type instead (issue #3278). A range that still
         // has a block open does own one, even when its last line ends in ";": a signature whose
         // "{" sits on the declaration line ends its sequence range on the last statement.
-        bool endsAtDeclaration = startsAtDeclaration && end >= 1 && end <= lines.Length
-            && IsSelfTerminatingLine(lines[end - 1])
-            && !HasUnclosedBlock(lines, from, to);
+        //
+        // Both answers read the same lexical state, so one scan produces both. A trailing
+        // comment must not hide the terminating ";" (issue #3300), and a brace inside a comment
+        // or a literal must not count as structural.
+        bool endsAtDeclaration = startsAtDeclaration && EndsDeclaration(lines, from, to);
 
         // Scan forward to include the closing brace.
         for (int i = to; !endsAtDeclaration && i < Math.Min(to + 3, lines.Length); i++)
@@ -253,118 +255,198 @@ public class SourceLinkResolver
     }
 
     /// <summary>
-    /// True when <paramref name="line"/> ends a declaration outright, so no trailing brace has
-    /// to be recovered by the forward scan in <see cref="ExtractMethodBody"/>.
+    /// True when the captured range <c>[from, to)</c> ends a declaration outright, so the
+    /// forward scan in <see cref="ExtractMethodBody"/> has no trailing brace to recover.
+    /// <para>
+    /// Two conditions must hold. The range's last significant character — the last
+    /// non-whitespace character outside a comment, so a trailing <c>// note</c> cannot hide it
+    /// (issue #3300) — must be <c>;</c> or <c>}</c>, and that character must not sit inside a
+    /// still-open literal, where it terminates nothing. And the range must not leave a block
+    /// open, counting only braces outside comments and literals: a property such as
+    /// <c>public string M =&gt; "{";</c> opens nothing and owns no brace below it.
+    /// </para>
+    /// <para>
+    /// A single-line range is never judged unclosed, and an untracked raw string literal is
+    /// treated as leaving a block open so the forward scan runs, which is the conservative
+    /// answer.
+    /// </para>
     /// </summary>
-    private static bool IsSelfTerminatingLine(string line)
+    private static bool EndsDeclaration(string[] lines, int from, int to)
     {
-        var trimmed = line.TrimEnd();
-        return trimmed.EndsWith(';') || trimmed.EndsWith('}');
-    }
-
-    /// <summary>
-    /// True when the captured range <c>[from, to)</c> opens more blocks than it closes, so a
-    /// closing brace still has to be recovered below it. Braces inside comments, char literals,
-    /// and string literals do not count — a property such as <c>public string M =&gt; "{";</c>
-    /// closes nothing and owns no brace below it. A raw string literal is not tracked; the range
-    /// is reported as still open so the forward scan runs, which is the conservative answer.
-    /// A single line is never judged unclosed, so a one-line declaration needs no such analysis.
-    /// </summary>
-    private static bool HasUnclosedBlock(string[] lines, int from, int to)
-    {
-        if (to - from <= 1)
+        int first = Math.Max(0, from);
+        int last = Math.Min(to, lines.Length);
+        if (last <= first)
             return false;
 
         int depth = 0;
         bool inBlockComment = false;
         bool inVerbatimString = false;
+        bool untracked = false;
+        char terminator = '\0';
 
-        for (int i = Math.Max(0, from); i < Math.Min(to, lines.Length); i++)
-        {
-            var line = lines[i];
-            for (int j = 0; j < line.Length; j++)
-            {
-                char c = line[j];
+        for (int i = first; i < last; i++)
+            terminator = ScanLine(lines[i], ref inBlockComment, ref inVerbatimString, ref depth, ref untracked);
 
-                if (inBlockComment)
-                {
-                    if (c == '*' && j + 1 < line.Length && line[j + 1] == '/')
-                    {
-                        inBlockComment = false;
-                        j++;
-                    }
-                    continue;
-                }
+        if (terminator != ';' && terminator != '}')
+            return false;
 
-                if (inVerbatimString)
-                {
-                    if (c != '"')
-                        continue;
-                    if (j + 1 < line.Length && line[j + 1] == '"')
-                        j++;
-                    else
-                        inVerbatimString = false;
-                    continue;
-                }
-
-                if (c == '/' && j + 1 < line.Length)
-                {
-                    if (line[j + 1] == '/')
-                        break;
-                    if (line[j + 1] == '*')
-                    {
-                        inBlockComment = true;
-                        j++;
-                        continue;
-                    }
-                }
-
-                if (c == '@' && j + 1 < line.Length)
-                {
-                    if (line[j + 1] == '"')
-                    {
-                        inVerbatimString = true;
-                        j++;
-                        continue;
-                    }
-
-                    if (line[j + 1] == '$' && j + 2 < line.Length && line[j + 2] == '"')
-                    {
-                        inVerbatimString = true;
-                        j += 2;
-                        continue;
-                    }
-                }
-
-                if (c == '"')
-                {
-                    if (j + 2 < line.Length && line[j + 1] == '"' && line[j + 2] == '"')
-                        return true;
-
-                    j++;
-                    while (j < line.Length && line[j] != '"')
-                        j += line[j] == '\\' ? 2 : 1;
-                    continue;
-                }
-
-                if (c == '\'')
-                {
-                    j++;
-                    while (j < line.Length && line[j] != '\'')
-                        j += line[j] == '\\' ? 2 : 1;
-                    continue;
-                }
-
-                if (c == '{')
-                    depth++;
-                else if (c == '}')
-                    depth--;
-            }
-        }
-
-        return depth > 0;
+        return last - first <= 1 || (!untracked && depth <= 0);
     }
 
+    /// <summary>
+    /// Index just past the first run of at least <paramref name="minimum"/> consecutive quotes
+    /// at or after <paramref name="start"/>, or <c>-1</c> when the line holds no such run.
+    /// </summary>
+    private static int IndexOfQuoteRun(string line, int start, int minimum)
+    {
+        for (int i = start; i < line.Length; i++)
+        {
+            if (line[i] != '"')
+                continue;
+
+            int end = i;
+            while (end < line.Length && line[end] == '"')
+                end++;
+
+            if (end - i >= minimum)
+                return end;
+
+            i = end - 1;
+        }
+
+        return -1;
+    }
+
+    /// <summary>
+    /// Scans one line of C# text, carrying <paramref name="inBlockComment"/> and
+    /// <paramref name="inVerbatimString"/> across lines, and returns the last significant
+    /// character on it — the last non-whitespace character that is not inside a comment.
+    /// Braces outside comments and literals are counted into <paramref name="depth"/>.
+    /// Raw string literals are not tracked; <paramref name="untracked"/> is set instead so the
+    /// caller can fall back to the unconditional forward scan, which is the conservative answer.
+    /// </summary>
+    private static char ScanLine(
+        string line,
+        ref bool inBlockComment,
+        ref bool inVerbatimString,
+        ref int depth,
+        ref bool untracked)
+    {
+        char significant = '\0';
+
+        for (int j = 0; j < line.Length; j++)
+        {
+            char c = line[j];
+
+            if (inBlockComment)
+            {
+                if (c == '*' && j + 1 < line.Length && line[j + 1] == '/')
+                {
+                    inBlockComment = false;
+                    j++;
+                }
+                continue;
+            }
+
+            if (inVerbatimString)
+            {
+                if (c == '"')
+                {
+                    if (j + 1 < line.Length && line[j + 1] == '"')
+                    {
+                        j++;
+                    }
+                    else
+                    {
+                        inVerbatimString = false;
+                        significant = '"';
+                    }
+                }
+
+                continue;
+            }
+
+            if (c == '/' && j + 1 < line.Length)
+            {
+                if (line[j + 1] == '/')
+                    break;
+                if (line[j + 1] == '*')
+                {
+                    inBlockComment = true;
+                    j++;
+                    continue;
+                }
+            }
+
+            if (c == '@' && j + 1 < line.Length)
+            {
+                if (line[j + 1] == '"')
+                {
+                    inVerbatimString = true;
+                    significant = '"';
+                    j++;
+                    continue;
+                }
+
+                if (line[j + 1] == '$' && j + 2 < line.Length && line[j + 2] == '"')
+                {
+                    inVerbatimString = true;
+                    significant = '"';
+                    j += 2;
+                    continue;
+                }
+            }
+
+            if (c == '"')
+            {
+                if (j + 2 < line.Length && line[j + 1] == '"' && line[j + 2] == '"')
+                {
+                    int open = j;
+                    while (open < line.Length && line[open] == '"')
+                        open++;
+                    int quotes = open - j;
+
+                    int close = IndexOfQuoteRun(line, open, quotes);
+                    if (close < 0)
+                    {
+                        // A raw string that spans lines is not tracked; report the range as
+                        // still open so the caller falls back to the forward scan.
+                        untracked = true;
+                        return significant;
+                    }
+
+                    j = close - 1;
+                    significant = '"';
+                    continue;
+                }
+
+                j++;
+                while (j < line.Length && line[j] != '"')
+                    j += line[j] == '\\' ? 2 : 1;
+                significant = '"';
+                continue;
+            }
+
+            if (c == '\'')
+            {
+                j++;
+                while (j < line.Length && line[j] != '\'')
+                    j += line[j] == '\\' ? 2 : 1;
+                significant = '\'';
+                continue;
+            }
+
+            if (c == '{')
+                depth++;
+            else if (c == '}')
+                depth--;
+
+            if (!char.IsWhiteSpace(c))
+                significant = c;
+        }
+
+        return significant;
+    }
     /// <summary>
     /// Words that can open a statement, and so rule out a declaration no matter what follows.
     /// </summary>
