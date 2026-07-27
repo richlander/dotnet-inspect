@@ -196,7 +196,20 @@ public sealed class ObjectInitializerPass : IIrPass
             // (never the seed), which keeps the member stores after this statement in
             // their original order. Only tolerated before the first entry so no member
             // store is ever reordered across it.
-            if (entries.Count == 0 && pendingInner is null && !TouchesAnySlot(statement, aliasSlots))
+            //
+            // Skipping is only sound when the statement's own computation already
+            // executed BEFORE the `newobj` (its IL offset precedes the creation's).
+            // Use-site folding moves the `newobj` after the skipped statement, so a
+            // statement that originally ran after the `newobj` (e.g. `t = new();
+            // SideEffect(); t.X = ...`, where Roslyn erased the named local into this
+            // dup form) would have its construction reordered across it — observable
+            // if the constructor or the statement has side effects. The offset guard
+            // admits only genuine preceding-argument spills, which the compiler always
+            // emits before the `newobj`.
+            if (entries.Count == 0
+                && pendingInner is null
+                && !TouchesAnySlot(statement, aliasSlots)
+                && ExecutesBefore(statement, creation))
             {
                 skipped.Add(statement);
                 continue;
@@ -623,6 +636,50 @@ public sealed class ObjectInitializerPass : IIrPass
                 return true;
         }
         return false;
+    }
+
+    // True when the statement's own computation completed BEFORE `creation`'s
+    // `newobj` executed in the original IL, so keeping it ahead of the folded
+    // `newobj` preserves observable order. See EffectOffset for how the offset is
+    // derived. Missing offsets decline the skip (conservative).
+    static bool ExecutesBefore(IrNode statement, NewObject creation)
+    {
+        int creationOffset = creation.SourceOffset;
+        if (creationOffset < 0)
+            return false;
+        int effect = EffectOffset(statement);
+        return effect >= 0 && effect < creationOffset;
+    }
+
+    // The latest IL offset at which the statement's side effect is observed. Later
+    // passes can rebuild a value's root node (e.g. property-access recognition)
+    // and drop its offset, so scan the whole value subtree and take the max
+    // retained offset rather than trusting the root alone. The store/expression
+    // wrapper's own offset is a stackifier artifact that can fall after the
+    // `newobj`, so it is excluded — only the value's computation counts. Because a
+    // statement's operands execute in the same window as the statement, this max
+    // is a sound bound: a statement that ran before the `newobj` has every
+    // retained offset below the creation offset, and one that ran after has every
+    // retained offset above it (or none, which conservatively declines the skip).
+    static int EffectOffset(IrNode statement)
+    {
+        var value = statement switch
+        {
+            StoreStackSlot store => (IrNode)store.Value,
+            StoreLocal store => store.Value,
+            ExpressionStatement expr => expr.Expression,
+            _ => statement,
+        };
+        return MaxOffsetInSubtree(value);
+    }
+
+    static int MaxOffsetInSubtree(IrNode node)
+    {
+        int max = node.SourceOffset;
+        foreach (var descendant in node.Descendants)
+            if (descendant.SourceOffset > max)
+                max = descendant.SourceOffset;
+        return max;
     }
 
     static bool ReferencesLocal(IrNode node, int index)

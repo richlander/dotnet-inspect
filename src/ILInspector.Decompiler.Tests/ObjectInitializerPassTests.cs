@@ -502,6 +502,21 @@ public class ObjectInitializerPassTests
         Assert.Empty(function.Descendants.OfType<ObjectInitializerExpression>());
     }
 
+    // #3272 provenance guard, real reachable case: `var t = new(); SideEffect(); t.X =
+    // a; return t;`. Roslyn erases `t` into the SAME stack-slot dup form as the
+    // trailing-argument fixtures, so the interleaved SideEffect() call is slot-
+    // independent and would be skipped on shape alone. But the `newobj` runs BEFORE
+    // SideEffect() in the original IL (offset 0 vs 5); folding via the use site would
+    // move the construction after the call, an observable reorder. The offset guard
+    // declines the skip, so the object must stay lowered.
+    [Fact]
+    public void ReorderingVoidCallBetween_StaysLowered()
+    {
+        var function = Raised(nameof(CfgSampleClass.MakeTargetWithVoidCallBetween));
+
+        Assert.Empty(function.Descendants.OfType<ObjectInitializerExpression>());
+    }
+
     static IrFunction FunctionWithSetter(bool generic, string propertyName = "set_Value")
     {
         var type = TypeRef.Definition("Synthetic", "Samples", "Owner");
