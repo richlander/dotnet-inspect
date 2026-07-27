@@ -246,13 +246,13 @@ public sealed class SectionPipeline<TModel>
     /// filtered by verbosity and <c>-S</c>.
     /// </summary>
     public List<string> GetEffectiveSections(TModel model, Verbosity verbosity,
-        HashSet<string>? include = null)
+        HashSet<string>? include = null, bool fixedOverview = false)
     {
         List<string> result = [];
         for (int i = 0; i < _entries.Count; i++)
         {
             var entry = _entries[i];
-            if (!IsRequested(entry, i, verbosity, include))
+            if (!IsRequested(entry, i, verbosity, include, fixedOverview))
                 continue;
             if (entry.CanRender(model))
                 result.Add(entry.Name);
@@ -410,11 +410,11 @@ public sealed class SectionPipeline<TModel>
     /// all sections should be rendered (no filtering needed).
     /// </summary>
     public HashSet<string>? ComputeIncludeSections(TModel model, Verbosity verbosity,
-        HashSet<string>? include = null, bool allSelector = false)
+        HashSet<string>? include = null, bool allSelector = false, bool fixedOverview = false)
     {
         var effective = allSelector
             ? GetAllSelectorSections(model)
-            : GetEffectiveSections(model, verbosity, include);
+            : GetEffectiveSections(model, verbosity, include, fixedOverview);
 
         if (allSelector)
             return [.. effective];
@@ -491,7 +491,7 @@ public sealed class SectionPipeline<TModel>
     /// Sections with a null scanner key are always collected and not included.
     /// </summary>
     public HashSet<string> GetRequiredScanners(Verbosity verbosity,
-        HashSet<string>? include = null)
+        HashSet<string>? include = null, bool fixedOverview = false)
     {
         HashSet<string> scanners = [];
         for (int i = 0; i < _entries.Count; i++)
@@ -499,7 +499,7 @@ public sealed class SectionPipeline<TModel>
             var entry = _entries[i];
             if (entry.ScannerKey == null)
                 continue;
-            if (IsRequested(entry, i, verbosity, include))
+            if (IsRequested(entry, i, verbosity, include, fixedOverview))
                 scanners.Add(entry.ScannerKey);
         }
         return scanners;
@@ -533,7 +533,7 @@ public sealed class SectionPipeline<TModel>
     }
 
     private bool IsRequested(SectionEntry<TModel> entry, int index, Verbosity verbosity,
-        HashSet<string>? include)
+        HashSet<string>? include, bool fixedOverview = false)
     {
         // Explicit include overrides verbosity (and is the only way to select ExplicitOnly sections)
         if (include is { Count: > 0 })
@@ -544,6 +544,14 @@ public sealed class SectionPipeline<TModel>
         // "keep out of the default view" reasons are expressed by size class and cost instead.
         if (entry.ExplicitOnly)
             return false;
+
+        // Bare -S: the network-free "fixed" overview. Membership is a function of the section's
+        // declared growth class + cost only (never measured length), so the set is identical for
+        // every package: structurally Fixed sections that touch no network. This is deliberately
+        // narrower than the -v:n ladder (which also admits package-growing Terse/Informative rows).
+        if (fixedOverview && _curatedCatalog)
+            return entry.SizeClass == SectionSizeClass.Fixed
+                && entry.Cost == SectionCost.NetworkFree;
 
         // Curated catalog: the verbosity ladder is driven by declared size class + cost, not
         // section position. Everything else (@All/@Hidden, catalog listing) is computed from these.

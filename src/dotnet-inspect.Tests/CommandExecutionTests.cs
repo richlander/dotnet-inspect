@@ -666,7 +666,10 @@ public class CommandExecutionTests
 
         Assert.Equal(0, empty.Exit);
         Assert.Empty(empty.Error);
-        Assert.Contains(
+        // An empty escape scan is silently suppressed (row-presence ShowWhenProperty, no EmptyText) —
+        // matching the Performance sections, so absence means "no candidates", never a noisy header.
+        Assert.DoesNotContain("## Escape: Array Pool", empty.Output);
+        Assert.DoesNotContain(
             "No actionable resource lifecycle candidates found.",
             empty.Output);
     }
@@ -5997,21 +6000,25 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_BareSelect_RendersNetworkFreeOverview()
+    public async Task LibraryCommand_BareSelect_RendersFixedOverview()
     {
         var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-S");
 
         Assert.Equal(0, exit);
-        // Bare -S is the network-free bounded overview: every Terse+Informative, network-free
-        // section (the -v:n set), including the symbol-dependent Symbols/Signals sections.
+        // Bare -S is the network-free FIXED overview: only the structurally-fixed, network-free
+        // fact tables, whose membership is package-independent (Library Info, Signals, Symbols).
+        // Signals/Symbols are symbol-dependent but read an embedded/adjacent/cached PDB with no
+        // network access, so they belong to the fixed overview.
         Assert.Contains("## Library Info", output);
         Assert.Contains("## Signals", output);
         Assert.Contains("## Symbols", output);
-        Assert.Contains("## References", output);
-        Assert.Contains("## Custom Attributes", output);
-        Assert.Contains("## Resources", output);
-        Assert.Contains("## Type Forwarders", output);
-        // Verbose sections stay out of the bounded overview (they appear only at -v:d).
+        // Package-growing sections (Terse/Informative) are deliberately excluded — their presence
+        // would depend on the specific package, breaking the "same set for every target" contract.
+        Assert.DoesNotContain("## References", output);
+        Assert.DoesNotContain("## Custom Attributes", output);
+        Assert.DoesNotContain("## Resources", output);
+        Assert.DoesNotContain("## Type Forwarders", output);
+        // Verbose sections stay out too (they appear only at -v:d).
         Assert.DoesNotContain("## Async Methods", output);
         Assert.DoesNotContain("## Extension Methods", output);
         // The availability row was removed from Signals; the overview stays network-free.

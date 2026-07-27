@@ -225,7 +225,7 @@ public static class OutputFormatter
         bool topFieldsOnly = ShouldRenderLibraryContext(options);
         var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
         var includeSections = pipeline.ComputeIncludeSections(
-            inspection, options.Verbosity, options.IncludeSections, selectAll);
+            inspection, options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview);
         var writerOpts = new MarkoutWriterOptions
         {
             IncludeSections = includeSections,
@@ -340,7 +340,7 @@ public static class OutputFormatter
         var writerOptions = new MarkoutWriterOptions
         {
             IncludeSections = pipeline.ComputeIncludeSections(
-                inspections[0], options.Verbosity, options.IncludeSections, selectAll),
+                inspections[0], options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview),
             Projection = BuildProjection(options.Columns, options.Fields)
         };
 
@@ -385,7 +385,7 @@ public static class OutputFormatter
             {
                 var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
                 var includeSections = pipeline.ComputeIncludeSections(
-                    inspection, options.Verbosity, options.IncludeSections, selectAll);
+                    inspection, options.Verbosity, options.IncludeSections, selectAll, options.FixedOverview);
                 var writerOpts = new MarkoutWriterOptions
                 {
                     IncludeSections = includeSections,

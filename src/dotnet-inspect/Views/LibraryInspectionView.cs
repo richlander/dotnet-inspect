@@ -860,15 +860,11 @@ public class LibraryInspectionView
     public List<PerformanceRow>? PerformanceOtherSection => PerformanceRowsFor(SectionNames.PerformanceOther);
 
     [MarkoutIgnore]
-    public bool HasResourceTriage =>
-        _data.ResourceLifecycleInspection?.Value
-            is ILInspector.Findings.FindingInspection<
-                ILInspector.Analysis.ResourceLifecycleOccurrence>.Complete;
+    public bool HasResourceTriage => ResourceTriageSection.Count > 0;
 
     [MarkoutSection(
         Name = SectionNames.EscapeArrayPool,
-        ShowWhenProperty = nameof(HasResourceTriage),
-        EmptyText = "No actionable resource lifecycle candidates found.")]
+        ShowWhenProperty = nameof(HasResourceTriage))]
     public List<ResourceTriageRow> ResourceTriageSection =>
         (_data.ResourceTriage ?? [])
             .SelectMany(row => row.Boundaries.Select(boundary =>

@@ -167,6 +167,7 @@ public static class LibrarySections
         public static string Name => "Library Info";
         public static bool IsExpensive => false;
         public static bool Info => true;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static string? ScannerKey => ScannerInfoCounts;
         public static bool CanRender(LibraryInspection model) => model.AssemblyInfo != null;
     }
@@ -278,6 +279,7 @@ public static class LibrarySections
     {
         public static string Name => "Symbols";
         public static bool IsExpensive => false;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static string? ScannerKey => ScannerSymbols;
         public static bool CanRender(LibraryInspection model) => true;
     }
@@ -286,7 +288,7 @@ public static class LibrarySections
     {
         public static string Name => "Signals";
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static string? ScannerKey => ScannerAuditSignals;
         public static bool CanRender(LibraryInspection model)
             => model.AuditSignals is { Count: > 0 };

@@ -58,18 +58,21 @@ public class LibraryCommand
         }
 
         // Bare -S (a lone @Default preset — i.e. `-S` with no value) selects the network-free
-        // bounded overview: the same Terse+Informative, network-free section set as -v:n. This
-        // includes symbol-dependent sections (Symbols, Signals) because they read an embedded,
-        // adjacent, or already-cached PDB without touching the network. Promote to Normal and drop
-        // the preset marker so the curated ladder auto-renders that set (never downgrading a higher
-        // verbosity the user asked for).
+        // "fixed" overview: only sections whose declared growth class is Fixed and whose cost is
+        // NetworkFree, so the rendered set is structurally identical for every package (absence
+        // means "not applicable", never "too long for this package"). This still includes the
+        // symbol-dependent fact tables (Symbols, Signals) because they read an embedded, adjacent,
+        // or already-cached PDB without touching the network. Drop the preset marker and flag the
+        // fixed overview; keep display verbosity at Normal so the cache-only PDB read stays enabled
+        // (never downgrading a higher verbosity the user asked for, in which case the normal
+        // curated ladder applies instead of the fixed overview).
         if (options.Discover == null
             && options.Select is { Length: 1 }
             && SelectResolver.IsInfoSelector(options.Select))
         {
             options = options with { Select = null };
-            if (options.Verbosity < Verbosity.Normal)
-                options = options with { Verbosity = Verbosity.Normal };
+            if (options.Verbosity == Verbosity.Minimal)
+                options = options with { Verbosity = Verbosity.Normal, FixedOverview = true };
         }
 
         // -D defaults to effective discovery for target-based commands.
@@ -224,7 +227,7 @@ public class LibraryCommand
 
         // Compute which scanners are needed for the requested sections
         var scanners = pipeline.GetRequiredScanners(
-            options.Verbosity, options.IncludeSections);
+            options.Verbosity, options.IncludeSections, options.FixedOverview);
 
         // Check for valid input source
         if (string.IsNullOrEmpty(assemblyPath) &&

@@ -1,26 +1,40 @@
 namespace DotnetInspector.Sections;
 
 /// <summary>
-/// Declared size hint for a section, chosen by the section author from the section's expected
-/// and stress-tested row count. This is a stable declaration, not a measured value: it lets the
-/// curated verbosity ladder keep bounded views bounded without running the section first.
+/// Declared <b>growth</b> class for a section — how its row count behaves across the entire
+/// universe of packages, not the count for any one target. This is a stable, package-independent
+/// declaration chosen by the section author: it lets the curated verbosity ladder decide
+/// membership structurally (so a section's absence always means "not applicable", never "too long
+/// for this package") without running the section first.
 /// </summary>
 /// <remarks>
-/// Thresholds are guidance for the author, not enforced at runtime:
+/// The tiers describe growth, not a measured magnitude:
 /// <list type="bullet">
-///   <item><see cref="Terse"/> — typically ≤ 12 rows.</item>
-///   <item><see cref="Informative"/> — typically ≤ 24 rows.</item>
-///   <item><see cref="Verbose"/> — may exceed 24 rows (bounded or effectively unbounded).</item>
+///   <item><see cref="Fixed"/> — row set is structurally constant across all packages
+///   (a fact/summary table). Example row counts do not vary with package content.</item>
+///   <item><see cref="Terse"/> — grows with the package but stays small in practice
+///   (≈ ≤ 12 rows).</item>
+///   <item><see cref="Informative"/> — grows with the package, medium (≈ ≤ 24 rows).</item>
+///   <item><see cref="Verbose"/> — grows without a meaningful bound (may greatly exceed 24 rows).</item>
 /// </list>
+/// Ordering matters: the curated ladder uses <c>&lt;=</c> comparisons, so <see cref="Fixed"/> must
+/// sort below every other tier.
 /// </remarks>
 public enum SectionSizeClass
 {
-    /// <summary>Small, high-signal section (≈ ≤ 12 rows). Shown from bare <c>-S</c> upward.</summary>
+    /// <summary>
+    /// Structurally constant across every package (identity/signal/summary tables). This is the
+    /// bare <c>-S</c> overview tier: membership is package-independent, so these sections render
+    /// the same set for every target.
+    /// </summary>
+    Fixed,
+
+    /// <summary>Grows with the package but stays small (≈ ≤ 12 rows). Shown from <c>-v:n</c> upward.</summary>
     Terse,
 
-    /// <summary>Medium section (≈ ≤ 24 rows). Shown from <c>-v:n</c> upward.</summary>
+    /// <summary>Grows with the package, medium (≈ ≤ 24 rows). Shown from <c>-v:n</c> upward.</summary>
     Informative,
 
-    /// <summary>Large section (&gt; 24 rows). Shown only at <c>-v:d</c> or by explicit selection.</summary>
+    /// <summary>Grows without a meaningful bound. Shown only at <c>-v:d</c> or by explicit selection.</summary>
     Verbose,
 }

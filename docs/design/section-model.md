@@ -30,12 +30,15 @@ catalog visibility, the old "verbose"/"opt-in" annotations, and the legacy
 `Info`/`Noisy`/`ExplicitOnly`/`ListedInCatalog` reasons) is computed from them
 plus the section's category membership.
 
-1. **Size class** (`SectionSizeClass`) — the author's stable row-count hint,
-   picked from the section's expected and stress-tested output, not measured at
-   runtime:
-   - `Terse` — small, high-signal (≈ ≤ 12 rows).
-   - `Informative` — medium (≈ ≤ 24 rows).
-   - `Verbose` — large (> 24 rows), bounded or effectively unbounded.
+1. **Size class** (`SectionSizeClass`) — the author's stable **growth** class,
+   describing how the section's row count behaves across the entire universe of
+   packages (not the count for any one target), picked from expected and
+   stress-tested output rather than measured at runtime:
+   - `Fixed` — structurally constant across every package (a fact/signal/summary
+     table whose row set does not vary with package content).
+   - `Terse` — grows with the package but stays small (≈ ≤ 12 rows).
+   - `Informative` — grows with the package, medium (≈ ≤ 24 rows).
+   - `Verbose` — grows without a meaningful bound (may greatly exceed 24 rows).
 2. **Cost** (`SectionCost`) — the latency/output budget:
    - `NetworkFree` — cheap, bounded, offline.
    - `Moderated` — bounded work that may touch the network or warm a PDB but
@@ -78,16 +81,25 @@ by exact name (`-S "Unsafe Members"`) or, where appropriate, a topical door.
 requires `-v:m`; every other bounded network-free section first renders at
 `-v:n` (because `-v:m` shows the target only).
 
-### Bare `-S` — the network-free bounded overview
+### Bare `-S` — the network-free fixed overview
 
 Bare `-S` (the `-S` flag with no value, which parses to the lone `@Default`
-preset) is the ergonomic **network-free bounded overview**. Instead of the
-`-v:m` target-only view, the library command renders the same section set as
-`-v:n`: every `Terse`+`Informative`, `NetworkFree`, effective section, including
-the symbol-dependent `Symbols` and `Signals` sections. Those read an embedded,
-adjacent, or already-cached PDB **network-free** (see below), so they belong in
-a view that must never touch the network. A user-supplied `-v` is never
-downgraded — `-S -v:d` still renders the detailed view.
+preset) is the ergonomic **network-free fixed overview**. Instead of the `-v:m`
+target-only view, the library command renders only the sections whose declared
+growth class is `Fixed` and whose cost is `NetworkFree` — today the `Library
+Info`, `Signals`, and `Symbols` fact tables. Because membership is a function of
+the section's declared growth class and cost (never a measured row count), the
+rendered set is **identical for every package**: absence of a section always
+means "not applicable", never "too long for this target". This is deliberately
+narrower than the `-v:n` ladder, which additionally admits package-growing
+`Terse`/`Informative` sections whose presence varies by target.
+
+`Signals` and `Symbols` are symbol-dependent but read an embedded, adjacent, or
+already-cached PDB **network-free** (see below), so they belong in a view that
+must never touch the network. Only the default (`-v:m`) bare `-S` maps to the
+fixed overview; a user-supplied `-v` is never downgraded and stays on the normal
+curated ladder — `-S -v:n` renders the bounded set and `-S -v:d` the detailed
+view.
 
 ### Two orthogonal gates
 
@@ -193,9 +205,9 @@ standalone set, `@Hidden` is its complement, and neither is a user-facing door
 
 | Section kind | Size class | Cost | Auto-renders at | Topical door |
 | --- | --- | --- | --- | --- |
-| Target (Library Info) | — (`Info`) | `NetworkFree` | `-v:m` | — |
-| Hero (Signals) | `Informative` | `NetworkFree` | `-v:n` | `@Audit` |
-| Surface (Symbols, Type Forwarders) | `Terse` | `NetworkFree` | `-v:n` | `@Audit` / `@Surface` |
+| Target (Library Info) | `Fixed` (`Info`) | `NetworkFree` | `-v:m`, bare `-S` | — |
+| Fixed fact table (Signals, Symbols) | `Fixed` | `NetworkFree` | bare `-S`, `-v:n` | `@Audit` / `@SourceLink` |
+| Surface (Type Forwarders) | `Terse` | `NetworkFree` | `-v:n` | `@Surface` |
 | Noisy-but-cheap (Custom Attributes) | `Terse` | `NetworkFree` | `-v:n` | `@Surface` |
 | Large surface (Extension Methods, `Performance:` buckets, Async Methods) | `Verbose` | `NetworkFree` | `-v:d` | `@Surface` / `@Performance` |
 | Networked (Source Link: Availability) | `Terse` | `Moderated` | `-v:d` | `@SourceLink` |
