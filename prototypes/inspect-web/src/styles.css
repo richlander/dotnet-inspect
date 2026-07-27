@@ -716,6 +716,7 @@ kbd {
 .dep-version { flex: 0 0 auto; font: 13px var(--mono); color: var(--dim); white-space: nowrap; }
 .graph-empty { color: var(--muted); font-size: 12px; padding: 24px 12px; text-align: center; }
 .fact-rows .dim { color: var(--muted); }
+.fact-rows dd .fact-evidence { margin-left: 10px; color: var(--muted); font-size: 12px; }
 .perf-list { display: flex; flex-direction: column; gap: 6px; }
 .perf-row { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--fg); cursor: pointer; }
 .perf-row:hover { border-color: var(--accent); background: var(--panel-active); }

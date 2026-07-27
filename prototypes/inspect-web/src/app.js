@@ -1694,6 +1694,10 @@ function renderMemberFacts(type, member, overload, overloadIndex) {
 
   const facts = state.memberFacts;
   const signals = facts.signals;
+  const allocOffsets = facts.allocations.map(a => a.offset);
+  const callOffsets = facts.calls.map(c => c.offset);
+  const safetyOffsets = facts.safety.map(s => s.offset);
+  const loopAllocOffsets = facts.allocations.filter(a => a.inLoop).map(a => a.offset);
   return `
     <section class="document-section facts-section">
       <div class="section-title"><h2>Method facts</h2><span>selected overload</span></div>
@@ -1702,14 +1706,13 @@ function renderMemberFacts(type, member, overload, overloadIndex) {
         ["Kind", overload.kind],
         ["Metadata token", overload.metadataToken == null ? "not exposed" : `0x${overload.metadataToken.toString(16).padStart(8, "0")}`],
         ["Declaring type", type.id],
-        ["Allocations", String(signals.allocations)],
-        ["Calls", String(facts.calls.length)],
+        ["Allocations", String(signals.allocations), allocOffsets],
+        ["Calls", String(facts.calls.length), callOffsets],
         ["Copies", String(signals.copies)],
         ["Reflection calls", String(signals.reflection)],
         ["Throws / catches / finally", `${signals.throws} / ${signals.catches} / ${signals.finallys}`],
-        ["Unsafe", signals.unsafe ? "yes" : "no"],
-        ["Allocates in loop", signals.allocatesInLoop ? "yes" : "no"],
-        ["Evidence", signals.evidenceOffsets.length ? signals.evidenceOffsets.join(", ") : "none"]
+        ["Unsafe", signals.unsafe ? "yes" : "no", signals.unsafe ? safetyOffsets : []],
+        ["Allocates in loop", signals.allocatesInLoop ? "yes" : "no", signals.allocatesInLoop ? loopAllocOffsets : []]
       ])}
     </section>
     ${renderFactTable("Allocation facts", facts.allocations, [
@@ -1773,7 +1776,21 @@ function typeHeading(item) {
 }
 
 function factRows(rows) {
-  return `<dl class="fact-rows">${rows.map(([key, value]) => `<div><dt>${escapeHtml(key)}</dt><dd><code>${escapeHtml(value)}</code></dd></div>`).join("")}</dl>`;
+  return `<dl class="fact-rows">${rows.map(([key, value, evidence]) => `<div><dt>${escapeHtml(key)}</dt><dd><code>${escapeHtml(value)}</code>${factEvidence(evidence)}</dd></div>`).join("")}</dl>`;
+}
+
+// Inline, muted IL-offset evidence riding along a fact's value (e.g. "1  IL_000C").
+// Deduplicated and capped so a hot method never restores the long-line problem; the
+// overflow count carries the full list in a tooltip and the detail table below holds
+// every occurrence. Sourced from the detail collections so the summary and the tables agree.
+function factEvidence(offsets) {
+  const unique = [...new Set((offsets ?? []).filter(Boolean))];
+  if (!unique.length) return "";
+  const CAP = 2;
+  const shown = unique.slice(0, CAP);
+  const extra = unique.length - shown.length;
+  const label = shown.join(", ") + (extra > 0 ? ` +${extra}` : "");
+  return `<span class="fact-evidence" title="${escapeHtml(unique.join(", "))}">${escapeHtml(label)}</span>`;
 }
 
 function typeMetadataSignature(item) {
