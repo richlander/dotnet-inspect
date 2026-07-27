@@ -309,6 +309,11 @@ public static class LibrarySections
         public static string Name => LibraryIntegrationCatalog.OpenTelemetry.Name;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        // @Integrations door member: kept behind the @Integrations door in -D (like the
+        // @Performance kind-scoped sub-group) so the ecosystem sections never clutter the flat
+        // standalone catalog. ListedInCatalog governs catalog listing, not render — these still
+        // auto-render by size class and remain reachable by exact name.
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerIntegrations;
         public static bool CanRender(LibraryInspection model)
             => LibraryIntegrationCatalog.OpenTelemetry.CanRender(model);
@@ -319,6 +324,7 @@ public static class LibrarySections
         public static string Name => LibraryIntegrationCatalog.RollupName;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerIntegrations;
         public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.CanRenderAny(model);
     }
@@ -328,6 +334,7 @@ public static class LibrarySections
         public static string Name => "Integration Opportunities";
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerIntegrationOpportunities;
         public static bool CanRender(LibraryInspection model)
             => model.IntegrationOpportunities is { Count: > 0 };
@@ -338,6 +345,7 @@ public static class LibrarySections
         public static string Name => LibraryIntegrationCatalog.AI.Name;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerIntegrations;
         public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.AI.CanRender(model);
     }
@@ -347,6 +355,7 @@ public static class LibrarySections
         public static string Name => LibraryIntegrationCatalog.AspNetCore.Name;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerIntegrations;
         public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.AspNetCore.CanRender(model);
     }
@@ -356,6 +365,7 @@ public static class LibrarySections
         public static string Name => LibraryIntegrationCatalog.Authentication.Name;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerIntegrations;
         public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.Authentication.CanRender(model);
     }
@@ -365,6 +375,7 @@ public static class LibrarySections
         public static string Name => LibraryIntegrationCatalog.Aspire.Name;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerIntegrations;
         public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.Aspire.CanRender(model);
     }
@@ -374,6 +385,7 @@ public static class LibrarySections
         public static string Name => LibraryIntegrationCatalog.Configuration.Name;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerIntegrations;
         public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.Configuration.CanRender(model);
     }
@@ -383,6 +395,7 @@ public static class LibrarySections
         public static string Name => LibraryIntegrationCatalog.DependencyInjection.Name;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerIntegrations;
         public static bool CanRender(LibraryInspection model)
             => LibraryIntegrationCatalog.DependencyInjection.CanRender(model);
@@ -393,6 +406,7 @@ public static class LibrarySections
         public static string Name => LibraryIntegrationCatalog.Logging.Name;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerIntegrations;
         public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.Logging.CanRender(model);
     }
@@ -402,6 +416,7 @@ public static class LibrarySections
         public static string Name => LibraryIntegrationCatalog.Options.Name;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerIntegrations;
         public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.Options.CanRender(model);
     }
@@ -411,6 +426,7 @@ public static class LibrarySections
         public static string Name => LibraryIntegrationCatalog.OpenAPI.Name;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerIntegrations;
         public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.OpenAPI.CanRender(model);
     }
@@ -420,6 +436,7 @@ public static class LibrarySections
         public static string Name => LibraryIntegrationCatalog.Hosting.Name;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerIntegrations;
         public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.Hosting.CanRender(model);
     }
@@ -429,6 +446,7 @@ public static class LibrarySections
         public static string Name => LibraryIntegrationCatalog.HealthChecks.Name;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerIntegrations;
         public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.HealthChecks.CanRender(model);
     }
@@ -438,6 +456,7 @@ public static class LibrarySections
         public static string Name => LibraryIntegrationCatalog.HttpClient.Name;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerIntegrations;
         public static bool CanRender(LibraryInspection model) => LibraryIntegrationCatalog.HttpClient.CanRender(model);
     }

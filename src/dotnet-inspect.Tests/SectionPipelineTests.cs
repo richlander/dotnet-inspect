@@ -369,10 +369,13 @@ public class SectionPipelineTests
             Assert.DoesNotContain(name, hidden);
 
         // Footguns (unbounded/expensive), the kind-scoped performance sub-group (kept behind the
-        // @Performance door via ListedInCatalog=false), and coordinate IL-context sections ARE
+        // @Performance door via ListedInCatalog=false), the ecosystem integration sub-group (kept
+        // behind the @Integrations door the same way), and coordinate IL-context sections ARE
         // catalog-hidden.
         foreach (var kind in PerformanceKinds.Sections)
             Assert.Contains(kind, hidden);
+        foreach (var integration in LibraryIntegrationCatalog.CategorySections.Append("Integration Opportunities"))
+            Assert.Contains(integration, hidden);
         foreach (var footgun in new[]
                  {
                      "Top Leverage", "Unsafe Members", "Source Link: Integrity",
