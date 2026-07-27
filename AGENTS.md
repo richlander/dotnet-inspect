@@ -125,6 +125,38 @@ Match evidence to the claim and use the smallest existing check that proves it:
   frequency, bytes, or impact; use a benchmark or profiler for runtime claims.
 - Documentation-only changes that make no measured behavior claim require
   Markdown validation, not product builds or tests.
+- A doc comment or README that asserts a safety, soundness, or faithfulness
+  property must name the gate that enforces it, or explicitly mark the
+  property as unverified.
+
+### Asserted properties name their gate
+
+"Unverified" is an acceptable answer; an unmarked, ungated claim is not. A
+green suite plus a confident comment reads exactly like a verified property,
+and a reviewer can only tell them apart by tampering with the code to see
+whether anything notices. Naming the gate moves that cost to the author, where
+it is a one-line answer.
+
+Prefer making the declaration *drive* the enforcement set over restating it, so
+that stale and missing entries both fail:
+
+- `ByteNeutralityGateTests` derives its coverage set from the style catalog
+  (`StyleOptionCatalog.Options.Where(o => !o.ByteDivergent)`) and asserts set
+  equality against the specimens.
+- `SpanAttributionTests` asserts set equality between the body-intrinsic error
+  allowlist and the pin for the current `MethodologyVersion`.
+
+When the property depends on wiring rather than on a set, write one named
+non-vacuity test that fails if the wiring dies, and say in its doc comment that
+it is that test —
+`IrInvariantCheckTests.PipelineRunner_UnderTestHost_ThrowsWhenAPassCorruptsTheTree`
+is the example.
+
+A gate only counts if it runs in the configuration the suite uses. The suite
+runs Release for fixture fidelity (see [Building and
+testing](#building-and-testing)), so a `[Conditional("DEBUG")]` check asserts
+nothing. Make such a check a runtime opt-in that the test host arms; do not
+switch the suite to Debug.
 
 ### Harness boundary
 
