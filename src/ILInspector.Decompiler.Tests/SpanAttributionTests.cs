@@ -292,4 +292,68 @@ public class SpanAttributionTests
 
         Assert.False(isolated);
     }
+
+    // The allowlist that each methodology version is defined by. A version's entry is
+    // historical once stamped: rows carrying that stamp were produced by exactly this set,
+    // so an entry may never be edited — only a new version added.
+    static readonly ImmutableDictionary<int, ImmutableHashSet<string>> AllowlistByMethodologyVersion =
+        ImmutableDictionary.CreateRange(
+        [
+            // v2: syntax errors in the body span, plus duplicate-local only. Every
+            // context-dependent class (resolution, conversion, overload, scope collision)
+            // is excluded because a broken shell reconstructs them identically to a real
+            // body defect — see SpanAttribution.IsolatingBodyError.
+            KeyValuePair.Create(2, ImmutableHashSet.Create(StringComparer.Ordinal, "CS0128")),
+        ]);
+
+    [Fact]
+    public void BodyIntrinsicAllowlist_IsPinnedToCurrentMethodologyVersion()
+    {
+        // The allowlist is the operative definition of productBodyDefect under the stamped
+        // methodologyVersion, but it lives in a different file from the stamp with no code
+        // path between them. Without this gate a contributor can widen the soundness rule —
+        // adding, say, CS0136, which this PR's own review identified as shell-dependent
+        // (a shell parameter collision produces it) — and ship it under an unchanged v2.
+        // The damage is not just a wrong count: rows sharing a stamp are supposed to be
+        // comparable, so a silent widening makes the history card chart a v2 -> v2 step
+        // across two different methodologies, defeating the boundary split that
+        // Render_MovementSplitsProductDefectAcrossMethodologyBoundaryWithoutCharting exists
+        // to enforce.
+        //
+        // Set equality (not a subset check) is the point: any addition, removal, or
+        // substitution fails here until the version is bumped and a new pin recorded.
+        int version = SpanAttribution.MethodologyVersion;
+
+        Assert.True(
+            AllowlistByMethodologyVersion.ContainsKey(version),
+            $"methodologyVersion {version} has no pinned body-intrinsic allowlist. Bumping the "
+                + "version requires recording the allowlist that defines it here.");
+
+        Assert.Equal(AllowlistByMethodologyVersion[version], SpanAttribution.BodyIntrinsicSemanticErrorIds);
+    }
+
+    [Fact]
+    public void BodyIntrinsicAllowlist_ExcludesContextDependentErrorClasses()
+    {
+        // The README forbids whole categories, not just the IDs the close-negative tests
+        // happen to exercise. This pins the categories themselves: one representative of
+        // each class a broken shell can manufacture. CS0136 is the sharp end — Gemini's
+        // review probe showed a shell parameter collision yields exactly CS0136 — and the
+        // conversion/overload IDs were reachable additions that no other gate caught.
+        string[] shellReachable =
+        [
+            "CS0103", "CS0246", "CS0234", "CS1061", "CS1069", // resolution
+            "CS0029", "CS1503",                               // conversion / overload
+            "CS0136",                                         // scope collision
+            "CS0165",                                         // definite assignment (const-dependent)
+        ];
+
+        foreach (string id in shellReachable)
+        {
+            Assert.False(
+                SpanAttribution.BodyIntrinsicSemanticErrorIds.Contains(id),
+                $"{id} is producible by shell reconstruction, so crediting it would break the "
+                    + "lower-bound guarantee on productBodyDefect.");
+        }
+    }
 }

@@ -21,15 +21,11 @@ static class AuthoredCorpusBenchmark
 {
     /// <summary>
     /// Methodology version for how <c>invalidBreakdown.productBodyDefect</c> is
-    /// computed. v1 = substitution control only (authored body must compile in
-    /// the failing shell; a broken shell masks the body defect, so the count is
-    /// a lower bound). v2 = v1 plus span attribution, which additionally credits
-    /// a body defect when the shell is broken but the authored body is error-free
-    /// within its own body span while the decompiled body carries an in-body
-    /// error. The two versions are not directly comparable; the history card must
-    /// not diff productBodyDefect across the boundary.
+    /// computed. Defined by, and co-located with, the attribution rule it stamps
+    /// (see <see cref="SpanAttribution.MethodologyVersion"/>); this alias keeps
+    /// the serialization site readable.
     /// </summary>
-    internal const int MethodologyVersion = 2;
+    internal const int MethodologyVersion = SpanAttribution.MethodologyVersion;
 
     public static int Run(IReadOnlyList<string> assemblies, string corpusPath, bool json)
     {
