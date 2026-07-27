@@ -143,6 +143,86 @@ public sealed class UntrustedIlPresentationTests
     }
 
     /// <summary>
+    /// Facts are appended to an IL comment line by <c>ResearchViews</c>
+    /// <em>after</em> <c>IlProjection</c> has folded that line, so the IL
+    /// producer's fold cannot protect them — a fact detail is the last untrusted
+    /// text to reach the line. Regression gate for the channel adversarial
+    /// review found still open after the composition-point fix; the fold lives
+    /// in <c>AnnotationText.Format</c>, the one place fact text is rendered.
+    /// </summary>
+    [Theory]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    [InlineData("\u2028")]
+    public void AnnotatedSource_HostileFactDetailCannotEscapeItsComment(string terminator)
+    {
+        const string marker = "public int Injected() => 42; //";
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-hostile-fact-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var assemblyName = new AssemblyName("HostileFactDetail");
+            var assemblyBuilder = new PersistedAssemblyBuilder(
+                assemblyName, typeof(object).Assembly);
+            var moduleBuilder = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+
+            // The allocated type's name becomes the alloc.new fact's detail.
+            var allocated = moduleBuilder.DefineType(
+                $"Evil{terminator}    {marker}",
+                TypeAttributes.Public | TypeAttributes.Class);
+            var allocatedCtor = allocated.DefineDefaultConstructor(MethodAttributes.Public);
+
+            var typeBuilder = moduleBuilder.DefineType(
+                "Hostile.Target",
+                TypeAttributes.Public | TypeAttributes.Class);
+            var method = typeBuilder.DefineMethod(
+                "Make",
+                MethodAttributes.Public | MethodAttributes.Static,
+                typeof(object),
+                Type.EmptyTypes);
+            var il = method.GetILGenerator();
+            il.Emit(OpCodes.Newobj, allocatedCtor);
+            il.Emit(OpCodes.Ret);
+            allocated.CreateType();
+            typeBuilder.CreateType();
+
+            var dllPath = Path.Combine(tempDir, "HostileFactDetail.dll");
+            assemblyBuilder.Save(dllPath);
+
+            using var source = MetadataSource.Open(dllPath);
+            var projection = ResearchViews.ProjectMember(
+                new ResearchViews.MemberProjectionRequest(
+                    source,
+                    "Hostile.Target",
+                    "Make",
+                    AnnotatedSource: true));
+            var output = Assert.IsType<string>(projection.AnnotatedSource?.Output);
+
+            // Non-vacuity: the fact must actually be rendered, or the fold below
+            // would be asserting over text that was never there.
+            Assert.Contains("alloc.new(", output, StringComparison.Ordinal);
+
+            // Every occurrence of the payload must sit inside a comment on its
+            // own line. A C# line legitimately carries a trailing fact comment,
+            // so the test is "after a //", not "at the start of the line".
+            foreach (var line in output.ReplaceLineEndings("\n").Split('\n'))
+            {
+                int payload = line.IndexOf(marker, StringComparison.Ordinal);
+                if (payload < 0)
+                    continue;
+                int comment = line.IndexOf("//", StringComparison.Ordinal);
+                Assert.InRange(comment, 0, payload);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// A <c>ldstr</c> operand is rendered from raw <c>#US</c> content, and a
     /// multi-line string literal is ordinary C# — so this fires on benign
     /// assemblies, not just hostile ones. The operand must be escaped rather than
