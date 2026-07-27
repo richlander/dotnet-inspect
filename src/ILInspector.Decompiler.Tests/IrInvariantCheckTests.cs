@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Linq;
 using System.Reflection;
 using ILInspector.Decompiler.Pipeline;
 
@@ -68,6 +69,174 @@ public sealed class IrInvariantCheckTests
         ChildIndexField.SetValue(leaf, 7);
 
         Assert.Throws<InvalidOperationException>(root.CheckInvariant);
+    }
+
+    // ---- Semantic invariant: local-slot range (CheckInvariant(includeSemantics: true)) ----
+    // These pass includeSemantics:true DIRECTLY, never touching the global
+    // IrInvariants.CheckSemantics flag, so they stay hermetic under xUnit's
+    // parallel collections — flipping that static would false-positive the ~120
+    // minimal-fixture pass tests running concurrently.
+
+    [Fact]
+    public void SemanticCheck_PassesWhenLocalSlotIsInRange()
+    {
+        var function = FunctionStoringLocal([IntType], slot: 0);
+
+        function.CheckInvariant(includeSemantics: true);
+    }
+
+    [Fact]
+    public void SemanticCheck_ThrowsWhenLocalSlotIsOutOfRange()
+    {
+        var function = FunctionStoringLocal([IntType], slot: 5);
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => function.CheckInvariant(includeSemantics: true));
+        Assert.Contains("local slot 5", ex.Message);
+    }
+
+    [Fact]
+    public void StructuralCheck_IgnoresLocalSlotRange_ButSemanticCheckCatchesIt()
+    {
+        // A minimal fixture: a store into slot 0 while the function declares zero
+        // locals — exactly the shape hand-built pass-test fixtures produce.
+        var function = FunctionStoringLocal([], slot: 0);
+
+        // Structural mode (the suite-wide default) must not trip on it...
+        function.CheckInvariant();
+
+        // ...but the semantic mode, meant for real importer output, does.
+        Assert.Throws<InvalidOperationException>(
+            () => function.CheckInvariant(includeSemantics: true));
+    }
+
+    [Fact]
+    public void SemanticCheck_ScopesLocalSlotToTheNearestLambda_NotTheOuterFunction()
+    {
+        // Outer function declares zero locals; the returned lambda declares one and
+        // stores into its slot 0. If the check wrongly used the outer scope (0),
+        // this would throw. It must scope to the lambda.
+        var valid = FunctionReturningLambdaThatStores(lambdaLocals: 1, lambdaSlot: 0);
+        valid.CheckInvariant(includeSemantics: true);
+
+        // A lambda-local reference past the lambda's own table still trips.
+        var invalid = FunctionReturningLambdaThatStores(lambdaLocals: 1, lambdaSlot: 3);
+        Assert.Throws<InvalidOperationException>(
+            () => invalid.CheckInvariant(includeSemantics: true));
+    }
+
+    [Fact]
+    public void SemanticCheck_EmptyLocalsLambda_SharesTheOuterScope()
+    {
+        // Regression for the shared-scope representation (PR #3261 adversarial
+        // review, GPT): a lambda/local-function with an EMPTY local table shares
+        // its host's scope and references the outer function's locals by their
+        // outer index — exactly how LambdaRaisingPass substitutes captured locals
+        // and how the C# printer scopes it (NeedsNestedLambdaScope). Treating the
+        // empty-Locals lambda as its own zero-slot scope would reject the valid
+        // outer reference. Outer declares one local; the empty lambda reads slot 0.
+        var valid = FunctionWithLocalsReturningEmptyLambdaThatStores(outerLocals: 1, lambdaSlot: 0);
+        valid.CheckInvariant(includeSemantics: true);
+
+        // The shared scope is still bounded by the OUTER table: a slot past the
+        // outer locals is a real dangling reference and must trip.
+        var invalid = FunctionWithLocalsReturningEmptyLambdaThatStores(outerLocals: 1, lambdaSlot: 5);
+        Assert.Throws<InvalidOperationException>(
+            () => invalid.CheckInvariant(includeSemantics: true));
+    }
+
+    [Fact]
+    public void SemanticCheck_StaticLocalFunction_OpensItsOwnZeroSlotScope()
+    {
+        // Second adversarial finding (GPT, PR #3261): a STATIC local function
+        // cannot capture, so its empty local table is a genuine zero-slot scope —
+        // not a shared one. A store into slot 0 there is dangling and must trip,
+        // even though the outer function has a local at slot 0.
+        var staticFn = FunctionWithLocalContainingLocalFunction(isStatic: true, storeSlot: 0);
+        Assert.Throws<InvalidOperationException>(
+            () => staticFn.CheckInvariant(includeSemantics: true));
+
+        // A NON-static (capturing) empty-Locals local function shares the outer
+        // scope, so the same store into outer slot 0 is valid.
+        var capturingFn = FunctionWithLocalContainingLocalFunction(isStatic: false, storeSlot: 0);
+        capturingFn.CheckInvariant(includeSemantics: true);
+    }
+
+    static readonly TypeRef IntType = TypeRef.CoreLib("System", "Int32");
+
+    static IrFunction FunctionStoringLocal(ImmutableArray<TypeRef> locals, int slot)
+    {
+        var block = new Block(0);
+        block.Add(new StoreLocal(slot, IntType, new Constant(0, IntType)));
+        var container = new BlockContainer();
+        container.Add(block);
+        var signature = new MethodSignature(IntType, [], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, locals, container);
+    }
+
+    static IrFunction FunctionReturningLambdaThatStores(int lambdaLocals, int lambdaSlot)
+    {
+        var actionType = TypeRef.CoreLib("System", "Action");
+
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(new StoreLocal(lambdaSlot, IntType, new Constant(0, IntType)));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+        var locals = Enumerable.Repeat(IntType, lambdaLocals).ToImmutableArray();
+        var names = Enumerable.Repeat((string?)null, lambdaLocals).ToImmutableArray();
+        var lambda = new Lambda(
+            actionType, [], locals, names,
+            usesUpdatedMemorySafetyRules: false, skipLocalsInit: false, lambdaBody);
+
+        var outerBlock = new Block(0);
+        outerBlock.Add(new Return(lambda));
+        var outerBody = new BlockContainer();
+        outerBody.Add(outerBlock);
+        var signature = new MethodSignature(actionType, [], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], outerBody);
+    }
+
+    static IrFunction FunctionWithLocalsReturningEmptyLambdaThatStores(int outerLocals, int lambdaSlot)
+    {
+        var actionType = TypeRef.CoreLib("System", "Action");
+
+        // The lambda declares NO locals of its own; its store targets a slot in the
+        // outer function's local table (shared scope).
+        var lambdaBlock = new Block(0);
+        lambdaBlock.Add(new StoreLocal(lambdaSlot, IntType, new Constant(0, IntType)));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(
+            actionType, [], [], [],
+            usesUpdatedMemorySafetyRules: false, skipLocalsInit: false, lambdaBody);
+
+        var outerBlock = new Block(0);
+        outerBlock.Add(new Return(lambda));
+        var outerBody = new BlockContainer();
+        outerBody.Add(outerBlock);
+        var outerLocalTable = Enumerable.Repeat(IntType, outerLocals).ToImmutableArray();
+        var signature = new MethodSignature(actionType, [], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, outerLocalTable, outerBody);
+    }
+
+    static IrFunction FunctionWithLocalContainingLocalFunction(bool isStatic, int storeSlot)
+    {
+        // An empty-Locals local function whose body stores into `storeSlot`.
+        var fnBlock = new Block(0);
+        fnBlock.Add(new StoreLocal(storeSlot, IntType, new Constant(0, IntType)));
+        var fnBody = new BlockContainer();
+        fnBody.Add(fnBlock);
+        var localFunction = new LocalFunctionStatement(
+            "Local", TypeRef.CoreLib("System", "Void"), [], isStatic, [], [],
+            usesUpdatedMemorySafetyRules: false, skipLocalsInit: false, fnBody);
+
+        var outerBlock = new Block(0);
+        outerBlock.Add(localFunction);
+        outerBlock.Add(new Return(null));
+        var outerBody = new BlockContainer();
+        outerBody.Add(outerBlock);
+        var signature = new MethodSignature(TypeRef.CoreLib("System", "Void"), [], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [IntType], outerBody);
     }
 
     /// <summary>
