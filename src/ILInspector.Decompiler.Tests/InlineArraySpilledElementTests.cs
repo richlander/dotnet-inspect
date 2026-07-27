@@ -593,6 +593,15 @@ public class InlineArraySpilledElementTests
         // check, this actually runs the switch.
         var function = LocalSlotCarrierFactories.Single(entry => entry.Key.Name == carrierKind).Value();
 
+        // Guard against a vacuous factory that satisfies the completeness tripwire by
+        // reusing another kind's factory (binding slot 0 through some OTHER carrier): the
+        // built function must actually contain a node of the keyed kind. Since each
+        // factory is a single-carrier BufferBoundBy(...), that carrier is then the sole
+        // slot-0 binder, so the refusal assertions below force it to be handled in
+        // NodeBindsLocalSlot rather than protected by an unrelated node.
+        Assert.True(FunctionContainsCarrier(function, carrierKind),
+            $"The factory for {carrierKind} built no node of that kind, so its row proves nothing.");
+
         function.MarkLocalEliminated(0);
 
         Assert.DoesNotContain(0, function.EliminatedLocalSlots);
@@ -602,21 +611,37 @@ public class InlineArraySpilledElementTests
     [Fact]
     public void MarkLocalEliminated_HasABehavioralCaseForEveryLocalSlotCarrierKind()
     {
-        // Drift tripwire: every IR node that carries a local-slot index (by the
-        // LocalIndex / LocalIndices / VariableIndex naming convention this codebase uses)
-        // must have a behavioral factory above so the refusal Theory exercises
-        // NodeBindsLocalSlot for it. A new carrier grows the discovered set and fails
-        // here until a factory is added; because the factory binds slot 0 through that
-        // carrier, the Theory then forces the carrier to be handled in NodeBindsLocalSlot
-        // (merely adding a name to a list would leave slot 0 eliminated and fail the
-        // Theory). Load/Store/LoadLocalAddress use `Index` (shared with arguments) and
-        // are handled separately. Discovery is name-based, so a carrier that spells its
-        // index differently would slip through — keep to the convention.
+        // Drift tripwire: every carrier that can bind a local slot in the IR tree must
+        // have a behavioral factory above so the refusal Theory exercises NodeBindsLocalSlot
+        // for it. A new carrier grows the discovered set and fails here until a factory is
+        // added; because the Theory asserts the factory actually builds a node of that kind
+        // and that it is the sole slot-0 binder, adding a factory then forces the carrier to
+        // be handled in NodeBindsLocalSlot (neither a name in a list nor a reused factory can
+        // silence both tests). Load/Store/LoadLocalAddress use `Index` (shared with
+        // arguments) and are handled separately.
+        //
+        // Discovery is two-pronged so a future non-IrNode embedded carrier record — as
+        // PropertySubpattern already is (reached via PatternSwitchExpressionArm.Subpattern) —
+        // is fail-safe rather than silently ignored: (1) IrNode subclasses that carry an
+        // index member, and (2) non-IrNode types that carry an index member and are embedded
+        // as a property of some IrNode. A non-IrNode record that no IrNode references cannot
+        // bind a slot in the tree, so it is correctly out of scope. It stays name-based, so a
+        // carrier that spells its index outside the LocalIndex / LocalIndices / VariableIndex
+        // convention would slip through — keep to it.
         var carrierNames = new[] { "LocalIndex", "LocalIndices", "VariableIndex" };
-        var discovered = typeof(IrFunction).Assembly.GetTypes()
-            .Where(type => typeof(IrNode).IsAssignableFrom(type) || type == typeof(PropertySubpattern))
-            .Where(type => HasCarrierMember(type, carrierNames))
+        var irNodeTypes = typeof(IrFunction).Assembly.GetTypes()
+            .Where(type => typeof(IrNode).IsAssignableFrom(type))
+            .ToArray();
+        var directCarriers = irNodeTypes
+            .Where(type => HasCarrierMember(type, carrierNames));
+        var embeddedCarriers = irNodeTypes
+            .SelectMany(EmbeddedMemberTypes)
+            .SelectMany(EmbeddedCandidateTypes)
+            .Where(type => !typeof(IrNode).IsAssignableFrom(type))
+            .Where(type => HasCarrierMember(type, carrierNames));
+        var discovered = directCarriers.Concat(embeddedCarriers)
             .Select(type => type.Name)
+            .Distinct()
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToArray();
 
@@ -633,6 +658,54 @@ public class InlineArraySpilledElementTests
         const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance;
         return type.GetProperties(flags).Any(member => carrierNames.Contains(member.Name))
             || type.GetFields(flags).Any(member => carrierNames.Contains(member.Name));
+    }
+
+    // The declared member types of an IrNode (public property and field types), so an
+    // embedded carrier is discovered whether it is exposed as a property (the common IR
+    // record shape) or a field.
+    static IEnumerable<Type> EmbeddedMemberTypes(Type type)
+    {
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance;
+        foreach (var property in type.GetProperties(flags))
+        {
+            if (property.GetIndexParameters().Length == 0)
+                yield return property.PropertyType;
+        }
+        foreach (var field in type.GetFields(flags))
+            yield return field.FieldType;
+    }
+
+    // A member's own type plus any generic type arguments (so an embedded carrier reached
+    // through PropertySubpattern? or ImmutableArray<Subpattern> is considered, not just a
+    // bare member type).
+    static IEnumerable<Type> EmbeddedCandidateTypes(Type type)
+    {
+        yield return type;
+        if (type.IsGenericType)
+            foreach (var argument in type.GetGenericArguments())
+                yield return argument;
+    }
+
+    // Whether the function's IR tree contains a carrier of the named kind. IrNode carriers
+    // (including aggregation children such as DeconstructionTarget) appear as nodes;
+    // non-IrNode carrier records (PropertySubpattern, reached via PatternSwitchExpressionArm.
+    // Subpattern) are embedded as properties rather than Children, so property values are
+    // matched by runtime type name too.
+    static bool FunctionContainsCarrier(IrNode node, string carrierKind)
+    {
+        if (node.GetType().Name == carrierKind)
+            return true;
+        foreach (var property in node.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (property.GetIndexParameters().Length != 0)
+                continue;
+            object? value;
+            try { value = property.GetValue(node); }
+            catch { continue; }
+            if (value is not null && value is not IrNode && value.GetType().Name == carrierKind)
+                return true;
+        }
+        return node.Children.Any(child => FunctionContainsCarrier(child, carrierKind));
     }
 
     enum OrderingShape
