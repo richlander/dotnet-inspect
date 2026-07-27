@@ -169,12 +169,30 @@ public class InlineArraySpilledElementTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void ConditionalSpanArmInConsumer_StaysFlat()
+    {
+        // The span sits in a ternary arm (Consume(cond ? span : other)), so it is only
+        // conditionally evaluated. The element stores are unconditional; lifting them
+        // into that arm would suppress their side effects whenever the false arm is
+        // taken. Block order is canonical, so only the conditional guard rejects it —
+        // the shape must stay flat.
+        var function = BuildOrderingCollection(OrderingShape.ConditionalSpanArm);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<CollectionExpression>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InlineArrayAsReadOnlySpan");
+        function.CheckInvariant();
+    }
+
     enum OrderingShape
     {
         InterleavedStatement,
         DescendingSlotOrder,
         InlineEffectBeforeSpan,
         SpilledPrefixBeforeSpan,
+        ConditionalSpanArm,
     }
 
     /// <summary>
@@ -244,6 +262,17 @@ public class InlineArraySpilledElementTests
                 block.Add(new ExpressionStatement(
                     new Call(ConsumeMethod(), isVirtual: false, [new LoadStackSlot(0, Object), span])));
                 break;
+            case OrderingShape.ConditionalSpanArm:
+                // Consume(cond ? span : other): the span is in a ternary arm, so it
+                // is only conditionally evaluated. Lifting the unconditional element
+                // stores into that arm would drop their effects on the false path.
+                block.Add(new ExpressionStatement(
+                    new Call(ConsumeSpanMethod(), isVirtual: false, [
+                        new Conditional(
+                            new Constant(true, Bool),
+                            span,
+                            new LoadLocal(1, SpanObject))])));
+                break;
             default:
                 // ReadOnlySpan<object> span = InlineArrayAsReadOnlySpan(ref buffer, 2); (local 1)
                 block.Add(new StoreLocal(1, SpanObject, span));
@@ -296,6 +325,15 @@ public class InlineArraySpilledElementTests
             "Consume",
             Void,
             [Object, SpanObject],
+            HasThis: false);
+
+    // void Consume(ReadOnlySpan<object> span)
+    static MethodRef ConsumeSpanMethod()
+        => new(
+            TypeRef.Definition("Synthetic", "", "Fx"),
+            "Consume",
+            Void,
+            [SpanObject],
             HasThis: false);
 
     /// <summary>

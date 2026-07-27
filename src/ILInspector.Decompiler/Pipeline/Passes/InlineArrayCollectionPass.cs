@@ -818,7 +818,10 @@ public sealed class InlineArrayCollectionPass : IIrPass
     /// invert their evaluation order, silently emitting wrong C#. It can also
     /// evaluate an effectful expression inside the consumer before the span itself;
     /// lifting the elements to the span's position would then move them past that
-    /// effect. Anything but the canonical run with a side-effect-free consumer
+    /// effect. It can also place the span in a conditionally evaluated position (a
+    /// ternary arm, a short-circuit or coalesce right operand, a switch arm), which
+    /// would drop the element side effects on the paths that skip it. Anything but
+    /// the canonical run with a side-effect-free, unconditionally evaluated consumer
     /// prefix returns false so the shape is left flat.</para>
     /// </summary>
     static bool ElementStoresPreserveOrder(IrNode init, List<InlineArrayElementStore> stores, Call span)
@@ -872,8 +875,13 @@ public sealed class InlineArrayCollectionPass : IIrPass
         // position only such loads precede it. Arbitrary IL (ilasm, obfuscators)
         // can instead evaluate an effectful expression inline before the span
         // (e.g. `Consume(PrefixEffect(), span)`); lifting the elements past it
-        // would invert their order, so leave that flat.
-        return NothingEffectfulBefore(consumer, span);
+        // would invert their order, so leave that flat. Likewise the span must be
+        // evaluated on every path through the consumer: lifting the unconditional
+        // element stores into a conditionally evaluated position (a ternary arm, a
+        // short-circuit / coalesce right operand, a switch arm, a null-conditional
+        // member) would suppress their side effects when that path is not taken.
+        return NothingEffectfulBefore(consumer, span)
+            && SpanUnconditionallyEvaluated(consumer, span);
     }
 
     /// <summary>
@@ -895,6 +903,47 @@ public sealed class InlineArrayCollectionPass : IIrPass
 
         return true;
     }
+
+    /// <summary>
+    /// Whether <paramref name="span"/> is evaluated on every path through the
+    /// <paramref name="consumer"/> statement: the parent chain from the span up to
+    /// the consumer must cross no conditionally evaluated edge. The element values
+    /// are unconditional statements before the consumer, so lifting them into a
+    /// conditionally evaluated position (a ternary arm, a short-circuit
+    /// <c>&amp;&amp;</c>/<c>||</c> or <c>??</c> right operand, a switch-expression
+    /// arm, or a null-conditional member) would drop their side effects on the
+    /// paths that skip the span. csc never emits the span in such a position;
+    /// arbitrary IL can, so leave those flat.
+    /// </summary>
+    static bool SpanUnconditionallyEvaluated(IrNode consumer, IrNode span)
+    {
+        for (IrNode node = span; node != consumer; node = node.Parent!)
+        {
+            if (node.Parent is not { } parent)
+                return false;
+            if (!EvaluatesChildUnconditionally(parent, node))
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="parent"/> evaluates <paramref name="child"/> on every
+    /// path <paramref name="parent"/> is itself evaluated on. Only the
+    /// short-circuiting / conditional expression nodes gate a child; every other
+    /// node evaluates its children unconditionally, left to right. Revisit if a new
+    /// conditional-evaluation node is added to the IR.
+    /// </summary>
+    static bool EvaluatesChildUnconditionally(IrNode parent, IrNode child) => parent switch
+    {
+        Conditional conditional => ReferenceEquals(child, conditional.Condition),
+        LogicalBinary logical => ReferenceEquals(child, logical.Left),
+        Coalesce coalesce => ReferenceEquals(child, coalesce.Left),
+        SwitchExpression switchExpression => ReferenceEquals(child, switchExpression.Value),
+        SwitchExpressionArm or NullConditional => false,
+        _ => true,
+    };
 
     /// <summary>
     /// Allow-list of non-observable expressions, mirroring the same-named helpers
