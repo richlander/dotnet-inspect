@@ -1213,6 +1213,137 @@ public static class ApiOutputFormatter
         return parenStart < 0 ? "()" : declaration[parenStart..];
     }
 
+    /// <summary>
+    /// The method-like members whose IL bodies the index/detail sections analyze. When
+    /// the only selected member is a property or event (including an indexer) it has no
+    /// method body of its own, so it is resolved to its accessor methods (issue #3265):
+    /// get/set for a property or indexer, add/remove for an event, ordered so accessor
+    /// ordinal 1 is the getter/adder and ordinal 2 the setter/remover — the order the
+    /// overload-index selector (<c>Prop:1</c>/<c>Prop:2</c>) addresses. A field carries
+    /// no accessor token and yields no body methods, so its body sections stay N/A.
+    /// </summary>
+    internal static List<ApiMember> ResolveBodyMethods(ApiType type, IReadOnlySet<string> requestedSections)
+    {
+        bool includeAbstract = requestedSections.Contains(SectionNames.UnsafeOperations);
+        var methods = type.Members
+            .Where(m => ApiMemberSectionDescriptors.IsMethodLike(m) && (!m.IsAbstract || includeAbstract))
+            .ToList();
+
+        if (methods.Count == 0
+            && type.Members is [{ } single]
+            && ApiMemberSectionDescriptors.HasAccessorTokens(single))
+        {
+            methods = AccessorMethods(single, type)
+                .Where(m => !m.IsAbstract || includeAbstract)
+                .ToList();
+        }
+
+        return methods;
+    }
+
+    /// <summary>
+    /// Synthesizes method members for a property's or event's accessors, keyed by the
+    /// accessor's own MethodDef token so body sections address the accessor directly.
+    /// The getter/adder is yielded first so the default selection (accessor ordinal 1)
+    /// targets it; the setter/remover follows as ordinal 2. Names use the metadata
+    /// accessor spelling (<c>get_Name</c>, <c>set_Name</c>, <c>add_Name</c>,
+    /// <c>remove_Name</c>) so graph roots and breadcrumbs read as the real method.
+    /// </summary>
+    internal static IEnumerable<ApiMember> AccessorMethods(ApiMember member, ApiType type)
+    {
+        var declaringType = string.IsNullOrEmpty(member.DeclaringType) ? type.FullName : member.DeclaringType!;
+        switch (member.Kind)
+        {
+            case "property":
+                // A getter returns the property type and takes only the index parameters; a
+                // setter (and both event accessors) returns void and takes a trailing `value`.
+                if (member.GetterToken is { } getter)
+                    yield return Accessor(member, declaringType, $"get_{member.Name}", getter, "get", valueReturning: true);
+                if (member.SetterToken is { } setter)
+                    yield return Accessor(member, declaringType, $"set_{member.Name}", setter, "set", valueReturning: false);
+                break;
+            case "event":
+                if (member.AdderToken is { } adder)
+                    yield return Accessor(member, declaringType, $"add_{member.Name}", adder, "add", valueReturning: false);
+                if (member.RemoverToken is { } remover)
+                    yield return Accessor(member, declaringType, $"remove_{member.Name}", remover, "remove", valueReturning: false);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Builds a method member for one accessor with a structured signature derived from the
+    /// owner property/event, so declaration-rendering sections (Decompiled/Annotated Source,
+    /// the overlays) print a real method header (<c>public string get_Name()</c>) rather than
+    /// the owner's bare return type. The value type is the property/event type; a value-
+    /// returning accessor (a getter) returns it and carries only the index parameters, while a
+    /// void accessor (a setter or an event add/remove) appends it as a trailing <c>value</c>.
+    /// Modifiers mirror the accessor: virtual/override/sealed/abstract/static come from the
+    /// owner (both accessors share the property/event slot), while accessibility uses the
+    /// per-accessor entry (a <c>private set</c> stays private) and only falls back to the
+    /// owner's when the accessor declares none — events carry no per-accessor entry and so
+    /// inherit the event's accessibility.
+    /// </summary>
+    static ApiMember Accessor(ApiMember owner, string declaringType, string name, int token, string accessorKind, bool valueReturning)
+    {
+        var ownerModel = owner.SignatureModel;
+        var valueType = ownerModel?.ReturnType ?? owner.ReturnType ?? "object";
+        var parameters = ownerModel?.Parameters is { Count: > 0 } indexParameters
+            ? indexParameters.Select(CloneAccessorParameter).ToList()
+            : new List<ApiParameter>();
+        string returnType;
+        if (valueReturning)
+        {
+            returnType = valueType;
+        }
+        else
+        {
+            returnType = "void";
+            parameters.Add(new ApiParameter { Name = "value", Type = valueType });
+        }
+
+        var accessorEntry = ownerModel?.Accessors.FirstOrDefault(accessor => accessor.Kind == accessorKind);
+        var accessibility = string.IsNullOrEmpty(accessorEntry?.Accessibility)
+            ? owner.Accessibility
+            : accessorEntry!.Accessibility;
+
+        var renderedParameters = string.Join(", ", parameters.Select(p => $"{p.TypeWithModifier} {p.Name}"));
+        return new ApiMember
+        {
+            Name = name,
+            Kind = "method",
+            MetadataToken = token,
+            DeclaringType = declaringType,
+            ReturnType = returnType,
+            Signature = $"{returnType} {name}({renderedParameters})",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = name,
+                ReturnType = returnType,
+                Parameters = parameters,
+            },
+            IsStatic = owner.IsStatic,
+            IsVirtual = owner.IsVirtual,
+            IsAbstract = owner.IsAbstract,
+            IsOverride = owner.IsOverride,
+            IsSealed = owner.IsSealed,
+            IsUnsafe = owner.IsUnsafe,
+            Accessibility = accessibility,
+            Documentation = owner.Documentation,
+        };
+    }
+
+    static ApiParameter CloneAccessorParameter(ApiParameter parameter) => new()
+    {
+        Name = parameter.Name,
+        Type = parameter.Type,
+        CanonicalType = parameter.CanonicalType,
+        Modifier = parameter.Modifier,
+        HasDefault = parameter.HasDefault,
+        DefaultValueText = parameter.DefaultValueText,
+        Attributes = [.. parameter.Attributes],
+    };
+
     internal static void PopulateIndexSections(
         TypeView view,
         ApiType type,
@@ -1261,6 +1392,11 @@ public static class ApiOutputFormatter
                     : null
             : null;
         var singleMethodList = singleMethod != null ? new List<ApiMember> { singleMethod } : new List<ApiMember>();
+        // Code and caller sections address a single selected member. When an overload
+        // (or property/event accessor, issue #3265) is selected, restrict them to that
+        // one method so a read/write property's two accessor bodies don't overwrite each
+        // other. Without an explicit selection they still aggregate across all overloads.
+        var bodyMethods = overloadIndex.HasValue ? singleMethodList : methods;
 
         if (request.Calls && singleMethodList is [{ MetadataToken: { } token } callsMethod])
         {
@@ -1309,13 +1445,13 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.Callers && methods.Count > 0)
+        if (request.Callers && bodyMethods.Count > 0)
         {
-            RequestTelemetry.Breadcrumb("il-analysis.callers", $"{methods.Count} member(s)");
+            RequestTelemetry.Breadcrumb("il-analysis.callers", $"{bodyMethods.Count} member(s)");
             var rows = new List<CallerSiteRow>();
 
             // Collect callers for each method (all overloads if multiple methods selected)
-            foreach (var method in methods.Where(m => m.MetadataToken.HasValue))
+            foreach (var method in bodyMethods.Where(m => m.MetadataToken.HasValue))
             {
                 var targetToken = method.MetadataToken!.Value;
                 rows.AddRange(analysisInspection.CallerEdges(targetToken)
@@ -1461,7 +1597,7 @@ public static class ApiOutputFormatter
         if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts || request.FidelityCauses || request.AppliedTaste)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
-        foreach (var (member, code) in MemberCodeProvider.Collect(type, methods, dllPath, overloadIndex, request, pdbPath, options?.IncludeAll ?? false, options?.RenderOptions))
+        foreach (var (member, code) in MemberCodeProvider.Collect(type, bodyMethods, dllPath, overloadIndex, request, pdbPath, options?.IncludeAll ?? false, options?.RenderOptions))
         {
             if (code.Attributes is { Count: > 0 } attributes)
             {

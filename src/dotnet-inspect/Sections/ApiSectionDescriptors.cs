@@ -335,7 +335,7 @@ public static class ApiMemberSectionDescriptors
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static string? ScannerKey => null;
-        public static bool CanRender(ApiType model) => model.Members.Any(IsMethodLike);
+        public static bool CanRender(ApiType model) => model.Members.Any(IsBodyBacked);
     }
 
     public sealed class SafetyFacts : ISectionDescriptor<ApiType>
@@ -345,7 +345,7 @@ public static class ApiMemberSectionDescriptors
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static string? ScannerKey => null;
-        public static bool CanRender(ApiType model) => model.Members.Any(IsMethodLike);
+        public static bool CanRender(ApiType model) => model.Members.Any(IsBodyBacked);
     }
 
     public sealed class CostFacts : ISectionDescriptor<ApiType>
@@ -355,7 +355,7 @@ public static class ApiMemberSectionDescriptors
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
         public static string? ScannerKey => null;
-        public static bool CanRender(ApiType model) => model.Members.Any(IsMethodLike);
+        public static bool CanRender(ApiType model) => model.Members.Any(IsBodyBacked);
     }
 
     public sealed class TopLeverage : ISectionDescriptor<ApiType>
@@ -368,7 +368,7 @@ public static class ApiMemberSectionDescriptors
         public static bool ProbeEffectiveness => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(IsMethodLike);
+            => model.Members.Any(IsBodyBacked);
     }
 
     public sealed class OptimizationOpportunities : ISectionDescriptor<ApiType>
@@ -381,7 +381,7 @@ public static class ApiMemberSectionDescriptors
         public static bool ProbeEffectiveness => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(IsMethodLike);
+            => model.Members.Any(IsBodyBacked);
     }
 
     public sealed class SourceLocations : ISectionDescriptor<ApiType>
@@ -441,7 +441,7 @@ public static class ApiMemberSectionDescriptors
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Count == 1 && model.Members.Any(IsMethodLike);
+            => model.Members.Count == 1 && model.Members.Any(IsBodyBacked);
     }
 
     public sealed class OriginalSource : ISectionDescriptor<ApiType>
@@ -457,6 +457,28 @@ public static class ApiMemberSectionDescriptors
 
     internal static bool IsMethodLike(ApiMember member) =>
         member.Kind is "method" or "constructor" or "finalizer" or "operator" or "explicit-interface-implementation" or "extension-method";
+
+    /// <summary>
+    /// True when the member carries executable IL that a body section can analyze.
+    /// A method-like member is its own body; a property/event (including an indexer)
+    /// has no body of its own but is backed by accessor methods (get/set, add/remove)
+    /// whose tokens are recorded on the member. Body sections resolve such a member to
+    /// its accessor method(s) (issue #3265). Fields carry no accessor token and stay
+    /// body-less.
+    /// </summary>
+    internal static bool IsBodyBacked(ApiMember member) =>
+        IsMethodLike(member) || HasAccessorTokens(member);
+
+    /// <summary>
+    /// True when a property/event member records at least one accessor method token
+    /// (get/set/init for a property or indexer, add/remove for an event).
+    /// </summary>
+    internal static bool HasAccessorTokens(ApiMember member) =>
+        member.Kind is "property" or "event"
+        && (member.GetterToken is not null
+            || member.SetterToken is not null
+            || member.AdderToken is not null
+            || member.RemoverToken is not null);
 
     private static bool HasMethods(ApiType model)
         => model.Members.Any(m => m.Kind == "method");
@@ -520,27 +542,27 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.ExplicitInterfaceImplementations>()
             .Add<ApiMemberSectionDescriptors.ExtensionMethods>()
             .Add<ApiMemberSectionDescriptors.Events>()
-            .Add<ApiMemberSectionDescriptors.MethodAttributes>(HasSingleMethodLikeMember)
-            .Add<ApiMemberSectionDescriptors.DecompiledSource>(HasSingleMethodLikeMember)
-            .Add<ApiMemberDetailSectionDescriptors.FidelityCauses>(HasSingleMethodLikeMember)
-            .Add<ApiMemberDetailSectionDescriptors.AppliedTaste>(HasSingleMethodLikeMember)
-            .Add<ApiMemberDetailSectionDescriptors.AnnotatedSource>(HasSingleMethodLikeMember)
+            .Add<ApiMemberSectionDescriptors.MethodAttributes>(HasSingleBodyBackedMember)
+            .Add<ApiMemberSectionDescriptors.DecompiledSource>(HasSingleBodyBackedMember)
+            .Add<ApiMemberDetailSectionDescriptors.FidelityCauses>(HasSingleBodyBackedMember)
+            .Add<ApiMemberDetailSectionDescriptors.AppliedTaste>(HasSingleBodyBackedMember)
+            .Add<ApiMemberDetailSectionDescriptors.AnnotatedSource>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.OriginalSource>(HasSingleMethodLikeMember)
             .Add<ApiMemberDetailSectionDescriptors.SourceDiff>(HasSingleMethodLikeMember)
             .Add<ApiMemberDetailSectionDescriptors.Calls>()
             .Add<ApiMemberDetailSectionDescriptors.ExceptionRegions>()
-            .Add<ApiMemberSectionDescriptors.AllocationFacts>(HasSingleMethodLikeMember)
-            .Add<ApiMemberSectionDescriptors.SafetyFacts>(HasSingleMethodLikeMember)
-            .Add<ApiMemberSectionDescriptors.CostFacts>(HasSingleMethodLikeMember)
+            .Add<ApiMemberSectionDescriptors.AllocationFacts>(HasSingleBodyBackedMember)
+            .Add<ApiMemberSectionDescriptors.SafetyFacts>(HasSingleBodyBackedMember)
+            .Add<ApiMemberSectionDescriptors.CostFacts>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.Callers>()
             .Add<ApiMemberDetailSectionDescriptors.CallGraph>()
             .Add<ApiMemberDetailSectionDescriptors.CallerGraph>()
             .Add<ApiMemberDetailSectionDescriptors.UnsafeOperations>()
-            .Add<ApiMemberSectionDescriptors.TopLeverage>(HasSingleMethodLikeMember)
-            .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>(HasSingleMethodLikeMember)
-            .Add<ApiMemberSectionDescriptors.CostOverlay>(HasSingleMethodLikeMember)
-            .Add<ApiMemberSectionDescriptors.SemanticsOverlay>(HasSingleMethodLikeMember)
-            .Add<ApiMemberSectionDescriptors.ILBody>(HasSingleMethodLikeMember)
+            .Add<ApiMemberSectionDescriptors.TopLeverage>(HasSingleBodyBackedMember)
+            .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>(HasSingleBodyBackedMember)
+            .Add<ApiMemberSectionDescriptors.CostOverlay>(HasSingleBodyBackedMember)
+            .Add<ApiMemberSectionDescriptors.SemanticsOverlay>(HasSingleBodyBackedMember)
+            .Add<ApiMemberSectionDescriptors.ILBody>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.Facts>()
             .AddCategory(SectionCategoryNames.Source,
                 SectionNames.DecompiledSource,
@@ -550,6 +572,12 @@ public static class ApiMemberOverloadSectionDescriptors
                 SectionNames.IL);
     }
 
+    private static bool HasSingleBodyBackedMember(ApiType model)
+        => model.Members.Count == 1 && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+
+    // SourceLink source-file sections (Original Source, Source Diff) resolve by the
+    // selected member's own name/token; accessor source mapping is not yet wired, so
+    // they stay method-only rather than rendering empty for a property/event (#3265).
     private static bool HasSingleMethodLikeMember(ApiType model)
         => model.Members.Count == 1 && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
 
@@ -630,7 +658,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
 
     public sealed class DecompiledSource : ISectionDescriptor<ApiType>
@@ -641,7 +669,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
 
     public sealed class AnnotatedSource : ISectionDescriptor<ApiType>
@@ -652,7 +680,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
 
     public sealed class FidelityCauses : ISectionDescriptor<ApiType>
@@ -663,7 +691,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool ProbeEffectiveness => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
 
     public sealed class AppliedTaste : ISectionDescriptor<ApiType>
@@ -674,7 +702,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool ProbeEffectiveness => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
 
     public sealed class CostOverlay : ISectionDescriptor<ApiType>
@@ -686,7 +714,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
 
     public sealed class SemanticsOverlay : ISectionDescriptor<ApiType>
@@ -698,7 +726,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
 
     public sealed class OriginalSource : ISectionDescriptor<ApiType>
@@ -708,6 +736,9 @@ public static class ApiMemberDetailSectionDescriptors
         public static SectionCapabilities Capabilities =>
             SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
         public static string? ScannerKey => null;
+        // SourceLink source-file sections resolve PDB sequence points by the selected
+        // member's own name/token; accessor source-line mapping is not yet wired, so a
+        // property/event stays method-only here rather than rendering empty (issue #3265).
         public static bool CanRender(ApiType model)
             => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
     }
@@ -720,6 +751,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static SectionCapabilities Capabilities =>
             SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
         public static string? ScannerKey => null;
+        // SourceLink source-file section; accessor source mapping not yet wired (issue #3265).
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
                && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
@@ -733,6 +765,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool ProbeEffectiveness => false;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
+        // SourceLink source-file section; accessor source mapping not yet wired (issue #3265).
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
                && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
@@ -744,7 +777,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
 
     public sealed class ExceptionRegions : ISectionDescriptor<ApiType>
@@ -755,7 +788,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool ProbeEffectiveness => false;
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
-            => model.Members.Count == 1 && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+            => model.Members.Count == 1 && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
 
     public sealed class Calls : ISectionDescriptor<ApiType>
@@ -767,7 +800,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
-               && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+               && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
 
     public sealed class Callers : ISectionDescriptor<ApiType>
@@ -779,7 +812,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
-               && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+               && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
 
     public sealed class CallGraph : ISectionDescriptor<ApiType>
@@ -791,7 +824,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
-               && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+               && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
  
     public sealed class CallerGraph : ISectionDescriptor<ApiType>
@@ -803,7 +836,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
-               && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+               && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
  
     public sealed class UnsafeOperations : ISectionDescriptor<ApiType>
@@ -815,7 +848,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
-               && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+               && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
 
     /// <summary>
@@ -834,7 +867,7 @@ public static class ApiMemberDetailSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
-               && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
+               && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
     }
 
 }
