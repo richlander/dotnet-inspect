@@ -962,11 +962,21 @@ public sealed class InlineArrayCollectionPass : IIrPass
     /// expressions — the bitwise/arithmetic <see cref="Binary"/>,
     /// <see cref="Comparison"/>, <see cref="Unary"/>, <see cref="LogicalNot"/>, tuple
     /// construction/comparison, <see cref="Throw"/>, and <see cref="YieldReturn"/>.
-    /// Second, the scrutinee edge of a forward selection statement — the
-    /// <c>if</c>/<c>switch</c> condition — which is evaluated exactly once each time
-    /// the statement is reached; the arms/sections are the conditional parts and are
-    /// rejected by the per-edge <see cref="object.ReferenceEquals(object?,object?)"/>
-    /// check.</para>
+    /// Second, the run-once governing edge of a selection statement or expression
+    /// evaluated exactly once before any conditional arm/section is chosen: the
+    /// forward <c>if</c>/<c>switch</c> statement condition, the ternary
+    /// (<see cref="Conditional"/>) condition, and the scrutinee of a
+    /// <see cref="SwitchExpression"/>/<see cref="UnionSwitchExpression"/>/
+    /// <see cref="PatternSwitchExpression"/> (or any governing component of a
+    /// <see cref="TupleSwitchExpression"/>). Third, the single run-once
+    /// sub-expression a statement evaluates on entry: the <c>foreach</c> source
+    /// enumerable (<see cref="ForeachStatement.Collection"/>), the <c>for</c>
+    /// initializer (<see cref="ForLoop.Initializer"/>), the <c>using</c> resource
+    /// (<see cref="UsingStatement.Resource"/>), and the <c>lock</c> object
+    /// (<see cref="Lock.LockObject"/>). In every case only that one edge qualifies;
+    /// the conditional/repeated siblings — arms/sections, ternary arms, the loop
+    /// condition/increment/body, and statement bodies — are rejected by the per-edge
+    /// <see cref="object.ReferenceEquals(object?,object?)"/> check.</para>
     ///
     /// <para>Loops are deliberately excluded. This pass runs after loop structuring
     /// (<c>DoWhileLoopPass</c>/<c>ForLoopPass</c>/<c>StructuringPass</c>/
@@ -975,14 +985,16 @@ public sealed class InlineArrayCollectionPass : IIrPass
     /// condition many times per single evaluation of the node while the element
     /// stores — earlier siblings of the loop in the same block — run once; lifting
     /// them into a loop condition would call each element function once per iteration.
-    /// The low-level <see cref="ConditionalBranch"/>/<see cref="SwitchBranch"/> are
+    /// A <see cref="ForLoop"/> is allow-listed only on its <see cref="ForLoop.Initializer"/>
+    /// edge (run once on entry); its condition, increment, and body re-run and stay
+    /// rejected. The low-level <see cref="ConditionalBranch"/>/<see cref="SwitchBranch"/> are
     /// also excluded: a residual back edge would only be safe under a single-entry
     /// basic-block invariant this guard does not assert, and the real csc <c>if</c>/
     /// <c>switch</c> span consumers are already the structured
     /// <see cref="IfStatement"/>/<see cref="Switch"/> after loop structuring.
-    /// Short-circuit, coalesce, ternary, switch-expression arm, null-conditional
-    /// member, <c>??=</c> right operand, <c>with</c> initializer, and lambda bodies
-    /// are likewise not allow-listed.</para>
+    /// Short-circuit, coalesce, switch-expression/ternary <em>arms</em>,
+    /// null-conditional member, <c>??=</c> right operand, <c>with</c> initializer, and
+    /// lambda bodies are likewise not allow-listed.</para>
     /// </summary>
     static bool EvaluatesChildUnconditionally(IrNode parent, IrNode child) => parent switch
     {
@@ -1010,6 +1022,24 @@ public sealed class InlineArrayCollectionPass : IIrPass
         // and are excluded by falling through to the default.
         IfStatement ifStatement => ReferenceEquals(child, ifStatement.Condition),
         Switch @switch => ReferenceEquals(child, @switch.Value),
+        // Selection expressions evaluate their governing scrutinee/condition exactly
+        // once, unconditionally, before any arm is chosen; only that edge qualifies
+        // (the arms are the conditional parts). A tuple switch has several governing
+        // components, each read once left to right, so any component edge qualifies.
+        Conditional conditional => ReferenceEquals(child, conditional.Condition),
+        SwitchExpression switchExpression => ReferenceEquals(child, switchExpression.Value),
+        UnionSwitchExpression unionSwitch => ReferenceEquals(child, unionSwitch.Value),
+        PatternSwitchExpression patternSwitch => ReferenceEquals(child, patternSwitch.Value),
+        TupleSwitchExpression tupleSwitch => tupleSwitch.Components.Any(component => ReferenceEquals(component, child)),
+        // Statements with a single run-once sub-expression evaluated exactly once on
+        // entry — the foreach source enumerable, the for-loop initializer, the using
+        // resource, and the lock object. Only that edge qualifies; the repeated /
+        // conditional siblings (loop condition/increment/body, statement bodies) are
+        // rejected by the per-edge check and the default.
+        ForeachStatement foreachStatement => ReferenceEquals(child, foreachStatement.Collection),
+        ForLoop forLoop => ReferenceEquals(child, forLoop.Initializer),
+        UsingStatement usingStatement => ReferenceEquals(child, usingStatement.Resource),
+        Lock @lock => ReferenceEquals(child, @lock.LockObject),
         _ => false,
     };
 
