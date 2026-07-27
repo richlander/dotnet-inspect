@@ -1,3 +1,4 @@
+using System.Reflection;
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
@@ -58,6 +59,70 @@ public class InlineArraySpilledElementTests
             function.Descendants.OfType<Call>(),
             c => c.Callee.Name.Contains("InlineArray", StringComparison.Ordinal));
         function.CheckInvariant();
+    }
+
+    [Fact]
+    public void RaisedBuffer_SlotRetainedButEliminatedFromFidelity()
+    {
+        var function = BuildSpilledCollection(SpillDefect.None);
+
+        // The unspellable `<>y__InlineArray2` buffer local (slot 0) caps fidelity
+        // (DEC0009) while it is still a live rendered type.
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(function));
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        // The buffer slot is retained so the span local (slot 1) keeps its index,
+        // but it is marked eliminated: every reference was consumed by the raise,
+        // so it renders nowhere and its unspellable type no longer contributes a
+        // fidelity cause. The fully raised body is Full, not Partial (#3221).
+        Assert.Equal(2, function.Locals.Length);
+        Assert.Contains(0, function.EliminatedLocalSlots);
+        Assert.False(CSharpSpellability.HasUnrepresentableMetadataName(function));
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void MarkLocalEliminated_SkipsOnlyTheMarkedSlot()
+    {
+        // Two locals of the same unspellable synthesized buffer type. Eliminating
+        // one slot must not stop the other, still-live slot from capping fidelity —
+        // the fix skips exactly the marked slot, never blanket-ignoring unspellable
+        // locals.
+        var body = new BlockContainer();
+        body.Add(new Block());
+        var signature = new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [Buffer, Buffer], body);
+
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(function));
+
+        function.MarkLocalEliminated(0);
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(function));
+
+        function.MarkLocalEliminated(1);
+        Assert.False(CSharpSpellability.HasUnrepresentableMetadataName(function));
+    }
+
+    [Fact]
+    public void ResetLocals_CarriesProvidedEliminatedSlots_ElseClears()
+    {
+        var body = new BlockContainer();
+        body.Add(new Block());
+        var signature = new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [Buffer], body);
+        function.MarkLocalEliminated(0);
+
+        // A transplant that carries the reconstructed body's own eliminated slots
+        // (e.g. an iterator MoveNext's dead inline-array buffer, whose slot indices
+        // are the transplanted numbering) preserves them across the reset.
+        function.ResetLocals([Object, Buffer], [null, null], new HashSet<int> { 1 });
+        Assert.Equal(new[] { 1 }, function.EliminatedLocalSlots.Order());
+
+        // A reset with no carried set drops the marking — the new numbering no
+        // longer names the same locals.
+        function.ResetLocals([Object], [null]);
+        Assert.Empty(function.EliminatedLocalSlots);
     }
 
     [Fact]
@@ -309,6 +374,345 @@ public class InlineArraySpilledElementTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void ByValueBufferStoreAfterSpan_LeavesSlotCountedAtPartial()
+    {
+        // A by-value store reuses the dead buffer slot (0) after the span consumer.
+        // The pass's reference tally (LoadLocal bail + LoadLocalAddress count) never
+        // inspects a by-value StoreLocal, so the raise fires — soundly, since the
+        // store re-sequences no element effect.
+        var function = BuildOrderingCollection(OrderingShape.ByValueBufferStoreAfterSpan);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        // Raise stays sound: the collection expression is still recovered.
+        Assert.Single(function.Descendants.OfType<CollectionExpression>());
+
+        // But MarkLocalEliminated verifies deadness before marking: a StoreLocal still
+        // names slot 0, so the slot is NOT eliminated. Its unspellable buffer type
+        // keeps capping fidelity at Partial — an honest number rather than a false
+        // Full over output that still writes the slot (#3295). Without the liveness
+        // check the slot would be marked and the method would wrongly report Full.
+        Assert.DoesNotContain(0, function.EliminatedLocalSlots);
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(function));
+        Assert.Equal(DecompilationFidelity.Partial, function.Fidelity);
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void MarkLocalEliminated_RefusesWhenSlotBoundByNonLoadStoreNode()
+    {
+        // The buffer slot (0) is bound by a node that is neither a load, a store, nor
+        // an address — here a `??=` whose target is slot 0. A reference tally keyed on
+        // the load/store/address trio misses it, but the printer still declares the
+        // slot (CSharpPrinter.CollectDeclarations enumerates NullCoalescingAssignment),
+        // so eliminating it would drop the unspellable buffer type from fidelity and
+        // report a false Full. Verification must cover every local-binding node kind
+        // the printer declares, not just the trio (#3295).
+        var block = new Block();
+        block.Add(new NullCoalescingAssignment(0, Object, BoxInt(7)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [Buffer], body);
+
+        function.MarkLocalEliminated(0);
+
+        // Slot 0 is still live, so it is not eliminated and its unspellable buffer type
+        // keeps capping fidelity. The old trio-only check marked it, a false Full.
+        Assert.DoesNotContain(0, function.EliminatedLocalSlots);
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(function));
+    }
+
+    [Fact]
+    public void MarkLocalEliminated_IgnoresReferencesInNestedFunctionScopes()
+    {
+        // A nested local function carries an independent local pool, so its slot 0 is
+        // an unrelated variable. The outer buffer slot 0 is genuinely dead (nothing in
+        // the outer scope reads it), so eliminating it is correct. Verification must
+        // not let the nested-scope store block the elimination, or every clean outer
+        // raise that happens to share a slot index with a nested lambda / local
+        // function would regress to Partial (#3295).
+        var nestedBlock = new Block();
+        nestedBlock.Add(new StoreLocal(0, Object, BoxInt(7)));
+        nestedBlock.Add(new Return(null));
+        var nestedBody = new BlockContainer();
+        nestedBody.Add(nestedBlock);
+        var nested = new LocalFunctionStatement(
+            "Local", Void, [], isStatic: true, [Object], [null],
+            usesUpdatedMemorySafetyRules: false, skipLocalsInit: false, nestedBody);
+
+        var block = new Block();
+        block.Add(nested);
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [Buffer], body);
+
+        function.MarkLocalEliminated(0);
+
+        // The nested slot 0 lives in a separate pool, so it does not keep the outer
+        // slot 0 alive. The old whole-tree walk saw it and refused to mark, a false
+        // Partial on ordinary code.
+        Assert.Contains(0, function.EliminatedLocalSlots);
+    }
+
+    [Fact]
+    public void MarkLocalEliminated_RefusesWhenSlotBoundBySwitchExpressionArmPattern()
+    {
+        // A switch-expression arm binds the buffer slot (0) as its pattern variable.
+        // The printer declares such pattern locals (CSharpPrinter collects
+        // UnionSwitchExpressionArm / PatternSwitchExpressionArm into _isPatternLocals and
+        // renders them inline), so eliminating slot 0 would drop the unspellable buffer
+        // type from fidelity and report a false Full. The load/store/`??=`/foreach set is
+        // not enough — switch-arm pattern bindings must count too (#3295).
+        var block = new Block();
+        block.Add(new UnionSwitchExpressionArm(Object, localIndex: 0, BoxInt(1)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [Buffer], body);
+
+        function.MarkLocalEliminated(0);
+
+        Assert.DoesNotContain(0, function.EliminatedLocalSlots);
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(function));
+    }
+
+    [Fact]
+    public void MarkLocalEliminated_RefusesWhenSlotReferencedInSharedNestedFunctionScope()
+    {
+        // A nested local function that owns no locals and touches no stack slot shares
+        // the enclosing local pool (the printer renders its body inline through the outer
+        // scope), so its `V_0` IS the outer buffer slot. Unconditionally skipping every
+        // nested function would miss this genuine reference and eliminate a still-rendered
+        // slot, a false Full. Only nested functions with their OWN pool may be skipped —
+        // contrast MarkLocalEliminated_IgnoresReferencesInNestedFunctionScopes (#3295).
+        var nestedBlock = new Block();
+        nestedBlock.Add(new StoreLocal(0, Object, BoxInt(7)));
+        nestedBlock.Add(new Return(null));
+        var nestedBody = new BlockContainer();
+        nestedBody.Add(nestedBlock);
+        var nested = new LocalFunctionStatement(
+            "Local", Void, [], isStatic: true, [], [],
+            usesUpdatedMemorySafetyRules: false, skipLocalsInit: false, nestedBody);
+
+        var block = new Block();
+        block.Add(nested);
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [Buffer], body);
+
+        function.MarkLocalEliminated(0);
+
+        Assert.DoesNotContain(0, function.EliminatedLocalSlots);
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(function));
+    }
+
+    [Fact]
+    public void MarkLocalEliminated_RefusesWhenSlotReferencedInSharedNestedLambda()
+    {
+        // A locals-free lambda shares the enclosing local pool, so its `V_0` is the outer
+        // buffer slot: `return () => { V_0 = box(7); };`. Skipping every lambda would mark
+        // the slot eliminated and report Full while the lambda body still names it. The
+        // walk must descend into shared-scope lambdas, only skipping ones with their own
+        // pool (#3295).
+        var lambdaBlock = new Block();
+        lambdaBlock.Add(new StoreLocal(0, Object, BoxInt(7)));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(
+            Object, [], [], [],
+            usesUpdatedMemorySafetyRules: false, skipLocalsInit: false, lambdaBody);
+
+        var block = new Block();
+        block.Add(new Return(lambda));
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [Buffer], body);
+
+        function.MarkLocalEliminated(0);
+
+        Assert.DoesNotContain(0, function.EliminatedLocalSlots);
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(function));
+    }
+
+    // Property getter used by the pattern carriers (RecursivePropertyDeclarationPattern
+    // and PropertySubpattern) — its name must start with `get_` because both derive
+    // PropertyName by trimming that prefix.
+    static readonly MethodRef PatternAccessor = new(Object, "get_Value", Object, [], HasThis: true);
+
+    // One IrFunction factory per local-slot-binding carrier kind. Each builds a method
+    // whose only metadata local (slot 0) is the unspellable inline-array buffer, bound
+    // by a node of that kind, so MarkLocalEliminated must refuse to drop the slot —
+    // dropping it would hide the buffer's unspellable type and report a false Full
+    // (#3295). Aggregation-only carriers are bound through the parent that owns their
+    // index, matching how NodeBindsLocalSlot reaches them: DeconstructionTarget through
+    // DeconstructionAssignment, PropertySubpattern through PatternSwitchExpressionArm.Subpattern.
+    static readonly IReadOnlyDictionary<Type, Func<IrFunction>> LocalSlotCarrierFactories =
+        new Dictionary<Type, Func<IrFunction>>
+        {
+            [typeof(NullCoalescingAssignment)] = () => BufferBoundBy(new NullCoalescingAssignment(0, Object, BoxInt(7))),
+            [typeof(ForeachStatement)] = () => BufferBoundBy(new ForeachStatement(0, Object, BoxInt(0), new Block())),
+            [typeof(UsingStatement)] = () => BufferBoundBy(new UsingStatement(0, Object, BoxInt(0), new BlockContainer())),
+            [typeof(Fixed)] = () => BufferBoundBy(new Fixed(Object, 0, BoxInt(0), new BlockContainer())),
+            [typeof(IsPattern)] = () => BufferBoundBy(new IsPattern(BoxInt(0), Object, 0)),
+            [typeof(RecursivePropertyDeclarationPattern)] = () => BufferBoundBy(new RecursivePropertyDeclarationPattern(BoxInt(0), PatternAccessor, Object, 0)),
+            [typeof(UnionSwitchExpressionArm)] = () => BufferBoundBy(new UnionSwitchExpressionArm(Object, localIndex: 0, BoxInt(1))),
+            [typeof(PatternSwitchExpressionArm)] = () => BufferBoundBy(new PatternSwitchExpressionArm(Object, localIndex: 0, subpattern: null, BoxInt(1))),
+            [typeof(PropertySubpattern)] = () => BufferBoundBy(new PatternSwitchExpressionArm(Object, localIndex: null, new PropertySubpattern(PatternAccessor, Object, 0), BoxInt(1))),
+            [typeof(CatchClause)] = () => BufferBoundBy(new CatchClause(Object, new BlockContainer()) { VariableIndex = 0 }),
+            [typeof(DeconstructionAssignment)] = () => BufferBoundBy(new DeconstructionAssignment([0], [Object], BoxInt(0), [true])),
+            [typeof(DeconstructionTarget)] = () => BufferBoundBy(new DeconstructionAssignment([0], [Object], BoxInt(0), [true])),
+        };
+
+    static IrFunction BufferBoundBy(IrNode carrier)
+    {
+        var block = new Block();
+        block.Add(carrier);
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0);
+        return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [Buffer], body);
+    }
+
+    public static IEnumerable<object[]> LocalSlotCarrierKinds =>
+        LocalSlotCarrierFactories.Keys.Select(type => new object[] { type.Name });
+
+    [Theory]
+    [MemberData(nameof(LocalSlotCarrierKinds))]
+    public void MarkLocalEliminated_RefusesEveryLocalSlotBindingNodeKind(string carrierKind)
+    {
+        // Behavioral guard for IrFunction.NodeBindsLocalSlot (#3295). For every IR node
+        // kind that can bind a local slot, the factory above builds a method whose only
+        // local (slot 0) is the unspellable buffer, bound by that kind. MarkLocalEliminated
+        // must leave the slot in place so its type keeps capping fidelity. Deleting a
+        // NodeBindsLocalSlot case makes its kind's row fail here — unlike an inventory
+        // check, this actually runs the switch.
+        var function = LocalSlotCarrierFactories.Single(entry => entry.Key.Name == carrierKind).Value();
+
+        // Guard against a vacuous factory that satisfies the completeness tripwire by
+        // reusing another kind's factory (binding slot 0 through some OTHER carrier): the
+        // built function must actually contain a node of the keyed kind. Since each
+        // factory is a single-carrier BufferBoundBy(...), that carrier is then the sole
+        // slot-0 binder, so the refusal assertions below force it to be handled in
+        // NodeBindsLocalSlot rather than protected by an unrelated node.
+        Assert.True(FunctionContainsCarrier(function, carrierKind),
+            $"The factory for {carrierKind} built no node of that kind, so its row proves nothing.");
+
+        function.MarkLocalEliminated(0);
+
+        Assert.DoesNotContain(0, function.EliminatedLocalSlots);
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(function));
+    }
+
+    [Fact]
+    public void MarkLocalEliminated_HasABehavioralCaseForEveryLocalSlotCarrierKind()
+    {
+        // Drift tripwire: every carrier that can bind a local slot in the IR tree must
+        // have a behavioral factory above so the refusal Theory exercises NodeBindsLocalSlot
+        // for it. A new carrier grows the discovered set and fails here until a factory is
+        // added; because the Theory asserts the factory actually builds a node of that kind
+        // and that it is the sole slot-0 binder, adding a factory then forces the carrier to
+        // be handled in NodeBindsLocalSlot (neither a name in a list nor a reused factory can
+        // silence both tests). Load/Store/LoadLocalAddress use `Index` (shared with
+        // arguments) and are handled separately.
+        //
+        // Discovery is two-pronged so a future non-IrNode embedded carrier record — as
+        // PropertySubpattern already is (reached via PatternSwitchExpressionArm.Subpattern) —
+        // is fail-safe rather than silently ignored: (1) IrNode subclasses that carry an
+        // index member, and (2) non-IrNode types that carry an index member and are embedded
+        // as a property of some IrNode. A non-IrNode record that no IrNode references cannot
+        // bind a slot in the tree, so it is correctly out of scope. It stays name-based, so a
+        // carrier that spells its index outside the LocalIndex / LocalIndices / VariableIndex
+        // convention would slip through — keep to it.
+        var carrierNames = new[] { "LocalIndex", "LocalIndices", "VariableIndex" };
+        var irNodeTypes = typeof(IrFunction).Assembly.GetTypes()
+            .Where(type => typeof(IrNode).IsAssignableFrom(type))
+            .ToArray();
+        var directCarriers = irNodeTypes
+            .Where(type => HasCarrierMember(type, carrierNames));
+        var embeddedCarriers = irNodeTypes
+            .SelectMany(EmbeddedMemberTypes)
+            .SelectMany(EmbeddedCandidateTypes)
+            .Where(type => !typeof(IrNode).IsAssignableFrom(type))
+            .Where(type => HasCarrierMember(type, carrierNames));
+        var discovered = directCarriers.Concat(embeddedCarriers)
+            .Select(type => type.Name)
+            .Distinct()
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+
+        var covered = LocalSlotCarrierFactories.Keys
+            .Select(type => type.Name)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(discovered, covered);
+    }
+
+    static bool HasCarrierMember(Type type, string[] carrierNames)
+    {
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance;
+        return type.GetProperties(flags).Any(member => carrierNames.Contains(member.Name))
+            || type.GetFields(flags).Any(member => carrierNames.Contains(member.Name));
+    }
+
+    // The declared member types of an IrNode (public property and field types), so an
+    // embedded carrier is discovered whether it is exposed as a property (the common IR
+    // record shape) or a field.
+    static IEnumerable<Type> EmbeddedMemberTypes(Type type)
+    {
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance;
+        foreach (var property in type.GetProperties(flags))
+        {
+            if (property.GetIndexParameters().Length == 0)
+                yield return property.PropertyType;
+        }
+        foreach (var field in type.GetFields(flags))
+            yield return field.FieldType;
+    }
+
+    // A member's own type plus, recursively, the types it structurally wraps — generic
+    // arguments (ImmutableArray<Subpattern>, List<List<Subpattern>>) and element types
+    // (Subpattern[]) — so an embedded carrier is considered no matter how deeply a
+    // collection/array shape nests it, not just a bare or single-level-generic member type.
+    static IEnumerable<Type> EmbeddedCandidateTypes(Type type)
+    {
+        yield return type;
+        if (type.IsGenericType)
+            foreach (var argument in type.GetGenericArguments())
+                foreach (var inner in EmbeddedCandidateTypes(argument))
+                    yield return inner;
+        if (type.HasElementType && type.GetElementType() is { } elementType)
+            foreach (var inner in EmbeddedCandidateTypes(elementType))
+                yield return inner;
+    }
+
+    // Whether the function's IR tree contains a carrier of the named kind. IrNode carriers
+    // (including aggregation children such as DeconstructionTarget) appear as nodes;
+    // non-IrNode carrier records (PropertySubpattern, reached via PatternSwitchExpressionArm.
+    // Subpattern) are embedded as properties rather than Children, so property values are
+    // matched by runtime type name too.
+    static bool FunctionContainsCarrier(IrNode node, string carrierKind)
+    {
+        if (node.GetType().Name == carrierKind)
+            return true;
+        foreach (var property in node.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (property.GetIndexParameters().Length != 0)
+                continue;
+            object? value;
+            try { value = property.GetValue(node); }
+            catch { continue; }
+            if (value is not null && value is not IrNode && value.GetType().Name == carrierKind)
+                return true;
+        }
+        return node.Children.Any(child => FunctionContainsCarrier(child, carrierKind));
+    }
+
     enum OrderingShape
     {
         InterleavedStatement,
@@ -323,6 +727,7 @@ public class InlineArraySpilledElementTests
         IfConditionSpan,
         SwitchValueSpan,
         ThrowValueSpan,
+        ByValueBufferStoreAfterSpan,
     }
 
     /// <summary>
@@ -466,6 +871,19 @@ public class InlineArraySpilledElementTests
                 // Throw, so the collection raises.
                 block.Add(new Throw(
                     new Call(ThrowableFromSpanMethod(), isVirtual: false, [span])));
+                break;
+            case OrderingShape.ByValueBufferStoreAfterSpan:
+                // The canonical raising shape, then a by-value store that reuses the
+                // now-dead buffer slot (0) for a spellable value after the span is
+                // consumed. csc never emits this; obfuscated IL can. The store names
+                // slot 0 without being a load or an address, so the pass's reference
+                // tally misses it entirely and the raise still fires soundly (it
+                // re-sequences no element effect). But the slot is not actually dead:
+                // MarkLocalEliminated must verify liveness and refuse to mark it, or
+                // the buffer's unspellable type would be dropped from fidelity over
+                // output that still writes the slot — a false Full (#3295).
+                block.Add(new StoreLocal(1, SpanObject, span));
+                block.Add(new StoreLocal(0, Object, BoxInt(7)));
                 break;
             default:
                 // ReadOnlySpan<object> span = InlineArrayAsReadOnlySpan(ref buffer, 2); (local 1)

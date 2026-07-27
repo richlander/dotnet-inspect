@@ -221,8 +221,16 @@ internal static class CSharpSpellability
         yield return function.Signature.ReturnType;
         foreach (var parameter in function.Signature.Parameters)
             yield return parameter.Type;
-        foreach (var local in function.Locals)
-            yield return local;
+        for (int slot = 0; slot < function.Locals.Length; slot++)
+        {
+            // A slot a raising pass proved dead renders nowhere (the printer skips
+            // it), so its type — often an unspellable synthesized buffer such as
+            // <>y__InlineArrayN — must not degrade fidelity for output it never
+            // appears in.
+            if (function.EliminatedLocalSlots.Contains(slot))
+                continue;
+            yield return function.Locals[slot];
+        }
         foreach (var region in function.Regions)
             if (region.CatchType is { } catchType)
                 yield return catchType;

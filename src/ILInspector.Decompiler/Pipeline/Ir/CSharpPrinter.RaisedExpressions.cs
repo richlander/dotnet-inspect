@@ -210,7 +210,9 @@ public sealed partial class CSharpPrinter
             _ => null,
         };
 
-    static bool NeedsNestedLambdaScope(Lambda lambda)
+    // internal so IrFunction.MarkLocalEliminated can reuse the exact shared-vs-isolated
+    // nested-scope discriminator this printer uses, keeping the two from drifting (#3295).
+    internal static bool NeedsNestedLambdaScope(Lambda lambda)
         => !lambda.Locals.IsEmpty
             || lambda.Body.Descendants.Any(node => node is LoadStackSlot or StoreStackSlot);
 

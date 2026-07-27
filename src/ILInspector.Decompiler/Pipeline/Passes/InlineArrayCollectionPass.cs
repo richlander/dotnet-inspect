@@ -104,6 +104,12 @@ public sealed class InlineArrayCollectionPass : IIrPass
             foreach (var store in stores)
                 foreach (var statement in store.Consumed)
                     statement.Detach();
+            // Every reference to the buffer local (init, the N element stores, the
+            // one span use) was just detached, so the slot is now dead. Retain it
+            // in Locals for index stability but mark it eliminated so its
+            // unspellable synthesized type does not degrade fidelity for output it
+            // no longer appears in (#3221).
+            function.MarkLocalEliminated(local);
         }
 
         RaisePlaceConversions(function, context);

@@ -166,6 +166,87 @@ public class IteratorReconstructionPassTests
         }
     }
 
+    // Compiles an iterator whose MoveNext body contains an inline-array collection
+    // expression (a params ReadOnlySpan<int> target lowered to a synthesized, dead
+    // inline-array buffer local). Reconstruction copies that dead buffer local into
+    // the kickoff; its eliminated marking must survive so its unspellable name does
+    // not re-cap the method at Partial. Regression coverage for #3221 across the
+    // iterator reconstruction seams that carry MoveNext locals into the kickoff.
+    static CompiledFixture CompileInlineArrayIteratorFixture(string parameters, string body, OptimizationLevel optimization)
+    {
+        var source = $$"""
+            using System;
+            using System.Collections.Generic;
+
+            namespace Issue3221;
+
+            public static class Iterators
+            {
+                public static IEnumerable<int> InlineArrayYield({{parameters}})
+                {
+                    {{body}}
+                }
+
+                static int Sum(ReadOnlySpan<int> values)
+                {
+                    int total = 0;
+                    foreach (int value in values)
+                        total += value;
+                    return total;
+                }
+            }
+            """;
+
+        var directory = Path.Combine(AppContext.BaseDirectory, "Issue3221GeneratedFixtures");
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, $"Issue3221.{optimization}.{Guid.NewGuid():N}.dll");
+        var syntax = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview));
+        var compilation = CSharpCompilation.Create(
+            Path.GetFileNameWithoutExtension(path),
+            [syntax],
+            RoslynTestReferences.TrustedPlatform,
+            new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: optimization,
+                allowUnsafe: true));
+        var emit = compilation.Emit(path);
+        Assert.True(emit.Success, string.Join(Environment.NewLine, emit.Diagnostics));
+        return new CompiledFixture(path);
+    }
+
+    // Under the test's Roslyn the inline-array buffer struct is spellable, so
+    // fidelity is Full whether or not the dead buffer stays eliminated. The
+    // discriminating evidence for #3221 is that the buffer's eliminated marking
+    // survives reconstruction (EliminatedLocalSlots is non-empty); reverting either
+    // reconstruction wiring empties it. Debug-optimized inline-array iterators keep
+    // enough state-machine scaffolding that reconstruction declines (an unrelated
+    // iterator limit), so these use the Release shapes that reconstruct. The two
+    // shapes exercise the two seams that copy MoveNext locals into the kickoff:
+    // the single-loop shape (Transplant/ResetLocals) and the conditional-yield
+    // shape (MultiYieldReconstruction, which appends locals at an offset).
+    [Theory]
+    [InlineData("int a, int b", "for (int i = 0; i < a; i++)\n            yield return Sum([a + i, b + i]);")]
+    [InlineData("int a, int b, bool flag", "if (flag)\n            yield return Sum([a, b]);\n        yield return 0;")]
+    public void ReconstructedIterator_WithInlineArrayCollection_KeepsBufferEliminated(string parameters, string body)
+    {
+        using var compiled = CompileInlineArrayIteratorFixture(parameters, body, OptimizationLevel.Release);
+        using var source = MetadataSource.Open(compiled.Path);
+
+        var result = RaisedFrom(source, "Issue3221.Iterators", "InlineArrayYield");
+
+        // The iterator reconstructs and the collection expression raises, so the
+        // shipped body has no buffer reference. The dead buffer local is carried
+        // into the kickoff with the reconstructed body; its eliminated marking must
+        // survive that carry (#3221), or an unspellable buffer name would re-cap the
+        // method at Partial.
+        Assert.DoesNotContain("not reconstructed", result.Output);
+        Assert.NotEmpty(result.Function.Descendants.OfType<CollectionExpression>());
+        Assert.NotEmpty(result.Function.EliminatedLocalSlots);
+        Assert.DoesNotContain("y__InlineArray", result.Output);
+        Assert.DoesNotContain("PrivateImplementationDetails", result.Output);
+        Assert.Equal(DecompilationFidelity.Full, result.Function.Fidelity);
+    }
+
     [Fact]
     public void LinearConstantIterator_ReconstructsYieldSequence()
     {

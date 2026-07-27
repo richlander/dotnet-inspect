@@ -67,6 +67,12 @@ internal static class MultiYieldReconstruction
         // Commit the predicted locals (order must match the prediction above).
         for (var i = 0; i < moveNext.Locals.Length; i++)
             kickoff.AddLocal(moveNext.Locals[i], NameOf(moveNext, i));
+        // Carry the transplanted temps' eliminated-slot markings to their new
+        // kickoff indices (localOffset + i). A dead <>y__InlineArrayN buffer raised
+        // inside MoveNext is copied above but renders nowhere; without re-marking it
+        // its unspellable name re-caps the reconstructed method at Partial (#3221).
+        foreach (var slot in moveNext.EliminatedLocalSlots)
+            kickoff.MarkLocalEliminated(localOffset + slot);
         foreach (var (name, slot) in hoisted.OrderBy(e => e.Value.Index))
             kickoff.AddLocal(slot.Type, ExtractSourceName(name));
 
