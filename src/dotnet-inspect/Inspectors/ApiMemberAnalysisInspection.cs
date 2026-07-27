@@ -21,7 +21,9 @@ internal sealed class ApiMemberAnalysisInspection
     readonly IReadOnlySet<int>? _bodyScope;
     MethodBodyInspectionSession? _session;
     List<MethodBodyInspectionSession>? _callerScopes;
+    bool _callerScopesResolved;
     List<MethodBodyInspectionSession>? _graphScopes;
+    bool _graphScopesResolved;
     string? _targetAssemblyName;
     bool _targetAssemblyNameResolved;
 
@@ -82,34 +84,55 @@ internal sealed class ApiMemberAnalysisInspection
         _bodyScope);
 
     /// <summary>
-    /// The caller-scope sessions, or <see langword="null"/> when no cross-assembly scope was
-    /// requested at all. The distinction matters: an empty list still means "scoped walk", and the
-    /// scoped and unscoped reverse-graph builders do not produce identical trees.
+    /// The caller-scope sessions, or <see langword="null"/> when the reverse graph should be built
+    /// from the target's own assembly alone. The distinction matters because the scoped and
+    /// unscoped reverse-graph builders key their graphs differently and do not produce identical
+    /// trees, so this predicate must stay exactly as selective as it was before prefiltering
+    /// existed. Before, the scoped builder ran iff at least one scope assembly opened successfully.
+    /// So:
+    /// <list type="bullet">
+    /// <item>no scope assemblies supplied at all — <see langword="null"/>. Note that the CLI's
+    /// default is a non-null empty list, not <see langword="null"/>, so this is an emptiness check
+    /// rather than a null check; it is also a fast path that avoids reading the target's metadata
+    /// for the overwhelmingly common unscoped request.</item>
+    /// <item>every supplied assembly failed to open — <see langword="null"/>, which is what an
+    /// unfiltered walk with nothing to open did.</item>
+    /// <item>at least one assembly opened or was skipped by the prefilter — the scoped builder,
+    /// even when every one of them was skipped and the returned list is empty. A skipped assembly
+    /// is one the unfiltered walk would have opened successfully and found nothing in, so skipping
+    /// it must not change which builder runs.</item>
+    /// </list>
     ///
-    /// Scope assemblies that cannot reference the target's assembly are skipped without being
-    /// opened. Opening one costs a full body decode of the image, while ruling it out costs a read
-    /// of its <c>AssemblyRef</c> table, so the common "no caller anywhere in a large scope" answer
-    /// no longer pays to index every assembly to discover it is empty.
+    /// Skipping is the optimization: opening a scope assembly costs a full body decode of the
+    /// image, while ruling it out costs a read of its <c>AssemblyRef</c> table, so the common "no
+    /// caller anywhere in a large scope" answer no longer pays to index every assembly to discover
+    /// it is empty.
     /// </summary>
-    IReadOnlyList<MethodBodyInspectionSession>? CallerScopes(bool includeAllocations)
+    internal IReadOnlyList<MethodBodyInspectionSession>? CallerScopes(bool includeAllocations)
     {
-        if (_callerScopeAssemblies is null)
-            return null;
-
         ref var cached = ref includeAllocations ? ref _graphScopes : ref _callerScopes;
-        if (cached is not null)
+        ref var resolved = ref includeAllocations ? ref _graphScopesResolved : ref _callerScopesResolved;
+        if (resolved)
             return cached;
 
-        cached = [];
+        resolved = true;
+        if (_callerScopeAssemblies is not { Count: > 0 })
+            return null;
+
+        var opened = new List<MethodBodyInspectionSession>();
+        int skipped = 0;
         string? targetAssembly = TargetAssemblyName;
         foreach (var scopePath in _callerScopeAssemblies)
         {
             if (!CouldContainCaller(scopePath, targetAssembly))
+            {
+                skipped++;
                 continue;
+            }
 
             try
             {
-                cached.Add(MethodBodyInspectionSession.Open(
+                opened.Add(MethodBodyInspectionSession.Open(
                     scopePath,
                     ApiAnalysisInspection.CreateReferenceResolver(scopePath, _options),
                     includeAllocations,
@@ -121,6 +144,10 @@ internal sealed class ApiMemberAnalysisInspection
             }
         }
 
+        if (opened.Count == 0 && skipped == 0)
+            return null;
+
+        cached = opened;
         return cached;
     }
 
@@ -158,6 +185,12 @@ internal sealed class ApiMemberAnalysisInspection
     /// and an assembly that names neither itself nor the target as the declaring assembly cannot
     /// produce a match (see <see cref="Analysis.CallerScopeFilter"/>). Any failure to decide falls
     /// through to the previous behavior of opening the assembly.
+    ///
+    /// A non-managed file returns <see langword="true"/> rather than being reported as skipped:
+    /// <c>--bin</c> enumerates every top-level <c>*.dll</c> with no managed-image filter, and those
+    /// are already handled by the caller's <c>catch</c>. Counting them as "skipped" would
+    /// misrepresent a file the unfiltered walk could never have opened as one it opened and found
+    /// nothing in, which is the distinction the caller's builder choice rests on.
     /// </summary>
     static bool CouldContainCaller(string scopePath, string? targetAssembly)
     {
@@ -168,7 +201,7 @@ internal sealed class ApiMemberAnalysisInspection
         {
             using var session = AssemblyInspectionSession.Open(scopePath);
             if (!session.HasMetadata)
-                return false;
+                return true;
 
             var names = session.IdentityNames();
             return Analysis.CallerScopeFilter.CouldContainCallerOf(targetAssembly, names.Name, names.ReferenceNames);
