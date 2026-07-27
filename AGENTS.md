@@ -105,6 +105,17 @@ skill listing.
   presentation as separate concerns. Do not infer one from display text when a
   typed identity exists.
 
+### Terminology
+
+Prefer inclusive terminology in code, identifiers, comments, output, and docs.
+These substitutions are required, not stylistic:
+
+- Write "allow list" instead of "whitelist".
+- Write "deny list" instead of "blacklist".
+
+Match the surrounding casing and word form when substituting (for example
+`allowList`/`AllowList` for an identifier, "deny-listed" for an adjective).
+
 ## Evidence and validation
 
 Match evidence to the claim and use the smallest existing check that proves it:

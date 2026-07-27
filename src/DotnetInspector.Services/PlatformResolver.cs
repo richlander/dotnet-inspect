@@ -91,7 +91,9 @@ public static class PlatformResolver
         FrameworkMappings.ToDictionary(kv => kv.Value, kv => kv.Key, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Discovers the .NET SDK packs directory (first match).
+    /// Discovers the highest-priority existing packs directory: the app cache packs
+    /// category when populated, otherwise an SDK-installed <c>packs</c> directory.
+    /// Returns null when no candidate directory exists.
     /// </summary>
     public static string? GetPacksDirectory()
     {
@@ -101,8 +103,7 @@ public static class PlatformResolver
 
     /// <summary>
     /// Returns all valid packs directories in priority order.
-    /// On Linux, the app cache is searched first (Microsoft packs preferred over distro builds).
-    /// On Windows/macOS, the app cache is searched last (local SDK preferred).
+    /// The app cache is always searched first (Microsoft packs preferred over distro builds).
     /// </summary>
     public static List<string> GetAllPacksDirectories()
     {

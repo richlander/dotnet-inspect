@@ -394,7 +394,7 @@ public sealed class ThisQualificationTests
     // A boxed `this` reaching a NON-VIRTUAL `System.Object` member
     // (`base.GetType()`) renders `base.GetType()`. `System.Object` is a struct's
     // (transitive) base class, so `base.GetType()` lowers to `ldobj; box; call
-    // object::GetType`, matching the source; the printer whitelists both a struct's
+    // object::GetType`, matching the source; the printer allow-lists both a struct's
     // base classes (ValueType and Object) for the base arm. `GetType` is public and
     // non-virtual, so `((object)this).GetType()` would ALSO round-trip, but the
     // printer prefers `base.` (the source spelling, and the only valid spelling for
@@ -415,7 +415,7 @@ public sealed class ThisQualificationTests
     // object::MemberwiseClone`; the cast `((object)this).MemberwiseClone()` is
     // CS1540 (a protected member cannot be accessed through a base-typed qualifier),
     // so the object-cast fallback that serves public members like `GetType` must NOT
-    // apply here. The base arm whitelisting both base classes (ValueType and Object)
+    // apply here. The base arm allow-listing both base classes (ValueType and Object)
     // keeps this valid. The method-group form must likewise stay `base.`.
     [Fact]
     public void StructBoxedThis_ProtectedObjectCallee_RendersBaseCall()
@@ -1035,7 +1035,7 @@ public struct StructSealedDimReceiver : ISealedDim
 // A boxed struct `this` reaching a NON-VIRTUAL `System.Object` member via `base.`
 // (#3213 review). `base.GetType()` lowers to `ldobj; box; call object::GetType` —
 // `System.Object` is one of a struct's two base classes (with `System.ValueType`),
-// both whitelisted for the `base.` arm, so this renders `base.GetType()`. `GetType`
+// both allow-listed for the `base.` arm, so this renders `base.GetType()`. `GetType`
 // is public and non-virtual, so `((object)this).GetType()` would also round-trip,
 // but the printer prefers the source `base.` spelling.
 public struct StructBaseGetType
@@ -1049,7 +1049,7 @@ public struct StructBaseGetType
 // object::MemberwiseClone; newobj`. `MemberwiseClone` is protected, so the
 // `((object)this).MemberwiseClone()` cast that serves a public member like
 // `GetType` is CS1540 here — only `base.` compiles, which is why the base arm must
-// whitelist `System.Object` (not just `System.ValueType`).
+// allow-list `System.Object` (not just `System.ValueType`).
 public struct StructMemberwiseCloneReceiver
 {
     public object CloneCall() => base.MemberwiseClone();

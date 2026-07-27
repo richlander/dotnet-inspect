@@ -289,7 +289,7 @@ public class OuterTypePatternDispatchRaisingTests
     {
         // GPT review (#3124): csc emits `isinst T; unbox.any T; stloc T` for an
         // unconstrained (or struct-constrained) generic parameter, and `T t` is a
-        // legal C# declaration pattern. An over-strict kind whitelist wrongly
+        // legal C# declaration pattern. An over-strict kind allow list wrongly
         // declined these; IsSpellableValueTypePattern now admits generic
         // parameters directly, so the value-type arm raises — matching the shape
         // the compiler itself produces.
