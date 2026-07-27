@@ -11,6 +11,7 @@ let queryPackagePerformance;
 let queryTypeMemberSource;
 let queryTypeSource;
 let queryMemberCallGraph;
+let expandPlatformCallGraph;
 let queryMemberDocumentation;
 let queryMemberFacts;
 let searchTypes;
@@ -33,6 +34,7 @@ export async function initializeEngine(onStatus = () => {}) {
   queryTypeMemberSource = exports.BrowserInspectionEngine.QueryTypeMemberSource;
   queryTypeSource = exports.BrowserInspectionEngine.QueryTypeSource;
   queryMemberCallGraph = exports.BrowserInspectionEngine.QueryMemberCallGraph;
+  expandPlatformCallGraph = exports.BrowserInspectionEngine.ExpandPlatformCallGraph;
   queryMemberDocumentation = exports.BrowserInspectionEngine.QueryMemberDocumentation;
   queryMemberFacts = exports.BrowserInspectionEngine.QueryMemberFacts;
   searchTypes = exports.BrowserInspectionEngine.SearchTypes;
@@ -170,6 +172,17 @@ export async function inspectMemberCallGraph(request) {
     request.member,
     request.signature,
     JSON.stringify(request.workspace ?? []));
+  return JSON.parse(json);
+}
+
+export async function inspectExpandPlatformCallGraph(request) {
+  if (!expandPlatformCallGraph) throw new Error("The browser inspection engine is not initialized.");
+  const json = await expandPlatformCallGraph(
+    request.framework,
+    request.assembly ?? "",
+    request.type,
+    request.member,
+    request.paramSig ?? "");
   return JSON.parse(json);
 }
 

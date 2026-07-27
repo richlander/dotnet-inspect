@@ -1,5 +1,7 @@
 using System.IO.Compression;
+using System.Net.Http.Headers;
 using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
 using System.Security.Cryptography;
@@ -92,7 +94,11 @@ public sealed record BrowserCallGraphNode(
     string Status,
     bool InLoop,
     string? Source,
-    BrowserCallGraphNode[] Children);
+    BrowserCallGraphNode[] Children,
+    string Assembly,
+    string TypeFullName,
+    string MemberName,
+    string ParamSig);
 
 public sealed record BrowserCallGraphScope(
     int Packages,
@@ -1861,13 +1867,33 @@ public static partial class BrowserInspectionEngine
     }
 
     static BrowserCallGraphNode ToBrowserCallNode(Analysis.CallTreeNode node)
-        => new(
+    {
+        var definition = RootDefinition(node.Member.DeclaringType);
+        var typeFullName = definition.Namespace.Length == 0
+            ? definition.Name
+            : $"{definition.Namespace}.{definition.Name}";
+        return new(
             $"{node.Member.DeclaringType.ToDisplayString()}.{node.Member.Name}" +
             $"({string.Join(", ", node.Member.ParameterTypes.Select(type => type.ToDisplayString()))})",
             node.Status.ToString(),
             node.Perf?.InLoop ?? false,
             node.Perf?.Source,
-            node.Children.Select(ToBrowserCallNode).ToArray());
+            node.Children.Select(ToBrowserCallNode).ToArray(),
+            definition.Assembly,
+            typeFullName,
+            node.Member.Name,
+            string.Join(", ", node.Member.ParameterTypes.Select(type => type.ToDisplayString())));
+    }
+
+    // The declaring type of a callee may be a constructed generic instance or an array/
+    // by-ref wrapper; unwrap to the underlying named definition so identity fields carry
+    // the assembly + metadata full name (namespace.Name`arity) a platform resolver keys on.
+    static Analysis.TypeRef RootDefinition(Analysis.TypeRef type)
+        => type.Kind == Analysis.TypeRefKind.Definition
+            ? type
+            : type.ElementType is { } element
+                ? RootDefinition(element)
+                : type;
 
     static async Task<BrowserMemberSource?> TryGetAuthoredSourceAsync(
         string assemblyPath,
@@ -1970,6 +1996,316 @@ public static partial class BrowserInspectionEngine
         await using var output = File.Create(path);
         await input.CopyToAsync(output);
     }
+
+    // Descends the call graph one hop into a platform (BCL) method by acquiring its
+    // implementation assembly from the CoreCLR runtime pack. RID is irrelevant here — we
+    // only read metadata/IL, never execute — so linux-x64 stands in for the eventual
+    // CoreCLR-wasm pack (dotnet/runtime #131420). Bodies are what a ref pack lacks, so a
+    // ref pack would leave every BCL call a dead leaf; the runtime pack carries IL.
+    const string PlatformRuntimePackId = "microsoft.netcore.app.runtime.linux-x64";
+
+    [JSExport]
+    public static async Task<string> ExpandPlatformCallGraph(
+        string targetFramework,
+        string assembly,
+        string typeFullName,
+        string memberName,
+        string paramSig)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(typeFullName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(memberName);
+
+        var major = ParseTfmMajor(targetFramework);
+        var version = await ResolveRuntimePackVersionAsync(PlatformRuntimePackId, major);
+        // TypeRef.Assembly canonicalizes the corelib facades (System.Private.CoreLib,
+        // System.Runtime, mscorlib, netstandard) to "corelib"; those all implement in
+        // System.Private.CoreLib.dll in the runtime pack.
+        var startFile = assembly is "corelib" or "" or null
+            ? "System.Private.CoreLib.dll"
+            : assembly.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? assembly : assembly + ".dll";
+
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"inspect-plat-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            var acquired = await AcquirePlatformAssemblyAsync(version, startFile, typeFullName)
+                ?? throw new InvalidOperationException(
+                    $"Could not acquire an implementation assembly for '{typeFullName}' from {PlatformRuntimePackId} {version}.");
+            var path = Path.Combine(tempRoot, acquired.FileName);
+            await File.WriteAllBytesAsync(path, acquired.Bytes);
+
+            using var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
+                new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(acquired.FileName), null, null, null),
+                path,
+                () => File.OpenRead(path),
+                Provenance: $"runtime-pack/{PlatformRuntimePackId}/{acquired.FileName}"));
+            var type = inspection.ApiSurface().Types.FirstOrDefault(candidate =>
+                candidate.FullName.Equals(typeFullName, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException(
+                    $"Type '{typeFullName}' is not defined in {acquired.FileName}.");
+            var member = SelectPlatformMember(type, memberName, paramSig)
+                ?? throw new InvalidOperationException(
+                    $"Member '{memberName}' was not found on '{typeFullName}'.");
+            if (member.MetadataToken is not int token)
+                throw new InvalidOperationException("The selected platform member has no method body identity.");
+
+            var index = Analysis.LibraryBodyIndex.Open(
+                path,
+                Analysis.LibraryBodyAnalysisFeatures.MethodEvidence);
+            var callees = index.BuildCallTree(token, maxDepth: 2, maxNodes: 30);
+            var calleeNode = ToBrowserCallNode(callees);
+            var result = new BrowserCallGraph(
+                CallGraphMermaid.Render(
+                    null,
+                    callees,
+                    new CallGraphMermaid.Options(CompactLabels: true, RelationshipColors: true)),
+                calleeNode with { Children = [] },
+                calleeNode,
+                new BrowserCallGraphScope(0, 1, 0, acquired.FileName));
+            return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserCallGraph);
+        }
+        finally
+        {
+            try { Directory.Delete(tempRoot, recursive: true); }
+            catch { }
+        }
+    }
+
+    static int ParseTfmMajor(string? targetFramework)
+    {
+        if (string.IsNullOrEmpty(targetFramework))
+            return 10;
+        int start = 0;
+        while (start < targetFramework.Length && !char.IsDigit(targetFramework[start]))
+            start++;
+        int end = start;
+        while (end < targetFramework.Length && char.IsDigit(targetFramework[end]))
+            end++;
+        return start < end && int.TryParse(targetFramework[start..end], out var major) ? major : 10;
+    }
+
+    static async Task<string> ResolveRuntimePackVersionAsync(string packId, int major)
+    {
+        var indexUrl = $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(packId)}/index.json";
+        var indexBytes = await Http.GetByteArrayAsync(indexUrl);
+        using var document = JsonDocument.Parse(indexBytes);
+        var versions = document.RootElement.GetProperty("versions")
+            .EnumerateArray()
+            .Select(element => element.GetString())
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Cast<string>()
+            .ToArray();
+        var prefix = $"{major}.";
+        return versions.LastOrDefault(candidate => candidate.StartsWith(prefix, StringComparison.Ordinal) && !candidate.Contains('-'))
+            ?? versions.LastOrDefault(candidate => candidate.StartsWith(prefix, StringComparison.Ordinal))
+            ?? versions.LastOrDefault(candidate => !candidate.Contains('-'))
+            ?? throw new InvalidOperationException($"Runtime pack '{packId}' has no published version.");
+    }
+
+    // Fetches a single implementation assembly from the runtime pack, following ECMA-335
+    // type-forwards (a facade like System.Runtime.dll forwards its public surface to
+    // System.Private.CoreLib.dll) up to a bounded number of hops.
+    static async Task<(byte[] Bytes, string FileName)?> AcquirePlatformAssemblyAsync(
+        string version,
+        string startFile,
+        string typeFullName)
+    {
+        var (ns, name) = SplitTypeName(typeFullName);
+        var nupkgUrl =
+            $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(PlatformRuntimePackId)}/" +
+            $"{Uri.EscapeDataString(version)}/" +
+            $"{Uri.EscapeDataString(PlatformRuntimePackId)}.{Uri.EscapeDataString(version)}.nupkg";
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        byte[]? fullPack = null;
+        var current = startFile;
+        for (int hop = 0; hop < 5 && visited.Add(current); hop++)
+        {
+            bool IsWanted(string entryName) =>
+                entryName.StartsWith("runtimes/", StringComparison.OrdinalIgnoreCase)
+                && Path.GetFileName(entryName).Equals(current, StringComparison.OrdinalIgnoreCase);
+
+            // Range-extract just this assembly from the ~38 MB pack; fall back to a full
+            // download only if the range path cannot satisfy it (e.g. zip64).
+            byte[]? bytes = null;
+            try { bytes = await RangeExtractEntryAsync(nupkgUrl, IsWanted); }
+            catch { bytes = null; }
+            if (bytes is null)
+            {
+                fullPack ??= await GetPackageBytesAsync(PlatformRuntimePackId, version);
+                bytes = ExtractEntryFromArchive(fullPack, IsWanted);
+            }
+            if (bytes is null)
+                return null;
+
+            var forward = FindForwardTarget(bytes, ns, name);
+            if (forward is null)
+                return (bytes, current);
+            current = forward.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? forward : forward + ".dll";
+        }
+        return null;
+    }
+
+    static byte[]? ExtractEntryFromArchive(byte[] packBytes, Func<string, bool> match)
+    {
+        using var stream = new MemoryStream(packBytes, writable: false);
+        using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
+        var entry = archive.Entries.FirstOrDefault(candidate => match(candidate.FullName));
+        if (entry is null)
+            return null;
+        using var entryStream = entry.Open();
+        using var output = new MemoryStream();
+        entryStream.CopyTo(output);
+        return output.ToArray();
+    }
+
+    // Extracts one zip entry's bytes using HTTP range requests: a suffix range for the
+    // tail (End Of Central Directory), then absolute ranges for the central directory and
+    // the target entry's local header + compressed data. Only response bodies are read,
+    // so the CORS expose-headers restriction on Content-Range does not matter. Returns
+    // null (caller falls back to a full download) for zip64 or an unsupported method.
+    static async Task<byte[]?> RangeExtractEntryAsync(string url, Func<string, bool> match)
+    {
+        var tail = await RangeGetAsync(url, suffix: 65536);
+        int eocd = -1;
+        for (int i = tail.Length - 22; i >= 0; i--)
+        {
+            if (tail[i] == 0x50 && tail[i + 1] == 0x4b && tail[i + 2] == 0x05 && tail[i + 3] == 0x06)
+            {
+                eocd = i;
+                break;
+            }
+        }
+        if (eocd < 0)
+            return null;
+        uint cdSize = BitConverter.ToUInt32(tail, eocd + 12);
+        uint cdOffset = BitConverter.ToUInt32(tail, eocd + 16);
+        if (cdOffset == 0xFFFFFFFF || cdSize == 0xFFFFFFFF)
+            return null;
+
+        var cd = await RangeGetAsync(url, from: cdOffset, length: cdSize);
+        int p = 0;
+        while (p + 46 <= cd.Length && BitConverter.ToUInt32(cd, p) == 0x02014b50)
+        {
+            ushort method = BitConverter.ToUInt16(cd, p + 10);
+            uint compressedSize = BitConverter.ToUInt32(cd, p + 20);
+            ushort nameLength = BitConverter.ToUInt16(cd, p + 28);
+            ushort extraLength = BitConverter.ToUInt16(cd, p + 30);
+            ushort commentLength = BitConverter.ToUInt16(cd, p + 32);
+            uint localHeaderOffset = BitConverter.ToUInt32(cd, p + 42);
+            string entryName = Encoding.UTF8.GetString(cd, p + 46, nameLength);
+            if (match(entryName))
+            {
+                if (compressedSize == 0xFFFFFFFF || localHeaderOffset == 0xFFFFFFFF)
+                    return null;
+                var localHeader = await RangeGetAsync(url, from: localHeaderOffset, length: 30);
+                ushort localNameLength = BitConverter.ToUInt16(localHeader, 26);
+                ushort localExtraLength = BitConverter.ToUInt16(localHeader, 28);
+                long dataStart = localHeaderOffset + 30L + localNameLength + localExtraLength;
+                var data = await RangeGetAsync(url, from: dataStart, length: compressedSize);
+                if (method == 0)
+                    return data;
+                if (method == 8)
+                {
+                    using var input = new MemoryStream(data, writable: false);
+                    using var inflate = new DeflateStream(input, CompressionMode.Decompress);
+                    using var output = new MemoryStream();
+                    await inflate.CopyToAsync(output);
+                    return output.ToArray();
+                }
+                return null;
+            }
+            p += 46 + nameLength + extraLength + commentLength;
+        }
+        return null;
+    }
+
+    static async Task<byte[]> RangeGetAsync(string url, long? from = null, long? length = null, long? suffix = null)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Range = suffix is { } tailLength
+            ? new RangeHeaderValue(null, tailLength)
+            : new RangeHeaderValue(from, from + length - 1);
+        using var response = await Http.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsByteArrayAsync();
+    }
+
+    // Returns the target assembly simple name when the requested type is an ECMA-335
+    // exported-type forward in this assembly; null when the type is defined here (a
+    // TypeDef) or absent (the caller then validates against the acquired assembly).
+    static string? FindForwardTarget(byte[] assemblyBytes, string ns, string name)
+    {
+        using var peReader = new PEReader(new MemoryStream(assemblyBytes, writable: false));
+        if (!peReader.HasMetadata)
+            return null;
+        var reader = peReader.GetMetadataReader();
+        foreach (var handle in reader.TypeDefinitions)
+        {
+            var definition = reader.GetTypeDefinition(handle);
+            if (reader.GetString(definition.Name) == name && reader.GetString(definition.Namespace) == ns)
+                return null;
+        }
+        foreach (var handle in reader.ExportedTypes)
+        {
+            var exported = reader.GetExportedType(handle);
+            if (reader.GetString(exported.Name) != name || reader.GetString(exported.Namespace) != ns)
+                continue;
+            if (exported.Implementation.Kind == HandleKind.AssemblyReference)
+            {
+                var assemblyReference = reader.GetAssemblyReference((AssemblyReferenceHandle)exported.Implementation);
+                return reader.GetString(assemblyReference.Name);
+            }
+        }
+        return null;
+    }
+
+    static (string Namespace, string Name) SplitTypeName(string fullName)
+    {
+        int dot = fullName.LastIndexOf('.');
+        return dot < 0 ? ("", fullName) : (fullName[..dot], fullName[(dot + 1)..]);
+    }
+
+    static ApiMember? SelectPlatformMember(ApiType type, string memberName, string paramSig)
+    {
+        var named = type.Members
+            .Where(candidate => string.Equals(candidate.Name, memberName, StringComparison.Ordinal))
+            .ToArray();
+        if (named.Length <= 1)
+            return named.FirstOrDefault();
+        int wantArity = string.IsNullOrEmpty(paramSig) ? 0 : paramSig.Split(',').Length;
+        var byArity = named
+            .Where(candidate => (candidate.SignatureModel?.Parameters.Count ?? -1) == wantArity)
+            .ToArray();
+        var pool = byArity.Length > 0 ? byArity : named;
+        var wantKey = SimpleParamKey(paramSig);
+        return pool.FirstOrDefault(candidate => MemberParamKey(candidate) == wantKey) ?? pool[0];
+    }
+
+    static string MemberParamKey(ApiMember member)
+        => string.Join(",", (member.SignatureModel?.Parameters ?? [])
+            .Select(parameter => SimpleTypeName(parameter.TypeWithModifier)));
+
+    static string SimpleParamKey(string paramSig)
+        => string.IsNullOrEmpty(paramSig)
+            ? ""
+            : string.Join(",", paramSig.Split(',').Select(part => SimpleTypeName(part.Trim())));
+
+    static string SimpleTypeName(string type)
+    {
+        type = type.Trim();
+        int generic = type.IndexOf('<');
+        if (generic >= 0)
+            type = type[..generic];
+        int array = type.IndexOf('[');
+        string suffix = array >= 0 ? type[array..] : "";
+        if (array >= 0)
+            type = type[..array];
+        int dot = type.LastIndexOf('.');
+        if (dot >= 0)
+            type = type[(dot + 1)..];
+        return (type + suffix).ToLowerInvariant();
+    }
+
 
     static async Task<byte[]> GetPackageBytesAsync(string normalizedId, string normalizedVersion)
     {

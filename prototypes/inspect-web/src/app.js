@@ -1,5 +1,5 @@
 import { lenses, packageLenses, rootCommands } from "./data.js";
-import { initializeEngine, inspectListStyleOptions, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageIntegrations, inspectPackageOpportunities, inspectPackagePerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
+import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageIntegrations, inspectPackageOpportunities, inspectPackagePerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
 
 function loadStoredTaste() {
   try {
@@ -62,6 +62,9 @@ const state = {
   memberCallGraphError: "",
   memberCallGraphExpanding: false,
   memberCallGraphSeq: 0,
+  platformStack: [],
+  platformDrillLoading: false,
+  platformDrillError: "",
   memberFacts: null,
   memberFactsLoading: false,
   memberFactsError: "",
@@ -1735,26 +1738,46 @@ function renderMember(type, member) {
       </article>
     `;
   } else if (state.memberSection === "call-graph") {
-    const callers = state.memberCallGraph?.callers?.children ?? [];
-    const callees = state.memberCallGraph?.callees?.children ?? [];
-    const scope = state.memberCallGraph?.scope;
+    const active = currentCallGraph();
+    const drilled = state.platformStack.length > 0;
+    const callers = active?.callers?.children ?? [];
+    const callees = active?.callees?.children ?? [];
+    const scope = active?.scope;
+    const breadcrumb = drilled
+      ? `<div class="graph-breadcrumb">
+          <button type="button" data-graph-back title="Back one level">‹ Back</button>
+          <span class="graph-crumbs">${escapeHtml(platformCrumbTrail())}</span>
+        </div>`
+      : "";
+    const scopeLine = !scope
+      ? ""
+      : drilled
+      ? `<div class="graph-scope"><strong>Platform descent</strong><span>${escapeHtml(scope.calleeScope)} · CoreCLR runtime pack</span><strong>Callees</strong><span>depth 2</span></div>`
+      : `<div class="graph-scope"><strong>Workspace callers</strong><span>${scope.packages} loaded packages · ${scope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(scope.calleeScope)} · depth 2</span></div>`;
     content = state.memberCallGraphLoading
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Building workspace call graph…</h2><p>Scanning implementation IL across ${state.packages.length} loaded package${state.packages.length === 1 ? "" : "s"}.</p></section>`
-      : state.memberCallGraph
+      : active
         ? `<section class="document-section call-graph-section">
             <div class="section-title"><h2>Call graph</h2><span>${callers.length} caller${callers.length === 1 ? "" : "s"} · ${callees.length} callee${callees.length === 1 ? "" : "s"}</span></div>
+            ${breadcrumb}
+            ${state.platformDrillLoading
+              ? `<div class="graph-expanding"><span class="loader"></span> Range-fetching the implementation assembly from the CoreCLR runtime pack…</div>`
+              : ""}
+            ${state.platformDrillError
+              ? `<div class="graph-drill-error">${escapeHtml(state.platformDrillError)}</div>`
+              : ""}
             ${state.memberCallGraphExpanding
               ? `<div class="graph-expanding"><span class="loader"></span> Scanning ${state.packages.length - 1} other librar${state.packages.length - 1 === 1 ? "y" : "ies"} for callers…</div>`
               : ""}
-            <div class="graph-scope"><strong>Workspace callers</strong><span>${scope.packages} loaded packages · ${scope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(scope.calleeScope)} · depth 2</span></div>
+            ${scopeLine}
             <div id="call-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
             <div class="graph-legend" aria-label="Graph legend">
               <span><i class="legend-swatch target"></i>target member</span>
               <span><i class="legend-swatch same-type"></i>same declaring type</span>
               <span><i class="legend-swatch different-type"></i>different type, same assembly</span>
-              <span><i class="legend-swatch different-assembly"></i>different assembly</span>
+              <span><i class="legend-swatch different-assembly"></i>different assembly (click to descend)</span>
             </div>
-            <details class="graph-source"><summary>Mermaid source</summary><pre><code>${escapeHtml(state.memberCallGraph.mermaid)}</code></pre></details>
+            <details class="graph-source"><summary>Mermaid source</summary><pre><code>${escapeHtml(active.mermaid)}</code></pre></details>
           </section>`
         : `<section class="document-section empty-member-section"><h2>Call graph query failed</h2><p>${escapeHtml(state.memberCallGraphError || "No call graph result was returned.")}</p></section>`;
   } else if (state.memberSection === "facts") {
@@ -2345,6 +2368,7 @@ function bindEvents() {
     loadPackage(packageId, version, "");
   });
   document.querySelector("#share").addEventListener("click", share);
+  document.querySelector("[data-graph-back]")?.addEventListener("click", popPlatformDrill);
   document.querySelector("#dismiss-notice")?.addEventListener("click", () => {
     state.queryNotice = "";
     render();
@@ -3837,6 +3861,10 @@ async function loadSelectedMemberCallGraph() {
   // re-runs across the full workspace to add cross-library callers, then re-renders (the
   // "flash"). A sequence token drops results once the member/overload selection has moved on.
   const seq = ++state.memberCallGraphSeq;
+  // A fresh workspace graph invalidates any in-progress platform descent.
+  state.platformStack = [];
+  state.platformDrillLoading = false;
+  state.platformDrillError = "";
   const base = {
     packageId: state.package.id,
     version: state.package.version,
@@ -3923,7 +3951,8 @@ function patchCallGraphSection(previousMermaid) {
 
 async function renderMermaidCallGraph() {
   const container = document.querySelector("#call-graph-diagram");
-  if (!container || !state.memberCallGraph?.mermaid) return;
+  const active = currentCallGraph();
+  if (!container || !active?.mermaid) return;
   try {
     mermaidModule ??= import("https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.esm.min.mjs");
     const { default: mermaid } = await mermaidModule;
@@ -3936,7 +3965,7 @@ async function renderMermaidCallGraph() {
     });
     const id = `call-graph-${Date.now().toString(36)}`;
     const rootStyle = getComputedStyle(document.documentElement);
-    const definition = state.memberCallGraph.mermaid.replace(
+    const definition = active.mermaid.replace(
       /var\((--[\w-]+)\)/g,
       (whole, name) => rootStyle.getPropertyValue(name).trim() || whole
     );
@@ -4075,18 +4104,106 @@ function attachGraphPanZoom(container, viewport, bindCallGraphNodes = false) {
       const label = (node.textContent || "").replace(/\s+/g, " ").trim();
       const target = resolveNodeLabel(label);
       const source = target ? null : resolveNodeForSource(label, node.classList.contains("differentAssembly"));
-      if (!target && !source) return;
+      // A node with no workspace target and no source is a platform (BCL / cross-library)
+      // callee: resolvable identity lives on the active graph's tree, so we can descend
+      // into its implementation IL by range-fetching the owning assembly on demand.
+      const platform = (target || source) ? null : resolvePlatformNode(label);
+      if (!target && !source && !platform) return;
       node.classList.add("nav-node");
+      if (platform) node.classList.add("platform-node");
       node.style.cursor = "pointer";
       node.addEventListener("click", () => {
         if (moved) return;
         if (target) navigateToMember(target.pkg, target.type, target.group);
-        else openGraphSource(source.request, source.title);
+        else if (source) openGraphSource(source.request, source.title);
+        else drillPlatformNode(platform);
       });
     });
   }
 
   fit();
+}
+
+function currentCallGraph() {
+  return state.platformStack.length > 0
+    ? state.platformStack[state.platformStack.length - 1].graph
+    : state.memberCallGraph;
+}
+
+function platformCrumbTrail() {
+  const root = state.memberCallGraph?.callees?.label
+    ? state.memberCallGraph.callees.label.replace(/\(.*$/, "")
+    : "member";
+  return [root, ...state.platformStack.map(entry => entry.title)].join(" › ");
+}
+
+// Walk the active graph's caller + callee trees into a flat node list so a clicked
+// SVG node (matched by its compact "Type.Member" label) can recover the structured
+// identity the engine attached (assembly, typeFullName, memberName, paramSig).
+function flattenGraphNodes(graph) {
+  const out = [];
+  const visit = node => {
+    if (!node) return;
+    out.push(node);
+    (node.children ?? []).forEach(visit);
+  };
+  visit(graph?.callers);
+  visit(graph?.callees);
+  return out;
+}
+
+function resolvePlatformNode(label) {
+  const dot = label.lastIndexOf(".");
+  if (dot < 0) return null;
+  let typeName = label.slice(0, dot);
+  const memberName = label.slice(dot + 1);
+  if (typeName.endsWith(".")) typeName = typeName.slice(0, -1);
+  if (!typeName || !memberName) return null;
+  const wantType = stripArity(typeName);
+  for (const node of flattenGraphNodes(currentCallGraph())) {
+    if (node.status !== "External" || !node.typeFullName) continue;
+    if (node.memberName !== memberName) continue;
+    const simple = stripArity(node.typeFullName.split(".").pop() ?? "");
+    if (simple === wantType) return node;
+  }
+  return null;
+}
+
+async function drillPlatformNode(node) {
+  if (state.platformDrillLoading) return;
+  state.platformDrillLoading = true;
+  state.platformDrillError = "";
+  render();
+  try {
+    const graph = await inspectExpandPlatformCallGraph({
+      framework: state.package.activeFramework,
+      assembly: node.assembly,
+      type: node.typeFullName,
+      member: node.memberName,
+      paramSig: node.paramSig ?? ""
+    });
+    state.platformStack.push({
+      graph,
+      title: `${stripArity(node.typeFullName.split(".").pop() ?? "")}.${node.memberName}`
+    });
+    state.platformDrillLoading = false;
+    render();
+    await renderMermaidCallGraph();
+  } catch (error) {
+    state.platformDrillLoading = false;
+    state.platformDrillError =
+      `Could not descend into ${node.typeFullName}.${node.memberName}: ${String(error?.message || error)}`;
+    render();
+    await renderMermaidCallGraph();
+  }
+}
+
+function popPlatformDrill() {
+  if (state.platformStack.length === 0) return;
+  state.platformStack.pop();
+  state.platformDrillError = "";
+  render();
+  renderMermaidCallGraph();
 }
 
 function stripArity(name) {

@@ -616,6 +616,13 @@ kbd {
 .graph-expanding .loader { width: 13px; height: 13px; border-width: 2px; }
 .graph-scope { display: grid; grid-template-columns: max-content 1fr max-content 1fr; gap: 8px 14px; align-items: center; padding: 10px; border-top: 1px solid var(--line); color: var(--dim); font: 11px var(--mono); }
 .graph-scope strong { color: var(--text); font-weight: 500; }
+.graph-breadcrumb { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-top: 1px solid var(--line); font: 11px var(--mono); }
+.graph-breadcrumb button { cursor: pointer; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 5px; padding: 3px 9px; font: 11px var(--mono); }
+.graph-breadcrumb button:hover { border-color: var(--accent); color: var(--accent); }
+.graph-breadcrumb .graph-crumbs { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graph-drill-error { padding: 8px 10px; border-top: 1px solid var(--line); color: var(--danger, #e5534b); font: 11px var(--mono); }
+.call-graph-diagram g.node.platform-node rect,
+.call-graph-diagram g.node.platform-node polygon { stroke-dasharray: 4 3; }
 .call-graph-diagram { position: relative; min-height: 360px; display: grid; place-items: center; overflow: hidden; padding: 0; border-top: 1px solid var(--line); background: var(--bg); }
 .graph-viewport { position: relative; width: 100%; height: 540px; overflow: hidden; cursor: grab; touch-action: none; }
 .graph-viewport.panning { cursor: grabbing; }
