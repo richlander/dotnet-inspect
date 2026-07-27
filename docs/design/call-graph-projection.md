@@ -104,9 +104,25 @@ The projection owns everything a host must not re-invent in JavaScript:
   cross-assembly source while hard-coding fan-out to `0`; a callee tree indexes
   the callee scope and reports fan-out but never classifies a root. Merging the
   two observations therefore happens field by field, keeping the side that
-  actually measured each fact. Degrees and depth are lower bounds over whichever
-  scope set that walk indexed, so the larger observation wins and a direction
-  that never measures a degree can never pin it to zero.
+  actually measured each fact.
+
+  Merging is only sound when both sides measure the same quantity, so the units
+  are pinned in `LibraryBodyIndex` rather than reconciled here:
+
+  - **Fan-in counts distinct callers, never call sites.** It is a leverage cue —
+    "how many members depend on this one" — and the reverse graph draws one edge
+    per distinct caller, so the annotation has to agree with the picture it
+    annotates. A caller that invokes the target three times contributes `1`.
+  - **Fan-out counts call sites**, because outbound cost is per site.
+  - **Depth is the bounded subtree height rooted at the node**, so on the caller
+    side it measures upstream reach and on the callee side downstream reach.
+
+  Given matching units, degrees and depth are lower bounds over whichever scope
+  set that walk indexed, so the larger observation is the better-informed one:
+  the merge takes the maximum, and a direction that never measures a quantity
+  reports `0` and can never pin it. For depth this publishes the taller of the
+  two subtrees rooted at the member — its widest reach in the bounded graph,
+  in whichever direction that reach runs.
 
 ### Lowering a bidirectional graph to a tree
 

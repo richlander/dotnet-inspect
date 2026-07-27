@@ -1347,10 +1347,16 @@ public sealed class LibraryBodyIndex
         int ResolveCallee(DirectCall call)
             => methodMap.Resolve(call);
 
+        // Fan-in counts distinct callers, not call sites: it is a leverage cue ("how many
+        // members depend on this one"), and the reverse graph draws one edge per distinct
+        // caller, so the annotation has to agree with the picture it annotates.
         var incomingCounts = DirectCalls
             .GroupBy(call => ResolveCallee(call))
             .Where(group => group.Key != 0)
-            .ToDictionary(group => group.Key, group => group.Count(), EqualityComparer<int>.Default);
+            .ToDictionary(
+                group => group.Key,
+                group => group.Select(call => call.Caller.MetadataToken).Distinct().Count(),
+                EqualityComparer<int>.Default);
 
         CallTreeNode Build(MemberRef member, CallKind? kind, int token, int depth, bool inLoop = false)
         {
@@ -1685,7 +1691,9 @@ public sealed class LibraryBodyIndex
         // decoded method's home assembly and signals (both assembly-local by token), so an expanded
         // callee reports its source assembly and perf signals from wherever it is actually defined.
         var forward = new Dictionary<string, List<ForwardCalleeEdge>>(StringComparer.Ordinal);
-        var incoming = new Dictionary<string, int>(StringComparer.Ordinal);
+        // Distinct callers per callee, not call sites — same leverage semantics as the
+        // single-assembly builder and as the reverse graph's one-edge-per-caller shape.
+        var incoming = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
         var definitions = new Dictionary<string, (string Assembly, MethodSignals Signals)>(StringComparer.Ordinal);
         void IndexAssembly(LibraryBodyIndex assembly)
         {
@@ -1701,7 +1709,10 @@ public sealed class LibraryBodyIndex
                     list.Add(edge);
                 else
                     forward[callerKey] = [edge];
-                incoming[calleeKey] = incoming.GetValueOrDefault(calleeKey) + 1;
+                if (incoming.TryGetValue(calleeKey, out var callers))
+                    callers.Add(callerKey);
+                else
+                    incoming[calleeKey] = new HashSet<string>(StringComparer.Ordinal) { callerKey };
             }
             foreach (var method in assembly.Methods)
             {
@@ -1728,7 +1739,7 @@ public sealed class LibraryBodyIndex
             bool external = assembly.Length > 0 && !string.Equals(assembly, targetAssembly, StringComparison.Ordinal);
             string? source = external ? assembly : null;
             string? loopHint = inLoop ? "loop" : null;
-            int fanin = incoming.GetValueOrDefault(key);
+            int fanin = incoming.TryGetValue(key, out var inboundCallers) ? inboundCallers.Count : 0;
 
             if (key.Length == 0 || !forward.TryGetValue(key, out var rawEdges))
             {

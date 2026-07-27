@@ -405,22 +405,25 @@ public class CallGraphProjectionTests
     {
         var focus = Member("Ns.Target", "Run");
         var external = Member("Ns.Far", "Boundary");
+        // The bare occurrence arrives FIRST, on the caller walk, so a first-non-null-wins
+        // rule pins the empty record and the callee walk's real cues are lost.
         var callerRoot = new CallTreeNode(
             focus, null, CallTreeStatus.Expanded,
-            [new CallTreeNode(external, null, CallTreeStatus.External, [], new CallTreePerf(0, 3, 1, true, "loop call", null, null, "Other.dll"))],
+            [new CallTreeNode(external, null, CallTreeStatus.External, [], new CallTreePerf(0, 0, 1, false))],
             new CallTreePerf(0, 0, 1, false));
         var calleeRoot = new CallTreeNode(
             focus, null, CallTreeStatus.Expanded,
-            [new CallTreeNode(external, null, CallTreeStatus.External, [], new CallTreePerf(0, 0, 1, false))],
+            [new CallTreeNode(external, null, CallTreeStatus.External, [], new CallTreePerf(2, 3, 1, true, "loop", null, null, "Other.dll"))],
             new CallTreePerf(0, 0, 1, false));
 
         var projection = CallGraphProjection.Create(callerRoot, calleeRoot);
         var node = Assert.Single(projection.Nodes, n => n.Member.Name == "Boundary");
 
         Assert.NotNull(node.Perf);
+        Assert.Equal(2, node.Perf.Fanout);
         Assert.Equal(3, node.Perf.Fanin);
         Assert.Equal("Other.dll", node.Perf.Source);
         Assert.True(node.Perf.InLoop);
-        Assert.Equal("loop call", node.Perf.LoopHint);
+        Assert.Equal("loop", node.Perf.LoopHint);
     }
 }

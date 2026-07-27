@@ -5721,4 +5721,62 @@ public static class OverloadCallers
 public sealed class LookalikeEnumeratorCollection
 {
     public System.Collections.Generic.IEnumeratorLookalike GetEnumerator() => new();
+
+    [Fact]
+    public void CallTreeFanInCountsDistinctCallersNotCallSites()
+    {
+        var (path, directory) = BuildRepeatedCallSiteFixture();
+        try
+        {
+            var index = LibraryBodyIndex.Open(path);
+            var target = index.Methods.First(method => method.Name == "Target");
+            var caller = index.Methods.First(method => method.Name == "CallsTargetTwice");
+
+            var tree = index.BuildCallTree(caller.MetadataToken, maxDepth: 2, maxNodes: 50);
+            var targetNode = tree.Children.First(child => child.Member.Name == "Target");
+
+            // Three call sites reach Target, but only two distinct methods do. Fan-in is a
+            // leverage cue and the reverse graph draws one edge per distinct caller, so the
+            // number has to agree with the edges rather than count repeated sites.
+            Assert.Equal(3, index.DirectCalls.Count(call => call.Callee.Name == "Target"));
+            Assert.Equal(2, targetNode.Perf?.Fanin);
+            Assert.NotNull(target);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static (string Path, string Directory) BuildRepeatedCallSiteFixture()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "dotnet-inspect-repeated-call-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "RepeatedCallSiteFixture.dll");
+
+        var assemblyName = new AssemblyName("RepeatedCallSiteFixture");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var type = module.DefineType("RepeatedCallSiteFixture", TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+
+        var target = type.DefineMethod("Target", MethodAttributes.Public | MethodAttributes.Static, typeof(void), Type.EmptyTypes);
+        target.GetILGenerator().Emit(OpCodes.Ret);
+
+        // Two call sites from one caller.
+        var twice = type.DefineMethod("CallsTargetTwice", MethodAttributes.Public | MethodAttributes.Static, typeof(void), Type.EmptyTypes);
+        var twiceIl = twice.GetILGenerator();
+        twiceIl.Emit(OpCodes.Call, target);
+        twiceIl.Emit(OpCodes.Call, target);
+        twiceIl.Emit(OpCodes.Ret);
+
+        // One call site from a second caller.
+        var once = type.DefineMethod("CallsTargetOnce", MethodAttributes.Public | MethodAttributes.Static, typeof(void), Type.EmptyTypes);
+        var onceIl = once.GetILGenerator();
+        onceIl.Emit(OpCodes.Call, target);
+        onceIl.Emit(OpCodes.Ret);
+
+        type.CreateType();
+        assembly.Save(path);
+        return (path, directory);
+    }
 }
