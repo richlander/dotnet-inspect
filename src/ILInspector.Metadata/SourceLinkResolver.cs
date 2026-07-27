@@ -276,22 +276,31 @@ public class SourceLinkResolver
     /// implicitly private one, which <see cref="IsMemberSignatureLine"/> cannot recognize.
     /// <para>
     /// The line must read as a declaration prefix: a run of type-shaped tokens that reaches the
-    /// member's own name, followed by <c>(</c>, <c>&lt;</c>, <c>{</c>, or <c>=&gt;</c>. Requiring
-    /// the name to follow a return type — and rejecting a leading statement keyword — is what
-    /// separates <c>int Target =&gt; 1;</c> from a body line that merely spells the name, such as
-    /// a recursive <c>return Target(n - 1);</c> or an assignment <c>x = Target();</c>. A trailing
-    /// <c>;</c> is deliberately not accepted, so a local declaration such as <c>Foo Target;</c>
-    /// does not qualify.
+    /// member's own name, followed by <c>(</c>, <c>&lt;</c>, <c>{</c>, or <c>=&gt;</c>. Two
+    /// requirements separate a declaration from a body line that merely spells the name. A
+    /// leading statement keyword rejects the line outright, which covers a recursive
+    /// <c>return Target(n - 1);</c>. And the name must open a new token — a return type has to
+    /// precede it — rather than continue a dotted chain, which is what tells the explicit
+    /// implementation <c>int IDefault.Target =&gt; 1;</c> from the qualified call
+    /// <c>Helper.Target();</c>. A trailing <c>;</c> is deliberately not accepted, so a local
+    /// declaration such as <c>Foo Target;</c> does not qualify.
+    /// </para>
+    /// <para>
+    /// An indexer is spelled <c>this[...]</c> rather than by the <c>Item</c> name its accessors
+    /// carry in metadata, so a property accessor also accepts <c>this</c> in the name position.
     /// </para>
     /// </summary>
     private static bool DeclaresMember(string trimmed, string methodName)
     {
-        var name = SourceSpelledMemberName(methodName);
+        var name = SourceSpelledMemberName(methodName, out bool isPropertyAccessor);
         if (name.Length == 0)
             return false;
 
         int i = 0;
-        bool isFirstToken = true;
+        int tokenIndex = 0;
+        int chainStart = 0;
+        bool afterDot = false;
+
         while (i < trimmed.Length)
         {
             while (i < trimmed.Length && char.IsWhiteSpace(trimmed[i]))
@@ -308,29 +317,44 @@ public class SourceLinkResolver
                     i++;
                 var token = trimmed[tokenStart..i];
 
-                if (isFirstToken)
-                {
-                    if (StatementOpeners.Contains(token))
-                        return false;
-                    isFirstToken = false;
-                    continue;
-                }
+                // A dotted continuation stays part of the chain its first token opened; anything
+                // else opens a new one. Only a chain that something precedes can be a member name.
+                if (!afterDot)
+                    chainStart = tokenIndex;
+                afterDot = false;
 
-                if (token != name)
-                    continue;
-
-                int j = i;
-                while (j < trimmed.Length && char.IsWhiteSpace(trimmed[j]))
-                    j++;
-                if (j >= trimmed.Length)
+                if (tokenIndex == 0 && StatementOpeners.Contains(token))
                     return false;
-                if (trimmed[j] is '(' or '<' or '{')
-                    return true;
-                return trimmed[j] == '=' && j + 1 < trimmed.Length && trimmed[j + 1] == '>';
+
+                bool isNamePosition = token == name
+                    || (isPropertyAccessor && token == "this");
+                if (isNamePosition)
+                    return chainStart >= 1 && FollowsDeclarationName(trimmed, i, token == "this");
+
+                tokenIndex++;
+                continue;
             }
 
-            // Punctuation that can appear within a qualified, generic, array, or nullable type.
-            if (c is '.' or '<' or '>' or ',' or '[' or ']' or '?')
+            if (c == '.')
+            {
+                afterDot = true;
+                i++;
+                continue;
+            }
+
+            // A generic argument list or array rank belongs to the type token it follows, so it
+            // must be consumed whole — otherwise a type argument would read as a separate token
+            // and let a qualified call such as Foo<T>.Target() pass as a declaration.
+            if (c is '<' or '[')
+            {
+                int after = SkipBalanced(trimmed, i, c, c == '<' ? '>' : ']');
+                if (after < 0)
+                    return false;
+                i = after;
+                continue;
+            }
+
+            if (c == '?')
             {
                 i++;
                 continue;
@@ -343,18 +367,72 @@ public class SourceLinkResolver
     }
 
     /// <summary>
+    /// True when the character following a candidate member name at <paramref name="index"/>
+    /// can open that member's parameter list, type parameter list, accessor list, or expression
+    /// body. An indexer must be followed by its <c>[</c> parameter list.
+    /// </summary>
+    private static bool FollowsDeclarationName(string trimmed, int index, bool isIndexer)
+    {
+        int j = index;
+        while (j < trimmed.Length && char.IsWhiteSpace(trimmed[j]))
+            j++;
+        if (j >= trimmed.Length)
+            return false;
+
+        if (isIndexer)
+            return trimmed[j] == '[';
+
+        if (trimmed[j] is '(' or '<' or '{')
+            return true;
+
+        return trimmed[j] == '=' && j + 1 < trimmed.Length && trimmed[j + 1] == '>';
+    }
+
+    /// <summary>
+    /// The index just past the <paramref name="close"/> that balances the <paramref name="open"/>
+    /// at <paramref name="index"/>, or -1 when the group does not close on this line (a signature
+    /// whose type argument list wraps), in which case no declaration claim can be made.
+    /// </summary>
+    private static int SkipBalanced(string trimmed, int index, char open, char close)
+    {
+        int depth = 0;
+        for (int i = index; i < trimmed.Length; i++)
+        {
+            if (trimmed[i] == open)
+                depth++;
+            else if (trimmed[i] == close)
+                depth--;
+
+            if (depth == 0)
+                return i + 1;
+        }
+
+        return -1;
+    }
+
+    /// <summary>
     /// The name a member is spelled with in source: an accessor's <c>get_</c>/<c>set_</c>/
     /// <c>add_</c>/<c>remove_</c> prefix names the owning property or event, and an explicit
     /// interface implementation carries a qualifying prefix that source states separately.
     /// </summary>
-    private static string SourceSpelledMemberName(string methodName)
+    private static string SourceSpelledMemberName(string methodName, out bool isPropertyAccessor)
     {
+        isPropertyAccessor = false;
         var name = methodName.AsSpan();
         int lastDot = name.LastIndexOf('.');
         if (lastDot >= 0)
             name = name[(lastDot + 1)..];
 
-        foreach (var prefix in (ReadOnlySpan<string>)["get_", "set_", "add_", "remove_"])
+        foreach (var prefix in (ReadOnlySpan<string>)["get_", "set_"])
+        {
+            if (name.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                isPropertyAccessor = true;
+                return name[prefix.Length..].ToString();
+            }
+        }
+
+        foreach (var prefix in (ReadOnlySpan<string>)["add_", "remove_"])
         {
             if (name.StartsWith(prefix, StringComparison.Ordinal))
                 return name[prefix.Length..].ToString();
