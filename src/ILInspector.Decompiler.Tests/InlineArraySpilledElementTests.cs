@@ -544,30 +544,38 @@ public class InlineArraySpilledElementTests
     // PropertyName by trimming that prefix.
     static readonly MethodRef PatternAccessor = new(Object, "get_Value", Object, [], HasThis: true);
 
-    // One IrFunction factory per local-slot-binding carrier kind. Each builds a method
-    // whose only metadata local (slot 0) is the unspellable inline-array buffer, bound
-    // by a node of that kind, so MarkLocalEliminated must refuse to drop the slot —
-    // dropping it would hide the buffer's unspellable type and report a false Full
-    // (#3295). Aggregation-only carriers are bound through the parent that owns their
-    // index, matching how NodeBindsLocalSlot reaches them: DeconstructionTarget through
-    // DeconstructionAssignment, PropertySubpattern through PatternSwitchExpressionArm.Subpattern.
-    static readonly IReadOnlyDictionary<Type, Func<IrFunction>> LocalSlotCarrierFactories =
-        new Dictionary<Type, Func<IrFunction>>
+    // One IrFunction factory per local-slot-binding carrier kind, parameterized by the
+    // slot the carrier binds. Each builds a method whose slot 0 is the unspellable
+    // inline-array buffer; when the carrier binds slot 0, MarkLocalEliminated must refuse
+    // to drop it, because dropping it would hide the buffer's unspellable type and report
+    // a false Full (#3295). The slot parameter is what lets the Theory prove the carrier
+    // is the *sole* slot-0 binder rather than assert it by construction (#3329): the same
+    // factory pointed at slot 1 must leave slot 0 eliminable. Aggregation-only carriers
+    // are bound through the parent that owns their index, matching how NodeBindsLocalSlot
+    // reaches them: DeconstructionTarget through DeconstructionAssignment,
+    // PropertySubpattern through PatternSwitchExpressionArm.Subpattern.
+    static readonly IReadOnlyDictionary<Type, Func<int, IrFunction>> LocalSlotCarrierFactories =
+        new Dictionary<Type, Func<int, IrFunction>>
         {
-            [typeof(NullCoalescingAssignment)] = () => BufferBoundBy(new NullCoalescingAssignment(0, Object, BoxInt(7))),
-            [typeof(ForeachStatement)] = () => BufferBoundBy(new ForeachStatement(0, Object, BoxInt(0), new Block())),
-            [typeof(UsingStatement)] = () => BufferBoundBy(new UsingStatement(0, Object, BoxInt(0), new BlockContainer())),
-            [typeof(Fixed)] = () => BufferBoundBy(new Fixed(Object, 0, BoxInt(0), new BlockContainer())),
-            [typeof(IsPattern)] = () => BufferBoundBy(new IsPattern(BoxInt(0), Object, 0)),
-            [typeof(RecursivePropertyDeclarationPattern)] = () => BufferBoundBy(new RecursivePropertyDeclarationPattern(BoxInt(0), PatternAccessor, Object, 0)),
-            [typeof(UnionSwitchExpressionArm)] = () => BufferBoundBy(new UnionSwitchExpressionArm(Object, localIndex: 0, BoxInt(1))),
-            [typeof(PatternSwitchExpressionArm)] = () => BufferBoundBy(new PatternSwitchExpressionArm(Object, localIndex: 0, subpattern: null, BoxInt(1))),
-            [typeof(PropertySubpattern)] = () => BufferBoundBy(new PatternSwitchExpressionArm(Object, localIndex: null, new PropertySubpattern(PatternAccessor, Object, 0), BoxInt(1))),
-            [typeof(CatchClause)] = () => BufferBoundBy(new CatchClause(Object, new BlockContainer()) { VariableIndex = 0 }),
-            [typeof(DeconstructionAssignment)] = () => BufferBoundBy(new DeconstructionAssignment([0], [Object], BoxInt(0), [true])),
-            [typeof(DeconstructionTarget)] = () => BufferBoundBy(new DeconstructionAssignment([0], [Object], BoxInt(0), [true])),
+            [typeof(NullCoalescingAssignment)] = slot => BufferBoundBy(new NullCoalescingAssignment(slot, Object, BoxInt(7))),
+            [typeof(ForeachStatement)] = slot => BufferBoundBy(new ForeachStatement(slot, Object, BoxInt(0), new Block())),
+            [typeof(UsingStatement)] = slot => BufferBoundBy(new UsingStatement(slot, Object, BoxInt(0), new BlockContainer())),
+            [typeof(Fixed)] = slot => BufferBoundBy(new Fixed(Object, slot, BoxInt(0), new BlockContainer())),
+            [typeof(IsPattern)] = slot => BufferBoundBy(new IsPattern(BoxInt(0), Object, slot)),
+            [typeof(RecursivePropertyDeclarationPattern)] = slot => BufferBoundBy(new RecursivePropertyDeclarationPattern(BoxInt(0), PatternAccessor, Object, slot)),
+            [typeof(UnionSwitchExpressionArm)] = slot => BufferBoundBy(new UnionSwitchExpressionArm(Object, localIndex: slot, BoxInt(1))),
+            [typeof(PatternSwitchExpressionArm)] = slot => BufferBoundBy(new PatternSwitchExpressionArm(Object, localIndex: slot, subpattern: null, BoxInt(1))),
+            [typeof(PropertySubpattern)] = slot => BufferBoundBy(new PatternSwitchExpressionArm(Object, localIndex: null, new PropertySubpattern(PatternAccessor, Object, slot), BoxInt(1))),
+            [typeof(CatchClause)] = slot => BufferBoundBy(new CatchClause(Object, new BlockContainer()) { VariableIndex = slot }),
+            [typeof(DeconstructionAssignment)] = slot => BufferBoundBy(new DeconstructionAssignment([slot], [Object], BoxInt(0), [true])),
+            [typeof(DeconstructionTarget)] = slot => BufferBoundBy(new DeconstructionAssignment([slot], [Object], BoxInt(0), [true])),
         };
 
+    // Two locals so a carrier can be pointed at slot 1 without leaving the local table.
+    // Slot 0 is the unspellable buffer and slot 1 is spellable, so eliminating slot 0
+    // is observable through HasUnrepresentableMetadataName: if the refusal leg ever
+    // wrongly dropped slot 0, only the spellable Object would remain and the
+    // spellability assertion would fail rather than stay incidentally true.
     static IrFunction BufferBoundBy(IrNode carrier)
     {
         var block = new Block();
@@ -575,7 +583,7 @@ public class InlineArraySpilledElementTests
         var body = new BlockContainer();
         body.Add(block);
         var signature = new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0);
-        return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [Buffer], body);
+        return new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [Buffer, Object], body);
     }
 
     public static IEnumerable<object[]> LocalSlotCarrierKinds =>
@@ -586,26 +594,42 @@ public class InlineArraySpilledElementTests
     public void MarkLocalEliminated_RefusesEveryLocalSlotBindingNodeKind(string carrierKind)
     {
         // Behavioral guard for IrFunction.NodeBindsLocalSlot (#3295). For every IR node
-        // kind that can bind a local slot, the factory above builds a method whose only
-        // local (slot 0) is the unspellable buffer, bound by that kind. MarkLocalEliminated
-        // must leave the slot in place so its type keeps capping fidelity. Deleting a
-        // NodeBindsLocalSlot case makes its kind's row fail here — unlike an inventory
-        // check, this actually runs the switch.
-        var function = LocalSlotCarrierFactories.Single(entry => entry.Key.Name == carrierKind).Value();
+        // kind that can bind a local slot, the factory above builds a method whose slot 0
+        // is the unspellable buffer, bound by that kind. MarkLocalEliminated must leave the
+        // slot in place so its type keeps capping fidelity. Deleting a NodeBindsLocalSlot
+        // case makes its kind's row fail here — unlike an inventory check, this actually
+        // runs the switch.
+        var factory = LocalSlotCarrierFactories.Single(entry => entry.Key.Name == carrierKind).Value;
 
         // Guard against a vacuous factory that satisfies the completeness tripwire by
         // reusing another kind's factory (binding slot 0 through some OTHER carrier): the
-        // built function must actually contain a node of the keyed kind. Since each
-        // factory is a single-carrier BufferBoundBy(...), that carrier is then the sole
-        // slot-0 binder, so the refusal assertions below force it to be handled in
-        // NodeBindsLocalSlot rather than protected by an unrelated node.
-        Assert.True(FunctionContainsCarrier(function, carrierKind),
+        // built function must actually contain a node of the keyed kind.
+        var bound = factory(0);
+        Assert.True(FunctionContainsCarrier(bound, carrierKind),
             $"The factory for {carrierKind} built no node of that kind, so its row proves nothing.");
 
-        function.MarkLocalEliminated(0);
+        bound.MarkLocalEliminated(0);
 
-        Assert.DoesNotContain(0, function.EliminatedLocalSlots);
-        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(function));
+        Assert.DoesNotContain(0, bound.EliminatedLocalSlots);
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(bound));
+
+        // What makes the refusal above attributable to THIS carrier (#3329). Containing a
+        // node of the kind does not establish that the kind is what held slot 0: a factory
+        // that built its carrier alongside any second slot-0 binder — a bare StoreLocal(0)
+        // is enough — would satisfy both assertions above while NodeBindsLocalSlot never
+        // handled the kind at all, and a function whose only slot-0 binder was that kind
+        // would then be marked eliminated, which is the false Full this exists to prevent.
+        // Pointing the same factory at slot 1 leaves slot 0 bound by nothing, so it must be
+        // eliminable. Any stray slot-0 binder makes this leg refuse and fails the row,
+        // which turns "sole slot-0 binder" from a property of how the factories happen to
+        // be written into one the Theory asserts.
+        var unbound = factory(1);
+        Assert.True(FunctionContainsCarrier(unbound, carrierKind),
+            $"The slot-1 factory for {carrierKind} built no node of that kind, so its row proves nothing.");
+
+        unbound.MarkLocalEliminated(0);
+
+        Assert.Contains(0, unbound.EliminatedLocalSlots);
     }
 
     [Fact]
@@ -615,10 +639,12 @@ public class InlineArraySpilledElementTests
         // have a behavioral factory above so the refusal Theory exercises NodeBindsLocalSlot
         // for it. A new carrier grows the discovered set and fails here until a factory is
         // added; because the Theory asserts the factory actually builds a node of that kind
-        // and that it is the sole slot-0 binder, adding a factory then forces the carrier to
-        // be handled in NodeBindsLocalSlot (neither a name in a list nor a reused factory can
-        // silence both tests). Load/Store/LoadLocalAddress use `Index` (shared with
-        // arguments) and are handled separately.
+        // and — by running the same factory against slot 1 — that the kind is the sole
+        // slot-0 binder, adding a factory then forces the carrier to be handled in
+        // NodeBindsLocalSlot (neither a name in a list, a reused factory, nor a factory
+        // that smuggles in a second slot-0 binder can silence both tests).
+        // Load/Store/LoadLocalAddress use `Index` (shared with arguments) and are handled
+        // separately.
         //
         // Discovery is two-pronged so a future non-IrNode embedded carrier record — as
         // PropertySubpattern already is (reached via PatternSwitchExpressionArm.Subpattern) —
@@ -696,6 +722,15 @@ public class InlineArraySpilledElementTests
     // non-IrNode carrier records (PropertySubpattern, reached via PatternSwitchExpressionArm.
     // Subpattern) are embedded as properties rather than Children, so property values are
     // matched by runtime type name too.
+    //
+    // The catch is narrowed to what reflection wraps a property body's own exception in
+    // (#3329): several IR properties cast or index Children and would throw on a synthetic
+    // node, and skipping those is intended. A blanket catch also swallowed bugs in this
+    // helper itself — an NRE or bad cast in the loop would read as "carrier absent" — and
+    // measured across every row today, no property read throws at all, so nothing depends
+    // on the broader form. Either way this helper is fail-closed: its only callers assert
+    // the result is true, so a carrier missed behind a throwing property fails its row
+    // loudly rather than letting it pass.
     static bool FunctionContainsCarrier(IrNode node, string carrierKind)
     {
         if (node.GetType().Name == carrierKind)
@@ -706,7 +741,7 @@ public class InlineArraySpilledElementTests
                 continue;
             object? value;
             try { value = property.GetValue(node); }
-            catch { continue; }
+            catch (TargetInvocationException) { continue; }
             if (value is not null && value is not IrNode && value.GetType().Name == carrierKind)
                 return true;
         }
