@@ -93,17 +93,36 @@ public static class IrInvariants
     /// spread on the same build (17.8s-22.8s) is wider than the difference.
     /// </para>
     /// <para>
+    /// Read that five precisely, because the obvious misreading is the one this
+    /// type keeps getting punished for: five is the number of fixtures that
+    /// <em>reach the per-pass hook</em> and fail, not the number of fixtures
+    /// that would satisfy the level. Per-pass validation fires inside
+    /// <c>IrPasses.Run</c>/<c>PipelineRunner</c>, so a test that calls
+    /// <c>pass.Run(...)</c> directly never reaches it. Roughly a dozen test
+    /// files still build an <c>IrFunction</c> with an empty local table and
+    /// reference slots in it; they are unaffected today and were equally
+    /// unchecked before this change, but converting one to <c>IrPasses.Run</c>
+    /// will now fail it. That is the intended signal rather than a regression —
+    /// the fixture is genuinely malformed — and the fix is to declare the
+    /// locals. Tracked as follow-up, not silently absorbed.
+    /// </para>
+    /// <para>
     /// A fixture that cannot satisfy this level should declare the locals it
     /// uses, not lower the level. Deriving the local table from the body would
     /// make every fixture pass by construction and would retire the invariant
     /// while appearing to keep it.
     /// </para>
     /// <para>
-    /// Consequence: there is no longer a spelling for structural-only.
-    /// <c>full</c> keeps working and keeps meaning both levels; <c>1</c>/
-    /// <c>true</c> now arm both. A spelling that quietly bought <em>less</em>
-    /// validation than the default would be the same silent-downgrade trap
-    /// #3289 removed for the off case.
+    /// Consequence: there is no longer an <em>environment</em> spelling for
+    /// structural-only. <c>full</c> keeps working and keeps meaning both levels;
+    /// <c>1</c>/<c>true</c> now arm both. A spelling that quietly bought
+    /// <em>less</em> validation than the default would be the same
+    /// silent-downgrade trap #3289 removed for the off case. The per-call
+    /// <c>CheckInvariant(includeSemantics:)</c> parameter is deliberately
+    /// <em>not</em> such a spelling: it is a visible argument at a call site
+    /// chosen by the test that owns it, which is what keeps that coverage
+    /// hermetic under xUnit's parallel collections, rather than a process-wide
+    /// knob that silently lowers what some other host asked for.
     /// </para>
     /// </summary>
     public static bool CheckSemantics => Enabled;

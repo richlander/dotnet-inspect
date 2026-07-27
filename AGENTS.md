@@ -269,10 +269,18 @@ leveling names what is checked rather than offering a way to check less:
   `CheckInvariant(includeSemantics: true)` still threads the level explicitly
   for hermetic per-test coverage.
 
-A hand-built fixture that trips the semantic level is declaring locals it does
-not have; give the `IrFunction` its local table rather than lowering the level.
-Do not derive the local table from the body — that makes every fixture pass by
-construction and retires the invariant while appearing to keep it.
+A hand-built fixture that trips the semantic level is referencing locals it
+does not declare; give the `IrFunction` its local table rather than lowering
+the level. Do not derive the local table from the body — that makes every
+fixture pass by construction and retires the invariant while appearing to keep
+it.
+
+Per-pass validation fires inside `IrPasses.Run`/`PipelineRunner`, so a test
+that calls `pass.Run(...)` directly never reaches it. Roughly a dozen test
+files still build an `IrFunction` with an empty local table and reference slots
+in it. They are unaffected today, but **converting one to `IrPasses.Run` will
+fail it** — correctly, because the fixture is malformed. Declare the locals;
+do not route around the check.
 
 Some CLI tests require `ilasm`/`ildasm` and skip when those tools are absent.
 The IL round-trip project has separate dependency restore and fast/full test
