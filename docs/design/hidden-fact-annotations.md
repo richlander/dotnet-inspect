@@ -77,6 +77,44 @@ settle:
 - **Semantics Overlay** — inter-method behavior/safety facts, such as callees
   with known exception paths or unsafe implementation evidence.
 
+### Two gestures: side and caret
+
+*Where* a fact is drawn is a reporting decision, not a property of the fact. The
+[positive-only contract](#the-positive-only-contract) forbids severity on an
+annotation, and calling a fact "actionable" is a grade — so the choice cannot
+live on `IAnnotation`. It lives in `AnnotationGestureSelector`, chosen per render.
+
+- **Side** (default) — a trailing `//` comment to the right of the statement.
+  Reads as ambient context: "here is something interesting about this line."
+- **Caret** — a `^^^^` underline on `//` lines beneath the statement. Reads as
+  focus: "look *here*." Long details wrap into a readable block instead of the
+  far-right sliver a 190-column trailing comment produces.
+
+`--focus <category|id|id-prefix>` promotes matching facts to the caret gesture;
+prefixes match on a dotted-segment boundary, so `alloc` selects `alloc.box` but
+not `allocator.x`. With no `--focus`, every fact takes the side gesture and the
+output is byte-identical to the pre-gesture renderer.
+
+An annotation carries an IL offset and no character span, so a caret underlines
+the **whole trimmed statement** — exactly what the fact is known to be about. A
+span-carrying datum (a compiler diagnostic) can underline a narrower range; that
+is a property of the datum, not of the gesture.
+
+#### One gutter, at the declaration column
+
+Injected comments anchor to the **member declaration** column rather than to the
+annotated statement's own indent, so the eye tracks a single gutter instead of a
+staircase that follows nesting depth.
+
+That column is below the projected body: the body is member-relative, and the
+declaration line and a uniform four-column indent are added downstream when the
+member is formatted. A caret comment needs three columns to the left of its
+first caret for `"// "`, which a statement on the body's base column cannot
+supply — its carets would sit three columns right of what they point at. So
+`AnnotationCaret` marks its lines with `HoistMarker` and the body formatter
+renders them un-indented. This buys the columns back at *every* depth, which is
+why it is a marker rather than a clamp.
+
 ## Validation: the oracle problem
 
 The decompiler earns trust from **independent ground truth at corpus scale** —

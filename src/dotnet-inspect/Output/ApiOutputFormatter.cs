@@ -1374,7 +1374,8 @@ public static class ApiOutputFormatter
             FidelityCauses: requestedSections.Contains(SectionNames.FidelityCauses),
             AppliedTaste: requestedSections.Contains(SectionNames.AppliedTaste),
             ProjectAssetsPath: options?.ProjectAssetsPath,
-            TargetFramework: options?.Tfm);
+            TargetFramework: options?.Tfm,
+            CaretFocus: options?.Focus);
 
         // An index-backed section that is explicitly selected (via -S or a category like
         // @Audit) renders an empty-state note instead of vanishing when it yields no rows.
@@ -2616,7 +2617,10 @@ public static class ApiOutputFormatter
             : formattedBodyLines;
         var indentedBody = string.Join(
             Environment.NewLine,
-            lines.Select(line => line.Length == 0 ? "" : $"    {line}"));
+            lines.Select(line =>
+                line.Length == 0 ? ""
+                : Decompiler.Annotations.AnnotationCaret.TryHoist(line, out var hoisted) ? hoisted
+                : $"    {line}"));
 
         return $"{Annotate(declaration)}{Environment.NewLine}{{{Environment.NewLine}{indentedBody}{Environment.NewLine}}}";
     }

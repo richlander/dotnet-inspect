@@ -35,7 +35,8 @@ public static partial class ResearchViews
         AnnotationStage AnnotatedStage = AnnotationStage.Raised,
         ResearchFactRegistry? Registry = null,
         int? MethodToken = null,
-        PrinterOptions? PrinterOptions = null);
+        PrinterOptions? PrinterOptions = null,
+        string? CaretFocus = null);
 
     public sealed record MemberProjectionResult(
         DecompilerResult? AnnotatedSource,
@@ -62,6 +63,10 @@ public static partial class ResearchViews
 
             var assembly = ResolveAssemblyContext(imported);
             var effectiveRegistry = request.Registry ?? ResearchFactRegistry.Default;
+            // The reporting half of the data/reporting split: facts are collected
+            // once and describe, and this decides which of them this render
+            // promotes to the caret gesture.
+            var gestures = AnnotationGestureSelector.Focus(request.CaretFocus);
             var context = new ResearchFactContext(request.Source, imported, assembly);
             var facts = effectiveRegistry.Collect(context);
             var headerFacts = request.CostOverlay || request.FactRows
@@ -91,7 +96,8 @@ public static partial class ResearchViews
                         request.OverloadIndex,
                         request.PublicOnly,
                         request.MethodToken,
-                        request.PrinterOptions),
+                        request.PrinterOptions,
+                        gestures),
                         emptyOutputIsFailure: false),
                     request.Source);
             }
@@ -106,7 +112,7 @@ public static partial class ResearchViews
                     .Where(fact => fact.Descriptor.Category == AnnotationCategory.Cost)
                     .ToList();
                 var body = WithTrace(
-                    RunProjection(() => RenderRaisedOverlay(imported, costAnnotations, request.Source), emptyOutputIsFailure: false),
+                    RunProjection(() => RenderRaisedOverlay(imported, costAnnotations, request.Source, gestures), emptyOutputIsFailure: false),
                     request.Source);
                 costOverlay = new CostOverlayResult(body, costHeaderFacts);
             }
@@ -118,7 +124,7 @@ public static partial class ResearchViews
                     .Where(annotation => annotation.Descriptor.Category == AnnotationCategory.Semantics)
                     .ToList();
                 semanticsOverlay = WithTrace(
-                    RunProjection(() => RenderRaisedOverlay(imported, semanticsAnnotations, request.Source), emptyOutputIsFailure: false),
+                    RunProjection(() => RenderRaisedOverlay(imported, semanticsAnnotations, request.Source, gestures), emptyOutputIsFailure: false),
                     request.Source);
             }
 
@@ -211,7 +217,8 @@ public static partial class ResearchViews
         int overloadIndex,
         bool publicOnly,
         int? methodToken = null,
-        PrinterOptions? printerOptions = null)
+        PrinterOptions? printerOptions = null,
+        AnnotationGestureSelector? gestures = null)
     {
 
         IrFunction? ImportMethodBody(MethodRef target) => IrImporter.Import(source, target);
@@ -245,7 +252,7 @@ public static partial class ResearchViews
                 : IlProjection.RenderIlBodyLines(source, methodToken.Value);
 
         var stream = CorrelateMixedSource(imported, csText, statementLines, annotations, annotatedInstrLines);
-        return csResult with { Output = RenderMixedStream(stream) };
+        return csResult with { Output = RenderMixedStream(stream, gestures ?? AnnotationGestureSelector.SideOnly) };
     }
 
     // The correlation layer: fold the printed C# body, its statement-line map, the
@@ -341,10 +348,12 @@ public static partial class ResearchViews
     // structured annotations into a trailing "// ..." comment; IL lines are framed
     // as "// ..." comments indented under the preceding C# line, reading the indent
     // straight from that line's leading whitespace.
-    static string RenderMixedStream(IReadOnlyList<AnnotatedSourceLine> stream)
+    static string RenderMixedStream(IReadOnlyList<AnnotatedSourceLine> stream, AnnotationGestureSelector gestures)
     {
         var sb = new StringBuilder();
         string csIndent = "";
+        string memberIndent = AnnotationCaret.MemberIndent(
+            [.. stream.Where(line => line.Kind == SourceLineKind.CSharp).Select(line => line.Text)]);
         foreach (var line in stream)
         {
             if (line.Kind == SourceLineKind.Il)
@@ -354,22 +363,25 @@ public static partial class ResearchViews
             }
 
             csIndent = LeadingWhitespace(line.Text);
+            var (side, caret) = SplitByGesture(line.Annotations, gestures);
             string text = line.Text;
-            if (line.Annotations.Count > 0)
-                text = $"{text}  // {string.Join("; ", line.Annotations.Select(a => AnnotationText.Format(a)))}";
+            if (side.Count > 0)
+                text = $"{text}  // {string.Join("; ", side.Select(a => AnnotationText.Format(a)))}";
             sb.AppendLine(text);
+            foreach (string caretLine in AnnotationCaret.Render(line.Text, memberIndent, caret, hoist: true))
+                sb.AppendLine(caretLine);
         }
         return sb.ToString().TrimEnd();
     }
 
-    static DecompilerResult RenderRaisedOverlay(IrFunction imported, IReadOnlyList<IAnnotation> annotations, MetadataSource source)
+    static DecompilerResult RenderRaisedOverlay(IrFunction imported, IReadOnlyList<IAnnotation> annotations, MetadataSource source, AnnotationGestureSelector? gestures = null)
     {
         var result = CSharpPrinter.PrintRaised(imported, out var statementLines, importMethodBody: null, typesProvablyDisjoint: source.AreProvablyDisjoint);
         if (result.Output is not { } output)
             return result;
         var projected = annotations.Count == 0
             ? output
-            : AddTrailingComments(imported, output, statementLines, annotations);
+            : AddTrailingComments(imported, output, statementLines, annotations, gestures ?? AnnotationGestureSelector.SideOnly);
         return result with { Output = projected };
     }
 
@@ -414,10 +426,11 @@ public static partial class ResearchViews
         IrFunction raised,
         string output,
         IReadOnlyDictionary<IrNode, int> statementLines,
-        IReadOnlyList<IAnnotation> annotations)
+        IReadOnlyList<IAnnotation> annotations,
+        AnnotationGestureSelector gestures)
     {
         var stream = CorrelateOverlay(raised, output, statementLines, annotations);
-        return RenderOverlayStream(output, stream);
+        return RenderOverlayStream(output, stream, gestures);
     }
 
     // The C#-only correlation: anchor each annotation group to its printed C# line
@@ -458,11 +471,16 @@ public static partial class ResearchViews
         return stream;
     }
 
-    // The dumb overlay printer: a line with annotations gets a trailing "// ..."
-    // comment (trimmed); other lines pass through untouched. Returns the original
-    // output verbatim when no line resolved an annotation, matching the historical
-    // no-op short-circuit byte for byte (no split/rejoin normalization).
-    static string RenderOverlayStream(string output, IReadOnlyList<AnnotatedSourceLine> stream)
+    // The dumb overlay printer: each line's annotations are reported by gesture —
+    // side facts bake into a trailing "// ..." comment, caret facts emit an
+    // underline block on the member gutter beneath the line. Other lines pass
+    // through untouched. Returns the original output verbatim when no line
+    // resolved an annotation, matching the historical no-op short-circuit byte
+    // for byte (no split/rejoin normalization).
+    static string RenderOverlayStream(
+        string output,
+        IReadOnlyList<AnnotatedSourceLine> stream,
+        AnnotationGestureSelector gestures)
     {
         bool any = false;
         foreach (var line in stream)
@@ -474,15 +492,38 @@ public static partial class ResearchViews
         if (!any)
             return output;
 
-        var lines = new string[stream.Count];
-        for (int i = 0; i < stream.Count; i++)
+        string memberIndent = AnnotationCaret.MemberIndent([.. stream.Select(line => line.Text)]);
+        var lines = new List<string>(stream.Count);
+        foreach (var line in stream)
         {
-            var line = stream[i];
-            lines[i] = line.Annotations.Count > 0
-                ? $"{line.Text.TrimEnd()}  // {AnnotationText.Format(line.Annotations)}"
-                : line.Text;
+            var (side, caret) = SplitByGesture(line.Annotations, gestures);
+            lines.Add(side.Count > 0
+                ? $"{line.Text.TrimEnd()}  // {AnnotationText.Format(side)}"
+                : line.Text);
+            lines.AddRange(AnnotationCaret.Render(line.Text, memberIndent, caret, hoist: true));
         }
         return string.Join(Environment.NewLine, lines);
+    }
+
+    // Partition one line's facts by reporting gesture. Order within each bucket is
+    // the producer's, so promoting a fact never reorders the ones left behind.
+    static (IReadOnlyList<IAnnotation> Side, IReadOnlyList<IAnnotation> Caret) SplitByGesture(
+        IReadOnlyList<IAnnotation> annotations,
+        AnnotationGestureSelector gestures)
+    {
+        if (annotations.Count == 0 || gestures.AllSide(annotations))
+            return (annotations, []);
+
+        var side = new List<IAnnotation>();
+        var caret = new List<IAnnotation>();
+        foreach (var annotation in annotations)
+        {
+            if (gestures.For(annotation) == AnnotationGesture.Caret)
+                caret.Add(annotation);
+            else
+                side.Add(annotation);
+        }
+        return (side, caret);
     }
 
     static Dictionary<IAnnotation, int> CSharpLinesByFact(IrFunction imported, IReadOnlyList<IAnnotation> facts, MetadataSource source)
