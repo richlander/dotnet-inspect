@@ -1012,6 +1012,35 @@ kbd {
 .spotlight-item-name mark { background: transparent; color: var(--accent); font-weight: 600; }
 .spotlight-item-ns { justify-self: end; color: var(--muted); font: 11px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
 .spotlight-item-pkg { grid-column: 2 / 4; color: var(--dim); font: 10px var(--mono); }
+.spotlight-chips {
+  display: flex;
+  gap: 6px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.spotlight-chip {
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: 11px var(--mono);
+  cursor: pointer;
+  transition: background 90ms ease, color 90ms ease, border-color 90ms ease;
+}
+.spotlight-chip:hover { color: var(--text); border-color: var(--line-strong); }
+.spotlight-chip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.spotlight-group {
+  padding: 8px 10px 3px;
+  color: var(--dim);
+  font: 10px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.spotlight-hint { padding: 8px 12px; color: var(--dim); font: 10px var(--mono); text-align: center; }
+.kind-icon.sl-pkg { color: var(--accent); }
+.kind-icon.sl-pkg-new { color: var(--muted); }
+.kind-icon.sl-member { color: var(--text); }
 .spotlight-empty { padding: 26px 14px; color: var(--dim); font: 12px var(--mono); text-align: center; }
 .spotlight-foot {
   display: flex;

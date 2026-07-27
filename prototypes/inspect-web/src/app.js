@@ -79,6 +79,10 @@ const state = {
   spotlightOpen: false,
   spotlightQuery: "",
   spotlightIndex: 0,
+  spotlightScope: "all",
+  spotlightPkgHits: [],
+  spotlightPkgLoading: false,
+  spotlightPkgQuery: "",
   graphSourceOpen: false,
   graphSource: null,
   graphSourceLoading: false,
@@ -2260,13 +2264,15 @@ function bindEvents() {
     spotlightInput.addEventListener("input", event => {
       state.spotlightQuery = event.target.value;
       state.spotlightIndex = 0;
+      scheduleSpotlightPackageFetch();
       updateSpotlightResults();
     });
     spotlightInput.addEventListener("keydown", handleSpotlightKeys);
   }
-  document.querySelectorAll("[data-sl-type]").forEach(button => button.addEventListener("click", () => {
-    pickSpotlight(button.dataset.slPkg, button.dataset.slType);
+  document.querySelectorAll("[data-sl-scope]").forEach(button => button.addEventListener("click", () => {
+    setSpotlightScope(button.dataset.slScope);
   }));
+  bindSpotlightResultClicks(document);
   document.querySelector("#spotlight-backdrop")?.addEventListener("mousedown", event => {
     if (event.target.id === "spotlight-backdrop") closeSpotlight();
   });
@@ -2504,20 +2510,18 @@ function spotlightFallbackMatches(query, pool) {
     .map(entry => ({ ...entry.item, ranges: computeHighlightRanges(entry.item.type.name, lowerQuery) }));
 }
 
-function spotlightMatches() {
-  const query = state.spotlightQuery.trim();
+// Ranked type matches across all loaded packages (engine-owned SearchTypes, with a
+// client-side fallback). This is one target among several the scoped Spotlight blends.
+function spotlightTypeMatches(query) {
   const cache = spotlightCandidates();
   if (!query) {
     return cache.pool
       .filter(item => item.pkg === state.package)
       .sort((a, b) => a.type.name.localeCompare(b.type.name))
-      .slice(0, 20)
       .map(item => ({ ...item, ranges: [] }));
   }
-
   const hits = inspectSearchTypes(query, cache.candidatesJson);
   if (!hits) return spotlightFallbackMatches(query, cache.pool);
-
   const lowerQuery = query.toLowerCase();
   const matches = [];
   for (const hit of hits) {
@@ -2528,53 +2532,261 @@ function spotlightMatches() {
   return matches;
 }
 
-function spotlightResultsHtml(matches, multiPkg) {
-  if (!matches.length) {
-    return `<div class="spotlight-empty">No types match “${escapeHtml(state.spotlightQuery.trim())}”.</div>`;
+// Flat member index across every loaded type, deduped by (package, type, member group).
+// Cached against the same workspace signature as the type pool so it rebuilds only when
+// packages or their type counts change.
+let spotlightMemberCache = null;
+function spotlightMemberCandidates() {
+  const signature = `${state.package?.id ?? ""}#${state.packages
+    .map(pkg => `${pkg.id}:${pkg.types?.length ?? 0}`)
+    .join("|")}`;
+  if (spotlightMemberCache && spotlightMemberCache.signature === signature) return spotlightMemberCache.pool;
+  const pool = [];
+  for (const pkg of [state.package, ...state.packages.filter(item => item !== state.package)]) {
+    if (!pkg?.types) continue;
+    for (const type of pkg.types) {
+      for (const group of memberGroups(type)) {
+        pool.push({ pkg, type, memberKey: group.key, name: group.name, kind: group.kind });
+      }
+    }
   }
-  return matches.map((match, index) => `
-    <button class="spotlight-item ${index === state.spotlightIndex ? "selected" : ""}" role="option" aria-selected="${index === state.spotlightIndex}" data-sl-pkg="${escapeHtml(match.pkg.id)}" data-sl-type="${escapeHtml(match.type.id)}">
-      <span class="kind-icon">${kindIcon(match.type.kind)}</span>
-      <span class="spotlight-item-name">${highlightRanges(match.type.name, match.ranges)}</span>
-      <span class="spotlight-item-ns">${escapeHtml(match.type.namespace || "")}</span>
-      ${multiPkg ? `<small class="spotlight-item-pkg">${escapeHtml(match.pkg.id)}</small>` : ""}
-    </button>`).join("");
+  spotlightMemberCache = { signature, pool };
+  return pool;
+}
+
+function spotlightMemberMatches(query) {
+  const pool = spotlightMemberCandidates();
+  if (!query) return [];
+  const lowerQuery = query.toLowerCase();
+  const scored = [];
+  for (const item of pool) {
+    const lower = item.name.toLowerCase();
+    let rank;
+    if (lower === lowerQuery) rank = 0;
+    else if (lower.startsWith(lowerQuery)) rank = 1;
+    else if (lower.includes(lowerQuery)) rank = 2;
+    else {
+      const sub = subsequenceRanges(lower, lowerQuery);
+      if (!sub) continue;
+      rank = 3;
+    }
+    scored.push({ item, rank });
+  }
+  scored.sort((a, b) =>
+    a.rank - b.rank
+    || a.item.name.length - b.item.name.length
+    || a.item.name.localeCompare(b.item.name));
+  return scored.map(entry => ({ ...entry.item, ranges: computeHighlightRanges(entry.item.name, lowerQuery) }));
+}
+
+// Already-open packages whose id matches the query (or all of them when the query is empty).
+function spotlightLoadedPackageMatches(query) {
+  const lowerQuery = query.toLowerCase();
+  return state.packages
+    .filter(pkg => !lowerQuery || pkg.id.toLowerCase().includes(lowerQuery))
+    .map(pkg => ({ pkg, ranges: computeHighlightRanges(pkg.id, lowerQuery) }));
+}
+
+const SPOTLIGHT_SCOPES = [
+  { id: "all", label: "All" },
+  { id: "packages", label: "Packages" },
+  { id: "types", label: "Types" },
+  { id: "members", label: "Members" },
+];
+
+// Blends the four targets into one ordered result list, honouring the active scope chip.
+// In "all" each group is capped so every target stays visible; a focused scope shows a
+// deeper single-target list. Loaded packages rank ahead of NuGet discovery hits, which
+// exclude anything already open.
+function spotlightResults() {
+  const query = state.spotlightQuery.trim();
+  const scope = state.spotlightScope;
+  const all = scope === "all";
+  const results = [];
+
+  if (all || scope === "packages") {
+    const loaded = spotlightLoadedPackageMatches(query).slice(0, all ? 3 : 20);
+    for (const match of loaded) results.push({ kind: "pkg-loaded", pkg: match.pkg, ranges: match.ranges });
+    const openIds = new Set(state.packages.map(pkg => pkg.id.toLowerCase()));
+    let added = 0;
+    for (const hit of state.spotlightPkgHits) {
+      if (openIds.has(hit.id.toLowerCase())) continue;
+      results.push({ kind: "pkg-nuget", hit, ranges: computeHighlightRanges(hit.id, query.toLowerCase()) });
+      if (all && ++added >= 4) break;
+    }
+  }
+  if ((all || scope === "types") && query) {
+    for (const match of spotlightTypeMatches(query).slice(0, all ? 6 : 50)) results.push({ ...match, kind: "type" });
+  } else if (scope === "types" && !query) {
+    for (const match of spotlightTypeMatches("").slice(0, 40)) results.push({ ...match, kind: "type" });
+  }
+  if ((all || scope === "members") && query) {
+    for (const match of spotlightMemberMatches(query).slice(0, all ? 6 : 50)) results.push({ ...match, kind: "member" });
+  }
+  return results;
+}
+
+function spotlightRowHtml(result, index) {
+  const selected = index === state.spotlightIndex ? "selected" : "";
+  const multiPkg = state.packages.length > 1;
+  const base = `class="spotlight-item ${selected}" role="option" aria-selected="${index === state.spotlightIndex}" data-sl-index="${index}"`;
+  if (result.kind === "pkg-loaded") {
+    return `<button ${base} data-sl-pkg-open="${escapeHtml(result.pkg.id)}">
+      <span class="kind-icon sl-pkg">▣</span>
+      <span class="spotlight-item-name">${highlightRanges(result.pkg.id, result.ranges)}</span>
+      <span class="spotlight-item-ns">${escapeHtml(result.pkg.version)} · open</span>
+    </button>`;
+  }
+  if (result.kind === "pkg-nuget") {
+    return `<button ${base} data-sl-pkg-load="${escapeHtml(result.hit.id)}" data-sl-pkg-version="${escapeHtml(result.hit.version || "")}">
+      <span class="kind-icon sl-pkg-new">↓</span>
+      <span class="spotlight-item-name">${highlightRanges(result.hit.id, result.ranges)}</span>
+      <span class="spotlight-item-ns">${escapeHtml(result.hit.version || "")} · nuget.org</span>
+    </button>`;
+  }
+  if (result.kind === "member") {
+    return `<button ${base} data-sl-member="${escapeHtml(result.memberKey)}" data-sl-pkg="${escapeHtml(result.pkg.id)}" data-sl-type="${escapeHtml(result.type.id)}">
+      <span class="kind-icon sl-member">ƒ</span>
+      <span class="spotlight-item-name">${highlightRanges(result.name, result.ranges)}</span>
+      <span class="spotlight-item-ns">${escapeHtml(result.type.name)}${multiPkg ? ` · ${escapeHtml(result.pkg.id)}` : ""}</span>
+    </button>`;
+  }
+  return `<button ${base} data-sl-type="${escapeHtml(result.type.id)}" data-sl-pkg="${escapeHtml(result.pkg.id)}">
+    <span class="kind-icon">${kindIcon(result.type.kind)}</span>
+    <span class="spotlight-item-name">${highlightRanges(result.type.name, result.ranges)}</span>
+    <span class="spotlight-item-ns">${escapeHtml(result.type.namespace || "")}${multiPkg ? ` · ${escapeHtml(result.pkg.id)}` : ""}</span>
+  </button>`;
+}
+
+const SPOTLIGHT_GROUP_LABELS = { "pkg-loaded": "Packages", "pkg-nuget": "Packages", type: "Types", member: "Members" };
+
+function spotlightResultsHtml(results) {
+  if (!results.length) {
+    const q = state.spotlightQuery.trim();
+    if (!q) return `<div class="spotlight-empty">Search packages, types, and members — pick a target below.</div>`;
+    if (state.spotlightPkgLoading) return `<div class="spotlight-empty">Searching…</div>`;
+    return `<div class="spotlight-empty">Nothing matches “${escapeHtml(q)}”.</div>`;
+  }
+  const grouped = state.spotlightScope === "all";
+  let html = "";
+  let lastGroup = null;
+  results.forEach((result, index) => {
+    if (grouped) {
+      const group = SPOTLIGHT_GROUP_LABELS[result.kind];
+      if (group !== lastGroup) {
+        html += `<div class="spotlight-group">${group}</div>`;
+        lastGroup = group;
+      }
+    }
+    html += spotlightRowHtml(result, index);
+  });
+  if (state.spotlightPkgLoading && (state.spotlightScope === "all" || state.spotlightScope === "packages")) {
+    html += `<div class="spotlight-hint">Searching nuget.org…</div>`;
+  }
+  return html;
 }
 
 function renderSpotlight() {
-  const matches = spotlightMatches();
-  state.spotlightIndex = Math.min(state.spotlightIndex, Math.max(matches.length - 1, 0));
-  const multiPkg = state.packages.length > 1;
+  const results = spotlightResults();
+  state.spotlightIndex = Math.min(state.spotlightIndex, Math.max(results.length - 1, 0));
+  const chips = SPOTLIGHT_SCOPES.map(scope =>
+    `<button class="spotlight-chip ${state.spotlightScope === scope.id ? "active" : ""}" data-sl-scope="${scope.id}">${scope.label}</button>`).join("");
   return `
     <div class="spotlight-backdrop" id="spotlight-backdrop">
-      <div class="spotlight" role="dialog" aria-modal="true" aria-label="Go to type">
+      <div class="spotlight" role="dialog" aria-modal="true" aria-label="Go to anything">
         <div class="spotlight-search">
           <span class="spotlight-glyph">⌕</span>
-          <input id="spotlight-input" value="${escapeHtml(state.spotlightQuery)}" placeholder="Go to type…  start typing a name" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="spotlight-results" />
+          <input id="spotlight-input" value="${escapeHtml(state.spotlightQuery)}" placeholder="Go to anything…  package, type, or member" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="spotlight-results" />
           <kbd>esc</kbd>
         </div>
-        <div class="spotlight-results" id="spotlight-results" role="listbox">${spotlightResultsHtml(matches, multiPkg)}</div>
-        <div class="spotlight-foot"><span>↑↓ select</span><span>↵ open</span><span>esc close</span>${multiPkg ? "<span>all loaded packages</span>" : ""}</div>
+        <div class="spotlight-chips">${chips}</div>
+        <div class="spotlight-results" id="spotlight-results" role="listbox">${spotlightResultsHtml(results)}</div>
+        <div class="spotlight-foot"><span>↑↓ select</span><span>⇥ target</span><span>↵ open</span><span>esc close</span></div>
       </div>
     </div>`;
+}
+
+function bindSpotlightResultClicks(root) {
+  const dispatch = index => {
+    const results = spotlightResults();
+    const result = results[Number(index)];
+    if (result) pickSpotlightResult(result);
+  };
+  root.querySelectorAll("[data-sl-index]").forEach(button =>
+    button.addEventListener("click", () => dispatch(button.dataset.slIndex)));
 }
 
 function updateSpotlightResults() {
   const container = document.querySelector("#spotlight-results");
   if (!container) return;
-  const matches = spotlightMatches();
-  state.spotlightIndex = Math.min(state.spotlightIndex, Math.max(matches.length - 1, 0));
-  container.innerHTML = spotlightResultsHtml(matches, state.packages.length > 1);
-  container.querySelectorAll("[data-sl-type]").forEach(button => button.addEventListener("click", () => {
-    pickSpotlight(button.dataset.slPkg, button.dataset.slType);
-  }));
+  const results = spotlightResults();
+  state.spotlightIndex = Math.min(state.spotlightIndex, Math.max(results.length - 1, 0));
+  container.innerHTML = spotlightResultsHtml(results);
+  bindSpotlightResultClicks(container);
   container.querySelector(".spotlight-item.selected")?.scrollIntoView({ block: "nearest" });
+}
+
+function setSpotlightScope(scope) {
+  if (!SPOTLIGHT_SCOPES.some(item => item.id === scope)) return;
+  state.spotlightScope = scope;
+  state.spotlightIndex = 0;
+  if (scope === "packages" || scope === "all") scheduleSpotlightPackageFetch();
+  render();
+  focusSpotlight();
+}
+
+// Debounced client-side NuGet discovery. Guards against stale queries via spotlightPkgQuery
+// and refreshes results only when the resolved query still matches the input.
+let spotlightPkgTimer = null;
+function scheduleSpotlightPackageFetch() {
+  const query = state.spotlightQuery.trim();
+  if (spotlightPkgTimer) clearTimeout(spotlightPkgTimer);
+  if (state.spotlightScope !== "all" && state.spotlightScope !== "packages") return;
+  if (query.length < 2) {
+    state.spotlightPkgHits = [];
+    state.spotlightPkgQuery = "";
+    state.spotlightPkgLoading = false;
+    return;
+  }
+  if (query === state.spotlightPkgQuery) return;
+  state.spotlightPkgLoading = true;
+  spotlightPkgTimer = setTimeout(() => fetchSpotlightPackages(query), 220);
+}
+
+async function fetchSpotlightPackages(query) {
+  const url = `https://azuresearch-usnc.nuget.org/query?q=${encodeURIComponent(query)}&take=8&prerelease=true&semVerLevel=2.0.0`;
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.json();
+    if (state.spotlightQuery.trim() !== query) return; // stale
+    state.spotlightPkgHits = (payload.data || []).map(item => ({
+      id: item.id,
+      version: item.version,
+      description: item.description || "",
+    }));
+    state.spotlightPkgQuery = query;
+  } catch (error) {
+    if (state.spotlightQuery.trim() !== query) return;
+    state.spotlightPkgHits = [];
+    state.spotlightPkgQuery = query;
+  } finally {
+    if (state.spotlightQuery.trim() === query) {
+      state.spotlightPkgLoading = false;
+      updateSpotlightResults();
+    }
+  }
 }
 
 function openSpotlight(seed = "") {
   state.spotlightOpen = true;
   state.spotlightQuery = seed;
+  state.spotlightScope = "all";
   state.spotlightIndex = 0;
+  state.spotlightPkgHits = [];
+  state.spotlightPkgQuery = "";
+  state.spotlightPkgLoading = false;
+  if (seed.trim()) scheduleSpotlightPackageFetch();
   render();
   focusSpotlight();
 }
@@ -2583,6 +2795,10 @@ function closeSpotlight() {
   state.spotlightOpen = false;
   state.spotlightQuery = "";
   state.spotlightIndex = 0;
+  state.spotlightPkgHits = [];
+  state.spotlightPkgQuery = "";
+  state.spotlightPkgLoading = false;
+  if (spotlightPkgTimer) clearTimeout(spotlightPkgTimer);
   render();
 }
 
@@ -2595,6 +2811,53 @@ function focusSpotlight() {
   });
 }
 
+// Routes a blended result to the right navigation path per its kind.
+function pickSpotlightResult(result) {
+  if (!result) { closeSpotlight(); return; }
+  switch (result.kind) {
+    case "pkg-loaded": pickSpotlightLoadedPackage(result.pkg); break;
+    case "pkg-nuget": closeSpotlight(); loadPackage(result.hit.id, result.hit.version); break;
+    case "member": pickSpotlightMember(result); break;
+    default: pickSpotlight(result.pkg.id, result.type.id); break;
+  }
+}
+
+function pickSpotlightLoadedPackage(pkg) {
+  const target = state.packages.find(item => item.id === pkg.id) || pkg;
+  state.package = target;
+  state.atPackageRoot = true;
+  state.selectedTypeId = null;
+  state.selectedMemberKey = "";
+  state.selectedOverloadIndex = null;
+  resetMemberSectionState();
+  state.spotlightOpen = false;
+  state.spotlightQuery = "";
+  state.spotlightIndex = 0;
+  render();
+}
+
+function pickSpotlightMember(result) {
+  const pkg = state.packages.find(item => item.id === result.pkg.id) || result.pkg;
+  const type = pkg?.types?.find(item => item.id === result.type.id);
+  if (!type) { closeSpotlight(); return; }
+  state.package = pkg;
+  state.atPackageRoot = false;
+  state.selectedTypeId = type.id;
+  state.lens = "api";
+  state.selectedMemberKey = result.memberKey;
+  state.selectedOverloadIndex = null;
+  state.typeFilter = "";
+  state.namespaceFilter = "";
+  state.kindFilter = "";
+  state.spotlightOpen = false;
+  state.spotlightQuery = "";
+  state.spotlightIndex = 0;
+  resetMemberSectionState();
+  state.typeCursor = filteredTypes().findIndex(item => item.id === state.selectedTypeId);
+  render();
+  loadSelectedMemberDocumentation();
+}
+
 function pickSpotlight(pkgId, typeId) {
   const pkg = state.packages.find(item => item.id === pkgId) || state.package;
   const type = pkg?.types?.find(item => item.id === typeId);
@@ -2603,6 +2866,7 @@ function pickSpotlight(pkgId, typeId) {
     return;
   }
   state.package = pkg;
+  state.atPackageRoot = false;
   state.selectedTypeId = type.id;
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
@@ -2629,19 +2893,26 @@ function pickSpotlight(pkgId, typeId) {
 }
 
 function handleSpotlightKeys(event) {
-  const matches = spotlightMatches();
-  if (event.key === "ArrowDown") {
+  const results = spotlightResults();
+  if (event.key === "Tab") {
     event.preventDefault();
-    state.spotlightIndex = matches.length ? (state.spotlightIndex + 1) % matches.length : 0;
+    const order = SPOTLIGHT_SCOPES.map(scope => scope.id);
+    const current = order.indexOf(state.spotlightScope);
+    const next = event.shiftKey
+      ? (current - 1 + order.length) % order.length
+      : (current + 1) % order.length;
+    setSpotlightScope(order[next]);
+  } else if (event.key === "ArrowDown") {
+    event.preventDefault();
+    state.spotlightIndex = results.length ? (state.spotlightIndex + 1) % results.length : 0;
     updateSpotlightResults();
   } else if (event.key === "ArrowUp") {
     event.preventDefault();
-    state.spotlightIndex = matches.length ? (state.spotlightIndex - 1 + matches.length) % matches.length : 0;
+    state.spotlightIndex = results.length ? (state.spotlightIndex - 1 + results.length) % results.length : 0;
     updateSpotlightResults();
   } else if (event.key === "Enter") {
     event.preventDefault();
-    const match = matches[state.spotlightIndex];
-    if (match) pickSpotlight(match.pkg.id, match.type.id);
+    pickSpotlightResult(results[state.spotlightIndex]);
   } else if (event.key === "Escape") {
     event.preventDefault();
     closeSpotlight();
