@@ -91,9 +91,11 @@ entry gate invalidates every later result, so run it first and report it.
    `… -c Release -- -filter "/*/*/IteratorAcknowledgmentPassTests/*"`.
 
 3. **IR invariant checks.** Every pass must leave a structurally valid tree.
-   `IrPasses.Run` calls `function.CheckInvariant()` after each pass, and pass
-   tests assert it explicitly; a thrown invariant is an entry-gate failure, not a
-   fidelity question. New pass tests should call `CheckInvariant()` on the result.
+   `IrPasses.Run` calls `function.CheckInvariant()` after each pass — armed by
+   default in every host except the shipped CLI (`IrInvariants`, #3267) — and
+   pass tests assert it explicitly; a thrown invariant is an entry-gate failure,
+   not a fidelity question. New pass tests should call `CheckInvariant()` on the
+   result.
 
 4. **Markdownlint** for any changed Markdown (docs-only PRs stop here):
 

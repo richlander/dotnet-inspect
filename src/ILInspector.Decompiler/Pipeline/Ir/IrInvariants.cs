@@ -1,21 +1,30 @@
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
-/// Runtime opt-in for the IR invariant check
-/// (<see cref="IrNode.CheckInvariant"/>). Off by default so the shipped tool
-/// pays nothing on the decompile hot path; the test host and the harness corpus
-/// sweep enable it to validate the pipeline after every pass in Release. The
-/// check is leveled: <see cref="Enabled"/> turns on suite-safe structural
-/// invariants, and <see cref="CheckSemantics"/> additionally turns on semantic
-/// invariants that require fully-formed importer output.
+/// Runtime configuration for the IR invariant check
+/// (<see cref="IrNode.CheckInvariant"/>). On by default so every host that runs
+/// the pipeline validates it after every pass; the shipped tool is the one host
+/// that opts out (<see cref="DisableForShippedTool"/>), so it pays nothing on
+/// the decompile hot path. The check is leveled: <see cref="Enabled"/> turns on
+/// suite-safe structural invariants, and <see cref="CheckSemantics"/>
+/// additionally turns on semantic invariants that require fully-formed importer
+/// output.
 /// <para>
 /// This replaces the check's former <c>[Conditional("DEBUG")]</c> gate, which
 /// stripped every call site in the Release configuration the test suite actually
 /// runs — so the check that reads as if it asserts IR integrity asserted it zero
-/// times (#3241). A runtime opt-in runs in any build, including the optimized
+/// times (#3241). A runtime flag runs in any build, including the optimized
 /// product assembly the corpus sweeps consume, with no change to product
 /// codegen. It is the same separation the .NET runtime uses for its
 /// <c>Checked</c> configuration: optimized codegen, assertions live.
+/// </para>
+/// <para>
+/// The default is <em>on</em> rather than opt-in (#3267). Opt-in moved the
+/// #3241 failure mode instead of removing it: a new host — another harness, a
+/// sweep tool, a benchmark — would exercise the pipeline broadly while
+/// validating nothing, and look healthy doing it. With the default inverted,
+/// declining validation is an explicit, greppable act at exactly one call site
+/// rather than the silent consequence of not writing one.
 /// </para>
 /// </summary>
 public static class IrInvariants
@@ -24,29 +33,66 @@ public static class IrInvariants
         Environment.GetEnvironmentVariable("DOTNET_INSPECT_IR_INVARIANTS");
 
     /// <summary>
+    /// The operator's explicit request from <c>DOTNET_INSPECT_IR_INVARIANTS</c>:
+    /// <see langword="true"/> for <c>1</c>/<c>true</c>/<c>full</c>,
+    /// <see langword="false"/> for <c>0</c>/<c>false</c>/<c>off</c>, and
+    /// <see langword="null"/> when unset or unrecognized. An explicit request
+    /// outranks the host opt-out, so the shipped tool can be run with the check
+    /// armed for debugging without a rebuild.
+    /// </summary>
+    static readonly bool? EnvironmentRequest = ParseRequest(EnvValue);
+
+    /// <summary>
     /// When true, the pipeline runner and importer validate the IR after every
-    /// pass. Initialized from the <c>DOTNET_INSPECT_IR_INVARIANTS</c> environment
-    /// variable (<c>1</c>, <c>true</c>, or <c>full</c>), and settable by the test
-    /// host and the harness so a corpus sweep can turn the check on without an
-    /// environment variable. Explicit <see cref="IrNode.CheckInvariant()"/> calls
+    /// pass. On unless <c>DOTNET_INSPECT_IR_INVARIANTS</c> asks for off or a
+    /// host calls <see cref="DisableForShippedTool"/>. Settable directly for
+    /// scoped experiments. Explicit <see cref="IrNode.CheckInvariant()"/> calls
     /// (e.g. in tests) run regardless of this flag.
     /// </summary>
-    public static bool Enabled { get; set; } =
-        EnvValue is "1" or "true" or "full";
+    public static bool Enabled { get; set; } = ResolveEnabled(EnvironmentRequest, hostOptedOut: false);
 
     /// <summary>
     /// When true, the per-pass hooks additionally validate <em>semantic</em>
     /// invariants that only hold for a fully-formed function tree — currently
     /// local-slot range (see <see cref="IrNode.CheckInvariant(bool)"/>). Off by
-    /// default and left off by the unit-test host, because hand-built test
-    /// fixtures legitimately omit the local table these checks validate against;
-    /// enabling it suite-wide would false-positive on ~120 minimal-fixture tests.
-    /// The harness corpus sweep sets it (directly or via
+    /// default even in validating hosts, because hand-built test fixtures
+    /// legitimately omit the local table these checks validate against; enabling
+    /// it suite-wide would false-positive on ~120 minimal-fixture tests. The
+    /// harness corpus sweep sets it (directly or via
     /// <c>DOTNET_INSPECT_IR_INVARIANTS=full</c>) so semantic checks run over real
     /// importer output, where they are true invariants (verified zero-violation
     /// over CoreLib's 41,952 methods). Requires <see cref="Enabled"/> to take
     /// effect at the per-pass hooks.
     /// </summary>
-    public static bool CheckSemantics { get; set; } =
-        EnvValue is "full";
+    public static bool CheckSemantics { get; set; } = EnvValue is "full";
+
+    /// <summary>
+    /// The one sanctioned opt-out: the shipped CLI's decompile hot path, where
+    /// the check is pure overhead for a user who is not developing the pipeline.
+    /// Any other host — harness, sweep, benchmark, test — is a validating host
+    /// and must leave the check armed. Honors an explicit
+    /// <c>DOTNET_INSPECT_IR_INVARIANTS</c> request, so an operator can arm the
+    /// shipped tool for debugging.
+    /// </summary>
+    public static void DisableForShippedTool() =>
+        Enabled = ResolveEnabled(EnvironmentRequest, hostOptedOut: true);
+
+    /// <summary>
+    /// The default rule, factored out so the environment/host precedence is
+    /// testable without process isolation: an explicit environment request wins;
+    /// otherwise validation is on unless the host opted out.
+    /// </summary>
+    internal static bool ResolveEnabled(bool? environmentRequest, bool hostOptedOut) =>
+        environmentRequest ?? !hostOptedOut;
+
+    /// <summary>
+    /// Maps a <c>DOTNET_INSPECT_IR_INVARIANTS</c> value to an explicit on/off
+    /// request, or <see langword="null"/> when it expresses none.
+    /// </summary>
+    internal static bool? ParseRequest(string? value) => value switch
+    {
+        "1" or "true" or "full" => true,
+        "0" or "false" or "off" => false,
+        _ => null,
+    };
 }
