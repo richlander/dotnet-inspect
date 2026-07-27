@@ -91,73 +91,91 @@ public sealed partial class CSharpPrinter
         PrinterOptions? options = null,
         Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
     {
-        var appliedLenses = new List<DecompilerDecision>();
+        List<DecompilerDecision> appliedLenses;
         try
         {
-            var context = RaiseContext(importMethodBody, typesProvablyDisjoint);
-            IrPasses.Run(function, IrPasses.Default, context);
-            // Opt-in tier-3 style lens (#3138), byte-divergent by design: runs
-            // only when requested, after the byte-faithful default pipeline has
-            // left the guarded bool return flat. The oracle-endorsed ternary runs
-            // first so that, when both lenses are enabled, it wins the shared shape
-            // (it consumes the guarded return, leaving the branchless pass a no-op).
-            // When a lens actually rewrites, record a byte-divergent applied-lens
-            // decision so a host can surface that the render is no longer
-            // opcode-faithful (the #3127 signal) instead of inferring it from prose.
-            if (options?.PreferConditionalExpressionReturn == true)
-            {
-                var pass = new PreferConditionalReturnPass();
-                pass.Run(function, context);
-                if (pass.Rewrites > 0)
-                    appliedLenses.Add(new DecompilerDecision(
-                        "style-lens.prefer-conditional-return",
-                        DecompilerDecisionCategories.StyleLens,
-                        function.Name,
-                        "Rewrote a guarded boolean return as a conditional expression "
-                            + "(dotnet_style_prefer_conditional_expression_over_return, IDE0046). "
-                            + "Behavior-preserving but byte-divergent: the render no longer "
-                            + "reproduces the original branch opcodes.")
-                    {
-                        OldValue = "if (c) return A; return B;",
-                        NewValue = "return c ? A : B;",
-                    });
-            }
-            if (options?.PreferBranchlessBoolean == true)
-            {
-                var pass = new PreferBranchlessBooleanPass();
-                pass.Run(function, context);
-                if (pass.Rewrites > 0)
-                    appliedLenses.Add(new DecompilerDecision(
-                        "style-lens.prefer-branchless-boolean",
-                        DecompilerDecisionCategories.StyleLens,
-                        function.Name,
-                        "Folded a guarded boolean return into the compact short-circuit "
-                            + "\"bool hack\" (dotnet_inspect_style_prefer_branchless_boolean; not "
-                            + "oracle-endorsed). Behavior-preserving but byte-divergent: the render "
-                            + "no longer reproduces the original branch opcodes.")
-                    {
-                        OldValue = "if (c) return false; return B;",
-                        NewValue = "return !c && B;",
-                    });
-            }
+            appliedLenses = RaiseWithStyleLenses(function, importMethodBody, options, typesProvablyDisjoint);
         }
         catch (Exception ex)
         {
             return DecompilerResult.Failure(DiagnosticIds.InternalError, $"{ex.GetType().Name}: {ex.Message}");
         }
-        var result = Print(function, options);
-        if (appliedLenses.Count > 0 && result.Output is not null)
+        return WithAppliedLenses(Print(function, options), appliedLenses);
+    }
+
+    /// <summary>
+    /// Runs the default raising pipeline, then any opt-in byte-divergent style
+    /// lens, and returns the decisions for the lenses that actually rewrote.
+    /// Shared by both <see cref="PrintRaised(IrFunction, Func{MethodRef, IrFunction}, PrinterOptions, Func{TypeRef, TypeRef, bool})"/>
+    /// and the statement-line-map overload the annotated view uses, so the two
+    /// paths raise and apply taste identically instead of drifting apart.
+    /// </summary>
+    static List<DecompilerDecision> RaiseWithStyleLenses(
+        IrFunction function,
+        Func<MethodRef, IrFunction?>? importMethodBody,
+        PrinterOptions? options,
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint)
+    {
+        var appliedLenses = new List<DecompilerDecision>();
+        var context = RaiseContext(importMethodBody, typesProvablyDisjoint);
+        IrPasses.Run(function, IrPasses.Default, context);
+        // Opt-in tier-3 style lens (#3138), byte-divergent by design: runs
+        // only when requested, after the byte-faithful default pipeline has
+        // left the guarded bool return flat. The oracle-endorsed ternary runs
+        // first so that, when both lenses are enabled, it wins the shared shape
+        // (it consumes the guarded return, leaving the branchless pass a no-op).
+        // When a lens actually rewrites, record a byte-divergent applied-lens
+        // decision so a host can surface that the render is no longer
+        // opcode-faithful (the #3127 signal) instead of inferring it from prose.
+        if (options?.PreferConditionalExpressionReturn == true)
         {
-            result = result with
+            var pass = new PreferConditionalReturnPass();
+            pass.Run(function, context);
+            if (pass.Rewrites > 0)
+                appliedLenses.Add(new DecompilerDecision(
+                    "style-lens.prefer-conditional-return",
+                    DecompilerDecisionCategories.StyleLens,
+                    function.Name,
+                    "Rewrote a guarded boolean return as a conditional expression "
+                        + "(dotnet_style_prefer_conditional_expression_over_return, IDE0046). "
+                        + "Behavior-preserving but byte-divergent: the render no longer "
+                        + "reproduces the original branch opcodes.")
+                {
+                    OldValue = "if (c) return A; return B;",
+                    NewValue = "return c ? A : B;",
+                });
+        }
+        if (options?.PreferBranchlessBoolean == true)
+        {
+            var pass = new PreferBranchlessBooleanPass();
+            pass.Run(function, context);
+            if (pass.Rewrites > 0)
+                appliedLenses.Add(new DecompilerDecision(
+                    "style-lens.prefer-branchless-boolean",
+                    DecompilerDecisionCategories.StyleLens,
+                    function.Name,
+                    "Folded a guarded boolean return into the compact short-circuit "
+                        + "\"bool hack\" (dotnet_inspect_style_prefer_branchless_boolean; not "
+                        + "oracle-endorsed). Behavior-preserving but byte-divergent: the render "
+                        + "no longer reproduces the original branch opcodes.")
+                {
+                    OldValue = "if (c) return false; return B;",
+                    NewValue = "return !c && B;",
+                });
+        }
+        return appliedLenses;
+    }
+
+    static DecompilerResult WithAppliedLenses(DecompilerResult result, List<DecompilerDecision> appliedLenses)
+        => appliedLenses.Count == 0 || result.Output is null
+            ? result
+            : result with
             {
                 Metadata = result.Metadata with
                 {
                     Decisions = [.. result.Metadata.Decisions, .. appliedLenses],
                 },
             };
-        }
-        return result;
-    }
 
     /// <summary>
     /// The product path with a statement line map: same output as
@@ -170,14 +188,27 @@ public sealed partial class CSharpPrinter
         => PrintRaised(function, out statementLines, importMethodBody: null);
 
     /// <inheritdoc cref="PrintRaised(IrFunction, out IReadOnlyDictionary{IrNode, int})"/>
+    /// <remarks>
+    /// <paramref name="options"/> applies the same taste as the plain
+    /// <see cref="PrintRaised(IrFunction, Func{MethodRef, IrFunction}, PrinterOptions, Func{TypeRef, TypeRef, bool})"/>
+    /// path, so a line-anchored overlay never renders a different spelling than
+    /// the Source view for the same member. When a byte-divergent style lens
+    /// actually rewrites, the result carries a
+    /// <see cref="DecompilerDecisionCategories.StyleLens"/> decision: the render
+    /// no longer reproduces the original opcodes, so an overlay that interleaves
+    /// raw IL must consult those decisions rather than presenting the two as
+    /// corresponding.
+    /// </remarks>
     public static DecompilerResult PrintRaised(
         IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines, Func<MethodRef, IrFunction?>? importMethodBody,
-        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null)
+        Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null,
+        PrinterOptions? options = null)
     {
         statementLines = new Dictionary<IrNode, int>();
+        List<DecompilerDecision> appliedLenses;
         try
         {
-            IrPasses.Run(function, IrPasses.Default, RaiseContext(importMethodBody, typesProvablyDisjoint));
+            appliedLenses = RaiseWithStyleLenses(function, importMethodBody, options, typesProvablyDisjoint);
         }
         catch (Exception ex)
         {
@@ -187,10 +218,10 @@ public sealed partial class CSharpPrinter
         try
         {
             var sink = new Dictionary<IrNode, int>();
-            var printer = new CSharpPrinter(function) { _statementLines = sink };
+            var printer = new CSharpPrinter(function, options) { _statementLines = sink };
             string output = printer.PrintBody(function);
             statementLines = sink;
-            return printer.Result(output, function);
+            return WithAppliedLenses(printer.Result(output, function), appliedLenses);
         }
         catch (Exception ex)
         {
@@ -232,8 +263,16 @@ public sealed partial class CSharpPrinter
         => PrintLowered(function, out statementLines, importMethodBody: null);
 
     /// <inheritdoc cref="PrintLowered(IrFunction, out IReadOnlyDictionary{IrNode, int})"/>
+    /// <remarks>
+    /// <paramref name="options"/> applies the printer's byte-preserving spelling
+    /// and layout knobs so the lowered annotated view spells a member the same way
+    /// the Source view does. The byte-divergent style lenses are deliberately not
+    /// run here: they are raised-altitude sugar, and the lowered pipeline exists to
+    /// show the shape below that sugar.
+    /// </remarks>
     public static DecompilerResult PrintLowered(
-        IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines, Func<MethodRef, IrFunction?>? importMethodBody)
+        IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines, Func<MethodRef, IrFunction?>? importMethodBody,
+        PrinterOptions? options = null)
     {
         statementLines = new Dictionary<IrNode, int>();
         try
@@ -248,7 +287,7 @@ public sealed partial class CSharpPrinter
         try
         {
             var sink = new Dictionary<IrNode, int>();
-            var printer = new CSharpPrinter(function) { _statementLines = sink };
+            var printer = new CSharpPrinter(function, options) { _statementLines = sink };
             string output = printer.PrintBody(function);
             statementLines = sink;
             return printer.Result(output, function);
