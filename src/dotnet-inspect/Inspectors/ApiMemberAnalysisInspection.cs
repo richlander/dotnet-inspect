@@ -22,6 +22,8 @@ internal sealed class ApiMemberAnalysisInspection
     MethodBodyInspectionSession? _session;
     List<MethodBodyInspectionSession>? _callerScopes;
     List<MethodBodyInspectionSession>? _graphScopes;
+    string? _targetAssemblyName;
+    bool _targetAssemblyNameResolved;
 
     internal ApiMemberAnalysisInspection(
         string assemblyPath,
@@ -79,18 +81,32 @@ internal sealed class ApiMemberAnalysisInspection
         _includeOpportunities,
         _bodyScope);
 
-    IReadOnlyList<MethodBodyInspectionSession> CallerScopes(bool includeAllocations)
+    /// <summary>
+    /// The caller-scope sessions, or <see langword="null"/> when no cross-assembly scope was
+    /// requested at all. The distinction matters: an empty list still means "scoped walk", and the
+    /// scoped and unscoped reverse-graph builders do not produce identical trees.
+    ///
+    /// Scope assemblies that cannot reference the target's assembly are skipped without being
+    /// opened. Opening one costs a full body decode of the image, while ruling it out costs a read
+    /// of its <c>AssemblyRef</c> table, so the common "no caller anywhere in a large scope" answer
+    /// no longer pays to index every assembly to discover it is empty.
+    /// </summary>
+    IReadOnlyList<MethodBodyInspectionSession>? CallerScopes(bool includeAllocations)
     {
+        if (_callerScopeAssemblies is null)
+            return null;
+
         ref var cached = ref includeAllocations ? ref _graphScopes : ref _callerScopes;
         if (cached is not null)
             return cached;
 
         cached = [];
-        if (_callerScopeAssemblies is null)
-            return cached;
-
+        string? targetAssembly = TargetAssemblyName;
         foreach (var scopePath in _callerScopeAssemblies)
         {
+            if (!CouldContainCaller(scopePath, targetAssembly))
+                continue;
+
             try
             {
                 cached.Add(MethodBodyInspectionSession.Open(
@@ -106,5 +122,60 @@ internal sealed class ApiMemberAnalysisInspection
         }
 
         return cached;
+    }
+
+    /// <summary>
+    /// The simple name of the assembly the target member is defined in, read once from metadata
+    /// alone so that scope prefiltering never forces the target's own body index to be built.
+    /// </summary>
+    string? TargetAssemblyName
+    {
+        get
+        {
+            if (_targetAssemblyNameResolved)
+                return _targetAssemblyName;
+
+            _targetAssemblyNameResolved = true;
+            try
+            {
+                using var session = AssemblyInspectionSession.Open(_assemblyPath);
+                if (session.HasMetadata)
+                    _targetAssemblyName = session.IdentityNames().Name;
+            }
+            catch
+            {
+                // Undecidable: leave null so every scope assembly is scanned, as before.
+            }
+
+            return _targetAssemblyName;
+        }
+    }
+
+    /// <summary>
+    /// Whether a scope assembly is worth opening for caller discovery. Reading its
+    /// <c>AssemblyRef</c> table is orders of magnitude cheaper than
+    /// <see cref="MethodBodyInspectionSession.Open"/>, which decodes every method body in the image,
+    /// and an assembly that names neither itself nor the target as the declaring assembly cannot
+    /// produce a match (see <see cref="Analysis.CallerScopeFilter"/>). Any failure to decide falls
+    /// through to the previous behavior of opening the assembly.
+    /// </summary>
+    static bool CouldContainCaller(string scopePath, string? targetAssembly)
+    {
+        if (targetAssembly is null)
+            return true;
+
+        try
+        {
+            using var session = AssemblyInspectionSession.Open(scopePath);
+            if (!session.HasMetadata)
+                return false;
+
+            var names = session.IdentityNames();
+            return Analysis.CallerScopeFilter.CouldContainCallerOf(targetAssembly, names.Name, names.ReferenceNames);
+        }
+        catch
+        {
+            return true;
+        }
     }
 }

@@ -343,6 +343,72 @@ public class LibraryBodyIndexTests
             => node.Perf?.Source == source || node.Children.Any(child => HasSource(child, source));
     }
 
+    // #3331: the scoped and unscoped builders key the reverse graph differently (structural member
+    // identity vs assembly-local tokens) and do not produce the same tree. Prefiltering scope
+    // assemblies on assembly identity therefore must not be allowed to decide which builder runs,
+    // or narrowing a scope to nothing would silently change the answer instead of just costing
+    // less. An empty-but-supplied scope list means "cross-assembly walk requested, nothing
+    // survived"; only a null list means "no scope requested".
+    //
+    // The scan is deliberately self-locating rather than pinned to one method: it asserts the
+    // correctness claim on every method it visits, and separately requires that at least one of
+    // them distinguishes the two builders, so the test cannot quietly become vacuous if the call
+    // structure of this assembly changes.
+    [Fact]
+    public void BuildCallerTree_PrefilteringScopeAssembliesNeverChangesTheTree()
+    {
+        var index = LibraryBodyIndex.Open(typeof(LibraryBodyIndex).Assembly.Location);
+
+        // A fixture that does not reference the analysis assembly, so it can never contribute a
+        // caller. Opening it and prefiltering it away must be indistinguishable.
+        var nonContributing = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath());
+
+        int discriminating = 0;
+        int visited = 0;
+        foreach (var method in index.Methods.Take(60))
+        {
+            var noScopeRequested = FlattenCallTree(index.BuildCallerTree(method.MetadataToken, callerScopes: null, maxDepth: 2, maxNodes: 50));
+            var scopeOpened = FlattenCallTree(index.BuildCallerTree(method.MetadataToken, new[] { nonContributing }, maxDepth: 2, maxNodes: 50));
+            var scopePrefilteredAway = FlattenCallTree(index.BuildCallerTree(method.MetadataToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 2, maxNodes: 50));
+
+            Assert.Equal(scopeOpened, scopePrefilteredAway);
+
+            visited++;
+            if (!noScopeRequested.SequenceEqual(scopePrefilteredAway))
+                discriminating++;
+        }
+
+        Assert.True(visited > 0, "expected to visit methods");
+        Assert.True(
+            discriminating > 0,
+            "no method distinguished the scoped builder from the unscoped one, so this test proves nothing; "
+                + "if the two builders have genuinely converged, the null/empty scope distinction can be removed");
+    }
+
+    // #3331: the same claim against the cross-assembly fixtures the matcher tests use — an assembly
+    // that cannot reference the target contributes no edges, so skipping it before opening it must
+    // produce an identical tree.
+    [Fact]
+    public void BuildCallerTree_SkippingANonContributingScopeAssemblyDoesNotChangeTheTree()
+    {
+        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var caller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var lookalike = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath());
+        var ping = targetIndex.Methods.First(method => method.Name == "Ping");
+
+        var unfiltered = targetIndex.BuildCallerTree(ping.MetadataToken, new[] { caller, lookalike }, maxDepth: 2, maxNodes: 50);
+        var prefiltered = targetIndex.BuildCallerTree(ping.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50);
+
+        Assert.Equal(FlattenCallTree(unfiltered), FlattenCallTree(prefiltered));
+
+        // And when the prefilter removes every scope assembly, the result must still match the walk
+        // that opened them all and found nothing.
+        var onlyNonContributing = targetIndex.BuildCallerTree(ping.MetadataToken, new[] { lookalike }, maxDepth: 2, maxNodes: 50);
+        var allFilteredOut = targetIndex.BuildCallerTree(ping.MetadataToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 2, maxNodes: 50);
+
+        Assert.Equal(FlattenCallTree(onlyNonContributing), FlattenCallTree(allFilteredOut));
+    }
+
     [Fact]
     public void BuildCallerTree_WithScope_OmitsCallersOfSameNameMemberInAnotherAssembly()
     {
