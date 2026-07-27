@@ -180,6 +180,7 @@ public static class TypeOptionsParser
             MarkdownExplicitlySet = parseResult.GetResult(opts.Markdown) is { Implicit: false },
             PlainText = parseResult.GetValue(opts.PlainText),
             Bare = parseResult.GetValue(opts.Bare),
+            RequestAllTaste = parseResult.GetValue(opts.Taste),
             Print = parseResult.GetValue(opts.Print),
             PrintAll = parseResult.GetValue(opts.PrintAll),
             PrintRow = opts.ParsePrintRow(parseResult),

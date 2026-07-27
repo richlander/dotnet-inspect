@@ -207,9 +207,16 @@ public class ApiCommand
         // so its internal source render must not be mistaken for user-visible
         // styled output. No latch is attached for a discovery request.
         var renderStyle = RenderStyleConfig.Resolve(Environment.CurrentDirectory);
+        // --taste is the one-invocation form of the config's full-taste aggregate.
+        // It applies after the file resolves and wins for the knobs the aggregate
+        // covers, so an explicit gesture is not silently narrowed by a checked-in
+        // config; knobs outside the endorsed set keep whatever the file selected.
+        var renderOptions = options.RequestAllTaste
+            ? ILInspector.Decompiler.Pipeline.StyleOptionCatalog.ApplyFullTaste(renderStyle.Options)
+            : renderStyle.Options;
         options = options with
         {
-            RenderOptions = renderStyle.Options,
+            RenderOptions = renderOptions,
             RenderConfigWarnings = renderStyle.Warnings.Count > 0 && options.Discover is null
                 ? new RenderConfigWarningSink(renderStyle.Warnings)
                 : null,
@@ -720,10 +727,7 @@ public class ApiCommand
                 && (mo4.OverloadIndex.HasValue || mo4.HasCallerScope))
             {
                 var requestedSections = GetRequestedMemberSections(type, mo4);
-                var methods = type.Members
-                    .Where(m => m.Kind is "method" or "constructor" or "finalizer" or "operator" or "explicit-interface-implementation" or "extension-method"
-                        && (!m.IsAbstract || requestedSections.Contains(SectionNames.UnsafeOperations)))
-                    .ToList();
+                var methods = ApiOutputFormatter.ResolveBodyMethods(type, requestedSections);
                 if (methods.Count > 0)
                 {
                     var analysisInspection = new ApiMemberAnalysisInspection(
@@ -1405,10 +1409,7 @@ public class ApiCommand
                 && (memberOptions.OverloadIndex.HasValue || memberOptions.HasCallerScope))
             {
                 var requestedSections = GetRequestedMemberSections(type, memberOptions);
-                var methods = type.Members
-                    .Where(m => m.Kind is "method" or "constructor" or "finalizer" or "operator" or "explicit-interface-implementation" or "extension-method"
-                        && (!m.IsAbstract || requestedSections.Contains(SectionNames.UnsafeOperations)))
-                    .ToList();
+                var methods = ApiOutputFormatter.ResolveBodyMethods(type, requestedSections);
                 if (methods.Count > 0)
                 {
                     var analysisInspection = new ApiMemberAnalysisInspection(

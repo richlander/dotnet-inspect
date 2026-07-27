@@ -195,11 +195,27 @@ Release build of the compilers emits is what ships and what the decompiler
 corpus consumes, so a Debug run would validate the decompiler against IL shapes
 users never see. Because the suite runs Release, correctness checks must not
 hide behind `[Conditional("DEBUG")]` — such a call is stripped from the Release
-test assembly and asserts nothing. The IR structural invariant check
+test assembly and asserts nothing. The IR invariant check
 (`IrNode.CheckInvariant`) is instead a runtime opt-in (`IrInvariants.Enabled`,
 env var `DOTNET_INSPECT_IR_INVARIANTS`) that the decompiler test host turns on
 suite-wide, so the pipeline is validated after every pass in the same build
 users run, while the shipped tool pays nothing on the decompile hot path.
+
+The invariant check is **leveled**, because the two levels need different
+inputs to be sound:
+
+- **Structural** invariants (parent/child back-pointer consistency, tree
+  shape) hold on *any* well-formed `IrNode` graph, including the deliberately
+  minimal `IrFunction`s that hand-built pass-unit fixtures construct. These run
+  suite-wide: the test host sets only `Enabled` (`DOTNET_INSPECT_IR_INVARIANTS=1`).
+- **Semantic** invariants (e.g. local-slot indices within the enclosing
+  function/lambda's `Locals`) hold on *real importer output* but not on minimal
+  fixtures, which routinely reference slots without populating `Locals`. These
+  are a separate opt-in (`IrInvariants.CheckSemantics`,
+  `DOTNET_INSPECT_IR_INVARIANTS=full`) so they run over the corpus (harness
+  `--gaps`, Speed=Slow gates), where the input is well-formed, without
+  false-positiving the minimal-fixture suite. `CheckInvariant(includeSemantics:
+  true)` threads the level explicitly for hermetic per-test coverage.
 
 Some CLI tests require `ilasm`/`ildasm` and skip when those tools are absent.
 The IL round-trip project has separate dependency restore and fast/full test

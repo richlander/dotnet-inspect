@@ -1634,6 +1634,156 @@ public sealed class LibraryBodyIndex
         return Build(rootMember, rootKey, targetAssembly, rootSignals, 0, false);
     }
 
+    readonly record struct ForwardCalleeEdge(MemberRef Callee, string CalleeKey, CallKind Kind, bool InLoop);
+
+    /// <summary>
+    /// Like <see cref="BuildCallTree(int,int,int)"/>, but extends the bounded outbound (callee)
+    /// graph across additional assemblies (the <c>--bin</c>/<c>--project</c>/<c>--caller-package</c>
+    /// scope), the forward mirror of <see cref="BuildCallerTree(int,IReadOnlyList{LibraryBodyIndex},int,int)"/>.
+    /// A single-assembly callee tree stops at the assembly boundary (a callee defined elsewhere is an
+    /// <see cref="CallTreeStatus.External"/> leaf); with <paramref name="calleeScopes"/> the callee's
+    /// own body — decoded in whichever scope defines it — is expanded, so a callee chain can cross a
+    /// package boundary. The graph is keyed by structural member identity (<see cref="CallerGraphKey(MemberRef)"/>)
+    /// rather than assembly-local tokens, so a constructed call site links to its open-definition
+    /// callee across assemblies. Nodes defined in an assembly other than the selected member's own
+    /// carry their source assembly in <see cref="CallTreePerf.Source"/>. Unlike the single-assembly
+    /// builder (which keeps one child per call site in IL order), this deduplicates to one child per
+    /// distinct callee and orders children by structural key, so output is independent of scope order.
+    /// Falls back to the single-assembly builder when no scopes are supplied.
+    /// </summary>
+    public CallTreeNode BuildCallTree(int rootMethodToken, IReadOnlyList<LibraryBodyIndex> calleeScopes, int maxDepth = 3, int maxNodes = 25)
+    {
+        if (calleeScopes is not { Count: > 0 })
+            return BuildCallTree(rootMethodToken, maxDepth, maxNodes);
+
+        var rootIdentity = Methods.FirstOrDefault(method => method.MetadataToken == rootMethodToken);
+        MemberRef rootMember;
+        string rootKey;
+        if (rootIdentity is { } identity)
+        {
+            rootMember = new MemberRef(identity.DeclaringType, identity.Name, identity.ParameterTypes, identity.ReturnType, MemberKind.Method);
+            rootKey = CallerGraphKey(identity);
+        }
+        else
+        {
+            // Bodiless/absent selected member (abstract/interface/extern): it has no body of its own,
+            // so it has no outbound callees and renders as a leaf. Recover its label from any inbound
+            // edge in this assembly so the graph still names the target.
+            rootMember = DirectCalls.FirstOrDefault(call => call.CalleeDefinitionToken == rootMethodToken
+                && call.Callee.Kind != MemberKind.Unsupported) is { Callee: { } resolved }
+                ? resolved
+                : MemberRef.Unsupported($"method token 0x{rootMethodToken:X8}");
+            rootKey = rootMember.Kind != MemberKind.Unsupported ? CallerGraphKey(rootMember) : "";
+        }
+
+        string targetAssembly = rootIdentity?.AssemblyName
+            ?? Methods.FirstOrDefault()?.AssemblyName
+            ?? "";
+
+        // Structural forward map across the selected member's assembly plus the callee scopes:
+        // caller structural key -> outbound callee edges. A companion definition map records each
+        // decoded method's home assembly and signals (both assembly-local by token), so an expanded
+        // callee reports its source assembly and perf signals from wherever it is actually defined.
+        var forward = new Dictionary<string, List<ForwardCalleeEdge>>(StringComparer.Ordinal);
+        var incoming = new Dictionary<string, int>(StringComparer.Ordinal);
+        var definitions = new Dictionary<string, (string Assembly, MethodSignals Signals)>(StringComparer.Ordinal);
+        void IndexAssembly(LibraryBodyIndex assembly)
+        {
+            var signals = assembly.Signals;
+            foreach (var call in assembly.DirectCalls)
+            {
+                if (call.Callee.Kind == MemberKind.Unsupported)
+                    continue;
+                var callerKey = CallerGraphKey(call.Caller);
+                var calleeKey = CallerGraphKey(call.Callee);
+                var edge = new ForwardCalleeEdge(call.Callee, calleeKey, call.Kind, call.InLoop);
+                if (forward.TryGetValue(callerKey, out var list))
+                    list.Add(edge);
+                else
+                    forward[callerKey] = [edge];
+                incoming[calleeKey] = incoming.GetValueOrDefault(calleeKey) + 1;
+            }
+            foreach (var method in assembly.Methods)
+            {
+                var key = CallerGraphKey(method);
+                if (!definitions.ContainsKey(key))
+                    definitions[key] = (method.AssemblyName, signals.GetValueOrDefault(method.MetadataToken, MethodSignals.None));
+            }
+        }
+        IndexAssembly(this);
+        foreach (var scope in calleeScopes)
+            IndexAssembly(scope);
+
+        int budget = Math.Max(1, maxNodes);
+        int created = 1;
+        var expanded = new HashSet<string>(StringComparer.Ordinal);
+
+        CallTreeNode Build(MemberRef member, string key, CallKind? kind, int depth, bool inLoop)
+        {
+            (string Assembly, MethodSignals Signals)? def =
+                key.Length > 0 && definitions.TryGetValue(key, out var found) ? found : null;
+            string assembly = def?.Assembly
+                ?? (member.Kind != MemberKind.Unsupported ? member.DeclaringType.Assembly : "");
+            var sig = def?.Signals ?? MethodSignals.None;
+            bool external = assembly.Length > 0 && !string.Equals(assembly, targetAssembly, StringComparison.Ordinal);
+            string? source = external ? assembly : null;
+            string? loopHint = inLoop ? "loop" : null;
+            int fanin = incoming.GetValueOrDefault(key);
+
+            if (key.Length == 0 || !forward.TryGetValue(key, out var rawEdges))
+            {
+                // No outbound edges: classify the boundary. A callee with no definition entry here
+                // (Unsupported, or a real member whose declaring assembly is neither the target nor
+                // any callee scope) is an unexpandable External boundary, not a proven leaf. An
+                // indexed callee with no outbound edges is a leaf. This reads "indexed" as "decoded",
+                // which holds when the in-scope assemblies were fully decoded — the contract the
+                // product's cross-library layer guarantees by passing full-assembly indexes. As with
+                // the single-assembly builder, a body-scoped index can hold an indexed-but-undecoded
+                // body that would read as a leaf here; hardening that is tracked by issue #3275.
+                var leafStatus = depth > 0 && def is null ? CallTreeStatus.External : CallTreeStatus.Leaf;
+                return new CallTreeNode(member, kind, leafStatus, [], new CallTreePerf(0, fanin, 1, inLoop, loopHint, null, sig, source));
+            }
+
+            // One edge per distinct callee (the graph reports callees by identity, not call sites);
+            // preserve an in-loop edge if any call site to that callee sat in a loop. Sort by
+            // structural key so output is deterministic across scope order.
+            var edges = rawEdges
+                .GroupBy(edge => edge.CalleeKey, StringComparer.Ordinal)
+                .Select(group => group.FirstOrDefault(edge => edge.InLoop, group.First()))
+                .OrderBy(edge => edge.CalleeKey, StringComparer.Ordinal)
+                .ToList();
+
+            // Fan-out is the true outbound call-site count (matching the single-assembly builder),
+            // independent of the deduplication that collapses repeat call sites into one child.
+            var fanout = rawEdges.Count;
+            if (depth >= maxDepth)
+                return new CallTreeNode(member, kind, CallTreeStatus.DepthLimited, [], new CallTreePerf(fanout, fanin, 1, inLoop, loopHint, null, sig, source));
+            if (!expanded.Add(key))
+                return new CallTreeNode(member, kind, CallTreeStatus.AlreadyShown, [], new CallTreePerf(fanout, fanin, 1, inLoop, loopHint, null, sig, source));
+
+            var children = ImmutableArray.CreateBuilder<CallTreeNode>();
+            bool truncated = false;
+            foreach (var edge in edges)
+            {
+                if (created >= budget)
+                {
+                    truncated = true;
+                    break;
+                }
+                created++;
+                children.Add(Build(edge.Callee, edge.CalleeKey, edge.Kind, depth + 1, edge.InLoop));
+            }
+
+            var nodeStatus = truncated
+                ? CallTreeStatus.Truncated
+                : children.Count == 0 ? CallTreeStatus.Leaf : CallTreeStatus.Expanded;
+            var maxTreeDepth = children.Count == 0 ? 1 : 1 + children.Max(child => child.Perf?.MaxDepth ?? 1);
+            return new CallTreeNode(member, kind, nodeStatus, children.ToImmutable(), new CallTreePerf(fanout, fanin, maxTreeDepth, inLoop, loopHint, null, sig, source));
+        }
+
+        return Build(rootMember, rootKey, null, 0, false);
+    }
+
     // Cross-assembly caller-graph identity key. The multi-assembly reverse map matches members
     // structurally (tokens are assembly-local), so the key leads with the declaring type's
     // assembly and adds parameter arity and the return type to the qualified declaring type,

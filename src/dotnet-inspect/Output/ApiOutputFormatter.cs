@@ -6,6 +6,7 @@ using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using System.Collections.Immutable;
 using System.Text;
+using System.Globalization;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -1212,6 +1213,137 @@ public static class ApiOutputFormatter
         return parenStart < 0 ? "()" : declaration[parenStart..];
     }
 
+    /// <summary>
+    /// The method-like members whose IL bodies the index/detail sections analyze. When
+    /// the only selected member is a property or event (including an indexer) it has no
+    /// method body of its own, so it is resolved to its accessor methods (issue #3265):
+    /// get/set for a property or indexer, add/remove for an event, ordered so accessor
+    /// ordinal 1 is the getter/adder and ordinal 2 the setter/remover — the order the
+    /// overload-index selector (<c>Prop:1</c>/<c>Prop:2</c>) addresses. A field carries
+    /// no accessor token and yields no body methods, so its body sections stay N/A.
+    /// </summary>
+    internal static List<ApiMember> ResolveBodyMethods(ApiType type, IReadOnlySet<string> requestedSections)
+    {
+        bool includeAbstract = requestedSections.Contains(SectionNames.UnsafeOperations);
+        var methods = type.Members
+            .Where(m => ApiMemberSectionDescriptors.IsMethodLike(m) && (!m.IsAbstract || includeAbstract))
+            .ToList();
+
+        if (methods.Count == 0
+            && type.Members is [{ } single]
+            && ApiMemberSectionDescriptors.HasAccessorTokens(single))
+        {
+            methods = AccessorMethods(single, type)
+                .Where(m => !m.IsAbstract || includeAbstract)
+                .ToList();
+        }
+
+        return methods;
+    }
+
+    /// <summary>
+    /// Synthesizes method members for a property's or event's accessors, keyed by the
+    /// accessor's own MethodDef token so body sections address the accessor directly.
+    /// The getter/adder is yielded first so the default selection (accessor ordinal 1)
+    /// targets it; the setter/remover follows as ordinal 2. Names use the metadata
+    /// accessor spelling (<c>get_Name</c>, <c>set_Name</c>, <c>add_Name</c>,
+    /// <c>remove_Name</c>) so graph roots and breadcrumbs read as the real method.
+    /// </summary>
+    internal static IEnumerable<ApiMember> AccessorMethods(ApiMember member, ApiType type)
+    {
+        var declaringType = string.IsNullOrEmpty(member.DeclaringType) ? type.FullName : member.DeclaringType!;
+        switch (member.Kind)
+        {
+            case "property":
+                // A getter returns the property type and takes only the index parameters; a
+                // setter (and both event accessors) returns void and takes a trailing `value`.
+                if (member.GetterToken is { } getter)
+                    yield return Accessor(member, declaringType, $"get_{member.Name}", getter, "get", valueReturning: true);
+                if (member.SetterToken is { } setter)
+                    yield return Accessor(member, declaringType, $"set_{member.Name}", setter, "set", valueReturning: false);
+                break;
+            case "event":
+                if (member.AdderToken is { } adder)
+                    yield return Accessor(member, declaringType, $"add_{member.Name}", adder, "add", valueReturning: false);
+                if (member.RemoverToken is { } remover)
+                    yield return Accessor(member, declaringType, $"remove_{member.Name}", remover, "remove", valueReturning: false);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Builds a method member for one accessor with a structured signature derived from the
+    /// owner property/event, so declaration-rendering sections (Decompiled/Annotated Source,
+    /// the overlays) print a real method header (<c>public string get_Name()</c>) rather than
+    /// the owner's bare return type. The value type is the property/event type; a value-
+    /// returning accessor (a getter) returns it and carries only the index parameters, while a
+    /// void accessor (a setter or an event add/remove) appends it as a trailing <c>value</c>.
+    /// Modifiers mirror the accessor: virtual/override/sealed/abstract/static come from the
+    /// owner (both accessors share the property/event slot), while accessibility uses the
+    /// per-accessor entry (a <c>private set</c> stays private) and only falls back to the
+    /// owner's when the accessor declares none — events carry no per-accessor entry and so
+    /// inherit the event's accessibility.
+    /// </summary>
+    static ApiMember Accessor(ApiMember owner, string declaringType, string name, int token, string accessorKind, bool valueReturning)
+    {
+        var ownerModel = owner.SignatureModel;
+        var valueType = ownerModel?.ReturnType ?? owner.ReturnType ?? "object";
+        var parameters = ownerModel?.Parameters is { Count: > 0 } indexParameters
+            ? indexParameters.Select(CloneAccessorParameter).ToList()
+            : new List<ApiParameter>();
+        string returnType;
+        if (valueReturning)
+        {
+            returnType = valueType;
+        }
+        else
+        {
+            returnType = "void";
+            parameters.Add(new ApiParameter { Name = "value", Type = valueType });
+        }
+
+        var accessorEntry = ownerModel?.Accessors.FirstOrDefault(accessor => accessor.Kind == accessorKind);
+        var accessibility = string.IsNullOrEmpty(accessorEntry?.Accessibility)
+            ? owner.Accessibility
+            : accessorEntry!.Accessibility;
+
+        var renderedParameters = string.Join(", ", parameters.Select(p => $"{p.TypeWithModifier} {p.Name}"));
+        return new ApiMember
+        {
+            Name = name,
+            Kind = "method",
+            MetadataToken = token,
+            DeclaringType = declaringType,
+            ReturnType = returnType,
+            Signature = $"{returnType} {name}({renderedParameters})",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = name,
+                ReturnType = returnType,
+                Parameters = parameters,
+            },
+            IsStatic = owner.IsStatic,
+            IsVirtual = owner.IsVirtual,
+            IsAbstract = owner.IsAbstract,
+            IsOverride = owner.IsOverride,
+            IsSealed = owner.IsSealed,
+            IsUnsafe = owner.IsUnsafe,
+            Accessibility = accessibility,
+            Documentation = owner.Documentation,
+        };
+    }
+
+    static ApiParameter CloneAccessorParameter(ApiParameter parameter) => new()
+    {
+        Name = parameter.Name,
+        Type = parameter.Type,
+        CanonicalType = parameter.CanonicalType,
+        Modifier = parameter.Modifier,
+        HasDefault = parameter.HasDefault,
+        DefaultValueText = parameter.DefaultValueText,
+        Attributes = [.. parameter.Attributes],
+    };
+
     internal static void PopulateIndexSections(
         TypeView view,
         ApiType type,
@@ -1260,6 +1392,11 @@ public static class ApiOutputFormatter
                     : null
             : null;
         var singleMethodList = singleMethod != null ? new List<ApiMember> { singleMethod } : new List<ApiMember>();
+        // Code and caller sections address a single selected member. When an overload
+        // (or property/event accessor, issue #3265) is selected, restrict them to that
+        // one method so a read/write property's two accessor bodies don't overwrite each
+        // other. Without an explicit selection they still aggregate across all overloads.
+        var bodyMethods = overloadIndex.HasValue ? singleMethodList : methods;
 
         if (request.Calls && singleMethodList is [{ MetadataToken: { } token } callsMethod])
         {
@@ -1308,13 +1445,13 @@ public static class ApiOutputFormatter
             }
         }
 
-        if (request.Callers && methods.Count > 0)
+        if (request.Callers && bodyMethods.Count > 0)
         {
-            RequestTelemetry.Breadcrumb("il-analysis.callers", $"{methods.Count} member(s)");
+            RequestTelemetry.Breadcrumb("il-analysis.callers", $"{bodyMethods.Count} member(s)");
             var rows = new List<CallerSiteRow>();
 
             // Collect callers for each method (all overloads if multiple methods selected)
-            foreach (var method in methods.Where(m => m.MetadataToken.HasValue))
+            foreach (var method in bodyMethods.Where(m => m.MetadataToken.HasValue))
             {
                 var targetToken = method.MetadataToken!.Value;
                 rows.AddRange(analysisInspection.CallerEdges(targetToken)
@@ -1460,7 +1597,7 @@ public static class ApiOutputFormatter
         if (request.DecompiledSource || request.AnnotatedSource || request.CostOverlay || request.SemanticsOverlay || request.IL || request.Attributes || request.Facts || request.FidelityCauses || request.AppliedTaste)
             RequestTelemetry.Breadcrumb("method-body-load", singleMethod?.Name ?? type.Name);
 
-        foreach (var (member, code) in MemberCodeProvider.Collect(type, methods, dllPath, overloadIndex, request, pdbPath, options?.IncludeAll ?? false, options?.RenderOptions))
+        foreach (var (member, code) in MemberCodeProvider.Collect(type, bodyMethods, dllPath, overloadIndex, request, pdbPath, options?.IncludeAll ?? false, options?.RenderOptions))
         {
             if (code.Attributes is { Count: > 0 } attributes)
             {
@@ -1555,7 +1692,8 @@ public static class ApiOutputFormatter
                 code.MethodGenericParameters,
                 annotatedResult,
                 requiresAsyncBodyModifier: code.RequiresAsyncBodyModifier,
-                includeCustomAttributes: true);
+                includeCustomAttributes: true,
+                declarationTrailingComment: BuildTasteAnnotation(annotatedResult.Decisions));
             hasCode = true;
         }
 
@@ -1641,6 +1779,91 @@ public static class ApiOutputFormatter
                     failed.Error.Reason)
             ],
         };
+
+    // The inline taste annotation for the Annotated view: one trailing side
+    // comment on the member's signature, in the same shape the fact overlay uses
+    // for analysis ("// alloc.new(object; path=branch)"), so a reader scans style
+    // and analysis the same way. Anchored to the signature rather than to a
+    // statement because a style decision carries a subject but no IL offset; the
+    // Applied Taste section remains the full account.
+    //
+    // Nothing is annotated by default: no style decision is recorded unless a
+    // knob was requested, so this comment appears exactly when the reader asked
+    // for taste. A byte-divergent lens reports its fidelity instead of its
+    // subject (the subject is the enclosing method, already on this line) — that
+    // is also the only signal explaining why the interleaved IL is absent.
+    internal static string? BuildTasteAnnotation(
+        IReadOnlyList<Decompiler.DecompilerDecision> decisions)
+    {
+        var parts = decisions
+            // Same exclusion as the Applied Taste rows: the framework-import
+            // rewrite is always-on, not a configurable taste choice.
+            .Where(static d => d.RuleId != "type-name.framework-imported")
+            .Select(static d => d.Category == Decompiler.DecompilerDecisionCategories.StyleLens
+                ? $"taste.{TrimLensPrefix(d.RuleId)}(fidelity=byte-divergent)"
+                : $"taste.{d.RuleId}({d.Subject})")
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (parts.Count == 0)
+            return null;
+
+        // A subject is a metadata name, and metadata names are untrusted: the CLR
+        // does not require them to be spellable, printable, or even single-line.
+        return NeutralizeForSideComment(string.Join("; ", parts));
+    }
+
+    // Makes an untrusted metadata string safe to carry in a trailing // comment
+    // without losing which name it was.
+    //
+    // Two separate hazards, so two separate treatments. A C# line terminator ends
+    // the comment, which would leave the rest of the annotation as active code in
+    // a block a reader may paste or compile; those fold to a space so the comment
+    // cannot leave its line. ReplaceLineEndings covers exactly the terminators C#
+    // recognizes (CR, LF, CRLF, FF, NEL, LS, PS). Everything else here is a
+    // rendering hazard rather than a syntax one — ANSI escapes recolor or rewrite
+    // the terminal, and bidi overrides reorder what follows them, so a name can
+    // misrepresent itself or its neighbors. Those become visible \uXXXX escapes,
+    // which keeps the identity legible instead of dropping characters that are
+    // part of the real name.
+    private static string NeutralizeForSideComment(string value)
+    {
+        var folded = value.ReplaceLineEndings(" ");
+        if (!folded.Any(IsRenderingHazard))
+            return folded;
+
+        var builder = new StringBuilder(folded.Length);
+        foreach (var ch in folded)
+        {
+            if (IsRenderingHazard(ch))
+                builder.Append(CultureInfo.InvariantCulture, $"\\u{(int)ch:X4}");
+            else
+                builder.Append(ch);
+        }
+
+        return builder.ToString();
+
+        // Tab is deliberately allowed: it is legal in a comment and renders as
+        // space. Vertical tab is not a C# line terminator, so ReplaceLineEndings
+        // leaves it, but it does move the cursor down a line in a terminal — it is
+        // caught here as the C0 control it is.
+        static bool IsRenderingHazard(char ch) =>
+            ch != '\t' && (char.IsControl(ch) || IsBidiControl(ch));
+
+        // Exactly Unicode's Bidi_Control set: ALM, LRM/RLM, the LRE/RLE/PDF/LRO/RLO
+        // embeddings and overrides, and the LRI/RLI/FSI/PDI isolates. Deliberately
+        // narrower than the Cf category — a zero-width joiner or a BOM does not
+        // reorder its neighbors, and legitimate identifiers may contain format
+        // characters, so escaping all of Cf would corrupt ordinary names.
+        static bool IsBidiControl(char ch) =>
+            ch is '\u061C' or '\u200E' or '\u200F'
+                or >= '\u202A' and <= '\u202E'
+                or >= '\u2066' and <= '\u2069';
+    }
+
+    static string TrimLensPrefix(string ruleId)
+        => ruleId.StartsWith("style-lens.", StringComparison.Ordinal)
+            ? ruleId["style-lens.".Length..]
+            : ruleId;
 
     internal static List<AppliedTasteRow> BuildAppliedTasteRows(
         IReadOnlyList<Decompiler.DecompilerDecision> decisions)
@@ -2274,7 +2497,8 @@ public static class ApiOutputFormatter
         bool preferExpressionBodied = false,
         IReadOnlyList<string>? leadingBodyComments = null,
         bool requiresAsyncBodyModifier = false,
-        bool includeCustomAttributes = false)
+        bool includeCustomAttributes = false,
+        string? declarationTrailingComment = null)
     {
         if (!result.Succeeded)
             return new CodeSection("csharp", DiagnosticComment(result));
@@ -2291,7 +2515,8 @@ public static class ApiOutputFormatter
                     preferExpressionBodied,
                     leadingBodyComments,
                     requiresAsyncBodyModifier,
-                    includeCustomAttributes));
+                    includeCustomAttributes,
+                    declarationTrailingComment));
         }
         catch (Exception ex)
         {
@@ -2309,7 +2534,8 @@ public static class ApiOutputFormatter
         bool preferExpressionBodied = false,
         IReadOnlyList<string>? leadingBodyComments = null,
         bool requiresAsyncBodyModifier = false,
-        bool includeCustomAttributes = false)
+        bool includeCustomAttributes = false,
+        string? declarationTrailingComment = null)
     {
         var lowered = result.Output
             ?? throw new ArgumentException("A successful decompiler result is required.", nameof(result));
@@ -2337,12 +2563,27 @@ public static class ApiOutputFormatter
         }
         var body = lowered.TrimEnd();
 
+        // The trailing side comment rides the signature line, so it has to be
+        // appended after every declaration suffix (the constructor chain above)
+        // and after the terminating ';' of an expression-bodied render, never
+        // inside the expression. A member with no declaration to hang it on
+        // (a bare body projection) keeps the signal as a single leading line
+        // rather than dropping it.
+        string Annotate(string line)
+            => declarationTrailingComment is { Length: > 0 } comment
+                ? $"{line}  // {comment}"
+                : line;
+
         if (string.IsNullOrWhiteSpace(declaration))
-            return body;
+        {
+            return declarationTrailingComment is { Length: > 0 } bareComment
+                ? $"// {bareComment}{Environment.NewLine}{body}"
+                : body;
+        }
 
         bool hasLeadingComments = leadingBodyComments is { Count: > 0 };
         if (!hasLeadingComments && preferExpressionBodied && CSharpExpressionBody.FromSingleStatement(body) is { } expressionBody)
-            return $"{declaration} => {expressionBody};";
+            return Annotate($"{declaration} => {expressionBody};");
 
         // A multi-line single-statement expression body renders expression-bodied
         // too (a raised switch return, issue #3088; a wrapped fluent chain in
@@ -2364,7 +2605,7 @@ public static class ApiOutputFormatter
                 if (i == multilineExpression.Count - 1)
                     expression.Append(';');
             }
-            return expression.ToString();
+            return Annotate(expression.ToString());
         }
 
         var formattedBodyLines = body.ReplaceLineEndings("\n").Split('\n');
@@ -2375,7 +2616,7 @@ public static class ApiOutputFormatter
             Environment.NewLine,
             lines.Select(line => line.Length == 0 ? "" : $"    {line}"));
 
-        return $"{declaration}{Environment.NewLine}{{{Environment.NewLine}{indentedBody}{Environment.NewLine}}}";
+        return $"{Annotate(declaration)}{Environment.NewLine}{{{Environment.NewLine}{indentedBody}{Environment.NewLine}}}";
     }
 
     private static string FormatMemberDeclaration(

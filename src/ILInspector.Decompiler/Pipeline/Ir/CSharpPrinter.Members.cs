@@ -475,6 +475,63 @@ public sealed partial class CSharpPrinter
     static bool IsStructBaseClass(TypeRef type)
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "ValueType" or "Object" };
 
+    /// <summary>
+    /// True when <paramref name="receiver"/> (or method-group target) is a boxed
+    /// NON-<c>this</c> value — a local, parameter, field, or <c>ref</c>/<c>in</c>
+    /// place — reaching a CONFIRMED interface member of
+    /// <paramref name="declaringType"/>; <paramref name="placeText"/> receives the
+    /// unboxed place spelled as a cast operand. A value type must box to invoke an
+    /// interface member (`<c>ldobj; box; call[virt] I::M</c>` — or `<c>ldftn</c>`
+    /// for a group), so the member is not on the value type and the erased
+    /// <c>((I)x)</c> upcast must be re-inserted: bare <c>(x).M()</c> is CS1061 for a
+    /// default interface member or explicit implementation, and a silent rebind to
+    /// the struct's own method for a normally-implemented one. The boxed
+    /// <c>this</c> case (arg0) is owned by <see cref="IsBoxedThisReceiver"/> (with
+    /// its <c>base</c>/cast split) and is excluded here. A <c>static</c> method's
+    /// <c>@this</c> parameter shares the arg0 metadata name but is a genuine
+    /// non-<c>this</c> place; it is also excluded because the printer still spells
+    /// arg0-<c>"this"</c> with the <c>this</c> keyword (CS0026 in a static body) —
+    /// a pre-existing spelling limitation (#3260) — so it stays on the ordinary
+    /// path, unchanged from before this arm existed, rather than gaining an invalid
+    /// <c>((I)this)</c> cast.
+    /// <para>
+    /// The place is spelled deref-aware: a <c>ref</c>/<c>in</c> managed reference
+    /// reads back as the bare identifier/member (<c>s</c>) via
+    /// <see cref="DerefLoad"/>, while any other <see cref="LoadIndirect"/> — an
+    /// unmanaged pointer especially — is spelled through <see cref="Operand"/> so
+    /// its dereference is PARENTHESIZED: bare <c>*p</c> after a cast reparses as
+    /// multiplication (<c>(I)*p</c> is <c>(I) * p</c>, CS0119), whereas
+    /// <c>(I)(*p)</c> binds as a cast. Unwrapping the address instead would drop
+    /// the <c>*</c> entirely and emit <c>((I)p).M()</c> for a <c>T*</c> (CS0030).
+    /// </para>
+    /// <para>
+    /// Gated on a CONFIRMED interface declaring type
+    /// (<see cref="IrFunction.InterfaceTypes"/>; an unresolved or non-interface
+    /// callee is absent, so a boxed value reaching a base-class member stays on the
+    /// ordinary path — a separate fidelity concern). Unlike
+    /// <see cref="IsInterfaceCastThisReceiver"/> it does NOT apply the
+    /// enclosing-instantiation exclusion: that carve-out is sound only for a real
+    /// <c>this</c> receiver (already typed as the interface), whereas a boxed
+    /// struct place always needs the cast even when the callee interface is the
+    /// enclosing type. The non-<c>this</c> sibling of #3201/#3213 (#3214).
+    /// </para>
+    /// </summary>
+    bool TryBoxedNonThisInterfaceReceiver(IrExpression receiver, TypeRef declaringType, out string placeText)
+    {
+        placeText = "";
+        if (receiver is not Box box)
+            return false;
+        var place = box.Operand is LoadIndirect { Address: { } address } ? address : box.Operand;
+        if (place is LoadArgument { Index: 0, Name: "this" })
+            return false;
+        if (!_function.InterfaceTypes.Contains(NamedDefinition(declaringType)))
+            return false;
+        placeText = box.Operand is LoadIndirect { Address.ResultType.Kind: TypeRefKind.ByRef } byRefDeref
+            ? DerefLoad(byRefDeref)
+            : Operand(box.Operand);
+        return true;
+    }
+
     /// <summary>Member-access receivers: value-type receivers arrive by address in IL; C# spells the place itself, not its address.</summary>
     string ReceiverText(IrExpression receiver) => receiver switch
     {
@@ -586,6 +643,12 @@ public sealed partial class CSharpPrinter
                 return $"base.{name}";
             return $"(({TypeText(method.DeclaringType)})this).{name}";
         }
+        // #3214: a boxed NON-this value (local, parameter, field, ref/in place)
+        // reaching a confirmed interface member — the non-this sibling of the
+        // boxed-this interface cast above. `((I)x).M` re-emits `ldobj; box;
+        // ld[virt]ftn I::M`; bare `(x).M` would be CS1061 for a DIM/explicit impl.
+        if (TryBoxedNonThisInterfaceReceiver(target, method.DeclaringType, out var boxedGroupPlace))
+            return $"(({TypeText(method.DeclaringType)}){boxedGroupPlace}).{name}";
         if (PointerMethodReceiver(target) is { } pointerReceiver)
             return $"{pointerReceiver}->{name}";
         return $"{ReceiverText(target)}.{name}";
@@ -711,6 +774,13 @@ public sealed partial class CSharpPrinter
             // opcode-faithful. Subsumes the struct interface-cast case (#3201).
             return $"(({TypeText(call.Callee.DeclaringType)})this).{boxedMethodName}{typeArguments}({rest})";
         }
+        // #3214: a boxed NON-this value (local, parameter, field, ref/in place)
+        // reaching a confirmed interface member — the non-this sibling of the
+        // boxed-this interface cast above. `((I)x).M()` re-emits `ldobj; box;
+        // call[virt] I::M`; bare `(x).M()` would be CS1061 for a DIM/explicit impl,
+        // or a silent rebind to the value type's own method otherwise.
+        if (TryBoxedNonThisInterfaceReceiver(receiver, call.Callee.DeclaringType, out var boxedNonThisPlace))
+            return $"(({TypeText(call.Callee.DeclaringType)}){boxedNonThisPlace}).{CSharpNaming.SourceMethodName(call.Callee.Name)}{typeArguments}({rest})";
         if (receiver is LoadArgument { Index: 0, Name: "this" })
         {
             string thisMethodName = CSharpNaming.SourceMethodName(call.Callee.Name);

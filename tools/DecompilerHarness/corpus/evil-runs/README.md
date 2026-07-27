@@ -69,9 +69,15 @@ Each row contains these fields:
   deliberate false negative that preserves the lower bound.
 
   Because the allowlist defines what `v2` means, expanding it requires a new
-  `methodologyVersion`; do not add IDs under the existing stamp. v1 and v2
-  counts are not directly comparable, and the progress card never diffs
-  `productBodyDefect` across the boundary.
+  `methodologyVersion`; do not add IDs under the existing stamp. This is
+  enforced mechanically, not by convention:
+  `SpanAttributionTests.BodyIntrinsicAllowlist_IsPinnedToCurrentMethodologyVersion`
+  asserts set equality between the live allowlist and the set pinned for the
+  current version, so any addition fails the gate until the version is bumped
+  and a new pin recorded. A companion test pins the excluded *categories*
+  (resolution, conversion, overload, scope collision, definite assignment) that
+  the prose above forbids. v1 and v2 counts are not directly comparable, and the
+  progress card never diffs `productBodyDefect` across the boundary.
 
 ## Append procedure
 
