@@ -195,7 +195,7 @@ body {
   font: 10px var(--mono);
 }
 .title-actions button { padding: 0 10px; }
-.title-actions #demo-call-graph { color: var(--accent); border-color: #70402f; }
+.title-actions #go-home { color: var(--accent); border-color: #70402f; }
 .title-actions #help, .tiny-button { width: 27px; }
 .title-actions button:hover, .detail-actions button:hover, .tiny-button:hover { color: var(--text); border-color: var(--line-strong); }
 

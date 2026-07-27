@@ -787,7 +787,7 @@ function render() {
           <button>open</button>
         </form>
         <div class="title-actions">
-          <button id="demo-call-graph">demo</button>
+          <button id="go-home" title="Back to the home page">home</button>
           <button id="theme-toggle" aria-label="Switch to light theme">${state.theme === "dark" ? "light" : "dark"}</button>
           <button id="share">share</button>
           <button id="help" aria-label="Keyboard help">?</button>
@@ -2408,7 +2408,7 @@ function bindEvents() {
   });
   document.querySelector("#nav-back")?.addEventListener("click", navBack);
   document.querySelector("#nav-forward")?.addEventListener("click", navForward);
-  document.querySelector("#demo-call-graph").addEventListener("click", runCallGraphDemo);
+  document.querySelector("#go-home").addEventListener("click", goHome);
   document.querySelector("#theme-toggle").addEventListener("click", toggleTheme);
   document.querySelector("#help").addEventListener("click", () => showToast("⌘K command · ⌘P / type to find a type · ⌘F filter · 1—5 lenses · ↑↓ types · Alt+←/→ back/forward · graph: wheel zoom, click node to open, +/− zoom, 0 fit, arrows pan"));
 }
@@ -3513,6 +3513,24 @@ function runHomeDemo(kind) {
   if (kind === "stj") loadPackage("System.Text.Json", "10.0.0", "net10.0");
   else if (kind === "callgraph") runCallGraphDemo();
   else if (kind === "runtime") openRuntimePackFromHome();
+}
+
+// Return to the intro/home page without tearing down the warm engine or the loaded packages.
+// Soft in-app navigation (pushState "/") so a refresh stays on home and Back returns to the
+// workbench; the home search reuses the still-resident package list.
+function goHome() {
+  state.home = true;
+  state.spotlightOpen = false;
+  state.spotlightQuery = "";
+  state.spotlightIndex = 0;
+  state.spotlightScope = "all";
+  state.spotlightFocus = "input";
+  state.spotlightChipIndex = 0;
+  state.spotlightPkgHits = [];
+  state.spotlightPkgLoading = false;
+  state.spotlightPkgQuery = "";
+  try { history.pushState(null, "", "/"); } catch {}
+  render();
 }
 
 // Loads the resident runtime pack and lands on its package Overview (the runtime pack has no
@@ -5315,6 +5333,14 @@ document.addEventListener("mousedown", event => {
 window.addEventListener("popstate", () => {
   if (!state.package) return;
   const loc = parseLocation();
+  const bareHome = !loc.package && !(loc.tabs && loc.tabs.length);
+  if (bareHome) {
+    // Navigated back to the bare root — show the intro/home page (engine stays warm).
+    state.home = true;
+    render();
+    return;
+  }
+  state.home = false;
   state.lens = loc.lens || "api";
   state.atPackageRoot = loc.atPackageRoot || false;
   state.packageLens = loc.packageLens || "overview";
