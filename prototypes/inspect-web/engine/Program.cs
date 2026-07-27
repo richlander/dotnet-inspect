@@ -327,8 +327,7 @@ public static partial class BrowserInspectionEngine
     const int MaxCachedPackages = 6;
     const long MaxCachedPackageBytes = 64L * 1024 * 1024;
     static long _packageCacheClock;
-    static long _packageDownloads;
-    static long _packageCacheHits;
+    static readonly HashSet<string> DownloadedPackages = new(StringComparer.Ordinal);
 
     sealed record PackageCacheEntry(byte[] Bytes, long LastAccess);
 
@@ -537,15 +536,15 @@ public static partial class BrowserInspectionEngine
     [JSExport]
     public static string PackageCacheStats()
     {
-        var downloads = Interlocked.Read(ref _packageDownloads);
-        var cacheHits = Interlocked.Read(ref _packageCacheHits);
-        int cached;
+        int packages;
+        int resident;
         lock (PackageCacheLock)
         {
-            cached = PackageCache.Count;
+            packages = DownloadedPackages.Count;
+            resident = PackageCache.Count;
         }
 
-        return $"{{\"downloads\":{downloads},\"cacheHits\":{cacheHits},\"cached\":{cached}}}";
+        return $"{{\"packages\":{packages},\"resident\":{resident}}}";
     }
 
     [JSExport]
@@ -1980,7 +1979,6 @@ public static partial class BrowserInspectionEngine
             if (PackageCache.TryGetValue(key, out var cached))
             {
                 PackageCache[key] = cached with { LastAccess = ++_packageCacheClock };
-                Interlocked.Increment(ref _packageCacheHits);
                 return cached.Bytes;
             }
         }
@@ -1990,7 +1988,10 @@ public static partial class BrowserInspectionEngine
             $"{Uri.EscapeDataString(normalizedVersion)}/" +
             $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.nupkg";
         var bytes = await Http.GetByteArrayAsync(packageUrl);
-        Interlocked.Increment(ref _packageDownloads);
+        lock (PackageCacheLock)
+        {
+            DownloadedPackages.Add(key);
+        }
         if (bytes.LongLength > MaxCachedPackageBytes)
             return bytes;
 

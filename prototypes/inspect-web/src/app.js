@@ -785,8 +785,8 @@ function render() {
             <span class="diag" title="Runtime instantiation after assets arrived: WASM compile + module init + runMain">⚙ startup ${fmtMs(state.diag.startupMs)}</span>
             <span class="diag" title="Initial package query precomputed during load">⚡ precompute ${fmtMs(state.diag.precomputeMs)}</span>
             <span class="diag diag-total" title="Total time from navigation start to interactive">Σ ${fmtMs(state.diag.totalMs)}</span>` : ""}
-            ${state.packageCacheStats && (state.packageCacheStats.downloads + state.packageCacheStats.cacheHits) > 0 ? `
-            <span class="diag" title="NuGet package fetches this session: ${state.packageCacheStats.downloads} downloaded over the wire, ${state.packageCacheStats.cacheHits} served from the in-memory cache (${state.packageCacheStats.cached} currently cached)">◇ ${state.packageCacheStats.downloads} downloaded · ${state.packageCacheStats.cacheHits} cached</span>` : ""}
+            ${state.packageCacheStats && state.packageCacheStats.packages > 0 ? `
+            <span class="diag" title="${state.packageCacheStats.packages} distinct NuGet package${state.packageCacheStats.packages === 1 ? "" : "s"} acquired this session; ${state.packageCacheStats.resident} currently resident in the in-memory cache${state.packageCacheStats.packages > state.packageCacheStats.resident ? ` (${state.packageCacheStats.packages - state.packageCacheStats.resident} evicted under the LRU limit of 6 packages / 64 MB)` : ""}">◇ ${state.packageCacheStats.packages} package${state.packageCacheStats.packages === 1 ? "" : "s"} · ${state.packageCacheStats.resident} resident in cache</span>` : ""}
           <span class="status-spacer"></span>
           <span>${escapeHtml(current.assembly)}</span>
           <span>${escapeHtml(state.package.activeFramework)}</span>
