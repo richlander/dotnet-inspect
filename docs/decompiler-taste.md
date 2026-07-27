@@ -485,8 +485,7 @@ behavior-preserving; that is what lets the lens re-offer a fold the default had
 to decline. It deliberately stops at IDE0046: the further `c ? true : d` → `c ||
 d` collapse (IDE0075) is a separate future knob, so a literal-arm ternary such as
 `a ? true : b` is kept as written rather than simplified. The lens runs only on
-the opt-in raised path, after the default pipeline, and the IL-anchored Annotated
-view never applies it (it must stay byte-faithful for line/IL alignment).
+the opt-in raised path, after the default pipeline.
 
 The second lens is `PrinterOptions.PreferBranchlessBoolean`
 (`dotnet_inspect_style_prefer_branchless_boolean`). It targets the *same* declined
@@ -520,6 +519,83 @@ present, it would rebind to that operator's semantics), or valid but not branchl
 (a negation spelled as the ternary `(t ? false : true)` re-embeds a branch).
 Over-declining is always valid and faithful. When both lenses are enabled the
 oracle-endorsed ternary wins the shared shape.
+
+### Lenses and the Annotated view
+
+The Annotated view renders the same member as Decompiled Source, so it applies
+the same resolved style options: a member must not be spelled `this._count` in
+one section and `_count` in the other. For every byte-preserving knob this is
+free — the knob changes only the C# spelling, so the interleaved IL beneath each
+statement is byte-identical to the default render, and the view demonstrates the
+knob's contract rather than obscuring it.
+
+A style lens cannot keep that bargain. Its render no longer reproduces the
+member's opcodes, so anchoring the raw IL beneath it would assert a
+statement-to-opcode correspondence that does not hold — the single claim this
+view exists to make. When a lens **actually rewrites** (it records a
+`style-lens.*` decision under the `style-lens` category), the Annotated view
+therefore drops the interleaved IL for that member.
+
+Suppression keys on what the render *did*, not on what the host *asked for*: a
+lens that is enabled but finds no shape to rewrite is byte-faithful for that
+member, so its IL stays. The fact-comment overlay also stays, because a fact is
+a property of the member, not a claim about which opcodes a printed statement
+reproduces.
+
+### Reading applied taste in the Annotated view
+
+The applied knobs travel on the result as typed decisions, and the Annotated view
+renders them as a single trailing side comment on the member's signature — the
+same shape the fact overlay uses for analysis, so style and analysis read alike:
+
+```csharp
+public object? Pick(bool useName, string suffix)  // taste.qualify-property-access(Name); taste.qualify-field-access(_count)
+{
+    if (useName)
+        // IL_0000: ldarg.1                                              // arg: useName; stack: [bool]
+        // IL_0001: brfalse.s    IL_0009                                 // stack: []
+    {
+        return new object();  // alloc.new(object; alloc=System.Object; path=branch; path-confidence=behind-branch; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=conditional)
+            // IL_0003: newobj       object::.ctor()  // alloc.new(object; alloc=System.Object; path=branch; path-confidence=behind-branch; post-dominance=return-post-dominates; escape=escapes; escape-kind=escapes-return; multiplicity=conditional); stack: [object]
+            // IL_0008: ret                                                  // stack: []
+    }
+    return string.Concat(this.Name, suffix, this._count.ToString());
+        // IL_0009: ldarg.0                                              // arg: this; stack: [Cache]
+        // IL_000A: call         Cache::get_Name()                       // stack: [string]
+        // IL_000F: ldarg.2                                              // arg: suffix; stack: [string, string]
+        // IL_0010: ldarg.0                                              // arg: this; stack: [string, string, Cache]
+        // IL_0011: ldflda       int Cache::_count                       // stack: [string, string, ref int]
+        // IL_0016: call         int::ToString()                         // stack: [string, string, string]
+        // IL_001B: call         string::Concat(string, string, string)  // stack: [string]
+        // IL_0020: ret                                                  // stack: []
+}
+```
+
+Both knobs above are byte-preserving, so the IL is byte-identical to the default
+render. A byte-divergent lens reports its fidelity instead of its subject (the
+subject is the enclosing method, already spelled on that line), and that is also
+the signal explaining the absent IL:
+
+```csharp
+public bool Allow(bool trusted, bool cached)  // taste.qualify-property-access(Name); taste.qualify-field-access(_count); taste.prefer-conditional-return(fidelity=byte-divergent)
+{
+    return trusted ? cached : (this.Name.Length > this._count);
+}
+```
+
+The comment is anchored to the signature rather than to a statement because a
+style decision carries a subject but no IL offset. `-S "Applied Taste"` remains
+the full account, with each rule's detail and fidelity as table rows.
+
+Nothing is annotated by default: no style decision is recorded unless a knob was
+requested, so the comment appears exactly when the reader asked for taste.
+`--taste` is the one-invocation gesture for requesting the whole oracle-endorsed
+set (the flag form of `dotnet_inspect_style_full_taste`); it applies after the
+config file resolves and wins for the knobs it covers.
+
+The lowered Annotated stage applies the byte-preserving knobs but never runs the
+lenses at all: they are raised-altitude sugar, and the lowered pipeline exists to
+show the shape beneath that sugar.
 
 ## Names
 
@@ -576,6 +652,14 @@ dotnet_style_prefer_conditional_expression_over_return = true
   order like any other key, so a later explicit per-knob line overrides it
   (last-write-wins) — `full_taste = true` then
   `dotnet_style_qualification_for_field = false` is "full taste minus one knob".
+- `--taste` on `member` and `type` is the same aggregate as a one-invocation
+  gesture, for asking a single question without leaving a config file behind. It
+  applies after the file resolves, so for the knobs the aggregate covers the
+  flag wins: an explicit gesture is never silently narrowed by a checked-in
+  `full_taste = true` + `dotnet_style_qualification_for_field = false`. Knobs
+  outside the endorsed set — the branchless lens — keep whatever the file
+  selected. Because the aggregate includes the ternary lens, the Annotated view
+  drops its interleaved IL for any member that lens actually rewrites.
 - The recognized keys are not hand-maintained in the resolver: they come from the
   library-owned `StyleOptionCatalog` (see [Option catalog](#option-catalog)), so
   the CLI vocabulary and the option surface cannot drift.

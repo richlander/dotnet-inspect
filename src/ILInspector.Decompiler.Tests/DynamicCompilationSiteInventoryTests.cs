@@ -53,6 +53,7 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["ClosureDiagnosticEvidenceTests.cs"] = (6, "Input matrix + semantic-model seam: many compile-error/closure sources across a Theory."),
             ["FidelityCheckGeneratedFilterTests.cs"] = (2, "Seam isolation: exercises the generated-code filter over constructed compilations."),
             ["ValidityShellNoiseTests.cs"] = (1, "Seam isolation: injects deliberate shell noise into a validity compilation."),
+            ["AnnotatedCompileBackFailureTests.cs"] = (1, "Seam isolation: compiles a synthesized invisible-rune source to obtain a real Roslyn diagnostic for the annotated compile-back failure caret render (#3238)."),
 
             // Optimization / parse-option matrices intrinsic to the claim.
             ["IteratorReconstructionPassTests.cs"] = (2, "Optimization matrix + reconstruction seams: compiles the complex-iterator source under Debug and Release, and a parameterized Release inline-array-collection iterator (single-loop and conditional-yield shapes) whose dead buffer local must stay eliminated across the two seams that carry MoveNext locals into the kickoff (#3221)."),
@@ -70,9 +71,10 @@ public sealed class DynamicCompilationSiteInventoryTests
             ["TypeSourceCheckTests.cs"] = (1, "Runtime-varying validity gate: compiles per-case type source and checks binding."),
             ["UnsafeEmitterTests.cs"] = (1, "Runtime-varying validity gate: compiles per-case unsafe source with varying parse options."),
             ["DefaultParameterValidityTests.cs"] = (1, "Runtime-varying validity gate: compiles per-case default-parameter signatures."),
-            ["ReturnToSenderPrototypeTests.cs"] = (1, "Runtime construction: builds a shell input assembly asserting 30+ facts."),
+            ["ReturnToSenderPrototypeTests.cs"] = (2, "Runtime construction: builds a shell input assembly asserting 30+ facts; plus a fault-isolation oracle site compiling composed decompiled source for span attribution."),
             ["ReturnToSenderFixtureCatalogTests.cs"] = (1, "Input-generation seam: builds a temporary input assembly for the RTS catalog."),
             ["RoundTripComparisonTests.cs"] = (1, "Round-trip oracle seam: compiles an exact donor fixture for typed C# and IL comparison."),
+            ["SpanAttributionTests.cs"] = (1, "Product-output validity + oracle seam: compiles synthesized decompiled/authored source per case to feed real compiler diagnostics to the span-attribution classifier."),
         };
 
     // Fingerprint. Three independent +1 site additions stack on the 29 files /
@@ -98,9 +100,17 @@ public sealed class DynamicCompilationSiteInventoryTests
     //     exercises the dead-buffer eliminated marking across both iterator
     //     reconstruction seams (the ResetLocals transplant and the
     //     MultiYieldReconstruction offset copy).
-    //   Combined: 35 files, 44 sites.
-    const int ExpectedDynamicFiles = 35;
-    const int ExpectedDynamicSites = 44;
+    //   #3231 adds SpanAttributionTests.cs (1 site): compiles synthesized
+    //     decompiled/authored source per case to feed real compiler diagnostics
+    //     to the span-attribution classifier. #3231 also adds a second site to
+    //     ReturnToSenderPrototypeTests.cs (1 -> 2): the fault-isolation helper
+    //     compiles composed decompiled source to obtain its diagnostics.
+    //   #3238 adds AnnotatedCompileBackFailureTests.cs (1 site): compiles a
+    //     synthesized invisible-rune source to obtain a real diagnostic for the
+    //     annotated compile-back failure caret render.
+    //   Combined: 37 files, 47 sites.
+    const int ExpectedDynamicFiles = 37;
+    const int ExpectedDynamicSites = 47;
 
     // Migrated away from Dynamic in this change; must not reappear in the scan.
     static readonly string[] MigratedFiles = ["CompileBackTypeIdentityTests.cs"];

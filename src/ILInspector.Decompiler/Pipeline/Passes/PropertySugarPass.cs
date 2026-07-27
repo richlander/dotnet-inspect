@@ -25,7 +25,9 @@ public sealed class PropertySugarPass : IIrPass
                     var instance = call.Callee.HasThis ? children[0] : null;
                     var indexArguments = children.Skip(call.Callee.HasThis ? 1 : 0).ToList();
                     context.Stepper.StepOver($"raise {call.Callee.Name} call to property load", call);
-                    call.ReplaceWith(new LoadProperty(call.Callee, instance, indexArguments) { IsVirtual = call.IsVirtual });
+                    var load = new LoadProperty(call.Callee, instance, indexArguments) { IsVirtual = call.IsVirtual };
+                    load.InheritSourceOffset(call);
+                    call.ReplaceWith(load);
                     break;
                 }
                 case ExpressionStatement { Expression: Call call } statement when IsSetter(call.Callee):
@@ -36,7 +38,9 @@ public sealed class PropertySugarPass : IIrPass
                     var value = children[^1];
                     var indexArguments = children.Skip(skip).Take(children.Count - skip - 1).ToList();
                     context.Stepper.StepOver($"raise {call.Callee.Name} call to property store", statement);
-                    statement.ReplaceWith(new StoreProperty(call.Callee, instance, indexArguments, value) { IsVirtual = call.IsVirtual });
+                    var store = new StoreProperty(call.Callee, instance, indexArguments, value) { IsVirtual = call.IsVirtual };
+                    store.InheritSourceOffset(call);
+                    statement.ReplaceWith(store);
                     break;
                 }
                 case ExpressionStatement { Expression: Call call } statement when IsEventAccessor(call.Callee, out bool isAdd):
@@ -45,7 +49,9 @@ public sealed class PropertySugarPass : IIrPass
                     var instance = call.Callee.HasThis ? children[0] : null;
                     var value = children[^1];
                     context.Stepper.StepOver($"raise {call.Callee.Name} call to event {(isAdd ? "+=" : "-=")}", statement);
-                    statement.ReplaceWith(new EventSubscription(call.Callee, isAdd, instance, value) { IsVirtual = call.IsVirtual });
+                    var subscription = new EventSubscription(call.Callee, isAdd, instance, value) { IsVirtual = call.IsVirtual };
+                    subscription.InheritSourceOffset(call);
+                    statement.ReplaceWith(subscription);
                     break;
                 }
             }

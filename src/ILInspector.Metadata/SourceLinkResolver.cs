@@ -116,8 +116,16 @@ public class SourceLinkResolver
         string? simpleTypeName = string.IsNullOrEmpty(destructorTypeName) ? null : SimpleTypeName(destructorTypeName);
 
         // Scan backward from the first sequence point to capture the method signature.
+        // A member whose first sequence point already lands on its own declaration line — a
+        // one-line expression-bodied member, or a property/event accessor whose points map to
+        // the property declaration — needs no backward scan. Scanning back from such a line
+        // skips the blank separator or opening brace above it and captures the preceding member
+        // or the enclosing type header instead, which misattributes source (issue #3278).
         int sigStart = start;
-        for (int i = start - 2; i >= Math.Max(0, start - 15); i--)
+        bool startsAtDeclaration = start >= 1 && start <= lines.Length
+            && (IsMemberSignatureLine(lines[start - 1].TrimStart(), isDestructor, simpleTypeName)
+                || DeclaresMember(lines[start - 1].TrimStart(), methodName));
+        for (int i = start - 2; !startsAtDeclaration && i >= Math.Max(0, start - 15); i--)
         {
             var trimmed = lines[i].TrimStart();
             if (trimmed.Length == 0 || trimmed.StartsWith("///") || trimmed.StartsWith("//")
@@ -132,9 +140,7 @@ public class SourceLinkResolver
             }
 
             sigStart = i + 1;
-            if (trimmed.StartsWith("public") || trimmed.StartsWith("private")
-                || trimmed.StartsWith("protected") || trimmed.StartsWith("internal")
-                || trimmed.StartsWith("static")
+            if (StartsWithDeclarationModifier(trimmed)
                 || (isDestructor && IsDestructorSignatureLine(trimmed, simpleTypeName))
                 || trimmed.Contains(methodName))
                 break;
@@ -143,8 +149,17 @@ public class SourceLinkResolver
         int from = sigStart - 1;
         int to = end;
 
+        // A declaration whose range already terminates on its last line — an expression body's
+        // ";" or an auto-property's "{ get; set; }" — owns no trailing brace to recover, so the
+        // next "}" below it closes the enclosing type instead (issue #3278). A range that still
+        // has a block open does own one, even when its last line ends in ";": a signature whose
+        // "{" sits on the declaration line ends its sequence range on the last statement.
+        bool endsAtDeclaration = startsAtDeclaration && end >= 1 && end <= lines.Length
+            && IsSelfTerminatingLine(lines[end - 1])
+            && !HasUnclosedBlock(lines, from, to);
+
         // Scan forward to include the closing brace.
-        for (int i = to; i < Math.Min(to + 3, lines.Length); i++)
+        for (int i = to; !endsAtDeclaration && i < Math.Min(to + 3, lines.Length); i++)
         {
             var trimmed = lines[i].TrimStart();
             if (trimmed.StartsWith("}"))
@@ -172,6 +187,393 @@ public class SourceLinkResolver
 
         var dedented = methodLines.Select(l => l.Length >= minIndent ? l[minIndent..] : l);
         return string.Join('\n', dedented).TrimEnd();
+    }
+
+    /// <summary>
+    /// True when <paramref name="trimmed"/> (a leading-whitespace-stripped line) begins a member
+    /// declaration, judged by a leading declaration modifier. Used both to break the backward
+    /// signature scan in <see cref="ExtractMethodBody"/> and to decide whether a first sequence
+    /// point already sits on its member's declaration line, so that scan can be skipped.
+    /// <para>
+    /// This deliberately omits the scan's <c>Contains(methodName)</c> clause: that clause is a
+    /// safe last resort while walking up toward a known-preceding signature, but a method whose
+    /// first statement recurses would spell its own name and be mistaken for its declaration.
+    /// </para>
+    /// <para>
+    /// A member declared with no modifier at all — an implicitly private member, or an interface
+    /// member — is recognized separately by <see cref="DeclaresMember"/>, which anchors on the
+    /// member's own name rather than on a modifier.
+    /// </para>
+    /// </summary>
+    private static bool IsMemberSignatureLine(string trimmed, bool isDestructor, string? simpleTypeName)
+        => StartsWithDeclarationModifier(trimmed)
+            || (isDestructor && IsDestructorSignatureLine(trimmed, simpleTypeName));
+
+    /// <summary>
+    /// Modifiers that can lead a C# member declaration whose body carries sequence points.
+    /// </summary>
+    private static readonly string[] DeclarationModifiers =
+    [
+        "public", "private", "protected", "internal", "static",
+        "abstract", "async", "extern", "override", "partial",
+        "readonly", "required", "sealed", "unsafe", "virtual"
+    ];
+
+    /// <summary>
+    /// True when <paramref name="trimmed"/> opens with one of <see cref="DeclarationModifiers"/>
+    /// as a whole token followed by the start of a type or name.
+    /// <para>
+    /// The token boundary matters in both directions: it keeps <c>internalCounter = 1;</c> and
+    /// <c>file.Write(x);</c> from reading as declarations, and the follower check keeps the
+    /// <c>unsafe { ... }</c> block statement from doing so. A <c>(</c> is accepted as a follower
+    /// so a tuple-returning declaration still matches; no modifier is a valid expression, so no
+    /// statement can open that way.
+    /// </para>
+    /// </summary>
+    private static bool StartsWithDeclarationModifier(string trimmed)
+    {
+        foreach (var modifier in DeclarationModifiers)
+        {
+            if (!trimmed.StartsWith(modifier, StringComparison.Ordinal))
+                continue;
+
+            int i = modifier.Length;
+            if (i >= trimmed.Length || !char.IsWhiteSpace(trimmed[i]))
+                continue;
+
+            while (i < trimmed.Length && char.IsWhiteSpace(trimmed[i]))
+                i++;
+
+            if (i < trimmed.Length
+                && (char.IsLetter(trimmed[i]) || trimmed[i] == '_' || trimmed[i] == '@' || trimmed[i] == '('))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// True when <paramref name="line"/> ends a declaration outright, so no trailing brace has
+    /// to be recovered by the forward scan in <see cref="ExtractMethodBody"/>.
+    /// </summary>
+    private static bool IsSelfTerminatingLine(string line)
+    {
+        var trimmed = line.TrimEnd();
+        return trimmed.EndsWith(';') || trimmed.EndsWith('}');
+    }
+
+    /// <summary>
+    /// True when the captured range <c>[from, to)</c> opens more blocks than it closes, so a
+    /// closing brace still has to be recovered below it. Braces inside comments, char literals,
+    /// and string literals do not count — a property such as <c>public string M =&gt; "{";</c>
+    /// closes nothing and owns no brace below it. A raw string literal is not tracked; the range
+    /// is reported as still open so the forward scan runs, which is the conservative answer.
+    /// A single line is never judged unclosed, so a one-line declaration needs no such analysis.
+    /// </summary>
+    private static bool HasUnclosedBlock(string[] lines, int from, int to)
+    {
+        if (to - from <= 1)
+            return false;
+
+        int depth = 0;
+        bool inBlockComment = false;
+        bool inVerbatimString = false;
+
+        for (int i = Math.Max(0, from); i < Math.Min(to, lines.Length); i++)
+        {
+            var line = lines[i];
+            for (int j = 0; j < line.Length; j++)
+            {
+                char c = line[j];
+
+                if (inBlockComment)
+                {
+                    if (c == '*' && j + 1 < line.Length && line[j + 1] == '/')
+                    {
+                        inBlockComment = false;
+                        j++;
+                    }
+                    continue;
+                }
+
+                if (inVerbatimString)
+                {
+                    if (c != '"')
+                        continue;
+                    if (j + 1 < line.Length && line[j + 1] == '"')
+                        j++;
+                    else
+                        inVerbatimString = false;
+                    continue;
+                }
+
+                if (c == '/' && j + 1 < line.Length)
+                {
+                    if (line[j + 1] == '/')
+                        break;
+                    if (line[j + 1] == '*')
+                    {
+                        inBlockComment = true;
+                        j++;
+                        continue;
+                    }
+                }
+
+                if (c == '@' && j + 1 < line.Length)
+                {
+                    if (line[j + 1] == '"')
+                    {
+                        inVerbatimString = true;
+                        j++;
+                        continue;
+                    }
+
+                    if (line[j + 1] == '$' && j + 2 < line.Length && line[j + 2] == '"')
+                    {
+                        inVerbatimString = true;
+                        j += 2;
+                        continue;
+                    }
+                }
+
+                if (c == '"')
+                {
+                    if (j + 2 < line.Length && line[j + 1] == '"' && line[j + 2] == '"')
+                        return true;
+
+                    j++;
+                    while (j < line.Length && line[j] != '"')
+                        j += line[j] == '\\' ? 2 : 1;
+                    continue;
+                }
+
+                if (c == '\'')
+                {
+                    j++;
+                    while (j < line.Length && line[j] != '\'')
+                        j += line[j] == '\\' ? 2 : 1;
+                    continue;
+                }
+
+                if (c == '{')
+                    depth++;
+                else if (c == '}')
+                    depth--;
+            }
+        }
+
+        return depth > 0;
+    }
+
+    /// <summary>
+    /// Words that can open a statement, and so rule out a declaration no matter what follows.
+    /// </summary>
+    private static readonly HashSet<string> StatementOpeners = new(StringComparer.Ordinal)
+    {
+        "return", "throw", "yield", "await", "if", "while", "for", "foreach", "do", "switch",
+        "case", "using", "lock", "fixed", "checked", "unchecked", "var", "new", "base", "this",
+        "ref", "out", "in", "goto", "else", "try", "catch", "finally", "break", "continue",
+        "default", "is", "as", "stackalloc", "nameof", "typeof", "sizeof", "delegate"
+    };
+
+    /// <summary>
+    /// True when <paramref name="trimmed"/> declares the member named by
+    /// <paramref name="methodName"/> without a leading modifier — an interface member or an
+    /// implicitly private one, which <see cref="IsMemberSignatureLine"/> cannot recognize.
+    /// <para>
+    /// The line must read as a declaration prefix: a run of type-shaped tokens that reaches the
+    /// member's own name, followed by <c>(</c>, <c>&lt;</c>, <c>{</c>, or <c>=&gt;</c>. Two
+    /// requirements separate a declaration from a body line that merely spells the name. A
+    /// leading statement keyword rejects the line outright, which covers a recursive
+    /// <c>return Target(n - 1);</c>. And the name must open a new token — a return type has to
+    /// precede it — rather than continue a dotted chain, which is what tells the explicit
+    /// implementation <c>int IDefault.Target =&gt; 1;</c> from the qualified call
+    /// <c>Helper.Target();</c>. A trailing <c>;</c> is deliberately not accepted, so a local
+    /// declaration such as <c>Foo Target;</c> does not qualify.
+    /// </para>
+    /// <para>
+    /// An indexer is spelled <c>this[...]</c> rather than by the <c>Item</c> name its accessors
+    /// carry in metadata, so a property accessor also accepts <c>this</c> in the name position.
+    /// </para>
+    /// </summary>
+    private static bool DeclaresMember(string trimmed, string methodName)
+    {
+        var name = SourceSpelledMemberName(methodName, out bool isPropertyAccessor);
+        if (name.Length == 0)
+            return false;
+
+        int i = 0;
+        int tokenIndex = 0;
+        int chainStart = 0;
+        bool afterDot = false;
+
+        while (i < trimmed.Length)
+        {
+            while (i < trimmed.Length && char.IsWhiteSpace(trimmed[i]))
+                i++;
+            if (i >= trimmed.Length)
+                return false;
+
+            char c = trimmed[i];
+            if (char.IsLetter(c) || c == '_' || c == '@')
+            {
+                int tokenStart = i;
+                while (i < trimmed.Length
+                    && (char.IsLetterOrDigit(trimmed[i]) || trimmed[i] == '_' || trimmed[i] == '@'))
+                    i++;
+                var token = trimmed[tokenStart..i];
+
+                // A dotted continuation stays part of the chain its first token opened; anything
+                // else opens a new one. Only a chain that something precedes can be a member name.
+                if (!afterDot)
+                    chainStart = tokenIndex;
+                afterDot = false;
+
+                // "ref" and "new" can lead a declaration (a ref return, a shadowing member) and
+                // can also open a statement, so neither decides the line. Skipping them without
+                // consuming a token position leaves the following token to be judged: a real
+                // declaration still has to reach its name after a return type, while
+                // "new Foo().Bar();" and "ref var x = ref y;" are still rejected below.
+                if (tokenIndex == 0 && token is "ref" or "new")
+                    continue;
+
+                if (tokenIndex == 0 && StatementOpeners.Contains(token))
+                    return false;
+
+                // A token matching the name is only the member's own name when a return type
+                // precedes it, so a type spelled like its member — CancellationToken
+                // CancellationToken => default; — must keep scanning rather than stop here.
+                bool isNamePosition = token == name
+                    || (isPropertyAccessor && token == "this");
+                if (isNamePosition
+                    && chainStart >= 1
+                    && FollowsDeclarationName(trimmed, i, token == "this"))
+                    return true;
+
+                tokenIndex++;
+                continue;
+            }
+
+            if (c == '.')
+            {
+                afterDot = true;
+                i++;
+                continue;
+            }
+
+            // A generic argument list or array rank belongs to the type token it follows, so it
+            // must be consumed whole — otherwise a type argument would read as a separate token
+            // and let a qualified call such as Foo<T>.Target() pass as a declaration.
+            if (c is '<' or '[')
+            {
+                int after = SkipBalanced(trimmed, i, c, c == '<' ? '>' : ']');
+                if (after < 0)
+                    return false;
+                i = after;
+                continue;
+            }
+
+            // A tuple return type occupies the type position and carries no leading identifier,
+            // so it is consumed whole and counts as the type token the member name follows.
+            // Only the type position accepts one, which keeps a parenthesized expression
+            // elsewhere on the line from standing in for a return type.
+            if (c == '(' && tokenIndex == 0)
+            {
+                int after = SkipBalanced(trimmed, i, '(', ')');
+                if (after < 0)
+                    return false;
+                i = after;
+                chainStart = tokenIndex;
+                tokenIndex++;
+                afterDot = false;
+                continue;
+            }
+
+            if (c == '?')
+            {
+                i++;
+                continue;
+            }
+
+            return false;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// True when the character following a candidate member name at <paramref name="index"/>
+    /// can open that member's parameter list, type parameter list, accessor list, or expression
+    /// body. An indexer must be followed by its <c>[</c> parameter list.
+    /// </summary>
+    private static bool FollowsDeclarationName(string trimmed, int index, bool isIndexer)
+    {
+        int j = index;
+        while (j < trimmed.Length && char.IsWhiteSpace(trimmed[j]))
+            j++;
+        if (j >= trimmed.Length)
+            return false;
+
+        if (isIndexer)
+            return trimmed[j] == '[';
+
+        if (trimmed[j] is '(' or '<' or '{')
+            return true;
+
+        return trimmed[j] == '=' && j + 1 < trimmed.Length && trimmed[j + 1] == '>';
+    }
+
+    /// <summary>
+    /// The index just past the <paramref name="close"/> that balances the <paramref name="open"/>
+    /// at <paramref name="index"/>, or -1 when the group does not close on this line (a signature
+    /// whose type argument list wraps), in which case no declaration claim can be made.
+    /// </summary>
+    private static int SkipBalanced(string trimmed, int index, char open, char close)
+    {
+        int depth = 0;
+        for (int i = index; i < trimmed.Length; i++)
+        {
+            if (trimmed[i] == open)
+                depth++;
+            else if (trimmed[i] == close)
+                depth--;
+
+            if (depth == 0)
+                return i + 1;
+        }
+
+        return -1;
+    }
+
+    /// <summary>
+    /// The name a member is spelled with in source: an accessor's <c>get_</c>/<c>set_</c>/
+    /// <c>add_</c>/<c>remove_</c> prefix names the owning property or event, and an explicit
+    /// interface implementation carries a qualifying prefix that source states separately.
+    /// </summary>
+    private static string SourceSpelledMemberName(string methodName, out bool isPropertyAccessor)
+    {
+        isPropertyAccessor = false;
+        var name = methodName.AsSpan();
+        int lastDot = name.LastIndexOf('.');
+        if (lastDot >= 0)
+            name = name[(lastDot + 1)..];
+
+        foreach (var prefix in (ReadOnlySpan<string>)["get_", "set_"])
+        {
+            if (name.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                isPropertyAccessor = true;
+                return name[prefix.Length..].ToString();
+            }
+        }
+
+        foreach (var prefix in (ReadOnlySpan<string>)["add_", "remove_"])
+        {
+            if (name.StartsWith(prefix, StringComparison.Ordinal))
+                return name[prefix.Length..].ToString();
+        }
+
+        return name.ToString();
     }
 
     /// <summary>

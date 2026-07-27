@@ -95,6 +95,125 @@ public class ApiOutputFormatterTests
         Assert.False(ApiAnalysisInspection.SameType(typeRef, apiType));
     }
 
+    // The taste side comment rides the signature line, so it has to survive every
+    // declaration suffix and body shape the formatter can emit (#3191).
+
+    [Fact]
+    public void FormatSourceWithDeclaration_TrailingComment_RidesTheSignatureLine()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Widget", Kind = "class" };
+        var method = new ApiMember
+        {
+            Name = "Read",
+            Kind = "method",
+            SignatureModel = new ApiSignature { MemberName = "Read", ReturnType = "System.Int32" }
+        };
+
+        var source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            method,
+            methodGenericParameters: null,
+            DecompilerResult.Success("return this._count;"),
+            declarationTrailingComment: "taste.qualify-field-access(_count)");
+
+        var lines = source.ReplaceLineEndings("\n").Split('\n');
+        Assert.EndsWith("  // taste.qualify-field-access(_count)", lines[0]);
+        Assert.Equal("{", lines[1]);
+        // The body is untouched source: the comment never leaks into it.
+        Assert.Contains("    return this._count;", lines);
+    }
+
+    [Fact]
+    public void FormatSourceWithDeclaration_TrailingComment_FollowsTheConstructorChain()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Widget", Kind = "class" };
+        var constructor = new ApiMember
+        {
+            Name = ".ctor",
+            Kind = "constructor",
+            SignatureModel = new ApiSignature { MemberName = "#ctor" }
+        };
+        var result = DecompilerResult.Success("return;") with { ConstructorChain = "base(42)" };
+
+        var source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            constructor,
+            methodGenericParameters: null,
+            result,
+            declarationTrailingComment: "taste.prefer-conditional-return(fidelity=byte-divergent)");
+
+        var first = source.ReplaceLineEndings("\n").Split('\n')[0];
+        Assert.EndsWith(
+            ": base(42)  // taste.prefer-conditional-return(fidelity=byte-divergent)",
+            first);
+    }
+
+    [Fact]
+    public void FormatSourceWithDeclaration_TrailingComment_FollowsAnExpressionBodyTerminator()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Widget", Kind = "class" };
+        var method = new ApiMember
+        {
+            Name = "Read",
+            Kind = "method",
+            SignatureModel = new ApiSignature { MemberName = "Read", ReturnType = "System.Int32" }
+        };
+
+        var source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            method,
+            methodGenericParameters: null,
+            DecompilerResult.Success("return this._count;"),
+            preferExpressionBodied: true,
+            declarationTrailingComment: "taste.qualify-field-access(_count)");
+
+        // After the ';', never inside the expression.
+        Assert.EndsWith(";  // taste.qualify-field-access(_count)", source);
+    }
+
+    [Fact]
+    public void FormatSourceWithDeclaration_NoTrailingComment_IsUnchanged()
+    {
+        var type = new ApiType { Namespace = "Samples", Name = "Widget", Kind = "class" };
+        var method = new ApiMember
+        {
+            Name = "Read",
+            Kind = "method",
+            SignatureModel = new ApiSignature { MemberName = "Read", ReturnType = "System.Int32" }
+        };
+        var result = DecompilerResult.Success("return this._count;");
+
+        Assert.Equal(
+            ApiOutputFormatter.FormatSourceWithDeclaration(type, method, null, result),
+            ApiOutputFormatter.FormatSourceWithDeclaration(
+                type, method, null, result, declarationTrailingComment: null));
+    }
+
+    [Fact]
+    public void FormatSourceWithDeclaration_NoDeclaration_KeepsTheCommentAsOneLeadingLine()
+    {
+        // A member the formatter cannot spell a declaration for still gets the
+        // signal, on one line above the body rather than dropped on the floor.
+        var type = new ApiType { Namespace = "Samples", Name = "Widget", Kind = "class" };
+        var method = new ApiMember
+        {
+            Name = "Read",
+            Kind = "method",
+            SignatureModel = new ApiSignature { MemberName = "Read" }
+        };
+
+        var source = ApiOutputFormatter.FormatSourceWithDeclaration(
+            type,
+            method,
+            methodGenericParameters: null,
+            DecompilerResult.Success("return this._count;"),
+            declarationTrailingComment: "taste.qualify-field-access(_count)");
+
+        var lines = source.ReplaceLineEndings("\n").Split('\n');
+        Assert.Equal("// taste.qualify-field-access(_count)", lines[0]);
+        Assert.Equal("return this._count;", lines[1]);
+    }
+
     [Fact]
     public void FormatSourceWithDeclaration_UsesTypedConstructorChain()
     {

@@ -2870,6 +2870,24 @@ public class CfgSampleClass
         return a + b;
     }
 
+    // #3166 compile-back witness: the value-swap idiom. csc lowers the tuple swap
+    // `(a, b) = (b, a)` — and the equivalent manual `temp = b; b = a; a = temp;` —
+    // to a single dup-slot save followed by the two cross-stores (verified
+    // byte-identical for a struct), so SwapIdiomPass raising the surviving carrier
+    // back to `(a, b) = (b, a)` is opcode-exact, not a byte-divergent rewrite. This
+    // mirrors System.Text.Json.JsonElement.DeepEquals, which swaps two JsonElement
+    // structs through one such temp (issue #3166); carrying it into the fidelity
+    // gate proves the raised swap recompiles to the original IL — the check the
+    // internal-surface DeepEquals cannot itself feed to compile-back.
+    public static int SwapStructPair(Pairing a, Pairing b)
+    {
+        if (a.First < b.First)
+        {
+            (a, b) = (b, a);
+        }
+        return a.First - b.First;
+    }
+
     public static object AnonShorthand(int a, string b) => new { a, b };
 
     public static object AnonNamed(int x, string y) => new { Id = x, Name = y };
@@ -2908,6 +2926,61 @@ public class CfgSampleClass
 
         public void Add(int value) => Total += value;
     }
+
+    public sealed class InitConsumer
+    {
+        public InitConsumer(int tag, InitTarget target) { }
+    }
+
+    public sealed class InitConsumer3
+    {
+        public InitConsumer3(int first, int second, InitTarget target) { }
+    }
+
+    static int Identity(int value) => value;
+
+    static void SideEffect() { }
+
+    static int StaticTag { get; set; }
+
+    // #3272 regression: the object initializer is the SECOND constructor argument,
+    // so the first argument is evaluated first and stays live on the stack beneath
+    // the dup chain. The stackifier cannot keep two values on the stack across the
+    // initializer's statement run, so it spills the dup temp into named locals with
+    // version copies (`t2 = t1; t2.X = ...`) — the shape the named-local matcher must
+    // now fold. Identity() keeps the first arg a computed value (as `Pipeline` was).
+    public static InitConsumer MakeConsumerWithTrailingInitializer(int tag, int a, int b)
+        => new InitConsumer(Identity(tag), new InitTarget { X = a, Y = b });
+
+    // #3272 breadth: TWO arguments precede the initializer, so two independent
+    // statements interleave before the first member store; both must be skipped.
+    public static InitConsumer3 MakeConsumerWithTwoLeadingArgs(int tag, int a, int b)
+        => new InitConsumer3(Identity(tag), Identity(a), new InitTarget { X = a, Y = b });
+
+    // #3272 adjudication probe: a side-effecting statement between new() and the
+    // first member store. Roslyn erases the local `t` and lowers this through the
+    // SAME stack-slot dup form as the trailing-argument fixtures, so the skip logic
+    // WOULD apply on shape alone — but folding via the use site would move the
+    // `newobj` after SideEffect(), reordering construction across an observable
+    // call. Here the `newobj` runs at IL offset 0 and SideEffect() at offset 5, so
+    // the offset guard (skip only statements that ran before the newobj) declines
+    // and the object stays lowered.
+    public static InitTarget MakeTargetWithVoidCallBetween(int a)
+    {
+        var t = new InitTarget();
+        SideEffect();
+        t.X = a;
+        return t;
+    }
+
+    // #3272 provenance robustness: the leading constructor argument is a STATIC
+    // PROPERTY read (`get_StaticTag`). PropertySugarPass rewrites the getter Call
+    // into a zero-child LoadProperty; if that rewrite drops the Call's SourceOffset,
+    // the object-initializer skip guard cannot prove the spill ran before the
+    // `newobj` and declines the fold. The getter runs before the `newobj`, so this
+    // must fold to `new InitConsumer(StaticTag, new InitTarget { X = a })`.
+    public static InitConsumer MakeConsumerWithStaticPropertyArg(int a)
+        => new InitConsumer(StaticTag, new InitTarget { X = a });
 
     public static InitContainer MakeNestedObject(int a, int b)
         => new InitContainer { Inner = { X = a, Y = b } };

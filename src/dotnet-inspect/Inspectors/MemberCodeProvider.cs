@@ -214,7 +214,13 @@ internal static class MemberCodeProvider
                         CostOverlay: request.CostOverlay,
                         SemanticsOverlay: request.SemanticsOverlay,
                         FactRows: request.Facts,
-                        MethodToken: methodToken));
+                        MethodToken: methodToken,
+                        // Annotated Source spells the same member as Decompiled
+                        // Source, so it renders with the same resolved style options
+                        // -- otherwise the two views of one member disagree. The
+                        // other projections here (cost/semantics overlays, fact rows)
+                        // are style-invariant evidence and keep the shipped defaults.
+                        PrinterOptions: request.AnnotatedSource ? renderOptions : null));
             }
 
             // Annotated source: raised C# with hidden-fact comments and the
@@ -223,6 +229,12 @@ internal static class MemberCodeProvider
                 && researchProjection?.AnnotatedSource is { } annotated
                     ? TrimOutput(annotated)
                     : null;
+
+            // Annotated Source now renders with the resolved style options too, so an
+            // Annotated-Source-only run consumes the config and must surface its
+            // warnings on the same latch rather than swallowing them.
+            if (request.AnnotatedSource && annotatedResult?.Output is not null)
+                styledProjectionProduced = true;
 
             Decompiler.DecompilerResult? costOverlayResult = null;
             IReadOnlyList<string>? costOverlayHeaderComments = null;

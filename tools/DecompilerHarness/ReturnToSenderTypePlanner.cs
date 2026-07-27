@@ -1,9 +1,12 @@
 using System.Globalization;
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using System.Text;
+using DotnetInspector.Services;
 using DotnetInspector.RoundTripCompilation;
 using ILInspector.CSharp;
 using ILInspector.Decompiler;
@@ -351,6 +354,7 @@ public sealed record CompileBackTypeRequirement(
     public CompileBackTypeKind Kind => RequiredKind;
     public IReadOnlyList<CompileBackMemberRequirement> Members => RequiredMembers;
     public bool IncludeMemberSurface { get; init; }
+    public IReadOnlyList<string> ExternalInterfaces { get; init; } = [];
 }
 
 public sealed record CompileBackMemberRequirement(
@@ -402,6 +406,22 @@ internal sealed record ExplicitInterfaceEventInfo(
     EventDefinitionHandle InterfaceEvent,
     string QualifiedName,
     string AccessorName);
+
+internal sealed record ExternalExplicitInterfaceMethodInfo(
+    string InterfaceDisplayName,
+    string ExplicitInterfaceMemberName,
+    IReadOnlyList<CompileBackMemberRequirement> AdditionalInterfaceStubs);
+
+internal sealed record ExternalInterfaceReferenceInfo(
+    string MetadataFullName,
+    string DisplayFullName,
+    AssemblyReferenceIdentity AssemblyIdentity);
+
+internal sealed record ExternalInterfaceRequiredMethod(
+    string Name,
+    int GenericArity,
+    string ReturnType,
+    ImmutableArray<string> ParameterTypes);
 
 public static class CompileBackSourceComposer
 {
@@ -1384,6 +1404,803 @@ public static class CompileBackSourceComposer
         return false;
     }
 
+    // External explicit-interface implementations must also name the interface in the
+    // containing type's base list (CS0540) and satisfy its complete required surface
+    // (CS0535). Engage only for non-generic external interfaces whose transitive
+    // required surface is exactly the target method; every uncertain case keeps the
+    // previous plain sanitized shape and its ContextFail floor (#3112).
+    static ExternalExplicitInterfaceMethodInfo? ExternalExplicitInterfaceMethod(
+        MetadataReader reader,
+        string assemblyPath,
+        TypeDefinition targetType,
+        MethodDefinitionHandle targetMethod,
+        string metadataMethodName,
+        int targetMethodGenericArity,
+        IReadOnlySet<TypeDefinitionHandle> closureRoots)
+    {
+        if (!TrySplitExplicitInterfaceMetadataName(metadataMethodName, out var interfaceMetadataName, out var targetMemberName))
+            return null;
+
+        foreach (var implementationHandle in targetType.GetMethodImplementations())
+        {
+            var implementation = reader.GetMethodImplementation(implementationHandle);
+            if (implementation.MethodBody != targetMethod)
+                continue;
+
+            if (implementation.MethodDeclaration.Kind == HandleKind.TypeSpecification)
+                return null;
+            if (implementation.MethodDeclaration.Kind != HandleKind.MemberReference)
+                continue;
+
+            var declaration = reader.GetMemberReference((MemberReferenceHandle)implementation.MethodDeclaration);
+            if (declaration.Parent.Kind == HandleKind.TypeSpecification)
+                return null;
+            if (declaration.Parent.Kind != HandleKind.TypeReference)
+                return null;
+
+            string declarationName = reader.GetString(declaration.Name);
+            if (!string.Equals(declarationName, targetMemberName, StringComparison.Ordinal))
+                continue;
+            if (OperatorNames.FormatDisplayName(declarationName) != declarationName)
+                return null;
+
+            // The explicit-member spelling emits Identifier(declarationName) =
+            // CSharpIdentifier.Sanitize(declarationName). A keyword member name is escaped
+            // losslessly (`class` -> `@class`, which binds back to `class`), but a member name
+            // that does not round-trip through a C# identifier — a compiler-unspeakable name
+            // (`<Bad>` -> lossily sanitized `__Bad_`), or one carrying a Unicode format
+            // character that Roslyn strips when binding (`M\u200C` -> `M`) — reconstructs an
+            // `IType.<member>()` that binds to no interface member (CS0539 = RecompileFail).
+            // Only engage when the raw member name round-trips; else decline to the floor.
+            if (!MetadataIdentifierRoundTrips(declarationName))
+                return null;
+
+            if (ExternalInterfaceReference(reader, (TypeReferenceHandle)declaration.Parent) is not { } interfaceReference)
+                return null;
+            if (!string.Equals(interfaceReference.MetadataFullName, interfaceMetadataName, StringComparison.Ordinal))
+                continue;
+
+            // The full transitive required surface of the external interface. #3112 Increment 1
+            // engaged only when this was exactly the single target member; Increment 2 also
+            // engages on multi-member interfaces by synthesizing `throw null` explicit-interface
+            // stubs for every non-target member (below). An empty surface cannot contain the
+            // target member, so decline to the ContextFail floor.
+            if (!TryReadExternalInterfaceSurface(
+                    assemblyPath,
+                    interfaceReference,
+                    out var requiredMethods)
+                || requiredMethods.Count == 0)
+            {
+                return null;
+            }
+
+            // The reconstructed C# spelling emits the interface's DISPLAY name
+            // (Clean(metadataFullName)) in both the base-list entry and the explicit-member
+            // qualifier. Clean keyword-escapes an identifier-like segment losslessly
+            // (`class` -> `@class`), but rewrites a segment that is not a legal C# identifier
+            // through a lossy sanitizing branch (`<Bad>` -> `__Bad_`), which then references a
+            // type that does not exist (CS0246 = RecompileFail). Only engage when the raw
+            // metadata name round-trips through the display name; otherwise decline to the
+            // plain sanitized shape (the pre-#3112 ContextFail floor).
+            if (!ExternalInterfaceNameIsRepresentable(interfaceReference.MetadataFullName))
+                return null;
+
+            // Name + arity alone are signature-blind: a resolved interface method whose
+            // parameter or return types differ from what the target actually implements
+            // (e.g. a reference resolved to a different build than the target was compiled
+            // against) would still match here, and the reconstructed explicit member would
+            // bind to no interface member (CS0539 = RecompileFail). Require the full decoded
+            // signatures to agree. SignatureDecoder renders by-ref kinds, custom modifiers,
+            // and multidimensional arrays ambiguously, so the decoded-string comparison is
+            // only sound when neither signature carries such detail; the interface surface
+            // already declined any required method that does, so decline the target here too.
+            var targetMethodDefinition = reader.GetMethodDefinition(targetMethod);
+            if (SignatureHasUnrepresentableDetail(reader, targetMethodDefinition))
+                return null;
+
+            MethodSignature<string> targetSignature;
+            try
+            {
+                targetSignature = targetMethodDefinition.DecodeSignature(
+                    SignatureDecoder.Instance,
+                    GenericContext.ForMethod(reader, targetType, targetMethodDefinition));
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+            {
+                return null;
+            }
+
+            // Identify which required interface method the target implements: it must agree by
+            // name, generic arity, and full decoded signature. Interface methods are unique by
+            // signature, so exactly one required method may match; zero (the target's spelling
+            // is not part of the resolved surface -> CS0539) or more than one (ambiguous)
+            // declines to the ContextFail floor.
+            int matchIndex = -1;
+            for (int index = 0; index < requiredMethods.Count; index++)
+            {
+                var candidate = requiredMethods[index];
+                if (string.Equals(candidate.Name, declarationName, StringComparison.Ordinal)
+                    && candidate.GenericArity == targetMethodGenericArity
+                    && string.Equals(candidate.ReturnType, targetSignature.ReturnType, StringComparison.Ordinal)
+                    && candidate.ParameterTypes.SequenceEqual(targetSignature.ParameterTypes, StringComparer.Ordinal))
+                {
+                    if (matchIndex >= 0)
+                        return null;
+                    matchIndex = index;
+                }
+            }
+            if (matchIndex < 0)
+                return null;
+
+            // A reconstructed sibling type (or sibling sub-namespace) in the recompile
+            // closure can intercept the leading identifier of the external interface
+            // spelling when the target lives inside a namespace, binding the clean
+            // `Namespace.IType.Member` spelling against the sibling instead of the external
+            // interface (CS0426/CS0535/CS0540 = RecompileFail). Roslyn cannot author such a
+            // shape (a shadowing sibling forces `global::` into the explicit override's
+            // metadata name, which the equality check above already declines), but
+            // hand-rolled IL can, and RoundTripScope.All reconstructs every sibling into its
+            // namespace. When any closure type would shadow a spelling segment in a namespace
+            // in scope of the target, decline to the plain sanitized shape (the pre-#3112
+            // ContextFail floor) rather than emit a new RecompileFail.
+            if (ExternalInterfaceSpellingShadowedByClosure(
+                    reader,
+                    targetType,
+                    closureRoots,
+                    interfaceReference.MetadataFullName))
+            {
+                return null;
+            }
+
+            // Naming the interface in the base list forces the reconstructed type to satisfy
+            // its ENTIRE required surface (CS0535). The target method reconstructs the matched
+            // member with its real body; every OTHER required member is synthesized here as a
+            // `throw null` explicit-interface stub. If any such member cannot be spelled as
+            // valid, bindable C# (a member name that does not round-trip, or a signature type
+            // SignatureDecoder renders unbindably), decline the WHOLE engagement and keep the
+            // sanitized ContextFail floor rather than emit a partial surface (CS0535) or an
+            // unbindable stub (CS0246 = RecompileFail).
+            var additionalInterfaceStubs = new List<CompileBackMemberRequirement>(requiredMethods.Count - 1);
+            for (int index = 0; index < requiredMethods.Count; index++)
+            {
+                if (index == matchIndex)
+                    continue;
+                if (SynthesizeExternalInterfaceStub(interfaceReference.DisplayFullName, requiredMethods[index]) is not { } stub)
+                    return null;
+                additionalInterfaceStubs.Add(stub);
+            }
+
+            string explicitInterfaceMemberName =
+                $"{interfaceReference.DisplayFullName}.{Identifier(declarationName)}";
+            return new ExternalExplicitInterfaceMethodInfo(
+                interfaceReference.DisplayFullName,
+                explicitInterfaceMemberName,
+                additionalInterfaceStubs);
+        }
+
+        return null;
+    }
+
+    // Synthesizes a `throw null` explicit-interface stub for a NON-target member of an external
+    // interface, so the reconstructed type satisfies the interface's full required surface
+    // (CS0535) after the interface is named in the base list. Returns null when the member
+    // cannot be spelled as valid, bindable C#, in which case the caller declines the whole
+    // engagement and keeps the ContextFail floor. Only arity-0 methods reach here
+    // (TryCollectRequiredInterfaceMethods declines every generic/property/event/non-public
+    // member and every by-ref/pointer/array/function-pointer/modifier signature), so the stub
+    // has no type parameters and its decoded signature strings are a faithful C# spelling — the
+    // same strings the target signature match above already trusts.
+    static CompileBackMemberRequirement? SynthesizeExternalInterfaceStub(
+        string interfaceDisplayName,
+        ExternalInterfaceRequiredMethod method)
+    {
+        // The stub names the member via `IType.<member>()`; a name that does not round-trip
+        // through a C# identifier binds to no interface member (CS0539), leaving the interface
+        // member unimplemented (CS0535). Re-defend arity here even though the surface is
+        // arity-0: a generic stub would need to restate constraints it cannot see.
+        if (method.GenericArity != 0 || !MetadataIdentifierRoundTrips(method.Name))
+            return null;
+
+        // SignatureDecoder spells nested types with the metadata separator (`Outer+Inner`),
+        // which is not bindable C#, and degrades a generic-parameter-bearing type to a bare
+        // `object` (via CleanTypeDisplay's `!` guard) that would silently mis-satisfy the
+        // member. The required surface already declined generics and unrepresentable detail, so
+        // neither marker should survive; decline defensively if one does rather than emit an
+        // unbindable (CS0246) or drifted (CS0535) stub.
+        if (SignatureTypeIsUnspellable(method.ReturnType)
+            || method.ParameterTypes.Any(SignatureTypeIsUnspellable))
+        {
+            return null;
+        }
+
+        string explicitName = $"{interfaceDisplayName}.{Identifier(method.Name)}";
+        var returnType = CompileBackTypeSignature.Display(method.ReturnType);
+        var parameters = method.ParameterTypes
+            .Select((type, index) => new CompileBackParameter(
+                $"arg{index}",
+                CompileBackTypeSignature.Display(type)))
+            .ToArray();
+        string declarationSignature = ExplicitInterfaceMethodDeclarationSignature(
+            explicitName,
+            returnType,
+            [],
+            parameters);
+        return new CompileBackMemberRequirement(
+            new CompileBackMethodIdentity(interfaceDisplayName, method.Name, 0, declarationSignature),
+            CompileBackMemberKind.Method,
+            false,
+            parameters,
+            returnType,
+            [],
+            CompileBackStubBodyKind.Throw,
+            null,
+            [new CompileBackFact("metadata", "external-interface-stub", explicitName)],
+            ExplicitInterfaceMemberName: explicitName,
+            DeclarationSignature: declarationSignature);
+    }
+
+    // A decoded signature type is unspellable when it carries a metadata artifact that
+    // SignatureDecoder/CleanTypeDisplay cannot turn into bindable C#: `+` (a nested type's
+    // metadata separator, e.g. `Outer+Inner`) or `!` (a generic parameter, which CleanTypeDisplay
+    // collapses to `object`). Neither character can appear in a legal C# type spelling, so
+    // rejecting them never declines a spellable type — it only preserves the floor.
+    static bool SignatureTypeIsUnspellable(string decodedType)
+        => decodedType.Contains('+', StringComparison.Ordinal)
+           || decodedType.Contains('!', StringComparison.Ordinal);
+
+    // True when every dotted segment of the external interface's raw metadata full name
+    // round-trips through the display spelling the reconstruction emits. Clean(metadataFullName)
+    // keyword-escapes an identifier-like segment losslessly (`class` -> `@class`, which C#
+    // resolves back to `class`). A segment that does not round-trip — a compiler-unspeakable
+    // name (`<Bad>`, rewritten by Clean's sanitizing branch to a different identifier
+    // `__Bad_`) or one carrying a Unicode format character Roslyn strips when binding
+    // (`G\u200Cood` -> `Good`) — names no real type, so the emitted `using`/qualifier fails to
+    // bind (CS0246 = RecompileFail). Nested external types are qualified with `.` (Outer.Inner),
+    // so an ordinary nested interface passes; only genuinely unrepresentable names are declined
+    // here to the sanitized ContextFail floor.
+    static bool ExternalInterfaceNameIsRepresentable(string metadataFullName)
+    {
+        foreach (var segment in metadataFullName.Split('.'))
+        {
+            if (!MetadataIdentifierRoundTrips(segment))
+                return false;
+        }
+
+        return true;
+    }
+
+    // True when a raw metadata identifier round-trips through the C# identifier the
+    // reconstruction emits (via CSharpIdentifier.Sanitize / Clean). Lexical identifier-likeness
+    // is necessary but not sufficient: Roslyn's identifier binding additionally removes Unicode
+    // format (Cf) characters, so a name carrying a Cf character (e.g. U+200C) binds to a
+    // DIFFERENT name than its exact metadata spelling (CS0246/CS0539 = RecompileFail). Roslyn
+    // does NOT apply Unicode normalization to identifiers: a decomposed (non-NFC) metadata name
+    // such as `e` + U+0301 is emitted and bound verbatim, so it round-trips exactly and must
+    // NOT be declined. Require the name to be identifier-like and free of Cf characters; keyword
+    // names still round-trip (Escape only prepends `@`, which binding strips).
+    static bool MetadataIdentifierRoundTrips(string name)
+    {
+        if (!CSharpIdentifier.IsIdentifierLike(name))
+            return false;
+
+        foreach (var rune in name.EnumerateRunes())
+        {
+            if (Rune.GetUnicodeCategory(rune) == UnicodeCategory.Format)
+                return false;
+        }
+
+        return true;
+    }
+
+    // True when a type declared in the recompile closure would intercept the leading
+    // identifier of the external interface spelling as spelled from inside the target type's
+    // namespace. The external-interface spelling appears in two positions —
+    // the base-list entry and the explicit-member qualifier — and only its FIRST segment can
+    // ever be shadowed into a compile error. The explicit-member qualifier is always emitted
+    // fully qualified (e.g. `System.Collections.IEnumerable.GetEnumerator`), so its head is
+    // the first segment. The base-list entry is either emitted fully qualified (same first
+    // segment) or shortened by the using-collapser to the bare type name (e.g. `IEnumerable`);
+    // the collapser is collision-aware (CSharpDeclarationWriter.TypeNamePlan keeps a name
+    // qualified when its simple name is ambiguous), so it only shortens to a simple name that
+    // does NOT collide with a sibling — a sibling matching the final type name forces the base
+    // list to stay fully qualified (leading `System`) and still compiles. No partial
+    // qualification (`Collections.IEnumerable`) is ever emitted, so middle and final segments
+    // never lead into a failure and must not trigger a decline (that over-declines a
+    // compiler-authored Exact). <paramref name="closureRoots"/> already reflects the active
+    // scope, so under RoundTripScope.Cluster (which does not reconstruct the shadowing sibling)
+    // this returns false and engagement proceeds; under RoundTripScope.All it declines the
+    // crafted-IL first-segment shadow shape.
+    //
+    // The leading segment is taken from the raw METADATA full name, not the C# display name,
+    // so it compares raw-to-raw against the closure types' metadata names/namespaces. A
+    // namespace segment that is a C# keyword (e.g. `class`) is escaped to `@class` in the
+    // display name but stored raw in metadata; deriving the segment from the display name here
+    // would miss a real `N.class`-shadows-`class.IProbe` collision and emit a new RecompileFail.
+    static bool ExternalInterfaceSpellingShadowedByClosure(
+        MetadataReader reader,
+        TypeDefinition targetType,
+        IReadOnlySet<TypeDefinitionHandle> closureRoots,
+        string interfaceMetadataFullName)
+    {
+        string leadingSegment = interfaceMetadataFullName.Split('.', 2)[0];
+        string targetNamespace = reader.GetString(targetType.Namespace);
+
+        foreach (var handle in closureRoots)
+        {
+            var candidate = reader.GetTypeDefinition(handle);
+            string candidateNamespace = reader.GetString(candidate.Namespace);
+
+            // Type collision: a reconstructed top-level type whose simple name matches the
+            // leading spelling identifier and that sits in the target's namespace, an ancestor
+            // namespace, or the global namespace is nearer than the external namespace
+            // chain and intercepts the identifier.
+            if (string.Equals(reader.GetString(candidate.Name), leadingSegment, StringComparison.Ordinal)
+                && NamespaceIsInScope(candidateNamespace, targetNamespace))
+            {
+                return true;
+            }
+
+            // Sub-namespace collision: a reconstructed type declared beneath a non-global
+            // in-scope namespace introduces a nearer namespace whose leading segment can
+            // intercept the identifier. Types beneath the global namespace merge with the
+            // external namespace chain instead of shadowing it, so global is excluded here.
+            if (LeadingSegmentBelowInScopeNonGlobalNamespace(candidateNamespace, targetNamespace) is { } childSegment
+                && string.Equals(childSegment, leadingSegment, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // True when a type declared in <paramref name="candidateNamespace"/> is visible by its
+    // simple name from inside <paramref name="targetNamespace"/>: the same namespace, an
+    // ancestor namespace, or the global namespace.
+    static bool NamespaceIsInScope(string candidateNamespace, string targetNamespace)
+        => candidateNamespace.Length == 0
+           || string.Equals(candidateNamespace, targetNamespace, StringComparison.Ordinal)
+           || targetNamespace.StartsWith(candidateNamespace + ".", StringComparison.Ordinal);
+
+    // When <paramref name="candidateNamespace"/> is strictly nested under the target
+    // namespace or one of its non-global ancestors, returns the single namespace segment
+    // introduced directly beneath the nearest such in-scope namespace (which becomes a name
+    // visible unqualified from the target). Returns null otherwise.
+    static string? LeadingSegmentBelowInScopeNonGlobalNamespace(string candidateNamespace, string targetNamespace)
+    {
+        if (targetNamespace.Length == 0 || candidateNamespace.Length == 0)
+            return null;
+
+        for (string scope = targetNamespace; scope.Length > 0;)
+        {
+            if (candidateNamespace.StartsWith(scope + ".", StringComparison.Ordinal))
+            {
+                string rest = candidateNamespace[(scope.Length + 1)..];
+                int dot = rest.IndexOf('.');
+                return dot < 0 ? rest : rest[..dot];
+            }
+
+            int lastDot = scope.LastIndexOf('.');
+            scope = lastDot < 0 ? "" : scope[..lastDot];
+        }
+
+        return null;
+    }
+
+    static bool TryReadExternalInterfaceSurface(
+        string assemblyPath,
+        ExternalInterfaceReferenceInfo interfaceReference,
+        out IReadOnlyList<ExternalInterfaceRequiredMethod> requiredMethods)
+    {
+        // Read the interface surface from the SAME filename-deduplicated dependency closure
+        // the recompile references (ReturnToSender.CompilationReferences: resolver.ResolveAll()
+        // with ExcludeTargetAssembly, deduplicated by simple assembly name). Reading from that
+        // exact closure — rather than an identity/platform resolution that can select a
+        // different file than the recompile ends up referencing — guarantees the members
+        // validated here are precisely the members C# will require against the reconstructed
+        // `: DisplayName`, and lets us prove the interface is defined by exactly one assembly
+        // in the closure (otherwise the unqualified base-list name is ambiguous, CS0433).
+        // Memoize per (target assembly, interface identity, interface full name): the same
+        // interface recurs across many targets and rescanning the closure per target is an
+        // unbounded slowdown. Negative results (unresolvable, ambiguous, or unrepresentable)
+        // are cached so they are not retried.
+        string cacheKey = $"{assemblyPath}|{interfaceReference.AssemblyIdentity}|{interfaceReference.MetadataFullName}";
+        var cached = _externalInterfaceSurfaces.GetOrAdd(cacheKey, _ =>
+        {
+            var resolver = _externalInterfaceResolvers.GetOrAdd(assemblyPath, static path =>
+                new AssemblyDependencyResolver(new AssemblyDependencyResolutionOptions(path)
+                {
+                    ExcludeTargetAssembly = true,
+                }));
+
+            // Locate the single closure assembly that defines the interface as a
+            // TypeDefinition. Type forwarders are ExportedType rows (FindType returns null),
+            // so a BCL interface defined once in CoreLib and forwarded elsewhere resolves to
+            // exactly one definition. Zero, or more than one, definition declines.
+            string? definitionPath = null;
+            foreach (var dependency in resolver.ResolveAll())
+            {
+                if (!ManagedReferenceFilter.IsManagedAssembly(dependency.Path))
+                    continue;
+                try
+                {
+                    using var probeStream = File.OpenRead(dependency.Path);
+                    using var probeReader = new PEReader(probeStream);
+                    if (!probeReader.HasMetadata)
+                        continue;
+                    if (TypeProducer.FindType(probeReader.GetMetadataReader(), interfaceReference.MetadataFullName) is null)
+                        continue;
+                }
+                catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException or ArgumentException)
+                {
+                    // A dependency we cannot inspect cannot be shown to define the type; skip it.
+                    continue;
+                }
+
+                if (definitionPath is not null)
+                    return null;
+                definitionPath = dependency.Path;
+            }
+
+            if (definitionPath is null)
+                return null;
+
+            try
+            {
+                using var stream = File.OpenRead(definitionPath);
+                using var peReader = new PEReader(stream);
+                if (!peReader.HasMetadata)
+                    return null;
+                var reader = peReader.GetMetadataReader();
+                if (TypeProducer.FindType(reader, interfaceReference.MetadataFullName) is not { } interfaceHandle)
+                    return null;
+
+                var collected = new List<ExternalInterfaceRequiredMethod>();
+                return TryCollectRequiredInterfaceMethods(
+                        reader,
+                        interfaceHandle,
+                        resolver,
+                        Path.GetFullPath(definitionPath),
+                        new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                        collected)
+                    ? collected
+                    : null;
+            }
+            catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+            {
+                return null;
+            }
+        });
+
+        if (cached is null)
+        {
+            requiredMethods = [];
+            return false;
+        }
+
+        requiredMethods = cached;
+        return true;
+    }
+
+    static readonly ConcurrentDictionary<string, AssemblyDependencyResolver> _externalInterfaceResolvers =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    static readonly ConcurrentDictionary<string, IReadOnlyList<ExternalInterfaceRequiredMethod>?> _externalInterfaceSurfaces =
+        new(StringComparer.Ordinal);
+
+    // Probes whether a method signature carries detail that SignatureDecoder renders
+    // ambiguously, making a decoded-string comparison unsound: by-ref parameters (in/out/ref
+    // all decode to "ref T"), custom modifiers (dropped by GetModifiedType), multidimensional
+    // arrays (a rank-1 MDArray decodes identically to an SZArray), function pointers
+    // (calling-convention modopts), and generic parameters (spelled by their metadata name,
+    // so a reordered/renamed drift can compare equal while binding to a different position).
+    // When a signature is free of all of these, its decoded string form is a faithful
+    // identity and string equality is an exact signature check.
+    sealed class UnrepresentableSignatureProbe : ISignatureTypeProvider<bool, object?>
+    {
+        public static readonly UnrepresentableSignatureProbe Instance = new();
+
+        // `typedref` (System.TypedReference) is a restricted primitive that cannot be a method
+        // return type in C# (CS1599) — nor a field, type argument, or array element — so an
+        // interface member mentioning it cannot be reconstructed as a bindable explicit
+        // implementation or `throw null` stub (the surface would emit CS1599 = RecompileFail).
+        // SignatureDecoder spells it as the bare token `TypedReference`, which carries no `+`/`!`
+        // marker for SignatureTypeIsUnspellable to catch, and it is not emittable from C# source
+        // (it appears only on hand-authored / Reflection.Emit IL), so treat it as unrepresentable
+        // detail here and decline the whole surface to the ContextFail floor (#3112). Every other
+        // primitive is a faithful, bindable C# spelling.
+        public bool GetPrimitiveType(PrimitiveTypeCode typeCode) => typeCode == PrimitiveTypeCode.TypedReference;
+        public bool GetTypeFromDefinition(MetadataReader reader, TypeDefinitionHandle handle, byte rawTypeKind) => false;
+        public bool GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind) => false;
+        public bool GetTypeFromSpecification(MetadataReader reader, object? genericContext, TypeSpecificationHandle handle, byte rawTypeKind)
+        {
+            // Mirror SignatureDecoder.GetTypeFromSpecification: a cross-handle TypeSpec
+            // re-entry (including a cycle back to this row) must be bounded or a crafted
+            // dependency could overflow the stack — uncatchable, crashing the harness. A
+            // TypeSpec too deep or structurally unsafe to decode is, for our purposes,
+            // unrepresentable: treat it as such and decline.
+            if (!TypeSpecGuard.TryEnter(reader, handle, out var scope))
+                return true;
+            using (scope)
+                return reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
+        }
+        public bool GetSZArrayType(bool elementType) => elementType;
+        public bool GetArrayType(bool elementType, ArrayShape shape) => true;
+        public bool GetByReferenceType(bool elementType) => true;
+        public bool GetPointerType(bool elementType) => elementType;
+        public bool GetGenericInstantiation(bool genericType, ImmutableArray<bool> typeArguments)
+            => genericType || typeArguments.Any(argument => argument);
+        public bool GetGenericMethodParameter(object? genericContext, int index) => true;
+        public bool GetGenericTypeParameter(object? genericContext, int index) => true;
+        public bool GetFunctionPointerType(MethodSignature<bool> signature) => true;
+        public bool GetModifiedType(bool modifier, bool unmodifiedType, bool isRequired) => true;
+        public bool GetPinnedType(bool elementType) => elementType;
+    }
+
+    static bool SignatureHasUnrepresentableDetail(MetadataReader reader, MethodDefinition method)
+    {
+        try
+        {
+            var signature = method.DecodeSignature(UnrepresentableSignatureProbe.Instance, (object?)null);
+            // The decoded return/parameter strings do not carry the method's calling
+            // convention, so a VarArgs (`__arglist`) method is spelled identically to a
+            // fixed-arity one. C# cannot express `__arglist` in a reconstructed explicit
+            // member, so any non-default calling convention is unrepresentable and declines.
+            return signature.Header.CallingConvention != SignatureCallingConvention.Default
+                || signature.ReturnType
+                || signature.ParameterTypes.Any(parameter => parameter);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or ArgumentException)
+        {
+            return true;
+        }
+    }
+
+    // Whether a type (and every enclosing type) is accessible to an assembly that references
+    // the defining assembly without InternalsVisibleTo: a top-level type must be public, and a
+    // nested type must be nested-public with a publicly accessible declaring type.
+    static bool IsPubliclyAccessible(MetadataReader reader, TypeDefinition type)
+    {
+        while (true)
+        {
+            var visibility = type.Attributes & TypeAttributes.VisibilityMask;
+            var declaring = type.GetDeclaringType();
+            if (declaring.IsNil)
+                return visibility == TypeAttributes.Public;
+            if (visibility != TypeAttributes.NestedPublic)
+                return false;
+            type = reader.GetTypeDefinition(declaring);
+        }
+    }
+
+    static bool TryCollectExternalInterfaceMethods(
+        ResolvedAssemblyReference assembly,
+        string metadataFullName,
+        AssemblyDependencyResolver resolver,
+        HashSet<string> visited,
+        List<ExternalInterfaceRequiredMethod> methods)
+    {
+        try
+        {
+            var location = TypeForwardResolver.LocateType(
+                    assembly,
+                    metadataFullName,
+                    resolver,
+                    scope: AssemblyResolutionScope.Any)
+                ?? TypeForwardResolver.LocateType(
+                    assembly,
+                    metadataFullName,
+                    resolver,
+                    scope: AssemblyResolutionScope.Platform);
+            if (location is null)
+                return false;
+
+            using var stream = location.OpenRead();
+            using var peReader = new PEReader(stream);
+            if (!peReader.HasMetadata)
+                return false;
+
+            var externalReader = peReader.GetMetadataReader();
+            if (TypeProducer.FindType(externalReader, location.FullTypeName) is not { } interfaceHandle)
+                return false;
+
+            string assemblyKey = location.AssemblyPath is { Length: > 0 } path
+                ? Path.GetFullPath(path)
+                : location.AssemblyKey;
+            return TryCollectRequiredInterfaceMethods(
+                externalReader,
+                interfaceHandle,
+                resolver,
+                assemblyKey,
+                visited,
+                methods);
+        }
+        catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
+    static bool TryCollectRequiredInterfaceMethods(
+        MetadataReader reader,
+        TypeDefinitionHandle interfaceHandle,
+        AssemblyDependencyResolver resolver,
+        string assemblyKey,
+        HashSet<string> visited,
+        List<ExternalInterfaceRequiredMethod> methods)
+    {
+        var interfaceDef = reader.GetTypeDefinition(interfaceHandle);
+        string interfaceName = reader.GetFullTypeName(interfaceDef);
+        if (!visited.Add($"{assemblyKey}|{interfaceName}"))
+            return false;
+        if ((interfaceDef.Attributes & TypeAttributes.Interface) == 0
+            || interfaceDef.GetGenericParameters().Count != 0)
+        {
+            return false;
+        }
+        // The reconstructed assembly references the interface's defining assembly but is not
+        // granted InternalsVisibleTo, so it can only name a publicly accessible interface.
+        // Engaging on an internal (or nested non-public) interface would emit `: DisplayName`
+        // against a type the recompile cannot see (CS0122 = RecompileFail). A public interface
+        // also guarantees, by C#'s consistent-accessibility rule, that its method signature
+        // types are at least as accessible, so the emitted members reference only public types.
+        if (!IsPubliclyAccessible(reader, interfaceDef))
+            return false;
+
+        // The reconstructed explicit member names the interface twice — in the base list
+        // (`: DisplayName`) and in the member qualifier (`void DisplayName.M()`). If the resolved
+        // interface is marked `[Obsolete(..., error: true)]`, naming it is a hard CS0619 error,
+        // turning the sanitized ContextFail floor (which never names the interface) into a
+        // RecompileFail. `#pragma warning disable` in the emitted source suppresses warning-level
+        // obsolescence but not the error form, so decline any real (non-compiler-compat) obsolete
+        // interface. TryGetObsoleteAttribute already excludes Roslyn's synthetic compiler-compat
+        // [Obsolete] markers (required members, ref structs), which do not error when referenced.
+        if (AttributeReader.TryGetObsoleteAttribute(reader, interfaceDef.GetCustomAttributes(), out _))
+            return false;
+
+        // Naming the interface in the base list (`: DisplayName`) forces the recompile to bind to
+        // it, which requires every feature the interface demands via [CompilerFeatureRequired]. If
+        // the resolved interface carries an unsatisfiable feature marker, binding it is a hard
+        // CS9041 (feature not supported), turning the sanitized ContextFail floor (which never
+        // names the interface, so never triggers the requirement) into a RecompileFail. This
+        // attribute is not emittable from C# source and appears only on hand-authored or
+        // future/downlevel-drifted IL, so decline any interface that carries it and keep the floor.
+        if (AttributeReader.HasAttribute(reader, interfaceDef.GetCustomAttributes(), KnownAttributeNames.CompilerFeatureRequiredAttribute))
+            return false;
+
+        if (interfaceDef.GetProperties().Count != 0 || interfaceDef.GetEvents().Count != 0)
+            return false;
+
+        foreach (var methodHandle in interfaceDef.GetMethods())
+        {
+            var method = reader.GetMethodDefinition(methodHandle);
+            string methodName = reader.GetString(method.Name);
+            if (method.Attributes.HasFlag(MethodAttributes.Static)
+                || (method.Attributes & MethodAttributes.Abstract) == 0
+                || OperatorNames.FormatDisplayName(methodName) != methodName)
+            {
+                return false;
+            }
+
+            // A public interface may still declare a non-public member (C# 8+ allows explicit
+            // accessibility on interface members). The reconstructed assembly references the
+            // interface's defining assembly but is not granted InternalsVisibleTo, so it can only
+            // name a public member; emitting `void IProbe.M()` for an `internal`/`protected`
+            // member would be inaccessible (CS0122 = RecompileFail). Decline any non-public
+            // required method and keep the ContextFail floor.
+            if ((method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+                return false;
+
+            // A generic interface method carries constraints that the reconstructed explicit
+            // member cannot restate (C# inherits them from the interface). A type parameter can
+            // appear only in a constraint — invisible to the return/parameter signature probe —
+            // so a constraint drift between the target and the resolved interface would emit a
+            // body that no longer satisfies the interface's constraint (CS1061/CS0535). The
+            // signature comparison also cannot distinguish generic parameters by position (they
+            // are spelled by name). Decline every generic method and keep the ContextFail floor.
+            if (method.GetGenericParameters().Count != 0)
+                return false;
+
+            // A required method whose signature SignatureDecoder cannot represent faithfully
+            // (by-ref kinds, custom modifiers, multidimensional arrays, function pointers)
+            // cannot be safely signature-compared against the target, so decline the whole
+            // surface and keep the ContextFail floor rather than risk a CS0535/CS0539 emit.
+            if (SignatureHasUnrepresentableDetail(reader, method))
+                return false;
+            var requiredSignature = method.DecodeSignature(
+                SignatureDecoder.Instance,
+                GenericContext.ForMethod(reader, interfaceDef, method));
+            methods.Add(new ExternalInterfaceRequiredMethod(
+                methodName,
+                method.GetGenericParameters().Count,
+                requiredSignature.ReturnType,
+                requiredSignature.ParameterTypes));
+        }
+
+        foreach (var implementationHandle in interfaceDef.GetInterfaceImplementations())
+        {
+            var implementation = reader.GetInterfaceImplementation(implementationHandle);
+
+            // A member inherited from a base interface is collected here with no record of the
+            // interface that DECLARED it: ExternalInterfaceRequiredMethod carries only name,
+            // arity, and signature, and the caller qualifies every synthesized stub with the
+            // ROOT interface's display name. C# requires an inherited member to be spelled with
+            // its declaring interface (`void IBase.M()`), so a stub emitted as `void IRoot.M()`
+            // is CS0539 (not a member of IRoot) and leaves the base member unimplemented
+            // (CS0535 = RecompileFail). A base interface that contributes NO required members
+            // (an empty marker, or one carrying only already-declined property/event/generic
+            // members) is harmless. So allow base interfaces that add nothing to the surface,
+            // but decline the whole engagement to the ContextFail floor the moment any base
+            // interface contributes a required member (#3112).
+            int methodsBefore = methods.Count;
+
+            if (implementation.Interface.Kind == HandleKind.TypeDefinition)
+            {
+                if (!TryCollectRequiredInterfaceMethods(
+                        reader,
+                        (TypeDefinitionHandle)implementation.Interface,
+                        resolver,
+                        assemblyKey,
+                        visited,
+                        methods))
+                {
+                    return false;
+                }
+                if (methods.Count != methodsBefore)
+                    return false;
+                continue;
+            }
+
+            if (implementation.Interface.Kind == HandleKind.TypeReference)
+            {
+                if (ExternalInterfaceReference(reader, (TypeReferenceHandle)implementation.Interface) is not { } baseReference)
+                    return false;
+                if (ResolveExternalAssembly(resolver, baseReference.AssemblyIdentity) is not { } baseAssembly)
+                    return false;
+                if (!TryCollectExternalInterfaceMethods(
+                        baseAssembly,
+                        baseReference.MetadataFullName,
+                        resolver,
+                        visited,
+                        methods))
+                {
+                    return false;
+                }
+                if (methods.Count != methodsBefore)
+                    return false;
+                continue;
+            }
+
+            return false;
+        }
+
+        return true;
+    }
+
+    static ResolvedAssemblyReference? ResolveExternalAssembly(
+        AssemblyDependencyResolver resolver,
+        AssemblyReferenceIdentity identity)
+        => resolver.Resolve(identity, AssemblyResolutionScope.Any)
+           ?? resolver.Resolve(identity, AssemblyResolutionScope.Platform);
+
+    static ExternalInterfaceReferenceInfo? ExternalInterfaceReference(
+        MetadataReader reader,
+        TypeReferenceHandle handle)
+    {
+        var typeRef = reader.GetTypeReference(handle);
+        if (typeRef.ResolutionScope.Kind != HandleKind.AssemblyReference)
+            return null;
+
+        string metadataFullName = reader.GetFullTypeName(typeRef);
+        if (metadataFullName.Contains('`', StringComparison.Ordinal))
+            return null;
+
+        return new ExternalInterfaceReferenceInfo(
+            metadataFullName,
+            Clean(metadataFullName),
+            AssemblyReferenceIdentity.From(reader, (AssemblyReferenceHandle)typeRef.ResolutionScope));
+    }
+
     // Compatibility declaration text for an explicit-interface method target. The C#
     // printer keeps method-shaped explicit-interface implementations on compatibility
     // text (TryRenderSignatureModel only models plain methods), so RTS supplies the
@@ -1768,11 +2585,26 @@ public static class CompileBackSourceComposer
         // (`IType.Member`) must be reconstructed as an explicit-interface implementation,
         // not a plain method with the dotted name sanitized to `IType_Member`. The latter
         // compiles but carries the wrong metadata name, so the fidelity lookup fails as
-        // ContextFail/method-not-found (#3112). Only supported non-generic interface
-        // targets resolve here; anything else keeps the pre-existing plain shape.
-        string? explicitInterfaceMemberName = isConstructor
+        // ContextFail/method-not-found (#3112). Same-assembly interfaces are handled by
+        // TypeProducer.FindType; the external path engages only after proving that adding
+        // the interface base-list entry cannot create CS0540/CS0535 regressions.
+        string? sameAssemblyExplicitInterfaceMemberName = isConstructor
             ? null
             : ExplicitInterfaceMemberName(reader, methodName);
+        var externalExplicitInterfaceMethod =
+            !isConstructor && sameAssemblyExplicitInterfaceMemberName is null
+                ? ExternalExplicitInterfaceMethod(
+                    reader,
+                    assemblyPath,
+                    targetTypeDef,
+                    targetMethod,
+                    methodName,
+                    targetTypeParameters.Count,
+                    closureRoots)
+                : null;
+        string? explicitInterfaceMemberName =
+            sameAssemblyExplicitInterfaceMemberName
+            ?? externalExplicitInterfaceMethod?.ExplicitInterfaceMemberName;
         string? explicitInterfaceDeclarationSignature = explicitInterfaceMemberName is null
             ? null
             : ExplicitInterfaceMethodDeclarationSignature(
@@ -1809,6 +2641,17 @@ public static class CompileBackSourceComposer
                 DeclarationSignature: explicitInterfaceDeclarationSignature,
                 RequiresUnsafeModifier: ContainsFixedBufferElementAccess(function))
         ];
+        if (externalExplicitInterfaceMethod is { AdditionalInterfaceStubs.Count: > 0 })
+        {
+            // Naming a multi-member external interface in the base list requires the
+            // reconstructed type to implement its full required surface (CS0535). Supply every
+            // non-target member as a `throw null` explicit-interface stub. The gate excluded the
+            // matched target member from these stubs, so none duplicates the target's own
+            // explicit implementation (CS0111), and external interface members are never closure
+            // members (they live outside the target assembly), so none collides with the record
+            // or closure surface added below.
+            targetMembers.AddRange(externalExplicitInterfaceMethod.AdditionalInterfaceStubs);
+        }
         bool includeRecordSurface = false;
         if (!isConstructor && IsRecordGeneratedFieldReadHelper(reader, targetTypeDef, targetIdentity, methodName, signature, function))
         {
@@ -1908,7 +2751,10 @@ public static class CompileBackSourceComposer
                 targetFacts)
             {
                 IncludeMemberSurface = includeRecordSurface
-                    || targetFacts.Any(fact => fact.Id == "closure-member")
+                    || targetFacts.Any(fact => fact.Id == "closure-member"),
+                ExternalInterfaces = externalExplicitInterfaceMethod is null
+                    ? []
+                    : [externalExplicitInterfaceMethod.InterfaceDisplayName],
             }
         };
         AddClosureTypeRequirements(requirements, reader, targetRoot, closureFacts, closureMemberRequirements);
@@ -1921,28 +2767,32 @@ public static class CompileBackSourceComposer
             AddClosureTypeRequirements(requirements, reader, dependency, closureFacts, closureMemberRequirements);
         }
 
-        if (explicitInterfaceMemberName is not null
-            && !AddExplicitInterfaceMethodDeclaration(requirements, reader, targetTypeDef, targetMethod))
+        if (explicitInterfaceMemberName is not null)
         {
-            // The interface member declaration could not be supplied (unsupported
-            // interface-member signature, or the interface is not a standalone closure
-            // requirement — e.g. a nested interface reached only through its enclosing
-            // root). Revert the target to the plain sanitized shape rather than emit
-            // `IType.Member()` against an interface that cannot declare it, which would
-            // turn a method-not-found ContextFail into a CS0539 RecompileFail.
-            // requirements[0].RequiredMembers wraps the still-mutable targetMembers list,
-            // so clearing the explicit-interface fields here reverts the rendered shape.
-            int targetIndex = targetMembers.FindIndex(member =>
-                member.Kind == CompileBackMemberKind.Method
-                && member.StubBody == CompileBackStubBodyKind.TargetBody
-                && member.ExplicitInterfaceMemberName == explicitInterfaceMemberName);
-            if (targetIndex >= 0)
+            bool explicitInterfaceShapeIsViable = externalExplicitInterfaceMethod is not null
+                || AddExplicitInterfaceMethodDeclaration(requirements, reader, targetTypeDef, targetMethod);
+            if (!explicitInterfaceShapeIsViable)
             {
-                targetMembers[targetIndex] = targetMembers[targetIndex] with
+                // The interface member declaration could not be supplied (unsupported
+                // interface-member signature, or the interface is not a standalone closure
+                // requirement — e.g. a nested interface reached only through its enclosing
+                // root). Revert the target to the plain sanitized shape rather than emit
+                // `IType.Member()` against an interface that cannot declare it, which would
+                // turn a method-not-found ContextFail into a CS0539 RecompileFail.
+                // requirements[0].RequiredMembers wraps the still-mutable targetMembers list,
+                // so clearing the explicit-interface fields here reverts the rendered shape.
+                int targetIndex = targetMembers.FindIndex(member =>
+                    member.Kind == CompileBackMemberKind.Method
+                    && member.StubBody == CompileBackStubBodyKind.TargetBody
+                    && member.ExplicitInterfaceMemberName == explicitInterfaceMemberName);
+                if (targetIndex >= 0)
                 {
-                    ExplicitInterfaceMemberName = null,
-                    DeclarationSignature = null,
-                };
+                    targetMembers[targetIndex] = targetMembers[targetIndex] with
+                    {
+                        ExplicitInterfaceMemberName = null,
+                        DeclarationSignature = null,
+                    };
+                }
             }
         }
 
@@ -3247,11 +4097,13 @@ public static class CompileBackSourceComposer
         MetadataReader reader,
         string metadataPropertyName)
     {
-        int separator = metadataPropertyName.LastIndexOf('.');
-        if (separator <= 0 || separator == metadataPropertyName.Length - 1)
+        if (!TrySplitExplicitInterfaceMetadataName(
+                metadataPropertyName,
+                out var interfaceMetadataName,
+                out var memberMetadataName))
+        {
             return null;
-
-        string interfaceMetadataName = metadataPropertyName[..separator];
+        }
         if (TypeProducer.FindType(reader, interfaceMetadataName) is not { } interfaceHandle)
             return null;
         var interfaceDef = reader.GetTypeDefinition(interfaceHandle);
@@ -3262,8 +4114,26 @@ public static class CompileBackSourceComposer
         }
 
         string interfaceName = Clean(interfaceMetadataName);
-        string memberName = CSharpIdentifier.Sanitize(metadataPropertyName[(separator + 1)..]);
+        string memberName = CSharpIdentifier.Sanitize(memberMetadataName);
         return $"{interfaceName}.{memberName}";
+    }
+
+    static bool TrySplitExplicitInterfaceMetadataName(
+        string metadataMemberName,
+        out string interfaceMetadataName,
+        out string memberMetadataName)
+    {
+        int separator = metadataMemberName.LastIndexOf('.');
+        if (separator <= 0 || separator == metadataMemberName.Length - 1)
+        {
+            interfaceMetadataName = "";
+            memberMetadataName = "";
+            return false;
+        }
+
+        interfaceMetadataName = metadataMemberName[..separator];
+        memberMetadataName = metadataMemberName[(separator + 1)..];
+        return true;
     }
 
     sealed class TypeProducer
@@ -3768,6 +4638,8 @@ public static class CompileBackSourceComposer
                 Kind: ToShellKind(kind),
                 InterfaceDisplayNames: InterfaceSignatures(reader, typeDef, requirementsByMetadataName)
                     .Select(signature => signature.DisplayName)
+                    .Concat(requirement.ExternalInterfaces)
+                    .Distinct(StringComparer.Ordinal)
                     .ToList(),
                 MemberPolicies: policies,
                 PrimaryConstructorParameters: primaryConstructorParameters,

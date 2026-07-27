@@ -594,6 +594,153 @@ public class LibraryBodyIndexTests
         Assert.DoesNotContain("UseA", bCallers);
     }
 
+    // #3266: the forward mirror of BuildCallerTree(scopes). A single-assembly callee tree stops
+    // at the assembly boundary (the callee is an External leaf); scoping the callee's assembly
+    // must expand it and tag it with its source assembly.
+    [Fact]
+    public void BuildCallTree_WithScope_IncorporatesAndTagsExternalCallees()
+    {
+        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var targetAssemblyName = targetIndex.Methods.First().AssemblyName;
+
+        var run = callerIndex.Methods.First(method =>
+            method.DeclaringType.Name == "Entry" && method.Name == "Run" && method.ParameterTypes.Length == 0);
+
+        var scoped = callerIndex.BuildCallTree(run.MetadataToken, new[] { targetIndex }, maxDepth: 2, maxNodes: 50);
+        var unscoped = callerIndex.BuildCallTree(run.MetadataToken, maxDepth: 2, maxNodes: 50);
+
+        var scopedPing = Assert.Single(scoped.Children, child => child.Member.Name == "Ping");
+        Assert.NotEqual(CallTreeStatus.External, scopedPing.Status);
+        Assert.Equal(targetAssemblyName, scopedPing.Perf?.Source);
+
+        // The single-assembly tree still lists the callee, but as an untagged external leaf.
+        var unscopedPing = Assert.Single(unscoped.Children, child => child.Member.Name == "Ping");
+        Assert.Equal(CallTreeStatus.External, unscopedPing.Status);
+        Assert.Null(unscopedPing.Perf?.Source);
+    }
+
+    // #3266: with the callee's assembly in scope, a callee chain deepens across the package
+    // boundary — RunOuter -> Run (same assembly) -> Target.Api.Ping (another assembly).
+    [Fact]
+    public void BuildCallTree_WithScope_ExpandsCalleeChainAcrossAssemblyBoundary()
+    {
+        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var targetAssemblyName = targetIndex.Methods.First().AssemblyName;
+
+        var runOuter = callerIndex.Methods.First(method => method.Name == "RunOuter");
+        var tree = callerIndex.BuildCallTree(runOuter.MetadataToken, new[] { targetIndex }, maxDepth: 3, maxNodes: 50);
+
+        var run = Assert.Single(tree.Children, child => child.Member.Name == "Run");
+        Assert.Null(run.Perf?.Source); // same assembly as the root, so not tagged external
+        var ping = Assert.Single(run.Children, child => child.Member.Name == "Ping");
+        Assert.Equal(targetAssemblyName, ping.Perf?.Source);
+    }
+
+    // #3266: a constructed-generic callee (Echo<int>, a MethodSpec) is pulled into scope and
+    // resolved against the open Echo<T> definition rather than left as an external leaf. Generic
+    // key normalization is shared with BuildCallerTree(scopes) via CallerGraphKey.
+    [Fact]
+    public void BuildCallTree_WithScope_ResolvesConstructedGenericCallee()
+    {
+        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var targetAssemblyName = targetIndex.Methods.First().AssemblyName;
+
+        var useEcho = callerIndex.Methods.First(method => method.Name == "UseEcho");
+
+        var scoped = callerIndex.BuildCallTree(useEcho.MetadataToken, new[] { targetIndex }, maxDepth: 2, maxNodes: 50);
+        var unscoped = callerIndex.BuildCallTree(useEcho.MetadataToken, maxDepth: 2, maxNodes: 50);
+
+        var scopedEcho = Assert.Single(scoped.Children, child => child.Member.Name == "Echo");
+        Assert.NotEqual(CallTreeStatus.External, scopedEcho.Status);
+        Assert.Equal(targetAssemblyName, scopedEcho.Perf?.Source);
+
+        var unscopedEcho = Assert.Single(unscoped.Children, child => child.Member.Name == "Echo");
+        Assert.Equal(CallTreeStatus.External, unscopedEcho.Status);
+    }
+
+    // #3266: children are keyed and ordered by structural identity, so an irrelevant scope's
+    // position in the list cannot reorder or duplicate the graph.
+    [Fact]
+    public void BuildCallTree_WithScope_IsDeterministicAcrossScopeOrder()
+    {
+        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var twinIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCallerTwin.AssemblyPath());
+
+        var useBox = callerIndex.Methods.First(method => method.Name == "UseBox");
+
+        var forward = callerIndex.BuildCallTree(useBox.MetadataToken, new[] { targetIndex, twinIndex }, maxDepth: 3, maxNodes: 50);
+        var reversed = callerIndex.BuildCallTree(useBox.MetadataToken, new[] { twinIndex, targetIndex }, maxDepth: 3, maxNodes: 50);
+
+        Assert.Equal(FlattenCallTree(forward), FlattenCallTree(reversed));
+    }
+
+    // #3266: with no scopes the multi-assembly overload falls back to the single-assembly builder.
+    [Fact]
+    public void BuildCallTree_WithEmptyScope_MatchesSingleAssemblyBuilder()
+    {
+        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var useBox = callerIndex.Methods.First(method => method.Name == "UseBox");
+
+        var single = callerIndex.BuildCallTree(useBox.MetadataToken, maxDepth: 3, maxNodes: 50);
+        var fallback = callerIndex.BuildCallTree(useBox.MetadataToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 3, maxNodes: 50);
+
+        Assert.Equal(FlattenCallTree(single), FlattenCallTree(fallback));
+    }
+
+    // #3266 (review): a callee whose defining assembly is not in scope stays External even with a
+    // non-empty scope list — Run -> Ping with only an unrelated caller assembly scoped keeps Ping
+    // External (its own body was never decoded), not a false Leaf.
+    [Fact]
+    public void BuildCallTree_WithScope_MarksUndecodedExternalCalleeAsExternal()
+    {
+        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var twinIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCallerTwin.AssemblyPath());
+        var targetAssemblyName = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath())
+            .Methods.First().AssemblyName;
+
+        var run = callerIndex.Methods.First(method =>
+            method.DeclaringType.Name == "Entry" && method.Name == "Run" && method.ParameterTypes.Length == 0);
+
+        // The twin scope does not define Target.Api.Ping, so Ping's body is never decoded.
+        var tree = callerIndex.BuildCallTree(run.MetadataToken, new[] { twinIndex }, maxDepth: 3, maxNodes: 50);
+
+        var ping = Assert.Single(tree.Children, child => child.Member.Name == "Ping");
+        Assert.Equal(CallTreeStatus.External, ping.Status);
+        Assert.Equal(targetAssemblyName, ping.Perf?.Source);
+    }
+
+    // #3266 (review): fan-out reports the true outbound call-site count, independent of the
+    // deduplication that collapses repeat call sites to one child — RunTwice calls Echo twice.
+    [Fact]
+    public void BuildCallTree_WithScope_ReportsCallSiteFanoutForRepeatedCallee()
+    {
+        var callerIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+
+        var runTwice = callerIndex.Methods.First(method => method.Name == "RunTwice");
+        var tree = callerIndex.BuildCallTree(runTwice.MetadataToken, new[] { targetIndex }, maxDepth: 2, maxNodes: 50);
+
+        Assert.Single(tree.Children, child => child.Member.Name == "Echo");
+        Assert.Equal(2, tree.Perf?.Fanout);
+    }
+
+    static List<string> FlattenCallTree(CallTreeNode root)
+    {
+        var lines = new List<string>();
+        void Walk(CallTreeNode node, int depth)
+        {
+            lines.Add($"{depth}|{node.Member.Name}|{node.Status}|{node.Perf?.Source ?? ""}");
+            foreach (var child in node.Children)
+                Walk(child, depth + 1);
+        }
+        Walk(root, 0);
+        return lines;
+    }
+
     // #1741 (unit): the key fragment for a type includes its assembly, so same-FQN types
     // from different assemblies do not collapse.
     [Fact]

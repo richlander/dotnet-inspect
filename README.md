@@ -271,7 +271,21 @@ dotnet-inspect library MyLib.dll --where "Finding=analysis.call-site" --jsonl
 dotnet-inspect library MyLib.dll --where "CallerLoop=direct" --order-by "CallerLoopDepth desc" --jsonl
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Call Graph,Facts"
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Caller Graph" --fields "Throw,Catch,Finally"
+dotnet-inspect member MyType Value:1 --library MyLib.dll -S "Call Graph"
+dotnet-inspect member MyType Value:2 --library MyLib.dll -S "Call Graph"
 ```
+
+A property, indexer, or event has no body of its own, so body sections
+(`Call Graph`, `Caller Graph`, `Calls`, `Callers`, `IL`, `Decompiled Source`,
+`Facts`, and the other IL-body views) resolve it to its accessor methods.
+Address them through the overload-index selector: `Name:1` is the getter/adder
+(the default) and `Name:2` the setter/remover, each rooted at its metadata
+accessor name (`get_Name`, `set_Name`, `add_Name`, `remove_Name`). Fields have
+no accessor and stay body-less. The SourceLink source-file sections
+(`Original Source`, `Source Diff`, `Source Locations`) follow the same
+addressing: they resolve through the accessor's PDB sequence points, so an
+auto-property maps to its declaration line and a hand-written accessor maps to
+its own authored lines.
 
 `allocation-fanout` is an opt-in aggregate view for construction-heavy
 registries, pipelines, and object graphs that do not match a local rewrite
@@ -304,7 +318,11 @@ DecompilerHarness.
 The `Decompiled Source` view renders the shipped canonical C# by default. A
 tool-owned `.dotnet-inspectconfig` file (discovered by walking up from the
 working directory) selects opt-in class-3 spellings — today `this`-qualification
-of field and property access — using `.editorconfig` key names. See
+of field and property access — using `.editorconfig` key names. `--taste`
+requests the whole oracle-endorsed set for one invocation without a config file.
+`Annotated Source` names the applied spellings in a trailing comment on the
+member signature, and drops its interleaved IL for any member a byte-divergent
+lens actually rewrote. See
 [docs/decompiler-taste.md](docs/decompiler-taste.md#style-configuration).
 
 ```bash

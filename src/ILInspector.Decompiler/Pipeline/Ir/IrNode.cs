@@ -1,5 +1,3 @@
-using System.Diagnostics;
-
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -7,7 +5,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// a mutable tree with parent pointers and child slots, in the ILSpy
 /// <c>ILInstruction</c> tradition. <see cref="ReplaceWith"/> is the primitive
 /// rewrite; <see cref="CheckInvariant"/> validates parent/child consistency
-/// after every pass in debug builds.
+/// after every pass when <see cref="IrInvariants.Enabled"/> is set.
 /// </summary>
 public abstract class IrNode
 {
@@ -173,12 +171,69 @@ public abstract class IrNode
     }
 
     /// <summary>
-    /// Validates parent/child consistency for this subtree. Debug builds run
-    /// this after every pass; a violation is a pipeline bug, never input data.
+    /// Validates structural invariants for this subtree: each child's
+    /// <see cref="Parent"/> is this node and its <see cref="ChildIndex"/> matches
+    /// its slot. Runs after every pass when <see cref="IrInvariants.Enabled"/> is
+    /// set, and on every explicit call; a violation is a pipeline bug, never input
+    /// data. Always compiled (no <c>[Conditional]</c>) so it runs in the optimized
+    /// Release build the test suite and corpus sweeps use.
+    /// <para>
+    /// This parameterless overload checks structure only — the invariant every
+    /// well-formed <em>and</em> minimally hand-built subtree satisfies, so it is
+    /// safe to run across the whole unit-test suite. Semantic invariants that
+    /// require a fully-formed function (e.g. local-slot range) live in the
+    /// <see cref="CheckInvariant(bool)"/> overload and run over real importer
+    /// output; see that overload.
+    /// </para>
     /// </summary>
-    [Conditional("DEBUG")]
-    public void CheckInvariant()
+    public void CheckInvariant() => CheckInvariant(includeSemantics: false);
+
+    /// <summary>
+    /// Validates structural invariants (always) and, when
+    /// <paramref name="includeSemantics"/> is true, semantic invariants that only
+    /// hold for a fully-formed function tree:
+    /// <list type="bullet">
+    /// <item>local-slot range — every <c>ldloc</c>/<c>stloc</c>/<c>ldloca</c>
+    /// (<see cref="LoadLocal"/>, <see cref="StoreLocal"/>,
+    /// <see cref="LoadLocalAddress"/>) references a slot that exists in the
+    /// nearest enclosing local scope. The containing <see cref="IrFunction"/>
+    /// always opens a scope; a <em>static</em> <see cref="LocalFunctionStatement"/>
+    /// also always opens its own scope (it cannot capture); a capturing
+    /// (non-static) <see cref="LocalFunctionStatement"/> or a <see cref="Lambda"/>
+    /// opens its own scope only when it declares a non-empty local table — an
+    /// empty-<c>Locals</c> capturing body <em>shares</em> the host's scope and
+    /// references the outer function's locals by their outer index, matching how
+    /// the C# printer scopes it
+    /// (<c>NeedsNestedLambdaScope</c>/<c>NeedsNestedLocalFunctionScope</c>). A
+    /// pass that drops a local without repointing its readers, or fabricates a
+    /// dangling slot, trips this instead of surfacing as a downstream
+    /// miscompile.</item>
+    /// </list>
+    /// Semantic checks are off by default because hand-built unit-test fixtures
+    /// legitimately omit the local table they would validate against; they are
+    /// meant for the corpus sweep over real IL (gated by
+    /// <see cref="IrInvariants.CheckSemantics"/> at the per-pass hooks) and for
+    /// targeted tests that pass <c>includeSemantics: true</c> directly.
+    /// </summary>
+    public void CheckInvariant(bool includeSemantics) =>
+        CheckSubtree(includeSemantics ? EnclosingLocalScope() : -1, includeSemantics);
+
+    /// <summary>
+    /// Recursive core. <paramref name="localScope"/> is the number of local slots
+    /// declared by the nearest enclosing local scope, or -1 when local-slot checks
+    /// are disabled or no enclosing scope is known (a detached subtree) — in which
+    /// case those checks are skipped, since the scope that would bound them is not
+    /// present.
+    /// </summary>
+    void CheckSubtree(int localScope, bool includeSemantics)
     {
+        if (includeSemantics)
+            ValidateLocalSlot(localScope);
+
+        // A nested function scope (lambda / local function) rebinds the local
+        // table for its own subtree; the function root establishes the top scope.
+        int childScope = includeSemantics ? (OwnLocalScope() ?? localScope) : -1;
+
         for (int i = 0; i < _children.Count; i++)
         {
             var child = _children[i];
@@ -186,8 +241,62 @@ public abstract class IrNode
                 throw new InvalidOperationException($"Invariant violated: child '{child.Describe()}' of '{Describe()}' has wrong parent.");
             if (child.ChildIndex != i)
                 throw new InvalidOperationException($"Invariant violated: child '{child.Describe()}' of '{Describe()}' has slot {child.ChildIndex}, expected {i}.");
-            child.CheckInvariant();
+            child.CheckSubtree(childScope, includeSemantics);
         }
+    }
+
+    /// <summary>
+    /// Local-slot count of the scope this node itself opens, or null if it opens
+    /// none. An <see cref="IrFunction"/> always opens a scope (even with zero
+    /// locals). A <em>static</em> <see cref="LocalFunctionStatement"/> also always
+    /// opens its own scope: it cannot capture, so its local references bind to its
+    /// own table and an empty table is a genuine zero-slot scope. A capturing
+    /// (non-static) <see cref="LocalFunctionStatement"/> or a <see cref="Lambda"/>
+    /// opens its own scope only when it declares locals; an empty-<c>Locals</c>
+    /// capturing body shares the enclosing scope, so returning null here lets its
+    /// outer-indexed local references validate against the host — mirroring the
+    /// printer's shared-vs-nested distinction.
+    /// <para>
+    /// The <see cref="Lambda"/> node carries no static/instance flag, so a
+    /// hypothetical static lambda with an empty local table is treated as shared
+    /// (a bounded, no-false-positive under-approximation) rather than tightened
+    /// the way a static local function is.
+    /// </para>
+    /// </summary>
+    int? OwnLocalScope() => this switch
+    {
+        IrFunction f => f.Locals.Length,
+        LocalFunctionStatement { IsStatic: true } lf => lf.Locals.Length,
+        LocalFunctionStatement lf => lf.Locals.IsEmpty ? null : lf.Locals.Length,
+        Lambda l => l.Locals.IsEmpty ? null : l.Locals.Length,
+        _ => null,
+    };
+
+    /// <summary>Local-slot count of the nearest scope-defining ancestor, or -1 if none.</summary>
+    int EnclosingLocalScope()
+    {
+        for (var node = Parent; node is not null; node = node.Parent)
+            if (node.OwnLocalScope() is int count)
+                return count;
+        return -1;
+    }
+
+    void ValidateLocalSlot(int localScope)
+    {
+        if (localScope < 0)
+            return;
+
+        int? slot = this switch
+        {
+            LoadLocal l => l.Index,
+            StoreLocal s => s.Index,
+            LoadLocalAddress a => a.Index,
+            _ => null,
+        };
+
+        if (slot is int index && (index < 0 || index >= localScope))
+            throw new InvalidOperationException(
+                $"Invariant violated: '{Describe()}' references local slot {index}, out of range for the enclosing scope's {localScope} local slot(s).");
     }
 
     public override string ToString() => Describe();
