@@ -7,7 +7,8 @@ namespace ILInspector.Metadata;
 /// contract:
 /// <list type="bullet">
 /// <item><see cref="ForDisplay"/> — human-readable rendering; escapes the common
-/// backslash sequences and leaves other control characters as-is.</item>
+/// backslash sequences plus every Unicode line terminator, and leaves other
+/// control characters as-is.</item>
 /// <item><see cref="ForIlasm"/> — round-trippable ilasm QSTRING literal; also
 /// octal-escapes remaining control characters so ilasm can reassemble it.</item>
 /// </list>
@@ -17,16 +18,40 @@ public static class ILStringEscaper
 {
     /// <summary>
     /// Escapes a user string for human-readable display: standard backslash
-    /// escapes only (<c>\ " \n \r \t</c>), leaving other control characters raw.
+    /// escapes (<c>\ " \n \r \t \f</c>) plus <c>\uXXXX</c> for the remaining
+    /// Unicode line terminators (NEL, LS, PS).
     /// </summary>
+    /// <remarks>
+    /// Every character C# and Markdown treat as a line terminator is escaped, not
+    /// just the common three. Display output is line-oriented — the <c>IL</c>
+    /// section is one instruction per line, and <c>Annotated Source</c> renders
+    /// each instruction inside a <c>//</c> comment — so a raw terminator here
+    /// splits the line that frames it. Escaping rather than folding keeps the
+    /// operand lossless: the reader still sees exactly which terminator the
+    /// string holds.
+    /// Gate: <c>ILStringEscaperTests</c> and
+    /// <c>UntrustedIlPresentationTests</c>.
+    /// </remarks>
     public static string ForDisplay(string value)
     {
-        return value
-            .Replace("\\", "\\\\")
-            .Replace("\"", "\\\"")
-            .Replace("\n", "\\n")
-            .Replace("\r", "\\r")
-            .Replace("\t", "\\t");
+        var sb = new System.Text.StringBuilder(value.Length);
+        foreach (char c in value)
+        {
+            switch (c)
+            {
+                case '\\': sb.Append("\\\\"); break;
+                case '"': sb.Append("\\\""); break;
+                case '\n': sb.Append("\\n"); break;
+                case '\r': sb.Append("\\r"); break;
+                case '\t': sb.Append("\\t"); break;
+                case '\f': sb.Append("\\f"); break;
+                case '\u0085' or '\u2028' or '\u2029':
+                    sb.Append("\\u").Append(((int)c).ToString("X4"));
+                    break;
+                default: sb.Append(c); break;
+            }
+        }
+        return sb.ToString();
     }
 
     /// <summary>
