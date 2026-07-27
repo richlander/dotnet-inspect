@@ -295,7 +295,12 @@ to these trait filters (e.g. `--gate fast`, `--gate no-corpus`); run
 `--gate list` for the table.
 
 Pack and publish flows remain separate and build `src/dotnet-inspect`
-directly.
+directly. Packaging is off by default (`IsPackable=false` in the root
+`Directory.Build.props`), so only `src/dotnet-inspect` and `src/runfaster` opt
+back in and no other project can ship however pack is invoked. Internal
+libraries have no versioning story and no API-stability commitment; treat their
+public surface as an internal design constraint, not an external compatibility
+surface. `PackagingSurfaceTests` pins both halves.
 
 ## Output contract
 

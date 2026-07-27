@@ -13,5 +13,17 @@
     <DefaultTargetFramework Condition="'$(DefaultTargetFramework)' == '' and '$(OfficialBuild)' == 'true' and '$(PublishAot)' == 'false'">net10.0</DefaultTargetFramework>
     <DefaultTargetFramework Condition="'$(DefaultTargetFramework)' == ''">net$(NETCoreAppMaximumVersion)</DefaultTargetFramework>
     <EnablePreviewFeatures>true</EnablePreviewFeatures>
+    <!--
+      Only the shipping tools produce packages, and that is a property of the
+      projects rather than of the argument each pack invocation happens to pass
+      (issue #3330). The internal libraries have no versioning story, no API
+      stability commitment, and no intent to be consumed externally; if one of
+      them reached a feed at 1.0.0, the layering rules in AGENTS.md would become
+      an external compatibility surface instead of an internal design
+      constraint. Off by default so a new library inherits "does not ship" and
+      shipping is the explicit act: src/dotnet-inspect and src/runfaster opt back
+      in, and PackagingSurfaceTests pins that set.
+    -->
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
 </Project>
