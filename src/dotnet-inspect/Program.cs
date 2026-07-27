@@ -57,6 +57,13 @@ if (isolated && cacheBasePath == null)
 // Initialize library configuration
 DotnetInspector.Core.HttpClientFactory.Initialize(offline);
 NuGetCache.Initialize("dotnet-inspect", basePath: cacheBasePath, skipNuGetCache: noNuGetCache);
+// The IR invariant check is armed by default so any host that runs the
+// decompiler pipeline validates it (#3267). The shipped tool is the one
+// sanctioned opt-out: users are not developing the pipeline, so the per-pass
+// tree walk is pure overhead on the decompile hot path. Setting
+// DOTNET_INSPECT_IR_INVARIANTS=1 (or full) overrides this and arms the shipped
+// tool for debugging.
+ILInspector.Decompiler.Pipeline.IrInvariants.DisableForShippedTool();
 // Wire the tool-tier SourceLink index cache into the engine's dependency-inversion seam.
 ILInspector.Metadata.SourceLinkService.DefaultCache = DotnetInspector.Services.CoreSourceLinkIndexCache.Instance;
 
