@@ -844,7 +844,8 @@ static class Program
                 catch (Exception ex)
                 {
                     crashes++;
-                    Console.Error.WriteLine($"PASS BUG: {ex.GetType().Name}: {ex.Message}");
+                    Console.Error.WriteLine(
+                        PassBugDiagnostic.Format(ex, assemblyPath, typeName, methodName, function.Signature));
                     continue;
                 }
 
@@ -957,7 +958,8 @@ static class Program
                 catch (Exception ex)
                 {
                     crashes++;
-                    Console.Error.WriteLine($"PASS BUG: {ex.GetType().Name}: {ex.Message}");
+                    Console.Error.WriteLine(
+                        PassBugDiagnostic.Format(ex, assemblyPath, typeName, methodName, function.Signature));
                     continue;
                 }
                 var fidelityCensus = FidelityCauseBuckets.Inspect(function, id);
@@ -1032,7 +1034,8 @@ static class Program
                 catch (Exception ex)
                 {
                     crashes++;
-                    Console.Error.WriteLine($"PASS BUG: {ex.GetType().Name}: {ex.Message} ({typeName}::{methodName})");
+                    Console.Error.WriteLine(
+                        PassBugDiagnostic.Format(ex, assemblyPath, typeName, methodName, function.Signature));
                     continue;
                 }
                 var changed = StageDump.PassesThatChanged(stages);
@@ -1111,7 +1114,8 @@ static class Program
                 catch (Exception ex)
                 {
                     crashes++;
-                    Console.Error.WriteLine($"PASS BUG: {ex.GetType().Name}: {ex.Message} ({typeName}::{methodName})");
+                    Console.Error.WriteLine(
+                        PassBugDiagnostic.Format(ex, assemblyPath, typeName, methodName, function.Signature));
                     continue;
                 }
 

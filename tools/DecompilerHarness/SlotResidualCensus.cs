@@ -43,7 +43,8 @@ static class SlotResidualCensus
                 {
                     totals.PassBugs++;
                     if (examples.Count < maxExamples)
-                        examples.Add($"PASS BUG {ex.GetType().Name}: {ex.Message} ({typeName}::{methodName})");
+                        examples.Add(
+                            PassBugDiagnostic.Format(ex, assemblyPath, typeName, methodName, function.Signature));
                     continue;
                 }
 
