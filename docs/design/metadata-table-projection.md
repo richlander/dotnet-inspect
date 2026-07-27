@@ -334,6 +334,42 @@ enumeration order. All are cheap and SRM-available
 (`GetTableRowCount`, `GetTableRowSize`, `MetadataTokens.GetHeapOffset`), so they
 are a knob the model can expose, not a wall.
 
+## Implemented: the `mdi` tool and the shared renderer
+
+The first presentation consumer of the projection is **`mdi`** (metadata
+inspector), a standalone tool that renders the tables the way `mdv` does:
+
+- **`src/mdi`** — a `PackAsTool` / `PublishAot` command
+  (`ToolCommandName=mdi`) whose System.CommandLine front-end maps flags onto
+  `MetadataProjectionOptions` and delegates all output to the renderer below.
+  Surface: `mdi <assembly> [--table|-t <Names>] [--format|-f md|tsv|jsonl]
+  [--max-rows|-n N] [--max-bytes N] [--max-chars N]`. Missing files, native
+  images, and unreadable metadata surface as visible errors, never
+  success-shaped empty output.
+- **`src/DotnetInspector.MetadataRendering`** — a small reusable library holding
+  `MetadataProjectionRenderer` (projection → Markout tables). It lives in the
+  product-side `DotnetInspector.*` family, **not** in `ILInspector.Metadata`,
+  which stays presentation-free: the renderer is a sibling of the Metadata layer
+  that consumes the projection, so a future `dotnet-inspect metadata` lens reuses
+  the same code the tool uses today.
+
+Renderer contract. Rendering is a deliberately **lossy** human/inspection view;
+the projection model stays the lossless source of truth (for example for the
+oracle below). Three invariants hold regardless: every cell renders from exactly
+one `MetadataValue` case; a `Malformed` cell keeps a visible `!malformed:`
+marker; and a bounded preview is suffixed with `…` so it is never mistaken for a
+whole value. A leading row-id column lets a reader cross-reference a resolved
+handle target (rendered `TypeRef[5] (System.Object)`) back to its row.
+
+Formats differ only in how a row's table is identified. Markdown introduces each
+table with a `## <Name> (rows)` heading over a pipe table; TSV and JSONL carry a
+leading `Table` column so every row self-identifies, keeping those outputs pure
+machine-readable streams (one `WriteTable` block per table).
+
+The `mdv` oracle is a follow-up increment: because it diffs against the
+projection **model** (not `mdi`'s rendered text), the renderer is free to be
+human-friendly without weakening the oracle.
+
 ## Layer placement
 
 The projection lives in the **Metadata layer** (`ILInspector.Metadata`), beside
