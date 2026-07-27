@@ -1,4 +1,5 @@
 using System.Reflection;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using ILInspector.Decompiler.Pipeline;
@@ -140,11 +141,19 @@ public sealed class IrInvariantsHostContractTests
 
     /// <summary>
     /// The drift guard over what the compiler cannot express: which host may
-    /// call the opt-out. Matching is by method name, not by receiver spelling,
-    /// so <c>Inv.DisableForShippedTool()</c> under an alias and a bare
-    /// <c>DisableForShippedTool()</c> under <c>using static</c> are both caught.
-    /// A new harness, sweep, or benchmark that quietly declines validation fails
-    /// here instead of shipping silent non-coverage.
+    /// reach the opt-out. Matching is by identifier, not by receiver spelling or
+    /// call shape, so an aliased <c>Inv.DisableForShippedTool()</c>, a bare call
+    /// under <c>using static</c>, and a method group handed to a delegate
+    /// (<c>Action a = IrInvariants.DisableForShippedTool; a();</c>) are all
+    /// caught. A new harness, sweep, or benchmark that quietly declines
+    /// validation fails here instead of shipping silent non-coverage.
+    /// <para>
+    /// Residual gap, stated rather than papered over: reflection onto the
+    /// private setter or the method is beyond sound static analysis. It is not a
+    /// spelling anyone reaches by accident, and the string-literal check below
+    /// catches the straightforward <c>GetMethod("DisableForShippedTool")</c>
+    /// form.
+    /// </para>
     /// </summary>
     [Fact]
     public void OnlyTheShippedToolEntryPointDeclinesValidation()
@@ -175,7 +184,7 @@ public sealed class IrInvariantsHostContractTests
                 if (!text.Contains(OptOutMethod, StringComparison.Ordinal))
                     continue;
 
-                if (CallsOptOut(text, path))
+                if (ReferencesOptOut(text, path))
                     sites.Add(Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/'));
             }
         }
@@ -183,22 +192,31 @@ public sealed class IrInvariantsHostContractTests
         return sites;
     }
 
-    static bool CallsOptOut(string text, string path)
+    static bool ReferencesOptOut(string text, string path)
     {
         var tree = CSharpSyntaxTree.ParseText(text, path: path, cancellationToken: TestContext.Current.CancellationToken);
         var root = tree.GetCompilationUnitRoot(TestContext.Current.CancellationToken);
 
-        return root.DescendantNodes()
-            .OfType<InvocationExpressionSyntax>()
-            .Any(invocation => NameOf(invocation.Expression) == OptOutMethod);
+        // Any identifier reference, not just an invocation: a method group
+        // assigned to a delegate reaches the opt-out just as well as a call.
+        // nameof(...) is excluded — it names the method without reaching it,
+        // which is how this test refers to it.
+        bool names = root.DescendantNodes()
+            .OfType<SimpleNameSyntax>()
+            .Any(name => name.Identifier.ValueText == OptOutMethod && !IsInsideNameOf(name));
+
+        bool spellsItAsAString = root.DescendantNodes()
+            .OfType<LiteralExpressionSyntax>()
+            .Any(literal => literal.IsKind(SyntaxKind.StringLiteralExpression)
+                && literal.Token.ValueText == OptOutMethod);
+
+        return names || spellsItAsAString;
     }
 
-    static string? NameOf(ExpressionSyntax expression) => expression switch
-    {
-        MemberAccessExpressionSyntax member => member.Name.Identifier.ValueText,
-        IdentifierNameSyntax identifier => identifier.Identifier.ValueText,
-        _ => null,
-    };
+    static bool IsInsideNameOf(SyntaxNode node) =>
+        node.Ancestors()
+            .OfType<InvocationExpressionSyntax>()
+            .Any(invocation => invocation.Expression is IdentifierNameSyntax { Identifier.ValueText: "nameof" });
 
     static bool IsBuildOutput(string path)
     {
