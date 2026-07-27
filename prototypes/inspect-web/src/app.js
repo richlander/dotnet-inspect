@@ -16,6 +16,7 @@ const state = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   packages: [],
   package: null,
+  home: false,
   queryNotice: "",
   requestedPackage: "System.Text.Json",
   requestedVersion: "10.0.0",
@@ -365,6 +366,10 @@ function parseLocation() {
 }
 
 const initialLocation = parseLocation();
+// A bare visit (no package, no shared workspace packet) lands on the intro/home page
+// instead of auto-loading a package. Any deep link or shared link skips home and restores
+// its workspace directly.
+state.home = !initialLocation.package && !(initialLocation.tabs && initialLocation.tabs.length);
 if (initialLocation.package) {
   state.requestedPackage = initialLocation.package;
   state.requestedVersion = initialLocation.version || "latest";
@@ -740,7 +745,15 @@ function updateCommandSuggestions() {
 }
 
 function render() {
-  if (state.loading || state.error || !state.package) {
+  if (state.loading || state.error) {
+    renderLoading();
+    return;
+  }
+  if (state.home) {
+    renderHomeView();
+    return;
+  }
+  if (!state.package) {
     renderLoading();
     return;
   }
@@ -3407,6 +3420,136 @@ async function copyText(value, confirmation) {
   }
 }
 
+// The intro/home page shown on a bare visit: what the tool is, a persistent Spotlight-style
+// search, and a few demo entry points. The search reuses the Spotlight machinery in place
+// (shared #spotlight-input / #spotlight-chips / #spotlight-results ids), so results, scope
+// chips, NuGet discovery, and result picking all behave exactly like the modal Spotlight.
+function renderHomeView() {
+  const results = spotlightResults();
+  state.spotlightIndex = Math.min(state.spotlightIndex, Math.max(results.length - 1, 0));
+  app.innerHTML = `
+    <div class="home">
+      <header class="home-bar">
+        <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
+        <div class="home-bar-actions">
+          <a class="home-link" href="https://github.com/richlander/dotnet-inspect" target="_blank" rel="noreferrer">GitHub</a>
+          <button id="home-theme" aria-label="Switch theme">${state.theme === "dark" ? "light" : "dark"}</button>
+        </div>
+      </header>
+      <main class="home-hero">
+        <div class="home-copy">
+          <p class="home-kicker">Browser-native · WebAssembly · zero install</p>
+          <h1 class="home-title">Inspect any .NET package, right in the browser.</h1>
+          <p class="home-lede">Explore NuGet packages and the .NET platform — types, members, public API surface, dependencies, call graphs, and decompiled C# — all computed locally in your browser. Nothing to install, nothing uploaded.</p>
+          <div class="home-search" role="search">
+            <div class="home-search-box">
+              <span class="spotlight-glyph">⌕</span>
+              <input id="spotlight-input" value="${escapeHtml(state.spotlightQuery)}" placeholder="Search NuGet — a package, type, or member…" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="spotlight-results" />
+            </div>
+            <div class="spotlight-chips" id="spotlight-chips">${spotlightChipsHtml()}</div>
+            <div class="spotlight-results home-results" id="spotlight-results" role="listbox">${spotlightResultsHtml(results)}</div>
+          </div>
+          <div class="home-demos">
+            <span class="home-demos-label">Or jump straight into a demo</span>
+            <div class="home-demo-row">
+              <button class="home-demo" data-home-demo="stj"><strong>System.Text.Json</strong><small>Browse a real package API</small></button>
+              <button class="home-demo" data-home-demo="callgraph"><strong>Cross-package call graph</strong><small>Trace calls across four packages</small></button>
+              <button class="home-demo" data-home-demo="runtime"><strong>The .NET runtime</strong><small>Inspect platform BCL types</small></button>
+            </div>
+          </div>
+        </div>
+        <aside class="home-art" aria-hidden="true">${homeArtSvg()}</aside>
+      </main>
+      <footer class="home-foot">
+        <span class="ready-dot"></span><span>browser wasm ready</span>
+        ${state.diag ? `<span class="diag">⚙ ready in ${fmtMs(state.diag.totalMs)}</span>` : ""}
+      </footer>
+    </div>`;
+  bindHomeEvents();
+}
+
+// Decorative placeholder for the hero art slot. Foreground magnifier-over-package motif that
+// sits on the dark/light surface; swap the inner markup for the dotnet-bot artwork (a
+// transparent PNG or inline SVG) once it exists — the .home-art frame already reserves the
+// space and centers its child.
+function homeArtSvg() {
+  return `
+    <svg class="home-art-svg" viewBox="0 0 240 240" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
+      <polygon points="96,44 150,44 177,92 150,140 96,140 69,92" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/>
+      <text x="123" y="99" text-anchor="middle" font-family="var(--mono)" font-size="30" fill="var(--accent)">{ }</text>
+      <circle cx="132" cy="150" r="52" fill="none" stroke="var(--line-strong)" stroke-width="9"/>
+      <circle cx="132" cy="150" r="52" fill="rgba(255,255,255,0.02)"/>
+      <line x1="170" y1="188" x2="210" y2="228" stroke="var(--line-strong)" stroke-width="14" stroke-linecap="round"/>
+    </svg>`;
+}
+
+function bindHomeEvents() {
+  document.querySelector("#home-theme")?.addEventListener("click", toggleTheme);
+  const input = document.querySelector("#spotlight-input");
+  if (input) {
+    input.addEventListener("input", event => {
+      state.spotlightQuery = event.target.value;
+      state.spotlightIndex = 0;
+      scheduleSpotlightPackageFetch();
+      updateSpotlightResults();
+    });
+    input.addEventListener("keydown", event => {
+      const results = spotlightResults();
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        state.spotlightIndex = Math.min(state.spotlightIndex + 1, Math.max(results.length - 1, 0));
+        updateSpotlightResults();
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        state.spotlightIndex = Math.max(state.spotlightIndex - 1, 0);
+        updateSpotlightResults();
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        pickSpotlightResult(results[state.spotlightIndex]);
+      }
+    });
+  }
+  bindSpotlightChipClicks(document.querySelector("#spotlight-chips"));
+  bindSpotlightResultClicks(document.querySelector("#spotlight-results"));
+  document.querySelectorAll("[data-home-demo]").forEach(button =>
+    button.addEventListener("click", () => runHomeDemo(button.dataset.homeDemo)));
+  requestAnimationFrame(() => document.querySelector("#spotlight-input")?.focus());
+}
+
+function runHomeDemo(kind) {
+  state.home = false;
+  if (kind === "stj") loadPackage("System.Text.Json", "10.0.0", "net10.0");
+  else if (kind === "callgraph") runCallGraphDemo();
+  else if (kind === "runtime") openRuntimePackFromHome();
+}
+
+// Loads the resident runtime pack and lands on its package Overview (the runtime pack has no
+// nupkg, so this goes through loadRuntimePack rather than loadPackage).
+async function openRuntimePackFromHome() {
+  state.home = false;
+  state.loading = true;
+  state.error = "";
+  state.loadingMessage = "Loading the .NET runtime pack…";
+  render();
+  const pack = await loadRuntimePack("net10.0");
+  if (!pack) {
+    state.loading = false;
+    state.error = "Couldn’t load the .NET runtime pack. Retry, or open a different package.";
+    state.errorTitle = "Runtime pack failed";
+    render();
+    return;
+  }
+  state.package = pack;
+  state.atPackageRoot = true;
+  state.packageLens = "overview";
+  state.selectedTypeId = pack.types[0]?.id || "";
+  state.selectedMemberKey = "";
+  state.selectedOverloadIndex = null;
+  state.loading = false;
+  render();
+  loadSelectionData();
+}
+
 function renderLoading() {
   app.innerHTML = `
     <div class="loading-screen">
@@ -4805,6 +4948,7 @@ async function loadPackage(packageId, version, framework) {
   };
   state.loading = true;
   state.error = "";
+  state.home = false;
   state.queryNotice = "";
   state.requestedPackage = packageId;
   state.requestedVersion = version;
@@ -5030,6 +5174,13 @@ async function bootstrap() {
     } catch {
       state.styleOptions = [];
     }
+    if (state.home) {
+      // Engine is warm and search is ready; show the intro/home page without loading a package.
+      state.loading = false;
+      state.diag = computeDiagnostics(tStart, tEngine, performance.now());
+      render();
+      return;
+    }
     await restoreInitialWorkspace();
     const tReady = performance.now();
     state.diag = computeDiagnostics(tStart, tEngine, tReady);
@@ -5096,6 +5247,9 @@ function fmtBytes(bytes) {
 
 document.addEventListener("keydown", event => {
   const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName);
+  // The home page has its own scoped input handling (search box); global workbench
+  // shortcuts assume a loaded package, so stay out of the way here.
+  if (state.home) return;
   if (event.key === "Escape" && state.tasteOpen) {
     event.preventDefault();
     state.tasteOpen = false;

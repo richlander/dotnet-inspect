@@ -1150,3 +1150,137 @@ kbd {
 .taste-foot button { border: 1px solid var(--line-strong); border-radius: 5px; background: var(--surface); color: var(--dim); font: 10px var(--mono); padding: 3px 8px; cursor: pointer; }
 .taste-foot button:hover { color: var(--text); border-color: var(--text); }
 .taste-empty { padding: 18px 14px; font: 11px var(--mono); color: var(--dim); }
+
+/* ── Home / intro page ─────────────────────────────────────────────── */
+.home {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background:
+    radial-gradient(1100px 620px at 82% -8%, var(--accent-soft), transparent 60%),
+    var(--bg);
+}
+.home-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 28px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+}
+.home-bar-actions { display: flex; align-items: center; gap: 14px; }
+.home-link { color: var(--muted); font: 12px var(--mono); text-decoration: none; }
+.home-link:hover { color: var(--text); }
+#home-theme {
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: 11px var(--mono);
+  padding: 4px 10px;
+  cursor: pointer;
+}
+#home-theme:hover { color: var(--text); border-color: var(--text); }
+
+.home-hero {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: clamp(28px, 6vh, 72px) 28px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 48px;
+}
+.home-copy { min-width: 0; }
+.home-kicker {
+  margin: 0 0 14px;
+  color: var(--accent);
+  font: 11px var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.home-title {
+  margin: 0 0 16px;
+  font-size: clamp(30px, 4.4vw, 50px);
+  line-height: 1.06;
+  font-weight: 640;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.home-lede {
+  margin: 0 0 26px;
+  max-width: 56ch;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.home-search { max-width: 620px; }
+.home-search-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px 12px 0 0;
+  background: var(--panel);
+}
+.home-search-box:focus-within { border-color: var(--accent); }
+.home-search .spotlight-chips { background: var(--panel); border-left: 1px solid var(--line-strong); border-right: 1px solid var(--line-strong); }
+.home-search .home-results {
+  max-height: 320px;
+  border: 1px solid var(--line-strong);
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  background: var(--panel);
+}
+.home-search .home-results:empty { display: none; }
+.home-search #spotlight-input { font-size: 17px; }
+
+.home-demos { margin-top: 30px; }
+.home-demos-label {
+  display: block;
+  margin-bottom: 12px;
+  color: var(--dim);
+  font: 11px var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.home-demo-row { display: flex; flex-wrap: wrap; gap: 12px; }
+.home-demo {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 90ms ease, background 90ms ease, transform 90ms ease;
+}
+.home-demo:hover { border-color: var(--accent); background: var(--panel-raised); transform: translateY(-1px); }
+.home-demo strong { font: 13px var(--mono); color: var(--text); }
+.home-demo small { color: var(--muted); font-size: 11px; }
+
+.home-art { display: flex; align-items: center; justify-content: center; }
+.home-art-svg { width: min(100%, 340px); height: auto; opacity: 0.9; }
+
+.home-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 28px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font: 11px var(--mono);
+}
+.home-foot .diag { color: var(--dim); }
+
+@media (max-width: 860px) {
+  .home-hero { grid-template-columns: 1fr; gap: 28px; }
+  .home-art { order: -1; }
+  .home-art-svg { width: 200px; }
+}
