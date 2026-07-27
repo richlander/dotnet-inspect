@@ -398,6 +398,64 @@ public class InlineArraySpilledElementTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void MarkLocalEliminated_RefusesWhenSlotBoundByNonLoadStoreNode()
+    {
+        // The buffer slot (0) is bound by a node that is neither a load, a store, nor
+        // an address — here a `??=` whose target is slot 0. A reference tally keyed on
+        // the load/store/address trio misses it, but the printer still declares the
+        // slot (CSharpPrinter.CollectDeclarations enumerates NullCoalescingAssignment),
+        // so eliminating it would drop the unspellable buffer type from fidelity and
+        // report a false Full. Verification must cover every local-binding node kind
+        // the printer declares, not just the trio (#3295).
+        var block = new Block();
+        block.Add(new NullCoalescingAssignment(0, Object, BoxInt(7)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [Buffer], body);
+
+        function.MarkLocalEliminated(0);
+
+        // Slot 0 is still live, so it is not eliminated and its unspellable buffer type
+        // keeps capping fidelity. The old trio-only check marked it, a false Full.
+        Assert.DoesNotContain(0, function.EliminatedLocalSlots);
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(function));
+    }
+
+    [Fact]
+    public void MarkLocalEliminated_IgnoresReferencesInNestedFunctionScopes()
+    {
+        // A nested local function carries an independent local pool, so its slot 0 is
+        // an unrelated variable. The outer buffer slot 0 is genuinely dead (nothing in
+        // the outer scope reads it), so eliminating it is correct. Verification must
+        // not let the nested-scope store block the elimination, or every clean outer
+        // raise that happens to share a slot index with a nested lambda / local
+        // function would regress to Partial (#3295).
+        var nestedBlock = new Block();
+        nestedBlock.Add(new StoreLocal(0, Object, BoxInt(7)));
+        nestedBlock.Add(new Return(null));
+        var nestedBody = new BlockContainer();
+        nestedBody.Add(nestedBlock);
+        var nested = new LocalFunctionStatement(
+            "Local", Void, [], isStatic: true, [Object], [null],
+            usesUpdatedMemorySafetyRules: false, skipLocalsInit: false, nestedBody);
+
+        var block = new Block();
+        block.Add(nested);
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [Buffer], body);
+
+        function.MarkLocalEliminated(0);
+
+        // The nested slot 0 lives in a separate pool, so it does not keep the outer
+        // slot 0 alive. The old whole-tree walk saw it and refused to mark, a false
+        // Partial on ordinary code.
+        Assert.Contains(0, function.EliminatedLocalSlots);
+    }
+
     enum OrderingShape
     {
         InterleavedStatement,

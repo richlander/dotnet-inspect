@@ -354,12 +354,15 @@ public sealed class IrFunction : IrNode
     /// Records that slot <paramref name="index"/> is dead — a raising pass consumed
     /// its last reference, so it renders nowhere and its (often unspellable) type
     /// must not degrade method fidelity. Deadness is <em>verified, not trusted</em>:
-    /// the slot is marked only when no <see cref="LoadLocal"/>,
-    /// <see cref="StoreLocal"/>, or <see cref="LoadLocalAddress"/> for it survives in
-    /// the body. A caller's reference tally can miss a node kind (for example a
-    /// by-value store the raise never inspects) or a local-referencing node added to
-    /// the IR later; marking such a still-live slot would drop its type from the
-    /// fidelity view and report a false Full over output that still names the local.
+    /// the slot is marked only when no node in this function's own scope still binds
+    /// or reads it (see <see cref="NodeBindsLocalSlot"/>). A caller's reference tally
+    /// can miss a node kind — a by-value store, a <c>??=</c> target, or a
+    /// <c>foreach</c> variable the raise never inspects — or a local-referencing node
+    /// added to the IR later; marking such a still-live slot would drop its type from
+    /// the fidelity view and report a false Full over output that still names the
+    /// local. The verification walks <see cref="GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions"/>,
+    /// so a same-numbered slot inside a nested lambda / local function — an unrelated
+    /// variable in that scope's separate local pool — never blocks the elimination.
     /// When any reference survives this no-ops, leaving the slot counted so fidelity
     /// stays honestly Partial. See <see cref="EliminatedLocalSlots"/> (#3221, #3295).
     /// </summary>
@@ -367,20 +370,39 @@ public sealed class IrFunction : IrNode
     {
         if (index < 0 || index >= Locals.Length)
             throw new ArgumentOutOfRangeException(nameof(index));
-        foreach (var node in Descendants)
+        foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(this))
         {
-            var referencesSlot = node switch
-            {
-                LoadLocal load => load.Index == index,
-                StoreLocal store => store.Index == index,
-                LoadLocalAddress address => address.Index == index,
-                _ => false,
-            };
-            if (referencesSlot)
+            if (NodeBindsLocalSlot(node, index))
                 return;
         }
         _eliminatedLocalSlots = _eliminatedLocalSlots.Add(index);
     }
+
+    /// <summary>
+    /// Whether <paramref name="node"/> binds or reads local slot
+    /// <paramref name="index"/> directly, so the C# view would render the slot's
+    /// (possibly unspellable) type. Kept a superset of the local references
+    /// <see cref="CSharpPrinter"/> collects when deciding which locals to declare:
+    /// under-counting here marks a still-rendered slot eliminated and reports a false
+    /// Full, so any new node kind that carries a local index must be added here.
+    /// Argument (<c>ldarg</c>) and stack-slot indices live in separate pools and are
+    /// intentionally excluded.
+    /// </summary>
+    static bool NodeBindsLocalSlot(IrNode node, int index) => node switch
+    {
+        LoadLocal load => load.Index == index,
+        StoreLocal store => store.Index == index,
+        LoadLocalAddress address => address.Index == index,
+        NullCoalescingAssignment nullCoalescing => nullCoalescing.LocalIndex == index,
+        ForeachStatement foreachStatement => foreachStatement.LocalIndex == index,
+        UsingStatement usingStatement => usingStatement.LocalIndex == index,
+        Fixed fixedStatement => fixedStatement.LocalIndex == index,
+        IsPattern isPattern => isPattern.LocalIndex == index,
+        RecursivePropertyDeclarationPattern recursiveProperty => recursiveProperty.LocalIndex == index,
+        CatchClause catchClause => catchClause.VariableIndex == index,
+        DeconstructionAssignment deconstruction => deconstruction.LocalIndices.Contains(index),
+        _ => false,
+    };
 
     /// <summary>
     /// Source names for the entries in <see cref="Locals"/>, by slot index,
