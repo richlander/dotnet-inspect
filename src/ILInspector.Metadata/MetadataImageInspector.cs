@@ -70,29 +70,21 @@ public static class MetadataImageInspector
 
         foreach (var index in Enum.GetValues<TableIndex>())
         {
+            // Deliberately undefended. GetTableRowCount validates the index and
+            // then indexes a row-count array that MetadataReader parsed during
+            // construction, so it cannot report a malformed image here: a corrupt
+            // table stream already threw out of GetMetadataReader. Every declared
+            // TableIndex is in range for the same assembly's TableCount. Catching
+            // and returning 0 would turn any future failure into a table that
+            // reads as legitimately empty.
             tables.Add(new MetadataTableSummary(
                 index,
                 index.ToString(),
-                RowCount(reader, index),
+                reader.GetTableRowCount(index),
                 projected.Contains(index)));
         }
 
         return tables.ToImmutable();
-    }
-
-    static int RowCount(MetadataReader reader, TableIndex index)
-    {
-        try
-        {
-            return reader.GetTableRowCount(index);
-        }
-        catch (Exception ex) when (ex is ArgumentOutOfRangeException or BadImageFormatException)
-        {
-            // A TableIndex this runtime declares but this metadata cannot count
-            // is reported as empty rather than aborting the whole overview; the
-            // table is still listed so its absence stays visible.
-            return 0;
-        }
     }
 
     static MetadataImageHeaders DescribeHeaders(PEHeaders headers)

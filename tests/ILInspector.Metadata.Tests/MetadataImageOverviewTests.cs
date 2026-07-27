@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Text;
 
 namespace ILInspector.Metadata.Tests;
 
@@ -55,6 +56,50 @@ public class MetadataImageOverviewTests
 
         return bytes;
     }
+
+    /// <summary>
+    /// A copy of this assembly whose <c>#~</c> stream is declared too small to
+    /// hold its own table header. The CLI header is left intact, so this is a
+    /// corrupt table stream rather than an absent one.
+    /// </summary>
+    static byte[] SelfWithCorruptTableStream()
+    {
+        byte[] bytes = File.ReadAllBytes(SelfPath);
+
+        int metadataStart;
+        using (var peReader = new PEReader(new MemoryStream(bytes)))
+        {
+            metadataStart = peReader.PEHeaders.MetadataStartOffset;
+        }
+
+        // Metadata root: signature, version pair and reserved (12 bytes), then a
+        // length-prefixed version string padded to 4, then flags and stream count.
+        int versionLength = BitConverter.ToInt32(bytes, metadataStart + 12);
+        int cursor = metadataStart + 16 + AlignTo4(versionLength);
+        int streamCount = BitConverter.ToUInt16(bytes, cursor + 2);
+        cursor += 4;
+
+        for (int i = 0; i < streamCount; i++)
+        {
+            // Stream header: offset, size, then a null-terminated name padded to 4.
+            int sizeOffset = cursor + 4;
+            int nameStart = cursor + 8;
+            int nameEnd = Array.IndexOf(bytes, (byte)0, nameStart);
+            string name = Encoding.ASCII.GetString(bytes, nameStart, nameEnd - nameStart);
+
+            if (name == "#~")
+            {
+                BitConverter.GetBytes(4).CopyTo(bytes, sizeOffset);
+                return bytes;
+            }
+
+            cursor = nameStart + AlignTo4(nameEnd - nameStart + 1);
+        }
+
+        throw new InvalidOperationException("This assembly has no #~ stream to corrupt.");
+    }
+
+    static int AlignTo4(int value) => (value + 3) & ~3;
 
     // --- Metadata root -----------------------------------------------------
 
@@ -335,6 +380,31 @@ public class MetadataImageOverviewTests
         Assert.False(peReader.HasMetadata);
 
         Assert.Null(MetadataTableProjector.ReadHeapValue(peReader, HeapKind.String, 1));
+    }
+
+    /// <summary>
+    /// Corrupt metadata must fail visibly. The failure mode this guards against
+    /// is an overview that reports every table as zero rows, which is
+    /// indistinguishable from a legitimately empty image and so hides the
+    /// corruption completely. "No metadata" is null; "unreadable metadata" throws.
+    /// </summary>
+    [Fact]
+    public void Describe_FailsVisiblyForACorruptTableStream()
+    {
+        using (var intact = OpenSelfFromBytes())
+        {
+            // Canary: the intact image has rows that a zero-row overview would lose.
+            var typeDef = DescribeSelf(intact).Tables.Single(table => table.Index == TableIndex.TypeDef);
+            Assert.True(typeDef.RowCount > 0, "The intact image should report TypeDef rows.");
+        }
+
+        using var peReader = new PEReader(new MemoryStream(SelfWithCorruptTableStream()));
+
+        // Canary: the CLI header is still intact, so this is corruption rather
+        // than the absent-metadata case covered above.
+        Assert.True(peReader.HasMetadata);
+
+        Assert.Throws<BadImageFormatException>(() => MetadataImageInspector.Describe(peReader));
     }
 
     [Fact]
