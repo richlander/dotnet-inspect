@@ -184,10 +184,29 @@ public static class IlProjection
             };
 
         // This display text is rendered both as standalone IL and inside C#
-        // side comments. Fold untrusted metadata/user-string terminators at the
-        // producer so no operand can escape the line that frames it.
-        return operand.ReplaceLineEndings(" ");
+        // side comments. Fold untrusted metadata terminators at the producer so
+        // no operand can escape the line that frames it. User strings arrive
+        // already escaped by ILStringEscaper.ForDisplay, so this fold only ever
+        // fires on metadata names, which have no lossless display spelling.
+        return FoldLine(operand);
     }
+
+    /// <summary>
+    /// Collapses every C# line terminator (CR, LF, CRLF, FF, NEL, LS, PS) to a
+    /// single space.
+    /// </summary>
+    /// <remarks>
+    /// The rendered IL is line-oriented and, in <c>Annotated Source</c>, lives
+    /// inside a <c>//</c> comment that is reframed only at its first line. Any
+    /// untrusted text reaching such a line must therefore be folded, or its tail
+    /// lands outside the comment as active C#. Metadata names, PDB local names,
+    /// and parameter names are all attacker-controlled — the CLR does not
+    /// require them to be C#-spellable — so every one of them is folded here
+    /// rather than at each individual producer.
+    /// Gate: <c>UntrustedIlPresentationTests</c> and the hostile-assembly cases
+    /// in <c>CommandExecutionTests</c>.
+    /// </remarks>
+    static string FoldLine(string text) => text.ReplaceLineEndings(" ");
 
     /// <summary>Resolves a metadata-token operand to its display form, falling back to raw token hex if resolution fails.</summary>
     static string ResolveToken(MetadataReader reader, GenericScope scope, ILOpCode op, int token)
@@ -195,7 +214,7 @@ public static class IlProjection
         try
         {
             if (op == ILOpCode.Ldstr)
-                return $"\"{reader.GetUserString(MetadataTokens.UserStringHandle(token))}\"";
+                return $"\"{ILStringEscaper.ForDisplay(reader.GetUserString(MetadataTokens.UserStringHandle(token)))}\"";
             var handle = MetadataTokens.EntityHandle(token);
             return op switch
             {
@@ -372,7 +391,10 @@ public static class IlProjection
             annotations.Add(variable);
         if (stackByOffset.TryGetValue(i.Offset, out var stack))
             annotations.Add(StackAnnotation(stack));
-        return new AnnotatedInstrPart(i.Offset, instruction.ToString(), string.Join("; ", annotations));
+        return new AnnotatedInstrPart(
+            i.Offset,
+            FoldLine(instruction.ToString()),
+            FoldLine(string.Join("; ", annotations)));
     }
 
     static IReadOnlyList<SourceLine> RenderIlBodyLines(
@@ -465,9 +487,9 @@ public static class IlProjection
         var body = imported.Body;
         sb.AppendLine("// Method IL");
         if (imported.Signature.Parameters.Length > 0)
-            sb.AppendLine($"//   Parameters: {string.Join(", ", imported.Signature.Parameters.Select(p => $"{p.Type.ToDisplayString()} {p.Name}"))}");
+            sb.AppendLine(FoldLine($"//   Parameters: {string.Join(", ", imported.Signature.Parameters.Select(p => $"{p.Type.ToDisplayString()} {p.Name}"))}"));
         if (body.Locals.Length > 0)
-            sb.AppendLine($"//   Locals: {string.Join(", ", body.Locals.Select((t, i) => $"{t.ToDisplayString()} {LocalName(body, i)}"))}");
+            sb.AppendLine(FoldLine($"//   Locals: {string.Join(", ", body.Locals.Select((t, i) => $"{t.ToDisplayString()} {LocalName(body, i)}"))}"));
         sb.AppendLine($"//   MaxStack: {body.MaxStack}");
         sb.AppendLine($"//   IL size: {body.IL.Length} bytes");
         sb.AppendLine();
