@@ -87,7 +87,10 @@ public static class IrInvariants
     /// bookkeeping can get wrong — and per-pass coverage is what makes a
     /// transient corruption visible even when a later pass repairs it. Over real
     /// output these are true invariants (verified zero-violation over CoreLib's
-    /// 41,952 methods, at a measured ~11% cost on that corpus gate).
+    /// 41,952 methods). Cost, measured as a paired A/B of the <c>Area=Corpus</c>
+    /// gate against this change's parent: ~18.0s to ~18.6s. Treat that as
+    /// "below the noise floor" rather than as a figure to quote — run-to-run
+    /// spread on the same build (17.8s-22.8s) is wider than the difference.
     /// </para>
     /// <para>
     /// A fixture that cannot satisfy this level should declare the locals it
