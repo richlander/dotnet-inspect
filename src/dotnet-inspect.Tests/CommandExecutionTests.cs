@@ -107,6 +107,32 @@ public class CommandExecutionTests
         File.WriteAllBytes(path, image.ToArray());
     }
 
+    private static void WriteHostileIlOperandAssembly(string path)
+    {
+        var assemblyName = new AssemblyName("HostileIlOperand");
+        var assemblyBuilder = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            assemblyName, typeof(object).Assembly);
+        var moduleBuilder = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+        var typeBuilder = moduleBuilder.DefineType(
+            "Hostile.Target",
+            TypeAttributes.Public | TypeAttributes.Class);
+        var field = typeBuilder.DefineField(
+            "field\n    public int Injected() => 42; //",
+            typeof(int),
+            FieldAttributes.Public);
+        var method = typeBuilder.DefineMethod(
+            "GetCount",
+            MethodAttributes.Public,
+            typeof(int),
+            Type.EmptyTypes);
+        var il = method.GetILGenerator();
+        il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0);
+        il.Emit(System.Reflection.Emit.OpCodes.Ldfld, field);
+        il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        typeBuilder.CreateType();
+        assemblyBuilder.Save(path);
+    }
+
     private static void WriteResourceAssembly(
         string path,
         params (string Name, byte[] Content)[] resources)
@@ -503,6 +529,28 @@ public class CommandExecutionTests
                 return 1;
             }
         });
+    }
+
+    private static IEnumerable<string> JsonStrings(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.String)
+        {
+            yield return element.GetString()!;
+            yield break;
+        }
+
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+                foreach (var value in JsonStrings(item))
+                    yield return value;
+            yield break;
+        }
+
+        if (element.ValueKind == JsonValueKind.Object)
+            foreach (var property in element.EnumerateObject())
+                foreach (var value in JsonStrings(property.Value))
+                    yield return value;
     }
 
     [Theory]
@@ -3948,6 +3996,53 @@ public class CommandExecutionTests
         Assert.Contains("## Annotated Source", output);
         Assert.Contains("```csharp", output);
         Assert.Matches(@"// IL_[0-9A-Fa-f]{4}: ", output);
+    }
+
+    [Fact]
+    public async Task Member_HostileIlOperand_StaysInsideMarkdownAndJsonCodeSections()
+    {
+        const string injected = "public int Injected() => 42; //";
+        const string unsafeOperand = "field\n    public int Injected() => 42; //";
+        const string safeOperand = "field     public int Injected() => 42; //";
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-hostile-il-command-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var dllPath = Path.Combine(tempDir, "HostileIlOperand.dll");
+            WriteHostileIlOperandAssembly(dllPath);
+
+            var (markdownExit, markdown, markdownError) = await RunAppAsync(
+                "member", "Hostile.Target", "--library", dllPath,
+                "GetCount:1", "-S", "Annotated Source,IL", "--tips", "q");
+
+            Assert.Equal(0, markdownExit);
+            Assert.Empty(markdownError);
+            Assert.DoesNotContain(unsafeOperand, markdown, StringComparison.Ordinal);
+            Assert.Equal(2, markdown.Split(safeOperand, StringSplitOptions.None).Length - 1);
+            Assert.DoesNotContain(
+                markdown.ReplaceLineEndings("\n").Split('\n'),
+                line => line.TrimStart().StartsWith(injected, StringComparison.Ordinal));
+
+            foreach (string section in new[] { "Annotated Source", "IL" })
+            {
+                var (jsonExit, json, jsonError) = await RunAppAsync(
+                    "member", "Hostile.Target", "--library", dllPath,
+                    "GetCount:1", "-S", section, "--print", "--json-array", "--tips", "q");
+
+                Assert.Equal(0, jsonExit);
+                Assert.Empty(jsonError);
+                using var document = JsonDocument.Parse(json);
+                var stringValues = string.Join("\n", JsonStrings(document.RootElement));
+                Assert.DoesNotContain(unsafeOperand, stringValues, StringComparison.Ordinal);
+                Assert.Contains(safeOperand, stringValues, StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]

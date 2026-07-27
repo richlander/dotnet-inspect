@@ -216,6 +216,55 @@ public class ILDisassemblerEmitTests : IDisposable
         Assert.Contains("Empty", ldsfld.Operand);
     }
 
+    [Theory]
+    [InlineData("\n")]
+    [InlineData("\r")]
+    [InlineData("\r\n")]
+    [InlineData("\f")]
+    [InlineData("\u0085")]
+    [InlineData("\u2028")]
+    [InlineData("\u2029")]
+    public void Emit_DisplayOperand_FoldsCSharpLineTerminators(string terminator)
+    {
+        const string marker = "public int Injected() => 42; //";
+        var assemblyName = new AssemblyName("HostileFieldOperand");
+        var assemblyBuilder = new PersistedAssemblyBuilder(
+            assemblyName, typeof(object).Assembly);
+        var moduleBuilder = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+        var typeBuilder = moduleBuilder.DefineType(
+            "Hostile.Target",
+            TypeAttributes.Public | TypeAttributes.Class);
+        var field = typeBuilder.DefineField(
+            $"field{terminator}    {marker}",
+            typeof(int),
+            FieldAttributes.Public);
+        var method = typeBuilder.DefineMethod(
+            "GetCount",
+            MethodAttributes.Public,
+            typeof(int),
+            Type.EmptyTypes);
+        var il = method.GetILGenerator();
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldfld, field);
+        il.Emit(OpCodes.Ret);
+        typeBuilder.CreateType();
+
+        var dllPath = Path.Combine(_tempDir, "HostileFieldOperand.dll");
+        assemblyBuilder.Save(dllPath);
+
+        using var stream = File.OpenRead(dllPath);
+        using var peReader = new PEReader(stream);
+        var instructions = MetadataInstructionProducer.DisassembleMethod(
+            peReader, "Hostile.Target", "GetCount");
+
+        var operand = Assert.Single(
+            Assert.IsType<List<ILInstructionText>>(instructions),
+            instruction => instruction.OpCodeName == "ldfld").Operand;
+        Assert.NotNull(operand);
+        Assert.DoesNotContain(terminator, operand, StringComparison.Ordinal);
+        Assert.Contains(marker, operand, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Emit_NewObj_ResolvesConstructorToken()
     {

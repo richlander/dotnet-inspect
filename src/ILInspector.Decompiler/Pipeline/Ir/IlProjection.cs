@@ -162,24 +162,31 @@ public static class IlProjection
 
     static string FormatOperand(MetadataReader reader, GenericScope scope, DecodedInstruction decoded)
     {
+        string operand;
         if (decoded.Operand == OperandKind.InlineSwitch)
-            return $"({string.Join(", ", decoded.BranchTargets.Select(target => $"IL_{target:X4}"))})";
-        if (decoded.Branches)
-            return $"IL_{decoded.BranchTargets[0]:X4}";
-        return decoded.Operand switch
-        {
-            OperandKind.None => "",
-            OperandKind.ShortInlineI => ((sbyte)decoded.OperandValue).ToString(),
-            OperandKind.InlineI => ((int)decoded.OperandValue).ToString(),
-            OperandKind.InlineI8 => decoded.OperandValue.ToString(),
-            OperandKind.ShortInlineR => BitConverter.Int32BitsToSingle((int)decoded.OperandValue).ToString(),
-            OperandKind.InlineR => BitConverter.Int64BitsToDouble(decoded.OperandValue).ToString(),
-            OperandKind.InlineString or OperandKind.InlineMethod or OperandKind.InlineField
-                or OperandKind.InlineType or OperandKind.InlineTok
-                => ResolveToken(reader, scope, decoded.OpCode, (int)decoded.OperandValue),
-            OperandKind.ShortInlineVar or OperandKind.InlineVar => decoded.OperandValue.ToString(), // var/arg index
-            _ => $"0x{(uint)decoded.OperandValue:X8}",  // e.g. calli's InlineSig: not resolved, ground-truth hex
-        };
+            operand = $"({string.Join(", ", decoded.BranchTargets.Select(target => $"IL_{target:X4}"))})";
+        else if (decoded.Branches)
+            operand = $"IL_{decoded.BranchTargets[0]:X4}";
+        else
+            operand = decoded.Operand switch
+            {
+                OperandKind.None => "",
+                OperandKind.ShortInlineI => ((sbyte)decoded.OperandValue).ToString(),
+                OperandKind.InlineI => ((int)decoded.OperandValue).ToString(),
+                OperandKind.InlineI8 => decoded.OperandValue.ToString(),
+                OperandKind.ShortInlineR => BitConverter.Int32BitsToSingle((int)decoded.OperandValue).ToString(),
+                OperandKind.InlineR => BitConverter.Int64BitsToDouble(decoded.OperandValue).ToString(),
+                OperandKind.InlineString or OperandKind.InlineMethod or OperandKind.InlineField
+                    or OperandKind.InlineType or OperandKind.InlineTok
+                    => ResolveToken(reader, scope, decoded.OpCode, (int)decoded.OperandValue),
+                OperandKind.ShortInlineVar or OperandKind.InlineVar => decoded.OperandValue.ToString(), // var/arg index
+                _ => $"0x{(uint)decoded.OperandValue:X8}",  // e.g. calli's InlineSig: not resolved, ground-truth hex
+            };
+
+        // This display text is rendered both as standalone IL and inside C#
+        // side comments. Fold untrusted metadata/user-string terminators at the
+        // producer so no operand can escape the line that frames it.
+        return operand.ReplaceLineEndings(" ");
     }
 
     /// <summary>Resolves a metadata-token operand to its display form, falling back to raw token hex if resolution fails.</summary>

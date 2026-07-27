@@ -130,7 +130,7 @@ public static class InstructionProducer
     {
         bool canonical = resolver.Syntax == ILSyntax.Canonical;
         int token = (int)instruction.OperandValue;
-        return instruction.Operand switch
+        var operand = instruction.Operand switch
         {
             OperandKind.None => null,
             OperandKind.ShortInlineBrTarget or OperandKind.InlineBrTarget => $"IL_{instruction.BranchTargets[0]:X4}",
@@ -156,6 +156,13 @@ public static class InstructionProducer
             OperandKind.InlineSwitch => $"({string.Join(", ", instruction.BranchTargets.Select(t => $"IL_{t:X4}"))})",
             _ => null
         };
+
+        // Display operands are embedded in line-oriented output, including C#
+        // side comments in Annotated Source. Metadata names and user strings are
+        // untrusted and may contain any C# line terminator, so fold them at the
+        // display producer before they can escape the containing line. Canonical
+        // ilasm retains its separate assembler-grammar policy.
+        return canonical ? operand : operand?.ReplaceLineEndings(" ");
     }
 
     public static string GetDisplayName(ILOpCode opCode)
