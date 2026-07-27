@@ -374,6 +374,54 @@ public class InlineArraySpilledElementTests
         function.CheckInvariant();
     }
 
+    [Theory]
+    [InlineData(OrderingShape.ConditionalConditionSpan)]
+    [InlineData(OrderingShape.SwitchExpressionValueSpan)]
+    [InlineData(OrderingShape.UnionSwitchValueSpan)]
+    [InlineData(OrderingShape.PatternSwitchValueSpan)]
+    [InlineData(OrderingShape.TupleSwitchComponentSpan)]
+    [InlineData(OrderingShape.ForeachCollectionSpan)]
+    [InlineData(OrderingShape.ForInitializerSpan)]
+    [InlineData(OrderingShape.UsingResourceSpan)]
+    [InlineData(OrderingShape.LockObjectSpan)]
+    public void RunOnceGoverningEdgeSpanConsumer_RaisesToCollectionExpression(OrderingShape shape)
+    {
+        // Each shape places the span on a run-once, unconditional governing edge — a
+        // selection scrutinee/condition (ternary condition, switch-expression
+        // value/component) or a statement's single on-entry sub-expression (foreach
+        // source, for initializer, using resource, lock object). Each is evaluated
+        // exactly once before any conditional arm/body runs, so lifting the
+        // unconditional element stores to the span position preserves their order and
+        // occurrence count: the collection raises (#3129 S4 follow-up #3281).
+        var function = BuildOrderingCollection(shape);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        var collection = Assert.Single(function.Descendants.OfType<CollectionExpression>());
+        Assert.Equal(2, collection.Children.Count);
+        Assert.DoesNotContain(
+            function.Descendants.OfType<Call>(),
+            c => c.Callee.Name.Contains("InlineArray", StringComparison.Ordinal));
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void ForConditionSpan_StaysFlat()
+    {
+        // The close negative of ForInitializerSpan: the span sits in the for-loop
+        // condition, re-evaluated every iteration rather than once on entry. The
+        // per-edge allow list accepts only ForLoop.Initializer, so the condition edge
+        // is rejected and the collection stays flat — proving the ForLoop case is
+        // edge-precise, not a blanket "ForLoop is unconditional".
+        var function = BuildOrderingCollection(OrderingShape.ForConditionSpan);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<CollectionExpression>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InlineArrayAsReadOnlySpan");
+        function.CheckInvariant();
+    }
+
     [Fact]
     public void ByValueBufferStoreAfterSpan_LeavesSlotCountedAtPartial()
     {
@@ -713,7 +761,7 @@ public class InlineArraySpilledElementTests
         return node.Children.Any(child => FunctionContainsCarrier(child, carrierKind));
     }
 
-    enum OrderingShape
+    public enum OrderingShape
     {
         InterleavedStatement,
         DescendingSlotOrder,
@@ -727,6 +775,16 @@ public class InlineArraySpilledElementTests
         IfConditionSpan,
         SwitchValueSpan,
         ThrowValueSpan,
+        ConditionalConditionSpan,
+        SwitchExpressionValueSpan,
+        UnionSwitchValueSpan,
+        PatternSwitchValueSpan,
+        TupleSwitchComponentSpan,
+        ForeachCollectionSpan,
+        ForInitializerSpan,
+        UsingResourceSpan,
+        LockObjectSpan,
+        ForConditionSpan,
         ByValueBufferStoreAfterSpan,
     }
 
@@ -872,6 +930,103 @@ public class InlineArraySpilledElementTests
                 block.Add(new Throw(
                     new Call(ThrowableFromSpanMethod(), isVirtual: false, [span])));
                 break;
+            case OrderingShape.ConditionalConditionSpan:
+                // local = Predicate(span) ? a : b: the span sits in the ternary
+                // *condition*, evaluated exactly once before either arm is chosen. The
+                // per-edge allow list accepts the Conditional.Condition edge (the arms
+                // stay rejected — see ConditionalSpanArmInConsumer_StaysFlat), so the
+                // collection raises (#3129 S4 follow-up #3281).
+                block.Add(new StoreLocal(2, Object,
+                    new Conditional(
+                        new Call(PredicateSpanMethod(), isVirtual: false, [span]),
+                        new LoadArgument(0, "a", Object),
+                        new LoadArgument(1, "b", Object))));
+                break;
+            case OrderingShape.SwitchExpressionValueSpan:
+                // local = IntFromSpan(span) switch { _ => 0 }: the span sits in the
+                // switch-expression scrutinee, evaluated exactly once. The allow list
+                // accepts the SwitchExpression.Value edge; the arms stay rejected.
+                block.Add(new StoreLocal(2, Int32,
+                    new SwitchExpression(
+                        new Call(IntFromSpanMethod(), isVirtual: false, [span]),
+                        [new SwitchExpressionArm([], isDefault: true, new Constant(0, Int32))])));
+                break;
+            case OrderingShape.UnionSwitchValueSpan:
+                // local = ObjectFromSpan(span) switch { T => v }: the span sits in the
+                // union-switch *scrutinee* (contrast UnionSwitchArmValue, where it sits
+                // in an arm value and stays flat). The scrutinee runs once, so the
+                // Value edge is accepted.
+                block.Add(new StoreLocal(2, Object,
+                    new UnionSwitchExpression(
+                        new Call(ObjectFromSpanMethod(), isVirtual: false, [span]),
+                        [new UnionSwitchExpressionArm(Object, null, new LoadArgument(0, "a", Object))])));
+                break;
+            case OrderingShape.PatternSwitchValueSpan:
+                // local = ObjectFromSpan(span) switch { T v => v, _ => d }: the span
+                // sits in the pattern-switch scrutinee, evaluated exactly once. The
+                // allow list accepts the PatternSwitchExpression.Value edge.
+                block.Add(new StoreLocal(2, Object,
+                    new PatternSwitchExpression(
+                        new Call(ObjectFromSpanMethod(), isVirtual: false, [span]),
+                        [new PatternSwitchExpressionArm(Object, null, null, new LoadArgument(1, "v", Object))],
+                        new LoadArgument(0, "d", Object))));
+                break;
+            case OrderingShape.TupleSwitchComponentSpan:
+                // local = (IntFromSpan(span), y) switch { _ => 0 }: the span sits in a
+                // tuple-switch governing *component*, each read once left to right
+                // before matching. The allow list accepts any component edge.
+                block.Add(new StoreLocal(2, Int32,
+                    new TupleSwitchExpression(
+                        [new Call(IntFromSpanMethod(), isVirtual: false, [span]), new LoadArgument(0, "y", Int32)],
+                        [new TupleSwitchExpressionArm([], [], new Constant(0, Int32))])));
+                break;
+            case OrderingShape.ForeachCollectionSpan:
+                // foreach (object o in EnumerableFromSpan(span)) { }: the source
+                // enumerable is obtained exactly once on entry (the body then repeats).
+                // The allow list accepts the ForeachStatement.Collection edge.
+                block.Add(new ForeachStatement(
+                    2,
+                    Object,
+                    new Call(EnumerableFromSpanMethod(), isVirtual: false, [span]),
+                    new Block()));
+                break;
+            case OrderingShape.ForInitializerSpan:
+                // for (int i = IntFromSpan(span); true; ) { }: the initializer runs
+                // exactly once on entry (condition/increment/body repeat). The allow
+                // list accepts only the ForLoop.Initializer edge.
+                block.Add(new ForLoop(
+                    new StoreLocal(2, Int32, new Call(IntFromSpanMethod(), isVirtual: false, [span])),
+                    new Constant(true, Bool),
+                    new Block(),
+                    new Block()));
+                break;
+            case OrderingShape.UsingResourceSpan:
+                // using (ObjectFromSpan(span)) { }: the resource is acquired exactly
+                // once on entry. The allow list accepts the UsingStatement.Resource edge.
+                block.Add(new UsingStatement(
+                    2,
+                    Object,
+                    new Call(ObjectFromSpanMethod(), isVirtual: false, [span]),
+                    new BlockContainer()));
+                break;
+            case OrderingShape.LockObjectSpan:
+                // lock (ObjectFromSpan(span)) { }: the lock object is evaluated exactly
+                // once on entry. The allow list accepts the Lock.LockObject edge.
+                block.Add(new ILInspector.Decompiler.Pipeline.Lock(
+                    new Call(ObjectFromSpanMethod(), isVirtual: false, [span]),
+                    new BlockContainer()));
+                break;
+            case OrderingShape.ForConditionSpan:
+                // for (int i = 0; Predicate(span); ) { }: the span sits in the for-loop
+                // *condition*, re-evaluated every iteration — the close negative of
+                // ForInitializerSpan. Only the Initializer edge is allow-listed, so the
+                // condition edge is rejected and the collection stays flat.
+                block.Add(new ForLoop(
+                    new StoreLocal(2, Int32, new Constant(0, Int32)),
+                    new Call(PredicateSpanMethod(), isVirtual: false, [span]),
+                    new Block(),
+                    new Block()));
+                break;
             case OrderingShape.ByValueBufferStoreAfterSpan:
                 // The canonical raising shape, then a by-value store that reuses the
                 // now-dead buffer slot (0) for a spellable value after the span is
@@ -972,6 +1127,27 @@ public class InlineArraySpilledElementTests
         => new(
             TypeRef.Definition("Synthetic", "", "Fx"),
             "MakeException",
+            Object,
+            [SpanObject],
+            HasThis: false);
+
+    // object ObjectFromSpan(ReadOnlySpan<object> span) — a reference-returning call
+    // used as a selection scrutinee / using resource / lock object. The pass checks
+    // only the structural run-once edge, never the value's runtime type.
+    static MethodRef ObjectFromSpanMethod()
+        => new(
+            TypeRef.Definition("Synthetic", "", "Fx"),
+            "ObjectFromSpan",
+            Object,
+            [SpanObject],
+            HasThis: false);
+
+    // object EnumerableFromSpan(ReadOnlySpan<object> span) — a reference-returning
+    // call used as a foreach source; the pass never type-checks enumerability.
+    static MethodRef EnumerableFromSpanMethod()
+        => new(
+            TypeRef.Definition("Synthetic", "", "Fx"),
+            "EnumerableFromSpan",
             Object,
             [SpanObject],
             HasThis: false);
