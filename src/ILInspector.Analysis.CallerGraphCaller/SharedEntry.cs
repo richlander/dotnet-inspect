@@ -7,6 +7,11 @@ namespace Shared
     {
         public static void Run() => Target.Api.Ping();
 
+        // Cross-assembly callee-chain fixture (#3266). A callee graph rooted here and scoped
+        // with the target assembly must expand RunOuter -> Run (same assembly) -> Target.Api.Ping
+        // (a package boundary), proving the forward map deepens a callee chain across assemblies.
+        public static void RunOuter() => Run();
+
         // Distinct callers of the int and string Ping overloads. A caller graph rooted at one
         // overload must report only its own caller; a CallerGraphKey that drops parameter
         // types would collapse these onto Ping and cross-link them (#1623 rung 1).

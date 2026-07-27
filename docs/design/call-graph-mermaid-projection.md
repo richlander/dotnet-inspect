@@ -89,6 +89,50 @@ The projection owns everything a host must not re-invent in JavaScript:
   they additionally entity-encode the structural delimiters (`()[]{}`) that would
   otherwise corrupt an edge label.
 
+## Progressive acquisition
+
+The projection needs `CallTreeNode` roots; how a host *acquires* them is a
+separate concern (issue #3266). `dotnet-inspect` owns a
+`ProgressiveMemberCallGraph` seam
+(`src/dotnet-inspect/Inspectors/ProgressiveMemberCallGraph.cs`) that serves one
+member's graph in three cumulative layers, cheapest first, so a host can paint
+the outbound half immediately and fill in the expensive tiers as they land:
+
+1. **`Callees`** — a scoped single-body build that decodes only the selected
+   member. The callee tree is bounded at depth 1 (immediate callees); there is
+   no caller tree yet.
+2. **`Callers`** — a full decode of the member's own assembly, adding the
+   intra-library caller tree and deepening the callee tree to the configured
+   depth. Expansion stops at the assembly edge.
+3. **`CrossLibrary`** — decodes the in-scope packages so *both* the caller tree
+   and the callee tree can cross a library boundary up to `depth`.
+
+The layer names name the tier that was unlocked, not a direction: at `depth > 1`
+the `CrossLibrary` layer lets a caller chain *and* a callee chain each cross a
+package boundary. The seam yields presentation-free `CallTreeNode` roots as a
+`MemberCallGraphView` (`Tier`, `CalleeRoot`, `CallerRoot`), so a host renders
+them with its own per-section tree rendering *or* projects them with
+`CallGraphMermaid.Render(CallerRoot, CalleeRoot)` — "with or without mermaid."
+
+**No duplicated work.** At most two target-assembly indexes are ever built — the
+scoped single-body build and the full build — plus one build per cross-library
+package, and each is built once and reused for callees, callers, and any Mermaid
+projection. The scoped build exists only for the progressive first paint: a
+consumer that wants the whole graph calls `Callers()` or `CrossLibrary()`
+directly and pays exactly one full build, with callees derived for free from it.
+Once the full build lands it supersedes the scoped one, which is never rebuilt.
+The `IndexBuildGuard`-collected seam tests assert these build counts through
+`MethodBodyInspectionSession.OpenCountForTests`.
+
+Drive it by pull (`Callees()` / `Callers()` / `CrossLibrary()`, or the lazy
+`Tiers()` stream) or by push (`RunAsync` raising `LayerReady` per layer then
+`Completed`). The push path is a thin wrapper over the same memoized pull core,
+so the two never double the work. The forward cross-library expansion is the
+callee mirror of `BuildCallerTree(scopes)`: `LibraryBodyIndex.BuildCallTree(token,
+calleeScopes, …)` builds a structural forward map keyed by the same erased
+identity the caller builder uses, tagging each boundary-crossing callee with its
+source assembly.
+
 ## Consumers
 
 The browser engine is handed this exact Mermaid document and only asks Mermaid
