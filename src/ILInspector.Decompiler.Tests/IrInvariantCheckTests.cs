@@ -72,10 +72,11 @@ public sealed class IrInvariantCheckTests
     }
 
     // ---- Semantic invariant: local-slot range (CheckInvariant(includeSemantics: true)) ----
-    // These pass includeSemantics:true DIRECTLY, never touching the global
-    // IrInvariants.CheckSemantics flag, so they stay hermetic under xUnit's
-    // parallel collections — flipping that static would false-positive the ~120
-    // minimal-fixture pass tests running concurrently.
+    // These pass includeSemantics:true DIRECTLY, never reading the global
+    // IrInvariants.CheckSemantics level, so they stay hermetic under xUnit's
+    // parallel collections — raising that level process-wide would false-positive
+    // the ~120 minimal-fixture pass tests running concurrently, which is why it
+    // has no setter and moves only via DOTNET_INSPECT_IR_INVARIANTS=full.
 
     [Fact]
     public void SemanticCheck_PassesWhenLocalSlotIsInRange()
