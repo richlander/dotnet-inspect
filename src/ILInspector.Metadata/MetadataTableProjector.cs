@@ -67,7 +67,10 @@ public static class MetadataTableProjector
         if (!peReader.HasMetadata)
             return new MetadataTableProjection(ImmutableArray<MetadataTableView>.Empty);
 
-        var reader = peReader.GetMetadataReader();
+        // MetadataReaderOptions.None keeps the projection raw: the default enables
+        // Windows-Runtime projection, which would replace real table/heap values
+        // with synthesized aliases and defeat structural losslessness.
+        var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
 
         var selected = options.Tables.IsDefaultOrEmpty
             ? (IReadOnlyCollection<TableIndex>?)null
@@ -101,8 +104,21 @@ public static class MetadataTableProjector
         for (int rid = 1; rid <= limit; rid++)
         {
             int token = ((int)spec.Index << 24) | rid;
-            var cells = spec.ReadRow(reader, rid, options);
-            rows.Add(new MetadataRow(rid, token, cells));
+
+            // A single malformed row must not abort the whole projection: contain
+            // SRM's rejection as a typed Malformed row aligned to the columns.
+            try
+            {
+                rows.Add(new MetadataRow(rid, token, spec.ReadRow(reader, rid, options)));
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or ArgumentException or InvalidOperationException)
+            {
+                var malformed = ImmutableArray.CreateBuilder<MetadataValue>(spec.Columns.Length);
+                for (int column = 0; column < spec.Columns.Length; column++)
+                    malformed.Add(new MetadataValue.Malformed($"Row read failed: {ex.Message}"));
+
+                rows.Add(new MetadataRow(rid, token, malformed.MoveToImmutable()));
+            }
         }
 
         var truncation = limit < rowCount ? new MetadataTableTruncation(limit, rowCount) : null;
@@ -196,7 +212,7 @@ public static class MetadataTableProjector
         return
         [
             new MetadataValue.Scalar(module.Generation, module.Generation.ToString()),
-            StringCell(reader, module.Name),
+            StringCell(reader, module.Name, options),
             GuidCell(reader, module.Mvid),
             GuidCell(reader, module.GenerationId),
             GuidCell(reader, module.BaseGenerationId),
@@ -209,8 +225,8 @@ public static class MetadataTableProjector
         return
         [
             HandleCell(reader, typeRef.ResolutionScope),
-            StringCell(reader, typeRef.Name),
-            StringCell(reader, typeRef.Namespace),
+            StringCell(reader, typeRef.Name, options),
+            StringCell(reader, typeRef.Namespace, options),
         ];
     }
 
@@ -221,8 +237,8 @@ public static class MetadataTableProjector
         return
         [
             FlagsCell((long)typeDef.Attributes, typeDef.Attributes.ToString()),
-            StringCell(reader, typeDef.Name),
-            StringCell(reader, typeDef.Namespace),
+            StringCell(reader, typeDef.Name, options),
+            StringCell(reader, typeDef.Namespace, options),
             HandleCell(reader, typeDef.BaseType),
             RangeCell(TableIndex.Field, typeDef.GetFields()),
             RangeCell(TableIndex.MethodDef, typeDef.GetMethods()),
@@ -235,7 +251,7 @@ public static class MetadataTableProjector
         return
         [
             FlagsCell((long)field.Attributes, field.Attributes.ToString()),
-            StringCell(reader, field.Name),
+            StringCell(reader, field.Name, options),
             BlobCell(reader, field.Signature, options),
         ];
     }
@@ -248,7 +264,7 @@ public static class MetadataTableProjector
             new MetadataValue.Scalar(method.RelativeVirtualAddress, $"0x{method.RelativeVirtualAddress:X8}"),
             FlagsCell((long)method.ImplAttributes, method.ImplAttributes.ToString()),
             FlagsCell((long)method.Attributes, method.Attributes.ToString()),
-            StringCell(reader, method.Name),
+            StringCell(reader, method.Name, options),
             BlobCell(reader, method.Signature, options),
             RangeCell(TableIndex.Param, method.GetParameters()),
         ];
@@ -261,7 +277,7 @@ public static class MetadataTableProjector
         [
             FlagsCell((long)param.Attributes, param.Attributes.ToString()),
             new MetadataValue.Scalar(param.SequenceNumber, param.SequenceNumber.ToString()),
-            StringCell(reader, param.Name),
+            StringCell(reader, param.Name, options),
         ];
     }
 
@@ -271,7 +287,7 @@ public static class MetadataTableProjector
         return
         [
             HandleCell(reader, memberRef.Parent),
-            StringCell(reader, memberRef.Name),
+            StringCell(reader, memberRef.Name, options),
             BlobCell(reader, memberRef.Signature, options),
         ];
     }
@@ -299,15 +315,15 @@ public static class MetadataTableProjector
             new MetadataValue.Scalar(version.Revision, version.Revision.ToString()),
             FlagsCell((long)assemblyRef.Flags, assemblyRef.Flags.ToString()),
             BlobCell(reader, assemblyRef.PublicKeyOrToken, options),
-            StringCell(reader, assemblyRef.Name),
-            StringCell(reader, assemblyRef.Culture),
+            StringCell(reader, assemblyRef.Name, options),
+            StringCell(reader, assemblyRef.Culture, options),
             BlobCell(reader, assemblyRef.HashValue, options),
         ];
     }
 
     // ---- Cell builders ----------------------------------------------------
 
-    static MetadataValue StringCell(MetadataReader reader, StringHandle handle)
+    static MetadataValue StringCell(MetadataReader reader, StringHandle handle, MetadataProjectionOptions options)
     {
         if (handle.IsNil)
             return new MetadataValue.Nil();
@@ -315,8 +331,9 @@ public static class MetadataTableProjector
         try
         {
             string raw = reader.GetString(handle);
-            string text = ILStringEscaper.ForDisplay(raw);
-            return new MetadataValue.HeapReference(HeapKind.String, HeapOffset(handle), raw.Length, text, text);
+            string text = EscapeText(raw, options.MaxStringChars, out bool truncated);
+            return new MetadataValue.HeapReference(
+                HeapKind.String, HeapOffset(handle), raw.Length, text, text, truncated);
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
@@ -332,7 +349,8 @@ public static class MetadataTableProjector
         try
         {
             string text = reader.GetGuid(handle).ToString();
-            return new MetadataValue.HeapReference(HeapKind.Guid, HeapOffset(handle), 16, text, text);
+            return new MetadataValue.HeapReference(
+                HeapKind.Guid, HeapOffset(handle), 16, text, text, Truncated: false);
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
@@ -352,10 +370,9 @@ public static class MetadataTableProjector
             int take = Math.Min(length, Math.Max(0, options.MaxPreviewBytes));
             byte[] bytes = blobReader.ReadBytes(take);
             string preview = Convert.ToHexString(bytes);
-            if (take < length)
-                preview += "\u2026";
 
-            return new MetadataValue.HeapReference(HeapKind.Blob, HeapOffset(handle), length, Text: null, preview);
+            return new MetadataValue.HeapReference(
+                HeapKind.Blob, HeapOffset(handle), length, Text: null, preview, Truncated: take < length);
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
@@ -411,7 +428,18 @@ public static class MetadataTableProjector
 
             int rid = MetadataTokens.GetRowNumber(handle);
             int token = MetadataTokens.GetToken(handle);
+
+            // A coded index can decode to a row that does not exist in the target
+            // table; a dangling edge is a visible failure, not a resolvable handle.
+            int targetRows = reader.GetTableRowCount(table);
+            if (rid < 1 || rid > targetRows)
+                return new MetadataValue.Malformed(
+                    $"Handle 0x{token:X8} targets {table} row {rid}, outside [1, {targetRows}].");
+
             string? display = ResolveHandleDisplay(reader, handle);
+            if (display is not null)
+                display = NeutralizeControls(display);
+
             return new MetadataValue.Handle(new HandleRef(table, rid, token, display));
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
@@ -502,15 +530,13 @@ public static class MetadataTableProjector
                     return text.StartsWith("0x", StringComparison.Ordinal) ? null : text;
 
                 case HandleKind.AssemblyReference:
-                    return ILStringEscaper.ForDisplay(
-                        reader.GetString(reader.GetAssemblyReference((AssemblyReferenceHandle)handle).Name));
+                    return reader.GetString(reader.GetAssemblyReference((AssemblyReferenceHandle)handle).Name);
 
                 case HandleKind.ModuleReference:
-                    return ILStringEscaper.ForDisplay(
-                        reader.GetString(reader.GetModuleReference((ModuleReferenceHandle)handle).Name));
+                    return reader.GetString(reader.GetModuleReference((ModuleReferenceHandle)handle).Name);
 
                 case HandleKind.ModuleDefinition:
-                    return ILStringEscaper.ForDisplay(reader.GetString(reader.GetModuleDefinition().Name));
+                    return reader.GetString(reader.GetModuleDefinition().Name);
 
                 default:
                     return null;
@@ -524,6 +550,78 @@ public static class MetadataTableProjector
 
     static MetadataValue FlagsCell(long raw, string decoded)
         => new MetadataValue.Flags(raw, decoded);
+
+    /// <summary>
+    /// Escapes a decoded heap string for use as data and bounds it to
+    /// <paramref name="maxChars"/> characters. Backslash and quote are escaped,
+    /// and every control character (including ESC) is rendered as <c>\uXXXX</c>
+    /// so the value cannot inject terminal control sequences or break structured
+    /// output. <paramref name="truncated"/> reports whether the bound was hit.
+    /// </summary>
+    static string EscapeText(string value, int maxChars, out bool truncated)
+    {
+        int limit = Math.Max(0, maxChars);
+        truncated = value.Length > limit;
+        int take = truncated ? limit : value.Length;
+
+        var builder = new System.Text.StringBuilder(take);
+        for (int i = 0; i < take; i++)
+        {
+            char c = value[i];
+            switch (c)
+            {
+                case '\\': builder.Append("\\\\"); break;
+                case '"': builder.Append("\\\""); break;
+                case '\n': builder.Append("\\n"); break;
+                case '\r': builder.Append("\\r"); break;
+                case '\t': builder.Append("\\t"); break;
+                default:
+                    if (IsControl(c))
+                        builder.Append("\\u").Append(((int)c).ToString("X4"));
+                    else
+                        builder.Append(c);
+                    break;
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    /// <summary>
+    /// Renders every control character in a display string as <c>\uXXXX</c>,
+    /// leaving all other characters (including the structural <c>::</c>, quotes,
+    /// and generic-arity marks in resolved names) intact.
+    /// </summary>
+    static string NeutralizeControls(string value)
+    {
+        bool needsEscape = false;
+        foreach (char c in value)
+        {
+            if (IsControl(c))
+            {
+                needsEscape = true;
+                break;
+            }
+        }
+
+        if (!needsEscape)
+            return value;
+
+        var builder = new System.Text.StringBuilder(value.Length + 8);
+        foreach (char c in value)
+        {
+            if (IsControl(c))
+                builder.Append("\\u").Append(((int)c).ToString("X4"));
+            else
+                builder.Append(c);
+        }
+
+        return builder.ToString();
+    }
+
+    // C0 controls, DEL, and the C1 control range — none of which are safe to
+    // emit verbatim into a terminal or a structured record.
+    static bool IsControl(char c) => c < ' ' || c == '\x7f' || (c >= '\x80' && c <= '\x9f');
 
     readonly record struct TableSpec(
         TableIndex Index,

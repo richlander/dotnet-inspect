@@ -171,15 +171,20 @@ public abstract record MetadataValue
 
     /// <summary>
     /// A reference into a metadata heap. <see cref="Text"/> is the decoded,
-    /// display-escaped string for the String/UserString/Guid heaps; it is null
-    /// for the Blob heap, whose <see cref="Preview"/> carries a bounded hex dump.
+    /// control-escaped string for the String/Guid heaps (safe to render as data:
+    /// terminal control sequences are neutralized); it is null for the Blob heap,
+    /// whose <see cref="Preview"/> carries a bounded hex dump. <see cref="Length"/>
+    /// is the full decoded size; <see cref="Truncated"/> is true when the bounded
+    /// preview stopped short of it, so a preview is never mistaken for the whole
+    /// value. The complete heap value remains addressable via <see cref="Offset"/>.
     /// </summary>
     public sealed record HeapReference(
         HeapKind Heap,
         int Offset,
         int Length,
         string? Text,
-        string Preview) : MetadataValue;
+        string Preview,
+        bool Truncated) : MetadataValue;
 
     /// <summary>A single resolvable index into another table.</summary>
     public sealed record Handle(HandleRef Reference) : MetadataValue;
@@ -290,11 +295,21 @@ public sealed record MetadataProjectionOptions
     /// <summary>The default bounded blob preview length, in bytes.</summary>
     public const int DefaultMaxPreviewBytes = 32;
 
+    /// <summary>The default bounded string/name preview length, in characters.</summary>
+    public const int DefaultMaxStringChars = 1024;
+
     /// <summary>The maximum number of rows projected per table before truncation.</summary>
     public int MaxRowsPerTable { get; init; } = DefaultMaxRowsPerTable;
 
     /// <summary>The maximum number of blob bytes captured in a bounded preview.</summary>
     public int MaxPreviewBytes { get; init; } = DefaultMaxPreviewBytes;
+
+    /// <summary>
+    /// The maximum number of characters retained from a decoded string/name
+    /// value. A longer value is projected as a bounded preview with
+    /// <see cref="HeapReference.Truncated"/> set, bounding output amplification.
+    /// </summary>
+    public int MaxStringChars { get; init; } = DefaultMaxStringChars;
 
     /// <summary>
     /// When non-default, restricts projection to these tables. Default projects

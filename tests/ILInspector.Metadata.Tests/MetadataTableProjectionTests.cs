@@ -170,6 +170,50 @@ public class MetadataTableProjectionTests
     }
 
     [Fact]
+    public void StringBudget_ProjectsBoundedPreviewWithExplicitTruncation()
+    {
+        var projection = Project(new MetadataProjectionOptions { MaxStringChars = 1 });
+
+        var truncated = projection.Tables
+            .SelectMany(table => table.Rows)
+            .SelectMany(row => row.Cells)
+            .OfType<MetadataValue.HeapReference>()
+            .Where(heap => heap.Heap == HeapKind.String && heap.Truncated)
+            .ToList();
+
+        Assert.NotEmpty(truncated);
+        Assert.All(truncated, heap =>
+        {
+            // Length reports the full decoded size; the retained preview is bounded.
+            Assert.True(heap.Length > 1);
+            Assert.False(string.IsNullOrEmpty(heap.Text));
+        });
+    }
+
+    [Fact]
+    public void BlobBudget_ProjectsBoundedHexPreviewWithExplicitTruncation()
+    {
+        var methodDef = Table(
+            Project(new MetadataProjectionOptions { MaxPreviewBytes = 2 }),
+            TableIndex.MethodDef);
+
+        var truncated = methodDef.Rows
+            .Select(row => Cell(methodDef, row, "Signature"))
+            .OfType<MetadataValue.HeapReference>()
+            .Where(heap => heap.Truncated)
+            .ToList();
+
+        Assert.NotEmpty(truncated);
+        Assert.All(truncated, heap =>
+        {
+            Assert.Equal(HeapKind.Blob, heap.Heap);
+            Assert.Null(heap.Text);
+            Assert.Equal(4, heap.Preview.Length); // two bytes -> four hex chars
+            Assert.True(heap.Length > 2);
+        });
+    }
+
+    [Fact]
     public void EmptyImage_HasNoMetadataTables()
     {
         // The projector never fabricates a success-shaped table set; a metadata
