@@ -191,7 +191,7 @@ public class InlineArraySpilledElementTests
     {
         // The span is the right operand of `local ??= span`, evaluated only when the
         // target is null. `NullCoalescingAssignment` is one of the conditional IR
-        // nodes an enumerated blacklist missed; the sound-by-default whitelist leaves
+        // nodes an enumerated deny list missed; the sound-by-default allow list leaves
         // it flat because the node is not a recognized unconditional container.
         var function = BuildOrderingCollection(OrderingShape.NullCoalescingAssignmentValue);
 
@@ -207,7 +207,7 @@ public class InlineArraySpilledElementTests
     {
         // The span is a union-switch-expression arm value, evaluated only when its arm
         // matches. `UnionSwitchExpressionArm` does not derive from `SwitchExpressionArm`,
-        // so a blacklist keyed on the base arm type missed it; the whitelist rejects any
+        // so a deny list keyed on the base arm type missed it; the allow list rejects any
         // parent it does not explicitly recognize as unconditional, so it stays flat.
         var function = BuildOrderingCollection(OrderingShape.UnionSwitchArmValue);
 
@@ -223,7 +223,7 @@ public class InlineArraySpilledElementTests
     {
         // The span is a while-loop condition: evaluated unconditionally but once per
         // iteration. Lifting the element stores into it would call each element
-        // function once per loop test instead of once. The whitelist rejects the
+        // function once per loop test instead of once. The allow list rejects the
         // WhileLoop condition edge (not a once-through container), so it stays flat —
         // covering the exactly-once axis, not just definite evaluation.
         var function = BuildOrderingCollection(OrderingShape.WhileConditionSpan);
@@ -240,7 +240,7 @@ public class InlineArraySpilledElementTests
     {
         // The span-consuming call is the left operand of `IntFromSpan(span) + 1` — a
         // non-short-circuiting Binary that evaluates it exactly once, unconditionally.
-        // The whitelist recognizes Binary, so the fidelity a Call-only whitelist would
+        // The allow list recognizes Binary, so the fidelity a Call-only allow list would
         // lose is recovered: the collection still raises.
         var function = BuildOrderingCollection(OrderingShape.BinaryOperandSpan);
 
@@ -259,7 +259,7 @@ public class InlineArraySpilledElementTests
     {
         // The span sits in a forward `if (Predicate(span))` condition — evaluated
         // exactly once when the statement is reached (this pass runs after loop
-        // structuring, so an if-statement is never a back edge). The per-edge whitelist
+        // structuring, so an if-statement is never a back edge). The per-edge allow list
         // accepts the condition edge, so the collection raises.
         var function = BuildOrderingCollection(OrderingShape.IfConditionSpan);
 
@@ -277,7 +277,7 @@ public class InlineArraySpilledElementTests
     public void SwitchValueSpanConsumer_RaisesToCollectionExpression()
     {
         // The span sits in a forward `switch (IntFromSpan(span))` scrutinee —
-        // evaluated exactly once. The per-edge whitelist accepts the Switch value edge
+        // evaluated exactly once. The per-edge allow list accepts the Switch value edge
         // (the sections are the conditional parts), so the collection raises.
         var function = BuildOrderingCollection(OrderingShape.SwitchValueSpan);
 
@@ -295,7 +295,7 @@ public class InlineArraySpilledElementTests
     public void ThrowValueSpanConsumer_RaisesToCollectionExpression()
     {
         // The span-consuming call is the `throw MakeException(span)` value — evaluated
-        // exactly once, unconditionally. The whitelist recognizes Throw, so the
+        // exactly once, unconditionally. The allow list recognizes Throw, so the
         // collection raises (matching the vetted peer StackAllocSpanPass consumer set).
         var function = BuildOrderingCollection(OrderingShape.ThrowValueSpan);
 
@@ -406,15 +406,15 @@ public class InlineArraySpilledElementTests
             case OrderingShape.NullCoalescingAssignmentValue:
                 // local ??= span: the span is the ??= right operand, evaluated only
                 // when the target is null. NothingEffectfulBefore passes (the span is
-                // the only child), so only the definite-evaluation whitelist rejects
+                // the only child), so only the definite-evaluation allow list rejects
                 // this — the missed conditional node from adversarial review.
                 block.Add(new NullCoalescingAssignment(1, SpanObject, span));
                 break;
             case OrderingShape.UnionSwitchArmValue:
                 // local = scrutinee switch { Case => span, ... }: the span is a switch
                 // arm value, evaluated only when its arm matches. A union-switch arm is
-                // a distinct IR node from SwitchExpressionArm, so the whitelist (not an
-                // enumerated blacklist) must still reject it.
+                // a distinct IR node from SwitchExpressionArm, so the allow list (not an
+                // enumerated deny list) must still reject it.
                 block.Add(new StoreLocal(1, SpanObject,
                     new UnionSwitchExpression(
                         new LoadArgument(0, "arg", Object),
@@ -424,7 +424,7 @@ public class InlineArraySpilledElementTests
                 // while (Predicate(span)) { }: the span is unconditionally evaluated
                 // but re-evaluated on every loop iteration. Definite evaluation alone
                 // is not enough — the span must also be evaluated exactly once, so the
-                // whitelist rejects a WhileLoop condition edge (it is not a recognized
+                // allow list rejects a WhileLoop condition edge (it is not a recognized
                 // once-through container), leaving the collection flat.
                 block.Add(new WhileLoop(
                     new Call(PredicateSpanMethod(), isVirtual: false, [span]),
@@ -433,8 +433,8 @@ public class InlineArraySpilledElementTests
             case OrderingShape.BinaryOperandSpan:
                 // local = IntFromSpan(span) + 1: the span-consuming call is the left
                 // operand of a non-short-circuiting Binary, evaluated exactly once and
-                // unconditionally. The whitelist recognizes Binary, so the collection
-                // still raises (recovering fidelity a Call-only whitelist would lose).
+                // unconditionally. The allow list recognizes Binary, so the collection
+                // still raises (recovering fidelity a Call-only allow list would lose).
                 block.Add(new StoreLocal(2, Int32,
                     new Binary(
                         BinaryKind.Add,
@@ -446,7 +446,7 @@ public class InlineArraySpilledElementTests
             case OrderingShape.IfConditionSpan:
                 // if (Predicate(span)) { }: the span sits in a forward if-statement
                 // condition, evaluated exactly once when the statement is reached. The
-                // per-edge whitelist accepts the condition edge, so the collection raises.
+                // per-edge allow list accepts the condition edge, so the collection raises.
                 block.Add(new IfStatement(
                     new Call(PredicateSpanMethod(), isVirtual: false, [span]),
                     new Block(),
@@ -454,7 +454,7 @@ public class InlineArraySpilledElementTests
                 break;
             case OrderingShape.SwitchValueSpan:
                 // switch (IntFromSpan(span)) { }: the span sits in a forward switch
-                // scrutinee, evaluated exactly once. The per-edge whitelist accepts the
+                // scrutinee, evaluated exactly once. The per-edge allow list accepts the
                 // Switch value edge, so the collection raises.
                 block.Add(new Switch(
                     new Call(IntFromSpanMethod(), isVirtual: false, [span]),
@@ -462,7 +462,7 @@ public class InlineArraySpilledElementTests
                 break;
             case OrderingShape.ThrowValueSpan:
                 // throw MakeException(span): the span-consuming call is the throw value,
-                // evaluated exactly once and unconditionally. The whitelist recognizes
+                // evaluated exactly once and unconditionally. The allow list recognizes
                 // Throw, so the collection raises.
                 block.Add(new Throw(
                     new Call(ThrowableFromSpanMethod(), isVirtual: false, [span])));

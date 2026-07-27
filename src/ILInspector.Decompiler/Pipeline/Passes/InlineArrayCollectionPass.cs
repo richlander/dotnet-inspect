@@ -882,7 +882,7 @@ public sealed class InlineArrayCollectionPass : IIrPass
         // null-conditional member, a lambda body) would drop their side effects on
         // the skipped paths, and into a repeatedly evaluated position (a loop
         // condition) would run them more than once. Both are rejected by the
-        // sound-by-default whitelist in SpanUnconditionallyEvaluated.
+        // sound-by-default allow list in SpanUnconditionallyEvaluated.
         return NothingEffectfulBefore(consumer, span)
             && SpanUnconditionallyEvaluated(consumer, span);
     }
@@ -911,7 +911,7 @@ public sealed class InlineArrayCollectionPass : IIrPass
     /// Whether <paramref name="span"/> is evaluated on every path through the
     /// <paramref name="consumer"/> statement: every edge on the parent chain from
     /// the span up to the consumer must be an unconditionally evaluated one per the
-    /// sound-by-default whitelist in <see cref="EvaluatesChildUnconditionally"/>.
+    /// sound-by-default allow list in <see cref="EvaluatesChildUnconditionally"/>.
     /// The element values are unconditional statements before the consumer, so
     /// lifting them into a conditionally evaluated position (a ternary arm, a
     /// short-circuit <c>&amp;&amp;</c>/<c>||</c> or <c>??</c> right operand, a
@@ -938,9 +938,9 @@ public sealed class InlineArrayCollectionPass : IIrPass
     /// once, unconditionally, on every path <paramref name="parent"/> is itself
     /// evaluated on.
     ///
-    /// <para>Sound by default: this is a <b>whitelist</b> of the container nodes that
-    /// evaluate a given child exactly once, unconditionally, mirroring the whitelist
-    /// walk in <see cref="StackAllocSpanPass"/>. A blacklist of the known
+    /// <para>Sound by default: this is an <b>allow list</b> of the container nodes that
+    /// evaluate a given child exactly once, unconditionally, mirroring the allow-list
+    /// walk in <see cref="StackAllocSpanPass"/>. A deny list of the known
     /// short-circuiting / repeating nodes would be unsound: any conditional or
     /// repeatedly evaluated node not enumerated — and any such node added to the IR
     /// later — would silently fall through as "unconditional" and let the element
@@ -949,7 +949,7 @@ public sealed class InlineArrayCollectionPass : IIrPass
     /// (the collection is left flat) while a missed conditional/repeated shape emits
     /// confidently-wrong C#, the default is <c>false</c>.</para>
     ///
-    /// <para>Two families are whitelisted. First, the container / operator nodes that
+    /// <para>Two families are allow-listed. First, the container / operator nodes that
     /// evaluate every child exactly once, left to right: the statement and store
     /// wrappers, call/constructor argument lists (C# never short-circuits an argument
     /// list), pass-through conversions, and the non-short-circuiting operator
@@ -976,7 +976,7 @@ public sealed class InlineArrayCollectionPass : IIrPass
     /// <see cref="IfStatement"/>/<see cref="Switch"/> after loop structuring.
     /// Short-circuit, coalesce, ternary, switch-expression arm, null-conditional
     /// member, <c>??=</c> right operand, <c>with</c> initializer, and lambda bodies
-    /// are likewise not whitelisted.</para>
+    /// are likewise not allow-listed.</para>
     /// </summary>
     static bool EvaluatesChildUnconditionally(IrNode parent, IrNode child) => parent switch
     {
@@ -987,7 +987,7 @@ public sealed class InlineArrayCollectionPass : IIrPass
         // Call/constructor arguments and the receiver are all evaluated
         // unconditionally, left to right — C# has no short-circuiting in an
         // argument list; short-circuiting lives only in the dedicated expression
-        // nodes, none of which are whitelisted here.
+        // nodes, none of which are allow-listed here.
         Call or CallIndirect or NewObject => true,
         // A conversion / box wrapping the span passes it through unconditionally.
         Convert or Coerce or CastClass or Box or Unbox or UnboxAny
