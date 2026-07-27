@@ -238,7 +238,7 @@ public static class OutputFormatter
             markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
             if (options.IncludeSections is { Count: > 1 })
             {
-                var ordered = pipeline.AllSectionNames.Where(options.IncludeSections.Contains).ToList();
+                var ordered = pipeline.AlphabeticalSectionOrder.Where(options.IncludeSections.Contains).ToList();
                 CountOutput.WriteCountMapFromMarkdown(markdown, ordered);
             }
             else
@@ -340,7 +340,7 @@ public static class OutputFormatter
             markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
             if (options.IncludeSections is { Count: > 1 })
             {
-                var ordered = pipeline.AllSectionNames.Where(options.IncludeSections.Contains).ToList();
+                var ordered = pipeline.AlphabeticalSectionOrder.Where(options.IncludeSections.Contains).ToList();
                 CountOutput.WriteCountMapFromMarkdown(markdown, ordered);
             }
             else

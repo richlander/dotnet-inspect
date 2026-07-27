@@ -8081,6 +8081,29 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_CountMap_RendersSectionsAlphabetically()
+    {
+        // The --count section map must follow the same single alphabetical order as the rendered
+        // sections; it previously used registration order via AllSectionNames.
+        var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "--count", "-S", "@Performance");
+
+        Assert.Equal(0, exit);
+
+        var sections = output
+            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+            .Where(line => line.StartsWith("| ", StringComparison.Ordinal)
+                && !line.StartsWith("| Section ", StringComparison.Ordinal)
+                && !line.StartsWith("| ---", StringComparison.Ordinal))
+            .Select(line => line.Split('|')[1].Trim())
+            .ToArray();
+
+        Assert.NotEmpty(sections);
+        Assert.Equal(
+            sections.OrderBy(s => s, StringComparer.OrdinalIgnoreCase).ToArray(),
+            sections);
+    }
+
+    [Fact]
     public async Task Assembly_Signals_LocalUnsafeAssembly_FocusesOnNewMemorySafetyModel()
     {
         var options = new LibraryOptions
