@@ -106,5 +106,14 @@ public sealed class AssemblyInspectionSession : IDisposable
     public PresenceFlags PresenceFlags()
         => AssemblyDetailScanner.ScanPresenceFlags(_image.PEReader);
 
+    /// <summary>
+    /// A raw ECMA-335 metadata-table projection (see
+    /// <c>docs/design/metadata-table-projection.md</c>). Structurally lossless
+    /// over SRM's logical table/heap graph and a sibling of the typed facets
+    /// above, never derived from them.
+    /// </summary>
+    public MetadataTableProjection MetadataTables(MetadataProjectionOptions? options = null)
+        => MetadataTableProjector.Project(_image.PEReader, options);
+
     public void Dispose() => _image.Dispose();
 }
