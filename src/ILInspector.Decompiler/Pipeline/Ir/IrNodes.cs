@@ -354,39 +354,72 @@ public sealed class IrFunction : IrNode
     /// Records that slot <paramref name="index"/> is dead — a raising pass consumed
     /// its last reference, so it renders nowhere and its (often unspellable) type
     /// must not degrade method fidelity. Deadness is <em>verified, not trusted</em>:
-    /// the slot is marked only when no node in this function's own scope still binds
-    /// or reads it (see <see cref="NodeBindsLocalSlot"/>). A caller's reference tally
-    /// can miss a node kind — a by-value store, a <c>??=</c> target, or a
-    /// <c>foreach</c> variable the raise never inspects — or a local-referencing node
-    /// added to the IR later; marking such a still-live slot would drop its type from
-    /// the fidelity view and report a false Full over output that still names the
-    /// local. The verification walks <see cref="GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions"/>,
-    /// so a same-numbered slot inside a nested lambda / local function — an unrelated
-    /// variable in that scope's separate local pool — never blocks the elimination.
-    /// When any reference survives this no-ops, leaving the slot counted so fidelity
-    /// stays honestly Partial. See <see cref="EliminatedLocalSlots"/> (#3221, #3295).
+    /// the slot is marked only when no node still binds or reads it (see
+    /// <see cref="NodeBindsLocalSlot"/>). A caller's reference tally can miss a node
+    /// kind — a by-value store, a <c>??=</c> target, or a <c>foreach</c> variable the
+    /// raise never inspects — or a local-referencing node added to the IR later;
+    /// marking such a still-live slot would drop its type from the fidelity view and
+    /// report a false Full over output that still names the local. The walk descends
+    /// into shared-scope nested lambdas and local functions — those that own no locals
+    /// and touch no stack slot, so their bodies address this function's own local pool
+    /// — but stops at a nested function that owns its pool, whose same-numbered slot is
+    /// an unrelated variable (see <see cref="LocalSlotReferencedInScope"/>). When any
+    /// reference survives this no-ops, leaving the slot counted so fidelity stays
+    /// honestly Partial. See <see cref="EliminatedLocalSlots"/> (#3221, #3295).
     /// </summary>
     public void MarkLocalEliminated(int index)
     {
         if (index < 0 || index >= Locals.Length)
             throw new ArgumentOutOfRangeException(nameof(index));
-        foreach (var node in GenericDeclarationPatternProof.DescendantsOutsideNestedFunctions(this))
+        if (!LocalSlotReferencedInScope(this, index))
+            _eliminatedLocalSlots = _eliminatedLocalSlots.Add(index);
+    }
+
+    /// <summary>
+    /// Whether local slot <paramref name="index"/> is bound or read by
+    /// <paramref name="node"/> or any descendant that addresses the same local pool.
+    /// Mirrors <c>CSharpPrinter.ReferencesLocalIncludingSharedNestedScopes</c>: it
+    /// descends through shared-scope nested functions (which reuse the enclosing pool)
+    /// but not through ones that own their own locals or stack slots, whose indices are
+    /// a separate pool — reusing the printer's <c>NeedsNestedLambdaScope</c> /
+    /// <c>NeedsNestedLocalFunctionScope</c> discriminators so the two never diverge.
+    /// </summary>
+    static bool LocalSlotReferencedInScope(IrNode node, int index)
+    {
+        if (node is Lambda ownScopeLambda && CSharpPrinter.NeedsNestedLambdaScope(ownScopeLambda))
+            return false;
+        if (node is LocalFunctionStatement ownScopeLocalFunction && CSharpPrinter.NeedsNestedLocalFunctionScope(ownScopeLocalFunction))
+            return false;
+        if (NodeBindsLocalSlot(node, index))
+            return true;
+        foreach (var child in node.Children)
         {
-            if (NodeBindsLocalSlot(node, index))
-                return;
+            if (child is Lambda lambda && CSharpPrinter.NeedsNestedLambdaScope(lambda))
+                continue;
+            if (child is LocalFunctionStatement localFunction && CSharpPrinter.NeedsNestedLocalFunctionScope(localFunction))
+                continue;
+            if (LocalSlotReferencedInScope(child, index))
+                return true;
         }
-        _eliminatedLocalSlots = _eliminatedLocalSlots.Add(index);
+        return false;
     }
 
     /// <summary>
     /// Whether <paramref name="node"/> binds or reads local slot
     /// <paramref name="index"/> directly, so the C# view would render the slot's
-    /// (possibly unspellable) type. Kept a superset of the local references
-    /// <see cref="CSharpPrinter"/> collects when deciding which locals to declare:
-    /// under-counting here marks a still-rendered slot eliminated and reports a false
-    /// Full, so any new node kind that carries a local index must be added here.
-    /// Argument (<c>ldarg</c>) and stack-slot indices live in separate pools and are
-    /// intentionally excluded.
+    /// (possibly unspellable) type. This mirrors every local-slot source
+    /// <see cref="CSharpPrinter"/> collects when deciding which locals to declare —
+    /// the up-front load/store references plus the header- and pattern-declared kinds
+    /// (<c>using</c> / <c>fixed</c> / <c>foreach</c>, <c>is</c>-patterns, switch-expression
+    /// arm patterns, deconstruction, and catch clauses). Under-counting here marks a
+    /// still-rendered slot eliminated and reports a false Full, so any new node kind
+    /// that carries a local index must be added here; the
+    /// <c>MarkLocalEliminated_CoversEveryLocalSlotBindingNodeKind</c> guard test fails
+    /// when a <c>LocalIndex</c>/<c>LocalIndices</c>/<c>VariableIndex</c> carrier is
+    /// added to the IR without being accounted for here. Argument (<c>ldarg</c>) and
+    /// stack-slot indices live in separate pools and are intentionally excluded — a
+    /// <c>fixed</c> over a stack slot names a stack-slot index, not a local, so it is
+    /// matched only when it binds a metadata local.
     /// </summary>
     static bool NodeBindsLocalSlot(IrNode node, int index) => node switch
     {
@@ -396,9 +429,12 @@ public sealed class IrFunction : IrNode
         NullCoalescingAssignment nullCoalescing => nullCoalescing.LocalIndex == index,
         ForeachStatement foreachStatement => foreachStatement.LocalIndex == index,
         UsingStatement usingStatement => usingStatement.LocalIndex == index,
-        Fixed fixedStatement => fixedStatement.LocalIndex == index,
+        Fixed fixedStatement => !fixedStatement.LocalIsStackSlot && fixedStatement.LocalIndex == index,
         IsPattern isPattern => isPattern.LocalIndex == index,
         RecursivePropertyDeclarationPattern recursiveProperty => recursiveProperty.LocalIndex == index,
+        UnionSwitchExpressionArm unionArm => unionArm.LocalIndex == index,
+        PatternSwitchExpressionArm patternArm =>
+            patternArm.LocalIndex == index || patternArm.Subpattern?.LocalIndex == index,
         CatchClause catchClause => catchClause.VariableIndex == index,
         DeconstructionAssignment deconstruction => deconstruction.LocalIndices.Contains(index),
         _ => false,

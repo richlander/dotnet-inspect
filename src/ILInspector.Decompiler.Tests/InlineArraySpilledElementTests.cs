@@ -1,3 +1,4 @@
+using System.Reflection;
 using ILInspector.Decompiler.Pipeline;
 
 namespace ILInspector.Decompiler.Tests;
@@ -454,6 +455,126 @@ public class InlineArraySpilledElementTests
         // slot 0 alive. The old whole-tree walk saw it and refused to mark, a false
         // Partial on ordinary code.
         Assert.Contains(0, function.EliminatedLocalSlots);
+    }
+
+    [Fact]
+    public void MarkLocalEliminated_RefusesWhenSlotBoundBySwitchExpressionArmPattern()
+    {
+        // A switch-expression arm binds the buffer slot (0) as its pattern variable.
+        // The printer declares such pattern locals (CSharpPrinter collects
+        // UnionSwitchExpressionArm / PatternSwitchExpressionArm into _isPatternLocals and
+        // renders them inline), so eliminating slot 0 would drop the unspellable buffer
+        // type from fidelity and report a false Full. The load/store/`??=`/foreach set is
+        // not enough — switch-arm pattern bindings must count too (#3295).
+        var block = new Block();
+        block.Add(new UnionSwitchExpressionArm(Object, localIndex: 0, BoxInt(1)));
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [Buffer], body);
+
+        function.MarkLocalEliminated(0);
+
+        Assert.DoesNotContain(0, function.EliminatedLocalSlots);
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(function));
+    }
+
+    [Fact]
+    public void MarkLocalEliminated_RefusesWhenSlotReferencedInSharedNestedFunctionScope()
+    {
+        // A nested local function that owns no locals and touches no stack slot shares
+        // the enclosing local pool (the printer renders its body inline through the outer
+        // scope), so its `V_0` IS the outer buffer slot. Unconditionally skipping every
+        // nested function would miss this genuine reference and eliminate a still-rendered
+        // slot, a false Full. Only nested functions with their OWN pool may be skipped —
+        // contrast MarkLocalEliminated_IgnoresReferencesInNestedFunctionScopes (#3295).
+        var nestedBlock = new Block();
+        nestedBlock.Add(new StoreLocal(0, Object, BoxInt(7)));
+        nestedBlock.Add(new Return(null));
+        var nestedBody = new BlockContainer();
+        nestedBody.Add(nestedBlock);
+        var nested = new LocalFunctionStatement(
+            "Local", Void, [], isStatic: true, [], [],
+            usesUpdatedMemorySafetyRules: false, skipLocalsInit: false, nestedBody);
+
+        var block = new Block();
+        block.Add(nested);
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [Buffer], body);
+
+        function.MarkLocalEliminated(0);
+
+        Assert.DoesNotContain(0, function.EliminatedLocalSlots);
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(function));
+    }
+
+    [Fact]
+    public void MarkLocalEliminated_RefusesWhenSlotReferencedInSharedNestedLambda()
+    {
+        // A locals-free lambda shares the enclosing local pool, so its `V_0` is the outer
+        // buffer slot: `return () => { V_0 = box(7); };`. Skipping every lambda would mark
+        // the slot eliminated and report Full while the lambda body still names it. The
+        // walk must descend into shared-scope lambdas, only skipping ones with their own
+        // pool (#3295).
+        var lambdaBlock = new Block();
+        lambdaBlock.Add(new StoreLocal(0, Object, BoxInt(7)));
+        var lambdaBody = new BlockContainer();
+        lambdaBody.Add(lambdaBlock);
+        var lambda = new Lambda(
+            Object, [], [], [],
+            usesUpdatedMemorySafetyRules: false, skipLocalsInit: false, lambdaBody);
+
+        var block = new Block();
+        block.Add(new Return(lambda));
+        var body = new BlockContainer();
+        body.Add(block);
+        var signature = new MethodSignature(Void, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", TypeRef.Definition("Synthetic", "", "T"), signature, [Buffer], body);
+
+        function.MarkLocalEliminated(0);
+
+        Assert.DoesNotContain(0, function.EliminatedLocalSlots);
+        Assert.True(CSharpSpellability.HasUnrepresentableMetadataName(function));
+    }
+
+    [Fact]
+    public void MarkLocalEliminated_CoversEveryLocalSlotBindingNodeKind()
+    {
+        // Drift tripwire: IrFunction.NodeBindsLocalSlot must account for every IR node
+        // that carries a local-slot index, because under-counting marks a still-rendered
+        // slot eliminated and reports a false Full (#3295). Load/Store/LoadLocalAddress
+        // use `Index` (shared with arguments) and are handled separately; this guards the
+        // LocalIndex / LocalIndices / VariableIndex family whose growth caused the misses.
+        // When this fails, a new carrier was added: decide whether it renders a local —
+        // then handle it in NodeBindsLocalSlot — and update this inventory.
+        var carrierMembers = new[] { "LocalIndex", "LocalIndices", "VariableIndex" };
+        var discovered = typeof(IrFunction).Assembly.GetTypes()
+            .Where(type => typeof(IrNode).IsAssignableFrom(type) || type == typeof(PropertySubpattern))
+            .Where(type => type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Any(property => carrierMembers.Contains(property.Name)))
+            .Select(type => type.Name)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+
+        string[] expected =
+        [
+            nameof(CatchClause),
+            nameof(DeconstructionAssignment),
+            nameof(DeconstructionTarget),
+            nameof(Fixed),
+            nameof(ForeachStatement),
+            nameof(IsPattern),
+            nameof(NullCoalescingAssignment),
+            nameof(PatternSwitchExpressionArm),
+            nameof(PropertySubpattern),
+            nameof(RecursivePropertyDeclarationPattern),
+            nameof(UnionSwitchExpressionArm),
+            nameof(UsingStatement),
+        ];
+
+        Assert.Equal(expected, discovered);
     }
 
     enum OrderingShape
