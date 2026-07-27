@@ -474,9 +474,17 @@ function scope() {
   return state.lens === "api" && state.selectedMemberKey ? "member" : "type";
 }
 
+// The resident runtime pseudo-package (Microsoft.NETCore.App) has no NuGet nupkg, so the
+// package lenses that fetch one (Dependencies/Integrations/Opportunities/Analysis) would
+// 404. Only Overview renders purely from the already-loaded type surface. Restrict the
+// strip so navigating up to package scope in the runtime pack can't reach a broken lens.
+function packageLensesFor(pkg) {
+  return pkg?.isRuntimePack ? packageLenses.filter(([id]) => id === "overview") : packageLenses;
+}
+
 function activeLenses() {
   const sc = scope();
-  if (sc === "package") return packageLenses;
+  if (sc === "package") return packageLensesFor(state.package);
   if (sc === "member") return memberSectionsFor(selectedMember(selectedType()));
   return lenses;
 }
@@ -596,8 +604,9 @@ function stepNav(delta) {
 // overload is open, otherwise the lens strip.
 function stepHorizontal(delta) {
   if (state.atPackageRoot) {
-    const index = packageLenses.findIndex(([id]) => id === state.packageLens);
-    state.packageLens = packageLenses[(index + delta + packageLenses.length) % packageLenses.length][0];
+    const strip = packageLensesFor(state.package);
+    const index = strip.findIndex(([id]) => id === state.packageLens);
+    state.packageLens = strip[(index + delta + strip.length) % strip.length][0];
     render();
     return;
   }
@@ -737,6 +746,11 @@ function render() {
   }
   const current = selectedType();
   const visible = filteredTypes();
+  // Keep the package lens on something the active package actually supports, so a restored
+  // URL or stale selection can neither render nor auto-load a lens that fetches a missing nupkg.
+  if (state.atPackageRoot && !packageLensesFor(state.package).some(([id]) => id === state.packageLens)) {
+    state.packageLens = "overview";
+  }
   state.typeCursor = Math.min(state.typeCursor, Math.max(visible.length - 1, 0));
   const suggestions = completions();
   state.completionIndex = Math.min(state.completionIndex, Math.max(suggestions.length - 1, 0));
@@ -899,7 +913,7 @@ function renderScopeBar() {
     `<button class="lens ${active ? "active" : ""}" ${attr}="${id}">${escapeHtml(label)}<kbd>${index + 1}</kbd></button>`;
   let strip;
   if (sc === "package") {
-    strip = packageLenses.map(([id, label], i) => lensButton(id, label, state.packageLens === id, "data-package-lens", i)).join("");
+    strip = packageLensesFor(state.package).map(([id, label], i) => lensButton(id, label, state.packageLens === id, "data-package-lens", i)).join("");
   } else if (sc === "member") {
     const sections = memberSectionsFor(selectedMember(selectedType()));
     strip = sections.map(([id, label], i) => lensButton(id, label, state.memberSection === id, "data-member-section", i)).join("");
