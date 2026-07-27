@@ -534,6 +534,28 @@ public class IrImporterTests
 
 
     [Fact]
+    public void InlineArrayObjectSpanTernaryCondition_RaisesRunOnceConditionEdge()
+    {
+        // A params ReadOnlySpan<object> collection whose span is the CONDITION of a
+        // ternary (`AnyObjectSpan([a, b]) ? "yes" : "no"`) is evaluated exactly
+        // once, unconditionally, before either arm. Left flat the
+        // `<>y__InlineArray2<object>` buffer name never parses and caps fidelity at
+        // Partial; InlineArrayCollectionPass now allow-lists the ternary condition
+        // as a run-once governing edge (issue #3129, S4 follow-up #3281) and raises
+        // it to `[a, b]`, restoring Full. Real compiled witness for the synthetic
+        // ConditionalConditionSpan case in InlineArraySpilledElementTests.
+        var function = ImportFixture(nameof(CfgSampleClass.InlineArrayObjectSpanTernaryCondition));
+        IrPasses.Run(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<CollectionExpression>());
+        Assert.Contains("[a, b]", output);
+        Assert.DoesNotContain("InlineArray", output);
+        Assert.DoesNotContain("PrivateImplementationDetails", output);
+    }
+
+    [Fact]
     public void InlineArrayFieldAsSpan_RaisesToCast()
     {
         // A real [InlineArray(4)] field viewed as a Span<int>: csc lowers the

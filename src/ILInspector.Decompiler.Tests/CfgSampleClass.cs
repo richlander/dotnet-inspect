@@ -4979,6 +4979,23 @@ public class CfgSampleClass
     // docket keys on `<>9__N`/`<>c__DisplayClassN` names — see issue #3129, S4).
     public static int InlineArrayObjectConditionalElementSpan(int a, string? s)
         => UseObjectSpan([a, s is not null ? s.ToUpper() : "null"]);
+
+    static bool AnyObjectSpan(System.ReadOnlySpan<object> s) => s.Length > 0;
+
+    // A params ReadOnlySpan<object> collection expression whose span is the
+    // CONDITION of a ternary — `AnyObjectSpan([a, b]) ? "yes" : "no"`. csc fills a
+    // `<>y__InlineArray2<object>` buffer with the two boxed args, reads the span,
+    // and passes it to the condition call; the ternary arms are the conditional
+    // part. The condition is evaluated exactly once, unconditionally, before
+    // either arm. Left flat the angle-bracketed buffer name caps fidelity at
+    // Partial; InlineArrayCollectionPass allow-lists the ternary condition as a
+    // run-once governing edge (issue #3129, S4 follow-up #3281) and raises the
+    // whole thing back to `[a, b]`, restoring Full. This is the real compiled
+    // witness for the synthetic ConditionalConditionSpan case in
+    // InlineArraySpilledElementTests. Placed last (with its helper) so it does not
+    // shift any pre-existing method's compiler-generated ordinal.
+    public static string InlineArrayObjectSpanTernaryCondition(object a, object b)
+        => AnyObjectSpan([a, b]) ? "yes" : "no";
 }
 
 internal static class AwaitOrderingHelpers
