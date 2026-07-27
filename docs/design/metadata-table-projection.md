@@ -376,10 +376,10 @@ is cross-validated against `mdv` for free on the product assembly.
 
 ## Implemented: random access for a browser host
 
-The projection's other planned consumer is the wasm **Metadata Explorer** (issue
-#3341), which browses tables interactively rather than dumping them. That host
-imposes three constraints a batch dump does not, all met without changing the
-model:
+The projection's other planned consumer is the wasm **Metadata Explorer**
+(issue #3341), which browses tables interactively rather than dumping them.
+That host imposes three constraints a batch dump does not, all met without
+changing the model:
 
 - **No filesystem.** `MetadataTableProjector.Project(PEReader, options)` is the
   entry point; a browser host constructs `new PEReader(new MemoryStream(bytes))`
