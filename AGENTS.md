@@ -251,21 +251,28 @@ pins that one call site, so a new host cannot quietly decline. An explicit
 `DOTNET_INSPECT_IR_INVARIANTS` value (trimmed, case-insensitive) outranks the
 opt-out in both directions.
 
-The invariant check is **leveled**, because the two levels need different
-inputs to be sound:
+The invariant check is **leveled**, but both levels are armed together, so the
+leveling names what is checked rather than offering a way to check less:
 
 - **Structural** invariants (parent/child back-pointer consistency, tree
   shape) hold on *any* well-formed `IrNode` graph, including the deliberately
-  minimal `IrFunction`s that hand-built pass-unit fixtures construct. These are
-  the default level every host gets (`IrInvariants.Enabled`).
+  minimal `IrFunction`s that hand-built pass-unit fixtures construct
+  (`IrInvariants.Enabled`).
 - **Semantic** invariants (e.g. local-slot indices within the enclosing
-  function/lambda's `Locals`) hold on *real importer output* but not on minimal
-  fixtures, which routinely reference slots without populating `Locals`. These
-  are a separate opt-in (`IrInvariants.CheckSemantics`,
-  `DOTNET_INSPECT_IR_INVARIANTS=full`) so they run over the corpus (harness
-  `--gaps`, Speed=Slow gates), where the input is well-formed, without
-  false-positiving the minimal-fixture suite. `CheckInvariant(includeSemantics:
-  true)` threads the level explicitly for hermetic per-test coverage.
+  function/lambda's `Locals`) require a function that declares the slots it
+  references. These were opt-in until #3302 on the stated grounds that arming
+  them suite-wide would false-positive on ~120 minimal fixtures; measured, the
+  number was five. Those five now declare their locals, and the level is on by
+  default (`IrInvariants.CheckSemantics`), as a computed projection of
+  `Enabled` so the two cannot drift apart and the shipped tool's opt-out
+  lowers both.
+  `CheckInvariant(includeSemantics: true)` still threads the level explicitly
+  for hermetic per-test coverage.
+
+A hand-built fixture that trips the semantic level is declaring locals it does
+not have; give the `IrFunction` its local table rather than lowering the level.
+Do not derive the local table from the body — that makes every fixture pass by
+construction and retires the invariant while appearing to keep it.
 
 Some CLI tests require `ilasm`/`ildasm` and skip when those tools are absent.
 The IL round-trip project has separate dependency restore and fast/full test

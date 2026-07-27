@@ -2843,7 +2843,7 @@ public class RaisingPassTests
         block.Add(new StoreLocal(0, boolType, new Constant(0, TypeRef.CoreLib("System", "Int32"))));
         block.Add(new Return(new LoadLocal(0, boolType)));
         var signature = new MethodSignature(boolType, [], HasThis: false, GenericParameterCount: 0);
-        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [boolType], container);
 
         Assert.Equal("return false;", CSharpPrinter.PrintRaised(function).Output!.Trim());
     }
@@ -4411,7 +4411,7 @@ public class RaisingPassTests
 
         var signature = new MethodSignature(intType,
             [new Parameter("a", intType), new Parameter("b", intType)], HasThis: false, GenericParameterCount: 0);
-        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
 
         IrPasses.Run(function);
         string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
@@ -4703,7 +4703,7 @@ public class RaisingPassTests
 
         var signature = new MethodSignature(boolType,
             [new Parameter("ch", intType)], HasThis: false, GenericParameterCount: 0);
-        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [boolType], container);
 
         IrPasses.Run(function);
         string output = CSharpPrinter.Print(function).Output!;

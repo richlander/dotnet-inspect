@@ -1099,7 +1099,10 @@ public class IteratorReconstructionPassTests
             "MoveNext",
             stateMachine,
             new MethodSignature(boolType, [], HasThis: true, GenericParameterCount: 0),
-            [],
+            // Slot 0 is the dispatch state; slot 1 is the slot the injectable
+            // resume/dispatch statements write. Declared rather than left empty
+            // so the semantic invariant validates these fixtures for real.
+            [intType, intType],
             moveNextBody);
         return (kickoff, handoff, moveNext);
     }
@@ -1208,7 +1211,9 @@ public class IteratorReconstructionPassTests
             "MoveNext",
             stateMachine,
             new MethodSignature(boolType, [], HasThis: true, GenericParameterCount: 0),
-            [],
+            // Slot 0 is the outer dispatch state, slot 1 the inner one, which is
+            // also what the injectable fallthrough statement writes.
+            [intType, intType],
             moveNextBody);
         return (kickoff, handoff, moveNext);
     }

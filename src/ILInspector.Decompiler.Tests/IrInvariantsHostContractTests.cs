@@ -123,8 +123,9 @@ public sealed class IrInvariantsHostContractTests
     /// The structural half of the enforcement: neither level can be lowered by
     /// assignment, so no census, review habit, or naming convention has to catch
     /// that spelling. <see cref="IrInvariants.CheckSemantics"/> has no setter at
-    /// all — the environment resolves it once at startup — so it cannot be moved
-    /// in either direction in-process.
+    /// all — since #3302 it is a computed projection of
+    /// <see cref="IrInvariants.Enabled"/> — so it cannot be moved in either
+    /// direction in-process, nor moved independently of the structural level.
     /// </summary>
     [Fact]
     public void NeitherLevelHasAPubliclyWritableSetter()
@@ -187,19 +188,23 @@ public sealed class IrInvariantsHostContractTests
     }
 
     /// <summary>
-    /// The semantic level stays opt-in: minimal hand-built fixtures reference
-    /// local slots without populating <c>Locals</c>, so arming it suite-wide
-    /// would false-positive on them. Corpus gates thread the level explicitly.
+    /// The semantic level is armed by default too (#3302), and by the same rule
+    /// as <see cref="IrInvariants.Enabled"/>, so the two cannot drift apart. It
+    /// was opt-in on the stated grounds that arming it suite-wide would
+    /// false-positive on ~120 minimal fixtures; measured, it was five, and those
+    /// five now declare the locals they use.
     /// </summary>
     [Fact]
-    public void SemanticLevelStaysOptIn()
+    public void SemanticLevelIsOnByDefault_AndTracksTheStructuralLevel()
     {
-        bool requestedFull = string.Equals(
-            Environment.GetEnvironmentVariable(EnvironmentVariable)?.Trim(),
-            "full",
-            StringComparison.OrdinalIgnoreCase);
+        if (EnvironmentRequest() is false)
+        {
+            Assert.False(IrInvariants.CheckSemantics);
+            return;
+        }
 
-        Assert.Equal(requestedFull, IrInvariants.CheckSemantics);
+        Assert.True(IrInvariants.CheckSemantics);
+        Assert.Equal(IrInvariants.Enabled, IrInvariants.CheckSemantics);
     }
 
     [Theory]

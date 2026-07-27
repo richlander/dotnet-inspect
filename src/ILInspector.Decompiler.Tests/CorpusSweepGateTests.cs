@@ -109,17 +109,13 @@ public class CorpusSweepGateTests
                 continue;
             }
 
-            // Semantic teeth over the corpus (#3241). The suite-wide invariant
-            // level is structural only (fixture-safe); semantic invariants — e.g.
-            // local-slot range — hold only on fully-formed output, so we assert
-            // them here, over real importer+pass output, where they are true
-            // invariants. Call the level explicitly rather than relying on the
-            // global IrInvariants.CheckSemantics: xUnit runs collections in
-            // parallel, and a process-wide level would false-positive the
-            // minimal-fixture pass tests.
-            // This validates the FINAL tree of every method; per-pass semantic
-            // sweeping (which also catches transient mid-pass shapes) is available
-            // for debugging via the harness with DOTNET_INSPECT_IR_INVARIANTS=full.
+            // Semantic teeth over the corpus (#3241). Called explicitly rather
+            // than relying on the global level: this gate counts violations
+            // instead of throwing, and an explicit call keeps it hermetic and
+            // independent of what a host or an operator configured. Since #3302
+            // the semantic level is also armed by default, so the per-pass hooks
+            // already sweep intermediate trees; this remains the FINAL-tree
+            // check, and the one that reports a count.
             try
             {
                 function.CheckInvariant(includeSemantics: true);

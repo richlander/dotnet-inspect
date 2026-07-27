@@ -262,6 +262,49 @@ public sealed class IrInvariantCheckTests
         Assert.Throws<InvalidOperationException>(() => IrPasses.Run(function, passes));
     }
 
+    /// <summary>
+    /// The semantic counterpart of the teeth test above (#3302). It sets nothing
+    /// itself: it relies on <see cref="IrInvariants.CheckSemantics"/> being armed
+    /// <em>by default</em>, and on the runner threading that level into the
+    /// per-pass check. The corrupting pass leaves a structurally perfect tree —
+    /// correct parent links, correct child indices — whose only defect is a local
+    /// slot reference that does not resolve. So the structural level cannot catch
+    /// it, and this is the only test that fails if the semantic default is
+    /// flipped back off or the runner stops threading the level.
+    /// <para>
+    /// This is the defect class that actually bites: a pass that eliminates or
+    /// renumbers a local and leaves a reference behind.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void PipelineRunner_ThrowsWhenAPassLeavesAnUnresolvableSlot()
+    {
+        Assert.True(IrInvariants.CheckSemantics,
+            "Semantic IR invariants should be armed by default for any host that does not explicitly opt out.");
+
+        var (function, block) = MinimalFunction();
+        var passes = ImmutableArray.Create<IIrPass>(new OutOfRangeSlotPass(block));
+
+        var error = Assert.Throws<InvalidOperationException>(() => IrPasses.Run(function, passes));
+        Assert.Contains("local slot", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Proves the pass above is caught by the <em>semantic</em> level and not
+    /// incidentally by the structural one: the same corrupted tree passes a
+    /// structural-only check.
+    /// </summary>
+    [Fact]
+    public void OutOfRangeSlot_IsInvisibleToTheStructuralLevel()
+    {
+        var (function, block) = MinimalFunction();
+        block.Add(new StoreLocal(5, IntType, new Constant(0, IntType)));
+
+        function.CheckInvariant();
+
+        Assert.Throws<InvalidOperationException>(() => function.CheckInvariant(includeSemantics: true));
+    }
+
     static (IrFunction Function, Block Block) MinimalFunction()
     {
         var intType = TypeRef.CoreLib("System", "Int32");
@@ -280,5 +323,18 @@ public sealed class IrInvariantCheckTests
 
         public void Run(IrFunction function, PassContext context) =>
             ChildIndexField.SetValue(target, 99);
+    }
+
+    /// <summary>
+    /// Leaves a well-formed node referencing a local slot the function does not
+    /// declare — the shape a pass produces when it drops a local but not every
+    /// reference to it. Structurally valid on purpose.
+    /// </summary>
+    sealed class OutOfRangeSlotPass(Block target) : IIrPass
+    {
+        public string Name => "OutOfRangeSlot(test)";
+
+        public void Run(IrFunction function, PassContext context) =>
+            target.Add(new StoreLocal(5, IntType, new Constant(0, IntType)));
     }
 }
