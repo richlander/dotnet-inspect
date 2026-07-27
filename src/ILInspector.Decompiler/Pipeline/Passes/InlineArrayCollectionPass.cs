@@ -876,10 +876,13 @@ public sealed class InlineArrayCollectionPass : IIrPass
         // can instead evaluate an effectful expression inline before the span
         // (e.g. `Consume(PrefixEffect(), span)`); lifting the elements past it
         // would invert their order, so leave that flat. Likewise the span must be
-        // evaluated on every path through the consumer: lifting the unconditional
-        // element stores into a conditionally evaluated position (a ternary arm, a
-        // short-circuit / coalesce right operand, a switch arm, a null-conditional
-        // member) would suppress their side effects when that path is not taken.
+        // evaluated exactly once, on every path through the consumer: lifting the
+        // unconditional element stores into a conditionally evaluated position (a
+        // ternary/switch arm, a short-circuit or coalesce or `??=` right operand, a
+        // null-conditional member, a lambda body) would drop their side effects on
+        // the skipped paths, and into a repeatedly evaluated position (a loop
+        // condition) would run them more than once. Both are rejected by the
+        // sound-by-default whitelist in SpanUnconditionallyEvaluated.
         return NothingEffectfulBefore(consumer, span)
             && SpanUnconditionallyEvaluated(consumer, span);
     }
@@ -906,14 +909,16 @@ public sealed class InlineArrayCollectionPass : IIrPass
 
     /// <summary>
     /// Whether <paramref name="span"/> is evaluated on every path through the
-    /// <paramref name="consumer"/> statement: the parent chain from the span up to
-    /// the consumer must cross no conditionally evaluated edge. The element values
-    /// are unconditional statements before the consumer, so lifting them into a
-    /// conditionally evaluated position (a ternary arm, a short-circuit
-    /// <c>&amp;&amp;</c>/<c>||</c> or <c>??</c> right operand, a switch-expression
-    /// arm, or a null-conditional member) would drop their side effects on the
-    /// paths that skip the span. csc never emits the span in such a position;
-    /// arbitrary IL can, so leave those flat.
+    /// <paramref name="consumer"/> statement: every edge on the parent chain from
+    /// the span up to the consumer must be an unconditionally evaluated one per the
+    /// sound-by-default whitelist in <see cref="EvaluatesChildUnconditionally"/>.
+    /// The element values are unconditional statements before the consumer, so
+    /// lifting them into a conditionally evaluated position (a ternary arm, a
+    /// short-circuit <c>&amp;&amp;</c>/<c>||</c> or <c>??</c> right operand, a
+    /// switch-expression arm, a null-conditional member, a <c>??=</c> right operand,
+    /// or a lambda body) would drop their side effects on the paths that skip the
+    /// span. csc never emits the span in such a position; arbitrary IL can, so leave
+    /// those flat.
     /// </summary>
     static bool SpanUnconditionallyEvaluated(IrNode consumer, IrNode span)
     {
@@ -930,19 +935,43 @@ public sealed class InlineArrayCollectionPass : IIrPass
 
     /// <summary>
     /// Whether <paramref name="parent"/> evaluates <paramref name="child"/> on every
-    /// path <paramref name="parent"/> is itself evaluated on. Only the
-    /// short-circuiting / conditional expression nodes gate a child; every other
-    /// node evaluates its children unconditionally, left to right. Revisit if a new
-    /// conditional-evaluation node is added to the IR.
+    /// path <paramref name="parent"/> is itself evaluated on.
+    ///
+    /// <para>Sound by default: this is a <b>whitelist</b> of the container nodes that
+    /// evaluate every child exactly once, unconditionally, left to right, mirroring
+    /// the whitelist walk in <see cref="StackAllocSpanPass"/>
+    /// (<c>ReachesAsOnlyPrecedingEffect</c> descends only <see cref="Call"/>/<see
+    /// cref="NewObject"/> arguments and rejects every other shape). A blacklist of the
+    /// known short-circuiting nodes would be unsound: any conditional or repeatedly
+    /// evaluated node not enumerated — and any such node added to the IR later —
+    /// would silently fall through as "unconditional" and let the element side
+    /// effects be lifted into a branch that may not run, or a loop condition that
+    /// runs them many times. Because an unrecognized shape only costs fidelity (the
+    /// collection is left flat), and a missed conditional/repeated shape emits
+    /// confidently-wrong C#, the default is <c>false</c>.</para>
+    ///
+    /// <para>The whitelisted nodes are exactly those on the real csc inline-array
+    /// params-span consumer paths: the statement wrapper / store that consumes the
+    /// span, and the call / constructor / pass-through conversion it is nested in.
+    /// A short-circuit, coalesce, ternary, switch-expression arm, null-conditional
+    /// member, <c>??=</c> right operand, lambda body, or any other shape is not on
+    /// that list, so the span reached through one is left flat.</para>
     /// </summary>
     static bool EvaluatesChildUnconditionally(IrNode parent, IrNode child) => parent switch
     {
-        Conditional conditional => ReferenceEquals(child, conditional.Condition),
-        LogicalBinary logical => ReferenceEquals(child, logical.Left),
-        Coalesce coalesce => ReferenceEquals(child, coalesce.Left),
-        SwitchExpression switchExpression => ReferenceEquals(child, switchExpression.Value),
-        SwitchExpressionArm or NullConditional => false,
-        _ => true,
+        // The statement / store that consumes the span evaluates its operand(s)
+        // unconditionally.
+        ExpressionStatement or Return or StoreLocal or StoreField or StoreArgument
+            or StoreIndirect or StoreElement or StoreProperty => true,
+        // Call/constructor arguments and the receiver are all evaluated
+        // unconditionally, left to right — C# has no short-circuiting in an
+        // argument list; short-circuiting lives only in the dedicated expression
+        // nodes, none of which are whitelisted here.
+        Call or CallIndirect or NewObject => true,
+        // A conversion / box wrapping the span passes it through unconditionally.
+        Convert or Coerce or CastClass or Box or Unbox or UnboxAny
+            or InlineArraySpanConversion => true,
+        _ => false,
     };
 
     /// <summary>

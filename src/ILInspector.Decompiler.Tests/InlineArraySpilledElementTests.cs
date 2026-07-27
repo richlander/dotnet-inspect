@@ -186,6 +186,55 @@ public class InlineArraySpilledElementTests
         function.CheckInvariant();
     }
 
+    [Fact]
+    public void NullCoalescingAssignmentValueSpan_StaysFlat()
+    {
+        // The span is the right operand of `local ??= span`, evaluated only when the
+        // target is null. `NullCoalescingAssignment` is one of the conditional IR
+        // nodes an enumerated blacklist missed; the sound-by-default whitelist leaves
+        // it flat because the node is not a recognized unconditional container.
+        var function = BuildOrderingCollection(OrderingShape.NullCoalescingAssignmentValue);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<CollectionExpression>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InlineArrayAsReadOnlySpan");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void UnionSwitchArmValueSpan_StaysFlat()
+    {
+        // The span is a union-switch-expression arm value, evaluated only when its arm
+        // matches. `UnionSwitchExpressionArm` does not derive from `SwitchExpressionArm`,
+        // so a blacklist keyed on the base arm type missed it; the whitelist rejects any
+        // parent it does not explicitly recognize as unconditional, so it stays flat.
+        var function = BuildOrderingCollection(OrderingShape.UnionSwitchArmValue);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<CollectionExpression>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InlineArrayAsReadOnlySpan");
+        function.CheckInvariant();
+    }
+
+    [Fact]
+    public void WhileConditionSpan_StaysFlat()
+    {
+        // The span is a while-loop condition: evaluated unconditionally but once per
+        // iteration. Lifting the element stores into it would call each element
+        // function once per loop test instead of once. The whitelist rejects the
+        // WhileLoop condition edge (not a once-through container), so it stays flat —
+        // covering the exactly-once axis, not just definite evaluation.
+        var function = BuildOrderingCollection(OrderingShape.WhileConditionSpan);
+
+        new InlineArrayCollectionPass().Run(function, PassContext.None);
+
+        Assert.Empty(function.Descendants.OfType<CollectionExpression>());
+        Assert.Contains(function.Descendants.OfType<Call>(), c => c.Callee.Name == "InlineArrayAsReadOnlySpan");
+        function.CheckInvariant();
+    }
+
     enum OrderingShape
     {
         InterleavedStatement,
@@ -193,6 +242,9 @@ public class InlineArraySpilledElementTests
         InlineEffectBeforeSpan,
         SpilledPrefixBeforeSpan,
         ConditionalSpanArm,
+        NullCoalescingAssignmentValue,
+        UnionSwitchArmValue,
+        WhileConditionSpan,
     }
 
     /// <summary>
@@ -273,6 +325,33 @@ public class InlineArraySpilledElementTests
                             span,
                             new LoadLocal(1, SpanObject))])));
                 break;
+            case OrderingShape.NullCoalescingAssignmentValue:
+                // local ??= span: the span is the ??= right operand, evaluated only
+                // when the target is null. NothingEffectfulBefore passes (the span is
+                // the only child), so only the definite-evaluation whitelist rejects
+                // this — the missed conditional node from adversarial review.
+                block.Add(new NullCoalescingAssignment(1, SpanObject, span));
+                break;
+            case OrderingShape.UnionSwitchArmValue:
+                // local = scrutinee switch { Case => span, ... }: the span is a switch
+                // arm value, evaluated only when its arm matches. A union-switch arm is
+                // a distinct IR node from SwitchExpressionArm, so the whitelist (not an
+                // enumerated blacklist) must still reject it.
+                block.Add(new StoreLocal(1, SpanObject,
+                    new UnionSwitchExpression(
+                        new LoadArgument(0, "arg", Object),
+                        [new UnionSwitchExpressionArm(Object, null, span)])));
+                break;
+            case OrderingShape.WhileConditionSpan:
+                // while (Predicate(span)) { }: the span is unconditionally evaluated
+                // but re-evaluated on every loop iteration. Definite evaluation alone
+                // is not enough — the span must also be evaluated exactly once, so the
+                // whitelist rejects a WhileLoop condition edge (it is not a recognized
+                // once-through container), leaving the collection flat.
+                block.Add(new WhileLoop(
+                    new Call(PredicateSpanMethod(), isVirtual: false, [span]),
+                    new Block()));
+                break;
             default:
                 // ReadOnlySpan<object> span = InlineArrayAsReadOnlySpan(ref buffer, 2); (local 1)
                 block.Add(new StoreLocal(1, SpanObject, span));
@@ -333,6 +412,15 @@ public class InlineArraySpilledElementTests
             TypeRef.Definition("Synthetic", "", "Fx"),
             "Consume",
             Void,
+            [SpanObject],
+            HasThis: false);
+
+    // bool Predicate(ReadOnlySpan<object> span)
+    static MethodRef PredicateSpanMethod()
+        => new(
+            TypeRef.Definition("Synthetic", "", "Fx"),
+            "Predicate",
+            Bool,
             [SpanObject],
             HasThis: false);
 
