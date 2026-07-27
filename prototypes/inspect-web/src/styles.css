@@ -739,6 +739,24 @@ kbd {
 .signal-name { font: 13px var(--mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .signal-ns { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .signal-kind { flex: 0 0 auto; font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); }
+.opp-list { display: flex; flex-direction: column; gap: 6px; padding: 12px 10px; border-top: 1px solid var(--line); }
+.opp-row { display: flex; align-items: flex-start; gap: 12px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.opp-body { flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.opp-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.opp-type-chip { display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 9px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel); cursor: pointer; }
+.opp-type-chip:hover { border-color: var(--blue); }
+.opp-type-name { font: 13px var(--mono); color: var(--text); }
+.opp-type-chip:hover .opp-type-name { color: var(--blue); }
+.opp-type-ns { font-size: 11px; color: var(--muted); }
+.opp-kind { display: inline-flex; align-items: center; gap: 6px; }
+.opp-kind-text { font-size: 12px; color: var(--muted); }
+.opp-package-chip { font: 12px var(--mono); padding: 3px 9px; border-radius: 6px; cursor: pointer; color: #4a9d5b; border: 1px solid color-mix(in srgb, #4a9d5b 45%, var(--line)); background: color-mix(in srgb, #4a9d5b 8%, var(--panel)); }
+.opp-package-chip:hover { border-color: #4a9d5b; background: color-mix(in srgb, #4a9d5b 16%, var(--panel)); }
+.opp-lookfor { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.opp-lookfor-label { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .05em; margin-right: 2px; }
+.opp-chip { font: 12px var(--mono); padding: 3px 9px; border-radius: 999px; cursor: pointer; color: var(--text); border: 1px solid var(--line-strong); background: var(--panel); }
+.opp-chip:hover { border-color: var(--blue); color: var(--blue); }
+.opp-pattern { font: 12px var(--mono); padding: 3px 9px; border-radius: 999px; color: var(--muted); background: var(--panel-active); }
 .ns-overflow { align-self: center; color: var(--muted); font-size: 12px; padding: 0 6px; }
 .composition-flags { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 10px; border-bottom: 1px solid var(--line); }
 .count-flag { font: 12px var(--mono); padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line-strong); color: var(--dim); background: var(--panel); }

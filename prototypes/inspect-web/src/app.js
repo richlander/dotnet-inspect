@@ -1332,16 +1332,66 @@ function renderPackageOpportunities() {
   const summary = `
     <section class="document-section">
       <div class="section-title"><h2>Integration opportunities</h2><span>${categories.length} area${categories.length === 1 ? "" : "s"} · ${data.totalOpportunities} suggestion${data.totalOpportunities === 1 ? "" : "s"} · ${escapeHtml(state.package.activeFramework)}</span></div>
-      <p class="lens-note">Ecosystem areas this package's surface suggests but does not yet integrate with. Each row points at what to look for.</p>
+      <p class="lens-note">Ecosystem areas this package's surface suggests but does not yet integrate with. Chips are live: the type opens in this package, a suggested package loads on demand, and each "look for" API opens a search.</p>
+      <div class="type-chip-list">${categories.map(category => `<span class="type-chip">${escapeHtml(category.integration)} <span class="ns-count">${category.items.length}</span></span>`).join("")}</div>
     </section>`;
 
-  const blocks = categories.map(category => `
+  const blocks = categories.map(category => {
+    const rows = category.items.map(renderOpportunityRow).join("");
+    return `
     <section class="document-section">
       <div class="section-title"><h2>${escapeHtml(category.integration)}</h2><span>${category.items.length} suggestion${category.items.length === 1 ? "" : "s"}</span></div>
-      <dl class="fact-rows">${category.items.map(item => `<div><dt><code>${escapeHtml(item.api)}</code></dt><dd>${escapeHtml(item.integrationType)} · <span class="dim">look for</span> <code>${escapeHtml(item.lookFor)}</code></dd></div>`).join("")}</dl>
-    </section>`).join("");
+      <div class="opp-list">${rows}</div>
+    </section>`;
+  }).join("");
 
   return `${warning}${summary}${blocks}`;
+}
+
+// Renders a single integration-opportunity as a signal-style row with live chips: the API
+// (a type in this package) navigates in place; a suggested package (a dotted namespace parsed
+// from the integration kind) loads on demand; each concrete "look for" API opens the spotlight
+// search. Naming patterns (wildcards) stay as muted, non-clickable hints.
+function renderOpportunityRow(item) {
+  const api = splitSignalName(item.api);
+  const kind = splitOpportunityKind(item.integrationType);
+  const kindHtml = kind.package
+    ? `<button class="opp-package-chip" data-opp-package="${escapeHtml(kind.package)}" title="Load ${escapeHtml(kind.package)} into the workspace">${escapeHtml(kind.package)}</button>${kind.text ? `<span class="opp-kind-text">${escapeHtml(kind.text)}</span>` : ""}`
+    : `<span class="opp-kind-text">${escapeHtml(item.integrationType)}</span>`;
+  return `
+    <div class="opp-row">
+      <span class="signal-badge signal-type">T</span>
+      <div class="opp-body">
+        <div class="opp-head">
+          <button class="opp-type-chip" data-opp-type="${escapeHtml(item.api)}" title="Open ${escapeHtml(item.api)} in this package">
+            <span class="opp-type-name">${escapeHtml(api.short)}</span>${api.qualifier ? `<span class="opp-type-ns">${escapeHtml(api.qualifier)}</span>` : ""}
+          </button>
+          <span class="opp-kind">${kindHtml}</span>
+        </div>
+        <div class="opp-lookfor"><span class="opp-lookfor-label">look for</span>${renderLookForChips(item.lookFor)}</div>
+      </div>
+    </div>`;
+}
+
+// Pulls a leading dotted namespace (a candidate package like "Microsoft.Extensions.AI") off the
+// front of an integration-kind phrase so it can render as a load-on-demand package chip. Kinds
+// with no dotted prefix (e.g. "IServiceCollection registration") stay as plain muted text.
+function splitOpportunityKind(integrationType) {
+  const match = String(integrationType || "").match(/^([A-Z][A-Za-z0-9]+(?:\.[A-Z][A-Za-z0-9]+)+)\b\s*(.*)$/);
+  return match ? { package: match[1], text: match[2].trim() } : { package: null, text: String(integrationType || "") };
+}
+
+// Turns the comma-separated "look for" hint into chips. Concrete identifiers open a spotlight
+// search (seeded on the base name, generics stripped); wildcard patterns like "Add*" render as
+// muted, non-interactive hints because they are naming shapes rather than resolvable types.
+function renderLookForChips(lookFor) {
+  const tokens = String(lookFor || "").split(",").map(token => token.trim()).filter(Boolean);
+  if (!tokens.length) return `<span class="opp-pattern">any registration surface</span>`;
+  return tokens.map(token => {
+    if (token.includes("*")) return `<span class="opp-pattern" title="Naming pattern">${escapeHtml(token)}</span>`;
+    const seed = token.replace(/<.*$/, "");
+    return `<button class="opp-chip" data-opp-lookfor="${escapeHtml(seed)}" title="Search the workspace for ${escapeHtml(token)}">${escapeHtml(token)}</button>`;
+  }).join("");
 }
 
 async function loadPackageOpportunities() {
@@ -2085,6 +2135,19 @@ function bindEvents() {
   }));
   document.querySelectorAll("[data-perf-token]").forEach(button => button.addEventListener("click", () => {
     drillToPerfMember(button.dataset.perfToken);
+  }));
+  document.querySelectorAll("[data-opp-type]").forEach(button => button.addEventListener("click", () => {
+    const id = button.dataset.oppType;
+    const target = state.package.types.find(item => item.id === id);
+    if (!target) { openSpotlight(shortTypeName(id)); return; }
+    state.atPackageRoot = false;
+    navigateToTypeByName(id);
+  }));
+  document.querySelectorAll("[data-opp-package]").forEach(button => button.addEventListener("click", () => {
+    openDependencyPackage(button.dataset.oppPackage, "");
+  }));
+  document.querySelectorAll("[data-opp-lookfor]").forEach(button => button.addEventListener("click", () => {
+    openSpotlight(button.dataset.oppLookfor);
   }));
   document.querySelectorAll(".member-filter .member-kind").forEach(button => button.addEventListener("click", () => {
     state.memberKindFilter = button.dataset.kind;
