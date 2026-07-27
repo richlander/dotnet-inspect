@@ -889,7 +889,9 @@ public static class ApiOutputFormatter
         var grouped = GroupMembersByKind(type, options.MemberFilter, options.UnsafeOnly, options.KindFilter);
         var members = grouped
             .SelectMany(g => g.Value)
-            .Where(ApiMemberSectionDescriptors.IsMethodLike)
+            // A property/event is located through its accessor's sequence points, so it
+            // carries a source location like a method does (issue #3278).
+            .Where(ApiMemberSectionDescriptors.IsBodyBacked)
             .OrderBy(m => GetMemberSortOrder(m.Kind))
             .ThenBy(m => m.Name, StringComparer.Ordinal)
             .ThenBy(GetMemberSignatureSortKey, StringComparer.Ordinal)

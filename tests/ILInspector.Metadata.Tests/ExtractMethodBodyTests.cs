@@ -396,4 +396,75 @@ public class ExtractMethodBodyTests
     {
         Assert.Equal(expected, SourceLinkResolver.SimpleTypeName(fullName));
     }
+
+    [Fact]
+    public void AutoPropertyAccessor_SequencePointOnDeclaration_ExcludesPrecedingMember()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public string? Before { get; set; }",       // 3
+            "",                                             // 4
+            "    public string? Target { get; set; }",       // 5  <- StartLine/EndLine
+            "",                                             // 6
+            "    public string? After { get; set; }",        // 7
+            "}");                                           // 8
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Target");
+
+        Assert.Equal("public string? Target { get; set; }", body);
+    }
+
+    [Fact]
+    public void ExpressionBodiedMember_FirstInType_ExcludesEnclosingTypeHeader()
+    {
+        var source = Lines(
+            "public sealed record R(int Value)",             // 1
+            "{",                                            // 2
+            "    public int Doubled => Value * 2;",          // 3  <- StartLine/EndLine
+            "}");                                           // 4
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "get_Doubled");
+
+        Assert.Equal("public int Doubled => Value * 2;", body);
+    }
+
+    [Fact]
+    public void BlockBodiedPropertyAccessor_WalksBackwardToPropertyDeclaration()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public string? Tfm",                       // 3
+            "    {",                                        // 4
+            "        get => _override ?? Compute();",        // 5  <- StartLine/EndLine
+            "        set => _override = value;",             // 6
+            "    }",                                        // 7
+            "}");                                           // 8
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Tfm");
+
+        Assert.Equal(
+            "public string? Tfm\n{\n    get => _override ?? Compute();",
+            body);
+    }
+
+    [Fact]
+    public void RecursiveFirstStatement_SpellingMethodName_StillCapturesSignature()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public int Fact(int n)",                    // 3
+            "    {",                                        // 4
+            "        return n <= 1 ? 1 : n * Fact(n - 1);",  // 5  <- StartLine/EndLine
+            "    }",                                         // 6
+            "}");                                            // 7
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Fact");
+
+        Assert.Equal(
+            "public int Fact(int n)\n{\n    return n <= 1 ? 1 : n * Fact(n - 1);\n}",
+            body);
+    }
 }

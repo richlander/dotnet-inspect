@@ -116,8 +116,15 @@ public class SourceLinkResolver
         string? simpleTypeName = string.IsNullOrEmpty(destructorTypeName) ? null : SimpleTypeName(destructorTypeName);
 
         // Scan backward from the first sequence point to capture the method signature.
+        // A member whose first sequence point already lands on its own declaration line — a
+        // one-line expression-bodied member, or a property/event accessor whose points map to
+        // the property declaration — needs no backward scan. Scanning back from such a line
+        // skips the blank separator or opening brace above it and captures the preceding member
+        // or the enclosing type header instead, which misattributes source (issue #3278).
         int sigStart = start;
-        for (int i = start - 2; i >= Math.Max(0, start - 15); i--)
+        bool startsAtDeclaration = start >= 1 && start <= lines.Length
+            && IsMemberSignatureLine(lines[start - 1].TrimStart(), isDestructor, simpleTypeName);
+        for (int i = start - 2; !startsAtDeclaration && i >= Math.Max(0, start - 15); i--)
         {
             var trimmed = lines[i].TrimStart();
             if (trimmed.Length == 0 || trimmed.StartsWith("///") || trimmed.StartsWith("//")
@@ -143,8 +150,14 @@ public class SourceLinkResolver
         int from = sigStart - 1;
         int to = end;
 
+        // A declaration whose range already terminates on its last line — an expression body's
+        // ";" or an auto-property's "{ get; set; }" — owns no trailing brace to recover, so the
+        // next "}" below it closes the enclosing type instead (issue #3278).
+        bool endsAtDeclaration = startsAtDeclaration && end >= 1 && end <= lines.Length
+            && IsSelfTerminatingLine(lines[end - 1]);
+
         // Scan forward to include the closing brace.
-        for (int i = to; i < Math.Min(to + 3, lines.Length); i++)
+        for (int i = to; !endsAtDeclaration && i < Math.Min(to + 3, lines.Length); i++)
         {
             var trimmed = lines[i].TrimStart();
             if (trimmed.StartsWith("}"))
@@ -172,6 +185,33 @@ public class SourceLinkResolver
 
         var dedented = methodLines.Select(l => l.Length >= minIndent ? l[minIndent..] : l);
         return string.Join('\n', dedented).TrimEnd();
+    }
+
+    /// <summary>
+    /// True when <paramref name="trimmed"/> (a leading-whitespace-stripped line) begins a member
+    /// declaration, judged by an accessibility or <c>static</c> modifier. Used only to decide
+    /// whether a first sequence point already sits on its member's declaration line, so the
+    /// backward signature scan in <see cref="ExtractMethodBody"/> can be skipped.
+    /// <para>
+    /// This deliberately omits the scan's <c>Contains(methodName)</c> clause: that clause is a
+    /// safe last resort while walking up toward a known-preceding signature, but a method whose
+    /// first statement recurses would spell its own name and be mistaken for its declaration.
+    /// </para>
+    /// </summary>
+    private static bool IsMemberSignatureLine(string trimmed, bool isDestructor, string? simpleTypeName)
+        => trimmed.StartsWith("public") || trimmed.StartsWith("private")
+            || trimmed.StartsWith("protected") || trimmed.StartsWith("internal")
+            || trimmed.StartsWith("static")
+            || (isDestructor && IsDestructorSignatureLine(trimmed, simpleTypeName));
+
+    /// <summary>
+    /// True when <paramref name="line"/> ends a declaration outright, so no trailing brace has
+    /// to be recovered by the forward scan in <see cref="ExtractMethodBody"/>.
+    /// </summary>
+    private static bool IsSelfTerminatingLine(string line)
+    {
+        var trimmed = line.TrimEnd();
+        return trimmed.EndsWith(';') || trimmed.EndsWith('}');
     }
 
     /// <summary>

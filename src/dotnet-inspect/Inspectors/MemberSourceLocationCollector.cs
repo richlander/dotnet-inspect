@@ -38,9 +38,12 @@ internal static class MemberSourceLocationCollector
             var targetMembers = GetTargetMembers(apiType, options).ToArray();
             var subject = new FindingSubject(assemblyPath, Path.GetFileName(assemblyPath));
             var membersByToken = targetMembers
-                .Where(static member => member.MetadataToken is not null)
-                .GroupBy(static member => member.MetadataToken!.Value)
-                .ToDictionary(static group => group.Key, static group => group.ToArray());
+                .SelectMany(static member => SourceTokens(member)
+                    .Select(token => (Token: token, Member: member)))
+                .GroupBy(static pair => pair.Token)
+                .ToDictionary(
+                    static group => group.Key,
+                    static group => group.Select(static pair => pair.Member).ToArray());
             if (membersByToken.Count == 0)
                 return pdbPath;
 
@@ -119,7 +122,7 @@ internal static class MemberSourceLocationCollector
     private static IEnumerable<ApiMember> GetTargetMembers(ApiType apiType, MemberOptions options)
     {
         var members = apiType.Members
-            .Where(ApiMemberSectionDescriptors.IsMethodLike)
+            .Where(ApiMemberSectionDescriptors.IsBodyBacked)
             .Where(m => !MemberFilters.IsCompilerGenerated(m.Name));
 
         if (options.MemberFilter.Count > 0)
@@ -132,6 +135,29 @@ internal static class MemberSourceLocationCollector
             members = members.Where(m => m.IsUnsafe);
 
         return members;
+    }
+
+    /// <summary>
+    /// The MethodDef token(s) whose PDB sequence points locate a member's authored source.
+    /// A method-like member is its own body. A property or event (including an indexer) has
+    /// no MethodDef of its own, so it is located through its accessor — the getter/adder when
+    /// present, otherwise the setter/remover, matching the default accessor ordinal the body
+    /// sections address (issue #3278). The resolved location is applied to the owning member,
+    /// so a property contributes one row rather than one row per accessor.
+    /// </summary>
+    private static IEnumerable<int> SourceTokens(ApiMember member)
+    {
+        if (ApiMemberSectionDescriptors.IsMethodLike(member))
+        {
+            if (member.MetadataToken is { } methodToken)
+                yield return methodToken;
+            yield break;
+        }
+
+        var accessorToken = member.GetterToken ?? member.SetterToken
+            ?? member.AdderToken ?? member.RemoverToken;
+        if (accessorToken is { } token)
+            yield return token;
     }
 
 }
