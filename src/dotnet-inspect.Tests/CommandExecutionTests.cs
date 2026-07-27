@@ -6482,6 +6482,31 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_DiscoverCategoryDoor_ListsMembersAlphabetically()
+    {
+        // Drilling into a category door (-D @Category) lists its members alphabetically, the same
+        // single rule as the flat -D catalog and rendered sections. @Performance is the strong
+        // case: its declared order (PerformanceKinds.Sections) is deliberately non-alphabetical,
+        // so an alpha listing proves the sort is applied rather than incidental.
+        var (exit, output, _) = await RunAppAsync(
+            "library", "System.Text.Json", "-D", "@Performance");
+
+        Assert.Equal(0, exit);
+
+        var members = output
+            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
+            .Where(line => line.Contains("| section", StringComparison.Ordinal))
+            .Select(ExtractSectionName)
+            .ToArray();
+
+        Assert.NotEmpty(members);
+        Assert.All(members, name => Assert.StartsWith("Performance: ", name));
+        Assert.Equal(
+            members.OrderBy(m => m, StringComparer.OrdinalIgnoreCase).ToArray(),
+            members);
+    }
+
+    [Fact]
     public async Task LibraryCommand_DiscoverResourceTriage_ListsRenderableColumns()
     {
         var (exit, output, error) = await RunAppAsync(

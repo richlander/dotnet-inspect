@@ -364,7 +364,7 @@ public static class DiscoverOutput
         {
             if (TryResolveCategory(name, sectionCategories, out var categorySections))
             {
-                foreach (var sectionName in categorySections)
+                foreach (var sectionName in categorySections.OrderBy(s => s, StringComparer.OrdinalIgnoreCase))
                     rows.Add(new DiscoveryRow(sectionName, AnnotateKind("section", sectionName, sectionCostAnnotations)));
                 continue;
             }
@@ -507,7 +507,9 @@ public static class DiscoverOutput
                 {
                     nodes.Add(new TreeNode(name)
                     {
-                        Children = categorySections.Select(section => new TreeNode(section)).ToList()
+                        Children = categorySections
+                            .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+                            .Select(section => new TreeNode(section)).ToList()
                     });
                     continue;
                 }
@@ -549,7 +551,9 @@ public static class DiscoverOutput
                     .OrderBy(category => category.Key, StringComparer.OrdinalIgnoreCase)
                     .Select(category => new TreeNode($"{category.Key} (category)")
                     {
-                        Children = category.Value.Select(section => new TreeNode(section)).ToList()
+                        Children = category.Value
+                            .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+                            .Select(section => new TreeNode(section)).ToList()
                     });
 
                 var sectionNodes = schema.Discover()!
@@ -595,7 +599,9 @@ public static class DiscoverOutput
                 {
                     nodes.Add(new TreeNode($"{row.Name} (category)")
                     {
-                        Children = sectionCategories![row.Name].Select(section => new TreeNode(section)).ToList()
+                        Children = sectionCategories![row.Name]
+                            .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+                            .Select(section => new TreeNode(section)).ToList()
                     });
                     continue;
                 }
