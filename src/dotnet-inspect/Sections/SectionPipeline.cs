@@ -129,6 +129,18 @@ public sealed class SectionPipeline<TModel>
     public string[] AllSectionNames => _entries.Select(e => e.Name).ToArray();
 
     /// <summary>
+    /// All distinct section names in alphabetical order (case-insensitive). This is the canonical
+    /// render order: sections always appear alphabetically regardless of their registration or
+    /// view-model declaration order, so the same sections sort the same way in every view and
+    /// selection (default ladder, category doors, <c>@All</c>).
+    /// </summary>
+    public IReadOnlyList<string> AlphabeticalSectionOrder => _entries
+        .Select(e => e.Name)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    /// <summary>
     /// The authored topical category doors (e.g. <c>@Audit</c>, <c>@Source</c>). Excludes the
     /// computed/selector-only poles <c>@Default</c>, <c>@All</c>, and <c>@Hidden</c>. These are the
     /// only categories the curated <c>-D</c> catalog lists as doors.

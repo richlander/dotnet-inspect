@@ -8072,33 +8072,12 @@ public class CommandExecutionTests
 
         Assert.NotEmpty(sectionHeaders);
 
-        // The kind-scoped Performance sub-group and the Escape family render as a contiguous
-        // trailing cluster (the "Performance:"/"Escape:" prefixes keep the buckets grouped).
-        // Everything from the first trailing member onward must be part of that cluster, and the
-        // primary spine that precedes it renders alphabetically.
-        bool IsTrailing(string h) =>
-            h.StartsWith("Performance:", StringComparison.Ordinal)
-            || h.StartsWith("Escape:", StringComparison.Ordinal);
-
-        var firstTrailing = Array.FindIndex(sectionHeaders, IsTrailing);
-        Assert.True(firstTrailing >= 0, "expected a trailing Performance/Escape cluster");
-
-        // No spine section may appear after the trailing cluster begins.
-        for (var i = firstTrailing; i < sectionHeaders.Length; i++)
-            Assert.True(IsTrailing(sectionHeaders[i]),
-                $"section '{sectionHeaders[i]}' broke the trailing cluster at index {i}");
-
-        var spine = sectionHeaders[..firstTrailing];
-        Assert.Equal(spine.OrderBy(h => h, StringComparer.OrdinalIgnoreCase).ToArray(), spine);
-
-        // The Performance buckets form one contiguous run inside the trailing cluster.
-        var performanceIndexes = sectionHeaders
-            .Select((header, index) => (header, index))
-            .Where(pair => pair.header.StartsWith("Performance:", StringComparison.Ordinal))
-            .Select(pair => pair.index)
-            .ToArray();
-        Assert.NotEmpty(performanceIndexes);
-        Assert.Equal(performanceIndexes.Length, performanceIndexes[^1] - performanceIndexes[0] + 1);
+        // Every section renders in a single alphabetical order — there is no trailing cluster.
+        // The kind-scoped "Performance:" buckets sort among the rest by their full heading (so
+        // they still group under the shared prefix, now in alpha position, not pinned to the end).
+        Assert.Equal(
+            sectionHeaders.OrderBy(h => h, StringComparer.OrdinalIgnoreCase).ToArray(),
+            sectionHeaders);
     }
 
     [Fact]

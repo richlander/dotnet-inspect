@@ -221,7 +221,6 @@ public static class OutputFormatter
         SectionPipeline<LibraryInspection> pipeline)
     {
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
-        bool selectInfo = SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections);
         bool topFieldsOnly = ShouldRenderLibraryContext(options);
         var auditView = new LibraryInspectionView(inspection, topFieldsOnly);
         var includeSections = pipeline.ComputeIncludeSections(
@@ -235,10 +234,7 @@ public static class OutputFormatter
         if (options.Count)
         {
             var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts);
-            if (selectAll)
-                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(inspection));
-            else if (selectInfo)
-                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
+            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
             markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
             if (options.IncludeSections is { Count: > 1 })
             {
@@ -273,20 +269,14 @@ public static class OutputFormatter
         else if (options.VerbosityEnabled)
         {
             var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts).TrimEnd();
-            if (selectAll)
-                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(inspection));
-            else if (selectInfo)
-                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
+            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
             Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
         else if (writerOpts.IncludeSections is { Count: > 1 } && !options.TabularExplicitlySet)
         {
             // Auto-promote to markdown when multiple sections and tabular output wasn't explicitly requested
             var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts).TrimEnd();
-            if (selectAll)
-                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(inspection));
-            else if (selectInfo)
-                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
+            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
             Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
         else
@@ -330,7 +320,6 @@ public static class OutputFormatter
         SectionPipeline<LibraryInspection> pipeline)
     {
         bool selectAll = SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
-        bool selectInfo = SelectResolver.IsActiveInfoSelector(options.Select, options.IncludeSections);
         bool topFieldsOnly = ShouldRenderLibraryContext(options);
         var report = new LibraryInspectionReport
         {
@@ -347,10 +336,7 @@ public static class OutputFormatter
         if (options.Count)
         {
             var markdown = MarkoutSerializer.Serialize(report, InspectionContext.Default, writerOptions);
-            if (selectAll)
-                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(inspections[0]));
-            else if (selectInfo)
-                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
+            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
             markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
             if (options.IncludeSections is { Count: > 1 })
             {
@@ -373,10 +359,7 @@ public static class OutputFormatter
         if (options.VerbosityEnabled)
         {
             var markdown = MarkoutSerializer.Serialize(report, InspectionContext.Default, writerOptions).TrimEnd();
-            if (selectAll)
-                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.GetAllSelectorSections(inspections[0]));
-            else if (selectInfo)
-                markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
+            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
             Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
         else

@@ -200,6 +200,13 @@ standalone set, `@Hidden` is its complement, and neither is a user-facing door
 - The `-v` ladder is cumulative and never auto-runs an `Unbounded` section.
 - Every visible section is reachable from at least one topical door or the flat
   `@All` set; internal-only sections fall into the computed `@Hidden` complement.
+- **Library sections always render in alphabetical order** (case-insensitive)
+  regardless of registration or view-model declaration order. The same sections
+  sort the same way in every library view and selection — the default ladder,
+  `@Category` doors, and `@All`. Because sections share a `Group: Leaf` prefix
+  (`Performance:`, `Source Link:`), a group's members still cluster together
+  while sorting alphabetically within the cluster; no group carries a curated
+  non-alphabetical display order at render time.
 
 ### How the dimensions map
 
