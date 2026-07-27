@@ -17,7 +17,7 @@ public interface IIrPass
     void Run(IrFunction function, PassContext context);
 }
 
-/// <summary>The pipeline's pass list and runner. Debug builds validate tree invariants after every pass — a violation is a pass bug, never input data.</summary>
+/// <summary>The pipeline's pass list and runner. When <see cref="ILInspector.Decompiler.Pipeline.IrInvariants.Enabled"/> is set, the runner validates tree invariants after every pass — a violation is a pass bug, never input data.</summary>
 public static class IrPasses
 {
     public static ImmutableArray<IIrPass> Default { get; } =
@@ -481,7 +481,8 @@ public static class IrPasses
         foreach (var pass in passes)
         {
             pass.Run(function, context);
-            function.CheckInvariant();
+            if (IrInvariants.Enabled)
+                function.CheckInvariant();
         }
     }
 
@@ -514,8 +515,9 @@ public static class IrPasses
     /// Runs <paramref name="passes"/>, capturing <paramref name="project"/>'s
     /// output at the importer boundary and after each pass. The projection runs
     /// between mutations, so each captured string is the tree as that stage left
-    /// it. Debug builds validate invariants after every pass, exactly as
-    /// <see cref="Run(IrFunction, ImmutableArray{IIrPass})"/> does.
+    /// it. Invariants are validated after every pass when
+    /// <see cref="ILInspector.Decompiler.Pipeline.IrInvariants.Enabled"/> is set,
+    /// exactly as <see cref="Run(IrFunction, ImmutableArray{IIrPass})"/> does.
     /// </summary>
     public static IReadOnlyList<PipelineStage> RunWithStages(
         IrFunction function, ImmutableArray<IIrPass> passes, Func<IrFunction, string> project)
@@ -539,7 +541,8 @@ public static class IrPasses
         foreach (var pass in passes)
         {
             pass.Run(function, context);
-            function.CheckInvariant();
+            if (IrInvariants.Enabled)
+                function.CheckInvariant();
             stages.Add(new(pass.Name, project(function), function.Fidelity));
         }
         return stages;
@@ -573,7 +576,8 @@ public static class IrPasses
             foreach (var pass in Default)
             {
                 pass.Run(function, context);
-                function.CheckInvariant();
+                if (IrInvariants.Enabled)
+                    function.CheckInvariant();
             }
         }
         catch (StepLimitReachedException)

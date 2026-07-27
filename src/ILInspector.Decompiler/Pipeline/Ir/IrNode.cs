@@ -1,5 +1,3 @@
-using System.Diagnostics;
-
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
@@ -7,7 +5,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// a mutable tree with parent pointers and child slots, in the ILSpy
 /// <c>ILInstruction</c> tradition. <see cref="ReplaceWith"/> is the primitive
 /// rewrite; <see cref="CheckInvariant"/> validates parent/child consistency
-/// after every pass in debug builds.
+/// after every pass when <see cref="IrInvariants.Enabled"/> is set.
 /// </summary>
 public abstract class IrNode
 {
@@ -173,10 +171,12 @@ public abstract class IrNode
     }
 
     /// <summary>
-    /// Validates parent/child consistency for this subtree. Debug builds run
-    /// this after every pass; a violation is a pipeline bug, never input data.
+    /// Validates parent/child consistency for this subtree. Runs after every
+    /// pass when <see cref="IrInvariants.Enabled"/> is set, and on every explicit
+    /// call; a violation is a pipeline bug, never input data. Always compiled (no
+    /// <c>[Conditional]</c>) so it runs in the optimized Release build the test
+    /// suite and corpus sweeps use.
     /// </summary>
-    [Conditional("DEBUG")]
     public void CheckInvariant()
     {
         for (int i = 0; i < _children.Count; i++)

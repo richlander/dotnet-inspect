@@ -190,6 +190,17 @@ Tests use xUnit executable projects. **Use `dotnet run`, not `dotnet test`**;
 | Shared services | `dotnet run --project src/DotnetInspector.Services.Tests -c Release` |
 | Metadata | `dotnet run --project tests/ILInspector.Metadata.Tests -c Release` |
 
+Run the suite in **Release** for input fidelity, not speed: the optimized IL a
+Release build of the compilers emits is what ships and what the decompiler
+corpus consumes, so a Debug run would validate the decompiler against IL shapes
+users never see. Because the suite runs Release, correctness checks must not
+hide behind `[Conditional("DEBUG")]` — such a call is stripped from the Release
+test assembly and asserts nothing. The IR structural invariant check
+(`IrNode.CheckInvariant`) is instead a runtime opt-in (`IrInvariants.Enabled`,
+env var `DOTNET_INSPECT_IR_INVARIANTS`) that the decompiler test host turns on
+suite-wide, so the pipeline is validated after every pass in the same build
+users run, while the shipped tool pays nothing on the decompile hot path.
+
 Some CLI tests require `ilasm`/`ildasm` and skip when those tools are absent.
 The IL round-trip project has separate dependency restore and fast/full test
 commands; follow `tests/DotnetInspector.ILRoundtrip.Tests/README.md`.
