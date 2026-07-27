@@ -102,6 +102,12 @@ public sealed class ObjectInitializerPass : IIrPass
         var aliasSlots = new HashSet<int> { seed.Slot };
         var consumed = new List<IrNode> { seed };
         var entries = new List<EntryPlan>();
+        // Statements interleaved before the first initializer entry that are
+        // independent of the threaded reference (a sibling constructor argument
+        // spilled to its own slot because it was live on the stack beneath this dup
+        // chain). They are left in place and the escape is treated as if they were
+        // not present. See the skip branch below.
+        var skipped = new List<IrNode>();
         bool? isCollection = null;
 
         // A run of nested ops on the same member folds into one InitializerBlock
@@ -181,6 +187,21 @@ public sealed class ObjectInitializerPass : IIrPass
                 continue;
             }
 
+            // A statement interleaved before the first initializer entry that neither
+            // reads nor writes the threaded reference — e.g. `t = new(); a = Other();
+            // t.X = ...` where `a` is a preceding constructor argument the stackifier
+            // spilled because it was live beneath the dup chain. It cannot observe the
+            // partially-built object, so leave it in place and skip it; the escape
+            // logic below treats it as a permitted gap and folds via the use site
+            // (never the seed), which keeps the member stores after this statement in
+            // their original order. Only tolerated before the first entry so no member
+            // store is ever reordered across it.
+            if (entries.Count == 0 && pendingInner is null && !TouchesAnySlot(statement, aliasSlots))
+            {
+                skipped.Add(statement);
+                continue;
+            }
+
             break;
         }
 
@@ -224,6 +245,10 @@ public sealed class ObjectInitializerPass : IIrPass
         // statements sit between the run and the escape, materialize the initializer at
         // the original seed instead: that keeps member-value side effects before the
         // gap and still collapses the compiler temp chain into one initialized value.
+        // Skipped pre-entry statements (see the loop) are permitted gaps: they must be
+        // folded via the use site so the member stores stay after them, never via the
+        // seed (which would hoist the member stores before them).
+        var skippedSet = skipped.ToHashSet();
         IrNode escapeStatement = outsideUses[0];
         while (escapeStatement.Parent is { } parent && !ReferenceEquals(parent, seed.Parent))
             escapeStatement = parent;
@@ -232,12 +257,19 @@ public sealed class ObjectInitializerPass : IIrPass
         bool contiguousEscape = true;
         for (int i = seed.ChildIndex + 1; i < escapeStatement.ChildIndex; i++)
         {
-            if (!consumedSet.Contains(statements[i]))
+            var between = statements[i];
+            if (!consumedSet.Contains(between) && !skippedSet.Contains(between))
             {
                 contiguousEscape = false;
                 break;
             }
         }
+
+        // A skip forces use-site folding. If the escape is not contiguous (a real gap
+        // after the members that would need seed materialization), seed folding would
+        // hoist the members before the skipped statement — unsound — so decline.
+        if (!contiguousEscape && skipped.Count != 0)
+            return null;
 
         return new Plan(
             consumed,
@@ -569,6 +601,29 @@ public sealed class ObjectInitializerPass : IIrPass
     static bool ReferencesAnySlot(IrNode node, HashSet<int> slots)
         => (node is LoadStackSlot load && slots.Contains(load.Slot))
             || node.Descendants.OfType<LoadStackSlot>().Any(descendant => slots.Contains(descendant.Slot));
+
+    /// <summary>
+    /// Whether a statement subtree reads or writes any of the threaded-reference
+    /// slots. Used to prove an interleaved statement is independent of the object
+    /// under construction before skipping it: independence requires it neither
+    /// loads the reference (observing the partial object) nor stores an alias slot
+    /// (clobbering the reference).
+    /// </summary>
+    static bool TouchesAnySlot(IrNode node, HashSet<int> slots)
+    {
+        if (node is LoadStackSlot load && slots.Contains(load.Slot))
+            return true;
+        if (node is StoreStackSlot store && slots.Contains(store.Slot))
+            return true;
+        foreach (var descendant in node.Descendants)
+        {
+            if (descendant is LoadStackSlot d && slots.Contains(d.Slot))
+                return true;
+            if (descendant is StoreStackSlot s && slots.Contains(s.Slot))
+                return true;
+        }
+        return false;
+    }
 
     static bool ReferencesLocal(IrNode node, int index)
         => (node is LoadLocal load && load.Index == index)
