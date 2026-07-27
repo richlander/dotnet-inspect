@@ -259,6 +259,46 @@ public class MemberCallGraphSectionTests
         Assert.Contains("void add_Triggered(", result.Output);
     }
 
+    [Fact]
+    public async Task DecompiledSource_VirtualPropertyGetterKeepsVirtualModifier()
+    {
+        // The accessor shares the property's slot, so a virtual getter renders `virtual`
+        // rather than the owner's bare accessibility (#3265).
+        var result = await RunDecompiledAsync(
+            typeof(MemberAccessorModifierFixture).FullName!,
+            nameof(MemberAccessorModifierFixture.Label), overloadIndex: null);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Decompiled Source", result.Output);
+        Assert.Contains("public virtual string get_Label()", result.Output);
+    }
+
+    [Fact]
+    public async Task DecompiledSource_OverridePropertyGetterKeepsOverrideModifier()
+    {
+        var result = await RunDecompiledAsync(
+            typeof(DerivedAccessorModifierFixture).FullName!,
+            nameof(DerivedAccessorModifierFixture.Label), overloadIndex: null);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Decompiled Source", result.Output);
+        Assert.Contains("public override string get_Label()", result.Output);
+    }
+
+    [Fact]
+    public async Task DecompiledSource_PrivateSetterKeepsAccessorAccessibility()
+    {
+        // A `private set` must render `private`, not the property's public accessibility (#3265).
+        var result = await RunDecompiledAsync(
+            typeof(MemberAccessorModifierFixture).FullName!,
+            nameof(MemberAccessorModifierFixture.State), overloadIndex: 2);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Decompiled Source", result.Output);
+        Assert.Contains("private void set_State(bool value)", result.Output);
+        Assert.DoesNotContain("public void set_State(", result.Output);
+    }
+
     static Task<(int ExitCode, string Output, string Error)> RunDecompiledAsync(
         string typeName, string memberName, int? overloadIndex)
         => ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
@@ -362,4 +402,19 @@ public static class MemberCallGraphFixture
             System.GC.KeepAlive(x);
         }
     }
+}
+
+// Instance fixtures whose accessors carry non-default modifiers, so the synthesized
+// accessor declarations must reflect virtual/override (from the owning slot) and the
+// per-accessor accessibility of a `private set` rather than the owner's aggregate (#3265).
+public class MemberAccessorModifierFixture
+{
+    public virtual string Label { get; } = "base";
+
+    public bool State { get; private set; }
+}
+
+public class DerivedAccessorModifierFixture : MemberAccessorModifierFixture
+{
+    public override string Label => "derived";
 }
