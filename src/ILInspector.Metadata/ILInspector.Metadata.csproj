@@ -25,10 +25,7 @@
     <ProjectReference Include="..\ILInspector.Findings\ILInspector.Findings.csproj" />
     <ProjectReference Include="..\ILInspector.MetadataPrimitives\ILInspector.MetadataPrimitives.csproj" />
     <ProjectReference Include="..\ILInspector.Text\ILInspector.Text.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="SourceLinkFetch" />
+    <ProjectReference Include="..\SourceLinkFetch\SourceLinkFetch.csproj" />
   </ItemGroup>
 
   <!-- System.Reflection.Metadata is part of net10.0 BCL -->
