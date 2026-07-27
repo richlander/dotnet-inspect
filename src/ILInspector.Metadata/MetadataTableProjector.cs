@@ -224,7 +224,7 @@ public static class MetadataTableProjector
         var typeRef = reader.GetTypeReference(MetadataTokens.TypeReferenceHandle(rid));
         return
         [
-            HandleCell(reader, typeRef.ResolutionScope),
+            HandleCell(reader, typeRef.ResolutionScope, options),
             StringCell(reader, typeRef.Name, options),
             StringCell(reader, typeRef.Namespace, options),
         ];
@@ -239,7 +239,7 @@ public static class MetadataTableProjector
             FlagsCell((long)typeDef.Attributes, typeDef.Attributes.ToString()),
             StringCell(reader, typeDef.Name, options),
             StringCell(reader, typeDef.Namespace, options),
-            HandleCell(reader, typeDef.BaseType),
+            HandleCell(reader, typeDef.BaseType, options),
             RangeCell(TableIndex.Field, typeDef.GetFields()),
             RangeCell(TableIndex.MethodDef, typeDef.GetMethods()),
         ];
@@ -286,7 +286,7 @@ public static class MetadataTableProjector
         var memberRef = reader.GetMemberReference(MetadataTokens.MemberReferenceHandle(rid));
         return
         [
-            HandleCell(reader, memberRef.Parent),
+            HandleCell(reader, memberRef.Parent, options),
             StringCell(reader, memberRef.Name, options),
             BlobCell(reader, memberRef.Signature, options),
         ];
@@ -297,8 +297,8 @@ public static class MetadataTableProjector
         var attribute = reader.GetCustomAttribute(MetadataTokens.CustomAttributeHandle(rid));
         return
         [
-            HandleCell(reader, attribute.Parent),
-            HandleCell(reader, attribute.Constructor),
+            HandleCell(reader, attribute.Parent, options),
+            HandleCell(reader, attribute.Constructor, options),
             BlobCell(reader, attribute.Value, options),
         ];
     }
@@ -416,7 +416,7 @@ public static class MetadataTableProjector
         }
     }
 
-    static MetadataValue HandleCell(MetadataReader reader, EntityHandle handle)
+    static MetadataValue HandleCell(MetadataReader reader, EntityHandle handle, MetadataProjectionOptions options)
     {
         if (handle.IsNil)
             return new MetadataValue.Nil();
@@ -437,10 +437,11 @@ public static class MetadataTableProjector
                     $"Handle 0x{token:X8} targets {table} row {rid}, outside [1, {targetRows}].");
 
             string? display = ResolveHandleDisplay(reader, handle);
+            bool displayTruncated = false;
             if (display is not null)
-                display = NeutralizeControls(display);
+                display = NeutralizeControls(display, options.MaxStringChars, out displayTruncated);
 
-            return new MetadataValue.Handle(new HandleRef(table, rid, token, display));
+            return new MetadataValue.Handle(new HandleRef(table, rid, token, display, displayTruncated));
         }
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
@@ -552,22 +553,36 @@ public static class MetadataTableProjector
         => new MetadataValue.Flags(raw, decoded);
 
     /// <summary>
-    /// Escapes a decoded heap string for use as data and bounds it to
-    /// <paramref name="maxChars"/> characters. Backslash and quote are escaped,
-    /// and every control character (including ESC) is rendered as <c>\uXXXX</c>
-    /// so the value cannot inject terminal control sequences or break structured
-    /// output. <paramref name="truncated"/> reports whether the bound was hit.
+    /// Escapes a decoded heap string for use as data and bounds the EMITTED
+    /// preview to <paramref name="maxChars"/> characters. Backslash and quote
+    /// are escaped, and every control character (including ESC) is rendered as
+    /// <c>\uXXXX</c> so the value cannot inject terminal control sequences or
+    /// break structured output. Because escaping can expand a single character,
+    /// the budget is enforced on the output length, not the input length;
+    /// <paramref name="truncated"/> reports whether any input was dropped to keep
+    /// the preview within budget.
     /// </summary>
     static string EscapeText(string value, int maxChars, out bool truncated)
     {
         int limit = Math.Max(0, maxChars);
-        truncated = value.Length > limit;
-        int take = truncated ? limit : value.Length;
+        var builder = new System.Text.StringBuilder(Math.Min(value.Length, limit));
+        truncated = false;
 
-        var builder = new System.Text.StringBuilder(take);
-        for (int i = 0; i < take; i++)
+        for (int i = 0; i < value.Length; i++)
         {
             char c = value[i];
+            int width = c switch
+            {
+                '\\' or '"' or '\n' or '\r' or '\t' => 2,
+                _ => IsControl(c) ? 6 : 1,
+            };
+
+            if (builder.Length + width > limit)
+            {
+                truncated = true;
+                break;
+            }
+
             switch (c)
             {
                 case '\\': builder.Append("\\\\"); break;
@@ -590,26 +605,30 @@ public static class MetadataTableProjector
     /// <summary>
     /// Renders every control character in a display string as <c>\uXXXX</c>,
     /// leaving all other characters (including the structural <c>::</c>, quotes,
-    /// and generic-arity marks in resolved names) intact.
+    /// and generic-arity marks in resolved names) intact, and bounds the EMITTED
+    /// text to <paramref name="maxChars"/> characters so a large resolved name
+    /// cannot be re-materialized across every referencing row. The budget is
+    /// enforced on the output length, not the input length;
+    /// <paramref name="truncated"/> reports whether any input was dropped to keep
+    /// the text within budget.
     /// </summary>
-    static string NeutralizeControls(string value)
+    static string NeutralizeControls(string value, int maxChars, out bool truncated)
     {
-        bool needsEscape = false;
-        foreach (char c in value)
+        int limit = Math.Max(0, maxChars);
+        var builder = new System.Text.StringBuilder(Math.Min(value.Length, limit));
+        truncated = false;
+
+        for (int i = 0; i < value.Length; i++)
         {
-            if (IsControl(c))
+            char c = value[i];
+            int width = IsControl(c) ? 6 : 1;
+
+            if (builder.Length + width > limit)
             {
-                needsEscape = true;
+                truncated = true;
                 break;
             }
-        }
 
-        if (!needsEscape)
-            return value;
-
-        var builder = new System.Text.StringBuilder(value.Length + 8);
-        foreach (char c in value)
-        {
             if (IsControl(c))
                 builder.Append("\\u").Append(((int)c).ToString("X4"));
             else

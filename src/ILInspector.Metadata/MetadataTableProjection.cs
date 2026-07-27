@@ -215,13 +215,14 @@ public enum HeapKind
 /// </summary>
 public sealed record HandleRef
 {
-    public HandleRef(TableIndex TargetTable, int TargetRowId, int Token, string? Display = null)
+    public HandleRef(TableIndex TargetTable, int TargetRowId, int Token, string? Display = null, bool DisplayTruncated = false)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(TargetRowId);
         this.TargetTable = TargetTable;
         this.TargetRowId = TargetRowId;
         this.Token = Token;
         this.Display = Display;
+        this.DisplayTruncated = DisplayTruncated;
     }
 
     /// <summary>The table the edge points into.</summary>
@@ -235,6 +236,12 @@ public sealed record HandleRef
 
     /// <summary>Best-effort display text for the target, or null when unavailable.</summary>
     public string? Display { get; }
+
+    /// <summary>
+    /// True when <see cref="Display"/> was bounded by the projection's string
+    /// budget, so the retained text is a prefix rather than the full name.
+    /// </summary>
+    public bool DisplayTruncated { get; }
 }
 
 /// <summary>

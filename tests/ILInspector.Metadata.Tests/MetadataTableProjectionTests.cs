@@ -214,6 +214,51 @@ public class MetadataTableProjectionTests
     }
 
     [Fact]
+    public void HandleDisplay_RespectsStringBudgetWithExplicitTruncation()
+    {
+        // A handle's convenience Display is a resolved name drawn from the heaps,
+        // so it is subject to the same character budget as a heap string cell; a
+        // large shared name must not be re-materialized across every referencing
+        // row via the Display path.
+        const int budget = 4;
+        var references = Project(new MetadataProjectionOptions { MaxStringChars = budget })
+            .Tables
+            .SelectMany(table => table.Rows)
+            .SelectMany(row => row.Cells)
+            .OfType<MetadataValue.Handle>()
+            .Select(cell => cell.Reference)
+            .Where(reference => reference.Display is not null)
+            .ToList();
+
+        Assert.NotEmpty(references);
+        Assert.All(references, reference => Assert.True(
+            reference.Display!.Length <= budget,
+            $"Display '{reference.Display}' exceeds the {budget}-char budget."));
+        Assert.Contains(references, reference => reference.DisplayTruncated);
+    }
+
+    [Fact]
+    public void StringPreview_NeverExceedsCharBudgetEvenWhenEscaped()
+    {
+        // Escaping can expand a single character, so the budget is enforced on the
+        // emitted length: no retained string preview exceeds MaxStringChars, even
+        // for a value that is nominally within the character count.
+        const int budget = 4;
+        var strings = Project(new MetadataProjectionOptions { MaxStringChars = budget })
+            .Tables
+            .SelectMany(table => table.Rows)
+            .SelectMany(row => row.Cells)
+            .OfType<MetadataValue.HeapReference>()
+            .Where(heap => heap.Heap == HeapKind.String && heap.Text is not null)
+            .ToList();
+
+        Assert.NotEmpty(strings);
+        Assert.All(strings, heap => Assert.True(
+            heap.Text!.Length <= budget,
+            $"String preview '{heap.Text}' exceeds the {budget}-char budget."));
+    }
+
+    [Fact]
     public void EmptyImage_HasNoMetadataTables()
     {
         // The projector never fabricates a success-shaped table set; a metadata
