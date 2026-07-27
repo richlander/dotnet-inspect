@@ -1,3 +1,4 @@
+using System.Reflection;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using ILInspector.Decompiler.Pipeline;
@@ -10,12 +11,20 @@ namespace ILInspector.Decompiler.Tests;
 /// rather than removing it, because a host that never armed the flag exercised
 /// the pipeline broadly while validating nothing — coverage-shaped silence. The
 /// default is now on, and these tests hold that shape: validation is what a host
-/// gets for free, and declining it is a single explicit call site that this
-/// census pins.
+/// gets for free, and declining it has exactly one form.
+/// <para>
+/// Enforcement is layered so the weaker layer never carries the claim alone.
+/// The compiler owns it: <see cref="IrInvariants.Enabled"/> has a private
+/// setter, so no host can spell the decline as an assignment (under a
+/// <c>using static</c>, a namespace alias, or otherwise) — it would not build.
+/// The census below then only has to pin the one call site of the one method
+/// that remains, which it matches by method name rather than by receiver
+/// spelling, so aliasing does not evade it either.
+/// </para>
 /// </summary>
 public sealed class IrInvariantsHostContractTests
 {
-    const string OptOutMethod = "DisableForShippedTool";
+    const string OptOutMethod = nameof(IrInvariants.DisableForShippedTool);
 
     const string EnvironmentVariable = "DOTNET_INSPECT_IR_INVARIANTS";
 
@@ -46,6 +55,21 @@ public sealed class IrInvariantsHostContractTests
     }
 
     /// <summary>
+    /// The structural half of the enforcement: declining validation cannot be
+    /// spelled as an assignment at all, so no census, review habit, or naming
+    /// convention has to catch that spelling.
+    /// </summary>
+    [Fact]
+    public void EnabledHasNoPubliclyWritableSetter()
+    {
+        var setter = typeof(IrInvariants)
+            .GetProperty(nameof(IrInvariants.Enabled), BindingFlags.Public | BindingFlags.Static)!
+            .GetSetMethod(nonPublic: false);
+
+        Assert.Null(setter);
+    }
+
+    /// <summary>
     /// The semantic level stays opt-in: minimal hand-built fixtures reference
     /// local slots without populating <c>Locals</c>, so arming it suite-wide
     /// would false-positive on them. Corpus gates thread the level explicitly.
@@ -53,7 +77,10 @@ public sealed class IrInvariantsHostContractTests
     [Fact]
     public void SemanticLevelStaysOptIn()
     {
-        bool requestedFull = Environment.GetEnvironmentVariable(EnvironmentVariable) == "full";
+        bool requestedFull = string.Equals(
+            Environment.GetEnvironmentVariable(EnvironmentVariable)?.Trim(),
+            "full",
+            StringComparison.OrdinalIgnoreCase);
 
         Assert.Equal(requestedFull, IrInvariants.CheckSemantics);
     }
@@ -62,13 +89,35 @@ public sealed class IrInvariantsHostContractTests
     [InlineData("1", true)]
     [InlineData("true", true)]
     [InlineData("full", true)]
+    [InlineData("on", true)]
+    [InlineData("yes", true)]
     [InlineData("0", false)]
     [InlineData("false", false)]
     [InlineData("off", false)]
+    [InlineData("no", false)]
     [InlineData("", null)]
-    [InlineData("yes", null)]
+    [InlineData("   ", null)]
+    [InlineData("bogus", null)]
     [InlineData(null, null)]
     public void EnvironmentValueMapsToAnExplicitRequest(string? value, bool? expected)
+    {
+        Assert.Equal(expected, IrInvariants.ParseRequest(value));
+    }
+
+    /// <summary>
+    /// Case and surrounding whitespace must not silently swallow an off request.
+    /// With the default inverted, a dropped "off" leaves the check armed against
+    /// an operator who explicitly asked for it off — the failure is quiet and
+    /// points the wrong way.
+    /// </summary>
+    [Theory]
+    [InlineData("False", false)]
+    [InlineData("OFF", false)]
+    [InlineData(" 0 ", false)]
+    [InlineData("True", true)]
+    [InlineData("FULL", true)]
+    [InlineData(" full\t", true)]
+    public void EnvironmentValueIsTrimmedAndCaseInsensitive(string value, bool? expected)
     {
         Assert.Equal(expected, IrInvariants.ParseRequest(value));
     }
@@ -90,22 +139,22 @@ public sealed class IrInvariantsHostContractTests
     }
 
     /// <summary>
-    /// The drift guard. Any write to <see cref="IrInvariants.Enabled"/> outside
-    /// the declaring file — whether a direct assignment or the sanctioned
-    /// <see cref="IrInvariants.DisableForShippedTool"/> call — is a host
-    /// declining or overriding validation, and only the shipped CLI entry point
-    /// may do that. A new harness, sweep, or benchmark that quietly turns the
-    /// check off fails here instead of shipping silent non-coverage.
+    /// The drift guard over what the compiler cannot express: which host may
+    /// call the opt-out. Matching is by method name, not by receiver spelling,
+    /// so <c>Inv.DisableForShippedTool()</c> under an alias and a bare
+    /// <c>DisableForShippedTool()</c> under <c>using static</c> are both caught.
+    /// A new harness, sweep, or benchmark that quietly declines validation fails
+    /// here instead of shipping silent non-coverage.
     /// </summary>
     [Fact]
     public void OnlyTheShippedToolEntryPointDeclinesValidation()
     {
-        var sites = FindEnabledWriteSites().OrderBy(static s => s, StringComparer.Ordinal).ToArray();
+        var sites = FindOptOutSites().OrderBy(static s => s, StringComparer.Ordinal).ToArray();
 
         Assert.Equal(new[] { ShippedToolEntryPoint }, sites);
     }
 
-    static List<string> FindEnabledWriteSites()
+    static List<string> FindOptOutSites()
     {
         string root = FindRepositoryRoot();
         string declaringFile = Path.Combine(
@@ -115,8 +164,7 @@ public sealed class IrInvariantsHostContractTests
         foreach (string area in new[] { "src", "tools", "tests" })
         {
             string areaPath = Path.Combine(root, area);
-            if (!Directory.Exists(areaPath))
-                continue;
+            Assert.True(Directory.Exists(areaPath), $"Expected source area '{area}' beneath {root}.");
 
             foreach (string path in Directory.EnumerateFiles(areaPath, "*.cs", SearchOption.AllDirectories))
             {
@@ -124,13 +172,10 @@ public sealed class IrInvariantsHostContractTests
                     continue;
 
                 string text = File.ReadAllText(path);
-                if (!text.Contains(nameof(IrInvariants), StringComparison.Ordinal)
-                    && !text.Contains(OptOutMethod, StringComparison.Ordinal))
-                {
+                if (!text.Contains(OptOutMethod, StringComparison.Ordinal))
                     continue;
-                }
 
-                if (WritesEnabled(text, path))
+                if (CallsOptOut(text, path))
                     sites.Add(Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/'));
             }
         }
@@ -138,26 +183,15 @@ public sealed class IrInvariantsHostContractTests
         return sites;
     }
 
-    static bool WritesEnabled(string text, string path)
+    static bool CallsOptOut(string text, string path)
     {
         var tree = CSharpSyntaxTree.ParseText(text, path: path, cancellationToken: TestContext.Current.CancellationToken);
         var root = tree.GetCompilationUnitRoot(TestContext.Current.CancellationToken);
 
-        bool assigns = root.DescendantNodes()
-            .OfType<AssignmentExpressionSyntax>()
-            .Any(assignment => IsEnabledFlag(assignment.Left));
-
-        bool callsOptOut = root.DescendantNodes()
+        return root.DescendantNodes()
             .OfType<InvocationExpressionSyntax>()
             .Any(invocation => NameOf(invocation.Expression) == OptOutMethod);
-
-        return assigns || callsOptOut;
     }
-
-    static bool IsEnabledFlag(ExpressionSyntax expression) =>
-        expression is MemberAccessExpressionSyntax member
-            && member.Name.Identifier.ValueText == nameof(IrInvariants.Enabled)
-            && member.Expression.ToString().EndsWith(nameof(IrInvariants), StringComparison.Ordinal);
 
     static string? NameOf(ExpressionSyntax expression) => expression switch
     {

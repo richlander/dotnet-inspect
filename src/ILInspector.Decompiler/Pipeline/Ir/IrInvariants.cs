@@ -23,8 +23,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// #3241 failure mode instead of removing it: a new host — another harness, a
 /// sweep tool, a benchmark — would exercise the pipeline broadly while
 /// validating nothing, and look healthy doing it. With the default inverted,
-/// declining validation is an explicit, greppable act at exactly one call site
-/// rather than the silent consequence of not writing one.
+/// declining validation has exactly one form — <see cref="Enabled"/>'s setter
+/// is private, so the compiler rejects any other spelling — and that one form
+/// is pinned to a single call site by
+/// <c>IrInvariantsHostContractTests</c>.
 /// </para>
 /// </summary>
 public static class IrInvariants
@@ -45,11 +47,19 @@ public static class IrInvariants
     /// <summary>
     /// When true, the pipeline runner and importer validate the IR after every
     /// pass. On unless <c>DOTNET_INSPECT_IR_INVARIANTS</c> asks for off or a
-    /// host calls <see cref="DisableForShippedTool"/>. Settable directly for
-    /// scoped experiments. Explicit <see cref="IrNode.CheckInvariant()"/> calls
-    /// (e.g. in tests) run regardless of this flag.
+    /// host calls <see cref="DisableForShippedTool"/>. Explicit
+    /// <see cref="IrNode.CheckInvariant()"/> calls (e.g. in tests) run
+    /// regardless of this flag.
+    /// <para>
+    /// The setter is private on purpose: turning validation off is a decision
+    /// with exactly one sanctioned form, so the compiler — not a convention or a
+    /// source census — is what stops a host from writing
+    /// <c>Enabled = false</c> under a <c>using static</c> or a namespace alias.
+    /// It also removes the temptation to flip the flag inside a test, which
+    /// would race the parallel collections xUnit runs it under.
+    /// </para>
     /// </summary>
-    public static bool Enabled { get; set; } = ResolveEnabled(EnvironmentRequest, hostOptedOut: false);
+    public static bool Enabled { get; private set; } = ResolveEnabled(EnvironmentRequest, hostOptedOut: false);
 
     /// <summary>
     /// When true, the per-pass hooks additionally validate <em>semantic</em>
@@ -62,9 +72,10 @@ public static class IrInvariants
     /// <c>DOTNET_INSPECT_IR_INVARIANTS=full</c>) so semantic checks run over real
     /// importer output, where they are true invariants (verified zero-violation
     /// over CoreLib's 41,952 methods). Requires <see cref="Enabled"/> to take
-    /// effect at the per-pass hooks.
+    /// effect at the per-pass hooks. Process-global: set it during host startup,
+    /// not inside a test, which would race the parallel collections.
     /// </summary>
-    public static bool CheckSemantics { get; set; } = EnvValue is "full";
+    public static bool CheckSemantics { get; set; } = RequestsSemantics(EnvValue);
 
     /// <summary>
     /// The one sanctioned opt-out: the shipped CLI's decompile hot path, where
@@ -87,12 +98,29 @@ public static class IrInvariants
 
     /// <summary>
     /// Maps a <c>DOTNET_INSPECT_IR_INVARIANTS</c> value to an explicit on/off
-    /// request, or <see langword="null"/> when it expresses none.
+    /// request, or <see langword="null"/> when it expresses none. Trimmed and
+    /// case-insensitive: with the default inverted, silently ignoring
+    /// <c>False</c> or <c>Off</c> would leave the check armed against an
+    /// operator who explicitly asked for it off.
     /// </summary>
-    internal static bool? ParseRequest(string? value) => value switch
+    internal static bool? ParseRequest(string? value)
     {
-        "1" or "true" or "full" => true,
-        "0" or "false" or "off" => false,
-        _ => null,
-    };
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        string request = value.Trim();
+        if (Is(request, "1", "true", "full", "on", "yes"))
+            return true;
+        if (Is(request, "0", "false", "off", "no"))
+            return false;
+
+        return null;
+
+        static bool Is(string request, params string[] candidates) =>
+            candidates.Any(candidate => string.Equals(request, candidate, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Whether the environment asked for the semantic level (<c>full</c>).</summary>
+    static bool RequestsSemantics(string? value) =>
+        string.Equals(value?.Trim(), "full", StringComparison.OrdinalIgnoreCase);
 }

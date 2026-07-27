@@ -202,9 +202,11 @@ that runs the pipeline — test suite, harness, sweep, benchmark — validates i
 after every pass in the same build users run. The shipped CLI is the one
 sanctioned opt-out (`IrInvariants.DisableForShippedTool()` in
 `src/dotnet-inspect/Program.cs`), so the tool pays nothing on the decompile hot
-path; `IrInvariantsHostContractTests` pins that call site so a new host cannot
-quietly decline validation. An explicit `DOTNET_INSPECT_IR_INVARIANTS` value
-outranks the opt-out in both directions.
+path. Declining validation has exactly one form — `Enabled`'s setter is private,
+so the compiler rejects any other spelling — and `IrInvariantsHostContractTests`
+pins that one call site, so a new host cannot quietly decline. An explicit
+`DOTNET_INSPECT_IR_INVARIANTS` value (trimmed, case-insensitive) outranks the
+opt-out in both directions.
 
 The invariant check is **leveled**, because the two levels need different
 inputs to be sound:
