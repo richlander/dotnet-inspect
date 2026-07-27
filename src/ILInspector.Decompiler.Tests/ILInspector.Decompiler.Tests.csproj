@@ -76,6 +76,8 @@
              Link="CorpusMetadata.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\CorpusMethodIdentity.cs"
              Link="CorpusMethodIdentity.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\PassBugDiagnostic.cs"
+             Link="PassBugDiagnostic.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\CorpusMethodDelta.cs"
              Link="CorpusMethodDelta.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\CorpusSensor.cs"
