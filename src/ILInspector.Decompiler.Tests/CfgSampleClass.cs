@@ -4980,22 +4980,50 @@ public class CfgSampleClass
     public static int InlineArrayObjectConditionalElementSpan(int a, string? s)
         => UseObjectSpan([a, s is not null ? s.ToUpper() : "null"]);
 
-    static bool AnyObjectSpan(System.ReadOnlySpan<object> s) => s.Length > 0;
+    static bool AnyObjectSpan(params System.ReadOnlySpan<object> s) => s.Length > 0;
+    static int CountObjectSpan(params System.ReadOnlySpan<object> s) => s.Length;
+    static System.IDisposable DisposableFromObjectSpan(params System.ReadOnlySpan<object> s)
+        => new SpanScope(s.Length);
 
-    // A params ReadOnlySpan<object> collection expression whose span is the
-    // CONDITION of a ternary — `AnyObjectSpan([a, b]) ? "yes" : "no"`. csc fills a
-    // `<>y__InlineArray2<object>` buffer with the two boxed args, reads the span,
-    // and passes it to the condition call; the ternary arms are the conditional
-    // part. The condition is evaluated exactly once, unconditionally, before
-    // either arm. Left flat the angle-bracketed buffer name caps fidelity at
-    // Partial; InlineArrayCollectionPass allow-lists the ternary condition as a
-    // run-once governing edge (issue #3129, S4 follow-up #3281) and raises the
-    // whole thing back to `[a, b]`, restoring Full. This is the real compiled
-    // witness for the synthetic ConditionalConditionSpan case in
-    // InlineArraySpilledElementTests. Placed last (with its helper) so it does not
-    // shift any pre-existing method's compiler-generated ordinal.
-    public static string InlineArrayObjectSpanTernaryCondition(object a, object b)
-        => AnyObjectSpan([a, b]) ? "yes" : "no";
+    sealed class SpanScope : System.IDisposable
+    {
+        public SpanScope(int _) { }
+        public void Dispose() { }
+    }
+
+    // Compiled witnesses for the run-once governing edges added to
+    // InlineArrayCollectionPass's allow list (issue #3129, S4 follow-up #3281).
+    // Each fills a `<>y__InlineArray2<object>` buffer with the two boxed args and
+    // reads the params ReadOnlySpan into a governing edge that is evaluated
+    // exactly once, unconditionally. Left flat the angle-bracketed buffer name
+    // never parses and caps fidelity at Partial; the pass raises each back to
+    // `[a, b]`, restoring Full. These are the real compiled witnesses for the
+    // synthetic ConditionalConditionSpan / SwitchExpressionValueSpan /
+    // UsingResourceSpan cases in InlineArraySpilledElementTests. Placed last (with
+    // their helpers, none of which capture) so they do not shift any pre-existing
+    // method's compiler-generated ordinal (the fidelity docket keys on
+    // `<>9__N`/`<>c__DisplayClassN` names — see issue #3129, S4).
+
+    // Span on the CONDITION of a ternary that stays a value expression (its result
+    // feeds a `+`), so structuring keeps a `Conditional` node — exercises
+    // `Conditional.Condition`.
+    public static long InlineArraySpanTernaryConditionValue(object a, object b)
+        => (AnyObjectSpan([a, b]) ? 10L : 20L) + System.Environment.TickCount64;
+
+    // Span on the scrutinee of a switch expression — exercises the switch
+    // expression `.Value` edge.
+    public static int InlineArraySpanSwitchExpressionValue(object a, object b)
+        => CountObjectSpan([a, b]) switch { 0 => -1, 1 => -2, _ => 99 };
+
+    // Span on the resource of a using statement (the body is a separate block, so
+    // the using statement itself is the span consumer) — exercises
+    // `UsingStatement.Resource`.
+    public static int InlineArraySpanUsingResource(object a, object b)
+    {
+        int n = 0;
+        using (DisposableFromObjectSpan([a, b])) { n = 1; }
+        return n;
+    }
 }
 
 internal static class AwaitOrderingHelpers
