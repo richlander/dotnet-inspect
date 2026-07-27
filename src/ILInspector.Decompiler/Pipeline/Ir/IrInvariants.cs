@@ -81,8 +81,13 @@ public static class IrInvariants
     /// moved <em>independently of</em> <see cref="Enabled"/>, the only setter
     /// involved is <see cref="Enabled"/>'s and it is private, so only this type
     /// can move either, and the one public mover is
-    /// <see cref="DisableForShippedTool"/> — pinned by #3303's public-surface
-    /// census to a single call site in the shipped CLI. So no test can race the
+    /// <see cref="DisableForShippedTool"/> — held to a single call site in the
+    /// shipped CLI by <c>OnlyTheShippedToolEntryPointDeclinesValidation</c>,
+    /// the source census that scans the repository under every preprocessor
+    /// configuration. (Its sibling
+    /// <c>ThePublicSurfaceIsExactlyTheShippedToolOptOut</c> pins the
+    /// complementary half — which members exist at all — so a new mover cannot
+    /// appear unnoticed either.) So no test can race the
     /// collections xUnit runs in parallel by toggling it, and no host can lower
     /// semantics while leaving structural armed.
     /// </para>
