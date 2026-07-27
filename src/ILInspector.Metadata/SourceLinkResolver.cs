@@ -264,9 +264,11 @@ public class SourceLinkResolver
 
     /// <summary>
     /// True when the captured range <c>[from, to)</c> opens more blocks than it closes, so a
-    /// closing brace still has to be recovered below it. A single line is never treated as
-    /// unclosed on a brace count alone, because a brace inside a string literal would otherwise
-    /// send the forward scan after the enclosing type's brace.
+    /// closing brace still has to be recovered below it. Braces inside comments, char literals,
+    /// and string literals do not count — a property such as <c>public string M =&gt; "{";</c>
+    /// closes nothing and owns no brace below it. A raw string literal is not tracked; the range
+    /// is reported as still open so the forward scan runs, which is the conservative answer.
+    /// A single line is never judged unclosed, so a one-line declaration needs no such analysis.
     /// </summary>
     private static bool HasUnclosedBlock(string[] lines, int from, int to)
     {
@@ -274,10 +276,75 @@ public class SourceLinkResolver
             return false;
 
         int depth = 0;
+        bool inBlockComment = false;
+        bool inVerbatimString = false;
+
         for (int i = Math.Max(0, from); i < Math.Min(to, lines.Length); i++)
         {
-            foreach (char c in lines[i])
+            var line = lines[i];
+            for (int j = 0; j < line.Length; j++)
             {
+                char c = line[j];
+
+                if (inBlockComment)
+                {
+                    if (c == '*' && j + 1 < line.Length && line[j + 1] == '/')
+                    {
+                        inBlockComment = false;
+                        j++;
+                    }
+                    continue;
+                }
+
+                if (inVerbatimString)
+                {
+                    if (c != '"')
+                        continue;
+                    if (j + 1 < line.Length && line[j + 1] == '"')
+                        j++;
+                    else
+                        inVerbatimString = false;
+                    continue;
+                }
+
+                if (c == '/' && j + 1 < line.Length)
+                {
+                    if (line[j + 1] == '/')
+                        break;
+                    if (line[j + 1] == '*')
+                    {
+                        inBlockComment = true;
+                        j++;
+                        continue;
+                    }
+                }
+
+                if (c == '@' && j + 1 < line.Length && line[j + 1] == '"')
+                {
+                    inVerbatimString = true;
+                    j++;
+                    continue;
+                }
+
+                if (c == '"')
+                {
+                    if (j + 2 < line.Length && line[j + 1] == '"' && line[j + 2] == '"')
+                        return true;
+
+                    j++;
+                    while (j < line.Length && line[j] != '"')
+                        j += line[j] == '\\' ? 2 : 1;
+                    continue;
+                }
+
+                if (c == '\'')
+                {
+                    j++;
+                    while (j < line.Length && line[j] != '\'')
+                        j += line[j] == '\\' ? 2 : 1;
+                    continue;
+                }
+
                 if (c == '{')
                     depth++;
                 else if (c == '}')
@@ -351,6 +418,14 @@ public class SourceLinkResolver
                 if (!afterDot)
                     chainStart = tokenIndex;
                 afterDot = false;
+
+                // "ref" and "new" can lead a declaration (a ref return, a shadowing member) and
+                // can also open a statement, so neither decides the line. Skipping them without
+                // consuming a token position leaves the following token to be judged: a real
+                // declaration still has to reach its name after a return type, while
+                // "new Foo().Bar();" and "ref var x = ref y;" are still rejected below.
+                if (tokenIndex == 0 && token is "ref" or "new")
+                    continue;
 
                 if (tokenIndex == 0 && StatementOpeners.Contains(token))
                     return false;

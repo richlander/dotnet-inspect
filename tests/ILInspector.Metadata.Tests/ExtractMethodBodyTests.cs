@@ -832,4 +832,110 @@ public class ExtractMethodBodyTests
             "public void Run()\n{\n    (var a, var b) = Target();\n}",
             body);
     }
+
+    [Theory]
+    [InlineData("ref int Target() => ref _value;")]
+    [InlineData("new int Target => 1;")]
+    [InlineData("ref readonly int Target() => ref _value;")]
+    public void RefOrNewLedDeclaration_ExcludesPrecedingMember(string declaration)
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public int Before => 0;",                   // 3
+            $"    {declaration}",                            // 4  <- StartLine/EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Target");
+
+        Assert.Equal(declaration, body);
+    }
+
+    [Theory]
+    [InlineData("new Widget().Configure();")]
+    [InlineData("ref var slot = ref _items[0];")]
+    public void RefOrNewLedStatement_IsNotMistakenForDeclaration(string firstStatement)
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public void Target()",                      // 3
+            "    {",                                        // 4
+            $"        {firstStatement}",                     // 5  <- StartLine/EndLine
+            "    }",                                         // 6
+            "}");                                            // 7
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+
+        Assert.Equal(
+            $"public void Target()\n{{\n    {firstStatement}\n}}",
+            body);
+    }
+
+    [Fact]
+    public void BraceInsideStringLiteral_DoesNotLookLikeAnOpenBlock()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public string Target =>",                   // 3  <- StartLine
+            "        \"{\";",                                // 4  <- EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "get_Target");
+
+        Assert.Equal("public string Target =>\n    \"{\";", body);
+    }
+
+    [Fact]
+    public void BraceInsideComment_DoesNotLookLikeAnOpenBlock()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public string Target => /* { */",           // 3  <- StartLine
+            "        \"x\";",                                // 4  <- EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "get_Target");
+
+        Assert.Equal("public string Target => /* { */\n    \"x\";", body);
+    }
+
+    [Fact]
+    public void ClosingBraceInsideStringLiteral_DoesNotLookLikeAClosedBlock()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public int Before() { return 0; }",         // 3
+            "    public string Target() {",                  // 4  <- StartLine
+            "        return \"}\";",                          // 5  <- EndLine
+            "    }",                                         // 6
+            "}");                                            // 7
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 5, methodName: "Target");
+
+        Assert.Equal(
+            "public string Target() {\n    return \"}\";\n}",
+            body);
+    }
+
+    [Fact]
+    public void ClosingBraceInsideVerbatimString_DoesNotLookLikeAClosedBlock()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public string Target() {",                  // 3  <- StartLine
+            "        return @\"}\";",                         // 4  <- EndLine
+            "    }",                                         // 5
+            "}");                                            // 6
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
+
+        Assert.Equal(
+            "public string Target() {\n    return @\"}\";\n}",
+            body);
+    }
 }
