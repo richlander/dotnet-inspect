@@ -346,9 +346,12 @@ inspector), a standalone tool that renders the tables the way `mdv` does:
   `MetadataProjectionOptions` and delegates all output to the renderer below.
   Surface: `mdi <assembly> [--table|-t <Names>] [--format|-f md|tsv|jsonl]
   [--max-rows|-n N] [--start-row|-s N] [--references|-r Table:RowId]
-  [--max-references N] [--max-bytes N] [--max-chars N]`. Missing
+  [--max-references N] [--overview|-i] [--heap Heap:Address]
+  [--max-bytes N] [--max-chars N]`. Missing
   files, native images, and unreadable metadata surface as visible errors, never
-  success-shaped empty output.
+  success-shaped empty output. `--references`, `--overview`, and `--heap` each
+  select a different view and are rejected in combination rather than silently
+  ranked.
 - **`src/DotnetInspector.MetadataRendering`** — a small reusable library holding
   `MetadataProjectionRenderer` (projection → Markout tables). It lives in the
   product-side `DotnetInspector.*` family, **not** in `ILInspector.Metadata`,
@@ -560,6 +563,57 @@ The renderer and `mdi` carry the blind spots into every format:
 `mdi --references TypeDef:5` prints them inline under the Markdown table, and
 the TSV/JSONL streams report them on stderr, since a pure row stream cannot
 distinguish a complete scan from a stopped one.
+
+## Implemented: the image overview and heap random access
+
+The projection covers *tables*. A metadata browser also shows the container —
+heap sizes, stream and header facts, and which tables exist at all — and needs
+to read a heap value the tables never point at. That is issue #3341's gap 5, and
+it is net-new surface rather than a change to the projection.
+
+`MetadataImageInspector.Describe(PEReader)` returns a `MetadataImageOverview`:
+the metadata root's version, kind, offset, size and whether it carries an
+assembly manifest; one `MetadataHeapSummary` per heap; one
+`MetadataTableSummary` per ECMA-335 table; and `MetadataImageHeaders` for the
+PE/CLI facts. It returns `null` for an image with no metadata, the same "not
+applicable" signal `ProjectRow` uses.
+
+Two decisions in that model are load-bearing.
+
+**Row counts cover every table, not just the projected ones.** The overview
+reports what is physically present and marks each table with `IsProjected`, so a
+table with rows the projection does not model — `NestedClass`,
+`MethodSemantics`, `Property` on a typical assembly — is visible as a coverage
+gap. Listing only the projected tables would make an unmodelled table
+indistinguishable from an empty one, which is the same success-shaped-absence
+failure the reverse search avoids.
+
+**Heap addressing is part of the model.** ECMA-335 addresses the String, Blob,
+and UserString heaps by byte offset but the GUID heap by 1-based index into a
+vector of 16-byte values, and SRM's `GetHeapOffset` follows suit, returning an
+index for a GUID handle. `MetadataHeapAddressing` states which convention a heap
+uses and `MaxAddress` applies it, so a caller cannot silently read a GUID
+address as a byte offset.
+
+`MetadataTableProjector.ReadHeapValue(peReader, heap, address, options)` is the
+heap counterpart of `ProjectRow`. The address is exactly what
+`MetadataValue.HeapReference.Offset` publishes, so a projected cell's offset
+round-trips, and the result is the same `MetadataValue` shape a projected cell
+carries — one renderer serves both. Address zero is every heap's nil value; an
+address past the end yields `Malformed` rather than an empty value. Because the
+tables never reference the `#US` heap, this is also the only way to browse the
+user strings that IL points at.
+
+What is deliberately *not* here: heap **enumeration**. SRM exposes no public way
+to walk every entry of a heap, so the surface is overview plus random access,
+and says so rather than faking a walk by scanning bytes.
+
+Both facets hang off `AssemblyInspectionSession` (`MetadataImage()`,
+`MetadataHeapValue(...)`), render through `MetadataProjectionRenderer`, and are
+reachable from `mdi --overview` and `mdi --heap Heap:Address`. The overview
+lists only tables that carry rows; the number omitted and any unmodelled table
+with rows are reported as caveats — inline in Markdown, on stderr for the
+machine formats.
 
 ## Layer placement
 

@@ -65,6 +65,17 @@ public static class MdiCommand
             DefaultValueFactory = _ => MetadataRowReferenceSet.DefaultMaxReferences,
         };
 
+        var overviewOption = new Option<bool>("--overview")
+        {
+            Description = "Instead of dumping tables, describe the image: metadata root, heap sizes, row counts for every ECMA-335 table, and PE/CLI header facts.",
+        };
+        overviewOption.Aliases.Add("-i");
+
+        var heapOption = new Option<string?>("--heap")
+        {
+            Description = "Instead of dumping tables, read one heap value, given as Heap:Address (for example String:1234 or Guid:1). Addresses match a cell's offset: a byte offset, except the Guid heap's 1-based index.",
+        };
+
         var maxBytesOption = new Option<int>("--max-bytes")
         {
             Description = $"Maximum blob-preview bytes per cell (default {MetadataProjectionOptions.DefaultMaxPreviewBytes}).",
@@ -85,6 +96,8 @@ public static class MdiCommand
         root.Options.Add(startRowOption);
         root.Options.Add(referencesOption);
         root.Options.Add(maxReferencesOption);
+        root.Options.Add(overviewOption);
+        root.Options.Add(heapOption);
         root.Options.Add(maxBytesOption);
         root.Options.Add(maxCharsOption);
 
@@ -97,6 +110,8 @@ public static class MdiCommand
             int startRow = parseResult.GetValue(startRowOption);
             string? referenceSpec = parseResult.GetValue(referencesOption);
             int maxReferences = parseResult.GetValue(maxReferencesOption);
+            bool overview = parseResult.GetValue(overviewOption);
+            string? heapSpec = parseResult.GetValue(heapOption);
             int maxBytes = parseResult.GetValue(maxBytesOption);
             int maxChars = parseResult.GetValue(maxCharsOption);
 
@@ -123,6 +138,49 @@ public static class MdiCommand
                 Console.Error.WriteLine(
                     $"Error: unknown table '{badName}'. Table names are members of System.Reflection.Metadata.Ecma335.TableIndex (for example TypeDef, MethodDef, Field).");
                 return 1;
+            }
+
+            // The three query modes answer different questions and cannot be
+            // combined; picking one silently would answer a question the caller
+            // did not ask.
+            var modes = new List<string>();
+            if (referenceSpec is not null)
+                modes.Add("--references");
+            if (overview)
+                modes.Add("--overview");
+            if (heapSpec is not null)
+                modes.Add("--heap");
+
+            if (modes.Count > 1)
+            {
+                Console.Error.WriteLine($"Error: {string.Join(" and ", modes)} cannot be combined; each selects a different view.");
+                return 1;
+            }
+
+            if (overview)
+                return ExecuteOverview(assembly, format, Console.Out, Console.Error);
+
+            if (heapSpec is not null)
+            {
+                if (!TryParseHeapLocation(heapSpec, out var heap, out int address, out string? heapError))
+                {
+                    Console.Error.WriteLine($"Error: {heapError}");
+                    return 1;
+                }
+
+                if (maxBytes < 0 || maxChars < 0)
+                {
+                    Console.Error.WriteLine("Error: --max-bytes and --max-chars must be non-negative.");
+                    return 1;
+                }
+
+                var heapOptions = new MetadataProjectionOptions
+                {
+                    MaxPreviewBytes = maxBytes,
+                    MaxStringChars = maxChars,
+                };
+
+                return ExecuteHeapValue(assembly, heap, address, heapOptions, format, Console.Out, Console.Error);
             }
 
             if (referenceSpec is not null)
@@ -298,6 +356,120 @@ public static class MdiCommand
     }
 
     /// <summary>
+    /// Opens <paramref name="assemblyPath"/> and renders its image overview.
+    /// Returns a process exit code.
+    /// </summary>
+    public static int ExecuteOverview(
+        string assemblyPath,
+        MetadataTableFormat format,
+        TextWriter output,
+        TextWriter error)
+    {
+        ArgumentNullException.ThrowIfNull(output);
+        ArgumentNullException.ThrowIfNull(error);
+
+        if (!File.Exists(assemblyPath))
+        {
+            error.WriteLine($"Error: file not found: {assemblyPath}");
+            return 1;
+        }
+
+        MetadataImageOverview? overview;
+        try
+        {
+            using var session = AssemblyInspectionSession.Open(assemblyPath);
+            overview = session.MetadataImage();
+        }
+        catch (Exception ex) when (IsExpectedReadFailure(ex))
+        {
+            error.WriteLine($"Error: cannot read metadata from '{assemblyPath}': {ex.Message}");
+            return 1;
+        }
+
+        if (overview is null)
+        {
+            error.WriteLine($"Error: '{assemblyPath}' contains no .NET metadata (not a managed assembly).");
+            return 1;
+        }
+
+        MetadataProjectionRenderer.Render(overview, output, format);
+
+        // Markdown carries the overview's caveats inline. The machine formats are
+        // pure row streams, so the same facts go to the error writer rather than
+        // being dropped.
+        if (format != MetadataTableFormat.Markdown)
+        {
+            foreach (string caveat in MetadataProjectionRenderer.Caveats(overview))
+                error.WriteLine($"Note: {caveat}");
+        }
+
+        return 0;
+    }
+
+    /// <summary>
+    /// Opens <paramref name="assemblyPath"/> and renders one heap value read by
+    /// address. Returns a process exit code.
+    ///
+    /// An address past the end of the heap is not a command failure: the value
+    /// renders as malformed, which is the projection's own answer for an
+    /// unreadable heap reference, and is reported as such rather than as an empty
+    /// result.
+    /// </summary>
+    public static int ExecuteHeapValue(
+        string assemblyPath,
+        HeapKind heap,
+        int address,
+        MetadataProjectionOptions options,
+        MetadataTableFormat format,
+        TextWriter output,
+        TextWriter error)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(output);
+        ArgumentNullException.ThrowIfNull(error);
+
+        if (address < 0)
+        {
+            error.WriteLine("Error: the address in --heap must be zero or greater.");
+            return 1;
+        }
+
+        if (!File.Exists(assemblyPath))
+        {
+            error.WriteLine($"Error: file not found: {assemblyPath}");
+            return 1;
+        }
+
+        MetadataValue? value;
+        try
+        {
+            using var session = AssemblyInspectionSession.Open(assemblyPath);
+            value = session.MetadataHeapValue(heap, address, options);
+        }
+        catch (Exception ex) when (IsExpectedReadFailure(ex))
+        {
+            error.WriteLine($"Error: cannot read metadata from '{assemblyPath}': {ex.Message}");
+            return 1;
+        }
+
+        if (value is null)
+        {
+            error.WriteLine($"Error: '{assemblyPath}' contains no .NET metadata (not a managed assembly).");
+            return 1;
+        }
+
+        MetadataProjectionRenderer.Render(value, heap, address, output, format);
+
+        if (value is MetadataValue.Malformed malformed)
+        {
+            error.WriteLine($"Note: {malformed.Detail}");
+            return 0;
+        }
+
+        return 0;
+    }
+
+    /// <summary>
     /// Whether <paramref name="ex"/> is an expected failure of opening or reading
     /// an assembly file — a bad image, an unreadable or inaccessible file, or an
     /// invalid path — as opposed to an unexpected programming error. These are
@@ -361,6 +533,42 @@ public static class MdiCommand
         if (!int.TryParse(rowText, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out rowId) || rowId < 1)
         {
             error = $"'{rowText}' is not a row id. Row ids are 1-based positive integers.";
+            return false;
+        }
+
+        error = null;
+        return true;
+    }
+
+    /// <summary>
+    /// Parses a <c>Heap:Address</c> heap reference (for example
+    /// <c>String:1234</c>). The two halves are validated separately so the
+    /// diagnostic names the half that is wrong.
+    /// </summary>
+    internal static bool TryParseHeapLocation(string spec, out HeapKind heap, out int address, out string? error)
+    {
+        heap = default;
+        address = 0;
+
+        int separator = spec.LastIndexOf(':');
+        if (separator < 0)
+        {
+            error = $"'{spec}' is not a heap reference. Use Heap:Address, for example String:1234.";
+            return false;
+        }
+
+        string heapName = spec[..separator].Trim();
+        string addressText = spec[(separator + 1)..].Trim();
+
+        if (!Enum.TryParse(heapName, ignoreCase: true, out heap) || !Enum.IsDefined(heap))
+        {
+            error = $"unknown heap '{heapName}'. Use String, Blob, Guid, or UserString.";
+            return false;
+        }
+
+        if (!int.TryParse(addressText, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out address))
+        {
+            error = $"'{addressText}' is not a heap address. Addresses are non-negative integers.";
             return false;
         }
 
