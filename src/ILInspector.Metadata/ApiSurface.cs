@@ -442,11 +442,13 @@ public class ApiMember
     public int? SetterToken { get; set; }
 
     /// <summary>
-    /// MethodDef tokens of an event's add/remove accessors when known.
+    /// MethodDef tokens of an event's add/remove accessors when known. Serialized (like
+    /// <see cref="GetterToken"/>/<see cref="SetterToken"/>) so JSON consumers can address an
+    /// event's accessor bodies; omitted for members that expose no such accessor.
     /// </summary>
-    [JsonIgnore]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? AdderToken { get; set; }
-    [JsonIgnore]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? RemoverToken { get; set; }
 
     public bool IsStatic { get; set; }

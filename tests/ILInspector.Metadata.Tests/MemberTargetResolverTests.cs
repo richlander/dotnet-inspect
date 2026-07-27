@@ -177,6 +177,96 @@ public class MemberTargetResolverTests
         Assert.Empty(result.Diagnostic.Candidates);
     }
 
+    [Fact]
+    public void Resolve_ReadWritePropertyDefaultsToGetterAccessorBody()
+    {
+        var type = CreateAccessorSurface();
+
+        var result = MemberTargetResolver.Resolve(type, MemberTargetSelector.Parse("Value"));
+
+        Assert.True(result.Found);
+        Assert.Equal(MemberTargetKind.Property, result.Target!.Kind);
+        Assert.NotNull(result.Target.Body);
+        // Accessor ordinal 1 addresses the getter; the body carries the getter token.
+        Assert.Equal(1, result.Target.Body!.DeclaringOverloadIndex);
+        Assert.Equal(0x06000101, result.Target.Body.MetadataToken);
+    }
+
+    [Fact]
+    public void Resolve_ReadWritePropertySetterSelectableByAccessorOrdinal()
+    {
+        var type = CreateAccessorSurface();
+
+        var result = MemberTargetResolver.Resolve(type, MemberTargetSelector.Parse("Value:2"));
+
+        Assert.True(result.Found);
+        Assert.Equal(MemberTargetKind.Property, result.Target!.Kind);
+        // Accessor ordinal 2 addresses the setter; body sections select it via this index.
+        Assert.Equal(2, result.Target.Body!.DeclaringOverloadIndex);
+        // The body token names the setter accessor, not the getter (issue #3265).
+        Assert.Equal(0x06000102, result.Target.Body.MetadataToken);
+    }
+
+    [Fact]
+    public void Resolve_ReadOnlyPropertyRejectsSetterOrdinal()
+    {
+        var type = CreateAccessorSurface();
+
+        var result = MemberTargetResolver.Resolve(type, MemberTargetSelector.Parse("ReadOnly:2"));
+
+        Assert.False(result.Found);
+        Assert.Equal(MemberTargetDiagnosticKind.OverloadOutOfRange, result.Diagnostic!.Kind);
+        Assert.Contains("ReadOnly:1 through ReadOnly:1", result.Diagnostic.Message);
+    }
+
+    [Fact]
+    public void Resolve_EventRemoverSelectableByAccessorOrdinal()
+    {
+        var type = CreateAccessorSurface();
+
+        var result = MemberTargetResolver.Resolve(type, MemberTargetSelector.Parse("Changed:2"));
+
+        Assert.True(result.Found);
+        Assert.Equal(MemberTargetKind.Event, result.Target!.Kind);
+        // Accessor ordinal 1 = adder, 2 = remover.
+        Assert.Equal(2, result.Target.Body!.DeclaringOverloadIndex);
+        // The body token names the remover accessor, not the adder (issue #3265).
+        Assert.Equal(0x06000105, result.Target.Body.MetadataToken);
+    }
+
+    static ApiType CreateAccessorSurface()
+        => new()
+        {
+            Namespace = "Sample",
+            Name = "Accessors",
+            Members =
+            [
+                new ApiMember
+                {
+                    Name = "Value",
+                    Kind = "property",
+                    Signature = "int Value { get; set; }",
+                    GetterToken = 0x06000101,
+                    SetterToken = 0x06000102
+                },
+                new ApiMember
+                {
+                    Name = "ReadOnly",
+                    Kind = "property",
+                    Signature = "int ReadOnly { get; }",
+                    GetterToken = 0x06000103
+                },
+                new ApiMember
+                {
+                    Name = "Changed",
+                    Kind = "event",
+                    Signature = "System.EventHandler Changed",
+                    AdderToken = 0x06000104,
+                    RemoverToken = 0x06000105
+                }
+            ]
+        };
+
     static ApiSurface CreateSurface()
         => new()
         {
