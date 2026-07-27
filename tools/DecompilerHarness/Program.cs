@@ -75,6 +75,7 @@ static class Program
         string? harvestOutputPath = null;
         bool benchmarkAuthoredCorpus = false;
         string? benchmarkCorpusPath = null;
+        string? ratchetBaselinePath = null;
         bool historyCard = false;
         string? historyCardPath = null;
         int historyCardWindow = 3;
@@ -212,6 +213,7 @@ static class Program
                         benchmarkAuthoredCorpus = true;
                         benchmarkCorpusPath = NextArg(args, ref i, flag);
                         break;
+                    case "--ratchet-baseline": ratchetBaselinePath = NextArg(args, ref i, flag); break;
                     case "--history-card": historyCard = true; break;
                     case "--history-path": historyCardPath = NextArg(args, ref i, flag); break;
                     case "--history-window": historyCardWindow = NextIntArg(args, ref i, flag); break;
@@ -357,6 +359,11 @@ static class Program
             return AuthoredCorpusHistoryCard.Run(historyCardPath, historyCardWindow);
         }
 
+        // A gate flag that is silently ignored is a permanently green gate, which is
+        // the failure --ratchet-baseline exists to remove; refuse it instead.
+        if (ratchetBaselinePath is not null && !benchmarkAuthoredCorpus)
+            return Fail("--ratchet-baseline applies to --benchmark-authored-corpus; it has no effect on its own.");
+
         if (generatedFixtures)
         {
             if (inputs.Count > 0)
@@ -482,7 +489,7 @@ static class Program
             return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget, evil: true, repositoryPaths: sourceRepositories);
 
         if (benchmarkAuthoredCorpus)
-            return AuthoredCorpusBenchmark.Run(assemblies, benchmarkCorpusPath!, json);
+            return AuthoredCorpusBenchmark.Run(assemblies, benchmarkCorpusPath!, json, ratchetBaselinePath);
 
         if (verifyAuthoredCorpus)
             return AuthoredCorpusDrift.Run(assemblies, verifyCorpusPath!, json, failOnDrift, sourceRepositories);
@@ -2046,6 +2053,26 @@ static class Program
           --fail-on-drift        with --verify-authored-corpus: fail-closed gate —
                                 exit non-zero unless every evaluated row is
                                 Verified (any Drifted or Unavailable row fails).
+          --benchmark-authored-corpus <corpus.jsonl>
+                                run the offline authored-source correspondence
+                                benchmark over a vendored corpus. Supply the pinned
+                                assemblies the corpus was harvested from as inputs.
+                                Exit code splits measurement integrity (unmatched
+                                rows, a non-closing partition, drift, unsupported,
+                                or an unknown outcome always fail) from quality
+                                level (see --ratchet-baseline).
+          --ratchet-baseline <history.jsonl>
+                                with --benchmark-authored-corpus: judge quality by
+                                movement against the newest comparable row in a
+                                trend store instead of by perfection. Without it,
+                                success still requires invalid == 0, so the store's
+                                documented append run keeps exiting 1 by design.
+                                With it, the run fails only on a regression in
+                                validPct, correct, invalid, or productBodyDefect —
+                                strictly, with no tolerance band. A baseline that is
+                                missing or unparseable is a hard error; a baseline
+                                that parses but holds no comparable row is a loud
+                                skip, never a silent pass.
           --history-card         render a Markout progress card over the committed
                                 EVIL run-history trend store: every run as a trend
                                 table plus a pivoted movement table over the last N

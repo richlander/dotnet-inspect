@@ -27,12 +27,35 @@ static class AuthoredCorpusBenchmark
     /// </summary>
     internal const int MethodologyVersion = SpanAttribution.MethodologyVersion;
 
-    public static int Run(IReadOnlyList<string> assemblies, string corpusPath, bool json)
+    public static int Run(IReadOnlyList<string> assemblies, string corpusPath, bool json, string? ratchetBaselinePath = null)
     {
         if (!File.Exists(corpusPath))
         {
             Console.Error.WriteLine($"Corpus file not found: {corpusPath}");
             return 1;
+        }
+
+        // A baseline that cannot be read is a hard error, never a skip. A typo'd path
+        // that degraded into "nothing to compare" would be a permanently green gate —
+        // the exact failure mode this ratchet exists to remove.
+        IReadOnlyList<HistoryRun>? baselines = null;
+        if (ratchetBaselinePath is not null)
+        {
+            if (!File.Exists(ratchetBaselinePath))
+            {
+                Console.Error.WriteLine($"Ratchet baseline not found: {ratchetBaselinePath}");
+                return 1;
+            }
+
+            try
+            {
+                baselines = AuthoredCorpusHistoryCard.ParseHistory(File.ReadLines(ratchetBaselinePath));
+            }
+            catch (JsonException ex)
+            {
+                Console.Error.WriteLine($"Ratchet baseline is not valid JSONL: {ratchetBaselinePath}: {ex.Message}");
+                return 1;
+            }
         }
 
         var records = ReadCorpus(corpusPath);
@@ -67,9 +90,9 @@ static class AuthoredCorpusBenchmark
             .Sum(entry => entry.Value.Count);
 
         if (json)
-            return WriteJson(results, records.Count, matchedGroups.Count, byAssembly.Count, unmatchedRows);
+            return WriteJson(results, records.Count, matchedGroups.Count, byAssembly.Count, unmatchedRows, baselines);
 
-        return WriteCard(results, records.Count, matchedGroups.Count, byAssembly.Count, unmatchedRows);
+        return WriteCard(results, records.Count, matchedGroups.Count, byAssembly.Count, unmatchedRows, baselines);
     }
 
     static ReturnToSenderSourceMember ToSourceMember(AuthoredSourceHarvest.CorpusRecord record)
@@ -111,7 +134,8 @@ static class AuthoredCorpusBenchmark
         int corpusRows,
         int matchedAssemblies,
         int corpusAssemblies,
-        int unmatchedRows)
+        int unmatchedRows,
+        IReadOnlyList<HistoryRun>? baselines)
     {
         var census = Census(results);
         int match = census.Correct;
@@ -170,7 +194,11 @@ static class AuthoredCorpusBenchmark
         if (!census.PartitionClosed)
             Console.Error.WriteLine(census.PartitionFailureMessage);
 
-        return ExitCode(census, unmatchedRows);
+        var ratchet = Ratchet(census, invalidBreakdown, matchedAssemblies, corpusAssemblies, baselines);
+        if (ratchet is not null)
+            AuthoredCorpusRatchet.Report(ratchet, Console.Out);
+
+        return ExitCode(census, unmatchedRows, ratchet);
     }
 
     /// <summary>
@@ -254,24 +282,77 @@ static class AuthoredCorpusBenchmark
     }
 
     /// <summary>
-    /// The single exit contract for both output modes. Nonzero if any target failed
-    /// to round-trip (Invalid) or the corpus no longer corresponds to the pinned
-    /// assembly (Drift/Unsupported). Not-Full is a surfaced decompiler limitation,
-    /// not a corpus problem, so it does not fail the run on its own. Inputs-complete:
-    /// an empty or partially unmatched run is never a success. An unrecognized
-    /// outcome or a non-closing partition is a measurement failure, not a result.
+    /// Builds the ratchet comparison for a completed run, or null when no baseline was
+    /// supplied. Shared by both output modes so text and <c>--json</c> cannot disagree
+    /// about whether quality regressed.
     /// </summary>
-    static int ExitCode(BucketCensus census, int unmatchedRows)
+    static AuthoredCorpusRatchet.Comparison? Ratchet(
+        BucketCensus census,
+        InvalidBreakdownCounts invalidBreakdown,
+        int matchedAssemblies,
+        int corpusAssemblies,
+        IReadOnlyList<HistoryRun>? baselines)
+    {
+        if (baselines is null)
+            return null;
+
+        int valid = census.Correct + census.ValidDifferent;
+        double validPct = census.Evaluated == 0 ? 0 : 100.0 * valid / census.Evaluated;
+
+        // A live run is not given the pool's sweep manifest, so it carries no hash;
+        // see RunKey.IsComparableTo for why that weakens the key without opening a hole.
+        var key = new AuthoredCorpusRatchet.RunKey(
+            census.Evaluated,
+            matchedAssemblies,
+            corpusAssemblies,
+            MethodologyVersion,
+            SweepManifestSha256: null);
+
+        var metrics = new AuthoredCorpusRatchet.RunMetrics(
+            validPct,
+            census.Correct,
+            census.Invalid,
+            invalidBreakdown.ProductBodyDefect);
+
+        return AuthoredCorpusRatchet.Compare(key, metrics, baselines);
+    }
+
+    /// <summary>
+    /// The single exit contract for both output modes, in two separable halves.
+    ///
+    /// <para><b>Measurement integrity</b> — inputs-complete, a closing partition, and
+    /// zero Drift/Unsupported/UnknownOutcome — always fails hard. These do not say the
+    /// decompiler is bad; they say the run is not trustworthy, and a number produced by
+    /// an untrustworthy run must not be compared to anything.</para>
+    ///
+    /// <para><b>Quality level</b> depends on whether a ratchet baseline was supplied.
+    /// Without one the historical contract stands unchanged: success requires
+    /// <c>invalid == 0</c>, which the trend store's append procedure documents as
+    /// exiting 1 by design. With one, quality is judged by movement — the run fails on
+    /// a <em>regression</em> rather than on imperfection, which is the whole point
+    /// (#3245). A skipped comparison is not a quality failure, but it is reported
+    /// loudly, because a gate that compared nothing has proven nothing.</para>
+    ///
+    /// Not-Full is a surfaced decompiler limitation, not a corpus problem, so it does
+    /// not fail the run on its own.
+    /// </summary>
+    static int ExitCode(BucketCensus census, int unmatchedRows, AuthoredCorpusRatchet.Comparison? ratchet)
     {
         bool inputsComplete = unmatchedRows == 0 && census.Evaluated > 0;
-        return inputsComplete
+        bool measurementIsSound = inputsComplete
             && census.PartitionClosed
-            && census.Invalid == 0
             && census.Drift == 0
             && census.Unsupported == 0
-            && census.UnknownOutcome == 0
-            ? 0
-            : 1;
+            && census.UnknownOutcome == 0;
+
+        if (!measurementIsSound)
+            return 1;
+
+        bool qualityHeld = ratchet is null
+            ? census.Invalid == 0
+            : ratchet.Skipped || ratchet.Regressions.Count == 0;
+
+        return qualityHeld ? 0 : 1;
     }
 
     enum TasteBucket
@@ -400,7 +481,8 @@ static class AuthoredCorpusBenchmark
         int corpusRows,
         int matchedAssemblies,
         int corpusAssemblies,
-        int unmatchedRows)
+        int unmatchedRows,
+        IReadOnlyList<HistoryRun>? baselines)
     {
         var census = Census(results);
         var invalidBreakdown = InvalidBreakdown(results);
@@ -411,6 +493,7 @@ static class AuthoredCorpusBenchmark
         // frontierIlNoVerdict and invalidBreakdown.harnessShellReconstruction, both
         // of which are unmeasured rather than clean).
         bool inputsComplete = unmatchedRows == 0 && census.Evaluated > 0;
+        var ratchet = Ratchet(census, invalidBreakdown, matchedAssemblies, corpusAssemblies, baselines);
 
         var validBreakdown = new
         {
@@ -444,6 +527,22 @@ static class AuthoredCorpusBenchmark
             drift = census.Drift,
             unsupported = census.Unsupported,
             unknownOutcome = census.UnknownOutcome,
+            ratchet = ratchet is null ? null : new
+            {
+                skipped = ratchet.Skipped,
+                skipReason = ratchet.SkipReason,
+                baselineDate = ratchet.Baseline?.Date,
+                baselineCommit = ratchet.Baseline?.Commit,
+                regressed = ratchet.Regressions.Count > 0,
+                metrics = ratchet.Metrics.Select(metric => new
+                {
+                    name = metric.Name,
+                    baseline = metric.Baseline,
+                    current = metric.Current,
+                    higherIsBetter = metric.HigherIsBetter,
+                    regressed = metric.Regressed,
+                }),
+            },
             rows = results.Select(result => new
             {
                 type = result.Target.Type,
@@ -463,10 +562,15 @@ static class AuthoredCorpusBenchmark
 
         Console.WriteLine(JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
 
-        // Same partition check and exit contract as the text-report path.
+        // Same partition check and exit contract as the text-report path. The ratchet
+        // verdict goes to stderr here so it stays visible without corrupting the JSON
+        // document that callers redirect to a file; it is also in the payload above.
         if (!census.PartitionClosed)
             Console.Error.WriteLine(census.PartitionFailureMessage);
 
-        return ExitCode(census, unmatchedRows);
+        if (ratchet is not null)
+            AuthoredCorpusRatchet.Report(ratchet, Console.Error);
+
+        return ExitCode(census, unmatchedRows, ratchet);
     }
 }

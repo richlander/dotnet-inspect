@@ -158,6 +158,8 @@
              Link="TypeBindCheck.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AuthoredCorpusHistoryCard.cs"
              Link="AuthoredCorpusHistoryCard.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\AuthoredCorpusRatchet.cs"
+             Link="AuthoredCorpusRatchet.cs" />
   </ItemGroup>
 
 </Project>

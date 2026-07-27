@@ -123,7 +123,10 @@ Each row contains these fields:
    ```
 
    Exit code 1 is expected while `invalid`, `drift`, or `unsupported` is
-   non-zero; the JSON is still authoritative.
+   non-zero; the JSON is still authoritative. That contract is unchanged, and
+   deliberately so: it applies whenever `--ratchet-baseline` is absent, which is
+   the case for this append run. To judge a run by movement instead of by
+   perfection, see [The regression ratchet](#the-regression-ratchet).
 
 4. Archive the full JSON and `/tmp/evil-pool/sweep-manifest.json` out-of-tree.
 5. Record the UTC date, short SHA, and sweep-manifest SHA-256.
@@ -153,6 +156,91 @@ carried the full partition and with no retained artifact to recover it from. Its
 sub-buckets are absent rather than zero. Every other historical row was
 backfilled from its own archived run JSON, verified by matching all nine shared
 fields against the recorded row.
+
+## The regression ratchet
+
+`--ratchet-baseline <history.jsonl>` judges a run by **movement against this
+store** instead of by perfection:
+
+```bash
+dotnet run --project tools/DecompilerHarness -c Release --no-build -- \
+  --benchmark-authored-corpus external/authored-source-corpus/evil/corpus.jsonl \
+  --ratchet-baseline tools/DecompilerHarness/corpus/evil-runs/history.jsonl \
+  --json $(cat /tmp/evil-pool/assemblies.txt)
+```
+
+It exists because the benchmark's exit code was a constant. Success required
+`invalid == 0`, which on a 12,000-row adversarial corpus sitting near 5,200
+invalid is unreachable, so the exit code read identically at 56.7% valid and at
+40% valid and detected no regression at all (#3245).
+
+The fix separates two questions the old contract conflated:
+
+- **Measurement integrity** — unmatched rows, an empty run, a non-closing
+  partition, drift, unsupported targets, or an unrecognized outcome — still
+  fails hard, with or without a baseline. These do not say the decompiler got
+  worse; they say the run is not trustworthy, and an untrustworthy number must
+  not be compared to anything. A ratchet skip never rescues an integrity
+  failure.
+- **Quality level** is the thing being measured. Without a baseline it keeps the
+  historical `invalid == 0` contract. With one, the run fails on a *regression*
+  in `validPct`, `correct`, `invalid`, or `invalidBreakdown.productBodyDefect`.
+
+### The band is zero
+
+Every metric ratchets strictly. The four-run spread in this store
+(56.6/56.2/56.2/56.5) is not instrument noise to be absorbed: each of those runs
+is a *different commit* against an *identical pool manifest*, so the movement is
+code-attributable — exactly what the ratchet exists to catch. Re-running one
+commit against one pinned pool came back bit-identical on every counted metric.
+A tolerance band would therefore be the harness declining to report real
+movement, not compensating for a noisy instrument.
+
+`validPct` is compared at one decimal place, because that is the precision this
+store preserves; comparing a full-precision run against a rounded row would
+report a regression for a run that did not move.
+
+### Comparability, and the difference between a skip and a pass
+
+A baseline row is comparable only when it shares the run's `evaluated`,
+`poolMatched`, `poolTotal`, and `methodologyVersion`, plus `sweepManifestSha256`
+when both sides recorded one. The newest comparable row wins — not the newest
+row outright, so a methodology bump cannot silently retarget the ratchet at an
+incomparable baseline. v1 and v2 `productBodyDefect` counts are not comparable
+by construction, which is the main reason a row may find no baseline.
+
+A live benchmark run is not handed the pool's sweep manifest, so it carries no
+hash and that half of the key goes unchecked. This does not open a hole: a pool
+that has drifted under a live run shows up as unmatched rows or unresolved
+identities, which the integrity half already fails on.
+
+Three outcomes, deliberately distinct:
+
+| Situation | Exit | Output |
+| --- | --- | --- |
+| Baseline missing or unparseable | non-zero | hard error |
+| Baseline parses, no comparable row | 0 | loud `RATCHET SKIPPED` |
+| Baseline compared | 0 or non-zero | per-metric `held`/`REGRESSED` |
+
+A typo'd path must never degrade into "nothing to compare", because a
+permanently green gate is the failure this replaces. `--ratchet-baseline`
+without `--benchmark-authored-corpus` is refused for the same reason.
+
+`productBodyDefect` is reported with its lower-bound caveat attached: it counts
+decompiler-caused body defects the oracle could adjudicate (~5.9% coverage), so
+its movement is a floor, not a census.
+
+### Who runs it
+
+- **Every PR**: `AuthoredCorpusRatchetTests` ratchets the newest row of this
+  tracked store against the newest earlier row it is comparable with, so a
+  hand-appended row that halves the quality fails review. Rows recorded before
+  the ratchet existed are data, not a contract, so only the new row is judged.
+- **Weekly**: the `authored-corpus-ratchet` lane in `deep-inspect.yml` restores
+  the vendored corpus, prepares the EVIL pool, and runs the benchmark against
+  this store. It is a *periodic* gate — the corpus and the 100-package sweep are
+  far too expensive for the PR lane — so a product regression surfaces within a
+  week of landing rather than at the PR that causes it.
 
 ## Progress card
 

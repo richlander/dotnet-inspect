@@ -12,6 +12,7 @@ on:
           - test
           - census
           - package-sweep
+          - authored-corpus
           - nightly
           - all
   schedule:
@@ -487,13 +488,76 @@ jobs:
           path: artifacts/opt-in-corpus/
           if-no-files-found: warn
 
+  authored-corpus-ratchet:
+    name: Authored-corpus ratchet lane
+    # The named caller for --ratchet-baseline. Before this job the authored-corpus
+    # benchmark had no invoker at all: no workflow ran it, so its exit code — the
+    # headline quality metric — was never read by anything (#3245). Shipping the
+    # ratchet without a caller would have reproduced that failure one level up.
+    #
+    # This is a *periodic* gate, not a merge gate. The run needs the vendored EVIL
+    # corpus (an orphan branch) plus a 100-package NuGet sweep, so it is far too
+    # expensive for the PR lane. A regression is therefore caught within a week of
+    # landing, not at the PR that causes it. The merge-lane half of this gate is
+    # AuthoredCorpusRatchetTests, which ratchets the tracked trend store on every PR.
+    if: github.event_name == 'schedule' || inputs.lane == 'authored-corpus' || inputs.lane == 'all'
+    runs-on: ubuntu-26.04
+    # Extrapolated, not measured: a 60-row run takes ~16s locally, so 12,000 rows is
+    # roughly 45-60 minutes, plus the package sweep. The budget is deliberately loose
+    # because this job has never run in CI.
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build solution (tool + fixtures)
+        run: dotnet build dotnet-inspect.slnx -c Release
+
+      - name: Restore the vendored authored-source corpus
+        run: bash eng/restore-authored-source-corpus.sh
+
+      - name: Prepare the EVIL assembly pool
+        run: bash eng/prepare-evil-corpus.sh evil-pool
+
+      - name: Run the authored-corpus benchmark against the trend-store ratchet
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/deep-inspect
+          dotnet run --project tools/DecompilerHarness -c Release --no-build -- \
+            --benchmark-authored-corpus external/authored-source-corpus/evil/corpus.jsonl \
+            --ratchet-baseline tools/DecompilerHarness/corpus/evil-runs/history.jsonl \
+            --json $(cat evil-pool/assemblies.txt) \
+            > artifacts/deep-inspect/authored-corpus-run.json
+
+      - name: Upload the run JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deep-inspect-authored-corpus
+          path: artifacts/deep-inspect/authored-corpus-run.json
+          if-no-files-found: warn
+
   report-scheduled-failure:
     name: Report scheduled failure
     # Deep Inspect has no interactive watcher, so a failed *scheduled* run would
     # otherwise go unnoticed. Open (or comment on) a tracking issue when any
     # scheduled slow lane fails. Manual dispatches are watched by the dispatcher
     # and are intentionally excluded.
-    needs: [package-sweep, test, decompiler-corpus]
+    needs: [package-sweep, test, decompiler-corpus, authored-corpus-ratchet]
     if: ${{ github.event_name == 'schedule' && failure() }}
     runs-on: ubuntu-26.04
     permissions:
