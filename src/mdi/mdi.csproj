@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>preview</LangVersion>
+    <RollForward>LatestMajor</RollForward>
+  </PropertyGroup>
+
+  <!-- Native AOT size optimizations (only apply when publishing with AOT) -->
+  <PropertyGroup Condition="'$(PublishAot)' == 'true'">
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <OptimizationPreference>Size</OptimizationPreference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DotnetInspector.MetadataRendering.Tests" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <Authors>Richard Lander</Authors>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>mdi</ToolCommandName>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <PackageId>mdi</PackageId>
+    <Description>A CLI tool for inspecting ECMA-335 metadata tables in .NET assemblies</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <!-- RID-specific tool packaging: Native AOT for common platforms, CoreCLR fallback for others -->
+    <ToolPackageRuntimeIdentifiers>win-x64;win-arm64;linux-x64;linux-arm64;osx-arm64;any</ToolPackageRuntimeIdentifiers>
+    <PublishAot>true</PublishAot>
+    <!-- Keep debug symbols out of the published tool package. -->
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(OfficialBuild)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+    <DebugType>embedded</DebugType>
+    <Deterministic>true</Deterministic>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
+    <ProjectReference Include="..\DotnetInspector.MetadataRendering\DotnetInspector.MetadataRendering.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+
+</Project>

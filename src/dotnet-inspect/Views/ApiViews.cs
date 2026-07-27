@@ -746,6 +746,13 @@ public class MemberCodeView
     [MarkoutSection(Name = "Original Source")]
     public CodeSection OriginalSourceCode { get; set; }
 
+    /// <summary>
+    /// True when <see cref="OriginalSourceCode"/> holds the bodyless-member explanation rather than
+    /// authored source. Not a section: consumers that treat the original source as text (Source
+    /// Diff) must skip it (issue #3299).
+    /// </summary>
+    public bool OriginalSourceUnavailable { get; set; }
+
     [MarkoutSection(Name = SectionNames.SourceDiff)]
     public CodeSection SourceDiffCode { get; set; }
 

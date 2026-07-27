@@ -318,6 +318,7 @@ public static class MemberCommand
                 effectiveOptions = effectiveOptions with
                 {
                     MethodSource = resolved.Source,
+                    MemberHasNoBody = resolved.MemberHasNoBody,
                     PdbPath = resolved.PdbPath
                 };
             }
