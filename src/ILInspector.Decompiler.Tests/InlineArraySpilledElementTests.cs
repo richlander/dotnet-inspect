@@ -675,15 +675,20 @@ public class InlineArraySpilledElementTests
             yield return field.FieldType;
     }
 
-    // A member's own type plus any generic type arguments (so an embedded carrier reached
-    // through PropertySubpattern? or ImmutableArray<Subpattern> is considered, not just a
-    // bare member type).
+    // A member's own type plus, recursively, the types it structurally wraps — generic
+    // arguments (ImmutableArray<Subpattern>, List<List<Subpattern>>) and element types
+    // (Subpattern[]) — so an embedded carrier is considered no matter how deeply a
+    // collection/array shape nests it, not just a bare or single-level-generic member type.
     static IEnumerable<Type> EmbeddedCandidateTypes(Type type)
     {
         yield return type;
         if (type.IsGenericType)
             foreach (var argument in type.GetGenericArguments())
-                yield return argument;
+                foreach (var inner in EmbeddedCandidateTypes(argument))
+                    yield return inner;
+        if (type.HasElementType && type.GetElementType() is { } elementType)
+            foreach (var inner in EmbeddedCandidateTypes(elementType))
+                yield return inner;
     }
 
     // Whether the function's IR tree contains a carrier of the named kind. IrNode carriers
