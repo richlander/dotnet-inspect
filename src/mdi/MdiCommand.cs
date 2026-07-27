@@ -53,6 +53,18 @@ public static class MdiCommand
         };
         startRowOption.Aliases.Add("-s");
 
+        var referencesOption = new Option<string?>("--references")
+        {
+            Description = "Instead of dumping tables, list the rows pointing at one row, given as Table:RowId (for example TypeDef:5). Includes list-column ownership, so Field:1 names its declaring type.",
+        };
+        referencesOption.Aliases.Add("-r");
+
+        var maxReferencesOption = new Option<int>("--max-references")
+        {
+            Description = $"Maximum references collected by --references before the scan stops (default {MetadataRowReferenceSet.DefaultMaxReferences}).",
+            DefaultValueFactory = _ => MetadataRowReferenceSet.DefaultMaxReferences,
+        };
+
         var maxBytesOption = new Option<int>("--max-bytes")
         {
             Description = $"Maximum blob-preview bytes per cell (default {MetadataProjectionOptions.DefaultMaxPreviewBytes}).",
@@ -71,6 +83,8 @@ public static class MdiCommand
         root.Options.Add(formatOption);
         root.Options.Add(maxRowsOption);
         root.Options.Add(startRowOption);
+        root.Options.Add(referencesOption);
+        root.Options.Add(maxReferencesOption);
         root.Options.Add(maxBytesOption);
         root.Options.Add(maxCharsOption);
 
@@ -81,6 +95,8 @@ public static class MdiCommand
             string formatText = parseResult.GetValue(formatOption)!;
             int maxRows = parseResult.GetValue(maxRowsOption);
             int startRow = parseResult.GetValue(startRowOption);
+            string? referenceSpec = parseResult.GetValue(referencesOption);
+            int maxReferences = parseResult.GetValue(maxReferencesOption);
             int maxBytes = parseResult.GetValue(maxBytesOption);
             int maxChars = parseResult.GetValue(maxCharsOption);
 
@@ -107,6 +123,24 @@ public static class MdiCommand
                 Console.Error.WriteLine(
                     $"Error: unknown table '{badName}'. Table names are members of System.Reflection.Metadata.Ecma335.TableIndex (for example TypeDef, MethodDef, Field).");
                 return 1;
+            }
+
+            if (referenceSpec is not null)
+            {
+                if (maxReferences < 0)
+                {
+                    Console.Error.WriteLine("Error: --max-references must be non-negative.");
+                    return 1;
+                }
+
+                if (!TryParseRowLocation(referenceSpec, out var targetTable, out int targetRowId, out string? specError))
+                {
+                    Console.Error.WriteLine($"Error: {specError}");
+                    return 1;
+                }
+
+                return ExecuteReferences(
+                    assembly, targetTable, targetRowId, maxReferences, format, Console.Out, Console.Error);
             }
 
             var options = new MetadataProjectionOptions
@@ -199,6 +233,71 @@ public static class MdiCommand
     }
 
     /// <summary>
+    /// Opens <paramref name="assemblyPath"/> and renders every row pointing at
+    /// <paramref name="targetTable"/>[<paramref name="targetRowId"/>]. Returns a
+    /// process exit code.
+    ///
+    /// A row id that does not exist is not an error: the answer is an empty set,
+    /// which is what the projection itself reports, since a handle pointing past
+    /// the end of a table is malformed rather than a reference.
+    /// </summary>
+    public static int ExecuteReferences(
+        string assemblyPath,
+        TableIndex targetTable,
+        int targetRowId,
+        int maxReferences,
+        MetadataTableFormat format,
+        TextWriter output,
+        TextWriter error)
+    {
+        ArgumentNullException.ThrowIfNull(output);
+        ArgumentNullException.ThrowIfNull(error);
+
+        if (targetRowId < 1)
+        {
+            error.WriteLine("Error: the row id in --references must be 1 or greater (row ids are 1-based).");
+            return 1;
+        }
+
+        if (!File.Exists(assemblyPath))
+        {
+            error.WriteLine($"Error: file not found: {assemblyPath}");
+            return 1;
+        }
+
+        MetadataRowReferenceSet references;
+        try
+        {
+            using var session = AssemblyInspectionSession.Open(assemblyPath);
+            if (!session.HasMetadata)
+            {
+                error.WriteLine($"Error: '{assemblyPath}' contains no .NET metadata (not a managed assembly).");
+                return 1;
+            }
+
+            references = session.MetadataReferences(targetTable, targetRowId, maxReferences);
+        }
+        catch (Exception ex) when (IsExpectedReadFailure(ex))
+        {
+            error.WriteLine($"Error: cannot read metadata from '{assemblyPath}': {ex.Message}");
+            return 1;
+        }
+
+        MetadataProjectionRenderer.Render(references, output, format);
+
+        // Markdown renders the search's blind spots inline. The machine formats
+        // are pure row streams, so an incomplete scan would look identical to a
+        // complete one; surface the same caveats on the error writer instead.
+        if (format != MetadataTableFormat.Markdown)
+        {
+            foreach (string caveat in MetadataProjectionRenderer.Caveats(references))
+                error.WriteLine($"Note: {caveat}");
+        }
+
+        return 0;
+    }
+
+    /// <summary>
     /// Whether <paramref name="ex"/> is an expected failure of opening or reading
     /// an assembly file — a bad image, an unreadable or inaccessible file, or an
     /// invalid path — as opposed to an unexpected programming error. These are
@@ -233,8 +332,43 @@ public static class MdiCommand
         }
     }
 
-    static bool TryParseTables(string? spec, out ImmutableArray<TableIndex> tables, out string? badName)
+    /// <summary>
+    /// Parses a <c>Table:RowId</c> row reference (for example <c>TypeDef:5</c>).
+    /// The two halves are validated separately so the diagnostic names the half
+    /// that is wrong.
+    /// </summary>
+    static bool TryParseRowLocation(string spec, out TableIndex table, out int rowId, out string? error)
     {
+        table = default;
+        rowId = 0;
+
+        int separator = spec.LastIndexOf(':');
+        if (separator < 0)
+        {
+            error = $"'{spec}' is not a row reference. Use Table:RowId, for example TypeDef:5.";
+            return false;
+        }
+
+        string tableName = spec[..separator].Trim();
+        string rowText = spec[(separator + 1)..].Trim();
+
+        if (!Enum.TryParse(tableName, ignoreCase: true, out table) || !Enum.IsDefined(table))
+        {
+            error = $"unknown table '{tableName}'. Table names are members of System.Reflection.Metadata.Ecma335.TableIndex (for example TypeDef, MethodDef, Field).";
+            return false;
+        }
+
+        if (!int.TryParse(rowText, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out rowId) || rowId < 1)
+        {
+            error = $"'{rowText}' is not a row id. Row ids are 1-based positive integers.";
+            return false;
+        }
+
+        error = null;
+        return true;
+    }
+
+    static bool TryParseTables(string? spec, out ImmutableArray<TableIndex> tables, out string? badName)    {
         badName = null;
 
         // A default (unset) array is the projector's signal to include every

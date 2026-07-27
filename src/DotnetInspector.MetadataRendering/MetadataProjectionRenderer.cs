@@ -91,6 +91,120 @@ public static class MetadataProjectionRenderer
         writer.Flush();
     }
 
+    /// <summary>
+    /// Renders a reverse-reference search — the rows pointing at one row — to
+    /// <paramref name="output"/>.
+    ///
+    /// A reverse search has two blind spots the table renderer has no equivalent
+    /// of, and neither may be dropped: a budget that stopped the scan, and rows
+    /// that could not be decoded. Both are rendered as explicit caveats, so an
+    /// empty result is never mistaken for a confident "nothing points here".
+    /// </summary>
+    public static void Render(
+        MetadataRowReferenceSet references,
+        TextWriter output,
+        MetadataTableFormat format = MetadataTableFormat.Markdown)
+    {
+        ArgumentNullException.ThrowIfNull(references);
+        ArgumentNullException.ThrowIfNull(output);
+
+        if (format == MetadataTableFormat.Markdown)
+            RenderReferencesMarkdown(references, output);
+        else
+            RenderReferencesTabular(references, output, format);
+    }
+
+    static void RenderReferencesMarkdown(MetadataRowReferenceSet references, TextWriter output)
+    {
+        var writer = new MarkoutWriter(output, new MarkdownFormatter(), new MarkoutWriterOptions());
+
+        writer.WriteHeading(2, $"References to {Describe(references.Target)} ({references.References.Length})");
+
+        if (references.References.IsEmpty)
+            writer.WriteParagraph($"No row points at {Describe(references.Target)}.");
+        else
+            WriteReferenceTable(writer, references, identifyTarget: false);
+
+        foreach (string caveat in Caveats(references))
+        {
+            writer.WriteBlankLine();
+            writer.WriteParagraph(caveat);
+        }
+
+        writer.Flush();
+    }
+
+    static void RenderReferencesTabular(
+        MetadataRowReferenceSet references,
+        TextWriter output,
+        MetadataTableFormat format)
+    {
+        var options = new MarkoutWriterOptions
+        {
+            TableMode = format == MetadataTableFormat.Tsv ? MarkoutTableMode.Tsv : MarkoutTableMode.Jsonl,
+        };
+        var writer = new MarkoutWriter(output, new TableFormatter(showHeader: true), options);
+
+        WriteReferenceTable(writer, references, identifyTarget: true);
+
+        writer.Flush();
+    }
+
+    static void WriteReferenceTable(MarkoutWriter writer, MetadataRowReferenceSet references, bool identifyTarget)
+    {
+        // Markdown names the target in its heading; the machine formats have no
+        // heading, so they carry a leading Target column and every row stays
+        // self-describing.
+        string[] headers = identifyTarget
+            ? ["Target", "Table", "#", "Column", "Kind"]
+            : ["Table", "#", "Column", "Kind"];
+        string[] headerNames = identifyTarget
+            ? ["target", "table", "rid", "column", "kind"]
+            : ["table", "rid", "column", "kind"];
+
+        string target = Describe(references.Target);
+        var rows = new List<string[]>(references.References.Length);
+        foreach (var reference in references.References)
+        {
+            rows.Add(identifyTarget
+                ?
+                [
+                    target,
+                    reference.Source.Table.ToString(),
+                    reference.Source.RowId.ToString(),
+                    reference.ColumnName,
+                    reference.Kind.ToString(),
+                ]
+                :
+                [
+                    reference.Source.Table.ToString(),
+                    reference.Source.RowId.ToString(),
+                    reference.ColumnName,
+                    reference.Kind.ToString(),
+                ]);
+        }
+
+        writer.WriteTable(headers, headerNames, rows);
+    }
+
+    /// <summary>
+    /// The limits of a reverse search, as caveats a reader must see. Empty when
+    /// the search covered the whole image, which is what makes an empty result
+    /// trustworthy.
+    /// </summary>
+    public static IEnumerable<string> Caveats(MetadataRowReferenceSet references)
+    {        if (references.Truncated)
+            yield return "The result budget stopped this scan before it finished, so more references may exist.";
+
+        if (!references.UnreadableRows.IsEmpty)
+        {
+            int count = references.UnreadableRows.Length;
+            yield return $"{count} {(count == 1 ? "row" : "rows")} could not be decoded and {(count == 1 ? "was" : "were")} not searched, so a reference from {(count == 1 ? "it" : "them")} would have been missed.";
+        }
+    }
+
+    static string Describe(MetadataRowLocation location) => $"{location.Table}[{location.RowId}]";
+
     static string HeadingText(MetadataTableView table)
     {
         if (table.Truncation is not { } truncation)

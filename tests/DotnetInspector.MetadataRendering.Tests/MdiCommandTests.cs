@@ -197,4 +197,151 @@ public class MdiCommandTests
         // Markdown carries truncation inline, so it does not also emit the note.
         Assert.DoesNotContain("truncated to", error.ToString());
     }
+
+    [Fact]
+    public void ExecuteReferences_SelfAssembly_FindsTheDeclaringTypeOfAField()
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        // Field[1] has no back-pointer to its declaring type in ECMA-335; only a
+        // TypeDef.FieldList run covers it, so this proves range edges are searched.
+        int code = MdiCommand.ExecuteReferences(
+            SelfPath,
+            TableIndex.Field,
+            1,
+            MetadataRowReferenceSet.DefaultMaxReferences,
+            MetadataTableFormat.Markdown,
+            output,
+            error);
+
+        Assert.Equal(0, code);
+        string markdown = output.ToString();
+        Assert.Contains("## References to Field[1]", markdown);
+        Assert.Contains("FieldList", markdown);
+        Assert.Contains("Range", markdown);
+        Assert.True(string.IsNullOrWhiteSpace(error.ToString()));
+    }
+
+    [Fact]
+    public void ExecuteReferences_MachineFormat_ReportsTruncationOnError()
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+        int code = MdiCommand.ExecuteReferences(
+            SelfPath,
+            TableIndex.Field,
+            1,
+            maxReferences: 1,
+            MetadataTableFormat.Jsonl,
+            output,
+            error);
+
+        Assert.Equal(0, code);
+        // A pure row stream cannot show a stopped scan, so the caveat must reach stderr.
+        Assert.Contains("budget stopped this scan", error.ToString());
+    }
+
+    [Fact]
+    public void ExecuteReferences_Markdown_KeepsCaveatsInline_NotOnError()
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+        int code = MdiCommand.ExecuteReferences(
+            SelfPath,
+            TableIndex.Field,
+            1,
+            maxReferences: 1,
+            MetadataTableFormat.Markdown,
+            output,
+            error);
+
+        Assert.Equal(0, code);
+        Assert.Contains("budget stopped this scan", output.ToString());
+        Assert.True(string.IsNullOrWhiteSpace(error.ToString()));
+    }
+
+    [Fact]
+    public void ExecuteReferences_MissingFile_ReturnsErrorAndReports()
+    {
+        var error = new StringWriter();
+        int code = MdiCommand.ExecuteReferences(
+            "does-not-exist.dll",
+            TableIndex.TypeDef,
+            1,
+            MetadataRowReferenceSet.DefaultMaxReferences,
+            MetadataTableFormat.Markdown,
+            new StringWriter(),
+            error);
+
+        Assert.Equal(1, code);
+        Assert.Contains("file not found", error.ToString());
+    }
+
+    [Fact]
+    public void ExecuteReferences_RowIdBelowOne_IsRejectedBeforeOpeningTheFile()
+    {
+        var error = new StringWriter();
+        int code = MdiCommand.ExecuteReferences(
+            "does-not-exist.dll",
+            TableIndex.TypeDef,
+            0,
+            MetadataRowReferenceSet.DefaultMaxReferences,
+            MetadataTableFormat.Markdown,
+            new StringWriter(),
+            error);
+
+        Assert.Equal(1, code);
+        Assert.Contains("row id", error.ToString());
+    }
+
+    [Fact]
+    public void ExecuteReferences_NonexistentRow_IsAnEmptyAnswerNotAnError()
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+        int code = MdiCommand.ExecuteReferences(
+            SelfPath,
+            TableIndex.TypeDef,
+            int.MaxValue,
+            MetadataRowReferenceSet.DefaultMaxReferences,
+            MetadataTableFormat.Markdown,
+            output,
+            error);
+
+        Assert.Equal(0, code);
+        Assert.Contains("No row points at", output.ToString());
+    }
+
+    [Theory]
+    [InlineData("TypeDef")]
+    [InlineData("TypeDef:")]
+    [InlineData("TypeDef:0")]
+    [InlineData("TypeDef:-3")]
+    [InlineData("TypeDef:abc")]
+    [InlineData("NoSuchTable:1")]
+    public void CreateRootCommand_RejectsAMalformedReferenceSpec(string spec)
+    {
+        int code = MdiCommand.CreateRootCommand().Parse([SelfPath, "--references", spec]).Invoke();
+
+        Assert.NotEqual(0, code);
+    }
+
+    [Fact]
+    public void CreateRootCommand_RejectsANegativeMaxReferences()
+    {
+        int code = MdiCommand.CreateRootCommand()
+            .Parse([SelfPath, "--references", "TypeDef:1", "--max-references", "-1"])
+            .Invoke();
+
+        Assert.NotEqual(0, code);
+    }
+
+    [Fact]
+    public void CreateRootCommand_AcceptsAWellFormedReferenceSpec()
+    {
+        int code = MdiCommand.CreateRootCommand().Parse([SelfPath, "-r", "typedef:1"]).Invoke();
+
+        Assert.Equal(0, code);
+    }
 }

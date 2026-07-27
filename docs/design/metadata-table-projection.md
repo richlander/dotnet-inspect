@@ -345,7 +345,8 @@ inspector), a standalone tool that renders the tables the way `mdv` does:
   (`ToolCommandName=mdi`) whose System.CommandLine front-end maps flags onto
   `MetadataProjectionOptions` and delegates all output to the renderer below.
   Surface: `mdi <assembly> [--table|-t <Names>] [--format|-f md|tsv|jsonl]
-  [--max-rows|-n N] [--start-row|-s N] [--max-bytes N] [--max-chars N]`. Missing
+  [--max-rows|-n N] [--start-row|-s N] [--references|-r Table:RowId]
+  [--max-references N] [--max-bytes N] [--max-chars N]`. Missing
   files, native images, and unreadable metadata surface as visible errors, never
   success-shaped empty output.
 - **`src/DotnetInspector.MetadataRendering`** — a small reusable library holding
@@ -408,6 +409,49 @@ would read as the first three rows.
 Allocation shape — windowed or lazy materialization, and `ReadOnlySpan<T>` views
 over the current `ImmutableArray<T>` — remains open and **measurement-gated**;
 the browser's memory ceiling is the real constraint, and no benchmark exists yet.
+
+## Implemented: reverse references
+
+Forward navigation is only half of browsing. A reader looking at `Field[1]` asks
+"what declares this?", and looking at `TypeDef[5]` asks "what points here?".
+Neither question is answerable by following the projection's edges, because
+those edges only run one way.
+
+`MetadataTableProjector.FindReferences(peReader, targetTable, targetRowId,
+maxReferences)` inverts them, returning a `MetadataRowReferenceSet`: the
+`MetadataRowLocation` of every row pointing at the target, with the pointing
+column's index, its name, and whether the edge was a `Handle` or a `Range`.
+
+The `Range` case is the load-bearing one. ECMA-335 does not give an owned row a
+back-pointer to its owner: a `Field` is owned by whichever `TypeDef.FieldList`
+run covers it, and a `Param` by whichever `MethodDef.ParamList` run covers it.
+Reverse search over list columns is therefore how ownership is resolved at all —
+not an extra convenience on top of handle search.
+
+Two design points are deliberate and worth stating, because both look like
+oversights:
+
+- **`options.Tables` is not honored.** Like `ProjectRow`, the search is a query
+  over the whole image, not a projection of a selection. Narrowing the scan
+  could report "nothing points here" while a pointer sat in an unsearched table,
+  which is worse than a slower answer.
+- **Blind spots are reported, not folded in.** `Truncated` marks a scan the
+  result budget stopped, and `UnreadableRows` lists rows that could not be
+  decoded and therefore could not be inspected. `IsComplete` is true only when
+  neither happened, which is what makes an empty result trustworthy. Unlike
+  `MetadataTableTruncation`, `Truncated` carries no total: a stopped scan never
+  learns how many references it did not reach.
+
+The search reuses the projection's single row-reading path rather than a faster
+private one, so a `HandleRef` or `HandleRange` means the same thing in a search
+result as in a rendered table. Cost is therefore proportional to the whole image
+per query; whether that needs an index is a measurement question, filed with the
+allocation work above rather than guessed at here.
+
+The renderer and `mdi` carry the blind spots into every format:
+`mdi --references TypeDef:5` prints them inline under the Markdown table, and
+the TSV/JSONL streams report them on stderr, since a pure row stream cannot
+distinguish a complete scan from a stopped one.
 
 ## Layer placement
 

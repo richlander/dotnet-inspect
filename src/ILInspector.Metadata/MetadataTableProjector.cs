@@ -169,6 +169,128 @@ public static class MetadataTableProjector
         return BuildView(reader, spec, rowCount, options with { StartRowId = rowId, MaxRowsPerTable = 1 });
     }
 
+    /// <summary>
+    /// Finds every row that points at <paramref name="targetTable"/> row
+    /// <paramref name="targetRowId"/> — the reverse of the forward
+    /// <see cref="HandleRef"/>/<see cref="HandleRange"/> edges a projection
+    /// exposes, and the "who references this?" gesture an explorer needs.
+    ///
+    /// Both edge shapes are searched. A handle column matches when it names the
+    /// row directly; a list column matches when the target falls inside its run,
+    /// which is how ECMA-335 encodes ownership — so this answers which
+    /// <c>TypeDef</c> declares a given <c>Field</c>, <c>MethodDef</c>, or which
+    /// <c>MethodDef</c> owns a given <c>Param</c>.
+    ///
+    /// The scan always covers every supported table and ignores
+    /// <see cref="MetadataProjectionOptions.Tables"/>, because a reverse search
+    /// narrowed to part of the image could report "nothing points here" while a
+    /// pointer sat in an unsearched table. Its two blind spots are reported
+    /// instead of hidden: <see cref="MetadataRowReferenceSet.Truncated"/> when
+    /// <paramref name="maxReferences"/> stopped the scan, and
+    /// <see cref="MetadataRowReferenceSet.UnreadableRows"/> for rows that could not
+    /// be decoded and so could not be inspected.
+    ///
+    /// A dangling edge is not a reference: a handle whose row lies outside its
+    /// target table already projects as <see cref="MetadataValue.Malformed"/>,
+    /// so it cannot match.
+    /// </summary>
+    public static MetadataRowReferenceSet FindReferences(
+        PEReader peReader,
+        TableIndex targetTable,
+        int targetRowId,
+        int maxReferences = MetadataRowReferenceSet.DefaultMaxReferences)
+    {
+        ArgumentNullException.ThrowIfNull(peReader);
+        ArgumentOutOfRangeException.ThrowIfLessThan(targetRowId, 1);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxReferences);
+
+        var target = new MetadataRowLocation(targetTable, targetRowId);
+        var references = ImmutableArray.CreateBuilder<MetadataRowReference>();
+        var unreadable = ImmutableArray.CreateBuilder<MetadataRowLocation>();
+
+        if (!peReader.HasMetadata)
+            return new MetadataRowReferenceSet(target, references.ToImmutable(), unreadable.ToImmutable(), Truncated: false);
+
+        var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
+
+        // The scan needs edges, not text. Handle and range cells carry their
+        // target table and row id independently of these budgets, so trimming the
+        // heap previews cannot change which rows match — it only avoids decoding
+        // strings and blobs the result never shows.
+        var scan = new MetadataProjectionOptions { MaxStringChars = 1, MaxPreviewBytes = 0 };
+
+        bool truncated = false;
+        foreach (var spec in SupportedTables)
+        {
+            if (truncated)
+                break;
+
+            int rowCount = reader.GetTableRowCount(spec.Index);
+            for (int rid = 1; rid <= rowCount && !truncated; rid++)
+            {
+                ImmutableArray<MetadataValue> cells;
+                try
+                {
+                    cells = spec.ReadRow(reader, rid, scan);
+                }
+                catch (Exception ex) when (ex is BadImageFormatException or ArgumentException or InvalidOperationException)
+                {
+                    // The row's edges are unknowable, so record the blind spot
+                    // rather than letting a missed reference look like an absent one.
+                    unreadable.Add(new MetadataRowLocation(spec.Index, rid));
+                    continue;
+                }
+
+                for (int column = 0; column < cells.Length; column++)
+                {
+                    if (!PointsAt(cells[column], targetTable, targetRowId, out var kind))
+                        continue;
+
+                    if (references.Count >= maxReferences)
+                    {
+                        truncated = true;
+                        break;
+                    }
+
+                    references.Add(new MetadataRowReference(
+                        new MetadataRowLocation(spec.Index, rid),
+                        column,
+                        spec.Columns[column].Name,
+                        kind));
+                }
+            }
+        }
+
+        return new MetadataRowReferenceSet(target, references.ToImmutable(), unreadable.ToImmutable(), truncated);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="value"/> is an edge onto the target row. A handle
+    /// names one row; a list column covers the half-open run
+    /// <c>[StartRowId, EndRowId)</c>, so membership — not equality — decides.
+    /// </summary>
+    static bool PointsAt(MetadataValue value, TableIndex table, int rowId, out MetadataRowReferenceKind kind)
+    {
+        switch (value)
+        {
+            case MetadataValue.Handle handle
+                when handle.Reference.TargetTable == table && handle.Reference.TargetRowId == rowId:
+                kind = MetadataRowReferenceKind.Handle;
+                return true;
+
+            case MetadataValue.Range range
+                when range.Reference.TargetTable == table
+                    && rowId >= range.Reference.StartRowId
+                    && rowId < range.Reference.EndRowId:
+                kind = MetadataRowReferenceKind.Range;
+                return true;
+
+            default:
+                kind = default;
+                return false;
+        }
+    }
+
     static MetadataTableView BuildView(
         MetadataReader reader,
         TableSpec spec,
