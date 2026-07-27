@@ -762,13 +762,34 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void LibrarySourcePlan_SourceAuditAuthorizedBySignals()
+    public void LibrarySourcePlan_SourceAuditAuthorizedByExplicitSourceLinkSections()
     {
-        var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Signals" };
+        // The HEAD availability audit is now consumed only by the explicit Source Link audit
+        // sections; Signals no longer carries a network-dependent availability row, so it does not
+        // trigger the audit at any verbosity.
+        var signals = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Signals" };
+        var availability = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { "Source Link: Availability" };
 
         Assert.False(LibrarySourcePlans.For(Verbosity.Normal, null).RunHeadAudit);
-        Assert.True(LibrarySourcePlans.For(Verbosity.Normal, include).RunHeadAudit);
-        Assert.True(LibrarySourcePlans.For(Verbosity.Detailed, null).RunHeadAudit);
+        Assert.False(LibrarySourcePlans.For(Verbosity.Detailed, null).RunHeadAudit);
+        Assert.False(LibrarySourcePlans.For(Verbosity.Normal, signals).RunHeadAudit);
+        Assert.True(LibrarySourcePlans.For(Verbosity.Normal, availability).RunHeadAudit);
+    }
+
+    [Fact]
+    public void LibrarySourcePlan_ReadsCachedPdbAtNormalAndAbove()
+    {
+        // Cache-only PDB reads are network-free, so they are authorized from Normal up (bare -S)
+        // for the auto-rendered symbol sections. Explicit selection authorizes a real download
+        // instead, so it does not set the cache-only flag.
+        var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Signals" };
+
+        Assert.False(LibrarySourcePlans.For(Verbosity.Quiet, null).ReadCachedPdb);
+        Assert.False(LibrarySourcePlans.For(Verbosity.Minimal, null).ReadCachedPdb);
+        Assert.True(LibrarySourcePlans.For(Verbosity.Normal, null).ReadCachedPdb);
+        Assert.True(LibrarySourcePlans.For(Verbosity.Detailed, null).ReadCachedPdb);
+        Assert.False(LibrarySourcePlans.For(Verbosity.Normal, include).ReadCachedPdb);
     }
 
     [Fact]
@@ -802,10 +823,9 @@ public class SectionPipelineTests
                 bool expectedPdb = include is null
                     ? verbosity >= Verbosity.Detailed
                     : include.Overlaps(sourceSections);
-                bool expectedAudit = include is null
-                    ? verbosity >= Verbosity.Detailed
-                    : include.Overlaps(
-                        ["Signals", "Source Link: Availability", "Source Link: Missing Files"]);
+                bool expectedAudit = include is not null
+                    && include.Overlaps(
+                        ["Source Link: Availability", "Source Link: Missing Files"]);
                 bool expectedIntegrity = include?.Contains("Source Link: Integrity") == true;
 
                 Assert.Equal(

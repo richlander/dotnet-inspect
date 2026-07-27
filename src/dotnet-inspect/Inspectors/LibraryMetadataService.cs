@@ -225,7 +225,8 @@ internal static class LibraryMetadataService
                 logger,
                 httpClient,
                 isPlatformAssembly,
-                allowPdbDownload: sourcePlan.AllowPdbDownload);
+                allowPdbDownload: sourcePlan.AllowPdbDownload,
+                readCachedPdb: sourcePlan.ReadCachedPdb);
 
             var sourceSubject = FindingSubjectFor(path);
             inspection.SourceDocumentInspection = MetadataFindings.InspectSourceDocuments(
@@ -317,7 +318,8 @@ internal static class LibraryMetadataService
         VerboseLogger logger,
         HttpClient httpClient,
         bool isPlatformAssembly = false,
-        bool allowPdbDownload = false)
+        bool allowPdbDownload = false,
+        bool readCachedPdb = false)
     {
         var pdbContext = service.Context;
 
@@ -340,6 +342,30 @@ internal static class LibraryMetadataService
         if (!pdbContext.HasPdb && !pdbContext.WindowsPdbDetected && allowPdbDownload)
         {
             await SourceEnricher.AcquirePdbAsync(pdbContext, httpClient, packageName, packageVersion, isPlatformAssembly, logger.Log);
+
+            if (pdbContext.HasPdb)
+            {
+                inspection.PdbFormat = pdbContext.PdbFormat;
+                inspection.PdbLocation = pdbContext.PdbLocation;
+                inspection.SymbolServer = pdbContext.SymbolServer;
+                inspection.HasSourceLink = service.HasSourceLink;
+                inspection.SourceLinkJson = service.SourceLinkJson;
+            }
+            else if (pdbContext.WindowsPdbDetected)
+            {
+                inspection.WindowsPdbDetected = true;
+                inspection.PdbFormat = "Windows";
+            }
+        }
+
+        // No embedded/adjacent PDB and download not authorized (Normal / bare-`S`): try a
+        // network-free cache-only read so symbol-dependent sections (Symbols, Signals, SourceLink
+        // provenance) can reflect an already-cached PDB. cacheOnly never touches the network.
+        if (!pdbContext.HasPdb && !pdbContext.WindowsPdbDetected && !allowPdbDownload && readCachedPdb)
+        {
+            await SourceEnricher.AcquirePdbAsync(
+                pdbContext, httpClient, packageName, packageVersion,
+                isPlatformAssembly, logger.Log, cacheOnly: true);
 
             if (pdbContext.HasPdb)
             {

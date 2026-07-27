@@ -5997,25 +5997,25 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task LibraryCommand_BareSelect_RendersInfoPreset()
+    public async Task LibraryCommand_BareSelect_RendersNetworkFreeOverview()
     {
         var (exit, output, _) = await RunAppAsync("library", "System.Text.Json", "-S");
 
         Assert.Equal(0, exit);
+        // Bare -S is the network-free bounded overview: every Terse+Informative, network-free
+        // section (the -v:n set), including the symbol-dependent Symbols/Signals sections.
         Assert.Contains("## Library Info", output);
-        Assert.Contains("| Async Methods |", output);
-        Assert.Contains("| Custom Attributes |", output);
-        Assert.Contains("| Extension Methods |", output);
-        Assert.Contains("| Resources |", output);
-        Assert.Contains("| Type Forwarders |", output);
-        Assert.DoesNotContain("## Signals", output);
-        Assert.DoesNotContain("## Symbols", output);
-        Assert.DoesNotContain("## References", output);
+        Assert.Contains("## Signals", output);
+        Assert.Contains("## Symbols", output);
+        Assert.Contains("## References", output);
+        Assert.Contains("## Custom Attributes", output);
+        Assert.Contains("## Resources", output);
+        Assert.Contains("## Type Forwarders", output);
+        // Verbose sections stay out of the bounded overview (they appear only at -v:d).
         Assert.DoesNotContain("## Async Methods", output);
-        Assert.DoesNotContain("## Custom Attributes", output);
         Assert.DoesNotContain("## Extension Methods", output);
-        Assert.DoesNotContain("## Resources", output);
-        Assert.DoesNotContain("## Type Forwarders", output);
+        // The availability row was removed from Signals; the overview stays network-free.
+        Assert.DoesNotContain("SourceLink availability", output);
     }
 
     [Fact]

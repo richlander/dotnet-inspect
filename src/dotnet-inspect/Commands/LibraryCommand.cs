@@ -57,6 +57,21 @@ public class LibraryCommand
             }
         }
 
+        // Bare -S (a lone @Default preset — i.e. `-S` with no value) selects the network-free
+        // bounded overview: the same Terse+Informative, network-free section set as -v:n. This
+        // includes symbol-dependent sections (Symbols, Signals) because they read an embedded,
+        // adjacent, or already-cached PDB without touching the network. Promote to Normal and drop
+        // the preset marker so the curated ladder auto-renders that set (never downgrading a higher
+        // verbosity the user asked for).
+        if (options.Discover == null
+            && options.Select is { Length: 1 }
+            && SelectResolver.IsInfoSelector(options.Select))
+        {
+            options = options with { Select = null };
+            if (options.Verbosity < Verbosity.Normal)
+                options = options with { Verbosity = Verbosity.Normal };
+        }
+
         // -D defaults to effective discovery for target-based commands.
         bool effectiveDiscovery = options.Discover != null && !options.Schema && hasInputSource;
         var userVerbosity = options.Verbosity; // preserve for display formatting

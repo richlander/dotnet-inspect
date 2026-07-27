@@ -78,6 +78,17 @@ by exact name (`-S "Unsafe Members"`) or, where appropriate, a topical door.
 requires `-v:m`; every other bounded network-free section first renders at
 `-v:n` (because `-v:m` shows the target only).
 
+### Bare `-S` — the network-free bounded overview
+
+Bare `-S` (the `-S` flag with no value, which parses to the lone `@Default`
+preset) is the ergonomic **network-free bounded overview**. Instead of the
+`-v:m` target-only view, the library command renders the same section set as
+`-v:n`: every `Terse`+`Informative`, `NetworkFree`, effective section, including
+the symbol-dependent `Symbols` and `Signals` sections. Those read an embedded,
+adjacent, or already-cached PDB **network-free** (see below), so they belong in
+a view that must never touch the network. A user-supplied `-v` is never
+downgraded — `-S -v:d` still renders the detailed view.
+
 ### Two orthogonal gates
 
 - **Cost is an execution gate, not a membership gate.** An `Unbounded` section
@@ -124,6 +135,14 @@ them under `-D` is network-free.
   downloads). A PDB warmed into the cache by a prior render (or `source`
   command) therefore makes the family discoverable on the next `-D`; clearing it
   hides the family again.
+- The **render path** applies the same cache-only leverage. At `-v:n` and bare
+  `-S` (Normal and above, no explicit selection) the source plan sets
+  `ReadCachedPdb`, so `AuditAsync` consults the symbol cache read-only when there
+  is no embedded/adjacent PDB. This lets the symbol-dependent `Symbols` and
+  `Signals` sections (and the `SourceLink` provenance row) reflect an
+  already-cached PDB **without touching the network**. Downloading a missing PDB
+  still requires `-v:d` or explicit selection (`AllowPdbDownload`); a cache miss
+  stays network-free and simply renders no symbols.
 - Because the family's effectiveness depends on cached-PDB presence, the
   effective-section cache key folds a network-free SourceLink-availability token
   (`#sl0`/`#sl1`) so warming or clearing a cached PDB busts a stale `-D` catalog.
