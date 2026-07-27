@@ -378,8 +378,31 @@ public static class MemberTargetResolver
         return new BodyTarget(
             declaringType,
             anchor.CanonicalSignature,
-            member.MetadataToken ?? member.GetterToken ?? member.SetterToken ?? member.AdderToken ?? member.RemoverToken,
+            member.MetadataToken ?? SelectAccessorToken(member, declaringOverloadIndex),
             member.DeclaringOverloadIndex ?? declaringOverloadIndex);
+    }
+
+    /// <summary>
+    /// The MethodDef token of the accessor addressed by the selected ordinal (1 =
+    /// getter/adder, 2 = setter/remover), counting only accessors that exist so a
+    /// write-only property's sole accessor is ordinal 1. Returns <see langword="null"/>
+    /// for a member with no accessor tokens. Mirrors the accessor ordering the body
+    /// sections synthesize (issue #3265), so <see cref="BodyTarget.MetadataToken"/> names
+    /// the same accessor the body render selects by ordinal.
+    /// </summary>
+    static int? SelectAccessorToken(ApiMember member, int? ordinal)
+    {
+        int?[] tokens = member.Kind switch
+        {
+            "property" => [member.GetterToken, member.SetterToken],
+            "event" => [member.AdderToken, member.RemoverToken],
+            _ => []
+        };
+        var present = tokens.Where(token => token is not null).ToArray();
+        if (present.Length == 0)
+            return null;
+        var index = (ordinal ?? 1) - 1;
+        return index >= 0 && index < present.Length ? present[index] : present[0];
     }
 
     /// <summary>

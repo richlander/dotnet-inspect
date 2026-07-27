@@ -218,6 +218,60 @@ public class MemberCallGraphSectionTests
         Assert.Contains("Combine", result.Output);
     }
 
+    [Fact]
+    public async Task DecompiledSource_PropertyGetterRendersAccessorDeclaration()
+    {
+        // The getter renders a real method header (not the property's bare return type)
+        // with the setter's body kept off it (#3265).
+        var result = await RunDecompiledAsync(
+            typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.Descriptor), overloadIndex: null);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Decompiled Source", result.Output);
+        Assert.Contains("get_Descriptor(", result.Output);
+        Assert.DoesNotContain("set_Descriptor(", result.Output);
+    }
+
+    [Fact]
+    public async Task DecompiledSource_PropertySetterRendersVoidAccessorDeclaration()
+    {
+        // Accessor ordinal 2 renders the setter: void return, a trailing `value` parameter.
+        var result = await RunDecompiledAsync(
+            typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.Descriptor), overloadIndex: 2);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Decompiled Source", result.Output);
+        Assert.Contains("void set_Descriptor(", result.Output);
+        Assert.Contains("value", result.Output);
+        Assert.DoesNotContain("get_Descriptor(", result.Output);
+    }
+
+    [Fact]
+    public async Task DecompiledSource_EventAdderRendersVoidAccessorDeclaration()
+    {
+        // The adder renders as a real void method taking the delegate value, not the
+        // event's bare delegate type as a headless declaration (#3265).
+        var result = await RunDecompiledAsync(
+            typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.Triggered), overloadIndex: null);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("## Decompiled Source", result.Output);
+        Assert.Contains("void add_Triggered(", result.Output);
+    }
+
+    static Task<(int ExitCode, string Output, string Error)> RunDecompiledAsync(
+        string typeName, string memberName, int? overloadIndex)
+        => ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeName,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [memberName],
+            OverloadIndex = overloadIndex,
+            IncludeSections = [SectionNames.DecompiledSource],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+        }));
+
     static Task<(int ExitCode, string Output, string Error)> RunCallGraphAsync(
         string typeName, string memberName)
         => ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions

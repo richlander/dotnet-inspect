@@ -203,6 +203,8 @@ public class MemberTargetResolverTests
         Assert.Equal(MemberTargetKind.Property, result.Target!.Kind);
         // Accessor ordinal 2 addresses the setter; body sections select it via this index.
         Assert.Equal(2, result.Target.Body!.DeclaringOverloadIndex);
+        // The body token names the setter accessor, not the getter (issue #3265).
+        Assert.Equal(0x06000102, result.Target.Body.MetadataToken);
     }
 
     [Fact]
@@ -228,6 +230,8 @@ public class MemberTargetResolverTests
         Assert.Equal(MemberTargetKind.Event, result.Target!.Kind);
         // Accessor ordinal 1 = adder, 2 = remover.
         Assert.Equal(2, result.Target.Body!.DeclaringOverloadIndex);
+        // The body token names the remover accessor, not the adder (issue #3265).
+        Assert.Equal(0x06000105, result.Target.Body.MetadataToken);
     }
 
     static ApiType CreateAccessorSurface()

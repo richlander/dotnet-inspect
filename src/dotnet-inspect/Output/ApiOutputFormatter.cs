@@ -1254,32 +1254,80 @@ public static class ApiOutputFormatter
         switch (member.Kind)
         {
             case "property":
+                // A getter returns the property type and takes only the index parameters; a
+                // setter (and both event accessors) returns void and takes a trailing `value`.
                 if (member.GetterToken is { } getter)
-                    yield return Accessor(member, declaringType, $"get_{member.Name}", getter);
+                    yield return Accessor(member, declaringType, $"get_{member.Name}", getter, valueReturning: true);
                 if (member.SetterToken is { } setter)
-                    yield return Accessor(member, declaringType, $"set_{member.Name}", setter);
+                    yield return Accessor(member, declaringType, $"set_{member.Name}", setter, valueReturning: false);
                 break;
             case "event":
                 if (member.AdderToken is { } adder)
-                    yield return Accessor(member, declaringType, $"add_{member.Name}", adder);
+                    yield return Accessor(member, declaringType, $"add_{member.Name}", adder, valueReturning: false);
                 if (member.RemoverToken is { } remover)
-                    yield return Accessor(member, declaringType, $"remove_{member.Name}", remover);
+                    yield return Accessor(member, declaringType, $"remove_{member.Name}", remover, valueReturning: false);
                 break;
         }
     }
 
-    static ApiMember Accessor(ApiMember owner, string declaringType, string name, int token) => new()
+    /// <summary>
+    /// Builds a method member for one accessor with a structured signature derived from the
+    /// owner property/event, so declaration-rendering sections (Decompiled/Annotated Source,
+    /// the overlays) print a real method header (<c>public string get_Name()</c>) rather than
+    /// the owner's bare return type. The value type is the property/event type; a value-
+    /// returning accessor (a getter) returns it and carries only the index parameters, while a
+    /// void accessor (a setter or an event add/remove) appends it as a trailing <c>value</c>.
+    /// </summary>
+    static ApiMember Accessor(ApiMember owner, string declaringType, string name, int token, bool valueReturning)
     {
-        Name = name,
-        Kind = "method",
-        MetadataToken = token,
-        DeclaringType = declaringType,
-        ReturnType = owner.ReturnType,
-        IsStatic = owner.IsStatic,
-        IsAbstract = owner.IsAbstract,
-        IsUnsafe = owner.IsUnsafe,
-        Accessibility = owner.Accessibility,
-        Documentation = owner.Documentation,
+        var ownerModel = owner.SignatureModel;
+        var valueType = ownerModel?.ReturnType ?? owner.ReturnType ?? "object";
+        var parameters = ownerModel?.Parameters is { Count: > 0 } indexParameters
+            ? indexParameters.Select(CloneAccessorParameter).ToList()
+            : new List<ApiParameter>();
+        string returnType;
+        if (valueReturning)
+        {
+            returnType = valueType;
+        }
+        else
+        {
+            returnType = "void";
+            parameters.Add(new ApiParameter { Name = "value", Type = valueType });
+        }
+
+        var renderedParameters = string.Join(", ", parameters.Select(p => $"{p.TypeWithModifier} {p.Name}"));
+        return new ApiMember
+        {
+            Name = name,
+            Kind = "method",
+            MetadataToken = token,
+            DeclaringType = declaringType,
+            ReturnType = returnType,
+            Signature = $"{returnType} {name}({renderedParameters})",
+            SignatureModel = new ApiSignature
+            {
+                MemberName = name,
+                ReturnType = returnType,
+                Parameters = parameters,
+            },
+            IsStatic = owner.IsStatic,
+            IsAbstract = owner.IsAbstract,
+            IsUnsafe = owner.IsUnsafe,
+            Accessibility = owner.Accessibility,
+            Documentation = owner.Documentation,
+        };
+    }
+
+    static ApiParameter CloneAccessorParameter(ApiParameter parameter) => new()
+    {
+        Name = parameter.Name,
+        Type = parameter.Type,
+        CanonicalType = parameter.CanonicalType,
+        Modifier = parameter.Modifier,
+        HasDefault = parameter.HasDefault,
+        DefaultValueText = parameter.DefaultValueText,
+        Attributes = [.. parameter.Attributes],
     };
 
     internal static void PopulateIndexSections(

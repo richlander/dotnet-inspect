@@ -547,8 +547,8 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberDetailSectionDescriptors.FidelityCauses>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.AppliedTaste>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.AnnotatedSource>(HasSingleBodyBackedMember)
-            .Add<ApiMemberSectionDescriptors.OriginalSource>(HasSingleBodyBackedMember)
-            .Add<ApiMemberDetailSectionDescriptors.SourceDiff>(HasSingleBodyBackedMember)
+            .Add<ApiMemberSectionDescriptors.OriginalSource>(HasSingleMethodLikeMember)
+            .Add<ApiMemberDetailSectionDescriptors.SourceDiff>(HasSingleMethodLikeMember)
             .Add<ApiMemberDetailSectionDescriptors.Calls>()
             .Add<ApiMemberDetailSectionDescriptors.ExceptionRegions>()
             .Add<ApiMemberSectionDescriptors.AllocationFacts>(HasSingleBodyBackedMember)
@@ -574,6 +574,12 @@ public static class ApiMemberOverloadSectionDescriptors
 
     private static bool HasSingleBodyBackedMember(ApiType model)
         => model.Members.Count == 1 && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+
+    // SourceLink source-file sections (Original Source, Source Diff) resolve by the
+    // selected member's own name/token; accessor source mapping is not yet wired, so
+    // they stay method-only rather than rendering empty for a property/event (#3265).
+    private static bool HasSingleMethodLikeMember(ApiType model)
+        => model.Members.Count == 1 && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
 
     public sealed class Methods : ISectionDescriptor<ApiType>
     {
@@ -730,8 +736,11 @@ public static class ApiMemberDetailSectionDescriptors
         public static SectionCapabilities Capabilities =>
             SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
         public static string? ScannerKey => null;
+        // SourceLink source-file sections resolve PDB sequence points by the selected
+        // member's own name/token; accessor source-line mapping is not yet wired, so a
+        // property/event stays method-only here rather than rendering empty (issue #3265).
         public static bool CanRender(ApiType model)
-            => model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+            => model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
     }
 
     public sealed class SourceDiff : ISectionDescriptor<ApiType>
@@ -742,9 +751,10 @@ public static class ApiMemberDetailSectionDescriptors
         public static SectionCapabilities Capabilities =>
             SectionCapabilities.MayDownloadPdb | SectionCapabilities.MayFetchSources;
         public static string? ScannerKey => null;
+        // SourceLink source-file section; accessor source mapping not yet wired (issue #3265).
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
-               && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+               && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
     }
 
     public sealed class SourceLocations : ISectionDescriptor<ApiType>
@@ -755,9 +765,10 @@ public static class ApiMemberDetailSectionDescriptors
         public static bool ProbeEffectiveness => false;
         public static SectionCapabilities Capabilities => SectionCapabilities.MayDownloadPdb;
         public static string? ScannerKey => null;
+        // SourceLink source-file section; accessor source mapping not yet wired (issue #3265).
         public static bool CanRender(ApiType model)
             => model.Members.Count == 1
-               && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
+               && model.Members.Any(ApiMemberSectionDescriptors.IsMethodLike);
     }
 
     public sealed class ILBody : ISectionDescriptor<ApiType>
