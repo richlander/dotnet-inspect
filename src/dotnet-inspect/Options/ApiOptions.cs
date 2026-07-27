@@ -57,6 +57,12 @@ public partial record ApiOptions
     /// facts collected are identical either way, because annotations describe and
     /// never grade.
     /// </summary>
+    /// <remarks>
+    /// Member-scoped only. The caret gesture renders into an annotated source
+    /// view, and the only sections that carry one — Annotated Source, Cost
+    /// Overlay, Semantics Overlay — are member sections. Registering the option
+    /// on <c>type</c> would offer a switch that cannot change any output there.
+    /// </remarks>
     public string? Focus { get; init; }
 
     /// <summary>

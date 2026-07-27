@@ -49,9 +49,10 @@ dnx dotnet-inspect -y -- member Cache --project ./src/App Pump:1 -S "Annotated S
 ```
 
 The value matches an annotation category, an exact id, or a dotted-id prefix on
-a segment boundary (`alloc` selects `alloc.box`, not `allocator.x`). Facts that
-do not match keep the trailing form, so `--focus` narrows attention without
-hiding anything.
+a segment boundary (`alloc` selects `alloc.box`, not `allocator.x`). It
+**promotes, it never filters** — facts that do not match keep the trailing form,
+so `--focus` narrows attention without hiding anything. A focus that matches
+nothing says so and names the families the member does have.
 
 ## Fidelity model
 

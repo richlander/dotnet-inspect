@@ -2580,13 +2580,13 @@ public static class ApiOutputFormatter
         if (string.IsNullOrWhiteSpace(declaration))
         {
             return declarationTrailingComment is { Length: > 0 } bareComment
-                ? $"// {bareComment}{Environment.NewLine}{body}"
-                : body;
+                ? $"// {bareComment}{Environment.NewLine}{Decompiler.Annotations.AnnotationCaret.Flatten(body)}"
+                : Decompiler.Annotations.AnnotationCaret.Flatten(body);
         }
 
         bool hasLeadingComments = leadingBodyComments is { Count: > 0 };
         if (!hasLeadingComments && preferExpressionBodied && CSharpExpressionBody.FromSingleStatement(body) is { } expressionBody)
-            return Annotate($"{declaration} => {expressionBody};");
+            return Annotate($"{declaration} => {Decompiler.Annotations.AnnotationCaret.Flatten(expressionBody)};");
 
         // A multi-line single-statement expression body renders expression-bodied
         // too (a raised switch return, issue #3088; a wrapped fluent chain in
@@ -2600,11 +2600,12 @@ public static class ApiOutputFormatter
             && CSharpExpressionBody.MultilineExpressionBodyLines(body) is { Count: > 0 } multilineExpression)
         {
             var expression = new StringBuilder();
-            expression.Append(declaration).Append(" => ").Append(multilineExpression[0]);
+            expression.Append(declaration).Append(" => ")
+                .Append(Decompiler.Annotations.AnnotationCaret.Flatten(multilineExpression[0]));
             for (int i = 1; i < multilineExpression.Count; i++)
             {
                 expression.Append(Environment.NewLine);
-                expression.Append(multilineExpression[i]);
+                expression.Append(Decompiler.Annotations.AnnotationCaret.Flatten(multilineExpression[i]));
                 if (i == multilineExpression.Count - 1)
                     expression.Append(';');
             }
@@ -2615,12 +2616,18 @@ public static class ApiOutputFormatter
         var lines = hasLeadingComments
             ? leadingBodyComments!.Concat(formattedBodyLines)
             : formattedBodyLines;
+
+        // A caret line is pre-positioned at this declaration's column, so it is
+        // the one body line that must not be indented. The indent width is the
+        // caret renderer's constant rather than a literal: the two have to agree
+        // or the carets shear away from the code they point at.
+        string bodyIndent = new(' ', Decompiler.Annotations.AnnotationCaret.BodyIndentWidth);
         var indentedBody = string.Join(
             Environment.NewLine,
             lines.Select(line =>
                 line.Length == 0 ? ""
                 : Decompiler.Annotations.AnnotationCaret.TryHoist(line, out var hoisted) ? hoisted
-                : $"    {line}"));
+                : bodyIndent + line));
 
         return $"{Annotate(declaration)}{Environment.NewLine}{{{Environment.NewLine}{indentedBody}{Environment.NewLine}}}";
     }

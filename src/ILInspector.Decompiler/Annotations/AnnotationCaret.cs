@@ -26,7 +26,7 @@ public static class AnnotationCaret
     // Target rendered width. Detail wraps to stay inside this where the geometry
     // allows it; a deeply indented statement with a long underline can push the
     // detail column out, which is what MinDetailWidth guards against.
-    const int Budget = 100;
+    internal const int Budget = 100;
     const int MinDetailWidth = 32;
 
     // Past this column a trailing detail reads as a far-right sliver even when it
@@ -69,6 +69,15 @@ public static class AnnotationCaret
     }
 
     /// <summary>
+    /// Removes every <see cref="HoistMarker"/> from <paramref name="text"/>.
+    /// The marker is an in-band layout signal and would print as a control
+    /// character, so an output path that cannot honour the hoist must still
+    /// strip it rather than pass it through.
+    /// </summary>
+    public static string Flatten(string text)
+        => text.IndexOf(HoistMarker) < 0 ? text : text.Replace(HoistMarker.ToString(), "");
+
+    /// <summary>
     /// Renders the caret block for <paramref name="annotations"/> under
     /// <paramref name="lineText"/>, returning one or more already-indented
     /// comment lines. Returns an empty list when there is nothing to point at
@@ -103,13 +112,22 @@ public static class AnnotationCaret
         // every depth; without it a statement sitting on the gutter has none, so
         // clamp — a caller can also render a fragment with no member line above.
         int hoisted = hoist ? BodyIndentWidth : 0;
-        int pad = Math.Max(1, caretStart + hoisted - memberIndent.Length - 2);
-        string prefix = hoist ? HoistMarker + memberIndent : memberIndent;
-        string gutter = prefix + "//";
 
-        // Column arithmetic runs in rendered columns, where a hoisted comment
-        // starts BodyIndentWidth to the left of the body it annotates.
-        int commentColumn = memberIndent.Length - hoisted;
+        // All column arithmetic below is in *rendered* columns. A hoisted caret
+        // line escapes the body indent that the code lines receive, so the code
+        // is that much further right than its position in this stream; an
+        // un-hoisted line is indented alongside the code, so the shift is zero
+        // and the relative geometry is unchanged.
+        int commentColumn = memberIndent.Length;
+        int caretColumn = caretStart + hoisted;
+
+        // "//" occupies two columns of the gutter, so the pad that carries the
+        // caret out to the statement is measured from the end of that marker.
+        // Hoisting buys BodyIndentWidth columns of headroom, which is enough at
+        // every depth; without it a statement sitting on the gutter has none, so
+        // clamp — a caller can also render a fragment with no member line above.
+        int pad = Math.Max(1, caretColumn - commentColumn - 2);
+        string gutter = (hoist ? HoistMarker + memberIndent : memberIndent) + "//";
         int caretEnd = commentColumn + 2 + pad + trimmed.Length;
 
         // Prefer trailing the detail on the caret line. When the underline is so

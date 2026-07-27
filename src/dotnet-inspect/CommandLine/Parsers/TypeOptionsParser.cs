@@ -181,7 +181,6 @@ public static class TypeOptionsParser
             PlainText = parseResult.GetValue(opts.PlainText),
             Bare = parseResult.GetValue(opts.Bare),
             RequestAllTaste = parseResult.GetValue(opts.Taste),
-            Focus = parseResult.GetValue(opts.Focus),
             Print = parseResult.GetValue(opts.Print),
             PrintAll = parseResult.GetValue(opts.PrintAll),
             PrintRow = opts.ParsePrintRow(parseResult),

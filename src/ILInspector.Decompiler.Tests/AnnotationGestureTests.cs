@@ -215,9 +215,47 @@ public class AnnotationGestureTests
         Assert.Equal(line.Trim().Length, caretLine.Count(c => c == '^'));
     }
 
-    [Fact]
-    public void OnlyHoistedLinesCarryTheMarker()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NoRenderedCaretLineExceedsTheWidthBudget(bool hoist)
     {
+        // Measured in *rendered* columns, which for a hoisted line means after
+        // the marker is stripped and the body indent is skipped. Getting this
+        // wrong is invisible in a unit test that only inspects the raw string:
+        // the hoist adjustment leaked into the wrap arithmetic once already and
+        // produced a 104-column line against a 100-column budget.
+        string detail = string.Join("; ", Enumerable.Repeat("key=some-fairly-long-value", 10));
+        foreach (string indent in new[] { "", "    " })
+        {
+            foreach (string line in new[] { indent + "Work();", indent + "        Nested(new object());" })
+            {
+                foreach (string emitted in AnnotationCaret.Render(line, indent, [Fact(Alloc, detail)], hoist))
+                {
+                    AnnotationCaret.TryHoist(emitted, out string text);
+                    Assert.True(
+                        text.Length <= AnnotationCaret.Budget,
+                        $"{text.Length} columns exceeds the {AnnotationCaret.Budget} budget: {text}");
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void FlattenRemovesEveryMarkerForOutputPathsThatCannotHoist()
+    {
+        // Not every consumer of a projected body applies the body indent, and
+        // one that does not must still never emit the control character.
+        var rendered = AnnotationCaret.Render("    Work();", "", [Fact(Alloc, "d")], hoist: true);
+        string joined = string.Join("\n", rendered);
+
+        Assert.Contains(AnnotationCaret.HoistMarker, joined);
+        Assert.DoesNotContain(AnnotationCaret.HoistMarker, AnnotationCaret.Flatten(joined));
+        Assert.Equal("plain", AnnotationCaret.Flatten("plain"));
+    }
+
+    [Fact]
+    public void OnlyHoistedLinesCarryTheMarker()    {
         foreach (string line in AnnotationCaret.Render("        Work();", "    ", [Fact(Alloc)]))
         {
             Assert.False(AnnotationCaret.TryHoist(line, out string text));

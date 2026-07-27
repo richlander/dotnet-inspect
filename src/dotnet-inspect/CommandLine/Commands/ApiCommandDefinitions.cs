@@ -104,7 +104,6 @@ public static class ApiCommandDefinitions
         typeCommand.Options.Add(opts.PlainText);
         typeCommand.Options.Add(opts.Bare);
         typeCommand.Options.Add(opts.Taste);
-        typeCommand.Options.Add(opts.Focus);
         opts.AddOutputOptionsTo(typeCommand);
         opts.AddNuGetOptionsTo(typeCommand);
 

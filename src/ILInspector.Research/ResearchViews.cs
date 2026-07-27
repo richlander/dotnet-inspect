@@ -43,7 +43,16 @@ public static partial class ResearchViews
         CostOverlayResult? CostOverlay,
         DecompilerResult? SemanticsOverlay,
         IReadOnlyList<FactRow>? Facts,
-        DecompilerTrace? Trace);
+        DecompilerTrace? Trace,
+        /// <summary>
+        /// Set when a caret focus was requested and promoted nothing: the fact
+        /// families this member actually has, so the caller can tell a typo from
+        /// an honest absence. Null when no focus was asked for, or when the
+        /// focus matched. Promotion is silent by nature — every fact still
+        /// renders — so without this a mistyped focus is indistinguishable from
+        /// a correct one.
+        /// </summary>
+        IReadOnlyList<string>? UnmatchedFocusAlternatives = null);
 
     public static MemberProjectionResult ProjectMember(MemberProjectionRequest request)
     {
@@ -137,7 +146,8 @@ public static partial class ResearchViews
                 costOverlay,
                 semanticsOverlay,
                 factRows,
-                annotatedSource?.Trace ?? costOverlay?.Body.Trace ?? semanticsOverlay?.Trace);
+                annotatedSource?.Trace ?? costOverlay?.Body.Trace ?? semanticsOverlay?.Trace,
+                UnmatchedFocusAlternatives(request.CaretFocus, gestures, facts));
         }
         catch (Exception ex)
         {
@@ -156,6 +166,34 @@ public static partial class ResearchViews
                 request.FactRows ? [] : null,
                 failure.Trace);
         }
+    }
+
+    /// <summary>
+    /// The fact families present in <paramref name="facts"/>, returned only when
+    /// a focus was requested and promoted none of them. Promotion never removes
+    /// a fact, so a focus that matches nothing renders exactly like no focus at
+    /// all; this is what lets a caller say so instead of leaving a typo silent.
+    /// </summary>
+    static IReadOnlyList<string>? UnmatchedFocusAlternatives(
+        string? focus,
+        AnnotationGestureSelector gestures,
+        IReadOnlyList<IAnnotation> facts)
+    {
+        if (string.IsNullOrWhiteSpace(focus) || facts.Count == 0 || !gestures.AllSide(facts))
+            return null;
+
+        var families = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var fact in facts)
+        {
+            var descriptor = fact.Descriptor;
+            families.Add(descriptor.Category.ToString().ToLowerInvariant());
+
+            // The dotted prefix is the useful middle ground between a category
+            // and a single descriptor, and it is exactly what Focus accepts.
+            int dot = descriptor.Id.IndexOf('.');
+            families.Add(dot > 0 ? descriptor.Id[..dot] : descriptor.Id);
+        }
+        return [.. families];
     }
 
     public static IReadOnlyList<IAnnotation> CollectFacts(
