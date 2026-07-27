@@ -6,11 +6,11 @@ namespace DotnetInspector.Tests;
 public class ProjectionDiagnosticsTests
 {
     // Mirrors the member detail schema: a graph section that carries the projected fields
-    // alongside a companion table section that does not (e.g. Caller Graph + Callers, where
+    // alongside a companion table section that does not (e.g. Call Graph + Callers, where
     // a scope flag such as --bin implies -S Callers).
     private static DocumentSchema GraphAndTableSchema() =>
         new DocumentSchema()
-            .Add("Caller Graph", "field", "Fanin", "Depth", "Loop", "Root", "EvidenceIL")
+            .Add("Call Graph", "field", "Fanin", "Depth", "Loop", "Root", "EvidenceIL")
             .Add("Callers", "column", "Caller", "Kind", "IL", "Token");
 
     [Fact]
@@ -22,11 +22,11 @@ public class ProjectionDiagnosticsTests
         var (_, _, error) = await ConsoleCapture.RunAsync(() =>
         {
             result = ProjectionDiagnostics.ValidateProjection(
-                schema, ["Caller Graph", "Callers"], fields: ["Fanin", "Depth"], columns: null);
+                schema, ["Call Graph", "Callers"], fields: ["Fanin", "Depth"], columns: null);
             return Task.FromResult(0);
         });
 
-        // Graph fields resolve in Caller Graph, so the projection is valid even though the
+        // Graph fields resolve in Call Graph, so the projection is valid even though the
         // companion Callers table lacks them — no error, no spurious warning.
         Assert.True(result);
         Assert.DoesNotContain("not found", error);
@@ -42,13 +42,13 @@ public class ProjectionDiagnosticsTests
         var (_, _, error) = await ConsoleCapture.RunAsync(() =>
         {
             result = ProjectionDiagnostics.ValidateProjection(
-                schema, ["Caller Graph", "Callers"], fields: ["Bogus"], columns: null);
+                schema, ["Call Graph", "Callers"], fields: ["Bogus"], columns: null);
             return Task.FromResult(0);
         });
 
         Assert.False(result);
-        Assert.Contains("warning: field 'Bogus' not found in section 'Caller Graph'", error);
-        Assert.Contains("Run -D \"Caller Graph\" to list available fields.", error);
+        Assert.Contains("warning: field 'Bogus' not found in section 'Call Graph'", error);
+        Assert.Contains("Run -D \"Call Graph\" to list available fields.", error);
         Assert.Contains("No fields matched projection", error);
     }
 
@@ -61,7 +61,7 @@ public class ProjectionDiagnosticsTests
         var (_, _, error) = await ConsoleCapture.RunAsync(() =>
         {
             result = ProjectionDiagnostics.ValidateProjection(
-                schema, ["Caller Graph", "Callers"], fields: ["Fanin", "Bogus"], columns: null);
+                schema, ["Call Graph", "Callers"], fields: ["Fanin", "Bogus"], columns: null);
             return Task.FromResult(0);
         });
 

@@ -216,6 +216,95 @@ public class ILDisassemblerEmitTests : IDisposable
         Assert.Contains("Empty", ldsfld.Operand);
     }
 
+    [Theory]
+    [InlineData("\n")]
+    [InlineData("\r")]
+    [InlineData("\r\n")]
+    [InlineData("\f")]
+    [InlineData("\u0085")]
+    [InlineData("\u2028")]
+    [InlineData("\u2029")]
+    public void Emit_DisplayOperand_FoldsCSharpLineTerminators(string terminator)
+    {
+        var dllPath = EmitHostileFieldName(terminator, out _);
+
+        using var stream = File.OpenRead(dllPath);
+        using var peReader = new PEReader(stream);
+        var instructions = MetadataInstructionProducer.DisassembleMethod(
+            peReader, "Hostile.Target", "GetCount");
+
+        var operand = Assert.Single(
+            Assert.IsType<List<ILInstructionText>>(instructions),
+            instruction => instruction.OpCodeName == "ldfld").Operand;
+        Assert.NotNull(operand);
+        Assert.DoesNotContain(terminator, operand, StringComparison.Ordinal);
+        Assert.Contains(HostileMarker, operand, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The other half of the split that <see cref="Emit_DisplayOperand_FoldsCSharpLineTerminators"/>
+    /// pins. Canonical is an ilasm-round-trip syntax, not a display syntax: the
+    /// grammar permits a literal terminator inside a quoted identifier, so
+    /// preserving it is what keeps the metadata name intact through reassembly.
+    /// Folding here would silently rename the member, so canonical must not
+    /// inherit the display fold.
+    /// </summary>
+    [Theory]
+    [InlineData("\n")]
+    [InlineData("\r")]
+    [InlineData("\u2028")]
+    public void Emit_CanonicalOperand_PreservesLineTerminators(string terminator)
+    {
+        var dllPath = EmitHostileFieldName(terminator, out var fieldName);
+
+        using var stream = File.OpenRead(dllPath);
+        using var peReader = new PEReader(stream);
+        var reader = peReader.GetMetadataReader();
+        var method = reader.MethodDefinitions
+            .Select(reader.GetMethodDefinition)
+            .Single(m => reader.GetString(m.Name) == "GetCount");
+        var instructions = MetadataInstructionProducer.Disassemble(
+            peReader, reader, method, ILSyntax.Canonical);
+
+        var operand = Assert.Single(
+            Assert.IsType<List<ILInstructionText>>(instructions),
+            instruction => instruction.OpCodeName == "ldfld").Operand;
+        Assert.NotNull(operand);
+        Assert.Contains(terminator, operand, StringComparison.Ordinal);
+        Assert.Contains(fieldName, operand, StringComparison.Ordinal);
+    }
+
+    const string HostileMarker = "public int Injected() => 42; //";
+
+    string EmitHostileFieldName(string terminator, out string fieldName)
+    {
+        fieldName = $"field{terminator}    {HostileMarker}";
+        var assemblyName = new AssemblyName("HostileFieldOperand");
+        var assemblyBuilder = new PersistedAssemblyBuilder(
+            assemblyName, typeof(object).Assembly);
+        var moduleBuilder = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+        var typeBuilder = moduleBuilder.DefineType(
+            "Hostile.Target",
+            TypeAttributes.Public | TypeAttributes.Class);
+        var field = typeBuilder.DefineField(fieldName, typeof(int), FieldAttributes.Public);
+        var method = typeBuilder.DefineMethod(
+            "GetCount",
+            MethodAttributes.Public,
+            typeof(int),
+            Type.EmptyTypes);
+        var il = method.GetILGenerator();
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldfld, field);
+        il.Emit(OpCodes.Ret);
+        typeBuilder.CreateType();
+
+        var dllPath = Path.Combine(
+            _tempDir,
+            $"HostileFieldOperand-{Convert.ToHexString(System.Text.Encoding.UTF8.GetBytes(terminator))}.dll");
+        assemblyBuilder.Save(dllPath);
+        return dllPath;
+    }
+
     [Fact]
     public void Emit_NewObj_ResolvesConstructorToken()
     {

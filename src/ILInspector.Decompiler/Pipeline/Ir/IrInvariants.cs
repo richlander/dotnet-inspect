@@ -5,10 +5,10 @@ namespace ILInspector.Decompiler.Pipeline;
 /// (<see cref="IrNode.CheckInvariant"/>). On by default so every host that runs
 /// the pipeline validates it after every pass; the shipped tool is the one host
 /// that opts out (<see cref="DisableForShippedTool"/>), so it pays nothing on
-/// the decompile hot path. The check is leveled: <see cref="Enabled"/> turns on
-/// suite-safe structural invariants, and <see cref="CheckSemantics"/>
-/// additionally turns on semantic invariants that require fully-formed importer
-/// output.
+/// the decompile hot path. The check is leveled — <see cref="Enabled"/> for
+/// structural invariants and <see cref="CheckSemantics"/> for semantic ones —
+/// but both levels are now armed together, so the leveling describes what is
+/// checked rather than offering a way to check less (#3302).
 /// <para>
 /// This replaces the check's former <c>[Conditional("DEBUG")]</c> gate, which
 /// stripped every call site in the Release configuration the test suite actually
@@ -40,7 +40,10 @@ public static class IrInvariants
     /// <see langword="false"/> for <c>0</c>/<c>false</c>/<c>off</c>, and
     /// <see langword="null"/> when unset or unrecognized. An explicit request
     /// outranks the host opt-out, so the shipped tool can be run with the check
-    /// armed for debugging without a rebuild.
+    /// armed for debugging without a rebuild. <c>full</c> is retained as a
+    /// synonym for on: it selected both levels when the semantic level was
+    /// opt-in, and both levels are now the default, so it keeps working and
+    /// keeps meaning the same thing.
     /// </summary>
     static readonly bool? EnvironmentRequest = ParseRequest(EnvValue);
 
@@ -64,30 +67,76 @@ public static class IrInvariants
     /// <summary>
     /// When true, the per-pass hooks additionally validate <em>semantic</em>
     /// invariants that only hold for a fully-formed function tree — currently
-    /// local-slot range (see <see cref="IrNode.CheckInvariant(bool)"/>). Off by
-    /// default even in validating hosts, because hand-built test fixtures
-    /// legitimately omit the local table these checks validate against; enabling
-    /// it suite-wide false-positives 5 minimal-fixture tests (measured with
-    /// <c>DOTNET_INSPECT_IR_INVARIANTS=full --gate fast</c> — re-measure rather
-    /// than trust this figure; it read <c>~120</c> until #3303 corrected it, and
-    /// #3302 tracks populating those fixtures' locals so the level can be armed
-    /// by default). Requires <see cref="Enabled"/> to take effect at the
-    /// per-pass hooks.
+    /// local-slot range (see <see cref="IrNode.CheckInvariant(bool)"/>). Armed
+    /// with <see cref="Enabled"/> since #3302, and not merely alongside it: this
+    /// is a computed projection of that flag, so the two levels cannot drift
+    /// apart in-process by construction rather than by discipline.
     /// <para>
-    /// <c>DOTNET_INSPECT_IR_INVARIANTS=full</c> is the one spelling that raises
-    /// this level, resolved once at startup: the property has no setter at all,
-    /// so the level can be neither raised nor lowered in-process, and no test
-    /// can race the collections xUnit runs in parallel by toggling it. A host
-    /// that wants semantic coverage over real importer output threads the level
-    /// per call instead — <c>CheckInvariant(includeSemantics: true)</c>, as the
-    /// corpus gates do (<c>CorpusSweepGateTests</c>) — which keeps the coverage
-    /// hermetic. Over real output these are true invariants (verified
-    /// zero-violation over CoreLib's 41,952 methods); the environment spelling
-    /// additionally sweeps them after every pass, which also catches transient
-    /// mid-pass shapes the final-tree gates cannot see.
+    /// Be precise about what that does and does not preserve of #3303, which
+    /// made this property <c>{ get; }</c>. It is no longer immutable: there is
+    /// no backing field, but the value it projects has a private setter that
+    /// <see cref="DisableForShippedTool"/> assigns, so the level does move
+    /// in-process. What survives is the part that was load-bearing, and in
+    /// practice a stronger property than immutability was: the level cannot be
+    /// moved <em>independently of</em> <see cref="Enabled"/>, the only setter
+    /// involved is <see cref="Enabled"/>'s and it is private, so only this type
+    /// can move either, and the one public mover is
+    /// <see cref="DisableForShippedTool"/> — pinned by #3303's public-surface
+    /// census to a single call site in the shipped CLI. So no test can race the
+    /// collections xUnit runs in parallel by toggling it, and no host can lower
+    /// semantics while leaving structural armed.
+    /// </para>
+    /// <para>
+    /// This level was opt-in on the grounds that arming it suite-wide would
+    /// false-positive on ~120 minimal-fixture tests. Measured, the real number
+    /// was five, all of them hand-built fixtures that referenced a local slot
+    /// without declaring it. At ~120 the opt-in is obviously right; at five it
+    /// is a bounded cleanup, not a standing reason to ship less validation, so
+    /// the fixtures now declare their locals and the level is on. Semantic
+    /// invariants are the ones that catch a pass leaving a slot reference that
+    /// no longer resolves — exactly the defect class the local-elimination
+    /// bookkeeping can get wrong — and per-pass coverage is what makes a
+    /// transient corruption visible even when a later pass repairs it. Over real
+    /// output these are true invariants (verified zero-violation over CoreLib's
+    /// 41,952 methods). Cost, measured as a paired A/B of the <c>Area=Corpus</c>
+    /// gate against this change's parent: ~18.0s to ~18.6s. Treat that as
+    /// "below the noise floor" rather than as a figure to quote — run-to-run
+    /// spread on the same build (17.8s-22.8s) is wider than the difference.
+    /// </para>
+    /// <para>
+    /// Read that five precisely, because the obvious misreading is the one this
+    /// type keeps getting punished for: five is the number of fixtures that
+    /// <em>reach the per-pass hook</em> and fail, not the number of fixtures
+    /// that would satisfy the level. Per-pass validation fires inside
+    /// <c>IrPasses.Run</c>/<c>PipelineRunner</c>, so a test that calls
+    /// <c>pass.Run(...)</c> directly never reaches it. Roughly a dozen test
+    /// files still build an <c>IrFunction</c> with an empty local table and
+    /// reference slots in it; they are unaffected today and were equally
+    /// unchecked before this change, but converting one to <c>IrPasses.Run</c>
+    /// will now fail it. That is the intended signal rather than a regression —
+    /// the fixture is genuinely malformed — and the fix is to declare the
+    /// locals. Tracked as follow-up, not silently absorbed.
+    /// </para>
+    /// <para>
+    /// A fixture that cannot satisfy this level should declare the locals it
+    /// uses, not lower the level. Deriving the local table from the body would
+    /// make every fixture pass by construction and would retire the invariant
+    /// while appearing to keep it.
+    /// </para>
+    /// <para>
+    /// Consequence: there is no longer an <em>environment</em> spelling for
+    /// structural-only. <c>full</c> keeps working and keeps meaning both levels;
+    /// <c>1</c>/<c>true</c> now arm both. A spelling that quietly bought
+    /// <em>less</em> validation than the default would be the same
+    /// silent-downgrade trap #3289 removed for the off case. The per-call
+    /// <c>CheckInvariant(includeSemantics:)</c> parameter is deliberately
+    /// <em>not</em> such a spelling: it is a visible argument at a call site
+    /// chosen by the test that owns it, which is what keeps that coverage
+    /// hermetic under xUnit's parallel collections, rather than a process-wide
+    /// knob that silently lowers what some other host asked for.
     /// </para>
     /// </summary>
-    public static bool CheckSemantics { get; } = RequestsSemantics(EnvValue);
+    public static bool CheckSemantics => Enabled;
 
     /// <summary>
     /// The one sanctioned opt-out: the shipped CLI's decompile hot path, where
@@ -131,8 +180,4 @@ public static class IrInvariants
         static bool Is(string request, params string[] candidates) =>
             candidates.Any(candidate => string.Equals(request, candidate, StringComparison.OrdinalIgnoreCase));
     }
-
-    /// <summary>Whether the environment asked for the semantic level (<c>full</c>).</summary>
-    static bool RequestsSemantics(string? value) =>
-        string.Equals(value?.Trim(), "full", StringComparison.OrdinalIgnoreCase);
 }

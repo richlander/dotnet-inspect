@@ -44,4 +44,4 @@ from the decompiler's model by design.
 Default validation is
 `dotnet run --project src/ILInspector.Analysis.Tests -c Release`. When rendering
 changes, include a compact before/after from the affected surface: `Top Leverage`,
-`Performance Triage`, `Call Graph`, `Caller Graph`, or `Analysis Diff`.
+`Performance Triage`, `Call Graph`, `Call Graph`, or `Analysis Diff`.

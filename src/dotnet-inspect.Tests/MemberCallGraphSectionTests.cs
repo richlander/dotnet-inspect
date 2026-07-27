@@ -23,6 +23,33 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
+    public async Task CallGraphSection_LowersToAnEdgeTable_UnderTabularOutput()
+    {
+        // The section is a graph, not a fixed rendering: each sink picks its own lowering, so the
+        // same model that draws a tree in Markdown yields one row per edge under --tsv.
+        var result = await ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
+        {
+            TypeName = typeof(MemberCallGraphFixture).FullName!,
+            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
+            MemberFilter = [nameof(MemberCallGraphFixture.RootCall)],
+            IncludeSections = [SectionNames.CallGraph],
+            TipLevel = TipLevel.Quiet,
+            Verbosity = Verbosity.Normal,
+            Tabular = true,
+            Tsv = true,
+            TabularExplicitlySet = true,
+            FormatExplicitlySet = true,
+        }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("From\tFrom Group\tTo\tTo Group", result.Output);
+        // Grouping carries the external boundary the tree spells in the label.
+        Assert.Contains("\tExternal", result.Output);
+        Assert.Contains($"{nameof(MemberCallGraphFixture.RootCall)}", result.Output);
+        Assert.Contains($"{nameof(MemberCallGraphFixture.Mid)}", result.Output);
+    }
+
+    [Fact]
     public async Task CallGraphSection_RendersPerfCuesForFanoutDepthAndLoopingCalls()
     {
         var result = await RunCallGraphAsync(
@@ -105,24 +132,26 @@ public class MemberCallGraphSectionTests
     }
 
     [Fact]
-    public async Task CallGraphSection_RendersEmptyStateNote_WhenNoOutboundCalls()
+    public async Task CallGraphSection_RendersEmptyStateNote_WhenNoCallersOrCallees()
     {
         var result = await RunCallGraphAsync(
             typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.NoCalls));
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("## Call Graph", result.Output);
-        Assert.Contains("No outbound calls found in this method body.", result.Output);
+        Assert.Contains("No inbound callers or outbound calls found for this method.", result.Output);
     }
 
     [Fact]
-    public async Task CallerGraphSection_RendersBoundedReverseTree_WhenExplicitlySelected()
+    public async Task CallGraphSection_IncludesInboundCallers_NotJustOutboundCallees()
     {
-        var result = await RunCallerGraphAsync(
+        // The section is bidirectional: one graph centred on the selected member carries both
+        // halves, so a member with no callees still shows who reaches it.
+        var result = await RunCallGraphAsync(
             typeof(MemberCallGraphFixture).FullName!, nameof(MemberCallGraphFixture.Inner));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Caller Graph", result.Output);
+        Assert.Contains("## Call Graph", result.Output);
         Assert.Contains(nameof(MemberCallGraphFixture.Inner), result.Output);
         Assert.Contains(nameof(MemberCallGraphFixture.Mid), result.Output);
         Assert.Contains(nameof(MemberCallGraphFixture.RootCall), result.Output);
@@ -320,18 +349,6 @@ public class MemberCallGraphSectionTests
             AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
             MemberFilter = [memberName],
             IncludeSections = [SectionNames.CallGraph],
-            TipLevel = TipLevel.Quiet,
-            Verbosity = Verbosity.Normal,
-        }));
-
-    static Task<(int ExitCode, string Output, string Error)> RunCallerGraphAsync(
-        string typeName, string memberName)
-        => ConsoleCapture.RunAsync(() => MemberCommand.ExecuteAsync(new MemberOptions
-        {
-            TypeName = typeName,
-            AssemblyPath = typeof(MemberCallGraphFixture).Assembly.Location,
-            MemberFilter = [memberName],
-            IncludeSections = [SectionNames.CallerGraph],
             TipLevel = TipLevel.Quiet,
             Verbosity = Verbosity.Normal,
         }));

@@ -189,11 +189,12 @@ probing versions; use this final adjacent comparison as the onset proof.
 
 ## Drill a candidate
 
-`Call Graph` is a bounded outbound tree; `Caller Graph` is a bounded reverse
-tree to entry points. Project per-node cost with `--fields` (alloc, copy,
-unsafe, reflection, throw/exception, catch/finally).
+`Call Graph` is a bounded bidirectional graph: inbound callers up to entry
+points and outbound calls, centred on the selected member. Project per-node cost
+with `--fields` (alloc, copy, unsafe, reflection, throw/exception,
+catch/finally).
 
 ```bash
 dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll -S "Call Graph,Facts"
-dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll -S "Caller Graph" --fields "Throw,Catch,Finally"
+dnx dotnet-inspect -y -- member MyType Method:1 --library MyLib.dll -S "Call Graph" --fields "Throw,Catch,Finally"
 ```

@@ -113,7 +113,7 @@ context for copied DLLs. A future `--deps` source can represent runtime
 | API compatibility | `diff` | Version ranges, package or platform diffs, breaking/additive/potentially-breaking classification, type and member filters, plus opt-in decompiled C#/IL/checksum-verified authored Source evidence. |
 | Relationships | `depends`, `extensions`, `implements` | Type hierarchies, package dependencies, library reference graphs, extension methods/properties, implementors and subclasses. Add `--project` to search project-referenced packages. |
 | Source mapping | `type`/`library`/`package -S "Source Files"`, `member -S "Source Locations"` / `"Original Source"` | SourceLink URLs, member file/line locations, source fetching, URL verification, token+IL-offset to source-line resolution. |
-| Performance analysis *(experimental)* | `library -S @Performance` (kind sections: `"Performance: Boxing"`, `"Performance: Arrays"`, …), `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"`, `"Caller Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally), actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
+| Performance analysis *(experimental)* | `library -S @Performance` (kind sections: `"Performance: Boxing"`, `"Performance: Arrays"`, …), `type`/`member -S "Performance Triage"`, `"Top Leverage"`, `"Resource Triage"`, `"Call Graph"` | Whole-assembly call-graph leverage ranking — direct callers, root reach, fanout, depth, loop calls — with opt-in per-node cost signals (alloc, copy, unsafe, reflection, throw/exception, catch/finally), actionable rewrite-shape detection, and exception-path resource-lifecycle candidates. |
 | Decompiler *(experimental)* | `member -S @Source` (`Decompiled Source`, `Annotated Source`, `Original Source`, `Source Diff`, `IL`); `member -S "Fidelity Causes"` | Raises method bodies to C#, interleaves IL and hidden-fact annotations, diffs SourceLink-backed source against decompiled source, and exposes typed `DEC####` fidelity causes rather than emitting plausible-but-wrong source. |
 | Agent-friendly output | global flags | Markdown by default, compact `--table`, normalized `--tsv`, `--jsonl`, `--plaintext`, `--json`, Mermaid diagrams, section/field projection, `--count`, table row limiting, built-in head/tail limiting. |
 
@@ -230,8 +230,9 @@ occurrence. Those fields let trace and version-diff tooling join a triage row to
 `--triage-shape` to ask the tool for the curated pay-dirt rows directly instead
 of post-processing. `--top` limits the ranked data before rendering; `-n N`
 remains a renderer cap and is applied afterward if both are supplied. Drill
-candidates with `Call Graph` (bounded outbound tree) and `Caller Graph` (bounded
-reverse tree to entry points), and project per-node cost with `--fields`.
+candidates with `Call Graph` (a bounded bidirectional graph: inbound callers up
+to entry points and outbound calls in one view), and project per-node cost with
+`--fields`.
 Ranking rows carry a copyable `Stable` selector, `Visibility`, and `Selector`;
 add `--all` to drill non-public members.
 
@@ -270,13 +271,13 @@ dotnet-inspect library MyLib.dll --triage-shape allocation-fanout \
 dotnet-inspect library MyLib.dll --where "Finding=analysis.call-site" --jsonl
 dotnet-inspect library MyLib.dll --where "CallerLoop=direct" --order-by "CallerLoopDepth desc" --jsonl
 dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Call Graph,Facts"
-dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Caller Graph" --fields "Throw,Catch,Finally"
+dotnet-inspect member MyType Method:1 --library MyLib.dll -S "Call Graph" --fields "Throw,Catch,Finally"
 dotnet-inspect member MyType Value:1 --library MyLib.dll -S "Call Graph"
 dotnet-inspect member MyType Value:2 --library MyLib.dll -S "Call Graph"
 ```
 
 A property, indexer, or event has no body of its own, so body sections
-(`Call Graph`, `Caller Graph`, `Calls`, `Callers`, `IL`, `Decompiled Source`,
+(`Call Graph`, `Calls`, `Callers`, `IL`, `Decompiled Source`,
 `Facts`, and the other IL-body views) resolve it to its accessor methods.
 Address them through the overload-index selector: `Name:1` is the getter/adder
 (the default) and `Name:2` the setter/remover, each rooted at its metadata

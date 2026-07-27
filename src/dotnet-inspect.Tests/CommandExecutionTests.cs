@@ -107,6 +107,60 @@ public class CommandExecutionTests
         File.WriteAllBytes(path, image.ToArray());
     }
 
+    private static void WriteHostileIlOperandAssembly(string path)
+    {
+        var assemblyName = new AssemblyName("HostileIlOperand");
+        var assemblyBuilder = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            assemblyName, typeof(object).Assembly);
+        var moduleBuilder = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+        var typeBuilder = moduleBuilder.DefineType(
+            "Hostile.Target",
+            TypeAttributes.Public | TypeAttributes.Class);
+        var field = typeBuilder.DefineField(
+            "field\n    public int Injected() => 42; //",
+            typeof(int),
+            FieldAttributes.Public);
+        var method = typeBuilder.DefineMethod(
+            "GetCount",
+            MethodAttributes.Public,
+            typeof(int),
+            Type.EmptyTypes);
+        var il = method.GetILGenerator();
+        il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0);
+        il.Emit(System.Reflection.Emit.OpCodes.Ldfld, field);
+        il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        typeBuilder.CreateType();
+        assemblyBuilder.Save(path);
+    }
+
+    private static void WriteHostileFactDetailAssembly(string path)
+    {
+        var assemblyName = new AssemblyName("HostileFactDetail");
+        var assemblyBuilder = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            assemblyName, typeof(object).Assembly);
+        var moduleBuilder = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+
+        // The allocated type's name becomes the alloc.new fact's detail.
+        var allocated = moduleBuilder.DefineType(
+            "Evil\n    public int Injected() => 42; //",
+            TypeAttributes.Public | TypeAttributes.Class);
+        var allocatedCtor = allocated.DefineDefaultConstructor(MethodAttributes.Public);
+        var typeBuilder = moduleBuilder.DefineType(
+            "Hostile.Target",
+            TypeAttributes.Public | TypeAttributes.Class);
+        var method = typeBuilder.DefineMethod(
+            "Make",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(object),
+            Type.EmptyTypes);
+        var il = method.GetILGenerator();
+        il.Emit(System.Reflection.Emit.OpCodes.Newobj, allocatedCtor);
+        il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        allocated.CreateType();
+        typeBuilder.CreateType();
+        assemblyBuilder.Save(path);
+    }
+
     private static void WriteResourceAssembly(
         string path,
         params (string Name, byte[] Content)[] resources)
@@ -503,6 +557,28 @@ public class CommandExecutionTests
                 return 1;
             }
         });
+    }
+
+    private static IEnumerable<string> JsonStrings(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.String)
+        {
+            yield return element.GetString()!;
+            yield break;
+        }
+
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+                foreach (var value in JsonStrings(item))
+                    yield return value;
+            yield break;
+        }
+
+        if (element.ValueKind == JsonValueKind.Object)
+            foreach (var property in element.EnumerateObject())
+                foreach (var value in JsonStrings(property.Value))
+                    yield return value;
     }
 
     [Theory]
@@ -3850,17 +3926,17 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_BareNameCallerGraph_AutoSelectsSingleOverload()
+    public async Task Member_BareNameCallGraph_AutoSelectsSingleOverload()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(MemberCallGraphFixture.Inner), "-S", "Caller Graph", "--tips", "q");
+            nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Caller Graph", output);
+        Assert.Contains("## Call Graph", output);
         Assert.Contains(nameof(MemberCallGraphFixture.RootCall), output);
-        Assert.DoesNotContain("Select value 'Caller Graph' not found", error);
+        Assert.DoesNotContain("Select value 'Call Graph' not found", error);
     }
 
     [Fact]
@@ -4005,6 +4081,100 @@ public class CommandExecutionTests
         Assert.Contains("## Annotated Source", output);
         Assert.Contains("```csharp", output);
         Assert.Matches(@"// IL_[0-9A-Fa-f]{4}: ", output);
+    }
+
+    [Fact]
+    public async Task Member_HostileIlOperand_StaysInsideMarkdownAndJsonCodeSections()
+    {
+        const string injected = "public int Injected() => 42; //";
+        const string unsafeOperand = "field\n    public int Injected() => 42; //";
+        const string safeOperand = "field     public int Injected() => 42; //";
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-hostile-il-command-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var dllPath = Path.Combine(tempDir, "HostileIlOperand.dll");
+            WriteHostileIlOperandAssembly(dllPath);
+
+            var (markdownExit, markdown, markdownError) = await RunAppAsync(
+                "member", "Hostile.Target", "--library", dllPath,
+                "GetCount:1", "-S", "Annotated Source,IL", "--tips", "q");
+
+            Assert.Equal(0, markdownExit);
+            Assert.Empty(markdownError);
+            Assert.DoesNotContain(unsafeOperand, markdown, StringComparison.Ordinal);
+            Assert.Equal(2, markdown.Split(safeOperand, StringSplitOptions.None).Length - 1);
+            Assert.DoesNotContain(
+                markdown.ReplaceLineEndings("\n").Split('\n'),
+                line => line.TrimStart().StartsWith(injected, StringComparison.Ordinal));
+
+            foreach (string section in new[] { "Annotated Source", "IL" })
+            {
+                var (jsonExit, json, jsonError) = await RunAppAsync(
+                    "member", "Hostile.Target", "--library", dllPath,
+                    "GetCount:1", "-S", section, "--print", "--json-array", "--tips", "q");
+
+                Assert.Equal(0, jsonExit);
+                Assert.Empty(jsonError);
+                using var document = JsonDocument.Parse(json);
+                var stringValues = string.Join("\n", JsonStrings(document.RootElement));
+                Assert.DoesNotContain(unsafeOperand, stringValues, StringComparison.Ordinal);
+                Assert.Contains(safeOperand, stringValues, StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The <c>--focus</c> caret gesture is a fact renderer, so it inherits the
+    /// fold in <c>AnnotationText.Format</c> — including across the line wrapping
+    /// it applies, where each wrapped chunk gets its own <c>//</c> gutter. This
+    /// pins the interaction between the caret gesture and the fact fold, which
+    /// arrived on separate branches and first met here.
+    /// </summary>
+    [Fact]
+    public async Task Member_HostileFactDetail_StaysInsideCommentsUnderFocus()
+    {
+        const string injected = "public int Injected() => 42; //";
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-hostile-fact-command-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var dllPath = Path.Combine(tempDir, "HostileFactDetail.dll");
+            WriteHostileFactDetailAssembly(dllPath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "member", "Hostile.Target", "--library", dllPath,
+                "Make", "-S", "Annotated Source", "--focus", "allocation", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+
+            // Non-vacuity: the caret gesture and the fact must both render, or
+            // there would be no untrusted text on the surface under test.
+            Assert.Contains("^^^^", output);
+            Assert.Contains("alloc.new(", output);
+
+            foreach (string line in output.ReplaceLineEndings("\n").Split('\n'))
+            {
+                int payload = line.IndexOf(injected, StringComparison.Ordinal);
+                if (payload < 0)
+                    continue;
+                int comment = line.IndexOf("//", StringComparison.Ordinal);
+                Assert.InRange(comment, 0, payload);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
@@ -6542,7 +6712,6 @@ public class CommandExecutionTests
         "Calls",
         "Callers",
         "Call Graph",
-        "Caller Graph",
         "Unsafe Operations",
         "Top Leverage",
         "Performance Triage",

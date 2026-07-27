@@ -13,7 +13,7 @@ Related docs:
 A useful triage graph needs both axes:
 
 1. **Scale / leverage** — many callers, deep graph, calls in loops: the
-   `fanin`/`fanout`/`depth`/`loop` cues already on `Call Graph`/`Caller Graph`.
+   `fanin`/`fanout`/`depth`/`loop` cues already on `Call Graph`.
 2. **Kind of concern** — allocation, copy, unsafe, exception, reflection, I/O:
    the **signals** described here.
 
@@ -36,7 +36,7 @@ member Type Method:1 --library Product.dll -S "Call Graph" \
 ## Current signals
 
 All are carried on `CallTreePerf.Signals` (a `MethodSignals`) and rendered by
-`FormatCallGraphAnnotation` (`ApiOutputFormatter`). The call-derived signals come
+`CallGraphSectionAdapter` (`Output`). The call-derived signals come
 from `DirectCalls`/unsafe evidence; the IL-scan signals (`newarr`, throw, exception
 regions) are folded in from the body scan during index build.
 
@@ -67,19 +67,19 @@ regions) are folded in from the body scan during index build.
 A node renders a signal only when its count is non-zero (or, for `EvidenceIL`, when
 offsets exist), so requesting `--fields Alloc` annotates only the allocating nodes.
 
-With the exception fields projected, the existing `Caller Graph` answers
+With the exception fields projected, the caller half of `Call Graph` answers
 exception-reachability questions directly:
 
 - *Where can exceptions originate?* — nodes with `Throw` (throw-site count) or
   `Exceptions` (the constructed exception types, e.g. `OperationCanceledException`).
-- *Which public entry points reach throw-heavy paths?* — `Caller Graph` rooted at a
+- *Which public entry points reach throw-heavy paths?* — `Call Graph` rooted at a
   throwing method, reading `root`/`entrypoint` classification.
 - *Where is risk swallowed vs propagated?* — `Throw` without an enclosing `Catch`
   on the path.
 
-### Cross-assembly Caller Graph
+### Cross-assembly callers
 
-By default the `Caller Graph` reverse tree is single-assembly. Supplying a caller
+By default the caller half of `Call Graph` is single-assembly. Supplying a caller
 scope (`--bin`/`--project`/`--caller-package`) extends it across those assemblies;
 `--project` reads existing restored assets, so restore/build first if
 dependencies changed:
@@ -88,7 +88,7 @@ dependency member surfaces the product entry points and callers that reach it.
 Nodes from an assembly other than the selected member's own carry their source in
 `CallTreePerf.Source`, rendered as `from <assembly>` and projectable via
 `--fields Source`. This mirrors the `Callers` table's cross-assembly `Source`
-column for the bounded reverse graph.
+column for the bounded caller half of the graph.
 
 ## Version-to-version analysis diff
 

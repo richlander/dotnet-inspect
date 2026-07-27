@@ -22,6 +22,8 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
+    <!-- Opts back in to the repo-wide IsPackable=false default (#3330). -->
+    <IsPackable>true</IsPackable>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>dotnet-inspect</ToolCommandName>
     <VersionPrefix>0.16.0</VersionPrefix>
@@ -65,6 +67,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ILInspector.Analysis\ILInspector.Analysis.csproj" />
+    <ProjectReference Include="..\ILInspector.CallGraph\ILInspector.CallGraph.csproj" />
     <ProjectReference Include="..\ILInspector.CSharp\ILInspector.CSharp.csproj" />
     <ProjectReference Include="..\ILInspector.Decompiler\ILInspector.Decompiler.csproj" />
     <ProjectReference Include="..\ILInspector.Findings\ILInspector.Findings.csproj" />

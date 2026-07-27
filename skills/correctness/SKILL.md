@@ -23,7 +23,7 @@ method's hidden facts:
 
 ```bash
 dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph" --fields "Throws,ThrowSites,ExceptionTypes,ConstructedExceptions,Catch,Finally"
-dnx dotnet-inspect -y -- member Type Method:1 -S "Caller Graph" --fields "Throws,Catch,Finally"
+dnx dotnet-inspect -y -- member Type Method:1 -S "Call Graph" --fields "Throws,Catch,Finally"
 dnx dotnet-inspect -y -- member Type Method:1 -S Facts --tsv
 ```
 

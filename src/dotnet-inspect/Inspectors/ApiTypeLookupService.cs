@@ -40,7 +40,7 @@ internal sealed record MemberFilterValidationResult(
 
         error.WriteLine($"Error: No members matched filter '{string.Join(", ", MissedFilters)}'");
 
-        // The ranking/graph surfaces (Top Leverage, Call Graph, Caller Graph) walk the full
+        // The ranking/graph surfaces (Top Leverage, Call Graph) walk the full
         // IL index, so they surface non-public members that member selection hides without
         // --all. Point the user at the flag instead of a dead end.
         if (NonPublicMatches.Count > 0)

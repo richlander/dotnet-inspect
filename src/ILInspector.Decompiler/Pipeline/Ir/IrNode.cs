@@ -209,11 +209,14 @@ public abstract class IrNode
     /// dangling slot, trips this instead of surfacing as a downstream
     /// miscompile.</item>
     /// </list>
-    /// Semantic checks are off by default because hand-built unit-test fixtures
-    /// legitimately omit the local table they would validate against; they are
-    /// meant for the corpus sweep over real IL (gated by
-    /// <see cref="IrInvariants.CheckSemantics"/> at the per-pass hooks) and for
-    /// targeted tests that pass <c>includeSemantics: true</c> directly.
+    /// This overload's level is fixed by its argument, not by
+    /// <see cref="IrInvariants.CheckSemantics"/>: a call site asks for exactly
+    /// what it wants, which is what keeps per-test coverage hermetic under
+    /// xUnit's parallel collections. Since #3302 the per-pass hooks thread the
+    /// globally armed level instead, so semantic checks are on by default there.
+    /// Hand-built unit-test fixtures that omit the local table are therefore
+    /// still fine when a test calls a pass directly, but not when they are
+    /// routed through <c>IrPasses.Run</c> — see #3317.
     /// </summary>
     public void CheckInvariant(bool includeSemantics) =>
         CheckSubtree(includeSemantics ? EnclosingLocalScope() : -1, includeSemantics);

@@ -9,9 +9,9 @@ namespace ILInspector.Analysis.Tests;
 /// Covers the format-neutral call-graph projection (issue #3291) as typed data rather
 /// than as rendered text: edge inversion, generic-erased node identity, duplicate and
 /// cycle collapsing, node-kind precedence, loop-edge merging, and deterministic node and
-/// edge ordering. <see cref="CallGraphMermaidTests"/> covers the Mermaid emission on top
-/// of this; these tests exist so graph semantics are asserted directly and a future host
-/// that renders a table or a tree is not relying on Mermaid text to prove them.
+/// edge ordering. The projection is the only call-graph contract this layer offers: hosts
+/// render their own format from it, so graph semantics are asserted directly here rather
+/// than read back out of some rendering's text.
 /// Trees are constructed directly so the projection is exercised in isolation from IL
 /// decoding.
 /// </summary>
@@ -319,18 +319,111 @@ public class CallGraphProjectionTests
     }
 
     [Fact]
-    public void MermaidEmissionAgreesWithTheProjectionItRendersFrom()
+    public void LoopAnnotationSurvivesEdgeInversionOnTheCallerSide()
     {
-        // The seam itself: rendering a pre-built projection must produce exactly what
-        // rendering from the roots produces, so a host can hold the projection, render its
-        // own format, and still fall back to the shared Mermaid emitter.
-        var target = Member("Widget", "Build");
-        var callers = Node(target, CallTreeStatus.Expanded, [Leaf(Member("Program", "Main"))]);
-        var callees = Node(target, CallTreeStatus.Expanded, [Leaf(Member("Log", "Write"), CallTreeStatus.External)]);
+        // A caller that invokes the focus from inside a loop keeps its annotation when the
+        // edge is inverted to point into the focus — the label belongs to the edge, not to
+        // the direction it was discovered in.
+        var projection = CallGraphProjection.FromCallers(
+            Node(Member("Target", "Run"), CallTreeStatus.Expanded,
+            [Leaf(Member("Pump", "Tick"), inLoop: true, loopHint: "loop call")]));
 
-        var fromRoots = CallGraphMermaid.Render(callers, callees);
-        var fromProjection = CallGraphMermaid.Render(CallGraphProjection.Create(callers, callees));
+        Assert.Equal([(1, 0, "loop call")], EdgeTuples(projection));
+    }
 
-        Assert.Equal(fromRoots, fromProjection);
+    [Fact]
+    public void SameNameMembersFromDifferentAssembliesStayDistinct()
+    {
+        // Two callees whose declaring type has the same namespace + name but a different
+        // assembly must not collapse: the display spelling drops the assembly, but they are
+        // genuinely different members (#1741-class hazard). Identity is structural, so the
+        // projection must keep them apart even though both would render the same label.
+        var fromA = new MemberRef(
+            TypeRef.Definition("AsmA", "Shared", "Widget"), "Work", [], TypeRef.CoreLib("System", "Void"), MemberKind.Method);
+        var fromB = new MemberRef(
+            TypeRef.Definition("AsmB", "Shared", "Widget"), "Work", [], TypeRef.CoreLib("System", "Void"), MemberKind.Method);
+
+        var callees = Node(Member("Target", "Run"), CallTreeStatus.Expanded, [Leaf(fromA), Leaf(fromB)]);
+
+        var projection = CallGraphProjection.FromCallees(callees);
+
+        Assert.Equal(3, projection.Nodes.Length);
+        Assert.Equal(2, projection.Edges.Length);
+        Assert.All(projection.Edges, e => Assert.Equal(0, e.From));
+        Assert.Equal(2, projection.Edges.Select(e => e.To).Distinct().Count());
+    }
+
+    [Fact]
+    public void FocusKeepsFanOutFromTheCalleeWalkAndRootKindFromTheCallerWalk()
+    {
+        var focus = Member("Ns.Target", "Run");
+        var callerRoot = new CallTreeNode(
+            focus, null, CallTreeStatus.Expanded, [Leaf(Member("Ns.Up", "CallsIn"))],
+            new CallTreePerf(0, 7, 2, false, null, "target"));
+        var calleeRoot = new CallTreeNode(
+            focus, null, CallTreeStatus.Expanded, [Leaf(Member("Ns.Down", "CalledBy"))],
+            new CallTreePerf(9, 0, 3, false));
+
+        var projection = CallGraphProjection.Create(callerRoot, calleeRoot);
+        var perf = projection.Nodes[0].Perf;
+
+        Assert.NotNull(perf);
+        // Each direction measures one degree and hard-codes the other to zero, so the focus
+        // must publish the caller walk's fan-in and the callee walk's fan-out, not one record.
+        Assert.Equal(9, perf.Fanout);
+        Assert.Equal(7, perf.Fanin);
+        Assert.Equal(3, perf.MaxDepth);
+        Assert.Equal("target", perf.RootKind);
+    }
+
+    [Fact]
+    public void MemberSeenByBothWalksKeepsTheDegreeEachWalkMeasured()
+    {
+        var focus = Member("Ns.Target", "Run");
+        var shared = Member("Ns.Both", "Cycles");
+        // The caller walk runs first and reports fan-out 0 for every node it sees; without a
+        // merge its zero would pin the shared node and erase the callee walk's real fan-out.
+        var callerRoot = new CallTreeNode(
+            focus, null, CallTreeStatus.Expanded,
+            [new CallTreeNode(shared, null, CallTreeStatus.Leaf, [], new CallTreePerf(0, 4, 1, false))],
+            new CallTreePerf(0, 4, 2, false, null, "target"));
+        var calleeRoot = new CallTreeNode(
+            focus, null, CallTreeStatus.Expanded,
+            [new CallTreeNode(shared, null, CallTreeStatus.Leaf, [], new CallTreePerf(5, 0, 1, false))],
+            new CallTreePerf(2, 0, 2, false));
+
+        var projection = CallGraphProjection.Create(callerRoot, calleeRoot);
+        var sharedNode = Assert.Single(projection.Nodes, n => n.Member.Name == "Cycles");
+
+        Assert.NotNull(sharedNode.Perf);
+        Assert.Equal(5, sharedNode.Perf.Fanout);
+        Assert.Equal(4, sharedNode.Perf.Fanin);
+    }
+
+    [Fact]
+    public void MergingCuesNeverErasesAnObservationWithABareBoundaryOccurrence()
+    {
+        var focus = Member("Ns.Target", "Run");
+        var external = Member("Ns.Far", "Boundary");
+        // The bare occurrence arrives FIRST, on the caller walk, so a first-non-null-wins
+        // rule pins the empty record and the callee walk's real cues are lost.
+        var callerRoot = new CallTreeNode(
+            focus, null, CallTreeStatus.Expanded,
+            [new CallTreeNode(external, null, CallTreeStatus.External, [], new CallTreePerf(0, 0, 1, false))],
+            new CallTreePerf(0, 0, 1, false));
+        var calleeRoot = new CallTreeNode(
+            focus, null, CallTreeStatus.Expanded,
+            [new CallTreeNode(external, null, CallTreeStatus.External, [], new CallTreePerf(2, 3, 1, true, "loop", null, null, "Other.dll"))],
+            new CallTreePerf(0, 0, 1, false));
+
+        var projection = CallGraphProjection.Create(callerRoot, calleeRoot);
+        var node = Assert.Single(projection.Nodes, n => n.Member.Name == "Boundary");
+
+        Assert.NotNull(node.Perf);
+        Assert.Equal(2, node.Perf.Fanout);
+        Assert.Equal(3, node.Perf.Fanin);
+        Assert.Equal("Other.dll", node.Perf.Source);
+        Assert.True(node.Perf.InLoop);
+        Assert.Equal("loop", node.Perf.LoopHint);
     }
 }

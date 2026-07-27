@@ -36,16 +36,14 @@ internal sealed class ApiMemberAnalysisInspection
 
         (_includeAllocations, _includeOpportunities) =
             ApiAnalysisInspection.AnalysisScopeFor(requestedSections);
-        if ((requestedSections.Contains(SectionNames.CallGraph)
-                || requestedSections.Contains(SectionNames.CallerGraph))
+        if (requestedSections.Contains(SectionNames.CallGraph)
             && (options?.Fields is { Length: > 0 } || options?.Columns is { Length: > 0 }))
         {
             _includeAllocations = true;
         }
 
         bool needsWholeAssemblyBody = requestedSections.Contains(SectionNames.Callers)
-            || requestedSections.Contains(SectionNames.CallGraph)
-            || requestedSections.Contains(SectionNames.CallerGraph);
+            || requestedSections.Contains(SectionNames.CallGraph);
         if (!needsWholeAssemblyBody)
         {
             var memberTokens = methods

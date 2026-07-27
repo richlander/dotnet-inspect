@@ -525,7 +525,6 @@ public static class MemberCommand
         SectionNames.CostFacts,
         SectionNames.Callers,
         SectionNames.CallGraph,
-        SectionNames.CallerGraph,
         SectionNames.UnsafeOperations,
         SectionNames.TopLeverage,
         SectionNames.PerformanceTriage,
