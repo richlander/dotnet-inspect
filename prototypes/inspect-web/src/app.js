@@ -4100,8 +4100,24 @@ function attachGraphPanZoom(container, viewport, bindCallGraphNodes = false) {
   });
 
   if (bindCallGraphNodes) {
+    // Inside a platform descent the whole graph lives in the runtime pack, not the
+    // workspace, so a clicked callee must resolve against the active platform graph
+    // and descend further — routing it through the workspace resolvers would look the
+    // type up in the loaded package and fail (e.g. "Type 'TextWriter' is not in Markout.dll").
+    const drilled = state.platformStack.length > 0;
     svg.querySelectorAll("g.node").forEach(node => {
       const label = (node.textContent || "").replace(/\s+/g, " ").trim();
+      if (drilled) {
+        const deeper = resolvePlatformNode(label, { requireExternal: false });
+        if (!deeper) return;
+        node.classList.add("nav-node", "platform-node");
+        node.style.cursor = "pointer";
+        node.addEventListener("click", () => {
+          if (moved) return;
+          drillPlatformNode(deeper);
+        });
+        return;
+      }
       const target = resolveNodeLabel(label);
       const source = target ? null : resolveNodeForSource(label, node.classList.contains("differentAssembly"));
       // A node with no workspace target and no source is a platform (BCL / cross-library)
@@ -4152,7 +4168,7 @@ function flattenGraphNodes(graph) {
   return out;
 }
 
-function resolvePlatformNode(label) {
+function resolvePlatformNode(label, { requireExternal = true } = {}) {
   const dot = label.lastIndexOf(".");
   if (dot < 0) return null;
   let typeName = label.slice(0, dot);
@@ -4160,8 +4176,17 @@ function resolvePlatformNode(label) {
   if (typeName.endsWith(".")) typeName = typeName.slice(0, -1);
   if (!typeName || !memberName) return null;
   const wantType = stripArity(typeName);
-  for (const node of flattenGraphNodes(currentCallGraph())) {
-    if (node.status !== "External" || !node.typeFullName) continue;
+  const graph = currentCallGraph();
+  // When descending inside an already-platform graph, skip the graph's own root nodes so
+  // clicking a callee moves deeper rather than re-pushing the current member.
+  const roots = new Set([graph?.callers, graph?.callees]);
+  for (const node of flattenGraphNodes(graph)) {
+    if (requireExternal) {
+      if (node.status !== "External") continue;
+    } else if (roots.has(node)) {
+      continue;
+    }
+    if (!node.typeFullName || !node.assembly) continue;
     if (node.memberName !== memberName) continue;
     const simple = stripArity(node.typeFullName.split(".").pop() ?? "");
     if (simple === wantType) return node;
