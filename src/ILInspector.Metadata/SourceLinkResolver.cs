@@ -158,7 +158,14 @@ public class SourceLinkResolver
         // Both answers read the same lexical state, so one scan produces both. A trailing
         // comment must not hide the terminating ";" (issue #3300), and a brace inside a comment
         // or a literal must not count as structural.
-        bool endsAtDeclaration = startsAtDeclaration && EndsDeclaration(lines, from, to);
+        //
+        // This asks the captured range alone, not where the range began. A conventionally
+        // braced member starts its sequence range on "{", so it is not "at" its declaration,
+        // yet the range still closes its own block and owns no brace below it. Gating on the
+        // start let the forward scan run for every such member; that was harmless while a
+        // sibling followed, and swallowed the enclosing type's "}" when the member was the
+        // last one in its type.
+        bool endsAtDeclaration = EndsDeclaration(lines, from, to);
 
         // Scan forward to include the closing brace.
         for (int i = to; !endsAtDeclaration && i < Math.Min(to + 3, lines.Length); i++)
