@@ -94,6 +94,7 @@ public class PdbContext : IDisposable
     private MetadataReaderProvider? _pdbProvider;
     private MetadataReader? _pdbReader;
     private SourceLinkResolver? _resolver;
+    private bool? _isReferenceAssembly;
     private SourceDocumentPathResolver _sourceDocumentPathResolver = SourceDocumentPathResolver.Empty;
     private readonly List<IDisposable> _disposables = [];
     private MethodBodySource? _methodBodies;
@@ -340,6 +341,106 @@ public class PdbContext : IDisposable
 
         var metadataReader = _peReader.GetMetadataReader();
         return _resolver.ResolveTypeSource(metadataReader, _pdbReader, typeName);
+    }
+
+    /// <summary>
+    /// Whether the MethodDef <paramref name="methodToken"/> addresses carries an IL body:
+    /// <see langword="true"/> when it does, <see langword="false"/> when it does not — an
+    /// abstract, interface, extern, or runtime-implemented method — and <see langword="null"/>
+    /// when the token cannot be read as a MethodDef in this assembly, which is not the same
+    /// answer as "no body" and must not be reported as one (issue #3299).
+    /// </summary>
+    /// <remarks>
+    /// A reference assembly answers <see langword="null"/> for every token: it strips all IL, so
+    /// its RVAs report the image's surface-only nature rather than anything about the method.
+    /// </remarks>
+    public bool? MethodHasBody(int methodToken)
+    {
+        if (!_peReader.HasMetadata)
+            return null;
+
+        try
+        {
+            // Handle() rejects an invalid token by throwing, and an inspected assembly is
+            // untrusted input, so decode inside the guard rather than ahead of it.
+            var handle = MetadataTokens.Handle(methodToken);
+            if (handle.Kind != HandleKind.MethodDefinition)
+                return null;
+
+            var reader = _peReader.GetMetadataReader();
+            if (IsReferenceAssembly(reader))
+                return null;
+
+            return reader.GetMethodDefinition((MethodDefinitionHandle)handle).RelativeVirtualAddress != 0;
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Whether the assembly carries <c>ReferenceAssemblyAttribute</c>, cached because the answer
+    /// is fixed for the image.
+    /// </summary>
+    private bool IsReferenceAssembly(MetadataReader reader)
+    {
+        if (_isReferenceAssembly is { } cached)
+            return cached;
+
+        bool result = false;
+        if (reader.IsAssembly)
+        {
+            foreach (var handle in reader.GetAssemblyDefinition().GetCustomAttributes())
+            {
+                if (IsReferenceAssemblyAttribute(reader, reader.GetCustomAttribute(handle)))
+                {
+                    result = true;
+                    break;
+                }
+            }
+        }
+
+        _isReferenceAssembly = result;
+        return result;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="attribute"/> is <c>ReferenceAssemblyAttribute</c>. The constructor
+    /// is a MemberReference when the attribute type lives in another assembly and a MethodDef when
+    /// it is defined in this one — which is the common case, since the reference assemblies that
+    /// most need this test define the attribute themselves.
+    /// </summary>
+    private static bool IsReferenceAssemblyAttribute(MetadataReader reader, CustomAttribute attribute)
+    {
+        StringHandle name;
+        StringHandle @namespace;
+
+        switch (attribute.Constructor.Kind)
+        {
+            case HandleKind.MemberReference:
+                var parent = reader.GetMemberReference((MemberReferenceHandle)attribute.Constructor).Parent;
+                if (parent.Kind != HandleKind.TypeReference)
+                    return false;
+
+                var typeRef = reader.GetTypeReference((TypeReferenceHandle)parent);
+                name = typeRef.Name;
+                @namespace = typeRef.Namespace;
+                break;
+
+            case HandleKind.MethodDefinition:
+                var method = reader.GetMethodDefinition((MethodDefinitionHandle)attribute.Constructor);
+                var typeDef = reader.GetTypeDefinition(method.GetDeclaringType());
+                name = typeDef.Name;
+                @namespace = typeDef.Namespace;
+                break;
+
+            default:
+                return false;
+        }
+
+        return reader.StringComparer.Equals(name, "ReferenceAssemblyAttribute")
+            && reader.StringComparer.Equals(@namespace, "System.Runtime.CompilerServices");
     }
 
     public ILOffsetMemberContextInfo? ResolveMemberContext(int methodToken, int ilOffset)

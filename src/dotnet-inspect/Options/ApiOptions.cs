@@ -218,6 +218,14 @@ public record MemberOptions : ApiOptions
     public MethodSourceContext? MethodSource { get; init; }
 
     /// <summary>
+    /// True when the selected member carries no IL body — an abstract, interface, extern, or
+    /// runtime-implemented member — so <see cref="MethodSource"/> is absent because there is
+    /// nothing to show, not because resolution failed. Lets the source sections say so instead
+    /// of rendering success-shaped empty output (issue #3299).
+    /// </summary>
+    public bool MemberHasNoBody { get; init; }
+
+    /// <summary>
     /// Output directories (<c>--bin</c>/<c>--directory</c>) to scan for inbound callers of the
     /// selected member, in addition to the member's own assembly. Empty = own assembly only.
     /// </summary>
