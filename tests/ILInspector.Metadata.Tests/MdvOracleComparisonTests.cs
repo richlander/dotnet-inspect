@@ -55,6 +55,39 @@ public class MdvOracleComparisonTests
         @"\{([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\}",
         RegexOptions.Compiled);
 
+    // A hand-built fragment in mdv's exact layout, used to calibrate the parser
+    // deterministically without mdv installed. It deliberately includes the
+    // traps the parser must survive: a Debug Directory preamble with its own
+    // guid={...} before any table, blank-line table separators, `===` rules,
+    // space-aligned column-name rows, hex row ids (1, 2, a, 10), and data cells
+    // that themselves contain 0x tokens and quoted strings. Module has 1 row;
+    // TypeRef has 4.
+    static readonly string[] SampleMdvLines =
+    [
+        "Debug Directory:",
+        "  CodeView guid={53815ba4-16c4-4933-b051-cef6b66d6d76}, age=1",
+        "",
+        "MetadataVersion: v4.0.30319",
+        "",
+        "Module (0x00):",
+        "=====================================",
+        "   Gen  Name          Mvid",
+        "=====================================",
+        "1: 0    'Sample.dll'  {b8b45219-176b-49dc-9fbd-58559e8a925c} (#1)",
+        "",
+        "TypeRef (0x01):",
+        "=====================================",
+        "     Scope                     Name",
+        "=====================================",
+        "  1: 0x23000001 (AssemblyRef)  'Object' (#10a51)",
+        "  2: 0x23000001 (AssemblyRef)  'Attribute' (#0020)",
+        "  a: 0x23000001 (AssemblyRef)  'Console' (#0030)",
+        " 10: 0x01000004 (TypeRef)      'Modes' (#0040)",
+        "",
+    ];
+
+    static string SampleMdv => string.Join("\n", SampleMdvLines);
+
     [Fact]
     public void RowCounts_MatchMdv_ForSharedTables()
     {
@@ -140,6 +173,79 @@ public class MdvOracleComparisonTests
         // Multi-row String-heap decode: every AssemblyRef name must round-trip
         // identically through both readers.
         Assert.Equal(mdvNames, names);
+    }
+
+    // ---------------------------------------------------------------------
+    // Calibration / mutation checks.
+    //
+    // A cross-implementation oracle is only trustworthy if its measurement
+    // apparatus (the mdv text parser) both measures correctly AND fails when
+    // the measured value diverges. These tests pin that the parser is neither
+    // wrong nor a tautology. The synthetic-fixture tests need no mdv, so they
+    // run everywhere including CI; the seeded-discrepancy test runs the real
+    // comparison used above against perturbed real mdv output.
+    // ---------------------------------------------------------------------
+
+    [Fact]
+    public void ParseRowCounts_CountsDataRows_IgnoringPreambleRulesAndHeaders()
+    {
+        var counts = ParseMdvTableRowCounts(SampleMdv);
+
+        // Only the two table headers become keys; the Debug Directory and
+        // MetadataVersion preamble lines do not.
+        Assert.Equal(new[] { "Module", "TypeRef" }, counts.Keys.Order().ToArray());
+
+        // Rule lines, the column-name row, and the preamble contribute no rows.
+        Assert.Equal(1, counts["Module"]);
+        Assert.Equal(4, counts["TypeRef"]);
+    }
+
+    [Fact]
+    public void ParseRowCounts_DetectsASingleDroppedRow()
+    {
+        int baseline = ParseMdvTableRowCounts(SampleMdv)["TypeRef"];
+
+        // Remove exactly one TypeRef data row from the fixture.
+        string perturbed = SampleMdv.Replace(
+            "\n  2: 0x23000001 (AssemblyRef)  'Attribute' (#0020)", string.Empty);
+        int mutated = ParseMdvTableRowCounts(perturbed)["TypeRef"];
+
+        // A one-row difference must move the measured count by exactly one, so
+        // the RowCounts_MatchMdv_ForSharedTables equality check cannot silently
+        // agree across a real enumeration discrepancy.
+        Assert.Equal(baseline - 1, mutated);
+    }
+
+    [Fact]
+    public void ModuleRowExtraction_ScopesToTable_ExcludingPreambleGuid()
+    {
+        string moduleRow = Assert.Single(MdvTableRows(SampleMdv, "Module"));
+        var match = Guid.Match(moduleRow);
+
+        Assert.True(match.Success);
+        // The MVID from the Module row, not the earlier Debug Directory guid.
+        Assert.Equal("b8b45219-176b-49dc-9fbd-58559e8a925c", match.Groups[1].Value);
+        Assert.DoesNotContain("53815ba4", moduleRow);
+    }
+
+    [Fact]
+    public void RowCountComparison_DetectsSeededDiscrepancy()
+    {
+        string mdv = SkipUnlessMdv();
+        const string table = "TypeRef";
+
+        var view = Assert.Single(Project().Tables, t => t.Name == table);
+        var truthful = ParseMdvTableRowCounts(mdv);
+
+        // Baseline: the real comparison agrees.
+        Assert.Equal(view.RowCount, truthful[table]);
+
+        // Seed a one-row discrepancy in the real mdv output; the same comparison
+        // must now disagree by exactly one — proving a green result reflects true
+        // agreement, not an insensitive check.
+        var seeded = ParseMdvTableRowCounts(RemoveFirstRow(mdv, table));
+        Assert.Equal(view.RowCount - 1, seeded[table]);
+        Assert.NotEqual(view.RowCount, seeded[table]);
     }
 
     static MetadataTableProjection Project()
@@ -231,6 +337,39 @@ public class MdvOracleComparisonTests
         }
 
         return rows;
+    }
+
+    /// <summary>
+    /// Returns <paramref name="stdout"/> with the first data row of the named
+    /// table removed — a minimal, realistic perturbation for the seeded
+    /// discrepancy test. Throws if the table has no row to remove.
+    /// </summary>
+    static string RemoveFirstRow(string stdout, string tableName)
+    {
+        var header = new Regex(@"^" + Regex.Escape(tableName) + @" \(0x[0-9a-fA-F]+\):\s*$");
+        var lines = stdout.Split('\n');
+
+        int i = 0;
+        for (; i < lines.Length; i++)
+        {
+            if (header.IsMatch(lines[i].TrimEnd('\r')))
+                break;
+        }
+
+        for (i++; i < lines.Length; i++)
+        {
+            string line = lines[i].TrimEnd('\r');
+            if (string.IsNullOrWhiteSpace(line))
+                break;
+            if (RowLine.IsMatch(line))
+            {
+                var kept = new List<string>(lines);
+                kept.RemoveAt(i);
+                return string.Join('\n', kept);
+            }
+        }
+
+        throw new Xunit.Sdk.XunitException($"No data row to remove in table '{tableName}'.");
     }
 
     static string? RunMdvOnce()
