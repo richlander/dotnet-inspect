@@ -81,7 +81,12 @@ Each row contains these fields:
 
 ## Append procedure
 
-1. Build the harness at the commit under test.
+1. Build the harness at the commit under test. **This must be a commit on
+   `main`.** The store is a trend series, so every row has to be reproducible
+   from the recorded commit; a feature-branch commit is not, and it carries
+   whatever product state the branch happened to be based on. Measuring a
+   methodology or product change against its own base is a valid experiment —
+   it just belongs in the PR that makes the change, not in this series.
 2. Prepare or reuse the EVIL pool:
 
    ```bash
