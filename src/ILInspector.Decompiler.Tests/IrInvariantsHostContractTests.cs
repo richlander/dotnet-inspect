@@ -270,18 +270,24 @@ public sealed class IrInvariantsHostContractTests
     }
 
     /// <summary>
-    /// <c>nameof</c> is a contextual keyword, so a member may be named after it
-    /// and <c>nameof(IrInvariants.DisableForShippedTool)</c> then compiles to a
-    /// call that hands over the method group.
+    /// <c>nameof</c> is a contextual keyword, so anything in scope may be named
+    /// after it and <c>nameof(IrInvariants.DisableForShippedTool)</c> then
+    /// compiles to a call that hands over the method group. A delegate-typed
+    /// field, local, or parameter does this as well as a method does.
     /// </summary>
     static bool DeclaresNameOf(SyntaxNode root) =>
-        root.DescendantNodes().Any(static node => node switch
-        {
-            MethodDeclarationSyntax method => method.Identifier.ValueText == "nameof",
-            LocalFunctionStatementSyntax local => local.Identifier.ValueText == "nameof",
-            DelegateDeclarationSyntax @delegate => @delegate.Identifier.ValueText == "nameof",
-            _ => false,
-        });
+        root.DescendantNodes().Any(static node => NameOf(node) is "nameof");
+
+    static string? NameOf(SyntaxNode node) => node switch
+    {
+        MethodDeclarationSyntax method => method.Identifier.ValueText,
+        LocalFunctionStatementSyntax local => local.Identifier.ValueText,
+        DelegateDeclarationSyntax @delegate => @delegate.Identifier.ValueText,
+        PropertyDeclarationSyntax property => property.Identifier.ValueText,
+        VariableDeclaratorSyntax variable => variable.Identifier.ValueText,
+        ParameterSyntax parameter => parameter.Identifier.ValueText,
+        _ => null,
+    };
 
     static bool IsInsideNameOf(SyntaxNode node) =>
         node.Ancestors()
