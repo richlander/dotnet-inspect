@@ -1,5 +1,5 @@
 import { lenses, packageLenses, rootCommands } from "./data.js";
-import { initializeEngine, inspectListStyleOptions, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageDependencies, inspectPackageIntegrations, inspectPackageOpportunities, inspectPackagePerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
+import { initializeEngine, inspectListStyleOptions, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageIntegrations, inspectPackageOpportunities, inspectPackagePerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
 
 function loadStoredTaste() {
   try {
@@ -785,6 +785,8 @@ function render() {
             <span class="diag" title="Runtime instantiation after assets arrived: WASM compile + module init + runMain">⚙ startup ${fmtMs(state.diag.startupMs)}</span>
             <span class="diag" title="Initial package query precomputed during load">⚡ precompute ${fmtMs(state.diag.precomputeMs)}</span>
             <span class="diag diag-total" title="Total time from navigation start to interactive">Σ ${fmtMs(state.diag.totalMs)}</span>` : ""}
+            ${state.packageCacheStats && (state.packageCacheStats.downloads + state.packageCacheStats.cacheHits) > 0 ? `
+            <span class="diag" title="NuGet package fetches this session: ${state.packageCacheStats.downloads} downloaded over the wire, ${state.packageCacheStats.cacheHits} served from the in-memory cache (${state.packageCacheStats.cached} currently cached)">◇ ${state.packageCacheStats.downloads} downloaded · ${state.packageCacheStats.cacheHits} cached</span>` : ""}
           <span class="status-spacer"></span>
           <span>${escapeHtml(current.assembly)}</span>
           <span>${escapeHtml(state.package.activeFramework)}</span>
@@ -1163,6 +1165,7 @@ async function loadPackageDependencies() {
     if (state.packageDependenciesKey === signature) state.packageDependenciesError = String(error?.message || error);
   } finally {
     if (state.packageDependenciesKey === signature) state.packageDependenciesLoading = false;
+    refreshPackageStats();
     render();
     ensureWorkspaceDependencies();
   }
@@ -1204,6 +1207,7 @@ async function ensureWorkspaceDependencies() {
     }
   }
   if (state.atPackageRoot && state.packageLens === "dependencies") renderDependencyGraph();
+  refreshPackageStats();
 }
 
 function packageIntegrationsSignature() {
@@ -3400,6 +3404,7 @@ async function loadSelectedMemberCallGraph() {
       const previousMermaid = state.memberCallGraph?.mermaid;
       state.memberCallGraph = full;
       state.memberCallGraphExpanding = false;
+      refreshPackageStats();
       patchCallGraphSection(previousMermaid);
     }
   } catch (error) {
@@ -3924,6 +3929,7 @@ async function loadPackage(packageId, version, framework) {
 
   try {
     const result = await inspectPackage(packageId, version, framework);
+    refreshPackageStats();
     const types = (result.types ?? []).map(type => ({
       ...type,
       api: type.api ?? []
@@ -4119,6 +4125,15 @@ function computeDiagnostics(tStart, tEngine, tReady) {
 function fmtMs(ms) {
   if (ms == null) return "—";
   return ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(2)} s`;
+}
+
+function refreshPackageStats() {
+  try {
+    const stats = inspectPackageCacheStats();
+    if (stats) state.packageCacheStats = stats;
+  } catch {
+    // Keep the last known counts; a stats read failure must not disrupt inspection.
+  }
 }
 
 function fmtBytes(bytes) {

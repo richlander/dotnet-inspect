@@ -327,6 +327,8 @@ public static partial class BrowserInspectionEngine
     const int MaxCachedPackages = 6;
     const long MaxCachedPackageBytes = 64L * 1024 * 1024;
     static long _packageCacheClock;
+    static long _packageDownloads;
+    static long _packageCacheHits;
 
     sealed record PackageCacheEntry(byte[] Bytes, long LastAccess);
 
@@ -532,6 +534,20 @@ public static partial class BrowserInspectionEngine
     // The library-owned StyleOptionCatalog is the single source of truth for the decompiler
     // style knobs ("taste"). Projecting it verbatim keeps the UI data-driven: options added
     // to the catalog surface in the browser without any change here.
+    [JSExport]
+    public static string PackageCacheStats()
+    {
+        var downloads = Interlocked.Read(ref _packageDownloads);
+        var cacheHits = Interlocked.Read(ref _packageCacheHits);
+        int cached;
+        lock (PackageCacheLock)
+        {
+            cached = PackageCache.Count;
+        }
+
+        return $"{{\"downloads\":{downloads},\"cacheHits\":{cacheHits},\"cached\":{cached}}}";
+    }
+
     [JSExport]
     public static string ListStyleOptions()
     {
@@ -1964,6 +1980,7 @@ public static partial class BrowserInspectionEngine
             if (PackageCache.TryGetValue(key, out var cached))
             {
                 PackageCache[key] = cached with { LastAccess = ++_packageCacheClock };
+                Interlocked.Increment(ref _packageCacheHits);
                 return cached.Bytes;
             }
         }
@@ -1973,6 +1990,7 @@ public static partial class BrowserInspectionEngine
             $"{Uri.EscapeDataString(normalizedVersion)}/" +
             $"{Uri.EscapeDataString(normalizedId)}.{Uri.EscapeDataString(normalizedVersion)}.nupkg";
         var bytes = await Http.GetByteArrayAsync(packageUrl);
+        Interlocked.Increment(ref _packageDownloads);
         if (bytes.LongLength > MaxCachedPackageBytes)
             return bytes;
 
