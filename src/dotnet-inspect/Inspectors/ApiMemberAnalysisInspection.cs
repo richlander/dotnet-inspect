@@ -84,24 +84,22 @@ internal sealed class ApiMemberAnalysisInspection
         _bodyScope);
 
     /// <summary>
-    /// The caller-scope sessions, or <see langword="null"/> when the reverse graph should be built
-    /// from the target's own assembly alone. The distinction matters because the scoped and
-    /// unscoped reverse-graph builders key their graphs differently and do not produce identical
-    /// trees, so this predicate must stay exactly as selective as it was before prefiltering
-    /// existed. Before, the scoped builder ran iff at least one scope assembly opened successfully.
-    /// So:
-    /// <list type="bullet">
-    /// <item>no scope assemblies supplied at all — <see langword="null"/>. Note that the CLI's
-    /// default is a non-null empty list, not <see langword="null"/>, so this is an emptiness check
-    /// rather than a null check; it is also a fast path that avoids reading the target's metadata
-    /// for the overwhelmingly common unscoped request.</item>
-    /// <item>every supplied assembly failed to open — <see langword="null"/>, which is what an
-    /// unfiltered walk with nothing to open did.</item>
-    /// <item>at least one assembly opened or was skipped by the prefilter — the scoped builder,
-    /// even when every one of them was skipped and the returned list is empty. A skipped assembly
-    /// is one the unfiltered walk would have opened successfully and found nothing in, so skipping
-    /// it must not change which builder runs.</item>
-    /// </list>
+    /// The caller-scope sessions, or <see langword="null"/> when the user did not ask for a
+    /// cross-assembly scope at all. The distinction matters because
+    /// <c>LibraryBodyIndex.BuildCallerTree</c> keys its reverse graph differently in the two cases
+    /// and the resulting trees are not identical, so this predicate decides which one answers.
+    ///
+    /// It is deliberately a question about the <em>request</em>, not about how much of the scope
+    /// turned out to be readable. Before prefiltering, the answer fell out of "did at least one
+    /// scope assembly open successfully", which made the shape of the tree depend on whether a
+    /// directory happened to contain openable DLLs — adding one unreadable file could not change
+    /// it, but adding one readable one could. Prefiltering cannot preserve that accident: an
+    /// assembly ruled out by its <c>AssemblyRef</c> table is never opened, so whether it *would*
+    /// have opened is unknowable without paying exactly the cost being avoided. Basing the choice
+    /// on intent removes the dependency instead of guessing at it.
+    ///
+    /// Note that the CLI's default is a non-null empty list, not <see langword="null"/>, so this
+    /// has to be an emptiness check rather than a null check.
     ///
     /// Skipping is the optimization: opening a scope assembly costs a full body decode of the
     /// image, while ruling it out costs a read of its <c>AssemblyRef</c> table, so the common "no
@@ -120,15 +118,11 @@ internal sealed class ApiMemberAnalysisInspection
             return null;
 
         var opened = new List<MethodBodyInspectionSession>();
-        int skipped = 0;
         string? targetAssembly = TargetAssemblyName;
         foreach (var scopePath in _callerScopeAssemblies)
         {
             if (!CouldContainCaller(scopePath, targetAssembly))
-            {
-                skipped++;
                 continue;
-            }
 
             try
             {
@@ -143,9 +137,6 @@ internal sealed class ApiMemberAnalysisInspection
                 // Caller scope is best-effort; unreadable assemblies do not contribute edges.
             }
         }
-
-        if (opened.Count == 0 && skipped == 0)
-            return null;
 
         cached = opened;
         return cached;
@@ -184,13 +175,9 @@ internal sealed class ApiMemberAnalysisInspection
     /// <see cref="MethodBodyInspectionSession.Open"/>, which decodes every method body in the image,
     /// and an assembly that names neither itself nor the target as the declaring assembly cannot
     /// produce a match (see <see cref="Analysis.CallerScopeFilter"/>). Any failure to decide falls
-    /// through to the previous behavior of opening the assembly.
-    ///
-    /// A non-managed file returns <see langword="true"/> rather than being reported as skipped:
-    /// <c>--bin</c> enumerates every top-level <c>*.dll</c> with no managed-image filter, and those
-    /// are already handled by the caller's <c>catch</c>. Counting them as "skipped" would
-    /// misrepresent a file the unfiltered walk could never have opened as one it opened and found
-    /// nothing in, which is the distinction the caller's builder choice rests on.
+    /// through to the previous behavior of opening the assembly, including a file with no managed
+    /// metadata — <c>--bin</c> enumerates every top-level <c>*.dll</c> with no managed-image
+    /// filter, and ruling those out here would only duplicate the caller's <c>catch</c>.
     /// </summary>
     static bool CouldContainCaller(string scopePath, string? targetAssembly)
     {

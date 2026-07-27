@@ -10,6 +10,10 @@ namespace DotnetInspector.Tests;
 /// selects the cross-assembly one, and the two do not produce identical trees. These assert the
 /// decision itself rather than a rendered tree, because the small call-graph fixtures happen not to
 /// distinguish the two builders at all — an output-level test here would pass no matter what.
+///
+/// The decision is a question about the <em>request</em>, never about how readable the scope turned
+/// out to be, so most of these pin cases where the scope yields nothing to walk yet the choice must
+/// still hold.
 /// </summary>
 public class ApiMemberAnalysisInspectionTests
 {
@@ -68,16 +72,21 @@ public class ApiMemberAnalysisInspectionTests
         Assert.Single(scopes);
     }
 
-    // Every scope entry unopenable is indistinguishable from having nothing to walk, which is what
-    // the unfiltered walk did with an all-garbage scope, so it keeps the same-assembly builder.
+    // Round-2 review found that the previous "would the unfiltered walk have opened it?" rule was
+    // not decidable: an image whose Assembly/AssemblyRef tables read cleanly (so the prefilter can
+    // rule it out) can still throw when its bodies are indexed. Reproduced with single-byte
+    // mutations of a real assembly — 8 of 3000 produced exactly that. Openability therefore cannot
+    // drive the choice, so a scoped request gets the cross-assembly builder even when nothing in
+    // the scope can be opened at all.
     [Fact]
-    public void CallerScopes_WhenNoScopeAssemblyCanBeOpened_SelectsTheSameAssemblyBuilder()
+    public void CallerScopes_WhenNoScopeAssemblyCanBeOpened_StillSelectsTheCrossAssemblyBuilder()
     {
         string missing = Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.dll");
 
-        var inspection = Create(SelfPath, [missing]);
+        var scopes = Create(SelfPath, [missing]).CallerScopes(includeAllocations: false);
 
-        Assert.Null(inspection.CallerScopes(includeAllocations: false));
+        Assert.NotNull(scopes);
+        Assert.Empty(scopes);
     }
 
     // The two lenses are cached independently and must decide identically.
@@ -96,19 +105,20 @@ public class ApiMemberAnalysisInspectionTests
         Assert.Same(graph, inspection.CallerScopes(includeAllocations: true));
     }
 
-    // A file with no managed metadata must fail open rather than count as a prefilter skip: --bin
-    // enumerates every top-level *.dll with no managed-image filter, so a native binary in scope is
-    // one the unfiltered walk could never have opened. Reporting it as skipped would flip an
-    // all-native scope from the same-assembly builder to the cross-assembly one.
+    // A file with no managed metadata must fail open rather than be ruled out: --bin enumerates
+    // every top-level *.dll with no managed-image filter, so ruling it out here would only
+    // duplicate the catch around MethodBodyInspectionSession.Open. Either way the scope yields
+    // nothing, and the request was still scoped.
     [Fact]
-    public void CallerScopes_WhenTheOnlyScopeEntryIsNotManaged_SelectsTheSameAssemblyBuilder()
+    public void CallerScopes_WhenTheOnlyScopeEntryIsNotManaged_StillSelectsTheCrossAssemblyBuilder()
     {
         string? native = FindNativeImage();
         Assert.SkipWhen(native is null, "No native PE image available in the runtime directory.");
 
-        var inspection = Create(SelfPath, [native!]);
+        var scopes = Create(SelfPath, [native!]).CallerScopes(includeAllocations: false);
 
-        Assert.Null(inspection.CallerScopes(includeAllocations: false));
+        Assert.NotNull(scopes);
+        Assert.Empty(scopes);
     }
 
     static string? FindNativeImage()
