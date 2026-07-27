@@ -4136,6 +4136,23 @@ public static class CompileBackSourceComposer
         return true;
     }
 
+    /// <summary>
+    /// The name a member carries as its <see cref="CompileBackMethodIdentity"/>
+    /// key. This is model identity, not C# spelling: it is matched against other
+    /// requirement/production entries, never emitted as an identifier.
+    /// Constructors therefore keep their metadata name <c>.ctor</c> — the
+    /// declaring type name is what the emitter spells, selected by
+    /// <see cref="CompileBackMemberKind.Constructor"/>. Every other name is a
+    /// method name that can reach emitted source, so it goes through the #3129
+    /// residual-name sanitizer.
+    /// Gate: <c>MemberIdentifierNameTests</c>. That gate is fast on purpose — the
+    /// end-to-end <c>ReturnToSenderPrototypeTests</c> coverage is
+    /// <c>Speed=Slow</c> and so does not run in the PR test job, which is how
+    /// #3251 reached <c>main</c> unnoticed.
+    /// </summary>
+    internal static string MemberIdentifierName(string metadataName, bool isConstructor)
+        => isConstructor ? metadataName : CSharpNaming.SourceMethodName(metadataName);
+
     sealed class TypeProducer
     {
         public static CompileBackMemberRequirement? TryCreateClosureMemberRequirement(
@@ -4539,7 +4556,7 @@ public static class CompileBackSourceComposer
                 return null;
             }
 
-            string identifierName = isConstructor ? name : CSharpNaming.SourceMethodName(name);
+            string identifierName = MemberIdentifierName(name, isConstructor);
             return new CompileBackMemberRequirement(
                 new CompileBackMethodIdentity(typeIdentity.FullName, identifierName, DeclaringOverloadIndex(reader, typeDef, methodHandle, name), MethodSignatureText(identifierName, signature)),
                 isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method,
@@ -5300,7 +5317,7 @@ public static class CompileBackSourceComposer
                 }
 
                 bool isConstructor = name == ".ctor";
-                string identifierName = isConstructor ? name : CSharpNaming.SourceMethodName(name);
+                string identifierName = MemberIdentifierName(name, isConstructor);
                 int existingMethodIndex = members.FindIndex(member =>
                     member.Kind == (isConstructor ? CompileBackMemberKind.Constructor : CompileBackMemberKind.Method)
                     && member.Identity.Method == identifierName);
