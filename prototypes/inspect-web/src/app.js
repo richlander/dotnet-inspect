@@ -3458,7 +3458,7 @@ function renderHomeView() {
             </div>
           </div>
         </div>
-        <aside class="home-art" aria-hidden="true">${homeArtSvg()}</aside>
+        <aside class="home-art">${homeArtSvg()}</aside>
       </main>
       <footer class="home-foot">
         <span class="ready-dot"></span><span>browser wasm ready</span>
@@ -3468,19 +3468,11 @@ function renderHomeView() {
   bindHomeEvents();
 }
 
-// Decorative placeholder for the hero art slot. Foreground magnifier-over-package motif that
-// sits on the dark/light surface; swap the inner markup for the dotnet-bot artwork (a
-// transparent PNG or inline SVG) once it exists — the .home-art frame already reserves the
-// space and centers its child.
+// The hero mascot: dotnet-bot inspecting through a magnifying glass (official dotnet/brand
+// character, CC0). Rendered as a plain <img> so it scales crisply and keeps its transparent
+// background on either theme; the .home-art frame reserves and centers the slot.
 function homeArtSvg() {
-  return `
-    <svg class="home-art-svg" viewBox="0 0 240 240" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-hidden="true">
-      <polygon points="96,44 150,44 177,92 150,140 96,140 69,92" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/>
-      <text x="123" y="99" text-anchor="middle" font-family="var(--mono)" font-size="30" fill="var(--accent)">{ }</text>
-      <circle cx="132" cy="150" r="52" fill="none" stroke="var(--line-strong)" stroke-width="9"/>
-      <circle cx="132" cy="150" r="52" fill="rgba(255,255,255,0.02)"/>
-      <line x1="170" y1="188" x2="210" y2="228" stroke="var(--line-strong)" stroke-width="14" stroke-linecap="round"/>
-    </svg>`;
+  return `<img class="home-art-img" src="/assets/dotnet-inspect-bot.png" width="680" height="680" alt="dotnet-bot inspecting through a magnifying glass" />`;
 }
 
 function bindHomeEvents() {

@@ -1266,7 +1266,11 @@ kbd {
 .home-demo small { color: var(--muted); font-size: 11px; }
 
 .home-art { display: flex; align-items: center; justify-content: center; }
-.home-art-svg { width: min(100%, 340px); height: auto; opacity: 0.9; }
+.home-art-img {
+  width: min(100%, 360px);
+  height: auto;
+  filter: drop-shadow(0 18px 34px rgba(0, 0, 0, 0.35));
+}
 
 .home-foot {
   display: flex;
@@ -1282,5 +1286,5 @@ kbd {
 @media (max-width: 860px) {
   .home-hero { grid-template-columns: 1fr; gap: 28px; }
   .home-art { order: -1; }
-  .home-art-svg { width: 200px; }
+  .home-art-img { width: 210px; }
 }
