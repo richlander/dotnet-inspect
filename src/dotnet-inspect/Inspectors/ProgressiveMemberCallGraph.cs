@@ -39,9 +39,10 @@ public enum CallGraphTier
 /// <summary>
 /// One progressive snapshot of a member call graph: the selected overload as both an outbound
 /// (callee) and inbound (caller) tree root. Presentation-free — a host renders these roots with its
-/// own per-section tree rendering, or projects them with
-/// <c>ILInspector.CallGraph.CallGraphMermaid.Render(CallerRoot, CalleeRoot)</c> ("with or without
-/// mermaid"). Either root may be null (there is no caller root in the first <see cref="CallGraphTier.Callees"/>
+/// own per-section tree rendering, or projects them into a format-neutral node/edge graph with
+/// <c>ILInspector.CallGraph.CallGraphProjection.Create(CallerRoot, CalleeRoot)</c> and renders that
+/// in whatever format it wants ("with or without mermaid"). Either root may be null (there is no
+/// caller root in the first <see cref="CallGraphTier.Callees"/>
 /// layer); both are the same selected member.
 /// </summary>
 public sealed record MemberCallGraphView(

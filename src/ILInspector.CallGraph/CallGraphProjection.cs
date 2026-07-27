@@ -41,7 +41,13 @@ public enum CallGraphNodeKind
 /// itself instead.
 /// </param>
 /// <param name="Kind">The strongest classification observed across every occurrence.</param>
-public sealed record CallGraphNode(int Id, MemberRef Member, string Label, CallGraphNodeKind Kind);
+/// <param name="Perf">
+/// The analysis cues (fanout, fanin, depth, loop, signals, caller scope) observed for this
+/// member, merged across both walk directions, or null when neither observed any. These are
+/// facts about the member, not presentation: a host projects whichever it was asked for and
+/// ignores the rest.
+/// </param>
+public sealed record CallGraphNode(int Id, MemberRef Member, string Label, CallGraphNodeKind Kind, CallTreePerf? Perf = null);
 
 /// <summary>
 /// One directed call edge. The direction is always "caller calls callee", so an inbound
@@ -138,7 +144,10 @@ public sealed class CallGraphProjection
         // The selected overload is the single centered node shared by both trees; each
         // tree's root *is* that focus, so map both roots to the same id. This keeps a
         // bodiless placeholder root from becoming a second, stray "?" node.
-        int focusId = builder.RegisterFocus(focus);
+        // Each tree measured half of the focus: the callee root owns fan-out, the caller
+        // root owns fan-in and the root classification. Merge them rather than picking one,
+        // or the focus reports a direction it never measured.
+        int focusId = builder.RegisterFocus(focus, MergePerf(calleeRoot?.Perf, callerRoot?.Perf));
         if (callerRoot is not null)
             builder.WalkCallers(callerRoot, focusId);
         if (calleeRoot is not null)
@@ -160,12 +169,13 @@ public sealed class CallGraphProjection
         return Create(null, calleeRoot);
     }
 
-    private sealed class MutableNode(int id, MemberRef member, string label, CallGraphNodeKind kind)
+    private sealed class MutableNode(int id, MemberRef member, string label, CallGraphNodeKind kind, CallTreePerf? perf)
     {
         public int Id { get; } = id;
         public MemberRef Member { get; } = member;
         public string Label { get; } = label;
         public CallGraphNodeKind Kind { get; set; } = kind;
+        public CallTreePerf? Perf { get; set; } = perf;
     }
 
     private sealed class Builder
@@ -175,14 +185,14 @@ public sealed class CallGraphProjection
         private readonly Dictionary<(int From, int To), int> _edgeIndex = [];
         private readonly List<CallGraphEdge> _edges = [];
 
-        public int RegisterFocus(MemberRef member) => GetOrAdd(member, CallGraphNodeKind.Focus);
+        public int RegisterFocus(MemberRef member, CallTreePerf? perf) => GetOrAdd(member, CallGraphNodeKind.Focus, perf);
 
         /// <summary>Walk a reverse (caller) tree: each child calls its parent, so edges point child → parent.</summary>
         public void WalkCallers(CallTreeNode node, int nodeId)
         {
             foreach (var child in node.Children)
             {
-                int childId = GetOrAdd(child.Member, KindFor(child.Status));
+                int childId = GetOrAdd(child.Member, KindFor(child.Status), child.Perf);
                 AddEdge(childId, nodeId, LoopLabel(child.Perf));
                 WalkCallers(child, childId);
             }
@@ -193,7 +203,7 @@ public sealed class CallGraphProjection
         {
             foreach (var child in node.Children)
             {
-                int childId = GetOrAdd(child.Member, KindFor(child.Status));
+                int childId = GetOrAdd(child.Member, KindFor(child.Status), child.Perf);
                 AddEdge(nodeId, childId, LoopLabel(child.Perf));
                 WalkCallees(child, childId);
             }
@@ -203,18 +213,18 @@ public sealed class CallGraphProjection
         {
             var nodes = ImmutableArray.CreateBuilder<CallGraphNode>(_nodes.Count);
             foreach (var node in _nodes)
-                nodes.Add(new CallGraphNode(node.Id, node.Member, node.Label, node.Kind));
+                nodes.Add(new CallGraphNode(node.Id, node.Member, node.Label, node.Kind, node.Perf));
             return new CallGraphProjection(nodes.MoveToImmutable(), [.. _edges]);
         }
 
-        private int GetOrAdd(MemberRef member, CallGraphNodeKind candidate)
+        private int GetOrAdd(MemberRef member, CallGraphNodeKind candidate, CallTreePerf? perf)
         {
             var key = IdentityKey(member);
             if (!_ids.TryGetValue(key, out var id))
             {
                 id = _nodes.Count;
                 _ids[key] = id;
-                _nodes.Add(new MutableNode(id, member, Label(member), candidate));
+                _nodes.Add(new MutableNode(id, member, Label(member), candidate, perf));
                 return id;
             }
 
@@ -224,6 +234,9 @@ public sealed class CallGraphProjection
             var info = _nodes[id];
             if (candidate > info.Kind)
                 info.Kind = candidate;
+            // A member reached by both walks was measured twice, each time by a walk that
+            // only indexes one direction, so merge the observations field by field.
+            info.Perf = MergePerf(info.Perf, perf);
             return id;
         }
 
@@ -295,4 +308,41 @@ public sealed class CallGraphProjection
         => perf is { InLoop: true } p
             ? string.IsNullOrEmpty(p.LoopHint) ? "loop" : p.LoopHint
             : null;
+
+    /// <summary>
+    /// Combines two observations of the same member, one per walk direction.
+    /// </summary>
+    /// <remarks>
+    /// Neither walk sees the whole member. A caller tree indexes the caller scope and reports
+    /// fan-in, the root classification, and cross-assembly source, but hard-codes fan-out to 0.
+    /// A callee tree indexes the callee scope and reports fan-out, but never classifies a root.
+    /// Picking one record therefore publishes a direction that was never measured, so each field
+    /// is merged by the side that actually measured it. Degrees and depth are lower bounds over
+    /// whichever scope set that walk indexed, so the larger observation is the better-informed
+    /// one and a direction that does not measure a degree reports 0 and can never win.
+    /// </remarks>
+    private static CallTreePerf? MergePerf(CallTreePerf? first, CallTreePerf? second)
+    {
+        if (first is null)
+            return second;
+        if (second is null)
+            return first;
+
+        return first with
+        {
+            Fanout = Math.Max(first.Fanout, second.Fanout),
+            Fanin = Math.Max(first.Fanin, second.Fanin),
+            MaxDepth = Math.Max(first.MaxDepth, second.MaxDepth),
+            InLoop = first.InLoop || second.InLoop,
+            LoopHint = first.InLoop ? first.LoopHint : second.LoopHint,
+            RootKind = first.RootKind ?? second.RootKind,
+            Signals = PreferMeasured(first.Signals, second.Signals),
+            Source = first.Source ?? second.Source,
+        };
+
+        // Both walks default a member they could not resolve to the None singleton, so a
+        // by-reference test distinguishes "no signals were measured" from "none were found".
+        static MethodSignals? PreferMeasured(MethodSignals? first, MethodSignals? second)
+            => first is not null && !ReferenceEquals(first, MethodSignals.None) ? first : second ?? first;
+    }
 }

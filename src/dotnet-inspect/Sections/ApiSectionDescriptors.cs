@@ -556,7 +556,6 @@ public static class ApiMemberOverloadSectionDescriptors
             .Add<ApiMemberSectionDescriptors.CostFacts>(HasSingleBodyBackedMember)
             .Add<ApiMemberDetailSectionDescriptors.Callers>()
             .Add<ApiMemberDetailSectionDescriptors.CallGraph>()
-            .Add<ApiMemberDetailSectionDescriptors.CallerGraph>()
             .Add<ApiMemberDetailSectionDescriptors.UnsafeOperations>()
             .Add<ApiMemberSectionDescriptors.TopLeverage>(HasSingleBodyBackedMember)
             .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>(HasSingleBodyBackedMember)
@@ -613,7 +612,6 @@ public static class ApiMemberDetailSectionDescriptors
             .Add<ApiMemberSectionDescriptors.CostFacts>()
             .Add<Callers>()
             .Add<CallGraph>()
-            .Add<CallerGraph>()
             .Add<UnsafeOperations>()
             .Add<ApiMemberSectionDescriptors.TopLeverage>()
             .Add<ApiMemberSectionDescriptors.OptimizationOpportunities>()
@@ -809,18 +807,6 @@ public static class ApiMemberDetailSectionDescriptors
     public sealed class CallGraph : ISectionDescriptor<ApiType>
     {
         public static string Name => SectionNames.CallGraph;
-        public static bool IsExpensive => false;
-        public static bool ExplicitOnly => true;
-        public static bool ProbeEffectiveness => false;
-        public static string? ScannerKey => null;
-        public static bool CanRender(ApiType model)
-            => model.Members.Count == 1
-               && model.Members.Any(ApiMemberSectionDescriptors.IsBodyBacked);
-    }
- 
-    public sealed class CallerGraph : ISectionDescriptor<ApiType>
-    {
-        public static string Name => SectionNames.CallerGraph;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static bool ProbeEffectiveness => false;
