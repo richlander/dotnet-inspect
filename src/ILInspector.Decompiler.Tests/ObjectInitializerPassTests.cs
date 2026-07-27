@@ -517,6 +517,25 @@ public class ObjectInitializerPassTests
         Assert.Empty(function.Descendants.OfType<ObjectInitializerExpression>());
     }
 
+    // #3272 provenance robustness (GPT adversarial finding): the leading constructor
+    // argument is a STATIC PROPERTY read. PropertySugarPass rewrites the getter Call
+    // into a zero-child LoadProperty; it now inherits the Call's SourceOffset, so the
+    // skip guard can still prove the spill ran before the `newobj` and folds. Without
+    // the inherited offset the value subtree carries no offset and the guard would
+    // over-conservatively decline.
+    [Fact]
+    public void TrailingInitializerWithStaticPropertyArgument_FoldsViaUseSite()
+    {
+        var function = Raised(nameof(CfgSampleClass.MakeConsumerWithStaticPropertyArg));
+
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.Equal(["X"], initializer.Members);
+
+        Assert.Contains(
+            "new InitConsumer(CfgSampleClass.StaticTag, new InitTarget { X = a })",
+            CSharpPrinter.Print(function).Output);
+    }
+
     static IrFunction FunctionWithSetter(bool generic, string propertyName = "set_Value")
     {
         var type = TypeRef.Definition("Synthetic", "Samples", "Owner");
