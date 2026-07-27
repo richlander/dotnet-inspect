@@ -815,8 +815,11 @@ public sealed class InlineArrayCollectionPass : IIrPass
     /// (ilasm, obfuscators, other front ends) can interleave an unrelated statement
     /// within the fill or between the fill and the span, or store the slots out of
     /// order; lifting either would move element side effects across a statement or
-    /// invert their evaluation order, silently emitting wrong C#. Anything but the
-    /// canonical run returns false so the shape is left flat.</para>
+    /// invert their evaluation order, silently emitting wrong C#. It can also
+    /// evaluate an effectful expression inside the consumer before the span itself;
+    /// lifting the elements to the span's position would then move them past that
+    /// effect. Anything but the canonical run with a side-effect-free consumer
+    /// prefix returns false so the shape is left flat.</para>
     /// </summary>
     static bool ElementStoresPreserveOrder(IrNode init, List<InlineArrayElementStore> stores, Call span)
     {
@@ -860,8 +863,56 @@ public sealed class InlineArrayCollectionPass : IIrPass
             if (run[i].Slot < run[i - 1].Slot)
                 return false;
 
+        // Block-level order is not sufficient on its own: the element values are
+        // lifted to the span's position *inside* the consuming statement, so
+        // anything the consumer evaluates before the span would move ahead of
+        // those element side effects. csc never puts an effect there — a prefix
+        // argument or receiver evaluated before the collection is spilled to a
+        // stack slot (a side-effect-free load) ahead of the fill, so at the span
+        // position only such loads precede it. Arbitrary IL (ilasm, obfuscators)
+        // can instead evaluate an effectful expression inline before the span
+        // (e.g. `Consume(PrefixEffect(), span)`); lifting the elements past it
+        // would invert their order, so leave that flat.
+        return NothingEffectfulBefore(consumer, span);
+    }
+
+    /// <summary>
+    /// Whether every expression the <paramref name="consumer"/> statement evaluates
+    /// before <paramref name="span"/> is side-effect free, walking the parent chain
+    /// from the span up to (but excluding) the consumer and checking each earlier
+    /// sibling. Mirrors the same-named guard in <see cref="RangeFromGetSubArrayPass"/>.
+    /// </summary>
+    static bool NothingEffectfulBefore(IrNode consumer, IrNode span)
+    {
+        for (IrNode node = span; node != consumer; node = node.Parent!)
+        {
+            if (node.Parent is not { } parent)
+                return false;
+            for (int i = 0; i < node.ChildIndex; i++)
+                if (parent.Children[i] is not IrExpression sibling || !IsSideEffectFree(sibling))
+                    return false;
+        }
+
         return true;
     }
+
+    /// <summary>
+    /// Allow-list of non-observable expressions, mirroring the same-named helpers
+    /// in <see cref="RangeFromGetSubArrayPass"/> and <see cref="StackAllocSpanPass"/>:
+    /// anything outside the proven-safe set is treated as possibly effectful.
+    /// </summary>
+    static bool IsSideEffectFree(IrExpression expression) => expression switch
+    {
+        Constant or LoadLocal or LoadArgument or LoadStackSlot
+            or LoadLocalAddress or LoadArgumentAddress or SizeOf => true,
+        Unary unary => IsSideEffectFree(unary.Operand),
+        Binary { Kind: BinaryKind.Divide or BinaryKind.Remainder } => false,
+        Binary { IsChecked: true } => false,
+        Binary binary => IsSideEffectFree(binary.Left) && IsSideEffectFree(binary.Right),
+        Convert { IsChecked: true } => false,
+        Convert convert => IsSideEffectFree(convert.Operand),
+        _ => false,
+    };
 
     /// <summary>
     /// Resolves the store that writes <paramref name="elementRef"/>'s slot: a
