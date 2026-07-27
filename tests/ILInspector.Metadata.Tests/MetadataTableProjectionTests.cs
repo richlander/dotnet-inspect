@@ -129,6 +129,179 @@ public class MetadataTableProjectionTests
     }
 
     [Fact]
+    public void ConstantTable_DecodesTypeCode_AndResolvesParentIntoConstantOwner()
+    {
+        var constant = Table(Project(), TableIndex.Constant);
+        Assert.True(constant.RowCount >= 1, "Expected the test assembly to define constants.");
+
+        // Type is the ConstantTypeCode carried as a scalar with an additive
+        // decoded name (e.g. Int32, String, Boolean), never an opaque number.
+        foreach (var row in constant.Rows)
+        {
+            var typeCode = Assert.IsType<MetadataValue.Scalar>(Cell(constant, row, "Type"));
+            Assert.False(string.IsNullOrEmpty(typeCode.Display));
+
+            // Parent is a HasConstant coded index; every edge lands in one of the
+            // three owner tables and points at a live row.
+            var parent = Assert.IsType<MetadataValue.Handle>(Cell(constant, row, "Parent"));
+            Assert.Contains(
+                parent.Reference.TargetTable,
+                new[] { TableIndex.Field, TableIndex.Param, TableIndex.Property });
+            Assert.True(parent.Reference.TargetRowId >= 1);
+        }
+
+        // The column advertises all three HasConstant candidate targets.
+        var parentColumn = constant.Columns[ColumnIndex(constant, "Parent")];
+        Assert.Equal(MetadataColumnKind.Handle, parentColumn.Kind);
+        Assert.Contains(TableIndex.Field, parentColumn.CandidateTargets);
+        Assert.Contains(TableIndex.Param, parentColumn.CandidateTargets);
+        Assert.Contains(TableIndex.Property, parentColumn.CandidateTargets);
+
+        // At least one constant carries a value blob preview.
+        Assert.Contains(
+            constant.Rows,
+            row => Cell(constant, row, "Value") is MetadataValue.HeapReference { Heap: HeapKind.Blob });
+    }
+
+    [Fact]
+    public void StandAloneSigTable_IsBoundedBlobPreview()
+    {
+        var standAloneSig = Table(Project(), TableIndex.StandAloneSig);
+        var row = standAloneSig.Rows.First();
+
+        var signature = Assert.IsType<MetadataValue.HeapReference>(Cell(standAloneSig, row, "Signature"));
+        Assert.Equal(HeapKind.Blob, signature.Heap);
+        Assert.Null(signature.Text);
+    }
+
+    [Fact]
+    public void MethodImplTable_ResolvesClassAndMethodEdges()
+    {
+        var methodImpl = Table(Project(), TableIndex.MethodImpl);
+        Assert.True(methodImpl.RowCount >= 1, "Expected the test assembly to define method overrides.");
+
+        foreach (var row in methodImpl.Rows)
+        {
+            // Class is a direct TypeDef handle (not a coded index).
+            var declaringType = Assert.IsType<MetadataValue.Handle>(Cell(methodImpl, row, "Class"));
+            Assert.Equal(TableIndex.TypeDef, declaringType.Reference.TargetTable);
+
+            // Body and declaration are MethodDefOrRef coded indices.
+            var body = Assert.IsType<MetadataValue.Handle>(Cell(methodImpl, row, "MethodBody"));
+            Assert.Contains(body.Reference.TargetTable, new[] { TableIndex.MethodDef, TableIndex.MemberRef });
+
+            var declaration = Assert.IsType<MetadataValue.Handle>(Cell(methodImpl, row, "MethodDeclaration"));
+            Assert.Contains(declaration.Reference.TargetTable, new[] { TableIndex.MethodDef, TableIndex.MemberRef });
+        }
+
+        var bodyColumn = methodImpl.Columns[ColumnIndex(methodImpl, "MethodBody")];
+        Assert.Contains(TableIndex.MethodDef, bodyColumn.CandidateTargets);
+        Assert.Contains(TableIndex.MemberRef, bodyColumn.CandidateTargets);
+    }
+
+    [Fact]
+    public void TypeSpecTable_IsBoundedBlobPreview()
+    {
+        var typeSpec = Table(Project(), TableIndex.TypeSpec);
+        var row = typeSpec.Rows.First();
+
+        var signature = Assert.IsType<MetadataValue.HeapReference>(Cell(typeSpec, row, "Signature"));
+        Assert.Equal(HeapKind.Blob, signature.Heap);
+        Assert.Null(signature.Text);
+    }
+
+    [Fact]
+    public void AssemblyTable_HasSingleRow_WithDecodedNameHashAlgorithmAndFlags()
+    {
+        var assembly = Table(Project(), TableIndex.Assembly);
+
+        var row = Assert.Single(assembly.Rows);
+        Assert.Equal(1, row.RowId);
+
+        var name = Assert.IsType<MetadataValue.HeapReference>(Cell(assembly, row, "Name"));
+        Assert.Equal(HeapKind.String, name.Heap);
+        Assert.Equal("ILInspector.Metadata.Tests", name.Text);
+
+        // HashAlgId is a single-valued enum surfaced as a scalar with an additive
+        // decoded name (SHA-1 is the csc default), not a bitflag set.
+        var hashAlg = Assert.IsType<MetadataValue.Scalar>(Cell(assembly, row, "HashAlgId"));
+        Assert.False(string.IsNullOrEmpty(hashAlg.Display));
+
+        // Flags is a genuine bitflag enumeration.
+        Assert.IsType<MetadataValue.Flags>(Cell(assembly, row, "Flags"));
+
+        // The four version parts are scalars.
+        Assert.IsType<MetadataValue.Scalar>(Cell(assembly, row, "MajorVersion"));
+        Assert.IsType<MetadataValue.Scalar>(Cell(assembly, row, "RevisionNumber"));
+    }
+
+    [Fact]
+    public void ExportedTypeTable_ResolvesImplementation_ForForwardedType()
+    {
+        // ExportedTypeForwarderFixture forwards MetadataTableProjector, so the
+        // test assembly carries a deterministic ExportedType row.
+        var exportedType = Table(Project(), TableIndex.ExportedType);
+
+        var row = Assert.Single(
+            exportedType.Rows,
+            candidate => StringText(exportedType, candidate, "Name") == "MetadataTableProjector");
+
+        Assert.IsType<MetadataValue.Flags>(Cell(exportedType, row, "Attributes"));
+
+        var @namespace = Assert.IsType<MetadataValue.HeapReference>(Cell(exportedType, row, "Namespace"));
+        Assert.Equal("ILInspector.Metadata", @namespace.Text);
+
+        // A forwarded type's Implementation is an AssemblyRef edge to the defining
+        // assembly; the column advertises the full Implementation coded-index set.
+        var implementation = Assert.IsType<MetadataValue.Handle>(Cell(exportedType, row, "Implementation"));
+        Assert.Equal(TableIndex.AssemblyRef, implementation.Reference.TargetTable);
+
+        var implementationColumn = exportedType.Columns[ColumnIndex(exportedType, "Implementation")];
+        Assert.Contains(TableIndex.File, implementationColumn.CandidateTargets);
+        Assert.Contains(TableIndex.ExportedType, implementationColumn.CandidateTargets);
+        Assert.Contains(TableIndex.AssemblyRef, implementationColumn.CandidateTargets);
+    }
+
+    [Fact]
+    public void GenericParamTable_DecodesNumberAndResolvesOwner()
+    {
+        var genericParam = Table(Project(), TableIndex.GenericParam);
+        Assert.True(genericParam.RowCount >= 1, "Expected the test assembly to define generic parameters.");
+
+        foreach (var row in genericParam.Rows)
+        {
+            Assert.IsType<MetadataValue.Scalar>(Cell(genericParam, row, "Number"));
+            Assert.IsType<MetadataValue.Flags>(Cell(genericParam, row, "Attributes"));
+
+            var owner = Assert.IsType<MetadataValue.Handle>(Cell(genericParam, row, "Owner"));
+            Assert.Contains(owner.Reference.TargetTable, new[] { TableIndex.TypeDef, TableIndex.MethodDef });
+
+            var name = Assert.IsType<MetadataValue.HeapReference>(Cell(genericParam, row, "Name"));
+            Assert.False(string.IsNullOrEmpty(name.Text));
+        }
+
+        var ownerColumn = genericParam.Columns[ColumnIndex(genericParam, "Owner")];
+        Assert.Contains(TableIndex.TypeDef, ownerColumn.CandidateTargets);
+        Assert.Contains(TableIndex.MethodDef, ownerColumn.CandidateTargets);
+    }
+
+    [Fact]
+    public void MethodSpecTable_ResolvesMethod_AndBlobInstantiation()
+    {
+        var methodSpec = Table(Project(), TableIndex.MethodSpec);
+        Assert.True(methodSpec.RowCount >= 1, "Expected the test assembly to instantiate generic methods.");
+
+        foreach (var row in methodSpec.Rows)
+        {
+            var method = Assert.IsType<MetadataValue.Handle>(Cell(methodSpec, row, "Method"));
+            Assert.Contains(method.Reference.TargetTable, new[] { TableIndex.MethodDef, TableIndex.MemberRef });
+
+            var instantiation = Assert.IsType<MetadataValue.HeapReference>(Cell(methodSpec, row, "Instantiation"));
+            Assert.Equal(HeapKind.Blob, instantiation.Heap);
+        }
+    }
+
+    [Fact]
     public void RowBudget_TruncatesExplicitly_NeverSilently()
     {
         var full = Table(Project(), TableIndex.TypeDef);
