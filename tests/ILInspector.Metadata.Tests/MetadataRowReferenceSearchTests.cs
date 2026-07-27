@@ -498,4 +498,61 @@ public class MetadataRowReferenceSearchTests
             Assert.True(set.IsComplete);
         }
     }
+
+    /// <summary>
+    /// The invariant the malformed-edge gate rests on: an edge cell only ever
+    /// appears in a column declared as an edge column. If a column that can
+    /// produce a <see cref="MetadataValue.Handle"/> or
+    /// <see cref="MetadataValue.Range"/> were declared <c>Heap</c>, <c>Scalar</c>,
+    /// or <c>Flags</c>, a malformed cell there would be a lost edge the search
+    /// silently ignores — the exact bug the gate exists to prevent.
+    /// </summary>
+    [Fact]
+    public void EdgeCells_OnlyEverAppearInEdgeColumns()
+    {
+        using var peReader = OpenSelfFromBytes();
+        var projection = FullProjection(peReader);
+
+        int inspected = 0;
+        foreach (var table in projection.Tables)
+        {
+            foreach (var row in table.Rows)
+            {
+                for (int column = 0; column < row.Cells.Length; column++)
+                {
+                    var kind = table.Columns[column].Kind;
+                    inspected++;
+
+                    if (row.Cells[column] is MetadataValue.Handle)
+                        Assert.Equal(MetadataColumnKind.Handle, kind);
+
+                    if (row.Cells[column] is MetadataValue.Range)
+                        Assert.Equal(MetadataColumnKind.HandleRange, kind);
+                }
+            }
+        }
+
+        // Guards against the loop above passing because it saw nothing.
+        Assert.True(inspected > 10_000, $"only {inspected} cells inspected");
+    }
+
+    /// <summary>
+    /// The converse: every column kind the gate treats as an edge column is
+    /// actually reachable in real metadata, so the gate is not written against
+    /// kinds that never occur.
+    /// </summary>
+    [Fact]
+    public void BothEdgeColumnKinds_OccurInRealMetadata()
+    {
+        using var peReader = OpenSelfFromBytes();
+        var projection = FullProjection(peReader);
+
+        var kinds = projection.Tables
+            .SelectMany(t => t.Columns)
+            .Select(c => c.Kind)
+            .ToHashSet();
+
+        Assert.Contains(MetadataColumnKind.Handle, kinds);
+        Assert.Contains(MetadataColumnKind.HandleRange, kinds);
+    }
 }
