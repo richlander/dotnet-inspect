@@ -82,6 +82,10 @@ public sealed class ProgressiveMemberCallGraph
     readonly int _depth;
     readonly int _maxNodes;
 
+    // These memoized session/scope fields are intentionally unsynchronized: the class contract is a
+    // single logical consumer (see the type doc), so pull calls and RunAsync never touch them
+    // concurrently and each index is still built at most once. If a future consumer needs concurrent
+    // pull+push, switch these to Lazy<T> with ExecutionAndPublication.
     MethodBodyInspectionSession? _scopedSession;
     MethodBodyInspectionSession? _fullSession;
     List<Analysis.LibraryBodyIndex>? _crossScopes;

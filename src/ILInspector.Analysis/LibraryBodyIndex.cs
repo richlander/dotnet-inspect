@@ -1732,10 +1732,14 @@ public sealed class LibraryBodyIndex
 
             if (key.Length == 0 || !forward.TryGetValue(key, out var rawEdges))
             {
-                // A callee whose defining assembly was never decoded (Unsupported, or a real member
-                // whose home assembly is not in scope) is an unexpandable boundary, not a proven
-                // leaf. Only a decoded definition (present in the definitions map) with no outbound
-                // edges is a genuine leaf.
+                // No outbound edges: classify the boundary. A callee with no definition entry here
+                // (Unsupported, or a real member whose declaring assembly is neither the target nor
+                // any callee scope) is an unexpandable External boundary, not a proven leaf. An
+                // indexed callee with no outbound edges is a leaf. This reads "indexed" as "decoded",
+                // which holds when the in-scope assemblies were fully decoded — the contract the
+                // product's cross-library layer guarantees by passing full-assembly indexes. As with
+                // the single-assembly builder, a body-scoped index can hold an indexed-but-undecoded
+                // body that would read as a leaf here; hardening that is tracked by issue #3275.
                 var leafStatus = depth > 0 && def is null ? CallTreeStatus.External : CallTreeStatus.Leaf;
                 return new CallTreeNode(member, kind, leafStatus, [], new CallTreePerf(0, fanin, 1, inLoop, loopHint, null, sig, source));
             }
