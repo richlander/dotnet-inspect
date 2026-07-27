@@ -123,7 +123,8 @@ public class SourceLinkResolver
         // or the enclosing type header instead, which misattributes source (issue #3278).
         int sigStart = start;
         bool startsAtDeclaration = start >= 1 && start <= lines.Length
-            && IsMemberSignatureLine(lines[start - 1].TrimStart(), isDestructor, simpleTypeName);
+            && (IsMemberSignatureLine(lines[start - 1].TrimStart(), isDestructor, simpleTypeName)
+                || DeclaresMember(lines[start - 1].TrimStart(), methodName));
         for (int i = start - 2; !startsAtDeclaration && i >= Math.Max(0, start - 15); i--)
         {
             var trimmed = lines[i].TrimStart();
@@ -139,9 +140,7 @@ public class SourceLinkResolver
             }
 
             sigStart = i + 1;
-            if (trimmed.StartsWith("public") || trimmed.StartsWith("private")
-                || trimmed.StartsWith("protected") || trimmed.StartsWith("internal")
-                || trimmed.StartsWith("static")
+            if (StartsWithDeclarationModifier(trimmed)
                 || (isDestructor && IsDestructorSignatureLine(trimmed, simpleTypeName))
                 || trimmed.Contains(methodName))
                 break;
@@ -189,20 +188,66 @@ public class SourceLinkResolver
 
     /// <summary>
     /// True when <paramref name="trimmed"/> (a leading-whitespace-stripped line) begins a member
-    /// declaration, judged by an accessibility or <c>static</c> modifier. Used only to decide
-    /// whether a first sequence point already sits on its member's declaration line, so the
-    /// backward signature scan in <see cref="ExtractMethodBody"/> can be skipped.
+    /// declaration, judged by a leading declaration modifier. Used both to break the backward
+    /// signature scan in <see cref="ExtractMethodBody"/> and to decide whether a first sequence
+    /// point already sits on its member's declaration line, so that scan can be skipped.
     /// <para>
     /// This deliberately omits the scan's <c>Contains(methodName)</c> clause: that clause is a
     /// safe last resort while walking up toward a known-preceding signature, but a method whose
     /// first statement recurses would spell its own name and be mistaken for its declaration.
     /// </para>
+    /// <para>
+    /// A member declared with no modifier at all — an implicitly private member, or an interface
+    /// member — is recognized separately by <see cref="DeclaresMember"/>, which anchors on the
+    /// member's own name rather than on a modifier.
+    /// </para>
     /// </summary>
     private static bool IsMemberSignatureLine(string trimmed, bool isDestructor, string? simpleTypeName)
-        => trimmed.StartsWith("public") || trimmed.StartsWith("private")
-            || trimmed.StartsWith("protected") || trimmed.StartsWith("internal")
-            || trimmed.StartsWith("static")
+        => StartsWithDeclarationModifier(trimmed)
             || (isDestructor && IsDestructorSignatureLine(trimmed, simpleTypeName));
+
+    /// <summary>
+    /// Modifiers that can lead a C# member declaration whose body carries sequence points.
+    /// </summary>
+    private static readonly string[] DeclarationModifiers =
+    [
+        "public", "private", "protected", "internal", "static",
+        "abstract", "async", "extern", "override", "partial",
+        "readonly", "required", "sealed", "unsafe", "virtual"
+    ];
+
+    /// <summary>
+    /// True when <paramref name="trimmed"/> opens with one of <see cref="DeclarationModifiers"/>
+    /// as a whole token followed by the start of a type or name.
+    /// <para>
+    /// The token boundary matters in both directions: it keeps <c>internalCounter = 1;</c> and
+    /// <c>file.Write(x);</c> from reading as declarations, and the follower check keeps the
+    /// <c>unsafe { ... }</c> block statement from doing so. A <c>(</c> is accepted as a follower
+    /// so a tuple-returning declaration still matches; no modifier is a valid expression, so no
+    /// statement can open that way.
+    /// </para>
+    /// </summary>
+    private static bool StartsWithDeclarationModifier(string trimmed)
+    {
+        foreach (var modifier in DeclarationModifiers)
+        {
+            if (!trimmed.StartsWith(modifier, StringComparison.Ordinal))
+                continue;
+
+            int i = modifier.Length;
+            if (i >= trimmed.Length || !char.IsWhiteSpace(trimmed[i]))
+                continue;
+
+            while (i < trimmed.Length && char.IsWhiteSpace(trimmed[i]))
+                i++;
+
+            if (i < trimmed.Length
+                && (char.IsLetter(trimmed[i]) || trimmed[i] == '_' || trimmed[i] == '@' || trimmed[i] == '('))
+                return true;
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// True when <paramref name="line"/> ends a declaration outright, so no trailing brace has
@@ -212,6 +257,110 @@ public class SourceLinkResolver
     {
         var trimmed = line.TrimEnd();
         return trimmed.EndsWith(';') || trimmed.EndsWith('}');
+    }
+
+    /// <summary>
+    /// Words that can open a statement, and so rule out a declaration no matter what follows.
+    /// </summary>
+    private static readonly HashSet<string> StatementOpeners = new(StringComparer.Ordinal)
+    {
+        "return", "throw", "yield", "await", "if", "while", "for", "foreach", "do", "switch",
+        "case", "using", "lock", "fixed", "checked", "unchecked", "var", "new", "base", "this",
+        "ref", "out", "in", "goto", "else", "try", "catch", "finally", "break", "continue",
+        "default", "is", "as", "stackalloc", "nameof", "typeof", "sizeof", "delegate"
+    };
+
+    /// <summary>
+    /// True when <paramref name="trimmed"/> declares the member named by
+    /// <paramref name="methodName"/> without a leading modifier — an interface member or an
+    /// implicitly private one, which <see cref="IsMemberSignatureLine"/> cannot recognize.
+    /// <para>
+    /// The line must read as a declaration prefix: a run of type-shaped tokens that reaches the
+    /// member's own name, followed by <c>(</c>, <c>&lt;</c>, <c>{</c>, or <c>=&gt;</c>. Requiring
+    /// the name to follow a return type — and rejecting a leading statement keyword — is what
+    /// separates <c>int Target =&gt; 1;</c> from a body line that merely spells the name, such as
+    /// a recursive <c>return Target(n - 1);</c> or an assignment <c>x = Target();</c>. A trailing
+    /// <c>;</c> is deliberately not accepted, so a local declaration such as <c>Foo Target;</c>
+    /// does not qualify.
+    /// </para>
+    /// </summary>
+    private static bool DeclaresMember(string trimmed, string methodName)
+    {
+        var name = SourceSpelledMemberName(methodName);
+        if (name.Length == 0)
+            return false;
+
+        int i = 0;
+        bool isFirstToken = true;
+        while (i < trimmed.Length)
+        {
+            while (i < trimmed.Length && char.IsWhiteSpace(trimmed[i]))
+                i++;
+            if (i >= trimmed.Length)
+                return false;
+
+            char c = trimmed[i];
+            if (char.IsLetter(c) || c == '_' || c == '@')
+            {
+                int tokenStart = i;
+                while (i < trimmed.Length
+                    && (char.IsLetterOrDigit(trimmed[i]) || trimmed[i] == '_' || trimmed[i] == '@'))
+                    i++;
+                var token = trimmed[tokenStart..i];
+
+                if (isFirstToken)
+                {
+                    if (StatementOpeners.Contains(token))
+                        return false;
+                    isFirstToken = false;
+                    continue;
+                }
+
+                if (token != name)
+                    continue;
+
+                int j = i;
+                while (j < trimmed.Length && char.IsWhiteSpace(trimmed[j]))
+                    j++;
+                if (j >= trimmed.Length)
+                    return false;
+                if (trimmed[j] is '(' or '<' or '{')
+                    return true;
+                return trimmed[j] == '=' && j + 1 < trimmed.Length && trimmed[j + 1] == '>';
+            }
+
+            // Punctuation that can appear within a qualified, generic, array, or nullable type.
+            if (c is '.' or '<' or '>' or ',' or '[' or ']' or '?')
+            {
+                i++;
+                continue;
+            }
+
+            return false;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The name a member is spelled with in source: an accessor's <c>get_</c>/<c>set_</c>/
+    /// <c>add_</c>/<c>remove_</c> prefix names the owning property or event, and an explicit
+    /// interface implementation carries a qualifying prefix that source states separately.
+    /// </summary>
+    private static string SourceSpelledMemberName(string methodName)
+    {
+        var name = methodName.AsSpan();
+        int lastDot = name.LastIndexOf('.');
+        if (lastDot >= 0)
+            name = name[(lastDot + 1)..];
+
+        foreach (var prefix in (ReadOnlySpan<string>)["get_", "set_", "add_", "remove_"])
+        {
+            if (name.StartsWith(prefix, StringComparison.Ordinal))
+                return name[prefix.Length..].ToString();
+        }
+
+        return name.ToString();
     }
 
     /// <summary>

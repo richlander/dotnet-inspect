@@ -467,4 +467,168 @@ public class ExtractMethodBodyTests
             "public int Fact(int n)\n{\n    return n <= 1 ? 1 : n * Fact(n - 1);\n}",
             body);
     }
+
+    [Theory]
+    [InlineData("unsafe")]
+    [InlineData("extern")]
+    [InlineData("async")]
+    [InlineData("partial")]
+    [InlineData("sealed override")]
+    [InlineData("required")]
+    public void ModifierLedDeclaration_SequencePointOnDeclaration_ExcludesPrecedingMember(string modifiers)
+    {
+        var declaration = $"    {modifiers} int Target => 1;";
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public int Before() => 0;",                 // 3
+            "",                                             // 4
+            declaration,                                    // 5  <- StartLine/EndLine
+            "}");                                           // 6
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Target");
+
+        Assert.Equal(declaration.TrimStart(), body);
+    }
+
+    [Fact]
+    public void TupleReturningDeclaration_SequencePointOnDeclaration_ExcludesPrecedingMember()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public int Before() => 0;",                 // 3
+            "",                                             // 4
+            "    public (int X, int Y) Target => (1, 2);",   // 5  <- StartLine/EndLine
+            "}");                                           // 6
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Target");
+
+        Assert.Equal("public (int X, int Y) Target => (1, 2);", body);
+    }
+
+    [Fact]
+    public void UnsafeBlockStatement_IsNotMistakenForDeclaration_SignatureStillCaptured()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public void Target()",                      // 3
+            "    {",                                        // 4
+            "        unsafe { Poke(); }",                    // 5  <- StartLine/EndLine
+            "    }",                                         // 6
+            "}");                                            // 7
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+
+        Assert.Equal(
+            "public void Target()\n{\n    unsafe { Poke(); }\n}",
+            body);
+    }
+
+    [Fact]
+    public void IdentifierSharingModifierPrefix_IsNotMistakenForDeclaration()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public void Target()",                      // 3
+            "    {",                                        // 4
+            "        internalCounter = 1;",                  // 5  <- StartLine/EndLine
+            "    }",                                         // 6
+            "}");                                            // 7
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+
+        Assert.Equal(
+            "public void Target()\n{\n    internalCounter = 1;\n}",
+            body);
+    }
+
+    [Fact]
+    public void ModifierlessInterfaceMember_SequencePointOnDeclaration_ExcludesPrecedingMember()
+    {
+        var source = Lines(
+            "public interface IDefault",                     // 1
+            "{",                                            // 2
+            "    int Before => 0;",                          // 3
+            "    int Target => 1;",                          // 4  <- StartLine/EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Target");
+
+        Assert.Equal("int Target => 1;", body);
+    }
+
+    [Fact]
+    public void ImplicitlyPrivateAutoProperty_SequencePointOnDeclaration_ExcludesPrecedingMember()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    string? Before { get; set; }",              // 3
+            "    string? Target { get; set; }",              // 4  <- StartLine/EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "set_Target");
+
+        Assert.Equal("string? Target { get; set; }", body);
+    }
+
+    [Fact]
+    public void ExplicitInterfaceImplementation_SequencePointOnDeclaration_ExcludesPrecedingMember()
+    {
+        var source = Lines(
+            "class C : IDefault",                           // 1
+            "{",                                            // 2
+            "    int Before => 0;",                          // 3
+            "    int IDefault.Target => 1;",                 // 4  <- StartLine/EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(
+            source, startLine: 4, endLine: 4, methodName: "IDefault.get_Target");
+
+        Assert.Equal("int IDefault.Target => 1;", body);
+    }
+
+    [Theory]
+    [InlineData("return Target(n - 1);")]
+    [InlineData("_cache = Target();")]
+    [InlineData("var next = Target();")]
+    public void BodyLineSpellingMemberName_IsNotMistakenForDeclaration(string firstStatement)
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    int Target(int n)",                         // 3
+            "    {",                                        // 4
+            $"        {firstStatement}",                     // 5  <- StartLine/EndLine
+            "    }",                                         // 6
+            "}");                                            // 7
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+
+        Assert.Equal(
+            $"int Target(int n)\n{{\n    {firstStatement}\n}}",
+            body);
+    }
+
+    [Fact]
+    public void LocalDeclarationSpellingMemberName_IsNotMistakenForDeclaration()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public void Run()",                         // 3
+            "    {",                                        // 4
+            "        Widget Target;",                        // 5  <- StartLine/EndLine
+            "    }",                                         // 6
+            "}");                                            // 7
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+
+        Assert.Equal(
+            "public void Run()\n{\n    Widget Target;\n}",
+            body);
+    }
 }
