@@ -750,4 +750,86 @@ public class ExtractMethodBodyTests
 
         Assert.Equal("Dictionary<string, int> Target => new();", body);
     }
+
+    [Fact]
+    public void ReturnTypeSpelledLikeMemberName_IsStillRecognizedAsDeclaration()
+    {
+        var source = Lines(
+            "public interface IDefault",                     // 1
+            "{",                                            // 2
+            "    int Before => 0;",                          // 3
+            "    CancellationToken CancellationToken => default;", // 4  <- StartLine/EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(
+            source, startLine: 4, endLine: 4, methodName: "get_CancellationToken");
+
+        Assert.Equal("CancellationToken CancellationToken => default;", body);
+    }
+
+    [Fact]
+    public void BlockOpeningOnDeclarationLine_StillRecoversClosingBrace()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public int Target() {",                     // 3  <- StartLine
+            "        return 1;",                             // 4  <- EndLine
+            "    }",                                         // 5
+            "}");                                            // 6
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
+
+        Assert.Equal(
+            "public int Target() {\n    return 1;\n}",
+            body);
+    }
+
+    [Fact]
+    public void SelfTerminatingSingleLineDeclaration_StillSuppressesForwardScan()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public int Target() { return 1; }",         // 3  <- StartLine/EndLine
+            "}");                                           // 4
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "Target");
+
+        Assert.Equal("public int Target() { return 1; }", body);
+    }
+
+    [Fact]
+    public void ModifierlessTupleReturnDeclaration_ExcludesPrecedingMember()
+    {
+        var source = Lines(
+            "public interface IDefault",                     // 1
+            "{",                                            // 2
+            "    int Before => 0;",                          // 3
+            "    (int X, int Y) Target => (1, 2);",          // 4  <- StartLine/EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Target");
+
+        Assert.Equal("(int X, int Y) Target => (1, 2);", body);
+    }
+
+    [Fact]
+    public void DeconstructionAssignment_IsNotMistakenForTupleDeclaration()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public void Run()",                         // 3
+            "    {",                                        // 4
+            "        (var a, var b) = Target();",            // 5  <- StartLine/EndLine
+            "    }",                                         // 6
+            "}");                                            // 7
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+
+        Assert.Equal(
+            "public void Run()\n{\n    (var a, var b) = Target();\n}",
+            body);
+    }
 }

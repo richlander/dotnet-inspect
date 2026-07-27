@@ -151,9 +151,12 @@ public class SourceLinkResolver
 
         // A declaration whose range already terminates on its last line — an expression body's
         // ";" or an auto-property's "{ get; set; }" — owns no trailing brace to recover, so the
-        // next "}" below it closes the enclosing type instead (issue #3278).
+        // next "}" below it closes the enclosing type instead (issue #3278). A range that still
+        // has a block open does own one, even when its last line ends in ";": a signature whose
+        // "{" sits on the declaration line ends its sequence range on the last statement.
         bool endsAtDeclaration = startsAtDeclaration && end >= 1 && end <= lines.Length
-            && IsSelfTerminatingLine(lines[end - 1]);
+            && IsSelfTerminatingLine(lines[end - 1])
+            && !HasUnclosedBlock(lines, from, to);
 
         // Scan forward to include the closing brace.
         for (int i = to; !endsAtDeclaration && i < Math.Min(to + 3, lines.Length); i++)
@@ -260,6 +263,32 @@ public class SourceLinkResolver
     }
 
     /// <summary>
+    /// True when the captured range <c>[from, to)</c> opens more blocks than it closes, so a
+    /// closing brace still has to be recovered below it. A single line is never treated as
+    /// unclosed on a brace count alone, because a brace inside a string literal would otherwise
+    /// send the forward scan after the enclosing type's brace.
+    /// </summary>
+    private static bool HasUnclosedBlock(string[] lines, int from, int to)
+    {
+        if (to - from <= 1)
+            return false;
+
+        int depth = 0;
+        for (int i = Math.Max(0, from); i < Math.Min(to, lines.Length); i++)
+        {
+            foreach (char c in lines[i])
+            {
+                if (c == '{')
+                    depth++;
+                else if (c == '}')
+                    depth--;
+            }
+        }
+
+        return depth > 0;
+    }
+
+    /// <summary>
     /// Words that can open a statement, and so rule out a declaration no matter what follows.
     /// </summary>
     private static readonly HashSet<string> StatementOpeners = new(StringComparer.Ordinal)
@@ -326,10 +355,15 @@ public class SourceLinkResolver
                 if (tokenIndex == 0 && StatementOpeners.Contains(token))
                     return false;
 
+                // A token matching the name is only the member's own name when a return type
+                // precedes it, so a type spelled like its member — CancellationToken
+                // CancellationToken => default; — must keep scanning rather than stop here.
                 bool isNamePosition = token == name
                     || (isPropertyAccessor && token == "this");
-                if (isNamePosition)
-                    return chainStart >= 1 && FollowsDeclarationName(trimmed, i, token == "this");
+                if (isNamePosition
+                    && chainStart >= 1
+                    && FollowsDeclarationName(trimmed, i, token == "this"))
+                    return true;
 
                 tokenIndex++;
                 continue;
@@ -351,6 +385,22 @@ public class SourceLinkResolver
                 if (after < 0)
                     return false;
                 i = after;
+                continue;
+            }
+
+            // A tuple return type occupies the type position and carries no leading identifier,
+            // so it is consumed whole and counts as the type token the member name follows.
+            // Only the type position accepts one, which keeps a parenthesized expression
+            // elsewhere on the line from standing in for a return type.
+            if (c == '(' && tokenIndex == 0)
+            {
+                int after = SkipBalanced(trimmed, i, '(', ')');
+                if (after < 0)
+                    return false;
+                i = after;
+                chainStart = tokenIndex;
+                tokenIndex++;
+                afterDot = false;
                 continue;
             }
 
