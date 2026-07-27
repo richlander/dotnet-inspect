@@ -142,7 +142,7 @@ public static class MdiCommand
 
             projection = session.MetadataTables(options);
         }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or IOException)
+        catch (Exception ex) when (IsExpectedReadFailure(ex))
         {
             error.WriteLine($"Error: cannot read metadata from '{assemblyPath}': {ex.Message}");
             return 1;
@@ -155,8 +155,39 @@ public static class MdiCommand
         }
 
         MetadataProjectionRenderer.Render(projection, output, format);
+
+        // Markdown announces truncation inline in each table heading. The machine
+        // formats carry no heading, so a bounded table would otherwise be
+        // indistinguishable from a complete one (and a fully-clipped request could
+        // even emit nothing at all). Report truncation on the error writer so it
+        // stays visible without polluting the row stream on stdout.
+        if (format != MetadataTableFormat.Markdown)
+        {
+            foreach (var table in projection.Tables)
+            {
+                if (table.Truncation is { } truncation)
+                    error.WriteLine(
+                        $"Note: table {table.Name} truncated to {truncation.ProjectedRows} of {truncation.RowCount} rows; raise --max-rows to include more.");
+            }
+        }
+
         return 0;
     }
+
+    /// <summary>
+    /// Whether <paramref name="ex"/> is an expected failure of opening or reading
+    /// an assembly file — a bad image, an unreadable or inaccessible file, or an
+    /// invalid path — as opposed to an unexpected programming error. These are
+    /// turned into a clean diagnostic and a non-zero exit; anything else is left
+    /// to propagate.
+    /// </summary>
+    internal static bool IsExpectedReadFailure(Exception ex) =>
+        ex is BadImageFormatException
+           or InvalidOperationException
+           or IOException
+           or UnauthorizedAccessException
+           or ArgumentException
+           or NotSupportedException;
 
     static bool TryParseFormat(string text, out MetadataTableFormat format)
     {

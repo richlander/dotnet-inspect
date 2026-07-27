@@ -165,11 +165,18 @@ public static class MetadataProjectionRenderer
             return "nil";
 
         string target = $"{reference.TargetTable}[{reference.TargetRowId}]";
+
+        // A truncated display must always carry the ellipsis so it is never
+        // mistaken for a whole value — even when the budget clipped it to empty,
+        // which must still render as "(…)" rather than a bare target that looks
+        // like an unavailable display.
+        if (reference.DisplayTruncated)
+            return $"{target} ({reference.Display}{Ellipsis})";
+
         if (string.IsNullOrEmpty(reference.Display))
             return target;
 
-        string display = reference.DisplayTruncated ? reference.Display + Ellipsis : reference.Display;
-        return $"{target} ({display})";
+        return $"{target} ({reference.Display})";
     }
 
     static string FormatRange(HandleRange range)

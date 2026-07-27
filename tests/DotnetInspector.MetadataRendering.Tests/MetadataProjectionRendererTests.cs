@@ -114,6 +114,44 @@ public class MetadataProjectionRendererTests
     }
 
     [Fact]
+    public void Handle_TruncatedDisplay_KeepsEllipsis()
+    {
+        var projection = OneCell(
+            "TypeDef",
+            Column("Extends", MetadataColumnKind.Handle),
+            new MetadataValue.Handle(new HandleRef(TableIndex.TypeRef, 19, 0x01000013, "Sys", DisplayTruncated: true)));
+
+        Assert.Contains("TypeRef[19] (Sys\u2026)", Render(projection));
+    }
+
+    [Fact]
+    public void Handle_EmptyButTruncatedDisplay_StillShowsEllipsis()
+    {
+        // A --max-chars 0 budget clips the display to empty while still marking it
+        // truncated; the cell must not read as a bare, whole target.
+        var projection = OneCell(
+            "TypeDef",
+            Column("Extends", MetadataColumnKind.Handle),
+            new MetadataValue.Handle(new HandleRef(TableIndex.TypeRef, 19, 0x01000013, "", DisplayTruncated: true)));
+
+        Assert.Contains("TypeRef[19] (\u2026)", Render(projection));
+    }
+
+    [Fact]
+    public void Handle_UnavailableDisplay_RendersTargetWithoutParentheses()
+    {
+        var projection = OneCell(
+            "TypeDef",
+            Column("Extends", MetadataColumnKind.Handle),
+            new MetadataValue.Handle(new HandleRef(TableIndex.TypeRef, 19, 0x01000013, Display: null, DisplayTruncated: false)));
+
+        var markdown = Render(projection);
+
+        Assert.Contains("TypeRef[19]", markdown);
+        Assert.DoesNotContain("TypeRef[19] (", markdown);
+    }
+
+    [Fact]
     public void Range_RendersHalfOpenInterval()
     {
         var projection = OneCell(
