@@ -120,7 +120,8 @@ static class AuthoredCorpusHistoryCard
             run.Correct,
             run.Invalid,
             run.InvalidBreakdown is { } breakdown ? breakdown.ProductBodyDefect.ToString(CultureInfo.InvariantCulture) : "—",
-            run.InvalidBreakdown is { } noise ? noise.HarnessShellReconstruction.ToString(CultureInfo.InvariantCulture) : "—");
+            run.InvalidBreakdown is { } noise ? noise.HarnessShellReconstruction.ToString(CultureInfo.InvariantCulture) : "—",
+            $"v{run.Methodology.ToString(CultureInfo.InvariantCulture)}");
 
     // Movement pivots the trend metrics: each metric is a row and each recent run a column, so a
     // MultiSourceRow carries the row's Goal and lets Markout derive the goal glyph (↑/↓) on the label
@@ -132,13 +133,14 @@ static class AuthoredCorpusHistoryCard
             return null;
 
         string[] cols = ColumnKeys(window);
-        return
-        [
+        var rows = new List<MultiSourceRow>
+        {
             ScalarRow("Valid %", Goal.Higher, window, cols, r => r.ValidPct),
             ScalarRow("Correct", Goal.Higher, window, cols, r => r.Correct),
             ScalarRow("Invalid (raw)", Goal.Lower, window, cols, r => r.Invalid),
-            ProductDefectRow(window, cols),
-        ];
+        };
+        rows.AddRange(ProductDefectRows(window, cols));
+        return rows;
     }
 
     static MultiSourceRow ScalarRow(
@@ -153,17 +155,41 @@ static class AuthoredCorpusHistoryCard
     // Runs predating #3096 carry no invalid breakdown; render those columns as an absent cell so the
     // product-defect signal stays honest (no fabricated zero) and Markout's pairwise chain skips them
     // rather than charting a bogus step.
-    static MultiSourceRow ProductDefectRow(IReadOnlyList<HistoryRun> window, string[] cols)
+    //
+    // productBodyDefect is also computed differently across methodology versions (v1 = substitution
+    // control only; v2 = substitution control plus span attribution). Both are lower bounds, but a
+    // tighter rule counts strictly more rows, so the two are not comparable. When the window straddles
+    // a version boundary the metric is split into one row per version — each populated only for its own
+    // columns — so Markout never charts a step across the boundary. When every populated run shares a
+    // version, a single "Product defects" row is emitted (unchanged output for uniform history).
+    static IEnumerable<MultiSourceRow> ProductDefectRows(IReadOnlyList<HistoryRun> window, string[] cols)
+    {
+        bool hasV1 = window.Any(run => run.InvalidBreakdown is not null && run.Methodology <= 1);
+        bool hasV2 = window.Any(run => run.InvalidBreakdown is not null && run.Methodology >= 2);
+        if (hasV1 && hasV2)
+        {
+            yield return ProductDefectRow("Product defects (v1 substitution lower bound)", window, cols, version: 1);
+            yield return ProductDefectRow("Product defects (v2 span-measured lower bound)", window, cols, version: 2);
+        }
+        else
+        {
+            yield return ProductDefectRow("Product defects", window, cols, version: null);
+        }
+    }
+
+    static MultiSourceRow ProductDefectRow(string label, IReadOnlyList<HistoryRun> window, string[] cols, int? version)
     {
         var sources = new Source[window.Count];
         for (int i = 0; i < window.Count; i++)
         {
-            sources[i] = window[i].InvalidBreakdown is { } breakdown
+            bool inVersion = version is null
+                || (version == 1 ? window[i].Methodology <= 1 : window[i].Methodology >= 2);
+            sources[i] = inVersion && window[i].InvalidBreakdown is { } breakdown
                 ? new Source(cols[i], breakdown.ProductBodyDefect)
                 : new Source(cols[i], (IMarkoutCell?)null);
         }
 
-        return new MultiSourceRow("Product defects", sources) { Goal = Goal.Lower };
+        return new MultiSourceRow(label, sources) { Goal = Goal.Lower };
     }
 
     // Column keys are the run dates (the pivoted table's headers). Disambiguate a repeated date with its
@@ -215,7 +241,13 @@ internal sealed record HistoryRun(
     int Unsupported,
     int Drift,
     bool Honest,
-    [property: JsonPropertyName("sweepManifestSha256")] string? SweepManifestSha256);
+    [property: JsonPropertyName("sweepManifestSha256")] string? SweepManifestSha256,
+    int? MethodologyVersion = null)
+{
+    // Rows predating the span-attribution change carry no methodologyVersion;
+    // treat them as v1 (substitution lower bound).
+    public int Methodology => MethodologyVersion ?? 1;
+}
 
 [MarkoutSerializable(TitleProperty = nameof(Title), DescriptionProperty = nameof(WindowNote), AutoFields = false)]
 internal sealed class HistoryCardView
@@ -242,7 +274,8 @@ internal sealed record HistoryRunRow(
     int Correct,
     [property: MarkoutPropertyName("Invalid (raw)")] int Invalid,
     [property: MarkoutPropertyName("Product defects")] string Product,
-    [property: MarkoutPropertyName("Harness noise")] string Harness);
+    [property: MarkoutPropertyName("Harness noise")] string Harness,
+    [property: MarkoutPropertyName("Method")] string Method);
 
 [MarkoutContextOptions(SuppressTableWarnings = true)]
 [MarkoutContext(typeof(HistoryCardView))]
