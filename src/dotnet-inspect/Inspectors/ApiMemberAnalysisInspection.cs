@@ -104,7 +104,8 @@ internal sealed class ApiMemberAnalysisInspection
     /// Skipping is the optimization: opening a scope assembly costs a full body decode of the
     /// image, while ruling it out costs a read of its <c>AssemblyRef</c> table, so the common "no
     /// caller anywhere in a large scope" answer no longer pays to index every assembly to discover
-    /// it is empty.
+    /// it is empty. Selection is a reverse-reference <em>closure</em> rather than a direct-reference
+    /// test, because the caller graph is transitive — see <see cref="Analysis.CallerScopeFilter"/>.
     /// </summary>
     internal IReadOnlyList<MethodBodyInspectionSession>? CallerScopes(bool includeAllocations)
     {
@@ -117,13 +118,16 @@ internal sealed class ApiMemberAnalysisInspection
         if (_callerScopeAssemblies is not { Count: > 0 })
             return null;
 
+        var selected = Analysis.CallerScopeFilter.SelectCouldReach(
+            TargetAssemblyName, ScopeIdentities(_callerScopeAssemblies));
+
         var opened = new List<MethodBodyInspectionSession>();
-        string? targetAssembly = TargetAssemblyName;
-        foreach (var scopePath in _callerScopeAssemblies)
+        for (int i = 0; i < _callerScopeAssemblies.Count; i++)
         {
-            if (!CouldContainCaller(scopePath, targetAssembly))
+            if (!selected[i])
                 continue;
 
+            string scopePath = _callerScopeAssemblies[i];
             try
             {
                 opened.Add(MethodBodyInspectionSession.Open(
@@ -140,6 +144,37 @@ internal sealed class ApiMemberAnalysisInspection
 
         cached = opened;
         return cached;
+    }
+
+    /// <summary>
+    /// Reads assembly identity for every scope candidate. This is the cheap question that makes
+    /// prefiltering worthwhile: it touches only the <c>Assembly</c> and <c>AssemblyRef</c> tables,
+    /// where <see cref="MethodBodyInspectionSession.Open"/> decodes every method body in the image.
+    /// A candidate whose identity cannot be read — including a file with no managed metadata, since
+    /// <c>--bin</c> enumerates every top-level <c>*.dll</c> with no managed-image filter — is
+    /// reported as unknown so the filter keeps it and the open path decides.
+    /// </summary>
+    static Analysis.CallerScopeFilter.Candidate[] ScopeIdentities(IReadOnlyList<string> scopePaths)
+    {
+        var identities = new Analysis.CallerScopeFilter.Candidate[scopePaths.Count];
+        for (int i = 0; i < scopePaths.Count; i++)
+        {
+            try
+            {
+                using var session = AssemblyInspectionSession.Open(scopePaths[i]);
+                if (session.HasMetadata)
+                {
+                    var names = session.IdentityNames();
+                    identities[i] = new(names.Name, names.ReferenceNames);
+                }
+            }
+            catch
+            {
+                // Undecidable: left as the default unknown candidate, which is always selected.
+            }
+        }
+
+        return identities;
     }
 
     /// <summary>
@@ -166,36 +201,6 @@ internal sealed class ApiMemberAnalysisInspection
             }
 
             return _targetAssemblyName;
-        }
-    }
-
-    /// <summary>
-    /// Whether a scope assembly is worth opening for caller discovery. Reading its
-    /// <c>AssemblyRef</c> table is orders of magnitude cheaper than
-    /// <see cref="MethodBodyInspectionSession.Open"/>, which decodes every method body in the image,
-    /// and an assembly that names neither itself nor the target as the declaring assembly cannot
-    /// produce a match (see <see cref="Analysis.CallerScopeFilter"/>). Any failure to decide falls
-    /// through to the previous behavior of opening the assembly, including a file with no managed
-    /// metadata — <c>--bin</c> enumerates every top-level <c>*.dll</c> with no managed-image
-    /// filter, and ruling those out here would only duplicate the caller's <c>catch</c>.
-    /// </summary>
-    static bool CouldContainCaller(string scopePath, string? targetAssembly)
-    {
-        if (targetAssembly is null)
-            return true;
-
-        try
-        {
-            using var session = AssemblyInspectionSession.Open(scopePath);
-            if (!session.HasMetadata)
-                return true;
-
-            var names = session.IdentityNames();
-            return Analysis.CallerScopeFilter.CouldContainCallerOf(targetAssembly, names.Name, names.ReferenceNames);
-        }
-        catch
-        {
-            return true;
         }
     }
 }

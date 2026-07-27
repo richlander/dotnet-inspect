@@ -1,3 +1,4 @@
+using DotnetInspector.Fixtures;
 using DotnetInspector.Inspectors;
 using DotnetInspector.Sections;
 
@@ -119,6 +120,53 @@ public class ApiMemberAnalysisInspectionTests
 
         Assert.NotNull(scopes);
         Assert.Empty(scopes);
+    }
+
+    // Round-3 review found the prefilter's premise was too narrow: it tested a DIRECT reference to
+    // the target, but a caller graph walks outward several levels, so an assembly that names only
+    // an intermediate still belongs in the tree. The indirect fixture references only the caller
+    // assembly, never the target, and reproduced the defect end to end — the graph lost a whole
+    // depth-3 branch. Selection is now a reverse-reference closure, so both must open.
+    [Fact]
+    public void CallerScopes_WhenAScopeAssemblyReferencesTheTargetOnlyIndirectly_OpensIt()
+    {
+        string target = FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        string caller = FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath();
+        string indirect = FixtureCatalog.AnalysisCallerGraphIndirectCaller.AssemblyPath();
+
+        // The fixture only proves anything while it stays free of a direct reference to the target.
+        Assert.DoesNotContain(
+            "ILInspector.Analysis.CallerGraphTarget",
+            ReferenceNames(indirect));
+
+        var scopes = Create(target, [caller, indirect]).CallerScopes(includeAllocations: true);
+
+        Assert.NotNull(scopes);
+        Assert.Equal(2, scopes.Count);
+    }
+
+    // ...and the closure must not degenerate into keeping everything. It closes over the SCOPE, so
+    // an assembly whose only bridge to the target was not itself supplied stays out — the walk
+    // could not have traversed that bridge either. The lookalike declares its own Target.Api.Ping
+    // and reaches the target through nothing at all.
+    [Fact]
+    public void CallerScopes_WhenNoScopeAssemblyBridgesToTheTarget_RulesThemAllOut()
+    {
+        string target = FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        string indirect = FixtureCatalog.AnalysisCallerGraphIndirectCaller.AssemblyPath();
+        string lookalike = FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath();
+
+        var scopes = Create(target, [indirect, lookalike]).CallerScopes(includeAllocations: true);
+
+        Assert.NotNull(scopes);
+        Assert.Empty(scopes);
+    }
+
+    static IReadOnlyList<string> ReferenceNames(string assemblyPath)
+    {
+        using var stream = File.OpenRead(assemblyPath);
+        using var reader = new System.Reflection.PortableExecutable.PEReader(stream);
+        return ILInspector.Metadata.AssemblyIdentityScanner.Scan(reader).ReferenceNames;
     }
 
     static string? FindNativeImage()
