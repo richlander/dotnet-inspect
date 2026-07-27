@@ -80,6 +80,8 @@ const state = {
   spotlightQuery: "",
   spotlightIndex: 0,
   spotlightScope: "all",
+  spotlightFocus: "input",
+  spotlightChipIndex: 0,
   spotlightPkgHits: [],
   spotlightPkgLoading: false,
   spotlightPkgQuery: "",
@@ -2264,14 +2266,16 @@ function bindEvents() {
     spotlightInput.addEventListener("input", event => {
       state.spotlightQuery = event.target.value;
       state.spotlightIndex = 0;
+      if (state.spotlightFocus === "chips") {
+        state.spotlightFocus = "input";
+        updateSpotlightChips();
+      }
       scheduleSpotlightPackageFetch();
       updateSpotlightResults();
     });
     spotlightInput.addEventListener("keydown", handleSpotlightKeys);
   }
-  document.querySelectorAll("[data-sl-scope]").forEach(button => button.addEventListener("click", () => {
-    setSpotlightScope(button.dataset.slScope);
-  }));
+  bindSpotlightChipClicks(document);
   bindSpotlightResultClicks(document);
   document.querySelector("#spotlight-backdrop")?.addEventListener("mousedown", event => {
     if (event.target.id === "spotlight-backdrop") closeSpotlight();
@@ -2686,11 +2690,17 @@ function spotlightResultsHtml(results) {
   return html;
 }
 
+function spotlightChipsHtml() {
+  return SPOTLIGHT_SCOPES.map((scope, index) => {
+    const active = state.spotlightScope === scope.id ? "active" : "";
+    const focused = state.spotlightFocus === "chips" && state.spotlightChipIndex === index ? "focused" : "";
+    return `<button class="spotlight-chip ${active} ${focused}" data-sl-scope="${scope.id}" data-sl-chip="${index}">${scope.label}</button>`;
+  }).join("");
+}
+
 function renderSpotlight() {
   const results = spotlightResults();
   state.spotlightIndex = Math.min(state.spotlightIndex, Math.max(results.length - 1, 0));
-  const chips = SPOTLIGHT_SCOPES.map(scope =>
-    `<button class="spotlight-chip ${state.spotlightScope === scope.id ? "active" : ""}" data-sl-scope="${scope.id}">${scope.label}</button>`).join("");
   return `
     <div class="spotlight-backdrop" id="spotlight-backdrop">
       <div class="spotlight" role="dialog" aria-modal="true" aria-label="Go to anything">
@@ -2699,9 +2709,9 @@ function renderSpotlight() {
           <input id="spotlight-input" value="${escapeHtml(state.spotlightQuery)}" placeholder="Go to anything…  package, type, or member" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="spotlight-results" />
           <kbd>esc</kbd>
         </div>
-        <div class="spotlight-chips">${chips}</div>
+        <div class="spotlight-chips" id="spotlight-chips">${spotlightChipsHtml()}</div>
         <div class="spotlight-results" id="spotlight-results" role="listbox">${spotlightResultsHtml(results)}</div>
-        <div class="spotlight-foot"><span>↑↓ select</span><span>⇥ target</span><span>↵ open</span><span>esc close</span></div>
+        <div class="spotlight-foot"><span>↑↓ select</span><span>→ target</span><span>↵ open</span><span>esc close</span></div>
       </div>
     </div>`;
 }
@@ -2714,6 +2724,20 @@ function bindSpotlightResultClicks(root) {
   };
   root.querySelectorAll("[data-sl-index]").forEach(button =>
     button.addEventListener("click", () => dispatch(button.dataset.slIndex)));
+}
+
+function bindSpotlightChipClicks(root) {
+  root.querySelectorAll("[data-sl-scope]").forEach(button =>
+    button.addEventListener("click", () => setSpotlightScope(button.dataset.slScope)));
+}
+
+// Repaints just the scope-chip row so arrow-key focus movement doesn't rebuild the
+// input (and lose its caret) on every keystroke.
+function updateSpotlightChips() {
+  const container = document.querySelector("#spotlight-chips");
+  if (!container) return;
+  container.innerHTML = spotlightChipsHtml();
+  bindSpotlightChipClicks(container);
 }
 
 function updateSpotlightResults() {
@@ -2782,6 +2806,8 @@ function openSpotlight(seed = "") {
   state.spotlightOpen = true;
   state.spotlightQuery = seed;
   state.spotlightScope = "all";
+  state.spotlightFocus = "input";
+  state.spotlightChipIndex = 0;
   state.spotlightIndex = 0;
   state.spotlightPkgHits = [];
   state.spotlightPkgQuery = "";
@@ -2794,6 +2820,8 @@ function openSpotlight(seed = "") {
 function closeSpotlight() {
   state.spotlightOpen = false;
   state.spotlightQuery = "";
+  state.spotlightFocus = "input";
+  state.spotlightChipIndex = 0;
   state.spotlightIndex = 0;
   state.spotlightPkgHits = [];
   state.spotlightPkgQuery = "";
@@ -2892,16 +2920,73 @@ function pickSpotlight(pkgId, typeId) {
   });
 }
 
+function spotlightScopeIndex() {
+  return Math.max(0, SPOTLIGHT_SCOPES.findIndex(scope => scope.id === state.spotlightScope));
+}
+
+// Move the virtual chip cursor and live-apply the scope it lands on. Keeps DOM focus on
+// the input so typing still routes here; only the chip row repaints.
+function moveSpotlightChip(index) {
+  state.spotlightChipIndex = index;
+  setSpotlightScope(SPOTLIGHT_SCOPES[index].id);
+}
+
+function spotlightFocusInput() {
+  state.spotlightFocus = "input";
+  updateSpotlightChips();
+  focusSpotlight();
+}
+
 function handleSpotlightKeys(event) {
-  const results = spotlightResults();
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeSpotlight();
+    return;
+  }
   if (event.key === "Tab") {
     event.preventDefault();
     const order = SPOTLIGHT_SCOPES.map(scope => scope.id);
     const current = order.indexOf(state.spotlightScope);
-    const next = event.shiftKey
-      ? (current - 1 + order.length) % order.length
-      : (current + 1) % order.length;
+    const next = event.shiftKey ? (current - 1 + order.length) % order.length : (current + 1) % order.length;
+    state.spotlightChipIndex = next;
     setSpotlightScope(order[next]);
+    return;
+  }
+
+  // Chip-focus zone: arrows traverse the scope chips (live-applying scope), and step
+  // back out to the text field or down into the results.
+  if (state.spotlightFocus === "chips") {
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      if (state.spotlightChipIndex < SPOTLIGHT_SCOPES.length - 1) moveSpotlightChip(state.spotlightChipIndex + 1);
+    } else if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      if (state.spotlightChipIndex === 0) spotlightFocusInput();
+      else moveSpotlightChip(state.spotlightChipIndex - 1);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      spotlightFocusInput();
+    } else if (event.key === "ArrowDown" || event.key === "Enter") {
+      event.preventDefault();
+      state.spotlightIndex = 0;
+      spotlightFocusInput();
+      updateSpotlightResults();
+    }
+    return;
+  }
+
+  // Text zone: Right at the caret's right edge hands focus to the chips; otherwise the
+  // usual result navigation applies.
+  const results = spotlightResults();
+  if (event.key === "ArrowRight") {
+    const input = event.target;
+    const atEnd = input.selectionStart === input.selectionEnd && input.selectionStart === input.value.length;
+    if (atEnd) {
+      event.preventDefault();
+      state.spotlightFocus = "chips";
+      state.spotlightChipIndex = spotlightScopeIndex();
+      updateSpotlightChips();
+    }
   } else if (event.key === "ArrowDown") {
     event.preventDefault();
     state.spotlightIndex = results.length ? (state.spotlightIndex + 1) % results.length : 0;
@@ -2913,9 +2998,6 @@ function handleSpotlightKeys(event) {
   } else if (event.key === "Enter") {
     event.preventDefault();
     pickSpotlightResult(results[state.spotlightIndex]);
-  } else if (event.key === "Escape") {
-    event.preventDefault();
-    closeSpotlight();
   }
 }
 

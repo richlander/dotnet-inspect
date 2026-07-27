@@ -1030,6 +1030,7 @@ kbd {
 }
 .spotlight-chip:hover { color: var(--text); border-color: var(--line-strong); }
 .spotlight-chip.active { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.spotlight-chip.focused { box-shadow: 0 0 0 2px var(--accent); border-color: var(--accent); color: var(--text); }
 .spotlight-group {
   padding: 8px 10px 3px;
   color: var(--dim);
