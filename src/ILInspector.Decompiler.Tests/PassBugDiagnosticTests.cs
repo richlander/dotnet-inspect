@@ -17,10 +17,15 @@ public class PassBugDiagnosticTests
         Assert.NotNull(directory);
 
         string harnessDirectory = Path.Combine(directory.FullName, "tools", "DecompilerHarness");
-        string[] files = Directory.EnumerateFiles(harnessDirectory, "*.cs").ToArray();
+        // Recursive so a new emitter cannot evade the gate by living in a
+        // subdirectory; build output is not harness source.
+        string[] files = Directory
+            .EnumerateFiles(harnessDirectory, "*.cs", SearchOption.AllDirectories)
+            .Where(path => !IsBuildOutput(harnessDirectory, path))
+            .ToArray();
         string[] callSites = files
             .SelectMany(path => Enumerable.Repeat(
-                Path.GetFileName(path)!,
+                Relative(harnessDirectory, path),
                 File.ReadAllText(path).Split(
                     "PassBugDiagnostic.Format(",
                     StringSplitOptions.None).Length - 1))
@@ -38,12 +43,25 @@ public class PassBugDiagnosticTests
             callSites);
 
         string[] offenders = files
-            .Where(path => Path.GetFileName(path) != "PassBugDiagnostic.cs")
+            .Where(path => Relative(harnessDirectory, path) != "PassBugDiagnostic.cs")
             .Where(path => File.ReadAllText(path).Contains("PASS BUG", StringComparison.Ordinal))
-            .Select(path => Path.GetFileName(path)!)
+            .Select(path => Relative(harnessDirectory, path))
             .Order(StringComparer.Ordinal)
             .ToArray();
         Assert.Empty(offenders);
+    }
+
+    static string Relative(string root, string path) =>
+        Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/');
+
+    static bool IsBuildOutput(string root, string path)
+    {
+        string relative = Path.GetRelativePath(root, path);
+        return relative
+            .Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            .Any(segment =>
+                segment.Equals("bin", StringComparison.OrdinalIgnoreCase)
+                || segment.Equals("obj", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
