@@ -11,6 +11,8 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
+    <!-- Opts back in to the repo-wide IsPackable=false default (#3330). -->
+    <IsPackable>true</IsPackable>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>runfaster</ToolCommandName>
     <VersionPrefix>0.1.0</VersionPrefix>

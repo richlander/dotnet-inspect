@@ -22,6 +22,8 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
+    <!-- Opts back in to the repo-wide IsPackable=false default (#3330). -->
+    <IsPackable>true</IsPackable>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>dotnet-inspect</ToolCommandName>
     <VersionPrefix>0.16.0</VersionPrefix>
