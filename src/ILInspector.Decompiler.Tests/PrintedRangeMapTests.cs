@@ -10,13 +10,24 @@ namespace ILInspector.Decompiler.Tests;
 public class PrintedRangeMapTests
 {
     static (string Output, PrintedRangeMap Ranges) Print(string methodName)
+        => Print(typeof(AllocSampleClass), methodName);
+
+    static (string Output, PrintedRangeMap Ranges) Print(Type declaringType, string methodName)
     {
-        var source = MetadataSource.Open(typeof(AllocSampleClass).Assembly.Location);
-        var function = IrImporter.Import(source, typeof(AllocSampleClass).FullName!, methodName);
+        var source = MetadataSource.Open(declaringType.Assembly.Location);
+        var function = IrImporter.Import(source, declaringType.FullName!, methodName);
         Assert.NotNull(function);
         var result = CSharpPrinter.PrintRaised(function!, out var ranges);
         Assert.NotNull(result.Output);
         return (result.Output!, ranges);
+    }
+
+    static IrFunction Import(Type declaringType, string methodName)
+    {
+        var source = MetadataSource.Open(declaringType.Assembly.Location);
+        var function = IrImporter.Import(source, declaringType.FullName!, methodName);
+        Assert.NotNull(function);
+        return function!;
     }
 
     static (int Start, int End) Offsets(PrintedRange range, int length)
@@ -39,7 +50,37 @@ public class PrintedRangeMapTests
             var (start, end) = Offsets(range, output.Length);
             Assert.InRange(start, 0, output.Length);
             Assert.InRange(end, start, output.Length);
+            Assert.True(end > start, $"{range.Node.GetType().Name} recorded an empty range");
         }
+    }
+
+    [Fact]
+    public void SuppressedChainCall_IsNotRecorded_BecauseItPrintsNothing()
+    {
+        // An implicit parameterless base() has no rendered form, so unlike a
+        // chain call with arguments — lifted onto the signature and never walked
+        // — it stays in the body and emits nothing. Recording it would stamp a
+        // zero-width range that resolves to the line of the *next* statement. A
+        // sweep found 890 of these across 9,114 methods, so the shape is
+        // ordinary rather than exotic.
+        var function = Import(typeof(PrintedRangeChainFixture), ".ctor");
+        var chainCalls = function.Body.Descendants
+            .OfType<ExpressionStatement>()
+            .Where(statement => statement.Expression is Call { Callee.Name: ".ctor" })
+            .ToList();
+        Assert.NotEmpty(chainCalls);
+
+        var result = CSharpPrinter.PrintRaised(function, out var ranges);
+        Assert.NotNull(result.Output);
+
+        foreach (var chainCall in chainCalls)
+            Assert.False(ranges.TryGetRange(chainCall, out _));
+
+        // Not vacuous by way of an empty body: the store that follows the
+        // suppressed chain call is recorded, and its range is the printed text.
+        Assert.NotEmpty(ranges);
+        var store = Assert.Single(ranges, range => range.Node is StoreField);
+        Assert.Equal("this.Name = name;", result.Output![store.Characters].Trim());
     }
 
     [Theory]
@@ -138,4 +179,17 @@ public class PrintedRangeMapTests
                 return current;
         return null;
     }
+}
+
+/// <summary>
+/// A constructor whose chain call the printer walks but never prints: the
+/// implicit <c>object::.ctor()</c> has no rendered form, so the statement
+/// stays in the body and emits nothing. See
+/// <see cref="PrintedRangeMapTests.SuppressedChainCall_IsNotRecorded_BecauseItPrintsNothing"/>.
+/// </summary>
+public sealed class PrintedRangeChainFixture
+{
+    public PrintedRangeChainFixture(string name) => Name = name;
+
+    public string Name { get; }
 }
