@@ -316,7 +316,11 @@ DecompilerHarness.
 The `Decompiled Source` view renders the shipped canonical C# by default. A
 tool-owned `.dotnet-inspectconfig` file (discovered by walking up from the
 working directory) selects opt-in class-3 spellings — today `this`-qualification
-of field and property access — using `.editorconfig` key names. See
+of field and property access — using `.editorconfig` key names. `--taste`
+requests the whole oracle-endorsed set for one invocation without a config file.
+`Annotated Source` names the applied spellings in a trailing comment on the
+member signature, and drops its interleaved IL for any member a byte-divergent
+lens actually rewrote. See
 [docs/decompiler-taste.md](docs/decompiler-taste.md#style-configuration).
 
 ```bash

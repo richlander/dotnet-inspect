@@ -207,9 +207,16 @@ public class ApiCommand
         // so its internal source render must not be mistaken for user-visible
         // styled output. No latch is attached for a discovery request.
         var renderStyle = RenderStyleConfig.Resolve(Environment.CurrentDirectory);
+        // --taste is the one-invocation form of the config's full-taste aggregate.
+        // It applies after the file resolves and wins for the knobs the aggregate
+        // covers, so an explicit gesture is not silently narrowed by a checked-in
+        // config; knobs outside the endorsed set keep whatever the file selected.
+        var renderOptions = options.RequestAllTaste
+            ? ILInspector.Decompiler.Pipeline.StyleOptionCatalog.ApplyFullTaste(renderStyle.Options)
+            : renderStyle.Options;
         options = options with
         {
-            RenderOptions = renderStyle.Options,
+            RenderOptions = renderOptions,
             RenderConfigWarnings = renderStyle.Warnings.Count > 0 && options.Discover is null
                 ? new RenderConfigWarningSink(renderStyle.Warnings)
                 : null,

@@ -280,6 +280,7 @@ public static class MemberOptionsParser
             FormatExplicitlySet = opts.IsFormatExplicitlySet(parseResult),
             PlainText = parseResult.GetValue(opts.PlainText),
             Bare = parseResult.GetValue(opts.Bare),
+            RequestAllTaste = parseResult.GetValue(opts.Taste),
             Print = parseResult.GetValue(opts.Print),
             PrintAll = parseResult.GetValue(opts.PrintAll),
             PrintRow = opts.ParsePrintRow(parseResult),

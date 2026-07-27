@@ -34,7 +34,8 @@ public static partial class ResearchViews
         bool FactRows = false,
         AnnotationStage AnnotatedStage = AnnotationStage.Raised,
         ResearchFactRegistry? Registry = null,
-        int? MethodToken = null);
+        int? MethodToken = null,
+        PrinterOptions? PrinterOptions = null);
 
     public sealed record MemberProjectionResult(
         DecompilerResult? AnnotatedSource,
@@ -47,14 +48,16 @@ public static partial class ResearchViews
     {
         try
         {
-            var imported = (request.MethodToken is null
+            IrFunction? ImportFunction() => request.MethodToken is null
                 ? IrImporter.Import(
                     request.Source,
                     request.Type,
                     request.Method,
                     request.OverloadIndex,
                     request.PublicOnly)
-                : IrImporter.Import(request.Source, request.MethodToken.Value))
+                : IrImporter.Import(request.Source, request.MethodToken.Value);
+
+            var imported = ImportFunction()
                 ?? throw new InvalidOperationException($"{request.Type}::{request.Method} has no IL body");
 
             var assembly = ResolveAssemblyContext(imported);
@@ -68,17 +71,27 @@ public static partial class ResearchViews
             DecompilerResult? annotatedSource = null;
             if (request.AnnotatedSource)
             {
+                // Printing raises and rewrites the IR in place, so the annotated
+                // render cannot share this function with the overlay and fact-row
+                // projections: a byte-divergent style lens applies only to this
+                // view, but its rewrites would survive on the shared graph and
+                // silently reshape renders that are supposed to be style-invariant.
+                // Give the annotated render its own import so the isolation does
+                // not depend on projection order.
+                var annotatedFunction = ImportFunction()
+                    ?? throw new InvalidOperationException($"{request.Type}::{request.Method} has no IL body");
                 annotatedSource = WithTrace(
                     RunProjection(() => RenderMixedCore(
                         request.Source,
                         request.Type,
                         request.Method,
-                        imported,
+                        annotatedFunction,
                         facts,
                         request.AnnotatedStage,
                         request.OverloadIndex,
                         request.PublicOnly,
-                        request.MethodToken),
+                        request.MethodToken,
+                        request.PrinterOptions),
                         emptyOutputIsFailure: false),
                     request.Source);
             }
@@ -197,19 +210,39 @@ public static partial class ResearchViews
         AnnotationStage stage,
         int overloadIndex,
         bool publicOnly,
-        int? methodToken = null)
+        int? methodToken = null,
+        PrinterOptions? printerOptions = null)
     {
 
         IrFunction? ImportMethodBody(MethodRef target) => IrImporter.Import(source, target);
         var csResult = stage == AnnotationStage.Lowered
-            ? CSharpPrinter.PrintLowered(imported, out var statementLines, importMethodBody: ImportMethodBody)
-            : CSharpPrinter.PrintRaised(imported, out statementLines, importMethodBody: ImportMethodBody, typesProvablyDisjoint: source.AreProvablyDisjoint);
+            ? CSharpPrinter.PrintLowered(imported, out var statementLines, importMethodBody: ImportMethodBody, options: printerOptions)
+            : CSharpPrinter.PrintRaised(imported, out statementLines, importMethodBody: ImportMethodBody, typesProvablyDisjoint: source.AreProvablyDisjoint, options: printerOptions);
         if (csResult.Output is not { } csText)
             return csResult;
 
-        var annotatedInstrLines = methodToken is null
-            ? IlProjection.RenderIlBodyLines(source, type, method, overloadIndex, publicOnly)
-            : IlProjection.RenderIlBodyLines(source, methodToken.Value);
+        // A byte-divergent style lens rewrote this render, so the printed C# no
+        // longer reproduces the member's original opcodes. Interleaving the raw IL
+        // beneath it would assert a statement-to-opcode correspondence that does
+        // not hold, which is the one claim this view exists to make. Drop the IL
+        // rather than rendering a correspondence we cannot stand behind. The
+        // applied lens stays on the result as a typed decision, so a host can say
+        // which knob shaped the render without this layer baking prose into the
+        // source it returns. That is the contract for suppression here: this layer
+        // returns source, and the StyleLens decisions on Metadata.Decisions are the
+        // whole signal for why the IL is absent, so a host that renders this Output
+        // without reading those decisions is responsible for the missing
+        // explanation. The CLI honors it by naming applied taste, including
+        // fidelity=byte-divergent, on the member signature. The fact overlay stays
+        // too: a fact is a property of the member, not a claim about which opcodes
+        // a printed statement reproduces.
+        bool lensApplied = csResult.Metadata.Decisions
+            .Any(decision => decision.Category == DecompilerDecisionCategories.StyleLens);
+        var annotatedInstrLines = lensApplied
+            ? []
+            : methodToken is null
+                ? IlProjection.RenderIlBodyLines(source, type, method, overloadIndex, publicOnly)
+                : IlProjection.RenderIlBodyLines(source, methodToken.Value);
 
         var stream = CorrelateMixedSource(imported, csText, statementLines, annotations, annotatedInstrLines);
         return csResult with { Output = RenderMixedStream(stream) };

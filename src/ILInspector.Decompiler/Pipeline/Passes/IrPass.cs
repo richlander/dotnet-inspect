@@ -482,7 +482,7 @@ public static class IrPasses
         {
             pass.Run(function, context);
             if (IrInvariants.Enabled)
-                function.CheckInvariant();
+                function.CheckInvariant(IrInvariants.CheckSemantics);
         }
     }
 
@@ -542,7 +542,7 @@ public static class IrPasses
         {
             pass.Run(function, context);
             if (IrInvariants.Enabled)
-                function.CheckInvariant();
+                function.CheckInvariant(IrInvariants.CheckSemantics);
             stages.Add(new(pass.Name, project(function), function.Fidelity));
         }
         return stages;
@@ -577,7 +577,7 @@ public static class IrPasses
             {
                 pass.Run(function, context);
                 if (IrInvariants.Enabled)
-                    function.CheckInvariant();
+                    function.CheckInvariant(IrInvariants.CheckSemantics);
             }
         }
         catch (StepLimitReachedException)
