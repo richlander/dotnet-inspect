@@ -955,4 +955,110 @@ public class ExtractMethodBodyTests
             "public string Target() => @$\"first\n    {{\";",
             body);
     }
+
+    [Fact]
+    public void TrailingLineCommentAfterTerminator_DoesNotTriggerTheForwardScan()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public int Target() => 0; // opens nothing {", // 3  <- StartLine/EndLine
+            "}");                                           // 4
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "Target");
+
+        Assert.Equal("public int Target() => 0; // opens nothing {", body);
+    }
+
+    [Fact]
+    public void TrailingBlockCommentAfterTerminator_DoesNotTriggerTheForwardScan()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public int Target() => 0; /* note */",      // 3  <- StartLine/EndLine
+            "}");                                           // 4
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "Target");
+
+        Assert.Equal("public int Target() => 0; /* note */", body);
+    }
+
+    [Fact]
+    public void TerminatorInsideTrailingComment_DoesNotEndTheDeclaration()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public int Target() // ;",                  // 3  <- StartLine
+            "    {",                                         // 4
+            "        return 0;",                             // 5
+            "    }",                                         // 6
+            "}");                                            // 7
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 5, methodName: "Target");
+
+        Assert.Equal("public int Target() // ;\n{\n    return 0;\n}", body);
+    }
+
+    [Fact]
+    public void MultiLineRawStringLiteral_FallsBackToTheForwardScan()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public string Target() => \"\"\"",         // 3  <- StartLine
+            "        a",                                    // 4
+            "        \"\"\";",                              // 5  <- EndLine
+            "    }",                                        // 6
+            "}");                                           // 7
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 5, methodName: "Target");
+
+        Assert.Equal("public string Target() => \"\"\"\n    a\n    \"\"\";\n}", body);
+    }
+
+    [Fact]
+    public void SingleLineRawStringLiteral_StillEndsTheDeclaration()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public string Target() => \"\"\"a\"\"\";",  // 3  <- StartLine/EndLine
+            "}");                                           // 4
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "Target");
+
+        Assert.Equal("public string Target() => \"\"\"a\"\"\";", body);
+    }
+
+    [Fact]
+    public void BlankLineBelowDeclaration_DoesNotEraseTheTerminator()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public int Target() => 0;",                 // 3  <- StartLine
+            "",                                             // 4  <- EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
+
+        Assert.Equal("public int Target() => 0;", body);
+    }
+
+    [Fact]
+    public void CommentOnlyLineBelowDeclaration_DoesNotEraseTheTerminator()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public int Target() => 0;",                 // 3  <- StartLine
+            "    // trailing note",                          // 4  <- EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
+
+        Assert.Equal("public int Target() => 0;\n// trailing note", body);
+    }
 }
