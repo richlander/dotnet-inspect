@@ -2755,7 +2755,10 @@ function setSpotlightScope(scope) {
   state.spotlightScope = scope;
   state.spotlightIndex = 0;
   if (scope === "packages" || scope === "all") scheduleSpotlightPackageFetch();
-  render();
+  // Scope only affects the chip row and the results list, so repaint those in place
+  // instead of re-rendering the whole app (which flashed the screen on every chip move).
+  updateSpotlightChips();
+  updateSpotlightResults();
   focusSpotlight();
 }
 
