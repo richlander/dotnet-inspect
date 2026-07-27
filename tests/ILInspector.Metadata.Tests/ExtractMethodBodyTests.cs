@@ -938,4 +938,21 @@ public class ExtractMethodBodyTests
             "public string Target() {\n    return @\"}\";\n}",
             body);
     }
+
+    [Fact]
+    public void OpeningBraceInsideVerbatimInterpolatedString_DoesNotLookLikeAnOpenBlock()
+    {
+        var source = Lines(
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public string Target() => @$\"first",       // 3  <- StartLine
+            "        {{\";",                                 // 4  <- EndLine
+            "}");                                           // 5
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
+
+        Assert.Equal(
+            "public string Target() => @$\"first\n    {{\";",
+            body);
+    }
 }

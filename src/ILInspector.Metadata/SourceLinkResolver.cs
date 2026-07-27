@@ -319,11 +319,21 @@ public class SourceLinkResolver
                     }
                 }
 
-                if (c == '@' && j + 1 < line.Length && line[j + 1] == '"')
+                if (c == '@' && j + 1 < line.Length)
                 {
-                    inVerbatimString = true;
-                    j++;
-                    continue;
+                    if (line[j + 1] == '"')
+                    {
+                        inVerbatimString = true;
+                        j++;
+                        continue;
+                    }
+
+                    if (line[j + 1] == '$' && j + 2 < line.Length && line[j + 2] == '"')
+                    {
+                        inVerbatimString = true;
+                        j += 2;
+                        continue;
+                    }
                 }
 
                 if (c == '"')
