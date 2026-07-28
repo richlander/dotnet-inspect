@@ -3534,6 +3534,151 @@ public class CommandExecutionTests
         Assert.Contains("JsonReader", single.GetProperty("content").GetString());
     }
 
+    /// <summary>
+    /// <c>--json</c> selects an output format and <c>--print</c> selects an output shape,
+    /// so they compose: the projection owns the request and the plain type surface must not
+    /// claim it. Regression for #3379, where the type-surface early return preceded the
+    /// projection dispatch and silently discarded <c>--print</c> with exit 0.
+    /// </summary>
+    [Fact]
+    public async Task Type_SourceFiles_PrintJson_EmitsSelectedDocumentNotTypeSurface()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--print", "--row", "1", "--json", "--raw", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(1, document.RootElement.GetProperty("row").GetInt32());
+        Assert.Equal("Source Files", document.RootElement.GetProperty("section").GetString());
+        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", document.RootElement.GetProperty("url").GetString());
+        Assert.Contains("JsonReader", document.RootElement.GetProperty("content").GetString());
+        Assert.False(document.RootElement.TryGetProperty("metadata_name", out _));
+    }
+
+    /// <summary>
+    /// Cardinality validation belongs to the projection, so it must run under <c>--json</c> too.
+    /// </summary>
+    [Fact]
+    public async Task Type_SourceFiles_PrintJson_RequiresRowWhenMultipleUrls()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--print", "--json", "--raw", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("selected section has 2 printable rows; use --row N|first|last to choose one row", error);
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_UrlsJson_EmitsProjectedRowsNotTypeSurface()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--urls", "--json", "--raw", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var rows = document.RootElement.EnumerateArray().ToArray();
+        Assert.Equal(2, rows.Length);
+        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", rows[0].GetProperty("url").GetString());
+        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", rows[1].GetProperty("url").GetString());
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_ValueJson_EmitsSelectedRowNotTypeSurface()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--value", "--row", "2", "--json", "--raw", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(2, document.RootElement.GetProperty("row").GetInt32());
+        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", document.RootElement.GetProperty("value").GetString());
+    }
+
+    /// <summary>
+    /// A failed acquisition of the selected row must stay visible rather than degrade into
+    /// success-shaped output. Only the transport is substituted, so the real SourceFetcher
+    /// still applies scheme restriction, caching, and status handling.
+    /// </summary>
+    [Fact]
+    public async Task Type_SourceFiles_PrintRow_FetchFailureIsHardError()
+    {
+        using var client = new HttpClient(new NotFoundHandler());
+        DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+        string cacheDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-fetch-failure-{Guid.NewGuid():N}");
+        NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+                "-S", "Source Files", "--print", "--row", "2", "--raw", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("failed to fetch the document for printable row 2 from", error);
+            Assert.Contains("/Src/Newtonsoft.Json/JsonReader.Async.cs", error);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The acquisition guarantee must hold under <c>--json</c> as well; before #3379 this
+    /// combination exited 0 with the type surface and never attempted the fetch.
+    /// </summary>
+    [Fact]
+    public async Task Type_SourceFiles_PrintRowJson_FetchFailureIsHardError()
+    {
+        using var client = new HttpClient(new NotFoundHandler());
+        DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+        string cacheDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-fetch-failure-json-{Guid.NewGuid():N}");
+        NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+                "-S", "Source Files", "--print", "--row", "2", "--json", "--raw", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("failed to fetch the document for printable row 2 from", error);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    private sealed class NotFoundHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.NotFound)
+            {
+                RequestMessage = request,
+            });
+    }
+
     [Fact]
     public async Task Type_JsonArrayRequiresProjectionShape()
     {
