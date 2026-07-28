@@ -3476,6 +3476,18 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Router_RewrittenCommand_IsAudited()
+    {
+        // The router captures projection flags as raw tokens, so the outer invocation records
+        // nothing. It used to invoke the rewritten parse directly, bypassing the audit, which
+        // left every bare-mode invocation unguarded. It now goes through the choke point.
+        var (exit, _, error) = await RunAppAsync("Regex", "--count", "--print", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("--count cannot be combined with --print", error);
+    }
+
+    [Fact]
     public void ProjectionAudit_TracksProjectionDeclaredByAnAncestorCommand()
     {
         // `package --count search <id>` binds --count to the parent command, which the parser
