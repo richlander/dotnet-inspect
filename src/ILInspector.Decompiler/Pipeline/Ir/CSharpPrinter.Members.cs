@@ -890,37 +890,26 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
-    /// Renders an object/collection initializer as a wrapped Allman block — the
-    /// <c>new T(...)</c> head on the first line, <c>{</c> and <c>}</c> on their own
-    /// lines at the statement indent, and one <c>Member = value</c> / element entry
-    /// per line one continuation level deeper — when the initializer has at least
-    /// <see cref="FluentChainMinSegments"/> entries and its single-line form would
-    /// exceed <see cref="FluentChainWrapWidth"/>. Returns null (render inline)
-    /// otherwise. The wrapped form reuses the same head and entry texts the inline
-    /// <see cref="ObjectInitializerText"/> renders and carries no trailing comma, so
-    /// it is token-identical to the inline form: only whitespace differs and the IL
-    /// is unchanged. A defensive re-match against the inline text keeps the
-    /// statement inline if the reconstruction diverges rather than reshaping a token.
+    /// Renders a brace-bodied expression — an object/collection initializer, a
+    /// record <c>with</c> expression, or an anonymous object — as a wrapped Allman
+    /// block: <paramref name="head"/> on the first line, <c>{</c> and <c>}</c> on
+    /// their own lines at the statement indent, and one entry per line one
+    /// continuation level deeper. Returns null (render inline) when the body has
+    /// fewer than <see cref="FluentChainMinSegments"/> entries or its single-line
+    /// form fits within <see cref="FluentChainWrapWidth"/>. The wrapped form reuses
+    /// the same <paramref name="head"/> and <paramref name="entryTexts"/> the inline
+    /// renderer emits and carries no trailing comma, so it is token-identical to the
+    /// inline form: only whitespace differs and the IL is unchanged. A defensive
+    /// re-match against the inline <paramref name="flat"/> text keeps the statement
+    /// inline if the reconstruction diverges rather than reshaping a token.
     /// </summary>
-    string? ObjectInitializerLines(ObjectInitializerExpression initializer, string prefix, string suffix, int indent)
+    string? BraceBodyLines(string head, IReadOnlyList<string> entryTexts, string flat, string prefix, string suffix, int indent)
     {
-        var entries = initializer.Entries;
-        if (entries.Count < FluentChainMinSegments)
+        if (entryTexts.Count < FluentChainMinSegments)
             return null;
 
-        string flat = ObjectInitializerText(initializer);
         if (indent * 4 + prefix.Length + flat.Length + suffix.Length <= FluentChainWrapWidth)
             return null;
-
-        var creation = initializer.Creation;
-        string arguments = creation.Arguments.Count == 0
-            ? string.Empty
-            : $"({Arguments(creation.Arguments, creation.Constructor.ParameterTypes, creation.Constructor.ParameterRefKinds)})";
-        string head = $"new {TypeText(creation.Constructor.DeclaringType)}{arguments}";
-
-        var entryTexts = entries
-            .Select(entry => InitializerEntryText(initializer.IsCollection, entry))
-            .ToList();
 
         // The wrapped form must be a pure whitespace variant of the inline text.
         // Reconstruct the inline body from the same head and entry texts and bail if
@@ -943,6 +932,48 @@ public sealed partial class CSharpPrinter
         sb.Append('\n').Append(pad).Append('}');
         sb.Append(suffix);
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Wraps an object/collection initializer (<c>new T(...) { ... }</c>) through
+    /// <see cref="BraceBodyLines"/>, reusing the same head and entry texts the inline
+    /// <see cref="ObjectInitializerText"/> renders.
+    /// </summary>
+    string? ObjectInitializerLines(ObjectInitializerExpression initializer, string prefix, string suffix, int indent)
+    {
+        var creation = initializer.Creation;
+        string arguments = creation.Arguments.Count == 0
+            ? string.Empty
+            : $"({Arguments(creation.Arguments, creation.Constructor.ParameterTypes, creation.Constructor.ParameterRefKinds)})";
+        string head = $"new {TypeText(creation.Constructor.DeclaringType)}{arguments}";
+        var entryTexts = initializer.Entries
+            .Select(entry => InitializerEntryText(initializer.IsCollection, entry))
+            .ToList();
+        return BraceBodyLines(head, entryTexts, ObjectInitializerText(initializer), prefix, suffix, indent);
+    }
+
+    /// <summary>
+    /// Wraps a record <c>with</c> expression (<c>receiver with { ... }</c>) through
+    /// <see cref="BraceBodyLines"/>, reusing the same head and entry texts the inline
+    /// <see cref="WithExpressionText"/> renders.
+    /// </summary>
+    string? WithExpressionLines(WithExpression node, string prefix, string suffix, int indent)
+    {
+        string head = $"{Operand(node.Receiver)} with";
+        var entryTexts = node.Entries.Select(WithExpressionEntryText).ToList();
+        return BraceBodyLines(head, entryTexts, WithExpressionText(node), prefix, suffix, indent);
+    }
+
+    /// <summary>
+    /// Wraps an anonymous object (<c>new { ... }</c>) through
+    /// <see cref="BraceBodyLines"/>, reusing the same projection parts the inline
+    /// <see cref="AnonymousObjectText"/> renders.
+    /// </summary>
+    string? AnonymousObjectLines(AnonymousObject node, string prefix, string suffix, int indent)
+    {
+        if (node.Values.Count == 0)
+            return null;
+        return BraceBodyLines("new", AnonymousObjectParts(node), AnonymousObjectText(node), prefix, suffix, indent);
     }
 
     /// The CLR models <c>int[,]</c> element get/set/address and construction as
