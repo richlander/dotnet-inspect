@@ -77,6 +77,7 @@ static class Program
         string? benchmarkCorpusPath = null;
         string? ratchetBaselinePath = null;
         string? ratchetPoolManifestPath = null;
+        bool showHelp = false;
         bool historyCard = false;
         string? historyCardPath = null;
         int historyCardWindow = 3;
@@ -320,7 +321,7 @@ static class Program
                     case "--slot-residual-census": slotResidualCensus = true; break;
                     case "--slot-unifier-census": slotUnifierCensus = true; break;
                     case "--fixture-source-inventory": fixtureSourceInventory = true; break;
-                    case "--help" or "-h": PrintUsage(); return 0;
+                    case "--help" or "-h": showHelp = true; break;
                     default: inputs.Add(args[i]); break;
                 }
             }
@@ -334,6 +335,15 @@ static class Program
             return Fail(ex.Message);
         }
 
+        // --help is answered after flag validation, not during parsing. Returning 0
+        // from the parse loop let "--ratchet-baseline <path> --help" silently ignore the
+        // gate flag, which is the one thing these checks exist to prevent.
+        if (showHelp && ratchetBaselinePath is null && ratchetPoolManifestPath is null)
+        {
+            PrintUsage();
+            return 0;
+        }
+
         if (returnToSenderMarkout && !returnToSenderCatalog)
             return Fail("--return-to-sender-markout requires --return-to-sender-catalog.");
         // A gate flag that is silently ignored is a permanently green gate, which is
@@ -343,6 +353,8 @@ static class Program
         // accept and ignore a dangling baseline and exit 0.
         if (ratchetBaselinePath is not null && !benchmarkAuthoredCorpus)
             return Fail("--ratchet-baseline applies to --benchmark-authored-corpus; it has no effect on its own.");
+        if (showHelp)
+            return Fail("--help does not run a gate; drop the ratchet flags to read usage.");
         if (ratchetPoolManifestPath is not null && ratchetBaselinePath is null)
             return Fail("--ratchet-pool-manifest identifies the pool for --ratchet-baseline; it has no effect on its own.");
         if (cfgStageSpecified && (!cfg || dumpMethod is null))

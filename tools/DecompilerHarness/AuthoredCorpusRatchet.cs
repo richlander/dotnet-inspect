@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 
 namespace ILInspector.DecompilerHarness;
 
@@ -31,23 +33,31 @@ static class AuthoredCorpusRatchet
         int Evaluated,
         int PoolMatched,
         int PoolTotal,
-        string? SweepManifestSha256)
+        string? SweepManifestSha256,
+        string? CorpusSha256)
     {
         public static RunKey From(HistoryRun run)
-            => new(run.Evaluated, run.PoolMatched, run.PoolTotal, run.SweepManifestSha256);
+            => new(run.Evaluated, run.PoolMatched, run.PoolTotal, run.SweepManifestSha256, run.CorpusSha256);
 
         /// <summary>
         /// True when both runs measured the same corpus over the same pool.
         ///
-        /// <para>The sweep-manifest hash is governed by the <em>baseline</em>: when the
-        /// recorded row identifies its pool, a run that cannot identify its own is not
-        /// comparable to it. The weaker "check only when both sides have one" rule was
-        /// unsound. It rested on the claim that a drifted pool always surfaces as
-        /// unmatched rows or unresolved identities — but a package resolving to a newer
+        /// <para>Both identity hashes compare <em>symmetrically</em>, including absence:
+        /// unknown never equals known. An earlier rule checked the pool hash only when
+        /// both sides recorded one, which was unsound — a package resolving to a newer
         /// version that still carries the same method identities resolves cleanly,
         /// produces no drift, and would have been compared against numbers measured on
-        /// different code. Refusing to compare is the safe direction: it is a loud skip,
-        /// not a silent pass.</para>
+        /// different code. Governing it by the baseline alone was also unsound, and for
+        /// a subtler reason: a run whose hash <em>mismatched</em> the newest row simply
+        /// fell through to an older row that recorded no hash at all, turning a drifted
+        /// pool back into a green comparison against an unidentified one. Symmetry is
+        /// the only rule with no such fallthrough. Refusing to compare is the safe
+        /// direction: a loud skip, never a silent pass.</para>
+        ///
+        /// <para><see cref="CorpusSha256"/> exists because the counts alone do not
+        /// identify the corpus. Replacing a row's authored body — or the whole 12,000
+        /// rows — while keeping the row count and the pool left the key intact, so a
+        /// wholly different measurement compared clean.</para>
         ///
         /// <para>Methodology deliberately is <em>not</em> part of this key. It governs
         /// how <c>productBodyDefect</c> is computed and nothing else, so folding it in
@@ -61,13 +71,15 @@ static class AuthoredCorpusRatchet
                 return Fail($"evaluated {other.Evaluated} vs {Evaluated}", out mismatch);
             if (PoolMatched != other.PoolMatched || PoolTotal != other.PoolTotal)
                 return Fail($"pool {other.PoolMatched}/{other.PoolTotal} vs {PoolMatched}/{PoolTotal}", out mismatch);
-            if (other.SweepManifestSha256 is { } theirs
-                && !string.Equals(SweepManifestSha256, theirs, StringComparison.Ordinal))
+            if (!string.Equals(SweepManifestSha256, other.SweepManifestSha256, StringComparison.Ordinal))
             {
                 return Fail(
-                    $"sweepManifestSha256 {theirs} vs {SweepManifestSha256 ?? "(none supplied)"}",
+                    $"sweepManifestSha256 {Show(other.SweepManifestSha256)} vs {Show(SweepManifestSha256)}",
                     out mismatch);
             }
+
+            if (!string.Equals(CorpusSha256, other.CorpusSha256, StringComparison.Ordinal))
+                return Fail($"corpusSha256 {Show(other.CorpusSha256)} vs {Show(CorpusSha256)}", out mismatch);
 
             mismatch = "";
             return true;
@@ -77,6 +89,8 @@ static class AuthoredCorpusRatchet
                 mismatch = reason;
                 return false;
             }
+
+            static string Show(string? hash) => hash ?? "(none recorded)";
         }
     }
 
@@ -144,6 +158,33 @@ static class AuthoredCorpusRatchet
     }
 
     /// <summary>
+    /// Whether a recorded row is a number worth comparing to.
+    ///
+    /// <para>The ratchet judges <em>quality</em>, and quality metrics only mean
+    /// something on a run whose <em>measurement</em> was sound. A row that shed rows
+    /// into <c>drift</c>, <c>unsupported</c>, or <c>unknownOutcome</c> reports a lower
+    /// <c>invalid</c> for having measured less — which the ratchet would read as an
+    /// improvement. That is the same "looks like progress, is actually absence" shape
+    /// the whole file exists to remove, so an untrustworthy row is neither judged nor
+    /// used as a baseline.</para>
+    ///
+    /// <para><c>unknownOutcome</c> must be recorded and zero, not merely absent. Absent
+    /// means the run did not report the field, so its soundness cannot be confirmed —
+    /// and an unconfirmable row is not a baseline. Partition closure is pinned
+    /// separately, as set equality, by <c>AuthoredCorpusHistoryCardTests</c>.</para>
+    /// </summary>
+    internal static bool IsTrustworthy(HistoryRun run)
+    {
+        ArgumentNullException.ThrowIfNull(run);
+        return AuthoredCorpusExitContract.MeasurementIsSound(
+            run.InputsComplete,
+            run.TopLevelIsComplete,
+            run.Drift,
+            run.Unsupported,
+            run.UnknownOutcome ?? -1);
+    }
+
+    /// <summary>
     /// Compares <paramref name="current"/> against the newest row in
     /// <paramref name="baselines"/> that shares its <see cref="RunKey"/>. Returns a
     /// skip (not a pass and not a failure) when no row is comparable, naming why the
@@ -159,13 +200,20 @@ static class AuthoredCorpusRatchet
         string? newestMismatch = null;
         for (int index = baselines.Count - 1; index >= 0; index--)
         {
-            if (currentKey.IsComparableTo(RunKey.From(baselines[index]), out string mismatch))
+            var candidate = baselines[index];
+            if (!IsTrustworthy(candidate))
             {
-                baseline = baselines[index];
+                newestMismatch ??= $"{candidate.Date ?? "(undated)"}: measurement not sound";
+                continue;
+            }
+
+            if (currentKey.IsComparableTo(RunKey.From(candidate), out string mismatch))
+            {
+                baseline = candidate;
                 break;
             }
 
-            newestMismatch ??= $"{baselines[index].Date ?? "(undated)"}: {mismatch}";
+            newestMismatch ??= $"{candidate.Date ?? "(undated)"}: {mismatch}";
         }
 
         if (baseline is null)
@@ -190,6 +238,13 @@ static class AuthoredCorpusRatchet
             return Comparison.Skip("store holds fewer than two runs");
 
         var newest = runs[^1];
+        if (!IsTrustworthy(newest))
+        {
+            return Comparison.Skip(
+                $"newest run ({newest.Date ?? "(undated)"}) did not record a sound measurement, "
+                + "so its quality metrics mean nothing");
+        }
+
         return Compare(RunKey.From(newest), RunMetrics.From(newest), runs.Take(runs.Count - 1).ToArray());
     }
 
@@ -221,17 +276,64 @@ static class AuthoredCorpusRatchet
     }
 
     /// <summary>
-    /// The recorded form of a pool's identity: the first 8 bytes of the sweep
-    /// manifest's SHA-256, lowercase hex. This is the definition going forward. The
-    /// store's existing hashes were recorded by hand, so if any was produced a
-    /// different way it will not match — and the result is a loud skip, never a false
-    /// pass, which is the direction this must fail in.
+    /// A pool's identity: the sorted resolved package/version/TFM triples the sweep
+    /// produced, hashed. Deliberately <em>not</em> a hash of the manifest file — that
+    /// file carries <c>generatedAtUtc</c>, plus per-package <c>fromCache</c> and
+    /// cleanup detail, so two sweeps of an identical pool hash differently. A digest
+    /// that never repeats cannot identify anything: it would make the ratchet skip on
+    /// every run, and a permanently red gate is as uninformative as the permanently
+    /// green one this replaces.
+    ///
+    /// <para>What the pool <em>is</em>, for this purpose, is the set of assemblies
+    /// measured. Rank, download counts, and failed entries do not change the code under
+    /// test and are excluded.</para>
     /// </summary>
     internal static string PoolManifestDigest(string manifestPath)
     {
-        using var stream = File.OpenRead(manifestPath);
-        return Convert.ToHexStringLower(SHA256.HashData(stream).AsSpan(0, 8));
+        using var document = JsonDocument.Parse(File.ReadAllBytes(manifestPath));
+        var identities = new List<string>();
+        if (Property(document.RootElement, "packages") is { ValueKind: JsonValueKind.Array } packages)
+        {
+            foreach (var package in packages.EnumerateArray())
+            {
+                if (Text(package, "resolvedPackage") is not { } id)
+                    continue;
+
+                identities.Add($"{id}@{Text(package, "resolvedVersion") ?? "?"}/{Text(package, "tfm") ?? "?"}");
+            }
+        }
+
+        if (identities.Count == 0)
+            throw new InvalidOperationException($"{manifestPath} resolved no packages, so it identifies no pool.");
+
+        identities.Sort(StringComparer.Ordinal);
+        return Digest(Encoding.UTF8.GetBytes(string.Join("\n", identities)));
+
+        static JsonElement? Property(JsonElement element, string name)
+        {
+            foreach (var property in element.EnumerateObject())
+            {
+                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+                    return property.Value;
+            }
+
+            return null;
+        }
+
+        static string? Text(JsonElement element, string name)
+            => Property(element, name) is { ValueKind: JsonValueKind.String } value ? value.GetString() : null;
     }
+
+    /// <summary>
+    /// The corpus's identity: a digest of its exact bytes. The corpus is a pinned
+    /// vendored artifact, so byte equality is the right expectation and any edit —
+    /// including one that preserves the row count — must retarget the comparison.
+    /// </summary>
+    internal static string CorpusDigest(string corpusPath) => Digest(File.ReadAllBytes(corpusPath));
+
+    /// <summary>First 8 bytes of SHA-256, lowercase hex, matching the store's 16-character form.</summary>
+    static string Digest(ReadOnlySpan<byte> content)
+        => Convert.ToHexStringLower(SHA256.HashData(content).AsSpan(0, 8));
 
     /// <summary>
     /// Renders the ratchet verdict. A skip is printed as loudly as a failure, because

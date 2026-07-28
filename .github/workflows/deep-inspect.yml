@@ -489,26 +489,26 @@ jobs:
           if-no-files-found: warn
 
   authored-corpus-ratchet:
-    name: Authored-corpus ratchet lane
-    # The named caller for --ratchet-baseline. Before this job the authored-corpus
-    # benchmark had no invoker at all: no workflow ran it, so its exit code — the
-    # headline quality metric — was never read by anything (#3245). Shipping the
-    # ratchet without a caller would have reproduced that failure one level up.
+    name: Authored-corpus integrity lane
+    # The first caller this benchmark has ever had. Before this job nothing ran it:
+    # no workflow referenced it, so its exit code — the headline quality metric —
+    # was never read by anything (#3245).
     #
     # This is a *periodic* gate, not a merge gate. The run needs the vendored EVIL
     # corpus (an orphan branch) plus a 100-package NuGet sweep, so it is far too
-    # expensive for the PR lane. A regression is therefore caught within a week of
-    # landing, not at the PR that causes it. The merge-lane half of this gate is
-    # AuthoredCorpusRatchetTests, which ratchets the tracked trend store on every PR.
+    # expensive for the PR lane.
     #
-    # The pool sweep resolves current top-N package versions, so the pool drifts
-    # against the recorded manifest over time. --ratchet-pool-manifest is what makes
-    # that visible: the run identifies the pool it actually measured, so a drifted
-    # pool becomes a loud ratchet skip rather than a comparison against numbers
-    # measured on different code. Coarser drift surfaces as Drift/unmatched rows, a
-    # measurement-integrity failure. Both readings are "this run is untrustworthy",
-    # not "the decompiler got worse", and both want a corpus refresh, not a product
-    # fix.
+    # This lane deliberately does NOT pass --ratchet-baseline. docs/data/nuget-top-packages.json
+    # records no versions, so the sweep resolves *latest* and a fresh pool can never
+    # match a recorded baseline's pool identity — the ratchet would skip, and a skip
+    # fails, so the job would be red by construction. Pinning the pool is tracked
+    # separately; until then this lane is the integrity gate and the artifact source,
+    # and the ratchet's caller is AuthoredCorpusRatchetTests on every PR.
+    #
+    # What it still catches: unmatched rows, malformed corpus rows, a non-closing
+    # partition, drift, unsupported targets, and unrecognized outcomes — all of which
+    # mean the run is untrustworthy and want a corpus refresh, not a product fix. It
+    # also archives the run JSON, which is the input to appending a trend-store row.
     if: github.event_name == 'schedule' || inputs.lane == 'authored-corpus' || inputs.lane == 'all'
     runs-on: ubuntu-26.04
     # Extrapolated, not measured: a 60-row run takes ~16s locally, so 12,000 rows is
@@ -541,7 +541,7 @@ jobs:
       - name: Prepare the EVIL assembly pool
         run: bash eng/prepare-evil-corpus.sh evil-pool
 
-      - name: Run the authored-corpus benchmark against the trend-store ratchet
+      - name: Run the authored-corpus benchmark (measurement-integrity gate)
         shell: bash
         run: |
           set -euo pipefail
@@ -549,8 +549,6 @@ jobs:
           mapfile -t assemblies < evil-pool/assemblies.txt
           dotnet run --project tools/DecompilerHarness -c Release -- \
             --benchmark-authored-corpus external/authored-source-corpus/evil/corpus.jsonl \
-            --ratchet-baseline tools/DecompilerHarness/corpus/evil-runs/history.jsonl \
-            --ratchet-pool-manifest evil-pool/sweep-manifest.json \
             --json "${assemblies[@]}" \
             > artifacts/deep-inspect/authored-corpus-run.json
 

@@ -108,7 +108,19 @@ static class AuthoredCorpusBenchmark
             .Where(entry => !matchedGroups.Contains(entry.Key))
             .Sum(entry => entry.Value.Count);
 
-        var inputs = new RunInputs(matchedGroups.Count, byAssembly.Count, unmatchedRows, malformedRows, poolManifestSha256);
+        // Always identified, baseline or not: the trend-store append procedure runs
+        // *without* --ratchet-baseline, and it is that run's JSON the recorded row is
+        // copied from. Withholding the digest here would make every appended row
+        // unidentifiable, and so unusable as a future baseline.
+        string corpusSha256 = AuthoredCorpusRatchet.CorpusDigest(corpusPath);
+
+        var inputs = new RunInputs(
+            matchedGroups.Count,
+            byAssembly.Count,
+            unmatchedRows,
+            malformedRows,
+            poolManifestSha256,
+            corpusSha256);
 
         if (json)
             return WriteJson(results, records.Count, inputs, baselines);
@@ -125,7 +137,8 @@ static class AuthoredCorpusBenchmark
         int CorpusAssemblies,
         int UnmatchedRows,
         int MalformedRows,
-        string? PoolManifestSha256);
+        string? PoolManifestSha256,
+        string? CorpusSha256);
 
     static ReturnToSenderSourceMember ToSourceMember(AuthoredSourceHarvest.CorpusRecord record)
         => new(
@@ -339,7 +352,8 @@ static class AuthoredCorpusBenchmark
             census.Evaluated,
             inputs.MatchedAssemblies,
             inputs.CorpusAssemblies,
-            inputs.PoolManifestSha256);
+            inputs.PoolManifestSha256,
+            inputs.CorpusSha256);
 
         var metrics = new AuthoredCorpusRatchet.RunMetrics(
             Valid: census.Correct + census.ValidDifferent,
@@ -527,6 +541,8 @@ static class AuthoredCorpusBenchmark
             corpusAssemblies = inputs.CorpusAssemblies,
             unmatchedRows = inputs.UnmatchedRows,
             malformedRows = inputs.MalformedRows,
+            sweepManifestSha256 = inputs.PoolManifestSha256,
+            corpusSha256 = inputs.CorpusSha256,
             targetsEvaluated = census.Evaluated,
             methodologyVersion = MethodologyVersion,
             inputsComplete,

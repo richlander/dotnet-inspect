@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
@@ -21,8 +20,9 @@ public class AuthoredCorpusRatchetTests
         int evaluated = 12000,
         int poolMatched = 26,
         int poolTotal = 26,
-        string? sha = "0a7eded85c3e1410")
-        => new(evaluated, poolMatched, poolTotal, sha);
+        string? sha = "0a7eded85c3e1410",
+        string? corpusSha = "c0117050c0117050")
+        => new(evaluated, poolMatched, poolTotal, sha, corpusSha);
 
     static HistoryRun Row(
         string date = "2026-07-26",
@@ -34,7 +34,8 @@ public class AuthoredCorpusRatchetTests
         int poolMatched = 26,
         int poolTotal = 26,
         int? methodology = 2,
-        string? sha = "0a7eded85c3e1410")
+        string? sha = "0a7eded85c3e1410",
+        string? corpusSha = "c0117050c0117050")
         => new(
             Date: date,
             Commit: "14781e8d",
@@ -52,7 +53,10 @@ public class AuthoredCorpusRatchetTests
             Drift: 0,
             InputsComplete: true,
             SweepManifestSha256: sha,
-            MethodologyVersion: methodology);
+            MethodologyVersion: methodology,
+            NotFull: 0,
+            UnknownOutcome: 0,
+            CorpusSha256: corpusSha);
 
     static AuthoredCorpusRatchet.RunMetrics Metrics(
         int? valid = 6802,
@@ -150,21 +154,23 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
-    /// Rows predating the valid-bucket breakdown record no <c>validDifferent</c>, so
-    /// the exact valid count cannot be reconstructed for them. Absent means not
-    /// measured: the metric drops out rather than being inferred from the rounded
-    /// percentage, and the other three still ratchet.
+    /// A row that never recorded <c>validDifferent</c> cannot show its partition closed,
+    /// so it is not a baseline at all — the exact valid count is unreconstructable and
+    /// the run's soundness unconfirmable. The metric-level nullability behind
+    /// <c>valid</c> stays as defence in depth, but this is the gate that actually stops
+    /// such a row being compared to.
     /// </summary>
     [Fact]
-    public void Ratchet_UnrecordedValidBreakdownOmitsTheValidMetric()
+    public void Ratchet_RowWithoutAClosedPartitionIsNotABaseline()
     {
         var row = Row() with { ValidDifferent = null };
 
+        Assert.False(AuthoredCorpusRatchet.IsTrustworthy(row));
+
         var comparison = AuthoredCorpusRatchet.Compare(Key(), Metrics(), [row]);
 
-        Assert.False(comparison.Skipped);
-        Assert.DoesNotContain(comparison.Metrics, metric => metric.Name == "valid");
-        Assert.Equal(3, comparison.Metrics.Count);
+        Assert.True(comparison.Skipped);
+        Assert.Contains("measurement not sound", comparison.SkipReason!, StringComparison.Ordinal);
     }
 
     [Theory]
@@ -200,21 +206,113 @@ public class AuthoredCorpusRatchetTests
         var comparison = AuthoredCorpusRatchet.Compare(Key(sha: null), Metrics(correct: 1), [Row()]);
 
         Assert.True(comparison.Skipped);
-        Assert.Contains("(none supplied)", comparison.SkipReason!, StringComparison.Ordinal);
+        Assert.Contains("(none recorded)", comparison.SkipReason!, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// The converse: a baseline recorded before pool hashes existed cannot demand one,
-    /// so it still ratchets. Otherwise every pre-hash row would be permanently
-    /// unusable as a baseline.
+    /// The reason identity hashes compare symmetrically rather than being governed by
+    /// the baseline. Under the baseline-governs rule a run whose pool <em>mismatched</em>
+    /// the newest row did not stop there: it fell through to an older row recording no
+    /// hash at all and compared clean against an unidentified pool. The tracked store
+    /// holds exactly such a row (2026-07-20), so this was reachable in production.
     /// </summary>
     [Fact]
-    public void Ratchet_BaselineWithoutAPoolHashStillRatchets()
+    public void Ratchet_MismatchedPoolDoesNotFallThroughToAnUnidentifiedOlderRow()
     {
-        var comparison = AuthoredCorpusRatchet.Compare(Key(), Metrics(correct: 1), [Row(sha: null)]);
+        var comparison = AuthoredCorpusRatchet.Compare(
+            Key(sha: "deadbeefdeadbeef"),
+            Metrics(valid: 1, correct: 1, invalid: 9999, productBodyDefect: 9999),
+            [Row(date: "2026-07-20", sha: null), Row(date: "2026-07-26")]);
 
-        Assert.False(comparison.Skipped);
-        Assert.Contains(comparison.Regressions, metric => metric.Name == "correct");
+        Assert.True(comparison.Skipped);
+        Assert.Empty(comparison.Regressions);
+    }
+
+    /// <summary>
+    /// Counts do not identify a corpus. Swapping in a different 12,000 rows — or editing
+    /// one row's authored body — preserves <c>evaluated</c> and the pool, so without its
+    /// own identity the substituted measurement compared clean.
+    /// </summary>
+    [Fact]
+    public void Ratchet_DifferentCorpusWithTheSameShapeIsNotComparable()
+    {
+        var comparison = AuthoredCorpusRatchet.Compare(Key(corpusSha: "0000000011111111"), Metrics(), [Row()]);
+
+        Assert.True(comparison.Skipped);
+        Assert.Contains("corpusSha256", comparison.SkipReason!, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Absence is a distinct value on both identity hashes, in both directions, so
+    /// neither side can borrow the other's identity by declining to state its own.
+    /// </summary>
+    [Theory]
+    [InlineData(null, "0a7eded85c3e1410")]
+    [InlineData("0a7eded85c3e1410", null)]
+    public void Ratchet_UnknownIdentityNeverEqualsAKnownOne(string? runSha, string? baselineSha)
+    {
+        var comparison = AuthoredCorpusRatchet.Compare(Key(sha: runSha), Metrics(), [Row(sha: baselineSha)]);
+
+        Assert.True(comparison.Skipped);
+    }
+
+    /// <summary>
+    /// The pool digest must be reproducible, or the ratchet skips on every run and the
+    /// gate is permanently red — as uninformative as the permanently green one it
+    /// replaces. The sweep manifest carries <c>generatedAtUtc</c> and per-package
+    /// <c>fromCache</c>, so hashing the file cannot deliver that; the digest is taken
+    /// over the resolved package identities instead.
+    /// </summary>
+    [Fact]
+    public void PoolManifestDigest_IgnoresEverythingButTheAssembliesMeasured()
+    {
+        string monday = WriteManifest("2026-07-26T00:00:00Z", fromCache: false);
+        string tuesday = WriteManifest("2026-07-27T09:31:12Z", fromCache: true);
+        string repooled = WriteManifest("2026-07-26T00:00:00Z", fromCache: false, version: "8.0.1");
+        try
+        {
+            Assert.Equal(
+                AuthoredCorpusRatchet.PoolManifestDigest(monday),
+                AuthoredCorpusRatchet.PoolManifestDigest(tuesday));
+            Assert.NotEqual(
+                AuthoredCorpusRatchet.PoolManifestDigest(monday),
+                AuthoredCorpusRatchet.PoolManifestDigest(repooled));
+            Assert.Equal(16, AuthoredCorpusRatchet.PoolManifestDigest(monday).Length);
+        }
+        finally
+        {
+            File.Delete(monday);
+            File.Delete(tuesday);
+            File.Delete(repooled);
+        }
+
+        static string WriteManifest(string generatedAtUtc, bool fromCache, string version = "8.0.0")
+        {
+            string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+            File.WriteAllText(
+                path,
+                "{\"schemaVersion\":1,\"generatedAtUtc\":\"" + generatedAtUtc
+                + "\",\"packages\":[{\"rank\":1,\"resolvedPackage\":\"Newtonsoft.Json\","
+                + "\"resolvedVersion\":\"" + version + "\",\"tfm\":\"net8.0\",\"fromCache\":"
+                + (fromCache ? "true" : "false") + "}]}");
+            return path;
+        }
+    }
+
+    /// <summary>A manifest that resolved nothing identifies no pool, and says so.</summary>
+    [Fact]
+    public void PoolManifestDigest_RefusesAManifestThatResolvedNoPackages()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        File.WriteAllText(path, "{\"schemaVersion\":1,\"packages\":[]}");
+        try
+        {
+            Assert.Throws<InvalidOperationException>(() => AuthoredCorpusRatchet.PoolManifestDigest(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     /// <summary>
@@ -237,32 +335,6 @@ public class AuthoredCorpusRatchetTests
             ["valid", "correct", "invalid"],
             comparison.Metrics.Select(metric => metric.Name));
         Assert.Equal(3, comparison.Regressions.Count);
-    }
-
-    /// <summary>
-    /// The hash definition <c>--ratchet-pool-manifest</c> records: the first 8 bytes of
-    /// the manifest's SHA-256, lowercase hex, matching the store's 16-character form.
-    /// The store's historical values were recorded by hand and this derivation is
-    /// asserted, not verified against them; a mismatch yields a skip, never a pass.
-    /// </summary>
-    [Fact]
-    public void PoolManifestDigest_IsTheFirstEightBytesOfSha256()
-    {
-        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-        File.WriteAllText(path, "manifest");
-        try
-        {
-            string digest = AuthoredCorpusRatchet.PoolManifestDigest(path);
-
-            Assert.Equal(16, digest.Length);
-            Assert.Equal(
-                Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path)).AsSpan(0, 8)),
-                digest);
-        }
-        finally
-        {
-            File.Delete(path);
-        }
     }
 
     /// <summary>
@@ -512,6 +584,76 @@ public class AuthoredCorpusRatchetTests
         Assert.False(comparison.Skipped, comparison.SkipReason);
         Assert.NotEmpty(comparison.Metrics);
         Assert.Empty(comparison.Regressions);
+    }
+
+    /// <summary>
+    /// The exact bypass a reviewer built against the gate above, and the reason the
+    /// ratchet refuses untrustworthy rows outright rather than only ratcheting quality.
+    ///
+    /// <para>Append a row that sheds one row from <c>invalid</c> into <c>unsupported</c>
+    /// and flips <c>inputsComplete</c>. Every quality metric holds or improves —
+    /// <c>invalid</c> went <em>down</em> — so a pure quality ratchet waves it through.
+    /// But the run measured less, and reporting absence as progress is precisely the
+    /// failure this file exists to remove.</para>
+    /// </summary>
+    [Fact]
+    public void TrackedHistory_RowThatMeasuredLessCannotPassByLookingBetter()
+    {
+        var runs = AuthoredCorpusHistoryCardTests.TrackedHistory().ToList();
+        var newest = runs[^1];
+        var bypass = newest with
+        {
+            Date = "2026-07-28",
+            Invalid = newest.Invalid - 1,
+            Unsupported = newest.Unsupported + 1,
+            InputsComplete = false,
+        };
+
+        // The quality half alone sees nothing wrong: invalid fell, everything else held.
+        Assert.Empty(AuthoredCorpusRatchet
+            .Compare(AuthoredCorpusRatchet.RunKey.From(bypass), AuthoredCorpusRatchet.RunMetrics.From(bypass), [newest])
+            .Regressions);
+
+        runs.Add(bypass);
+        var comparison = AuthoredCorpusRatchet.CompareNewestRow(runs);
+
+        Assert.True(comparison.Skipped);
+        Assert.Contains("did not record a sound measurement", comparison.SkipReason!, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The same rule applied to the other side of the comparison: an untrustworthy row
+    /// is not a baseline either. Ratcheting against a run that measured less would set
+    /// the bar by how much was missed.
+    /// </summary>
+    [Fact]
+    public void Ratchet_UntrustworthyBaselineRowIsNotSelected()
+    {
+        var comparison = AuthoredCorpusRatchet.Compare(
+            Key(),
+            Metrics(),
+            [Row(date: "2026-07-27", correct: 1) with { Drift = 1 }]);
+
+        Assert.True(comparison.Skipped);
+        Assert.Contains("measurement not sound", comparison.SkipReason!, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Every row in the tracked store must record a sound measurement, so an appended
+    /// run that measured less is rejected where it is written rather than only when it
+    /// happens to be the newest. Asserted as set equality: the 2026-07-20 row predates
+    /// <c>unknownOutcome</c> and so cannot be confirmed sound, and a later backfill of
+    /// it must fail here rather than silently shrink the exception list.
+    /// </summary>
+    [Fact]
+    public void TrackedHistory_OnlyTheUnconfirmableRowIsNotTrustworthy()
+    {
+        var unconfirmable = AuthoredCorpusHistoryCardTests.TrackedHistory()
+            .Where(run => !AuthoredCorpusRatchet.IsTrustworthy(run))
+            .Select(run => run.Date ?? "(undated)")
+            .ToArray();
+
+        Assert.Equal(["2026-07-20"], unconfirmable);
     }
 
     /// <summary>

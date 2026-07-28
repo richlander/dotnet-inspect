@@ -265,6 +265,12 @@ internal sealed record HistoryRun(
     [property: JsonPropertyName("inputsComplete")] bool InputsComplete,
     [property: JsonPropertyName("sweepManifestSha256")] string? SweepManifestSha256,
     int? MethodologyVersion = null,
+    /// <summary>
+    /// Identity of the corpus this run measured. Absent on every row recorded before
+    /// the ratchet, which is why absence is compared as a distinct value rather than
+    /// waved through: an unidentified corpus is not the same as a matching one.
+    /// </summary>
+    [property: JsonPropertyName("corpusSha256")] string? CorpusSha256 = null,
     int? NotFull = null,
     int? UnknownOutcome = null)
 {

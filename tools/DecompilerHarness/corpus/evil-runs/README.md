@@ -56,7 +56,12 @@ Each row contains these fields:
   `frontierIlNoVerdict` and `harnessShellReconstruction`, both of which are
   unmeasured rather than clean. (Rows before #3244 spell this field `honest`,
   which overclaimed exactly that distinction.)
-- `sweepManifestSha256`: SHA-256 of the pool sweep manifest, or `null` when the
+- `corpusSha256`: identity of the corpus measured, copied from the run JSON.
+  Absent on rows recorded before the ratchet.
+- `sweepManifestSha256`: identity of the pool. On rows from 2026-07 this is a
+  hand-recorded SHA-256 of the manifest *file*; runs now report a canonical
+  digest over the resolved package identities instead, so the two do not
+  interoperate. Or `null` when the
   manifest is unknown.
 - `methodologyVersion`: how `invalidBreakdown.productBodyDefect` was computed.
   **Every version is a lower bound on decompiler-caused body defects**; a later
@@ -119,8 +124,13 @@ Each row contains these fields:
    ```bash
    dotnet run --project tools/DecompilerHarness -c Release --no-build -- \
      --benchmark-authored-corpus external/authored-source-corpus/evil/corpus.jsonl \
+     --ratchet-pool-manifest /tmp/evil-pool/sweep-manifest.json \
      --json $(cat /tmp/evil-pool/assemblies.txt) > evil-run-YYYYMMDD-SHA.json
    ```
+
+   `--ratchet-pool-manifest` here does not ratchet anything — it makes the run
+   report the `sweepManifestSha256` the recorded row needs. Without it the row
+   cannot identify its pool and is unusable as a future baseline.
 
    Exit code 1 is expected while `invalid`, `drift`, or `unsupported` is
    non-zero; the JSON is still authoritative. That contract is unchanged, and
@@ -129,7 +139,10 @@ Each row contains these fields:
    perfection, see [The regression ratchet](#the-regression-ratchet).
 
 4. Archive the full JSON and `/tmp/evil-pool/sweep-manifest.json` out-of-tree.
-5. Record the UTC date, short SHA, and sweep-manifest SHA-256.
+5. Record the UTC date and short SHA, and copy `sweepManifestSha256` and
+   `corpusSha256` from the run JSON. Do not compute these by hand: both are
+   defined by the tool (see [Comparability](#comparability-and-the-difference-between-a-skip-and-a-pass)),
+   and a hand-derived value that disagrees makes the row uncomparable.
 6. Copy the run JSON's top-level `methodologyVersion` into the row.
 7. Append one compact JSON object to `history.jsonl`, copying **every** bucket —
    the full `validDifferent` partition (including zeros), `notFull`, `drift`,
@@ -219,20 +232,53 @@ after a bump was then incomparable, it is what made the tracked-store gate a
 permanent skip. It is applied per metric instead: across a bump, `valid`,
 `correct`, and `invalid` keep ratcheting and only `productBodyDefect` drops out.
 
-The **baseline governs** the pool hash. When the recorded row identifies its
-pool, a run that cannot identify its own is not comparable to it. The weaker
-"check only when both sides recorded one" rule was unsound: it assumed a drifted
-pool always surfaces as unmatched rows or unresolved identities, but a package
-resolving to a newer version that still carries the same method identities
-resolves cleanly, drifts nothing, and would have been ratcheted against numbers
-measured on different code. `--ratchet-pool-manifest <sweep-manifest.json>` is
-how a live run identifies its pool; the recorded value is the first 8 bytes of
-the manifest's SHA-256, lowercase hex.
+Both identity hashes compare **symmetrically, absence included** — unknown never
+equals known, in either direction. Two weaker rules were tried and both were
+unsound:
 
-> The store's historical hashes were recorded by hand. That derivation is
-> asserted here, not verified against them. If one was produced a different way
-> it will not match — and the result is a loud skip, never a false pass, which is
-> the direction this has to fail in.
+- *Check the hash only when both sides recorded one.* This assumed a drifted pool
+  always surfaces as unmatched rows or unresolved identities. It does not: a
+  package resolving to a newer version that still carries the same method
+  identities resolves cleanly, drifts nothing, and would have been ratcheted
+  against numbers measured on different code.
+- *Let the baseline govern.* Better, but it had a fallthrough. A run whose pool
+  **mismatched** the newest row did not stop there — it continued down the store
+  and settled on an older row that recorded no hash at all, turning a drifted
+  pool back into a green comparison against an unidentified one. This store
+  contains exactly such a row (2026-07-20), so it was reachable in production.
+
+Symmetry is the only rule with no fallthrough.
+
+`--ratchet-pool-manifest <sweep-manifest.json>` is how a live run identifies its
+pool. The digest is taken over the **sorted resolved `package@version/tfm`
+triples**, not over the manifest file: the file carries `generatedAtUtc` and
+per-package `fromCache`, so two sweeps of an identical pool hash differently. A
+digest that never repeats cannot identify anything — it would make the ratchet
+skip on every run, and a permanently red gate is as uninformative as the
+permanently green one this replaces.
+
+`corpusSha256` identifies the corpus itself, because the counts do not. Swapping
+in a different 12,000 rows — or editing a single row's authored body — preserves
+`evaluated` and the pool, so without it a wholly different measurement compared
+clean.
+
+> Rows recorded before this change carry a hand-recorded `sweepManifestSha256`
+> taken over the manifest *file*, and no `corpusSha256` at all. They are not
+> comparable to a run that identifies itself under the current scheme. That is
+> the intended direction: a loud skip, never a false pass.
+
+### A row is a baseline only if its own measurement was sound
+
+The ratchet judges quality, and quality metrics mean nothing on a run that
+measured less than it claimed. A row that shed rows into `drift`, `unsupported`,
+or `unknownOutcome` reports a *lower* `invalid` for having measured less, which a
+pure quality ratchet reads as an improvement.
+
+So an untrustworthy row is neither judged nor used as a baseline, on both sides
+of the comparison. `unknownOutcome` must be recorded and zero rather than merely
+absent — absent means the run did not report it, and an unconfirmable row is not
+a baseline. The 2026-07-20 row is the only tracked row that fails this, pinned as
+set equality by `TrackedHistory_OnlyTheUnconfirmableRowIsNotTrustworthy`.
 
 Three outcomes, deliberately distinct:
 
@@ -276,10 +322,20 @@ its movement is a floor, not a census.
   found no regressions — an empty-regressions assertion alone passes for a skip,
   which is how the first version of this gate was vacuous.
 - **Weekly**: the `authored-corpus-ratchet` lane in `deep-inspect.yml` restores
-  the vendored corpus, prepares the EVIL pool, and runs the benchmark against
-  this store. It is a *periodic* gate — the corpus and the 100-package sweep are
-  far too expensive for the PR lane — so a product regression surfaces within a
-  week of landing rather than at the PR that causes it.
+  the vendored corpus, prepares the EVIL pool, and runs the benchmark. It is a
+  *periodic* job — the corpus and the 100-package sweep are far too expensive for
+  the PR lane. It deliberately does **not** pass `--ratchet-baseline`: the pool is
+  the measurement-integrity gate and the source of the run JSON that an append
+  starts from.
+
+  The reason it cannot ratchet is that `docs/data/nuget-top-packages.json`
+  records no versions, so the sweep resolves *latest* and a fresh pool can never
+  match a recorded baseline's identity. The ratchet would skip, and a skip fails,
+  so the job would be red by construction. Pinning the pool — which would let this
+  lane ratchet for real — is tracked separately. Note this limitation is not new:
+  the first comparability key was loose enough to compare across a drifted pool,
+  which is a false green, and identifying the pool is what turned that silent
+  wrong answer into a visible refusal.
 
 ## Progress card
 
