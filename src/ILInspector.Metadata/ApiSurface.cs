@@ -399,8 +399,28 @@ public class ApiMember
     public string Kind { get; set; } = "";  // method, property, field, event, constructor, operator, explicit-interface-implementation, extension-method
     public List<string> Attributes { get; set; } = [];
 
-    public string? ReturnType { get; set; }
-    public string? Signature { get; set; }
+    /// <summary>
+    /// Display spelling of the member's type. Composed from untrusted metadata
+    /// names, so it is contained here rather than at each rendering site
+    /// (issue #3319). Identity lives in <see cref="Name"/> and
+    /// <see cref="CanonicalSignature"/> and stays raw. Containment is a no-op on
+    /// clean text.
+    /// </summary>
+    public string? ReturnType
+    {
+        get => _returnType;
+        set => _returnType = value is null ? null : CSharpIdentifierCore.ContainComposedName(value);
+    }
+
+    /// <inheritdoc cref="ReturnType"/>
+    public string? Signature
+    {
+        get => _signature;
+        set => _signature = value is null ? null : CSharpIdentifierCore.ContainComposedName(value);
+    }
+
+    private string? _returnType;
+    private string? _signature;
 
     /// <summary>
     /// Durable 10-char digest for this overload — the same value shown in the Markdown

@@ -155,13 +155,21 @@ public class UntrustedViewContainmentTests
             Name = $"Holder{Hazard}INJECTED",
             Namespace = $"Ns{Hazard}INJECTED",
             Kind = "class",
+            BaseType = $"Base{Hazard}INJECTED",
+            Interfaces = [$"IFace{Hazard}INJECTED"],
             TypeParameters = [new TypeParameter { Name = $"T{Hazard}INJECTED" }],
             Members =
             [
-                new ApiMember { Name = $"Fld{Hazard}INJECTED", Kind = "field", ReturnType = "int" },
+                new ApiMember { Name = $"Fld{Hazard}INJECTED", Kind = "field", ReturnType = $"Ret{Hazard}INJECTED" },
                 new ApiMember { Name = $"Prop{Hazard}INJECTED", Kind = "property", ReturnType = "int" },
                 new ApiMember { Name = $"Evt{Hazard}INJECTED", Kind = "event", ReturnType = "EventHandler" },
-                new ApiMember { Name = $"Meth{Hazard}INJECTED", Kind = "method", ReturnType = "void" },
+                new ApiMember
+                {
+                    Name = $"Meth{Hazard}INJECTED",
+                    Kind = "method",
+                    ReturnType = $"Ret{Hazard}INJECTED",
+                    Signature = $"Ret{Hazard}INJECTED Meth{Hazard}INJECTED(Arg{Hazard}INJECTED a)",
+                },
                 new ApiMember { Name = ".ctor", Kind = "constructor" },
             ]
         };
@@ -237,6 +245,39 @@ public class UntrustedViewContainmentTests
         }
 
         var type = node.GetType();
+
+        // KeyValuePair, ValueTuple, and Tuple live under System, so a dictionary's
+        // entries or a tuple's items would otherwise be skipped by the namespace
+        // bail below. Walk their public members explicitly.
+        bool isTupleLike = type.IsGenericType
+            && type.GetGenericTypeDefinition() is { } definition
+            && (definition == typeof(KeyValuePair<,>)
+                || definition.FullName?.StartsWith("System.ValueTuple`", StringComparison.Ordinal) == true
+                || definition.FullName?.StartsWith("System.Tuple`", StringComparison.Ordinal) == true);
+
+        if (isTupleLike)
+        {
+            foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                object? entry;
+                try { entry = property.GetValue(node); }
+                catch { continue; }
+                foreach (string text in Strings(entry, seen))
+                    yield return text;
+            }
+
+            foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
+            {
+                object? entry;
+                try { entry = field.GetValue(node); }
+                catch { continue; }
+                foreach (string text in Strings(entry, seen))
+                    yield return text;
+            }
+
+            yield break;
+        }
+
         if (type.IsPrimitive || type.IsEnum || type.Namespace?.StartsWith("System", StringComparison.Ordinal) == true)
             yield break;
 
@@ -246,6 +287,16 @@ public class UntrustedViewContainmentTests
                 continue;
             object? value;
             try { value = property.GetValue(node); }
+            catch { continue; }
+            foreach (string text in Strings(value, seen))
+                yield return text;
+        }
+
+        // Public fields are rendered too, and are not reached by the property walk.
+        foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
+        {
+            object? value;
+            try { value = field.GetValue(node); }
             catch { continue; }
             foreach (string text in Strings(value, seen))
                 yield return text;

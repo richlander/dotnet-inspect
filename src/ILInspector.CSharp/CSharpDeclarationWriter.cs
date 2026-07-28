@@ -1047,7 +1047,14 @@ internal static class CSharpDeclarationWriter
             builder.Append(identifier);
             index = end;
         }
-        return builder.ToString();
+
+        // A type string is composed from untrusted metadata names. Containment
+        // happens at this single display choke point rather than at the sites
+        // that spell parameters, return types, and base types, so a new caller
+        // cannot reopen issue #3319. This escaper is display-only — identity
+        // lives in the raw metadata names — and containment is a no-op on clean
+        // text.
+        return CSharpIdentifierCore.ContainComposedName(builder.ToString());
     }
 
     static bool IsTypeSyntaxKeyword(string type, string identifier, int start, int end)

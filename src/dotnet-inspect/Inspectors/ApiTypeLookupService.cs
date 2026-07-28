@@ -1,3 +1,4 @@
+using ILInspector.CSharp;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.Inspectors;
@@ -10,14 +11,14 @@ internal sealed record ApiTypeLookupResult(string Query, LookupResult Lookup, Ap
 
     public void WriteNotFoundError(TextWriter error)
     {
-        error.WriteLine($"Error: Type '{Query}' not found.");
+        error.WriteLine($"Error: Type '{CSharpIdentifier.ContainRenderedText(Query)}' not found.");
         if (Suggestions.Count == 0)
             return;
 
         error.WriteLine();
         error.WriteLine("Did you mean:");
         foreach (var suggestion in Suggestions)
-            error.WriteLine($"  {suggestion}");
+            error.WriteLine($"  {CSharpIdentifier.ContainRenderedText(suggestion)}");
     }
 }
 
@@ -38,7 +39,8 @@ internal sealed record MemberFilterValidationResult(
         if (IsValid)
             return;
 
-        error.WriteLine($"Error: No members matched filter '{string.Join(", ", MissedFilters)}'");
+        error.WriteLine(
+            $"Error: No members matched filter '{string.Join(", ", MissedFilters.Select(CSharpIdentifier.ContainRenderedText))}'");
 
         // The ranking/graph surfaces (Top Leverage, Call Graph) walk the full
         // IL index, so they surface non-public members that member selection hides without
@@ -47,7 +49,8 @@ internal sealed record MemberFilterValidationResult(
         {
             error.WriteLine();
             foreach (var name in NonPublicMatches)
-                error.WriteLine($"Member '{name}' is non-public; pass --all to include it.");
+                error.WriteLine(
+                    $"Member '{CSharpIdentifier.ContainRenderedText(name)}' is non-public; pass --all to include it.");
         }
 
         if (Suggestions.Count == 0)
@@ -56,7 +59,7 @@ internal sealed record MemberFilterValidationResult(
         error.WriteLine();
         error.WriteLine("Did you mean:");
         foreach (var suggestion in Suggestions)
-            error.WriteLine($"  {suggestion}");
+            error.WriteLine($"  {CSharpIdentifier.ContainRenderedText(suggestion)}");
     }
 }
 

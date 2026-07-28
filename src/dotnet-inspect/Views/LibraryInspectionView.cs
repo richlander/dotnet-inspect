@@ -1,5 +1,7 @@
+using System.Diagnostics.CodeAnalysis;
 using DotnetInspector.Models;
 using DotnetInspector.Sections;
+using ILInspector.CSharp;
 using ILInspector.Metadata;
 using DotnetInspector.Output;
 using Markout;
@@ -1012,38 +1014,109 @@ public class LibraryInspectionView
     }
 }
 
+/// <summary>
+/// Containment for text rendered by <see cref="LibraryInspectionView"/>.
+/// Its rows embed untrusted assembly metadata — method, type, module, and
+/// attribute names — which can carry line terminators, ANSI escapes, or bidi
+/// overrides that break out of a Markdown table cell (issue #3319).
+/// Containment lives on the display records themselves rather than at the row
+/// construction sites, so a new call site cannot reopen the hole. These records
+/// are presentation-only, never identity, and containment is a no-op on clean
+/// text.
+/// </summary>
+internal static class LibraryViewText
+{
+    [return: NotNullIfNotNull(nameof(value))]
+    public static string? Contain(string? value) => value is null ? null : CSharpIdentifier.ContainRenderedText(value);
+}
+
 [MarkoutSerializable]
 public record ReferenceRow(
     string Name,
     string Version,
-    [property: MarkoutPropertyName("Public Key Token")] string PublicKeyToken);
+    string PublicKeyToken)
+{
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Name { get; init; } = LibraryViewText.Contain(Name);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Version { get; init; } = LibraryViewText.Contain(Version);
+
+    [MarkoutPropertyName("Public Key Token")]
+    public string PublicKeyToken { get; init; } = PublicKeyToken;
+}
 
 [MarkoutSerializable]
 public record ExtensionMethodRow(
     string Name,
     string Kind,
-    [property: MarkoutPropertyName("Extended Type")] string ExtendedType,
-    string Class);
+    string ExtendedType,
+    string Class)
+{
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Name { get; init; } = LibraryViewText.Contain(Name);
+
+    public string Kind { get; init; } = Kind;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Extended Type")]
+    public string ExtendedType { get; init; } = LibraryViewText.Contain(ExtendedType);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Class { get; init; } = LibraryViewText.Contain(Class);
+}
 
 [MarkoutSerializable]
 public record ClassifiedMethodRow(
     string Name,
-    [property: MarkoutPropertyName("Declaring Type")] string DeclaringType,
-    string Signature);
+    string DeclaringType,
+    string Signature)
+{
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Name { get; init; } = LibraryViewText.Contain(Name);
+
+    [MarkoutPropertyName("Declaring Type")]
+    public string DeclaringType { get; init; } = DeclaringType;
+
+    public string Signature { get; init; } = Signature;
+}
 
 [MarkoutSerializable]
 public record PInvokeMethodRow(
     string Name,
-    [property: MarkoutPropertyName("Declaring Type")] string DeclaringType,
+    string DeclaringType,
     string Module,
-    string Signature);
+    string Signature)
+{
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Name { get; init; } = LibraryViewText.Contain(Name);
+
+    [MarkoutPropertyName("Declaring Type")]
+    public string DeclaringType { get; init; } = DeclaringType;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Module { get; init; } = LibraryViewText.Contain(Module);
+
+    public string Signature { get; init; } = Signature;
+}
 
 [MarkoutSerializable]
 public record AsyncMethodRow(
     string Name,
-    [property: MarkoutPropertyName("Declaring Type")] string DeclaringType,
+    string DeclaringType,
     string Kind,
-    string Signature);
+    string Signature)
+{
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Name { get; init; } = LibraryViewText.Contain(Name);
+
+    [MarkoutPropertyName("Declaring Type")]
+    public string DeclaringType { get; init; } = DeclaringType;
+
+    public string Kind { get; init; } = Kind;
+
+    public string Signature { get; init; } = Signature;
+}
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
 [MarkoutSkipNull]
@@ -1191,7 +1264,15 @@ public record ILOffsetCostContextRow(
 public record ResourceRow(
     string Name,
     string Visibility,
-    string Size);
+    string Size)
+{
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Name { get; init; } = LibraryViewText.Contain(Name);
+
+    public string Visibility { get; init; } = Visibility;
+
+    public string Size { get; init; } = Size;
+}
 
 [MarkoutSerializable]
 public record ResourceTriageRow(
@@ -1259,25 +1340,64 @@ public sealed class PerformanceGroupView
 public record CustomAttributeRow(
     string Name,
     string Target,
-    string Value);
+    string Value)
+{
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Name { get; init; } = LibraryViewText.Contain(Name);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Target { get; init; } = LibraryViewText.Contain(Target);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Value { get; init; } = LibraryViewText.Contain(Value);
+}
 
 [MarkoutSerializable]
 public record TypeForwarderRow(
-    [property: MarkoutPropertyName("Type")] string TypeName,
-    [property: MarkoutPropertyName("Target Assembly")] string TargetAssembly);
+    string TypeName,
+    string TargetAssembly)
+{
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Type")]
+    public string TypeName { get; init; } = LibraryViewText.Contain(TypeName);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Target Assembly")]
+    public string TargetAssembly { get; init; } = LibraryViewText.Contain(TargetAssembly);
+}
 
 [MarkoutSerializable]
 public record AuditSignalRow(
     string Area,
     string Signal,
     string Value,
-    string Evidence);
+    string Evidence)
+{
+    public string Area { get; init; } = Area;
+
+    public string Signal { get; init; } = Signal;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Value { get; init; } = LibraryViewText.Contain(Value);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Evidence { get; init; } = LibraryViewText.Contain(Evidence);
+}
 
 [MarkoutSerializable]
 public record InspectionFailureRow(
     string Section,
     string Finding,
-    string Reason);
+    string Reason)
+{
+    public string Section { get; init; } = Section;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Finding { get; init; } = LibraryViewText.Contain(Finding);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Reason { get; init; } = LibraryViewText.Contain(Reason);
+}
 
 [MarkoutSerializable]
 public record SwitchRow(
@@ -1348,8 +1468,20 @@ public class LibraryInfoSection
 public record UnionTypeRow(
     string Type,
     string Kind,
-    [property: MarkoutPropertyName("IUnion")] string IUnion,
-    string Cases);
+    string IUnion,
+    string Cases)
+{
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Type { get; init; } = LibraryViewText.Contain(Type);
+
+    public string Kind { get; init; } = Kind;
+
+    [MarkoutPropertyName("IUnion")]
+    public string IUnion { get; init; } = IUnion;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string Cases { get; init; } = LibraryViewText.Contain(Cases);
+}
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
 [MarkoutSkipNull]

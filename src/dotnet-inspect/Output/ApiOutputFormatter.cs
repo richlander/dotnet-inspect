@@ -343,7 +343,9 @@ public static class ApiOutputFormatter
             new ILInspector.Research.ResearchViews.TypeProjectionOptions(Composition: false, RelationshipGraph: false));
 
         var modifiers = projection.Identity.Modifiers;
-        string? baseType = projection.BaseType;
+        string? baseType = projection.BaseType is { } rawBaseType
+            ? CSharpIdentifier.ContainRenderedText(rawBaseType)
+            : null;
 
         // Type parameters inline (Quiet only — at Minimal+ the section replaces this)
         string? typeParamsInline = null;
@@ -380,7 +382,7 @@ public static class ApiOutputFormatter
         if (!memberFilterActive && type.Interfaces.Count > 0)
         {
             interfaceRows = projection.Interfaces
-                .Select(i => new InterfaceRow { Interface = i })
+                .Select(i => new InterfaceRow { Interface = CSharpIdentifier.ContainRenderedText(i) })
                 .ToList();
         }
 
@@ -592,14 +594,22 @@ public static class ApiOutputFormatter
             // Inheritance
             if (!string.IsNullOrEmpty(type.BaseType) && type.BaseType != "Object")
             {
-                nodes.Insert(0, new TreeNode("Inherits") { Children = [new TreeNode(type.BaseType)] });
+                nodes.Insert(0, new TreeNode("Inherits")
+                {
+                    Children = [new TreeNode(CSharpIdentifier.ContainRenderedText(type.BaseType))]
+                });
             }
 
             // Interfaces
             if (type.Interfaces.Count > 0)
             {
                 var insertAt = nodes.Count > 0 && nodes[0].Text == "Inherits" ? 1 : 0;
-                nodes.Insert(insertAt, new TreeNode("Implements") { Children = type.Interfaces.Select(i => new TreeNode(i)).ToList() });
+                nodes.Insert(insertAt, new TreeNode("Implements")
+                {
+                    Children = type.Interfaces
+                        .Select(i => new TreeNode(CSharpIdentifier.ContainRenderedText(i)))
+                        .ToList()
+                });
             }
 
             // Type parameters with constraints
