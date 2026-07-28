@@ -650,28 +650,34 @@ Pinned input `Microsoft.NETCore.App/10.0.9/System.Private.CoreLib.dll`
 dotnet run eng/measure-metadata-projection-allocation.cs
 ```
 
-| Scenario | Allocated | Retained | Retained bytes | Rows | Cells |
+| Scenario | Allocated | Retained | Retained bytes observed | Rows | Cells |
 | --- | --- | --- | --- | --- | --- |
 | control: `PEReader` only, no rows | 0.0 MB | 0.0 MB | 3,720 | — | — |
-| full (`MaxRowsPerTable = int.MaxValue`) | 222.8–222.9 MB | 74.7 MB | 78,288,336 | 182,719 | 670,982 |
-| `mdi` default (`MaxRowsPerTable = 4096`) | 81.4–82.3 MB | 19.8 MB | 20,754,800 | 45,501 | 145,332 |
+| full (`MaxRowsPerTable = int.MaxValue`) | 222.8–222.9 MB | 74.7 MB | 78,288,240–78,291,336 | 182,719 | 670,982 |
+| `mdi` default (`MaxRowsPerTable = 4096`) | 81.4–82.3 MB | 19.8 MB | 20,754,744–20,757,840 | 45,501 | 145,332 |
 | window 1000 | 17.4–17.6 MB | 5.0 MB | 5,205,704 | 12,002 | 38,014 |
 | window 100 | 1.8 MB | 0.5 MB | 523,968 | 1,202 | 3,814 |
 | window 100, `MethodDef` only | 0.1 MB | 0.1 MB | 63,760 | 100 | 600 |
 | window 100 @ `MethodDef` row 40000 | 0.1 MB | 0.1 MB | 60,880 | 100 | 600 |
 
 The probe prints raw bytes as well as megabytes so these claims can be checked
-rather than inferred from a rounded figure, and the two columns behave
-differently. Row and cell counts are exactly reproducible. Retained bytes are
-exactly reproducible for the windowed scenarios and drift by a few dozen bytes
-on the larger ones (78,288,336 / 78,288,360 / 78,288,384 across runs).
+rather than inferred from a rounded figure, and the columns have genuinely
+different reproducibility, which is why they are written differently:
 
-Allocated churn is the noisy column and is reported as a range: it is bimodal
-across processes, with the `mdi` default landing at either 85,322,584 or
-86,310,024 bytes (a 1.2% spread) depending on when tiered JIT recompilation
-happens. Two reviewers of this measurement initially disagreed about these
-values for exactly that reason. Treat allocated as an order-of-magnitude
-GC-pressure signal and retained as the precise number.
+- **Rows and cells** are exactly reproducible.
+- **Retained** is exact for the windowed scenarios. The two large scenarios vary
+  by a few KB across runs and machines, so they carry observed ranges; a single
+  byte count for them would be false precision.
+- **Allocated** is the noisy column. The `mdi` default was observed at
+  85,322,584, 86,306,824, and 86,310,024 bytes by three different observers,
+  each of whom saw a *stable* value within their own session.
+
+The cause of the allocated spread was **not** identified, and the obvious
+hypotheses were tested and failed. Disabling tiered compilation, tiered PGO,
+QuickJit, and ReadyToRun, varying call-counting delays, adding post-warm-up
+delays, and repeating the warm-up all left the value unchanged within a given
+session. Treat allocated as an order-of-magnitude GC-pressure signal, not a
+measurement, and retained as the number to reason about.
 
 Deep paging is measured **inside a single large table** on purpose: an
 all-tables window at a high start row looks cheap for the wrong reason, since
@@ -686,13 +692,20 @@ the `PEReader` stays live, and re-measures; a `WeakReference` confirms the
 projection really was collected. With the projection reachable, 74.7 MB. With it
 unreachable and the reader still open, **0.0 MB** (3,720 bytes).
 
-Read that as a measurement, not a proof of a universal property. A delta cannot
-distinguish the projection from some *other* root that happens to retain memory,
-so what the experiment establishes is narrower: for this input and runtime,
-nothing row-proportional survived dropping the projection. That is still the
-result that matters, because the failure mode runs the other way — a hidden root
-or a static cache in SRM would keep the post-drop delta *positive*, which is
-exactly what the test would surface. It read zero.
+Read that as a measurement, not a proof of a universal property, and be precise
+about what it can and cannot see. A delta cannot distinguish the projection from
+some *other* root, and it is blind in one specific direction: the probe warms up
+**before** taking the baseline, so any process-wide static cache populated during
+warm-up is already inside the baseline and stays invisible when the projection
+drops. A reviewer demonstrated exactly this — a 10 MB static cache filled during
+warm-up left the post-drop delta at 24 bytes.
+
+So the experiment establishes something narrower but still useful: for this input
+and runtime, nothing row-proportional that was allocated **after the baseline**
+survived dropping the projection. That is the relevant class, because per-image
+lazy state is created by the reader under measurement rather than by the warm-up
+run. Ruling out pre-warmed static retention would need source inspection or a
+cold-baseline experiment, and neither was done.
 
 ### What the numbers say
 
@@ -756,9 +769,11 @@ distinct preview.
 Two caveats keep this honest. Identity counting charges a string the runtime had
 already cached — small integers and enum names — as though the projection owned
 it, and whether such a string is shared depends on what ran earlier in the
-process, so character totals drift by a few dozen between runs. And this measures
-only the string inventory; the remaining 44 MB is per-object overhead across
-670,982 cells and their rows, which was not broken down further.
+process, so totals drift slightly between runs (32,216,712 and 32,217,048 bytes
+observed). The rounded 30.7 MB is reproducible; the exact byte count is not. And
+this measures only the string inventory: the remaining ~44 MB is the non-string
+remainder — cell and row objects, their fields, and backing arrays — which was
+not decomposed further.
 
 Two cheap wins are visible and were deliberately **not** taken:
 `Scalar`/`Flags` strings collapse to 40,357 distinct values, and the 14,217
