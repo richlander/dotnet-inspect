@@ -366,6 +366,39 @@ public class MetadataRowReferenceSearchTests
     /// *intends* to visit would miss them and under-report — the same failure
     /// as the unmodelled-table gap, at a smaller scale.
     /// </summary>
+    /// <summary>
+    /// Entering a table is not searching it. When the budget stops the scan
+    /// part-way through a table, the rows after the stop were never read and an
+    /// edge could sit in any of them — so that table must stay a blind spot
+    /// rather than count as covered on the strength of having been started.
+    /// </summary>
+    [Fact]
+    public void FindReferences_TableStoppedPartWayThrough_IsNotCountedAsSearched()
+    {
+        using var peReader = OpenSelfFromBytes();
+        var reader = peReader.GetMetadataReader();
+        int popular = MostReferencedTypeRef(FullProjection(peReader));
+
+        var capped = MetadataTableProjector.FindReferences(peReader, TableIndex.TypeRef, popular, 1);
+        Assert.True(capped.Truncated, "Expected the budget to stop this scan.");
+
+        // The table holding the one reference we kept is where the scan stopped.
+        var stoppedIn = Assert.Single(capped.References).Source.Table;
+
+        // It is modelled, so the only reason it can appear as unscanned is that
+        // the scan did not finish it.
+        Assert.Contains(stoppedIn, ModelledTables);
+        Assert.True(
+            reader.GetTableRowCount(stoppedIn) > 1,
+            "Need a multi-row table for 'stopped part-way' to be meaningful.");
+        Assert.Contains(stoppedIn, capped.UnscannedTables);
+
+        // The same table is fully searched when nothing stops the scan, so the
+        // blind spot is evidence of the stop and not a permanent gap.
+        var full = MetadataTableProjector.FindReferences(peReader, TableIndex.TypeRef, popular, int.MaxValue);
+        Assert.DoesNotContain(stoppedIn, full.UnscannedTables);
+    }
+
     [Fact]
     public void FindReferences_TruncatedScan_ReportsTheTablesItNeverReached()
     {

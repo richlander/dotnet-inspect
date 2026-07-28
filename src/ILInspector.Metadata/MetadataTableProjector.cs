@@ -181,16 +181,20 @@ public static class MetadataTableProjector
     /// <c>TypeDef</c> declares a given <c>Field</c>, <c>MethodDef</c>, or which
     /// <c>MethodDef</c> owns a given <c>Param</c>.
     ///
-    /// The scan always covers every supported table. It takes no
+    /// The scan covers every supported table, up to the point
+    /// <paramref name="maxReferences"/> stops it. It takes no
     /// <see cref="MetadataProjectionOptions"/> at all, and in particular offers
     /// no equivalent of <see cref="MetadataProjectionOptions.Tables"/>, because
     /// a reverse search narrowed to part of the image could report "nothing
-    /// points here" while a pointer sat in an unsearched table. Its two blind
+    /// points here" while a pointer sat in an unsearched table. Its three blind
     /// spots are reported instead of hidden:
     /// <see cref="MetadataRowReferenceSet.Truncated"/> when
-    /// <paramref name="maxReferences"/> stopped the scan, and
+    /// <paramref name="maxReferences"/> stopped the scan,
     /// <see cref="MetadataRowReferenceSet.UnreadableRows"/> for rows whose edges
-    /// could not be fully determined.
+    /// could not be fully determined, and
+    /// <see cref="MetadataRowReferenceSet.UnscannedTables"/> for populated
+    /// tables no row of which was searched — because the projection does not
+    /// model the table, or because the scan stopped before covering it.
     ///
     /// A dangling edge is not a reference: a handle whose row lies outside its
     /// target table projects as <see cref="MetadataValue.Malformed"/>, so it
@@ -239,7 +243,8 @@ public static class MetadataTableProjector
                 break;
 
             int rowCount = reader.GetTableRowCount(spec.Index);
-            for (int rid = 1; rid <= rowCount && !truncated; rid++)
+            int rid = 1;
+            for (; rid <= rowCount && !truncated; rid++)
             {
                 ImmutableArray<MetadataValue> cells;
                 try
@@ -296,12 +301,16 @@ public static class MetadataTableProjector
                     unreadable.Add(new MetadataRowLocation(spec.Index, rid));
             }
 
-            // Recorded after the row loop, not before it, so any path that
-            // skips this table's rows also leaves it out of `visited` and it
-            // shows up as a blind spot. A budget that stopped the scan mid-table
-            // still counts as visited: the table was searched up to that point,
-            // and `Truncated` is what carries the rest.
-            visited.Add(spec.Index);
+            // Recorded after the row loop and only when every row the image says
+            // exists was examined. "Entered" is not the same as "searched": a
+            // loop that stopped short — the budget, or any future early exit —
+            // leaves rows unread, and an edge onto the target could sit in any
+            // of them. The check re-reads the count from the reader rather than
+            // trusting the local, so the claim "we covered this table" is
+            // anchored to the metadata instead of to a variable the loop could
+            // have narrowed.
+            if (rid > reader.GetTableRowCount(spec.Index))
+                visited.Add(spec.Index);
         }
 
         return new MetadataRowReferenceSet(

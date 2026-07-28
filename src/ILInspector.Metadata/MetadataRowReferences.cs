@@ -138,8 +138,12 @@ public sealed record MetadataRowReferenceSet
     public ImmutableArray<MetadataRowLocation> UnreadableRows { get; }
 
     /// <summary>
-    /// Populated tables the scan never reached: either the projection does not
-    /// model them, or the result budget stopped the scan before it got to them.
+    /// Populated tables no row of which was searched: either the projection does
+    /// not model the table, or the result budget stopped the scan before it
+    /// covered every row of it. A table is only counted as searched once every
+    /// one of its rows was examined, because an edge onto the target could sit
+    /// in any row left unread.
+    ///
     /// This is the largest blind spot of the three and the only one that fires
     /// on well-formed metadata, because the search covers the projected tables
     /// rather than all of ECMA-335 — so an edge in an unmodelled table

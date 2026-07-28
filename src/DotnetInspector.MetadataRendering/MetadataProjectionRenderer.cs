@@ -95,10 +95,11 @@ public static class MetadataProjectionRenderer
     /// Renders a reverse-reference search — the rows pointing at one row — to
     /// <paramref name="output"/>.
     ///
-    /// A reverse search has two blind spots the table renderer has no equivalent
-    /// of, and neither may be dropped: a budget that stopped the scan, and rows
-    /// that could not be decoded. Both are rendered as explicit caveats, so an
-    /// empty result is never mistaken for a confident "nothing points here".
+    /// A reverse search has three blind spots the table renderer has no
+    /// equivalent of, and none may be dropped: a budget that stopped the scan,
+    /// rows that could not be decoded, and populated tables no row of which was
+    /// searched. All are rendered as explicit caveats, so an empty result is
+    /// never mistaken for a confident "nothing points here".
     /// </summary>
     public static void Render(
         MetadataRowReferenceSet references,
