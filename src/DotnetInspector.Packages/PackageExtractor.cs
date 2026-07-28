@@ -644,7 +644,20 @@ public static class PackageExtractor
     }
 
     private static readonly TimeSpan VersionCacheTtl = TimeSpan.FromHours(1);
-    private const string VersionCacheCategory = "versions";
+
+    // Bumped to -v2 for #3388: the pre-fix tool populated this category from the UNFILTERED
+    // flat-container, so entries written by an older build may include unlisted versions. A new
+    // category name means those stale entries are never read after upgrading, so the listed-status
+    // filter takes effect immediately rather than being delayed by up to the cache TTL.
+    private const string VersionCacheCategory = "versions-v2";
+    private const string VersionCacheCategoryPrefix = "versions-v";
+
+    static PackageExtractor()
+    {
+        CoreCache.RegisterVersionedCategory(
+            VersionCacheCategoryPrefix,
+            VersionCacheCategory);
+    }
 
     public static async Task<string?> GetLatestVersionAsync(
         HttpClient client,
@@ -710,10 +723,20 @@ public static class PackageExtractor
         string? bestOriginal = null;
 
         var versions = await GetAllVersionsWithCacheAsync(client, normalizedName, sources, log).ConfigureAwait(false);
-        if (versions == null)
+        if (versions.Versions == null)
             return null;
 
-        foreach (var ver in versions)
+        // Wildcard resolution auto-selects a single "latest matching" version. If the list is a
+        // fail-open snapshot (nuget.org registration index unavailable) it may contain unlisted
+        // versions, and we cannot tell which — so refuse to resolve rather than risk selecting an
+        // unlisted version. Raw enumeration (GetVersionsAsync) intentionally still fails open.
+        if (!versions.Authoritative)
+        {
+            log?.Invoke($"Could not resolve pattern '{pattern}': listing status unavailable");
+            return null;
+        }
+
+        foreach (var ver in versions.Versions)
         {
             if (ver.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
                 && NuGet.Versioning.NuGetVersion.TryParse(ver, out var parsed)
@@ -1093,12 +1116,14 @@ public static class PackageExtractor
         var sources = NuGetSourceResolver.ResolveSources(sourceOptions);
 
         var allVersions = await GetAllVersionsWithCacheAsync(client, normalizedName, sources, log).ConfigureAwait(false);
-        if (allVersions == null)
+        if (allVersions.Versions == null)
             return null;
 
+        // Raw enumeration fails open: showing the unfiltered list during a registration outage is
+        // preferable to dropping real versions. (Auto-selecting callers fail closed instead.)
         var filtered = includePrerelease
-            ? allVersions
-            : allVersions.Where(v => !v.Contains('-')).ToList();
+            ? allVersions.Versions
+            : allVersions.Versions.Where(v => !v.Contains('-')).ToList();
 
         // Newest first, with optional limit
         List<string> result = [];
@@ -1112,7 +1137,7 @@ public static class PackageExtractor
         return result;
     }
 
-    private static async Task<List<string>?> GetAllVersionsWithCacheAsync(
+    private static async Task<(List<string>? Versions, bool Authoritative)> GetAllVersionsWithCacheAsync(
         HttpClient client,
         string normalizedName,
         List<NuGetSource> sources,
@@ -1125,10 +1150,17 @@ public static class PackageExtractor
         var merged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         bool anyFound = false;
 
+        // The merged list is authoritative unless a nuget.org source failed open (registration
+        // index unavailable), in which case it may contain unlisted versions. Callers that
+        // auto-select a single version (e.g. wildcard resolution) must treat a non-authoritative
+        // list as "cannot determine safely"; raw enumeration may still fail open.
+        bool authoritative = true;
+
         foreach (var source in sources)
         {
             List<string>? versions = null;
             bool fetchedAuthoritative = false;
+            bool fromCache = false;
 
             if (source.IsNuGetOrg && canCacheNuGetOrg)
             {
@@ -1137,6 +1169,7 @@ public static class PackageExtractor
                 {
                     log?.Invoke("Using cached version list");
                     versions = [.. cached.Split('\n', StringSplitOptions.RemoveEmptyEntries)];
+                    fromCache = true;
                 }
             }
 
@@ -1144,6 +1177,12 @@ public static class PackageExtractor
                 (versions, fetchedAuthoritative) = await FetchListedVersionsFromSourceAsync(client, normalizedName, source, log).ConfigureAwait(false);
             if (versions == null)
                 continue;
+
+            // A cache hit is authoritative (only an authoritatively filtered list is ever
+            // persisted). A fresh fetch reports authoritativeness itself (false only on a
+            // nuget.org registration fail-open).
+            if (!fromCache && !fetchedAuthoritative)
+                authoritative = false;
 
             anyFound = true;
             merged.UnionWith(versions);
@@ -1158,7 +1197,7 @@ public static class PackageExtractor
         }
 
         if (!anyFound)
-            return null;
+            return (null, authoritative);
 
         // Sort ascending by SemVer (newest last) so callers that assume ordered input
         // (e.g. GetVersionsAsync) stay correct across merged feeds; unparseable entries sort last.
@@ -1173,7 +1212,7 @@ public static class PackageExtractor
         }
 
         parseable.Sort((a, b) => a.Parsed.CompareTo(b.Parsed));
-        return [.. parseable.Select(p => p.Original), .. unparseable];
+        return ([.. parseable.Select(p => p.Original), .. unparseable], authoritative);
     }
 
     /// <summary>

@@ -15,7 +15,7 @@ namespace DotnetInspector.Services.Tests;
 [Collection(CoreCacheCollection.Name)]
 public class UnlistedVersionTests : IDisposable
 {
-    private const string VersionCacheCategory = "versions";
+    private const string VersionCacheCategory = "versions-v2";
     private static readonly NuGetSource NuGetOrgSource = NuGetSource.NuGetOrg;
 
     public UnlistedVersionTests()
@@ -84,6 +84,22 @@ public class UnlistedVersionTests : IDisposable
 
         // 2.0.0 (unlisted) is excluded, so the only 2.0.* match is the listed prerelease.
         Assert.Equal("2.0.0-beta.1", result);
+    }
+
+    [Fact]
+    public async Task ResolveVersionPattern_ReturnsNull_WhenRegistrationUnavailable()
+    {
+        // Wildcard resolution auto-selects a single "latest matching" version. When the
+        // registration index is unavailable the list is an unfiltered fail-open snapshot, so we
+        // cannot tell which matches are unlisted — resolution must refuse (null) rather than
+        // auto-select the unlisted 3.0.0-beta.1. (Raw enumeration still fails open; only
+        // auto-selecting callers fail closed.)
+        using var client = new HttpClient(new NuGetOrgHandler("unlistedpkg", Registry, serveRegistration: false));
+
+        var result = await PackageExtractor.ResolveVersionPatternAsync(
+            client, "UnlistedPkg", "3.0.*", [NuGetOrgSource], log: null);
+
+        Assert.Null(result);
     }
 
     [Fact]

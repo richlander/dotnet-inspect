@@ -179,14 +179,20 @@ the nuget.org gallery:
   `Name@latest` and the addressable-vector endpoints) never enumerates, so a
   known unlisted version still resolves and loads — matching NuGet's own
   behavior of restoring a known unlisted version.
-- **Fail-open.** If the registration index cannot be fetched or parsed (network
-  failure, or a valid-JSON document whose shape defies the expected schema), the
-  list is returned unfiltered rather than silently dropping versions, and the
-  condition is logged. A fail-open (unfiltered) snapshot is **not** cached, so a
+- **Fail-open vs. fail-closed on outage.** If the registration index cannot be
+  fetched or parsed (network failure, or a valid-JSON document whose shape
+  defies the expected schema), the condition is logged and behavior depends on
+  the caller. **Raw enumeration** (`Name --versions`) fails **open** — the
+  unfiltered list is returned rather than silently dropping real versions.
+  **Auto-selecting** callers that pick a single version — nuget.org "latest"
+  resolution and wildcard pattern resolution (`Name@3.0.*`) — fail **closed**,
+  returning no result rather than risk selecting an unlisted version from an
+  unfiltered snapshot. A fail-open (unfiltered) snapshot is **not** cached, so a
   transient registration outage cannot re-surface unlisted versions for the
-  cache TTL; only an authoritatively filtered list is persisted. For the same
-  reason, nuget.org "latest" resolution returns no result rather than falling
-  back to an unfiltered index when the listing-aware path cannot produce a list.
+  cache TTL; only an authoritatively filtered list is persisted. The version
+  cache category is versioned (`versions-v2`) so lists written by an older,
+  pre-filter build are never read after upgrading — the filter takes effect
+  immediately rather than being delayed by up to the cache TTL.
 
 ## Cache locations
 
@@ -195,7 +201,7 @@ the nuget.org gallery:
 | NuGet global cache | `~/.nuget/packages/{name}/{version}/` | Permanent | `dotnet restore`, NuGet client |
 | App package cache | `$LOCAL_APP_DATA/dotnet-inspect/package-content-v2/{name}/{version}/` | Permanent | dotnet-inspect |
 | Platform packs | `$LOCAL_APP_DATA/dotnet-inspect/packs-v2/{pack}/{version}/` | Permanent | dotnet-inspect |
-| Version resolution | `$LOCAL_APP_DATA/dotnet-inspect/versions/` | 1 hour | dotnet-inspect |
+| Version resolution | `$LOCAL_APP_DATA/dotnet-inspect/versions-v2/` | 1 hour | dotnet-inspect |
 | Package metadata | `$LOCAL_APP_DATA/dotnet-inspect/metadata/` | 1 hour | dotnet-inspect |
 | Symbol miss markers | `$LOCAL_APP_DATA/dotnet-inspect/symbol-misses/` | 1 day | dotnet-inspect |
 | SourceLink availability markers | `$LOCAL_APP_DATA/dotnet-inspect/source-audit/` | Permanent for hits, 1 day for misses | dotnet-inspect |
