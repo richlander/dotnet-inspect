@@ -23,11 +23,31 @@ public class RowSpecGrammarTests
         Assert.Equal(RowSpecKind.Count, spec.Kind);
         Assert.Equal(6, spec.Count);
         Assert.False(spec.IsRange);
+        Assert.False(spec.IsOpenEnded);
 
-        // A count has no absolute extent until a direction and a section supply
-        // one, so it deliberately does not answer Contains.
-        Assert.False(spec.Contains(1));
-        Assert.Null(spec.RowCount);
+        // A count knows how many rows it takes, just not which ones.
+        Assert.Equal(6, spec.RowCount);
+    }
+
+    [Fact]
+    public void CountSpec_RefusesTheRangeMembers_RatherThanAnsweringWithADefault()
+    {
+        Assert.True(RowSpec.TryParse("6", out var spec, out _));
+
+        // Contains is the dangerous one: false is exactly what a genuine miss
+        // looks like, so a caller filtering rows through it would select nothing
+        // and see no error. Start would hand back 0, which is not a row.
+        Assert.Throws<InvalidOperationException>(() => spec.Contains(1));
+        Assert.Throws<InvalidOperationException>(() => spec.Start);
+        Assert.Throws<InvalidOperationException>(() => spec.End);
+    }
+
+    [Fact]
+    public void RangeSpec_RefusesTheCountMember()
+    {
+        Assert.True(RowSpec.TryParse("2..10", out var spec, out _));
+
+        Assert.Throws<InvalidOperationException>(() => spec.Count);
     }
 
     [Fact]

@@ -44,12 +44,16 @@ public enum RowSpecKind
 /// </summary>
 public readonly record struct RowSpec
 {
+    private readonly int _count;
+    private readonly int _start;
+    private readonly int? _end;
+
     private RowSpec(RowSpecKind kind, int count, int start, int? end)
     {
         Kind = kind;
-        Count = count;
-        Start = start;
-        End = end;
+        _count = count;
+        _start = start;
+        _end = end;
     }
 
     /// <summary>Which of the two addressing modes this spec uses.</summary>
@@ -57,27 +61,52 @@ public readonly record struct RowSpec
 
     /// <summary>
     /// For <see cref="RowSpecKind.Count"/>, the number of rows requested.
-    /// Meaningless for a range; use <see cref="Start"/>/<see cref="End"/>.
+    /// Throws for a range, which has no single count to report; use
+    /// <see cref="Start"/>/<see cref="End"/>, or <see cref="RowCount"/> for the
+    /// extent either kind covers.
     /// </summary>
-    public int Count { get; }
+    public int Count => Kind == RowSpecKind.Count
+        ? _count
+        : throw WrongKind(nameof(Count), RowSpecKind.Count);
 
     /// <summary>
     /// For <see cref="RowSpecKind.Range"/>, the 1-based first row, inclusive.
+    /// Throws for a count, whose first row is not known until a direction and a
+    /// section supply one.
     /// </summary>
-    public int Start { get; }
+    public int Start => Kind == RowSpecKind.Range
+        ? _start
+        : throw WrongKind(nameof(Start), RowSpecKind.Range);
 
     /// <summary>
     /// For <see cref="RowSpecKind.Range"/>, the 1-based last row, inclusive, or
     /// <see langword="null"/> when the range runs to the end of the section
-    /// (<c>N..</c>).
+    /// (<c>N..</c>). Throws for a count, so that a caller cannot read the
+    /// open-ended <see langword="null"/> out of a spec that is not a range at all.
     /// </summary>
-    public int? End { get; }
+    public int? End => Kind == RowSpecKind.Range
+        ? _end
+        : throw WrongKind(nameof(End), RowSpecKind.Range);
+
+    /// <summary>
+    /// The kind-specific members throw rather than returning a default, because
+    /// every default available here is a lie a caller would act on: a
+    /// <see cref="Start"/> of 0 is not a row, and a <see cref="Contains"/> of
+    /// false is indistinguishable from a genuine miss. A spec is a two-case
+    /// union, so reading the wrong case is a caller bug, and it should surface
+    /// where it happens rather than as rows quietly going missing downstream.
+    /// </summary>
+    private InvalidOperationException WrongKind(string member, RowSpecKind required)
+        => new($"{member} is only meaningful for a {required} row spec; this spec is {Kind}. Check {nameof(Kind)} first.");
 
     /// <summary>True when this spec names an absolute range rather than a count.</summary>
     public bool IsRange => Kind == RowSpecKind.Range;
 
-    /// <summary>True for <c>N..</c>, whose end is whatever the section renders.</summary>
-    public bool IsOpenEnded => Kind == RowSpecKind.Range && End is null;
+    /// <summary>
+    /// True for <c>N..</c>, whose end is whatever the section renders. False for
+    /// a count, which is not a range at all.
+    /// </summary>
+    public bool IsOpenEnded => Kind == RowSpecKind.Range && _end is null;
 
     /// <summary>A count of N rows, anchored by a separate direction.</summary>
     public static RowSpec FromCount(int count)
@@ -99,19 +128,34 @@ public readonly record struct RowSpec
     }
 
     /// <summary>
-    /// The number of rows this range covers, or <see langword="null"/> when that
-    /// depends on the section (an open-ended range, or a count whose direction
-    /// the spec does not carry).
+    /// The number of rows this spec selects at most, or <see langword="null"/>
+    /// only when that genuinely depends on the section — an open-ended
+    /// <c>N..</c>. A count knows its own extent (<c>6</c> selects six rows
+    /// whichever direction anchors it), so it reports it rather than pleading
+    /// ignorance; what a count does not know is *which* rows, not how many.
     /// </summary>
-    public int? RowCount => Kind == RowSpecKind.Range && End is { } e ? e - Start + 1 : null;
+    public int? RowCount => Kind switch
+    {
+        RowSpecKind.Count => _count,
+        _ => _end is { } e ? e - _start + 1 : null,
+    };
 
     /// <summary>
-    /// True when <paramref name="rowNumber"/> falls inside this range. Only
-    /// meaningful for <see cref="RowSpecKind.Range"/>; a count has no absolute
-    /// extent until a direction and a section are supplied.
+    /// True when <paramref name="rowNumber"/> falls inside this range.
+    ///
+    /// Throws for a count. Returning false there would answer a question the
+    /// spec cannot answer — a count names no absolute rows until a direction and
+    /// a section supply them — and would do it in the one way a caller cannot
+    /// detect, since a false is exactly what a genuine miss looks like. A caller
+    /// that filters rows through this would silently select nothing.
     /// </summary>
     public bool Contains(int rowNumber)
-        => Kind == RowSpecKind.Range && rowNumber >= Start && (End is not { } e || rowNumber <= e);
+    {
+        if (Kind != RowSpecKind.Range)
+            throw WrongKind(nameof(Contains), RowSpecKind.Range);
+
+        return rowNumber >= _start && (_end is not { } e || rowNumber <= e);
+    }
 
     /// <summary>
     /// Parses a <c>--rows</c> token. Returns false with a caller-renderable
@@ -290,8 +334,8 @@ public readonly record struct RowSpec
     /// </summary>
     public override string ToString() => Kind switch
     {
-        RowSpecKind.Count => Count.ToString(CultureInfo.InvariantCulture),
-        _ when End is null => $"{Start}..",
-        _ => $"{Start}..{End}",
+        RowSpecKind.Count => _count.ToString(CultureInfo.InvariantCulture),
+        _ when _end is null => $"{_start}..",
+        _ => $"{_start}..{_end}",
     };
 }
