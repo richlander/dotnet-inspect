@@ -425,6 +425,21 @@ function namespaces() {
   return [...new Set(state.package.types.map(item => item.namespace))];
 }
 
+// Options for the namespace picker dropdown: every namespace in the active
+// package, sorted, with its type count. Replaces the old overflow chip strip,
+// which collapsed to unreadable single letters once a package (e.g. the runtime
+// pack) had many namespaces.
+function namespaceOptions() {
+  if (!state.package) return "";
+  const counts = new Map();
+  for (const item of state.package.types)
+    counts.set(item.namespace, (counts.get(item.namespace) || 0) + 1);
+  return [...counts.keys()]
+    .sort((a, b) => a.localeCompare(b))
+    .map(ns => `<option value="${escapeHtml(ns)}" ${state.namespaceFilter === ns ? "selected" : ""}>${escapeHtml(ns || "(global namespace)")} · ${counts.get(ns)}</option>`)
+    .join("");
+}
+
 // Collapse a raw kind string ("sealed class", "readonly struct", "enum", …) to a
 // primary bucket used by the kind filter chips.
 function typeKind(kind) {
@@ -963,9 +978,11 @@ function renderTypeNav(current, visible) {
         <input id="type-filter" value="${escapeHtml(state.typeFilter)}" placeholder="Filter types" autocomplete="off" spellcheck="false" />
         <kbd>⌘F</kbd>
       </label>
-      <div class="namespace-chips" aria-label="Namespace filters">
-        <button class="${!state.namespaceFilter ? "active" : ""}" data-namespace="">all</button>
-        ${namespaces().map(item => `<button class="${state.namespaceFilter === item ? "active" : ""}" data-namespace="${escapeHtml(item)}" title="${escapeHtml(item)}">${escapeHtml(item.split(".").at(-1))}</button>`).join("")}
+      <div class="namespace-picker">
+        <select id="namespace-jump" class="scope-select" aria-label="Filter by namespace">
+          <option value="" ${!state.namespaceFilter ? "selected" : ""}>All namespaces · ${namespaces().length}</option>
+          ${namespaceOptions()}
+        </select>
       </div>
       <div class="namespace-chips kind-chips" aria-label="Type kind filters">
         <button class="${!state.kindFilter ? "active" : ""}" data-kind-filter="">all kinds</button>
@@ -2305,6 +2322,15 @@ function bindEvents() {
     state.selectedMemberKey = "";
     render();
   }));
+  const namespaceJump = document.getElementById("namespace-jump");
+  if (namespaceJump) namespaceJump.addEventListener("change", () => {
+    state.namespaceFilter = namespaceJump.value;
+    state.typeCursor = 0;
+    const first = filteredTypes()[0];
+    if (first) state.selectedTypeId = first.id;
+    state.selectedMemberKey = "";
+    render();
+  });
   document.querySelectorAll("[data-kind-filter]").forEach(button => button.addEventListener("click", () => {
     state.kindFilter = button.dataset.kindFilter;
     state.typeCursor = 0;

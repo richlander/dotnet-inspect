@@ -331,6 +331,20 @@ kbd {
 }
 .namespace-chips button.active { color: var(--text); border-color: var(--line-strong); background: var(--panel-active); }
 
+/* Namespace picker dropdown (replaces the old overflow chip strip). Also the
+   shared look for the scopebar Library selector. */
+.namespace-picker { padding: 7px 9px; border-bottom: 1px solid var(--line); }
+.scope-select {
+  width: 100%;
+  height: 26px;
+  padding: 0 25px 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--panel-raised);
+  color: var(--text);
+  font: 11px var(--mono);
+}
+
 .type-list { min-height: 0; overflow: auto; padding: 5px 0 8px; outline: 0; }
 .namespace-row, .type-row {
   width: 100%;
