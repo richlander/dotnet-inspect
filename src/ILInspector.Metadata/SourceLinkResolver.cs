@@ -329,7 +329,7 @@ public class SourceLinkResolver
 
             if (c == '"')
             {
-                int end = EndOfStringLiteral(trimmed, i);
+                int end = EndOfSingleLineLiteral(trimmed, i);
                 if (end < 0)
                     return -1;
                 i = end - 1;
@@ -393,23 +393,21 @@ public class SourceLinkResolver
         // header's own line is scanned first so that "class C {" and a "{" on the next line
         // both land at depth 1 for the lines that follow.
         int depth = 0;
-        bool inBlockComment = false;
-        bool inVerbatimString = false;
-        bool untracked = false;
+        var state = new LexState();
         for (int i = 0; i < start && i < capturedLines.Length; i++)
-            ScanLine(capturedLines[i], ref inBlockComment, ref inVerbatimString, ref depth, ref untracked);
+            ScanLine(capturedLines[i], state, ref depth);
 
         for (int i = start; i < capturedLines.Length; i++)
         {
             // A brace this scanner could not place leaves the depth unknown, so it can no
             // longer tell a declaration from a statement. Stop rather than guess.
-            if (untracked)
+            if (state.Untracked)
                 return -1;
 
             bool atMemberLevel = depth == 1;
             var trimmed = StripLeadingTrivia(capturedLines[i].TrimStart());
 
-            ScanLine(capturedLines[i], ref inBlockComment, ref inVerbatimString, ref depth, ref untracked);
+            ScanLine(capturedLines[i], state, ref depth);
 
             if (!atMemberLevel || trimmed.Length == 0)
                 continue;
@@ -800,11 +798,49 @@ public class SourceLinkResolver
     /// </summary>
     private static char ScanLine(string line, LexState state, ref int depth)
     {
-        char significant = '\0';
-        int i = 0;
+        Scan(line, state, ref depth, start: 0, untilLiteralCloses: false, out char significant);
+        return significant;
+    }
+
+    /// <summary>
+    /// Index just past the literal opening at <paramref name="start"/>, or <c>-1</c> when it
+    /// does not close on that line. Used where the construct examined is known to be
+    /// single-line — an attribute list — so a literal that continues means it did not close.
+    /// <para>
+    /// This runs the same scanner as <see cref="ScanLine"/> rather than a second literal
+    /// parser, so the verbatim, raw, and interpolated forms are read one way everywhere.
+    /// </para>
+    /// </summary>
+    private static int EndOfSingleLineLiteral(string line, int start)
+    {
+        var state = new LexState();
+        int depth = 0;
+        int end = Scan(line, state, ref depth, start, untilLiteralCloses: true, out _);
+        return state.InLiteral ? -1 : end;
+    }
+
+    /// <summary>
+    /// Scans <paramref name="line"/> from <paramref name="start"/>, returning the index it
+    /// stopped at. With <paramref name="untilLiteralCloses"/> the scan stops as soon as the
+    /// literal it opened is closed, which is how a caller consumes a single literal.
+    /// </summary>
+    private static int Scan(
+        string line,
+        LexState state,
+        ref int depth,
+        int start,
+        bool untilLiteralCloses,
+        out char significant)
+    {
+        significant = '\0';
+        int i = start;
+        bool opened = false;
 
         while (i < line.Length)
         {
+            if (untilLiteralCloses && opened && !state.InLiteral)
+                return i;
+
             char c = line[i];
 
             if (state.InBlockComment)
@@ -972,6 +1008,8 @@ public class SourceLinkResolver
                     // The empty literal.
                     i = open + 2;
                     significant = '"';
+                    if (untilLiteralCloses)
+                        return i;
                     continue;
                 }
 
@@ -983,6 +1021,7 @@ public class SourceLinkResolver
                     Raw = raw,
                 });
 
+                opened = true;
                 significant = '"';
                 i = open + quotes;
                 continue;
@@ -1037,8 +1076,9 @@ public class SourceLinkResolver
         if (state.HasLineBoundLiteral)
             state.Untracked = true;
 
-        return significant;
+        return i;
     }
+
     /// <summary>
     /// Words that can open a statement, and so rule out a declaration no matter what follows.
     /// </summary>
