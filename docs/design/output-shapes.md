@@ -151,18 +151,23 @@ selection and filtering:
 `--print` resolves exactly one payload. There is no fan-out gesture: printing
 more than one document at a time is not currently expressible.
 
-Numeric `--row N` addresses the row number the reader can see in the rendered
-section. It is not a position within a filtered subsequence, and in particular
-printability does not renumber anything: a row that declares no payload still
+Numeric `--row N` addresses a row by its position in the rendered section,
+counting from 1. Sections do not print a row-number column, so N is the number
+the reader arrives at by counting rows top to bottom — which is precisely why it
+has to be stable: it is not a position within a filtered subsequence, and
+printability does not renumber anything. A row that declares no payload still
 occupies its number, and selecting it reports that it has no document rather
 than silently sliding to a neighbour. `first` and `last` are the endpoints of
 the rendered sequence, so when a projection skips rows they resolve to the
-first and last numbers actually on screen rather than to `1` and the row count.
+first and last numbers actually present rather than to `1` and the row count.
+Structured output makes the number explicit — `--jsonl` and `--json` emit it as
+`row` — and error messages name the addressable numbers, so a projection with
+gaps stays navigable.
 
 This is the one rule that makes the ordinal trustworthy. Numbering by position
 in a filtered list is wrong in the worst way available: it returns a real row,
-so nothing looks broken, and the reader has no way to see the sequence being
-indexed. Selecting by displayed number can only ever hit the intended row or
+so nothing looks broken, and the reader has no way to recover the sequence being
+indexed. Addressing by rendered position can only ever hit the intended row or
 report a miss.
 
 Because `--print` is exactly-one, failing to acquire the selected row's payload
@@ -449,9 +454,10 @@ The stable vocabulary is:
   or constrain payload acquisition.
 - `--rows` promotes head/tail to first/last data-row windows, but those windows
   remain presentation limits rather than row selectors.
-- `--row` addresses a rendered row by its displayed number. Any future selector
-  that takes an ordinal joins this rule: the number a reader can see is the
-  number that can be addressed, and no filter may renumber it.
+- `--row` addresses a rendered row by its position in the section, counting from
+  1. Any future selector that takes an ordinal joins this rule: the number a
+  reader arrives at by counting rows is the number that can be addressed, and no
+  filter may renumber it.
 - `--bare` is a presentation modifier: it strips the surrounding framing from an
   already-selected payload.
 - `--raw` / `--blob` are URL-shape modifiers: they control the form of emitted

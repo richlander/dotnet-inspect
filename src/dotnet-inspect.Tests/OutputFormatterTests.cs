@@ -1522,7 +1522,7 @@ public class OutputFormatterTests
     [Fact]
     public void RowSelector_ResolvesEndpointsOfGappedRows()
     {
-        // first/last name the endpoints the reader can see, not 1 and the count.
+        // first/last name the endpoints of the rendered sequence, not 1 and the count.
         int[] gapped = [2, 5, 9];
         Assert.Equal(2, RowSelector.First.Resolve(gapped));
         Assert.Equal(9, RowSelector.Last.Resolve(gapped));

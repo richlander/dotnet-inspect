@@ -49,9 +49,9 @@ public readonly record struct RowSelector
     /// projection that drops rows carrying no value leaves gaps, so the Nth
     /// entry of the list and the row labelled N are different rows, and a count
     /// cannot tell them apart. <c>first</c>/<c>last</c> are the endpoints of the
-    /// rendered sequence — the first and last numbers a reader can see — not 1
-    /// and <c>count</c>. An explicit index passes through as the displayed
-    /// number it names; the caller looks it up and reports a miss.
+    /// rendered sequence — the first and last rows a reader would count — not 1
+    /// and <c>count</c>. An explicit index passes through as the row number it
+    /// names; the caller looks it up and reports a miss.
     /// </summary>
     public int Resolve(IReadOnlyList<int> rowNumbers)
     {
@@ -107,13 +107,14 @@ public enum RowSelectorKind
 }
 
 /// <summary>
-/// Helpers for addressing rendered rows by the number the reader sees.
+/// Helpers for addressing rendered rows by the number a reader arrives at when
+/// counting them.
 ///
 /// Selection and identity are the same concern here: a projection carries the
 /// row number it rendered on every row, so selection looks that number up
 /// instead of indexing the list positionally. Positional indexing is what made
-/// <c>--row</c> address an invisible sequence, and it fails silently — it
-/// returns a real row, just not the requested one.
+/// <c>--row</c> address a sequence the reader cannot reconstruct, and it fails
+/// silently — it returns a real row, just not the requested one.
 /// </summary>
 public static class RowNumbering
 {

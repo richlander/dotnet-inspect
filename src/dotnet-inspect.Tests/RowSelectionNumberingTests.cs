@@ -1,16 +1,17 @@
 using System.Text.Json;
+using DotnetInspector.Commands;
 using DotnetInspector.Output;
 
 namespace DotnetInspector.Tests;
 
 /// <summary>
-/// Pins the numbering contract for <c>--row</c>: the ordinal addresses the row
-/// number the reader can see in the rendered table, not the position of that row
+/// Pins the numbering contract for <c>--row</c>: the ordinal addresses a row by
+/// its position in the rendered section, not the position of that row
 /// inside whatever list the projection happens to have built.
 ///
 /// The two numbering systems only diverge when a projection skips rows, which is
 /// exactly when the reader cannot compensate: a section that drops rows carrying
-/// no value leaves gaps, so list position and displayed number differ by however
+/// no value leaves gaps, so list position and rendered number differ by however
 /// many rows were skipped before the target. Rows are constructed here with
 /// deliberate gaps (2 and 5, as a source-location projection produces when rows
 /// 1, 3, and 4 carry no value) because contiguous rows cannot tell a correct
@@ -46,7 +47,7 @@ public class RowSelectionNumberingTests
         var (exit, output, error) = await ConsoleCapture.RunAsync(() =>
             Task.FromResult(ShapeProjectionOutput.Write(GappedRows(), Options(RowSelector.FromIndex(5)))));
 
-        // Row 5 is on screen, so it is addressable, even though the list holds
+        // Row 5 was rendered, so it is addressable, even though the list holds
         // only two entries and a positional bound check would reject it.
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -96,5 +97,92 @@ public class RowSelectionNumberingTests
         Assert.Equal(0, exit);
         using var document = JsonDocument.Parse(output);
         Assert.Equal(5, document.RootElement.GetProperty("row").GetInt32());
+    }
+
+    // --- the --print selection path -------------------------------------------
+    //
+    // These exercise ApiCommand.SelectPrintableRow directly. The end-to-end
+    // --print tests need a package restore and a network fetch, and none of the
+    // packages they use has a source-location row that lacks a URL, so the case
+    // that motivated the whole change cannot be reached from there.
+
+    private static List<(int Row, string? Label, string? Url)> RowsWithAGap() =>
+    [
+        (1, "first", null),
+        (2, "second", "https://example.invalid/second.cs"),
+        (3, "third", null),
+    ];
+
+    [Fact]
+    public void PrintSelection_AddressesRowsThatCarryNoPayload()
+    {
+        var selected = ApiCommand.SelectPrintableRow(RowsWithAGap(), RowSelector.FromIndex(2), out var error);
+
+        Assert.NotNull(selected);
+        Assert.Equal(2, selected!.Value.Row);
+        Assert.Empty(error);
+    }
+
+    [Fact]
+    public void PrintSelection_ReportsRowWithNoPayloadInsteadOfSliding()
+    {
+        // Row 1 exists and was addressed correctly; it simply has nothing behind
+        // it. Before this contract, numbering skipped it and --row 1 returned
+        // row 2's document without saying so.
+        var selected = ApiCommand.SelectPrintableRow(RowsWithAGap(), RowSelector.FromIndex(1), out var error);
+
+        Assert.Null(selected);
+        Assert.Equal("Error: row 1 has no printable document.", error);
+    }
+
+    [Fact]
+    public void PrintSelection_LastMeansTheLastRenderedRow_NotTheLastPrintableOne()
+    {
+        // 'last' is an endpoint of the rendered section. Row 3 carries no
+        // payload, so the honest answer is to say so rather than to fall back to
+        // row 2, which the reader did not ask for.
+        var selected = ApiCommand.SelectPrintableRow(RowsWithAGap(), RowSelector.Last, out var error);
+
+        Assert.Null(selected);
+        Assert.Equal("Error: row 3 has no printable document.", error);
+    }
+
+    [Fact]
+    public void PrintSelection_RejectsRowNumbersThatWereNeverRendered()
+    {
+        var selected = ApiCommand.SelectPrintableRow(RowsWithAGap(), RowSelector.FromIndex(9), out var error);
+
+        Assert.Null(selected);
+        Assert.Equal("Error: row 9 is not in this section. Use --row 1 through 3, first, or last.", error);
+    }
+
+    [Fact]
+    public void PrintSelection_RequiresRowWhenSectionHasMany()
+    {
+        var selected = ApiCommand.SelectPrintableRow(RowsWithAGap(), selector: null, out var error);
+
+        Assert.Null(selected);
+        Assert.Equal("Error: selected section has 3 rows; use --row N|first|last to choose one row.", error);
+    }
+
+    [Fact]
+    public void PrintSelection_CountsEveryRenderedRow_NotJustPrintableOnes()
+    {
+        // The guidance error has to count what the section rendered. Counting only
+        // printable rows would say "1 row" for a three-row section and then
+        // print it without being asked.
+        var selected = ApiCommand.SelectPrintableRow(RowsWithAGap(), selector: null, out var error);
+
+        Assert.Null(selected);
+        Assert.Contains("has 3 rows", error);
+    }
+
+    [Fact]
+    public void PrintSelection_ReportsEmptySection()
+    {
+        var selected = ApiCommand.SelectPrintableRow([], RowSelector.First, out var error);
+
+        Assert.Null(selected);
+        Assert.Equal("Error: selected section has no rows.", error);
     }
 }

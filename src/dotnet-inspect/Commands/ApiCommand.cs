@@ -1119,47 +1119,63 @@ public class ApiCommand
             ? []
             : [new PrintableDocument(1, section, label, null, url, content)];
 
+    /// <summary>
+    /// Selects the row addressed by <paramref name="selector"/> from the rows a
+    /// section rendered, or explains why no row could be selected.
+    ///
+    /// Numbering covers every rendered row. Filtering to rows that carry a
+    /// payload and then indexing that shorter list positionally is how --row came
+    /// to address a sequence the reader cannot count: with rows 1-2 carrying no
+    /// URL, --row 1 returned the row displayed third. Printability is therefore
+    /// checked last, against the row the caller actually named, so a row with
+    /// nothing behind it reports that rather than yielding its neighbour.
+    /// </summary>
+    internal static (int Row, string? Label, string? Url)? SelectPrintableRow(
+        IReadOnlyList<(int Row, string? Label, string? Url)> rows,
+        RowSelector? selector,
+        out string error)
+    {
+        error = "";
+        if (rows.Count == 0)
+        {
+            error = "Error: selected section has no rows.";
+            return null;
+        }
+
+        if (selector is null && rows.Count != 1)
+        {
+            error = $"Error: selected section has {rows.Count} rows; use --row N|first|last to choose one row.";
+            return null;
+        }
+
+        var rowNumbers = rows.Select(row => row.Row).ToList();
+        var targetRow = selector?.Resolve(rowNumbers) ?? rowNumbers[0];
+        var position = RowNumbering.IndexOf(rowNumbers, targetRow);
+        if (position < 0)
+        {
+            error = $"Error: row {targetRow} is not in this section. Use --row {RowNumbering.Describe(rowNumbers)}, first, or last.";
+            return null;
+        }
+
+        var selected = rows[position];
+        if (string.IsNullOrWhiteSpace(selected.Url))
+        {
+            error = $"Error: row {targetRow} has no printable document.";
+            return null;
+        }
+
+        return selected;
+    }
+
     private static async Task<int> PrintUrlProjectionAsync(
         string section,
         IEnumerable<(int Row, string? Label, string? Url)>? rows,
         ApiOptions options)
     {
-        // Numbering covers every row the section rendered. Filtering to rows that
-        // carry a payload and then indexing that shorter list positionally is how
-        // --row came to address a sequence the reader cannot see: with rows 1-2
-        // carrying no URL, --row 1 returned the row displayed as 3. Printability
-        // is checked after selection, against the row the caller actually named.
-        var allRows = (rows ?? []).ToList();
-        if (allRows.Count == 0)
+        var selection = SelectPrintableRow((rows ?? []).ToList(), options.PrintRow, out var selectionError);
+        if (selection is not { } selectedRow)
         {
-            Console.Error.WriteLine("Error: selected section has no rows.");
-            return 1;
-        }
-
-        if (options.PrintRow is null && allRows.Count != 1)
-        {
-            Console.Error.WriteLine($"Error: selected section has {allRows.Count} rows; use --row N|first|last to choose one row.");
-            return 1;
-        }
-
-        var rowNumbers = allRows.Select(row => row.Row).ToList();
-        var targetRow = options.PrintRow?.Resolve(rowNumbers) ?? rowNumbers[0];
-        var position = RowNumbering.IndexOf(rowNumbers, targetRow);
-        if (position < 0)
-        {
-            Console.Error.WriteLine(
-                $"Error: row {targetRow} is not in this section. Use --row {RowNumbering.Describe(rowNumbers)}, first, or last.");
-            return 1;
-        }
-
-        var selectedRow = allRows[position];
-        if (string.IsNullOrWhiteSpace(selectedRow.Url))
-        {
-            // The row exists and was addressed correctly; it simply has nothing
-            // behind it. Reporting that is what keeps the ordinal trustworthy —
-            // skipping to a neighbouring row would silently answer a different
-            // question.
-            Console.Error.WriteLine($"Error: row {targetRow} has no printable document.");
+            Console.Error.WriteLine(selectionError);
             return 1;
         }
 
@@ -1168,7 +1184,7 @@ public class ApiCommand
         var content = await fetcher.FetchSourceAsync(rawUrl);
         if (content == null)
         {
-            Console.Error.WriteLine($"Error: failed to fetch the document for row {targetRow} from {rawUrl}.");
+            Console.Error.WriteLine($"Error: failed to fetch the document for row {selectedRow.Row} from {rawUrl}.");
             return 1;
         }
 
