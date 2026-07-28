@@ -160,7 +160,11 @@ coordinate but is hidden from discovery on nuget.org. The flat-container
 `index.json` that drives version enumeration lists **every** published version
 and carries no listed flag, so it cannot distinguish an unlisted version on its
 own. Only the nuget.org **registration** index exposes the per-version
-`catalogEntry.listed` bit.
+`catalogEntry.listed` bit. Resolution reads the SemVer2 registration hive
+(`registration5-gz-semver2`) rather than the SemVer1 hive, because the SemVer1
+hive omits SemVer2 versions entirely — reading it would let unlisted SemVer2
+prereleases escape filtering. That hive is gzip-encoded and transparently
+decompressed by the shared HTTP client.
 
 Version resolution applies one shared listing-aware policy so discovery matches
 the nuget.org gallery:
@@ -175,10 +179,14 @@ the nuget.org gallery:
   `Name@latest` and the addressable-vector endpoints) never enumerates, so a
   known unlisted version still resolves and loads — matching NuGet's own
   behavior of restoring a known unlisted version.
-- **Fail-open.** If the registration index cannot be fetched or parsed, the list
-  is returned unfiltered rather than silently dropping versions; the condition
-  is logged. The filtered nuget.org list is what gets cached, so a cache hit
-  within the 1-hour TTL never re-surfaces an unlisted version.
+- **Fail-open.** If the registration index cannot be fetched or parsed (network
+  failure, or a valid-JSON document whose shape defies the expected schema), the
+  list is returned unfiltered rather than silently dropping versions, and the
+  condition is logged. A fail-open (unfiltered) snapshot is **not** cached, so a
+  transient registration outage cannot re-surface unlisted versions for the
+  cache TTL; only an authoritatively filtered list is persisted. For the same
+  reason, nuget.org "latest" resolution returns no result rather than falling
+  back to an unfiltered index when the listing-aware path cannot produce a list.
 
 ## Cache locations
 

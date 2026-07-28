@@ -801,8 +801,12 @@ public static class PackageExtractor
 
     // nuget.org registration index — the only nuget.org endpoint that carries the
     // per-version `catalogEntry.listed` flag. The flat-container index.json omits it.
+    // The gz-semver2 hive is used (not semver1) because the semver1 hive omits SemVer2
+    // versions entirely, which would let unlisted SemVer2 prereleases escape filtering.
+    // Its responses are gzip-encoded and transparently decompressed by the shared
+    // HttpClient (HttpClientFactory sets AutomaticDecompression = DecompressionMethods.All).
     private const string NuGetOrgRegistrationBase =
-        "https://api.nuget.org/v3/registration5-semver1";
+        "https://api.nuget.org/v3/registration5-gz-semver2";
 
     /// <summary>
     /// Fetches all version strings for a package from a single source, then removes NuGet
@@ -810,8 +814,16 @@ public static class PackageExtractor
     /// surfaces a version hidden on nuget.org. Only nuget.org exposes a listed flag (via the
     /// registration index); other feeds are returned unfiltered. Explicit <c>Package@Version</c>
     /// access does not enumerate, so it still resolves and loads a known unlisted version.
+    /// <para>
+    /// <c>Authoritative</c> is <see langword="true"/> when the returned list reflects a definitive
+    /// listing decision — a successful registration read (nuget.org) or a feed with no listed
+    /// concept (other feeds). It is <see langword="false"/> only when nuget.org's registration index
+    /// could not be read and the list is therefore a fail-open, <em>unfiltered</em> snapshot;
+    /// callers must not persist such a snapshot, or a transient registration outage would re-surface
+    /// unlisted versions for the whole cache TTL.
+    /// </para>
     /// </summary>
-    private static async Task<List<string>?> FetchListedVersionsFromSourceAsync(
+    private static async Task<(List<string>? Versions, bool Authoritative)> FetchListedVersionsFromSourceAsync(
         HttpClient client,
         string packageName,
         NuGetSource source,
@@ -819,17 +831,19 @@ public static class PackageExtractor
     {
         var versions = await FetchAllVersionsFromSourceAsync(client, packageName, source, log).ConfigureAwait(false);
         if (versions == null || !source.IsNuGetOrg)
-            return versions;
+            return (versions, Authoritative: true);
 
         var unlisted = await FetchUnlistedVersionsFromNuGetOrgAsync(client, packageName, log).ConfigureAwait(false);
-        if (unlisted == null || unlisted.Count == 0)
-            return versions;
+        if (unlisted == null)
+            return (versions, Authoritative: false);
+        if (unlisted.Count == 0)
+            return (versions, Authoritative: true);
 
         var filtered = versions.Where(v => !IsUnlisted(v, unlisted)).ToList();
         int removed = versions.Count - filtered.Count;
         if (removed > 0)
             log?.Invoke($"Excluded {removed} unlisted version(s) from enumeration");
-        return filtered;
+        return (filtered, Authoritative: true);
     }
 
     private static bool IsUnlisted(string version, HashSet<NuGet.Versioning.NuGetVersion> unlisted) =>
@@ -884,8 +898,11 @@ public static class PackageExtractor
                 }
             }
         }
-        catch (System.Text.Json.JsonException ex)
+        catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException)
         {
+            // Fail open on any malformed or unexpectedly shaped registration document
+            // (JsonException = invalid JSON; InvalidOperationException = valid JSON whose
+            // shape defies the accessors, e.g. `items` not an array or `version` not a string).
             log?.Invoke($"Could not parse listing status: {ex.Message}");
             return null;
         }
@@ -954,12 +971,15 @@ public static class PackageExtractor
 
         // For nuget.org, the flat-container/prerelease path must exclude unlisted versions.
         // FetchListedVersionsFromSourceAsync consults the registration index; its result is
-        // authoritative for nuget.org, so do not fall through to the unfiltered index below.
+        // authoritative for nuget.org, so do not fall through to the unfiltered index below —
+        // returning null (couldn't determine a latest) is safer than an unfiltered latest that
+        // could be an unlisted version.
         if (source.IsNuGetOrg)
         {
-            var listed = await FetchListedVersionsFromSourceAsync(client, packageName, source, log).ConfigureAwait(false);
+            var (listed, _) = await FetchListedVersionsFromSourceAsync(client, packageName, source, log).ConfigureAwait(false);
             if (listed != null)
                 return PickLatest(listed, includePrerelease);
+            return null;
         }
 
         // Fall back to flat-container index (enumerates all versions)
@@ -1106,6 +1126,7 @@ public static class PackageExtractor
         foreach (var source in sources)
         {
             List<string>? versions = null;
+            bool fetchedAuthoritative = false;
 
             if (source.IsNuGetOrg && canCacheNuGetOrg)
             {
@@ -1117,7 +1138,8 @@ public static class PackageExtractor
                 }
             }
 
-            versions ??= await FetchListedVersionsFromSourceAsync(client, normalizedName, source, log).ConfigureAwait(false);
+            if (versions == null)
+                (versions, fetchedAuthoritative) = await FetchListedVersionsFromSourceAsync(client, normalizedName, source, log).ConfigureAwait(false);
             if (versions == null)
                 continue;
 
@@ -1125,9 +1147,11 @@ public static class PackageExtractor
             merged.UnionWith(versions);
 
             // Persist nuget.org's list (not the merged set) so private-feed versions don't
-            // pollute the shared, name-keyed cache. The list is already listing-filtered, so the
-            // cache never re-surfaces an unlisted version within its TTL.
-            if (source.IsNuGetOrg && canCacheNuGetOrg)
+            // pollute the shared, name-keyed cache. Only cache a freshly fetched, authoritatively
+            // filtered list: a fail-open snapshot taken while the registration index was
+            // unavailable is unfiltered, so caching it would re-surface unlisted versions for the
+            // whole TTL. A list served from cache is already persisted and need not be rewritten.
+            if (source.IsNuGetOrg && canCacheNuGetOrg && fetchedAuthoritative)
                 CoreCache.Set(VersionCacheCategory, $"{normalizedName}-all", string.Join('\n', versions), extension: "txt");
         }
 

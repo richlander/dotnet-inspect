@@ -99,6 +99,51 @@ public class UnlistedVersionTests : IDisposable
         Assert.Equal(["2.0.0", "1.5.0", "1.0.0"], result);
     }
 
+    [Fact]
+    public async Task GetVersions_FailsOpen_WhenRegistrationMalformed()
+    {
+        // Registration returns valid JSON whose shape defies the accessors (`items` is a number,
+        // not an array). Parsing must fail open (no crash) rather than throw InvalidOperationException.
+        using var client = new HttpClient(new NuGetOrgHandler(
+            "unlistedpkg", Registry, registrationBodyOverride: "{\"items\":42}"));
+
+        var result = await PackageExtractor.GetVersionsAsync(
+            client, "UnlistedPkg", includePrerelease: false, limit: null, log: null);
+
+        // Could not determine listing → unfiltered (unlisted 2.0.0 retained), no exception thrown.
+        Assert.Equal(["2.0.0", "1.5.0", "1.0.0"], result);
+    }
+
+    [Fact]
+    public async Task GetVersions_FailOpenResult_IsNotCached()
+    {
+        // When registration is unavailable the returned list is an unfiltered fail-open snapshot;
+        // it must NOT be persisted, or a transient registration outage would re-surface unlisted
+        // versions for the whole cache TTL.
+        using var client = new HttpClient(new NuGetOrgHandler("unlistedpkg", Registry, serveRegistration: false));
+
+        var result = await PackageExtractor.GetVersionsAsync(
+            client, "UnlistedPkg", includePrerelease: false, limit: null, log: null);
+
+        Assert.Equal(["2.0.0", "1.5.0", "1.0.0"], result);   // fail-open, unfiltered
+        Assert.Null(CoreCache.TryGet(VersionCacheCategory, "unlistedpkg-all", TimeSpan.FromHours(1), extension: "txt"));
+    }
+
+    [Fact]
+    public async Task GetLatestVersion_Prerelease_DoesNotFallThroughToUnfiltered_OnTransientFlatContainerFailure()
+    {
+        // The registration path is authoritative for nuget.org. If the flat-container read fails
+        // (so no listed list can be produced), latest resolution must return null rather than
+        // falling through and re-reading the flat-container UNFILTERED — which on a transient
+        // recovery would surface the unlisted 3.0.0-beta.1 as prerelease "latest".
+        using var client = new HttpClient(new NuGetOrgHandler("unlistedpkg", Registry, failFlatContainerFirstCall: true));
+
+        var result = await PackageExtractor.GetLatestVersionAsync(
+            client, "UnlistedPkg", [NuGetOrgSource], log: null, includePrerelease: true);
+
+        Assert.Null(result);
+    }
+
     /// <summary>
     /// Serves the three nuget.org endpoints version resolution touches: the flat-container version
     /// list (no listed flag), the registration index (single inline page carrying listed flags),
@@ -107,9 +152,13 @@ public class UnlistedVersionTests : IDisposable
     private sealed class NuGetOrgHandler(
         string packageId,
         (string Version, bool Listed)[] registry,
-        bool serveRegistration = true)
+        bool serveRegistration = true,
+        string? registrationBodyOverride = null,
+        bool failFlatContainerFirstCall = false)
         : HttpMessageHandler
     {
+        private int _flatContainerCalls;
+
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -118,16 +167,28 @@ public class UnlistedVersionTests : IDisposable
 
             if (string.Equals(url, $"https://api.nuget.org/v3-flatcontainer/{packageId}/index.json", StringComparison.OrdinalIgnoreCase))
             {
+                // Simulate a transient (non-retryable 404) failure on the first read so a caller
+                // that wrongly falls through would see the endpoint recover on a later read.
+                if (failFlatContainerFirstCall && ++_flatContainerCalls == 1)
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+
                 string versions = string.Join(",", registry.Select(r => "\"" + r.Version + "\""));
                 body = "{\"versions\":[" + versions + "]}";
             }
             else if (serveRegistration &&
-                string.Equals(url, $"https://api.nuget.org/v3/registration5-semver1/{packageId}/index.json", StringComparison.OrdinalIgnoreCase))
+                string.Equals(url, $"https://api.nuget.org/v3/registration5-gz-semver2/{packageId}/index.json", StringComparison.OrdinalIgnoreCase))
             {
-                string items = string.Join(",", registry.Select(r =>
-                    "{\"catalogEntry\":{\"version\":\"" + r.Version + "\",\"listed\":"
-                        + (r.Listed ? "true" : "false") + "}}"));
-                body = "{\"items\":[{\"items\":[" + items + "]}]}";
+                if (registrationBodyOverride != null)
+                {
+                    body = registrationBodyOverride;
+                }
+                else
+                {
+                    string items = string.Join(",", registry.Select(r =>
+                        "{\"catalogEntry\":{\"version\":\"" + r.Version + "\",\"listed\":"
+                            + (r.Listed ? "true" : "false") + "}}"));
+                    body = "{\"items\":[{\"items\":[" + items + "]}]}";
+                }
             }
             else if (url.StartsWith("https://azuresearch-usnc.nuget.org/query", StringComparison.OrdinalIgnoreCase))
             {
