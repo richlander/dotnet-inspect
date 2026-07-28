@@ -374,33 +374,10 @@ public class SourceLinkResolver
             if (state.Untracked)
                 return -1;
 
-            bool atMemberLevel = depth == 1;
-            var trimmed = StripLeadingTrivia(capturedLines[i].TrimStart());
+            if (DeclaresConstructorAtMemberLevel(capturedLines[i], state, depth, typeName))
+                return i;
 
             ScanLine(capturedLines[i], state, ref depth);
-
-            if (trimmed.Length == 0)
-                continue;
-
-            if (atMemberLevel)
-            {
-                if (DeclaresConstructor(trimmed, typeName))
-                    return i;
-
-                continue;
-            }
-
-            // The header line is not itself at member level, but it may open the type's block
-            // and declare a constructor after it: "class C { C() { } }". Requiring the search to
-            // begin below the header reported such a constructor absent (adversarial review,
-            // MAI-Code). There is no column to slice on, so the whole line is the answer, which
-            // is what this returns and what the base behavior was.
-            if (i == start)
-            {
-                int brace = trimmed.IndexOf('{');
-                if (brace >= 0 && DeclaresConstructor(StripLeadingTrivia(trimmed[(brace + 1)..].TrimStart()), typeName))
-                    return i;
-            }
         }
 
         return -1;
@@ -432,6 +409,47 @@ public class SourceLinkResolver
                 return false;
 
             index = next;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// True when <paramref name="line"/> declares a constructor for <paramref name="typeName"/>
+    /// at the type's member level, given the lexical state and brace depth carried into it.
+    /// <para>
+    /// Asking this only of the start of the line missed every constructor that shares a line
+    /// with something else: with the type header ("class C { C() { } }"), with an opening brace
+    /// below the header ("{ C() { } }"), or with an earlier member ("class C { int X; C() { } }")
+    /// — each reported as absent authored source (adversarial review, MAI-Code and Gemini). A
+    /// member can only begin where the previous one ended, so the candidates are the start of
+    /// the line and every position just past a brace or semicolon. Confirming each candidate's
+    /// depth with the shared scanner is also what keeps a brace inside a comment, a string, or a
+    /// character literal from being taken for the one that opens the type's block.
+    /// </para>
+    /// <para>
+    /// The answer is a line, not a column: the caller slices whole lines, so a constructor
+    /// anywhere on the line makes the whole line the answer.
+    /// </para>
+    /// </summary>
+    private static bool DeclaresConstructorAtMemberLevel(string line, LexState entry, int entryDepth, string typeName)
+    {
+        for (int i = 0; i <= line.Length; i++)
+        {
+            if (i > 0 && line[i - 1] is not ('{' or '}' or ';'))
+                continue;
+
+            var probe = entry.Clone();
+            int depth = entryDepth;
+            ScanLine(line[..i], probe, ref depth);
+
+            // Rejects a candidate whose brace or semicolon turned out to be comment or literal
+            // text, and any position that is not at the type's member level.
+            if (depth != 1 || probe.InBlockComment || probe.InLiteral || probe.Untracked || probe.BracketDepth != 0)
+                continue;
+
+            if (DeclaresConstructor(StripLeadingTrivia(line[i..].TrimStart()), typeName))
+                return true;
         }
 
         return false;

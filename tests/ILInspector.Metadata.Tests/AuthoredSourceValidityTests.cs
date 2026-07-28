@@ -584,17 +584,50 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
-    /// The type header may open its block and declare a constructor on one line. Beginning the
-    /// search below the header reported such a constructor absent (adversarial review,
-    /// MAI-Code). There is no column to slice on, so the whole line is the answer — which is
-    /// what the base returned before this change.
+    /// A constructor may share its line with anything that can precede it. Asking only about
+    /// the start of the line, and then only about the text after the line's first brace,
+    /// reported such constructors absent (adversarial review, MAI-Code and Gemini): a brace
+    /// inside a comment or a literal was taken for the type's, and an earlier member on the
+    /// line was never stepped over. A member begins at the start of the line or just past a
+    /// brace or semicolon, and every such position is now asked.
+    /// </summary>
+    [Theory]
+    [InlineData("public class C { C() { } }")]
+    [InlineData("public class C /* { */ { C() { } }")]
+    [InlineData("public class C { C(string s = \"{\") { } }")]
+    [InlineData("public class C { C(char c = '{') { } }")]
+    [InlineData("public class C { int X; C() { } }")]
+    [InlineData("class C { string s = \"{\"; C() { } }")]
+    [InlineData("public class C { void M() { } C() { } }")]
+    public void ConstructorRecovery_FindsAConstructorSharingItsLine(string header)
+    {
+        Assert.Equal(header, SourceLinkResolver.ExtractMethodBody(header, startLine: 1, endLine: 1, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// The type's block may open on a line below its header, and a constructor may follow it
+    /// on that same line.
     /// </summary>
     [Fact]
-    public void ConstructorRecovery_FindsAConstructorOnTheHeaderLine()
+    public void ConstructorRecovery_FindsAConstructorAfterAnOpeningBraceBelowTheHeader()
     {
         Assert.Equal(
-            "public class C { C() { } }",
-            SourceLinkResolver.ExtractMethodBody("public class C { C() { } }", startLine: 1, endLine: 1, methodName: ".ctor"));
+            "{ C() { } }",
+            SourceLinkResolver.ExtractMethodBody("class C\n{ C() { } }", startLine: 2, endLine: 2, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// Asking more positions must not accept more shapes. A constructor call in an initializer
+    /// and a nested type's constructor both spell the type name followed by a parameter list,
+    /// and neither is a constructor declared at this type's member level.
+    /// </summary>
+    [Theory]
+    [InlineData("public class C { static C I = new C(); }")]
+    [InlineData("public class C { class D { D() { } } }")]
+    [InlineData("public record R(string s = \"{ R()\") ;")]
+    public void ConstructorRecovery_IgnoresNamesThatAreNotMemberLevelDeclarations(string source)
+    {
+        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 1, endLine: 1, methodName: ".ctor"));
     }
 
     /// <summary>
