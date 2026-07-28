@@ -1469,7 +1469,10 @@ public class PackageCommand
     {
         var rows = FlattenPackageFileContentRows(results, options).ToList();
 
-        if (LensProjection.TryProject(options, "--content", rows.Count, out var contentProjectionExit))
+        // A path that matches nothing still yields one row so the render can show it as absent.
+        // Counting that row would answer "one file matched" when none did, so count found files,
+        // as the bare writer below already does.
+        if (LensProjection.TryProject(options, "--content", rows.Count(row => row.Found), out var contentProjectionExit))
             return contentProjectionExit;
 
         if (options.Bare)

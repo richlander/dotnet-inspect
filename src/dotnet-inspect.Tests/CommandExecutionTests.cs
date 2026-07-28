@@ -3824,6 +3824,18 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Content_Count_IsZeroWhenNoFileMatches()
+    {
+        // A path that matches nothing still produces one row so the render can show it as absent.
+        // Counting rows would report one match where there were none.
+        var (exit, output, _) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.4", "--content", "--path", "no-such-file.zzz", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(0, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
     public async Task Discover_ShapeProjection_ReportsTheLensRefusalWithoutRequiringASelection()
     {
         // The ordinary shape gate ran first and reported a missing -S, which is not the actual
