@@ -8314,6 +8314,20 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_SelectRetiredIntegrationsRollup_ResolvesToIntegrationsCategory()
+    {
+        // "Integrations" was a rollup section before the per-integration decomposition. It keeps
+        // resolving as a category alias, exactly like the retired "Performance Triage" monolith.
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Microsoft.Extensions.AI", "--library", "-S", "Integrations", "--rows", "-n", "6");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("not found", error);
+        Assert.Contains("## Integration: AI", output);
+        Assert.Contains("## Integration: Dependency Injection", output);
+    }
+
+    [Fact]
     public async Task LibraryCommand_LoggingSection_ForLoggingAbstractions_Renders()
     {
         var (exit, output, error) = await RunAppAsync(

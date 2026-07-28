@@ -48,11 +48,11 @@ public static class SelectResolver
     };
 
     /// <summary>
-    /// Bare names that expand to a whole category. Used so the retired library "Performance
-    /// Triage" monolith, and the ergonomic bare "Performance", resolve to the curated
-    /// <c>@Performance</c> group. Only applied when the category exists in the current command's
-    /// section set and the value is not itself an exact section name (so the type/member
-    /// "Performance Triage" section still resolves directly).
+    /// Bare names that expand to a whole category. Used so retired library rollup sections — the
+    /// "Performance Triage" monolith and the "Integrations" rollup — and the ergonomic bare
+    /// "Performance" resolve to their curated group. Only applied when the category exists in the
+    /// current command's section set and the value is not itself an exact section name (so the
+    /// type/member "Performance Triage" section still resolves directly).
     /// </summary>
     static readonly Dictionary<string, string> CategoryAliases = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -63,6 +63,7 @@ public static class SelectResolver
         ["Resource Escape Triage"] = SectionCategoryNames.Escape,
         ["SourceLink"] = SectionCategoryNames.SourceLink,
         ["Source Link"] = SectionCategoryNames.SourceLink,
+        [EcosystemIntegrationNames.Integrations] = SectionCategoryNames.Integrations,
     };
 
     public static bool IsAllSelector(string[]? select)
