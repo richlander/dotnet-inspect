@@ -109,7 +109,13 @@ static class AuthoredCorpusRatchet
     /// zero. <see cref="Methodology"/> travels with it because it defines how that one
     /// number was computed.</para>
     /// </summary>
-    internal sealed record RunMetrics(int? Valid, int Correct, int Invalid, int? ProductBodyDefect, int Methodology)
+    internal sealed record RunMetrics(
+        int? Valid,
+        int Correct,
+        int Invalid,
+        int? ProductBodyDefect,
+        int Methodology,
+        bool MethodologyStated = true)
     {
         public static RunMetrics From(HistoryRun run)
             => new(
@@ -117,7 +123,8 @@ static class AuthoredCorpusRatchet
                 run.Correct,
                 run.Invalid,
                 run.InvalidBreakdown?.ProductBodyDefect,
-                run.Methodology);
+                run.Methodology,
+                run.MethodologyVersion is not null);
     }
 
     /// <summary>
@@ -290,9 +297,16 @@ static class AuthoredCorpusRatchet
             return false;
         }
 
+        // A run that states a methodology measured this metric, so a row carrying one
+        // and omitting the metric is malformed, not historical. Only rows recorded
+        // before the metric existed — which carry no methodologyVersion at all — may
+        // omit it, and that is a structural fact about the row rather than a value it
+        // chose. Comparing methodology *values* instead let a reviewer shed the metric
+        // by writing an arbitrary version (999) into an otherwise comparable baseline;
+        // a narrower value comparison would still admit the same trick one version down.
         if (current.ProductBodyDefect is not null
             && candidate.ProductBodyDefect is null
-            && candidate.Methodology >= current.Methodology)
+            && candidate.MethodologyStated)
         {
             missing = "invalidBreakdown";
             return false;

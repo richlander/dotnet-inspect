@@ -63,12 +63,6 @@ static class AuthoredCorpusBenchmark
             }
         }
 
-        // The pool identifies itself: the digest is taken over the assemblies this run
-        // was handed, so it always describes exactly what was measured and needs no
-        // flag to be present. Assemblies that do not exist are reported as unmatched
-        // rows below, which fails measurement integrity on its own.
-        string? poolSha256 = AuthoredCorpusRatchet.PoolDigest(assemblies.Where(File.Exists).ToArray());
-
         var records = ReadCorpus(corpusPath, out int malformedRows);
         if (records.Count == 0)
         {
@@ -82,6 +76,7 @@ static class AuthoredCorpusBenchmark
 
         var results = new List<ReturnToSenderSourceProbeResult>();
         var matchedGroups = new HashSet<string>(StringComparer.Ordinal);
+        var measured = new List<string>();
         foreach (var assemblyPath in assemblies)
         {
             if (!File.Exists(assemblyPath))
@@ -91,10 +86,28 @@ static class AuthoredCorpusBenchmark
             if (!byAssembly.TryGetValue(name, out var group) || !matchedGroups.Add(name))
                 continue;
 
+            measured.Add(assemblyPath);
             var index = ReturnToSenderSourceIndex.FromMembers(group.Select(ToSourceMember));
             var targets = group.Select(ToTarget).ToArray();
             results.AddRange(ReturnToSenderSourceProbe.EvaluateWithIndex(assemblyPath, targets, index));
         }
+
+        // The pool identifies itself, and it identifies the assemblies this run actually
+        // decompiled — not the ones it was handed. Digesting the handed set was wrong in
+        // a way a reviewer demonstrated: selection takes the *first* path for each
+        // assembly identity, so two byte-distinct assemblies with the same identity
+        // could be reordered to change which one was measured while the digest stayed
+        // put, and a B-first run compared clean against an A-first baseline. Digesting
+        // the selected set makes that impossible by construction, and it also stops a
+        // supplied-but-unused assembly from perturbing an identity it contributed
+        // nothing to.
+        if (measured.Count == 0)
+        {
+            Console.Error.WriteLine($"No supplied assembly matched the corpus, so the run measured nothing: {corpusPath}");
+            return 1;
+        }
+
+        string? poolSha256 = AuthoredCorpusRatchet.PoolDigest(measured);
 
         int unmatchedRows = byAssembly
             .Where(entry => !matchedGroups.Contains(entry.Key))

@@ -251,8 +251,14 @@ unsound:
 
 Symmetry is the only rule with no fallthrough.
 
-`poolSha256` is derived from the run's own inputs: every assembly it measured,
-named and content-hashed, sorted and digested. Two earlier schemes failed here.
+`poolSha256` is derived from the run's own inputs: every assembly it actually
+decompiled, named and content-hashed, sorted and digested. *Decompiled*, not
+*supplied*: evaluation takes the first path offered for each assembly identity,
+so digesting the supplied set let two byte-distinct assemblies sharing an
+identity be reordered — changing which one was measured while the identity
+stayed put. Digesting the selected set makes that impossible, and stops an
+assembly the corpus never mentions from perturbing an identity it contributed
+nothing to. Two earlier schemes failed here.
 Hashing the manifest *file* was unreproducible — it carries `generatedAtUtc` and
 per-package `fromCache`, so two sweeps of an identical pool hashed differently,
 and a digest that never repeats makes the gate permanently red, which is as

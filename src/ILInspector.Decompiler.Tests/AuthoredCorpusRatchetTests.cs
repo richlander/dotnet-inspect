@@ -339,21 +339,6 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
-    /// The one legitimate reason a metric drops out is a methodology bump, which
-    /// redefines what <c>productBodyDefect</c> counts. That case still compares, on the
-    /// three methodology-independent metrics.
-    /// </summary>
-    [Fact]
-    public void Ratchet_MethodologyBumpDropsOnlyTheMetricItRedefines()
-    {
-        var comparison = AuthoredCorpusRatchet.Compare(
-            Key(), Metrics(methodology: 3), [Row(productBodyDefect: null, methodology: 1)]);
-
-        Assert.False(comparison.Skipped);
-        Assert.Equal(["valid", "correct", "invalid"], comparison.Metrics.Select(metric => metric.Name).ToArray());
-    }
-
-    /// <summary>
     /// The pool digest must be reproducible, or the ratchet skips on every run and the
     /// gate is permanently red — as uninformative as the permanently green one it
     /// replaces. Staging the same assemblies to a different directory is the normal
@@ -851,18 +836,44 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
-    /// The same escape hatch, closed from the product side for live runs: a baseline
-    /// claiming a methodology at or beyond the running code's cannot shed the metric it
-    /// defines. A row from the future is malformed, not historical.
+    /// The same escape hatch, closed from the product side for live runs. A row that
+    /// states any <c>methodologyVersion</c> came from a run that measured
+    /// <c>productBodyDefect</c>, so omitting the metric makes it malformed rather than
+    /// historical — whichever version it claims, above, at, or below the run's.
+    ///
+    /// <para>Two reviewers reached this from opposite directions: one shed the metric
+    /// by claiming a <em>newer</em> methodology, the other by claiming an arbitrary
+    /// 999. Both worked because the rule compared methodology <em>values</em>. Only
+    /// rows recorded before the metric existed may omit it, and those state no version
+    /// at all, so the rule is now structural.</para>
     /// </summary>
-    [Fact]
-    public void Ratchet_BaselineCannotShedAMetricByClaimingANewerMethodology()
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(999)]
+    public void Ratchet_BaselineCannotShedAMetricByClaimingAnyMethodology(int claimed)
     {
         var comparison = AuthoredCorpusRatchet.Compare(
-            Key(), Metrics(methodology: 2), [Row(productBodyDefect: null, methodology: 3)]);
+            Key(), Metrics(methodology: 2), [Row(productBodyDefect: null, methodology: claimed)]);
 
         Assert.True(comparison.Skipped);
         Assert.Contains("invalidBreakdown", comparison.SkipReason!, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The one row that may omit the metric: recorded before it existed, and stating no
+    /// methodology to prove it. It still ratchets the three methodology-independent
+    /// metrics, which is the whole reason the omission is tolerated rather than fatal.
+    /// </summary>
+    [Fact]
+    public void Ratchet_ARowPredatingTheMetricStillRatchetsTheRest()
+    {
+        var unstamped = Row(productBodyDefect: null, methodology: null);
+        var comparison = AuthoredCorpusRatchet.Compare(Key(), Metrics(methodology: 2), [unstamped]);
+
+        Assert.False(comparison.Skipped, comparison.SkipReason);
+        Assert.Equal(["valid", "correct", "invalid"], comparison.Metrics.Select(metric => metric.Name));
     }
 
     /// <summary>

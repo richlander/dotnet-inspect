@@ -362,6 +362,37 @@ static class Program
         // something the caller did not ask for.
         if (integrityOnly && ratchetBaselinePath is not null)
             return Fail("--integrity-only and --ratchet-baseline are contradictory: one declines to judge quality, the other demands a verdict on it.");
+        // Every other mode dispatches ahead of the authored-corpus gate, so combining
+        // them does not run the gate second — it does not run it at all. A reviewer
+        // pointed a gate request at a nonexistent corpus, added --history-card, and got
+        // exit 0. That is the same permanently-green failure as the flag nobody passes
+        // (#3245), one level up: a CI lane that grew a second flag would stop gating and
+        // report success. Refusing is the only answer that cannot be misread; silently
+        // preferring either mode would still discard what the caller asked for.
+        if (benchmarkAuthoredCorpus)
+        {
+            string[] preempting =
+            [
+                fixtureSourceInventory ? "--fixture-source-inventory" : "",
+                historyCard ? "--history-card" : "",
+                generatedFixtures ? "--generated-fixtures" : "",
+                fuzzSignatures ? "--fuzz-signatures" : "",
+                returnToSenderCatalog ? "--return-to-sender-catalog" : "",
+                emitInverseLedger is not null ? "--emit-inverse-ledger" : "",
+                assertionScan ? "--assertion-scan" : "",
+                validityCheck ? "--validity-check" : "",
+                validityPredicateScan ? "--validity-predicate-scan" : "",
+                fidelityCheck || fidelityMethodDelta is not null ? "--fidelity-check" : "",
+                returnToSender ? "--return-to-sender" : "",
+                returnAddress ? "--return-address" : "",
+                notMyType ? "--not-my-type" : "",
+                enumerateRealMethods ? "--enumerate-real-methods" : "",
+                harvestAuthoredCorpus ? "--harvest-authored-corpus" : "",
+                harvestEvilCorpus ? "--harvest-evil-corpus" : "",
+            ];
+            if (Array.Find(preempting, flag => flag.Length > 0) is { } conflicting)
+                return Fail($"{conflicting} runs instead of --benchmark-authored-corpus, so the gate would report success without measuring anything. Run them separately.");
+        }
         if (cfgStageSpecified && (!cfg || dumpMethod is null))
             return Fail("--cfg-stage requires --dump --cfg.");
         int harnessReportModes = (returnAddress ? 1 : 0)
