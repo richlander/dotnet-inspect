@@ -80,6 +80,7 @@ const state = {
   namespaceFilter: "",
   kindFilter: "",
   libraryScope: null,
+  accessibilityFilter: new Set(["public"]),
   command: "",
   completionIndex: 0,
   promptOpen: false,
@@ -419,7 +420,8 @@ function filteredTypes() {
     return matchesText
       && (!state.namespaceFilter || item.namespace === state.namespaceFilter)
       && (!state.kindFilter || typeKind(item.kind) === state.kindFilter)
-      && (!state.libraryScope || state.libraryScope.has(libraryKey(item)));
+      && (!state.libraryScope || state.libraryScope.has(libraryKey(item)))
+      && state.accessibilityFilter.has(accessBucket(item.accessibility));
   });
 }
 
@@ -437,6 +439,7 @@ function packageLibraries() {
   if (!state.package) return [];
   const counts = new Map();
   for (const item of state.package.types) {
+    if (!state.accessibilityFilter.has(accessBucket(item.accessibility))) continue;
     const key = libraryKey(item);
     counts.set(key, (counts.get(key) || 0) + 1);
   }
@@ -516,18 +519,67 @@ function libraryControl() {
 
 function namespaces() {
   if (!state.package) return [];
-  return [...new Set(state.package.types.map(item => item.namespace))];
+  return [...new Set(state.package.types
+    .filter(item => state.accessibilityFilter.has(accessBucket(item.accessibility)))
+    .map(item => item.namespace))];
+}
+
+const ACCESS_ORDER = ["public", "protected", "internal", "private"];
+
+// Collapse a raw accessibility string ("public", "protected internal",
+// "private protected", "internal", "private", …) to one of four buckets. The
+// protected-family variants bucket under "protected" (they are visible to
+// subclassers); a missing value is treated as public (top-level public types
+// carry no explicit accessibility in metadata).
+function accessBucket(access) {
+  const value = (access || "public").toLowerCase();
+  if (value.includes("protected")) return "protected";
+  if (value.includes("internal")) return "internal";
+  if (value.includes("private")) return "private";
+  return "public";
+}
+
+// Accessibility buckets present in the package, in canonical order. "public" is
+// always offered; the others appear only when the package actually carries a
+// type in that bucket, so a wholly-public package shows just the one chip.
+function accessibilityBuckets() {
+  if (!state.package) return ["public"];
+  const present = new Set(state.package.types.map(item => accessBucket(item.accessibility)));
+  present.add("public");
+  return ACCESS_ORDER.filter(bucket => present.has(bucket));
+}
+
+// Multi-select chip toggle for the accessibility filter. Flips a bucket in the
+// active set; an empty result falls back to the "public" default so the type
+// list is never blanked out.
+function toggleAccessibilityChip(bucket) {
+  const next = new Set(state.accessibilityFilter);
+  if (next.has(bucket)) next.delete(bucket); else next.add(bucket);
+  if (next.size === 0) next.add("public");
+  state.accessibilityFilter = next;
+}
+
+// The accessibility selector for the type nav pane: a multi-select chip row
+// (public on by default) that surfaces the package's non-public types on demand.
+// Rendered only when the package carries more than the public bucket.
+function accessibilityControl() {
+  const buckets = accessibilityBuckets();
+  if (buckets.length <= 1) return "";
+  const chips = buckets
+    .map(bucket => `<button class="${state.accessibilityFilter.has(bucket) ? "active" : ""}" data-access-chip="${bucket}">${bucket}</button>`)
+    .join("");
+  return `<div class="namespace-chips access-chips" aria-label="Accessibility filters">${chips}</div>`;
 }
 
 // Options for the namespace picker dropdown: every namespace in the active
-// package, sorted, with its type count. Replaces the old overflow chip strip,
-// which collapsed to unreadable single letters once a package (e.g. the runtime
-// pack) had many namespaces.
+// package (honoring the library + accessibility filters), sorted, with its type
+// count.
 function namespaceOptions() {
   if (!state.package) return "";
   const counts = new Map();
   for (const item of state.package.types) {
     if (state.libraryScope && !state.libraryScope.has(libraryKey(item))) continue;
+    if (!state.accessibilityFilter.has(accessBucket(item.accessibility))) continue;
     counts.set(item.namespace, (counts.get(item.namespace) || 0) + 1);
   }
   return [...counts.keys()]
@@ -556,6 +608,7 @@ function typeKinds() {
   const present = new Set(state.package.types
     .filter(item => !state.namespaceFilter || item.namespace === state.namespaceFilter)
     .filter(item => !state.libraryScope || state.libraryScope.has(libraryKey(item)))
+    .filter(item => state.accessibilityFilter.has(accessBucket(item.accessibility)))
     .map(item => typeKind(item.kind)));
   return KIND_ORDER.filter(kind => present.has(kind));
 }
@@ -1086,6 +1139,7 @@ function renderTypeNav(current, visible) {
           <button class="${!state.kindFilter ? "active" : ""}" data-kind-filter="">all kinds</button>
           ${typeKinds().map(kind => `<button class="${state.kindFilter === kind ? "active" : ""}" data-kind-filter="${kind}">${kind}</button>`).join("")}
         </div>
+        ${accessibilityControl()}
         ${libraryControl()}
       </div>
       <div class="type-list" role="listbox" tabindex="0" id="type-list">
@@ -1723,9 +1777,12 @@ function renderPackageOverview() {
 
   // Per-library breakdown: group the loaded types by their owning assembly, each
   // with its own types-by-kind. The library is the meaningful unit for
-  // measurement — a merged "classes per package" number is noise.
+  // measurement — a merged "classes per package" number is noise. The overview
+  // reports the public surface (matching the package's headline type count);
+  // non-public types are reached via the type nav pane's accessibility filter.
   const libStats = new Map();
   for (const type of pkg.types) {
+    if (accessBucket(type.accessibility) !== "public") continue;
     const asm = type.assembly || pkg.assembly || "(unknown)";
     let stat = libStats.get(asm);
     if (!stat) libStats.set(asm, (stat = { types: 0, kinds: new Map() }));
@@ -1773,6 +1830,7 @@ function renderPackageOverview() {
 
   const nsCounts = new Map();
   for (const type of pkg.types) {
+    if (accessBucket(type.accessibility) !== "public") continue;
     const ns = type.namespace || "global";
     nsCounts.set(ns, (nsCounts.get(ns) || 0) + 1);
   }
@@ -2071,7 +2129,7 @@ function typeHeading(item) {
       <h1>${escapeHtml(item.name)}</h1>
       <code class="type-signature">${highlight(item.signature)}</code>
     </div>
-    <div class="type-metrics"><span><strong>${item.members}</strong> members</span><span><strong>public</strong> accessibility</span></div>
+    <div class="type-metrics"><span><strong>${item.members}</strong> members</span><span><strong>${escapeHtml(item.accessibility || "public")}</strong> accessibility</span></div>
     <dl class="definition-list">
       <div><dt>TFM:</dt><dd>${escapeHtml(state.package.activeFramework)}</dd></div>
       <div><dt>Library:</dt><dd>${escapeHtml(item.assembly)}</dd></div>
@@ -2487,6 +2545,10 @@ function bindEvents() {
     toggleLibraryChip(button.dataset.libraryChip);
     afterLibraryScopeChange();
   }));
+  document.querySelectorAll("[data-access-chip]").forEach(button => button.addEventListener("click", () => {
+    toggleAccessibilityChip(button.dataset.accessChip);
+    afterLibraryScopeChange();
+  }));
   const libraryJump = document.getElementById("library-jump");
   if (libraryJump) libraryJump.addEventListener("change", () => {
     state.libraryScope = libraryJump.value ? new Set([libraryJump.value]) : null;
@@ -2553,6 +2615,7 @@ function bindEvents() {
     state.namespaceFilter = "";
     state.kindFilter = "";
     state.libraryScope = null;
+    state.accessibilityFilter = new Set(["public"]);
     render();
     focusFilter();
   });
@@ -4055,6 +4118,15 @@ async function renderTypeGraph() {
 function navigateToTypeByName(fullName) {
   const target = state.package.types.find(candidate => candidate.id === fullName);
   if (!target) return;
+  // Clicking a non-public related type (e.g. an internal derived implementer)
+  // enables its accessibility bucket so it appears in the nav list rather than
+  // being filtered out by the public-by-default view.
+  const bucket = accessBucket(target.accessibility);
+  if (!state.accessibilityFilter.has(bucket)) {
+    const next = new Set(state.accessibilityFilter);
+    next.add(bucket);
+    state.accessibilityFilter = next;
+  }
   state.selectedTypeId = target.id;
   state.selectedMemberKey = "";
   state.memberKindFilter = "all";
@@ -4063,20 +4135,22 @@ function navigateToTypeByName(fullName) {
 }
 
 // A related type (interface / base / derived) is only openable if it is part of
-// the loaded public surface. Internal implementers and types in other assemblies
-// are reported by metadata but have no browsable page.
+// the loaded surface. Non-public implementers in the loaded assemblies are now
+// included (with an accessibility filter), so only types in OTHER assemblies
+// remain unbrowsable.
 function typeIsNavigable(fullName) {
   return !!state.package && state.package.types.some(candidate => candidate.id === fullName);
 }
 
 // Render a related-type chip: an active button when it resolves to a browsable
-// public type, otherwise a static chip that explains why it can't be opened.
+// type in the loaded surface, otherwise a static chip that explains why it can't
+// be opened (it lives in another assembly).
 function relatedTypeChip(name) {
   const short = escapeHtml(shortTypeName(name));
   if (typeIsNavigable(name)) {
     return `<button class="type-chip" data-graph-type="${escapeHtml(name)}" title="${escapeHtml(name)}">${short}</button>`;
   }
-  return `<span class="type-chip is-static" title="${escapeHtml(name)} — not in the browsable public surface (internal or in another assembly)">${short}</span>`;
+  return `<span class="type-chip is-static" title="${escapeHtml(name)} — not in the loaded surface (in another assembly)">${short}</span>`;
 }
 
 // Projects the current package, its direct dependencies for the selected framework, and any
@@ -5191,7 +5265,7 @@ async function loadPackage(packageId, version, framework) {
       assembly: (result.assemblies ?? []).map(item => item.name).join(", "),
       assemblies: result.assemblies ?? [],
       types,
-      totalTypes: types.length,
+      totalTypes: types.filter(type => accessBucket(type.accessibility) === "public").length,
       totalMembers: result.totalMembers
     };
     const existing = state.packages.findIndex(item =>
@@ -5204,6 +5278,7 @@ async function loadPackage(packageId, version, framework) {
     state.namespaceFilter = "";
     state.kindFilter = "";
     state.libraryScope = null;
+    state.accessibilityFilter = new Set(["public"]);
     state.dependenciesFramework = "";
     const deep = pendingDeepLink;
     pendingDeepLink = null;

@@ -334,6 +334,8 @@ kbd {
 .library-chips button { max-width: 160px; }
 .library-chips .ns-count { margin-right: 5px; color: var(--muted); }
 .library-chips button.active .ns-count { color: var(--accent); }
+.access-chips button { text-transform: lowercase; }
+.access-chips button.active { border-color: var(--accent); color: var(--accent); }
 
 /* Namespace picker dropdown (replaces the old overflow chip strip). Also the
    shared look for the scopebar Library selector. */
