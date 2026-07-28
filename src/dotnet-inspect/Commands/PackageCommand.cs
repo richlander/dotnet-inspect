@@ -173,8 +173,12 @@ public class PackageCommand
                         // Listing-aware range: resolve the vector from the full listing (unlisted
                         // included) so unlisted endpoints are found rather than reported as missing,
                         // then emit each in-range version tagged with its listed status.
+                        // Mirror ResolveAsync: fetch prereleases whenever the range endpoints are
+                        // prerelease (even without --preview), otherwise a prerelease-endpoint range
+                        // fails because its endpoints were filtered out of the listing.
                         var rangeListings = await PackageExtractor.GetVersionListingsAsync(
-                            context.HttpClient, range!.PackageId, options.IncludePrerelease,
+                            context.HttpClient, range!.PackageId,
+                            range!.IncludesPrerelease || options.IncludePrerelease,
                             includeUnlisted: true, limit: null, logger.Log, options.SourceOptions);
                         if (rangeListings == null)
                         {
@@ -224,7 +228,8 @@ public class PackageCommand
                 && options.Limit == 1
                 && !options.ForceLatest)
             {
-                if (NuGetCache.TryGetCachedPackage(normalizedName, versionQueryPinned) != null)
+                if (!options.IncludeUnlisted
+                    && NuGetCache.TryGetCachedPackage(normalizedName, versionQueryPinned) != null)
                 {
                     Console.WriteLine(versionQueryPinned);
                     return 0;
@@ -243,10 +248,14 @@ public class PackageCommand
                     log: logger.Log,
                     sourceOptions: options.SourceOptions);
 
-                if (knownVersions != null
-                    && knownVersions.Any(v => string.Equals(v.Version, versionQueryPinned, StringComparison.OrdinalIgnoreCase)))
+                var pinnedMatch = knownVersions?.FirstOrDefault(
+                    v => string.Equals(v.Version, versionQueryPinned, StringComparison.OrdinalIgnoreCase));
+                if (pinnedMatch != null)
                 {
-                    Console.WriteLine(versionQueryPinned);
+                    if (options.IncludeUnlisted)
+                        OutputFormatter.WriteVersionListings([pinnedMatch], options.Tsv, options.Jsonl, Console.Out);
+                    else
+                        Console.WriteLine(versionQueryPinned);
                     return 0;
                 }
 
@@ -286,6 +295,16 @@ public class PackageCommand
                 {
                     Console.Error.WriteLine($"Error: Package '{packageArgs[0]}' not found on nuget.org");
                     return 1;
+                }
+
+                if (options.IncludeUnlisted)
+                {
+                    // Latest resolution is listing-aware (#3388), so the version it returns is
+                    // listed by construction. Emit it as a one-row listing so the flag still
+                    // produces the tagged column the user asked for.
+                    OutputFormatter.WriteVersionListings(
+                        [new PackageVersionInfo(latest, Listed: true)], options.Tsv, options.Jsonl, Console.Out);
+                    return 0;
                 }
 
                 Console.WriteLine(latest);

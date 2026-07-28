@@ -211,13 +211,19 @@ listing, so verifying a known unlisted version reports it rather than
 feed), versions are reported as listed.
 
 `--include-unlisted` composes with the other `--versions` lenses. With a limit
-(`--versions 1 --include-unlisted`) it takes the listing-aware path — the
-local-cache single-version shortcut is skipped, so the result still carries the
-`listed`/`unlisted` column. With an addressable range (`Name@A..B --versions
+(`--versions 1 --include-unlisted`) it takes the listing-aware path — every
+single-version shortcut (the local package cache, a pinned `Name@Version`, and
+`Name@latest`) still emits a one-row tagged table rather than a bare version, so
+the result always carries the `listed`/`unlisted` column the flag requests.
+(`Name@latest` resolves through the listing-aware latest path, so its single row
+is listed by construction.) With an addressable range (`Name@A..B --versions
 --include-unlisted`) the vector is resolved from the full listing set — unlisted
 versions included — so an unlisted endpoint resolves rather than being reported
-as a missing endpoint, and each in-range row is marked. The bare range (without
-the flag) resolves against listed versions only, matching the hidden default.
+as a missing endpoint, and each in-range row is marked. Prereleases are included
+whenever a range endpoint is itself a prerelease (matching the default range
+path), so a prerelease-endpoint range resolves without `--preview`. The bare
+range (without the flag) resolves against listed versions only, matching the
+hidden default.
 
 The version-list cache stores the listed bit per version. Each cache line
 carries an explicit two-character tab suffix (`\tL` listed, `\tU` unlisted) so
