@@ -472,6 +472,58 @@ public class ForeachStatementPassTests
     }
 
     [Fact]
+    public void InlineCurrentForeach_RaisesToForeach()
+    {
+        // The single-use iteration variable is folded into its one use by
+        // ExpressionInliningPass before this pass runs, so no `item = e.Current`
+        // store survives — the hidden enumerator is referenced only by MoveNext
+        // and one inline `e.Current`. The pass rebinds that inline read to a
+        // fresh foreach variable. (JsonElement.DeepEquals Array arm, #3164.)
+        var function = Raised(nameof(CfgSampleClass.ForeachSingleUseWithParallelEnumerator));
+
+        var foreachStatement = Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.Equal("int", foreachStatement.LocalType.ToDisplayString());
+        Assert.Empty(function.Descendants.OfType<UsingStatement>());
+        // Only the manually advanced parallel enumerator's while loop is gone;
+        // the foreach replaced the compiler loop, leaving no WhileLoop behind.
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+        Assert.Contains(foreachStatement.ConsumedMemberRefs, method => method.Name == "get_Current");
+        Assert.Contains(foreachStatement.ConsumedMemberRefs, method => method.Name == "MoveNext");
+    }
+
+    [Fact]
+    public void InlineCurrentForeach_PrintRaised_RendersForeachWithInlineCurrentRebound()
+    {
+        var output = CSharpPrinter.Print(
+            Raised(nameof(CfgSampleClass.ForeachSingleUseWithParallelEnumerator))).Output;
+
+        Assert.NotNull(output);
+        // The foreach header binds a fresh variable and the inline use is rebound
+        // to it; the parallel manual enumerator keeps its own MoveNext/Current.
+        Assert.Contains("foreach (int ", output);
+        Assert.Contains("in a)", output);
+        Assert.Contains("other.MoveNext();", output);
+        // No compiler enumerator loop survives: the foreach's own
+        // GetEnumerator/MoveNext are consumed (the parallel `other` enumerator
+        // keeps its own, which is expected).
+        Assert.DoesNotContain("using (", output);
+        Assert.DoesNotContain(".MoveNext())", output);
+    }
+
+    [Fact]
+    public void InlineCurrentForeach_WithoutSymbols_StaysUsingWhile()
+    {
+        // Same discriminator as the hoisted enumerator form: without the hidden
+        // enumerator slot the compiler foreach cannot be told from a hand-written
+        // using/while, so it declines and the loop stays lowered.
+        var function = RaisedWithoutSymbols(
+            nameof(CfgSampleClass.ForeachSingleUseWithParallelEnumerator));
+
+        Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
+        Assert.Single(function.Descendants.OfType<UsingStatement>());
+    }
+
+    [Fact]
     public void HandWrittenEnumeratorUsingLoop_WithoutSymbols_StaysUsingWhile()
     {
         var function = RaisedWithoutSymbols(nameof(CfgSampleClass.StructUsing));

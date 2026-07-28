@@ -100,10 +100,29 @@ public sealed class ForeachStatementPass : IIrPass
             var collection = match.Collection;
             if (collection.Parent is not null)
                 collection.Detach();
-            match.CurrentStore.Detach();
+
+            int localIndex;
+            if (match.HoistedCurrentStore is { } hoisted)
+            {
+                localIndex = hoisted.Index;
+                hoisted.Detach();
+            }
+            else
+            {
+                // The single-use iteration variable was folded into its one use
+                // before this pass ran (ExpressionInliningPass), so no `item =
+                // e.Current` store survives to carry the slot. Allocate a fresh
+                // foreach variable and rebind the inline Current read to it. The
+                // enumerator is advanced only by the loop condition, so the read
+                // is invariant across the body — hoisting it to the foreach
+                // header is the exact inverse of the earlier inline.
+                localIndex = function.AddLocal(match.LocalType);
+                match.InlineCurrent!.ReplaceWith(new LoadLocal(localIndex, match.LocalType));
+            }
+
             var body = match.Loop.Body;
             body.Detach();
-            var foreachStatement = new ForeachStatement(match.CurrentStore.Index, match.CurrentStore.Type, collection, body, match.ConsumedMemberRefs);
+            var foreachStatement = new ForeachStatement(localIndex, match.LocalType, collection, body, match.ConsumedMemberRefs);
             context.Stepper.StepOver("raise enumerator loop to foreach", usingStatement);
             usingStatement.ReplaceWith(foreachStatement);
         }
@@ -200,7 +219,9 @@ public sealed class ForeachStatementPass : IIrPass
     sealed record EnumeratorMatch(
         IrExpression Collection,
         WhileLoop Loop,
-        StoreLocal CurrentStore,
+        TypeRef LocalType,
+        StoreLocal? HoistedCurrentStore,
+        LoadProperty? InlineCurrent,
         ImmutableArray<MethodRef> ConsumedMemberRefs);
 
     sealed record AsyncEnumeratorMatch(
@@ -424,21 +445,91 @@ public sealed class ForeachStatementPass : IIrPass
         }
 
         if (usingStatement.Body.Blocks is not [{ Children: [WhileLoop loop] }]
-            || !IsMoveNextOn(loop.Condition, enumeratorIndex)
-            || loop.Body.Children is not [StoreLocal { Value: LoadProperty current } currentStore, ..]
-            || !IsCurrentOn(current, enumeratorIndex))
+            || !IsMoveNextOn(loop.Condition, enumeratorIndex))
         {
             return null;
         }
 
-        if (loop.Body.Children.Skip(1).Any(child => ReferencesLocal(child, enumeratorIndex)))
-            return null;
+        var moveNext = (Call)loop.Condition;
+        var collection = CollectionValue(getEnumerator.Arguments[0]);
 
-        return new EnumeratorMatch(
-            CollectionValue(getEnumerator.Arguments[0]),
-            loop,
-            currentStore,
-            [getEnumerator.Callee, ((Call)loop.Condition).Callee, current.Accessor, .. usingStatement.ConsumedMemberRefs]);
+        // Hoisted form: the loop body opens with `item = e.Current` — the
+        // canonical compiler foreach lowering — and the enumerator is otherwise
+        // unreferenced across the body.
+        if (loop.Body.Children is [StoreLocal { Value: LoadProperty current } currentStore, ..]
+            && IsCurrentOn(current, enumeratorIndex)
+            && !loop.Body.Children.Skip(1).Any(child => ReferencesLocal(child, enumeratorIndex)))
+        {
+            return new EnumeratorMatch(
+                collection,
+                loop,
+                currentStore.Type,
+                currentStore,
+                InlineCurrent: null,
+                [getEnumerator.Callee, moveNext.Callee, current.Accessor, .. usingStatement.ConsumedMemberRefs]);
+        }
+
+        // Inline form: the iteration variable was used exactly once, so
+        // ExpressionInliningPass folded its `item = e.Current` store into that use
+        // before this pass ran (e.g. JsonElement.DeepEquals, #3164). No hoisted
+        // store survives; the enumerator is then referenced only by the condition
+        // MoveNext and one `e.Current` read somewhere in the body. Because the
+        // enumerator is advanced only by the condition, that read is invariant
+        // across the body, so hoisting it back to a fresh foreach variable is the
+        // exact inverse of the inline. Require the single read to sit directly in
+        // the loop body (not inside a nested lambda/local function, where a
+        // hoist would change when it runs).
+        var currentReads = loop.Body.Descendants.OfType<LoadProperty>()
+            .Where(p => IsCurrentOn(p, enumeratorIndex))
+            .ToList();
+        if (currentReads is [var inlineCurrent]
+            && !IsInsideNestedFunction(inlineCurrent, loop.Body)
+            && EnumeratorReferencedOnlyWithinLoopBy(loop, enumeratorIndex, moveNext, inlineCurrent))
+        {
+            return new EnumeratorMatch(
+                collection,
+                loop,
+                inlineCurrent.Accessor.ReturnType,
+                HoistedCurrentStore: null,
+                inlineCurrent,
+                [getEnumerator.Callee, moveNext.Callee, inlineCurrent.Accessor, .. usingStatement.ConsumedMemberRefs]);
+        }
+
+        return null;
+    }
+
+    // Within the loop (condition + body), the enumerator slot may be referenced
+    // only by the MoveNext receiver and the single inline Current receiver — any
+    // other read/write means the slot is not pure foreach scaffolding.
+    static bool EnumeratorReferencedOnlyWithinLoopBy(
+        WhileLoop loop, int enumeratorIndex, Call moveNext, LoadProperty inlineCurrent)
+    {
+        var allowed = new HashSet<IrNode>(ReferenceEqualityComparer.Instance);
+        if (moveNext.Arguments is [var moveNextReceiver])
+            allowed.Add(moveNextReceiver);
+        if (inlineCurrent.Instance is { } currentReceiver)
+            allowed.Add(currentReceiver);
+        foreach (var node in loop.Descendants)
+        {
+            bool references = node switch
+            {
+                LoadLocal load => load.Index == enumeratorIndex,
+                LoadLocalAddress address => address.Index == enumeratorIndex,
+                StoreLocal store => store.Index == enumeratorIndex,
+                _ => false,
+            };
+            if (references && !allowed.Contains(node))
+                return false;
+        }
+        return true;
+    }
+
+    static bool IsInsideNestedFunction(IrNode node, Block boundary)
+    {
+        for (var current = node.Parent; current is not null && current != boundary; current = current.Parent)
+            if (current is Lambda or LocalFunctionStatement)
+                return true;
+        return false;
     }
 
     sealed record PatternMatch(

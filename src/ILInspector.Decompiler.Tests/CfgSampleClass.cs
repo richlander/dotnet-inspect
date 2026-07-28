@@ -2106,6 +2106,30 @@ public class CfgSampleClass
         return sum;
     }
 
+    // Compiler foreach whose iteration variable is used exactly once, next to a
+    // second enumerator advanced manually in the loop body. csc hoists `x =
+    // e.Current` to the loop top, but because `x` is single-use and (in the
+    // absence of a source name) inlinable, ExpressionInliningPass can fold that
+    // store into its one use before ForeachStatementPass runs — leaving the
+    // hidden enumerator referenced only by MoveNext and one inline `e.Current`.
+    // This is the shape System.Text.Json.JsonElement.DeepEquals exhibits on its
+    // Array arm (#3164): the pass must still recover the foreach by rebinding the
+    // inline Current to a fresh iteration variable.
+    public static bool ForeachSingleUseWithParallelEnumerator(
+        System.Collections.Generic.List<int> a, System.Collections.Generic.List<int> b)
+    {
+        System.Collections.Generic.List<int>.Enumerator other = b.GetEnumerator();
+        foreach (int x in a)
+        {
+            other.MoveNext();
+            if (x != other.Current)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public ref struct RefStructResource
     {
         public RefStructResource(int value) => Value = value;
