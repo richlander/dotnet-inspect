@@ -304,9 +304,20 @@ static class AuthoredCorpusRatchet
         // chose. Comparing methodology *values* instead let a reviewer shed the metric
         // by writing an arbitrary version (999) into an otherwise comparable baseline;
         // a narrower value comparison would still admit the same trick one version down.
-        if (current.ProductBodyDefect is not null
-            && candidate.ProductBodyDefect is null
-            && candidate.MethodologyStated)
+        //
+        // The rule holds for *both* rows. Guarding only the baseline left the shorter
+        // path open: a reviewer dropped invalidBreakdown from the appended row itself,
+        // kept methodologyVersion, and the tracked-store gate passed green with the
+        // product metric silently unratcheted. Build only emits a metric both sides can
+        // state, so an omission anywhere shrinks the comparison while it still prints
+        // RATCHET OK.
+        if (candidate.MethodologyStated && candidate.ProductBodyDefect is null)
+        {
+            missing = "invalidBreakdown";
+            return false;
+        }
+
+        if (current.MethodologyStated && current.ProductBodyDefect is null)
         {
             missing = "invalidBreakdown";
             return false;

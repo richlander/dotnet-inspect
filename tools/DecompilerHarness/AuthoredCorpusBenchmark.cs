@@ -551,8 +551,15 @@ static class AuthoredCorpusBenchmark
         var ratchet = Ratchet(census, invalidBreakdown, inputs, baselines);
         var contract = AuthoredCorpusExitContract.ContractFor(integrityOnly, ratchet);
 
+        // `total` leads, and is emitted here rather than only as the sibling
+        // `validDifferent` field, because this object is what an author copies into the
+        // trend store's `validDifferent` row member — where the total is the number the
+        // ratchet's `valid` metric is built from. Emitting the parts without their sum
+        // invited a row that recorded 0, and a row whose partition does not close is
+        // rejected as unsound: a loud skip, but one caused by the shape of this output.
         var validBreakdown = new
         {
+            total = census.ValidDifferent,
             lowering = census.Lowering,
             knownTaste = census.KnownTaste,
             frontierIlExact = census.FrontierIlExact,

@@ -146,11 +146,17 @@ Each row contains these fields:
    `corpusSha256` from the run JSON. Do not compute these by hand: both are
    defined by the tool (see [Comparability](#comparability-and-the-difference-between-a-skip-and-a-pass)),
    and a hand-derived value that disagrees makes the row uncomparable.
-6. Copy the run JSON's top-level `methodologyVersion` into the row.
+6. Copy the run JSON's top-level `methodologyVersion` into the row, **and its
+   `invalidBreakdown`**. A row that states a methodology and omits the breakdown
+   is refused: the version it stamps is the definition of a number it declined
+   to record.
 7. Append one compact JSON object to `history.jsonl`, copying **every** bucket —
    the full `validDifferent` partition (including zeros), `notFull`, `drift`,
    `unsupported`, and `unknownOutcome`. A row that omits a bucket shrinks the
-   partition silently, which is the defect #3244 fixed.
+   partition silently, which is the defect #3244 fixed. The row's
+   `validDifferent` member is the run JSON's `validBreakdown` object copied
+   whole; it carries `total` for exactly this reason, because that total is what
+   the ratchet's `valid` metric is built from.
 8. Validate every line parses before committing.
 
 ### The partition is enforced, not assumed

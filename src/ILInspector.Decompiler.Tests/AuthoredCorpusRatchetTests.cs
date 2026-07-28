@@ -522,6 +522,13 @@ public class AuthoredCorpusRatchetTests
     /// <summary>Runs the benchmark for its JSON and reports the pool it identified.</summary>
     static string PoolIdentityOf(string[] assemblies, string corpusPath)
     {
+        using var report = JsonDocument.Parse(RunForJson(assemblies, corpusPath));
+        return report.RootElement.GetProperty("poolSha256").GetString()!;
+    }
+
+    /// <summary>Runs the real benchmark and returns the JSON report it wrote.</summary>
+    static string RunForJson(string[] assemblies, string corpusPath)
+    {
         var captured = new StringWriter();
         var restore = Console.Out;
         try
@@ -534,8 +541,7 @@ public class AuthoredCorpusRatchetTests
             Console.SetOut(restore);
         }
 
-        using var report = JsonDocument.Parse(captured.ToString());
-        return report.RootElement.GetProperty("poolSha256").GetString()!;
+        return captured.ToString();
     }
 
     sealed class TempPool : IDisposable
@@ -963,6 +969,66 @@ public class AuthoredCorpusRatchetTests
 
         Assert.True(comparison.Skipped);
         Assert.Contains("invalidBreakdown", comparison.SkipReason!, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The same structural rule, applied to the row being judged rather than the one it
+    /// is judged against. Guarding only the baseline left the shorter path open: a
+    /// reviewer dropped <c>invalidBreakdown</c> from the appended row itself, kept its
+    /// <c>methodologyVersion</c>, and the tracked-store gate passed green with the
+    /// product metric silently unratcheted.
+    ///
+    /// <para><c>Build</c> emits a metric only when both sides state it, so an omission
+    /// on <em>either</em> side shrinks the comparison while it still prints
+    /// <c>RATCHET OK</c>. This is what makes the "self-healing" claim about the store's
+    /// unstamped baseline true rather than merely hoped for: the next append cannot
+    /// both stamp a methodology and decline to measure it.</para>
+    /// </summary>
+    [Fact]
+    public void Ratchet_ARowStatingAMethodologyCannotShedTheMetricFromItsOwnSide()
+    {
+        var comparison = AuthoredCorpusRatchet.CompareNewestRow(
+            [Row(date: "2026-07-26"), Row(date: "2026-07-27", productBodyDefect: null, methodology: 2)]);
+
+        Assert.True(comparison.Skipped);
+        Assert.Contains("invalidBreakdown", comparison.SkipReason!, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The trend store's <c>validDifferent</c> member carries the sub-buckets *and*
+    /// their total, and the total is the number the ratchet's <c>valid</c> metric is
+    /// built from. The run emitted the parts without the sum, so an author assembling a
+    /// row from this output could record a total of 0 — which a reviewer read as an
+    /// unratcheted 5,000-row hole.
+    ///
+    /// <para>It is not a hole: <c>PartitionCloses</c> rejects such a row as unsound and
+    /// the gate skips loudly, exit 1. But a loud failure caused by the shape of our own
+    /// output is still our defect, and it is the same shape that produced the one
+    /// untrustworthy row already in the store.</para>
+    /// </summary>
+    [Fact]
+    public void Benchmark_EmitsAValidBreakdownARowCanBeBuiltFrom()
+    {
+        using var pool = new TempPool();
+        string original = typeof(AuthoredCorpusRatchetTests).Assembly.Location;
+        string identity = AuthoredSourceHarvest.ReadAssemblyIdentity(original).Name;
+        string assembly = pool.Write("only", "Copy.dll", File.ReadAllBytes(original));
+        string corpus = pool.Write("corpus", "corpus.jsonl", Encoding.UTF8.GetBytes(
+            $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"source":"class T { }"}"""));
+
+        using var report = JsonDocument.Parse(RunForJson([assembly], corpus));
+        var breakdown = report.RootElement.GetProperty("validBreakdown");
+
+        Assert.Equal(
+            report.RootElement.GetProperty("validDifferent").GetInt32(),
+            breakdown.GetProperty("total").GetInt32());
+
+        // Round-trips into the row member it is copied into, total included.
+        var member = JsonSerializer.Deserialize<HistoryRunValidDifferent>(
+            breakdown.GetRawText(),
+            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase })!;
+
+        Assert.Equal(report.RootElement.GetProperty("validDifferent").GetInt32(), member.Total);
     }
 
     /// <summary>

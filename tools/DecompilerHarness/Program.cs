@@ -369,8 +369,24 @@ static class Program
         // (#3245), one level up: a CI lane that grew a second flag would stop gating and
         // report success. Refusing is the only answer that cannot be misread; silently
         // preferring either mode would still discard what the caller asked for.
+        // Modes whose dispatch precedes --benchmark-authored-corpus. Two of these are
+        // selected by more than one flag, and the first version of this list spelled the
+        // conditions out a second time — which is how a reviewer got exit 0 out of
+        // `--benchmark-authored-corpus ... --emit-assertion-violations`: the list said
+        // `assertionScan`, the dispatch said `assertionScan || emitAssertionViolations
+        // is not null || diffAssertionViolations is not null`, and the four extra flags
+        // fell through the gap. These booleans are now the *only* spelling; the dispatch
+        // below reads them too, so the refusal cannot drift from what actually runs.
+        bool assertionScanMode = assertionScan || emitAssertionViolations is not null || diffAssertionViolations is not null;
+        bool validityCheckMode = validityCheck || emitValidityDefects is not null || diffValidityDefects is not null;
+
         if (benchmarkAuthoredCorpus)
         {
+            // Every other mode dispatches ahead of the gate, so combining them does not
+            // run the gate second — it does not run it at all. A reviewer pointed a gate
+            // request at a nonexistent corpus, added --history-card, and got exit 0. A
+            // CI lane that grew a second flag would stop gating and report success,
+            // which is #3245 one level up.
             string[] preempting =
             [
                 fixtureSourceInventory ? "--fixture-source-inventory" : "",
@@ -379,8 +395,8 @@ static class Program
                 fuzzSignatures ? "--fuzz-signatures" : "",
                 returnToSenderCatalog ? "--return-to-sender-catalog" : "",
                 emitInverseLedger is not null ? "--emit-inverse-ledger" : "",
-                assertionScan ? "--assertion-scan" : "",
-                validityCheck ? "--validity-check" : "",
+                assertionScanMode ? "--assertion-scan" : "",
+                validityCheckMode ? "--validity-check" : "",
                 validityPredicateScan ? "--validity-predicate-scan" : "",
                 fidelityCheck || fidelityMethodDelta is not null ? "--fidelity-check" : "",
                 returnToSender ? "--return-to-sender" : "",
@@ -481,7 +497,7 @@ static class Program
         if (assemblies.Count == 0)
             return Fail("No managed assemblies found in the given inputs.");
 
-        if (assertionScan || emitAssertionViolations is not null || diffAssertionViolations is not null)
+        if (assertionScanMode)
             return AssertionScan.Run(
                 assemblies,
                 new AssertionScan.Options(
@@ -493,7 +509,7 @@ static class Program
                     sequential,
                     assertionFixtureGuarantee));
 
-        if (validityCheck || emitValidityDefects is not null || diffValidityDefects is not null)
+        if (validityCheckMode)
             return ValidityCheck.Run(assemblies, compileCap, maxExamples, emitValidityDefects, diffValidityDefects, lowered);
         if (validityPredicateScan)
             return ValidityPredicateScan.Run(assemblies, maxExamples, workers, sequential);
