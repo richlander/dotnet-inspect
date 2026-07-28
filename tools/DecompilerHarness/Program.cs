@@ -580,16 +580,19 @@ static class Program
         if (harvestEvilCorpus)
             return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget, evil: true, repositoryPaths: sourceRepositories);
 
-        if (benchmarkAuthoredCorpus)
+        if (benchmarkAuthoredCorpus || verifyAuthoredCorpus)
         {
+            // One assignment, not one per gate. Review round thirteen deleted this line
+            // from the verify gate's own dispatch and the suite stayed green, while the
+            // identical deletion at the benchmark's was caught — the same rule spelled
+            // twice, with only one of the copies covered. Reaching an honest exit 0 from
+            // the drift gate needs SourceLink acquisition, so the missing test was
+            // expensive to write and the duplicate was not worth keeping to be tested.
             s_protectedGateDispatched = true;
-            return AuthoredCorpusBenchmark.Run(assemblies, benchmarkCorpusPath!, json, ratchetBaselinePath, integrityOnly);
-        }
 
-        if (verifyAuthoredCorpus)
-        {
-            s_protectedGateDispatched = true;
-            return AuthoredCorpusDrift.Run(assemblies, verifyCorpusPath!, json, failOnDrift, sourceRepositories);
+            return benchmarkAuthoredCorpus
+                ? AuthoredCorpusBenchmark.Run(assemblies, benchmarkCorpusPath!, json, ratchetBaselinePath, integrityOnly)
+                : AuthoredCorpusDrift.Run(assemblies, verifyCorpusPath!, json, failOnDrift, sourceRepositories);
         }
 
         if (returnToSenderAb)
