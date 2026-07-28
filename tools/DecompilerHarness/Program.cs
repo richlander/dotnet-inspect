@@ -1892,10 +1892,34 @@ static class Program
     // Reads the value that follows a value-taking flag, guarding against a missing
     // trailing value so the parser reports a clean usage error instead of crashing
     // with an unhandled IndexOutOfRangeException.
+    //
+    // A trailing value is also missing when the next token is another flag. Review ran
+    // "--emit-inverse-ledger --benchmark-authored-corpus <corpus>": the ledger flag ate
+    // the benchmark flag as its output path, the benchmark was never parsed or requested,
+    // and the harness wrote a file named "--benchmark-authored-corpus" and exited 0. That
+    // is #3245 reached through the parser rather than through dispatch, and the escape
+    // check in Main cannot see it, because a gate that was never parsed was never
+    // requested.
+    //
+    // The rule is the token's own shape, not a list of flags to keep in step with the
+    // parser. Anything a caller must remember to extend is a list that will one day be
+    // short one entry, and every earlier attempt to enumerate this parser's vocabulary
+    // was wrong. A single leading dash still reads as a value, so negative numbers are
+    // untouched.
     static string NextArg(string[] args, ref int i, string flag)
-        => i + 1 < args.Length
-            ? args[++i]
-            : throw new MissingArgumentException(flag);
+    {
+        if (i + 1 >= args.Length)
+            throw new MissingArgumentException(flag);
+
+        string value = args[i + 1];
+        if (value.StartsWith("--", StringComparison.Ordinal))
+            throw new ArgumentException(
+                $"{flag} requires a value, but the next argument is '{value}', which is another flag. "
+                + "Supply a value, or move the flag before this one.");
+
+        i++;
+        return value;
+    }
 
     static int NextIntArg(string[] args, ref int i, string flag)
     {

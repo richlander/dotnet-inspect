@@ -541,7 +541,13 @@ public class AuthoredCorpusRatchetTests
         string assembly = pool.Write("only", "Copy.dll", File.ReadAllBytes(original));
 
         string row = $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"authoredBody":"class T { }"}""";
-        string intact = pool.Write("intact", "corpus.jsonl", Encoding.UTF8.GetBytes($"{row}\n{row}\n"));
+        // The second row differs by metadata token. This control was two copies of one
+        // row until the reader began rejecting a repeated identity, at which point the
+        // "sound" corpus reported a malformed row -- correctly, because one method
+        // counted twice is not a sound corpus.
+        string second = row.Replace("\"metadataToken\":1", "\"metadataToken\":2", StringComparison.Ordinal);
+        Assert.NotEqual(row, second);
+        string intact = pool.Write("intact", "corpus.jsonl", Encoding.UTF8.GetBytes($"{row}\n{second}\n"));
         string erased = pool.Write("erased", "corpus.jsonl", Encoding.UTF8.GetBytes($"{row}\n   \n"));
 
         using var sound = JsonDocument.Parse(RunForJson([assembly], intact));

@@ -620,6 +620,98 @@ public class AuthoredCorpusHarnessProcessTests
     }
 
     /// <summary>
+    /// A value-taking flag does not eat a protected gate as its value.
+    ///
+    /// <para>Review ran <c>--emit-inverse-ledger --benchmark-authored-corpus &lt;corpus&gt;</c>.
+    /// The ledger flag took the benchmark flag as its output path, so the benchmark was
+    /// never parsed, never requested, and never run; the harness wrote a file literally
+    /// named <c>--benchmark-authored-corpus</c> and exited 0. That is #3245 reached
+    /// through the parser instead of through dispatch, and the escape check in
+    /// <c>Main</c> is blind to it, because a gate that was never parsed was never
+    /// requested.</para>
+    ///
+    /// <para>The flags below are coverage, not the guarantee. The rule lives in one
+    /// function and is the next token's own shape, so it holds for value-taking flags
+    /// this list does not name -- which matters, because there are twenty-odd of them and
+    /// a list of that length is how the earlier attempts to enumerate this parser went
+    /// wrong.</para>
+    /// </summary>
+    [Theory]
+    [InlineData("--emit-inverse-ledger")]
+    [InlineData("--emit-corpus-baseline")]
+    [InlineData("--ratchet-baseline")]
+    [InlineData("--history-path")]
+    [InlineData("--history-window")]
+    [InlineData("--package-version")]
+    public void AValueTakingFlagDoesNotSwallowTheGateThatFollows(string valueTakingFlag)
+    {
+        string repositoryRoot = AuthoredCorpusRatchetTests.FindRepositoryRoot();
+        string corpus = Path.Combine(
+            repositoryRoot, "tools", "DecompilerHarness", "corpus", "one-row-authored-corpus.jsonl");
+        string stray = Path.Combine(Environment.CurrentDirectory, "--benchmark-authored-corpus");
+
+        var run = RunHarness([
+            typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location,
+            valueTakingFlag,
+            "--benchmark-authored-corpus",
+            corpus,
+        ]);
+
+        // The refusal, not merely a non-zero exit: the run must fail because the gate was
+        // about to be eaten, rather than for any of the other reasons a harness run ends
+        // badly.
+        Assert.Contains("which is another flag", run.Output, StringComparison.Ordinal);
+        Assert.NotEqual(0, run.ExitCode);
+        Assert.False(File.Exists(stray), $"the gate token was consumed as a path and written to '{stray}'");
+    }
+
+    /// <summary>
+    /// Neither corpus gate counts one method twice.
+    ///
+    /// <para>A metadata token is unique within an assembly, so a repeated identity is one
+    /// method presented as two measurements. Review duplicated the sole fixture row and
+    /// both gates reported two evaluated targets and exited 0. A padded denominator
+    /// distorts the ratchet exactly as a shortened one does, and it is the more useful
+    /// substitution: swapping a regressed row for a copy of a healthy one holds every
+    /// count still. Nothing else pins corpus content -- <c>PoolDigest</c> covers the
+    /// assembly pool, not the rows.</para>
+    /// </summary>
+    [Fact]
+    public void NeitherCorpusGateCountsOneMethodTwice()
+    {
+        string repositoryRoot = AuthoredCorpusRatchetTests.FindRepositoryRoot();
+        string fixturePath = Path.Combine(
+            repositoryRoot, "tools", "DecompilerHarness", "corpus", "one-row-authored-corpus.jsonl");
+        string row = File.ReadAllText(fixturePath).TrimEnd();
+        string duplicated = Path.Combine(Path.GetTempPath(), $"duplicated-corpus-{Guid.NewGuid():N}.jsonl");
+        File.WriteAllText(duplicated, row + Environment.NewLine + row + Environment.NewLine);
+
+        try
+        {
+            var benchmark = RunHarness([
+                typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location,
+                "--benchmark-authored-corpus",
+                duplicated,
+            ]);
+            var drift = RunHarness([
+                typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location,
+                "--verify-authored-corpus",
+                duplicated,
+                "--fail-on-drift",
+            ]);
+
+            Assert.Contains("counted twice", benchmark.Output, StringComparison.Ordinal);
+            Assert.Contains("counted twice", drift.Output, StringComparison.Ordinal);
+            Assert.Equal(1, benchmark.ExitCode);
+            Assert.Equal(1, drift.ExitCode);
+        }
+        finally
+        {
+            File.Delete(duplicated);
+        }
+    }
+
+    /// <summary>
     /// Both corpus gates reject the same damaged row, because both read the corpus
     /// through one reader.
     ///

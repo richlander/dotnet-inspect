@@ -178,6 +178,7 @@ static class AuthoredCorpusBenchmark
     {
         var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
         var records = new List<AuthoredSourceHarvest.CorpusRecord>();
+        var seen = new HashSet<(string, string, string, int)>();
         int malformed = 0;
         foreach (var line in File.ReadLines(corpusPath))
         {
@@ -211,6 +212,21 @@ static class AuthoredCorpusBenchmark
                     malformed++;
                     Console.Error.WriteLine(
                         $"Skipping malformed corpus row: required field '{field}' is missing or empty.");
+                }
+                else if (!seen.Add((record.Assembly, record.AssemblyVersion, record.Tfm, record.MetadataToken)))
+                {
+                    // A metadata token is unique within an assembly, so a repeated
+                    // identity is one method presented as two measurements. Review
+                    // duplicated the sole fixture row and both gates reported two
+                    // evaluated targets and exited 0. A shortened denominator and a
+                    // padded one distort the ratchet the same way: swapping a regressed
+                    // row for a copy of a healthy one holds every count still. Nothing
+                    // pins corpus content -- PoolDigest covers the assembly pool, not the
+                    // rows -- so this is the only place the substitution is visible.
+                    malformed++;
+                    Console.Error.WriteLine(
+                        $"Skipping malformed corpus row: {record.Assembly} token 0x{record.MetadataToken:X8} "
+                        + "already appeared, so one method is counted twice.");
                 }
                 else
                 {
