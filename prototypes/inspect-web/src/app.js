@@ -1,6 +1,6 @@
 import { lenses, packageLenses, rootCommands } from "./data.js";
 import { loadPlatformIndex } from "/src/platform-index.js";
-import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectLoadRuntimePack, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageIntegrations, inspectPackageOpportunities, inspectPackagePerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
+import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageIntegrations, inspectPackageOpportunities, inspectPackagePerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
 
 function loadStoredTaste() {
   try {
@@ -2983,14 +2983,59 @@ const SPOTLIGHT_SCOPES = [
   { id: "runtime", label: "Platform" },
 ];
 
-// Runtime-pack types as spotlight match items (empty-query listing for the Runtime scope).
-function runtimePackTypeList() {
+const PLATFORM_PACK_LABEL = { "netcore.app": ".NET", "aspnetcore.app": "ASP.NET Core" };
+
+// The target framework the Platform scope resolves libraries against. Prefer a
+// resident pack's framework, then the focused package's, then net10.0 — always
+// clamped to a TFM the static index actually carries.
+function platformScopeTfm() {
+  const idx = state.platformIndex;
+  const known = idx ? idx.tfms() : [];
+  const inIndex = tfm => tfm && (!idx || known.includes(tfm));
+  for (const candidate of [runtimePackPackage()?.activeFramework, state.package?.activeFramework, "net10.0"]) {
+    if (inIndex(candidate)) return candidate;
+  }
+  return known.includes("net10.0") ? "net10.0" : (known[known.length - 1] || "net10.0");
+}
+
+// Index-first library roster for the Platform scope: every implementation
+// assembly the static platform index knows for the active TFM, across the
+// CoreCLR (netcore.app) and ASP.NET Core (aspnetcore.app) shared frameworks —
+// with NO pack download. Only the CoreCLR pack is loadable in the browser today,
+// so its rows drill in; ASP.NET Core rows are roster-only (index hint) until the
+// multi-pack loader lands. Matched on assembly name; sorted CoreCLR first, then
+// by public-type count so the biggest libraries surface first.
+function platformLibraryRoster(query) {
+  const idx = state.platformIndex;
+  if (!idx) return [];
+  const tfm = platformScopeTfm();
+  const lower = query.trim().toLowerCase();
   const rt = runtimePackPackage();
-  if (!rt?.types) return [];
-  return rt.types
-    .slice()
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .map(type => ({ pkg: rt, type, ranges: [] }));
+  const netcoreLoaded = rt && !/aspnetcore/i.test(rt.name || "");
+  const loadedKeys = netcoreLoaded
+    ? new Set((rt.assemblies || []).map(a => (a.name || "").replace(/\.dll$/i, "")))
+    : new Set();
+  const rows = [];
+  for (const pack of ["netcore.app", "aspnetcore.app"]) {
+    const loadable = pack === "netcore.app";
+    for (const row of idx.assembliesFor(tfm, pack)) {
+      if (row.kind !== "impl") continue;
+      if (lower && !row.assembly.toLowerCase().includes(lower)) continue;
+      rows.push({
+        assembly: row.assembly,
+        pack,
+        publicTypes: row.publicTypes,
+        loadable,
+        loaded: loadable && loadedKeys.has(row.assembly),
+        ranges: computeHighlightRanges(row.assembly, lower),
+      });
+    }
+  }
+  rows.sort((a, b) =>
+    (a.pack === b.pack ? 0 : a.pack === "netcore.app" ? -1 : 1)
+    || b.publicTypes - a.publicTypes
+    || a.assembly.localeCompare(b.assembly));
+  return rows;
 }
 
 // Blends the four targets into one ordered result list, honouring the active scope chip.
@@ -3008,19 +3053,33 @@ function spotlightResults() {
       results.push({ kind: "rtpack-status", loading: true });
       return results;
     }
-    if (!runtimePackLoaded()) {
-      if (state.runtimePackError) results.push({ kind: "rtpack-status", error: state.runtimePackError });
-      results.push({ kind: "rtpack-suggest" });
-      return results;
+    if (state.runtimePackError && !runtimePackLoaded()) {
+      results.push({ kind: "rtpack-status", error: state.runtimePackError });
     }
-    const typeSource = query ? spotlightTypeMatches(query) : runtimePackTypeList();
-    for (const match of typeSource.filter(item => item.pkg?.isRuntimePack).slice(0, 50)) {
-      results.push({ ...match, kind: "type" });
+    // Index-first: the platform library roster needs no pack download. Selecting
+    // "Platform" instantly lists the CoreCLR + ASP.NET Core libraries the static
+    // index knows for the active framework, filterable by name.
+    const roster = platformLibraryRoster(query);
+    for (const lib of roster.slice(0, 200)) {
+      results.push({ ...lib, kind: "platform-lib" });
     }
-    if (query) {
-      for (const match of spotlightMemberMatches(query).filter(item => item.pkg?.isRuntimePack).slice(0, 50)) {
-        results.push({ ...match, kind: "member" });
+    // Once a pack is resident, blend its type/member matches so drilled-in
+    // platform content stays searchable alongside the library roster.
+    if (runtimePackLoaded()) {
+      const typeSource = query ? spotlightTypeMatches(query) : [];
+      for (const match of typeSource.filter(item => item.pkg?.isRuntimePack).slice(0, 50)) {
+        results.push({ ...match, kind: "type" });
       }
+      if (query) {
+        for (const match of spotlightMemberMatches(query).filter(item => item.pkg?.isRuntimePack).slice(0, 50)) {
+          results.push({ ...match, kind: "member" });
+        }
+      }
+    }
+    // Only when the static index is unavailable do we fall back to the old
+    // download-first prompt, so the scope is never empty and inert.
+    if (!roster.length && !runtimePackLoaded()) {
+      results.push({ kind: "rtpack-suggest" });
     }
     return results;
   }
@@ -3087,6 +3146,25 @@ function spotlightRowHtml(result, index) {
       <span class="spotlight-item-name">${escapeHtml(text)}</span>
     </div>`;
   }
+  if (result.kind === "platform-lib") {
+    const label = PLATFORM_PACK_LABEL[result.pack] || result.pack;
+    const types = `${result.publicTypes} type${result.publicTypes === 1 ? "" : "s"}`;
+    if (result.loadable) {
+      const meta = `${label} · ${types}${result.loaded ? " · loaded" : ""}`;
+      return `<button ${base} data-sl-platform-lib="${escapeHtml(result.assembly)}">
+      <span class="kind-icon sl-lib">▤</span>
+      <span class="spotlight-item-name">${highlightRanges(result.assembly, result.ranges)}</span>
+      <span class="spotlight-item-ns">${escapeHtml(meta)}</span>
+    </button>`;
+    }
+    // ASP.NET Core rows are index-only until the multi-pack loader lands: shown
+    // as an inert roster entry (no drill-in) rather than a broken button.
+    return `<div class="spotlight-item spotlight-lib-info ${selected}" data-sl-index="${index}" title="Browsing the ASP.NET Core shared framework is coming soon">
+      <span class="kind-icon sl-lib">▤</span>
+      <span class="spotlight-item-name">${highlightRanges(result.assembly, result.ranges)}</span>
+      <span class="spotlight-item-ns">${escapeHtml(`${label} · ${types} · index`)}</span>
+    </div>`;
+  }
   if (result.kind === "member") {
     return `<button ${base} data-sl-member="${escapeHtml(result.memberKey)}" data-sl-pkg="${escapeHtml(result.pkg.id)}" data-sl-type="${escapeHtml(result.type.id)}">
       <span class="kind-icon sl-member">ƒ</span>
@@ -3101,7 +3179,7 @@ function spotlightRowHtml(result, index) {
   </button>`;
 }
 
-const SPOTLIGHT_GROUP_LABELS = { "pkg-loaded": "Packages", "pkg-nuget": "Packages", type: "Types", member: "Members", "rtpack-suggest": "Runtime", "rtpack-status": "Runtime" };
+const SPOTLIGHT_GROUP_LABELS = { "pkg-loaded": "Packages", "pkg-nuget": "Packages", type: "Types", member: "Members", "platform-lib": "Libraries", "rtpack-suggest": "Runtime", "rtpack-status": "Runtime" };
 
 function spotlightResultsHtml(results) {
   if (!results.length) {
@@ -3193,11 +3271,9 @@ function setSpotlightScope(scope) {
   if (!SPOTLIGHT_SCOPES.some(item => item.id === scope)) return;
   state.spotlightScope = scope;
   state.spotlightIndex = 0;
-  if (scope === "runtime" && !runtimePackLoaded() && !state.runtimePackLoading) {
-    activateRuntimePack();
-    focusSpotlight();
-    return;
-  }
+  // The Platform scope is now index-first: selecting it lists the platform
+  // library roster from the static index with no download. A pack loads lazily
+  // only when the user drills into a specific library.
   if (scope === "packages" || scope === "all") scheduleSpotlightPackageFetch();
   // Scope only affects the chip row and the results list, so repaint those in place
   // instead of re-rendering the whole app (which flashed the screen on every chip move).
@@ -3378,6 +3454,7 @@ function pickSpotlightResult(result) {
     case "pkg-nuget": closeSpotlight(); loadPackage(result.hit.id, result.hit.version); break;
     case "member": pickSpotlightMember(result); break;
     case "rtpack-suggest": state.spotlightScope = "runtime"; state.spotlightIndex = 0; activateRuntimePack(); break;
+    case "platform-lib": if (result.loadable) openPlatformLibrary(result.assembly); break;
     case "rtpack-status": break;
     default: pickSpotlight(result.pkg.id, result.type.id); break;
   }
@@ -3401,6 +3478,54 @@ function activateRuntimePack() {
     updateSpotlightChips();
     updateSpotlightResults();
   });
+}
+
+// Drill into one platform library from the index-first Platform scope: lazily fetch just
+// that CoreCLR assembly (creating or extending the resident runtime pseudo-package), then
+// scope the workbench to it and land in its type list. The download happens only here, on
+// demand — selecting the Platform scope itself never downloads.
+async function openPlatformLibrary(assembly) {
+  closeSpotlight();
+  const key = (assembly || "").replace(/\.dll$/i, "");
+  const fileName = key ? `${key}.dll` : "";
+  const tfm = platformScopeTfm();
+  const alreadyLoaded = (runtimePackPackage()?.types || []).some(type => libraryKey(type) === key);
+  if (!alreadyLoaded) {
+    state.home = false;
+    state.loading = true;
+    state.error = "";
+    state.loadingMessage = "Loading the platform library…";
+    state.loadingSubtitle = `${key} · ${tfm}`;
+    render();
+    const pack = await loadRuntimePackAssembly(tfm, fileName);
+    if (!pack) {
+      state.loading = false;
+      state.error = state.runtimePackError
+        ? `Couldn’t load ${key}: ${state.runtimePackError}`
+        : `Couldn’t load ${key} from the .NET runtime pack.`;
+      state.errorTitle = "Platform library failed";
+      render();
+      return;
+    }
+  }
+  const pkg = runtimePackPackage();
+  if (!pkg) { render(); return; }
+  state.package = pkg;
+  state.home = false;
+  state.loading = false;
+  const hasLib = pkg.types.some(type => libraryKey(type) === key);
+  state.libraryScope = hasLib ? new Set([key]) : null;
+  state.atPackageRoot = !hasLib; // scoped → jump straight to the type list; otherwise the overview
+  state.packageLens = "overview";
+  state.namespaceFilter = "";
+  state.typeFilter = "";
+  state.kindFilter = "";
+  const scoped = filteredTypes();
+  state.selectedTypeId = scoped[0]?.id || pkg.types[0]?.id || "";
+  state.selectedMemberKey = "";
+  state.selectedOverloadIndex = null;
+  render();
+  loadSelectionData();
 }
 
 function pickSpotlightLoadedPackage(pkg) {
@@ -5655,6 +5780,56 @@ async function loadRuntimePack(framework) {
       && item.version.toLowerCase() === packageModel.version.toLowerCase());
     if (at >= 0) state.packages[at] = packageModel;
     else state.packages.push(packageModel);
+    state.runtimePackLoading = false;
+    return packageModel;
+  } catch (error) {
+    state.runtimePackLoading = false;
+    state.runtimePackError = String(error?.message || error);
+    return null;
+  }
+}
+
+// Loads ONE named CoreCLR runtime-pack assembly (e.g. System.Text.Json.dll) and folds its
+// type surface into the resident runtime pseudo-package, creating that package if it is not
+// resident yet. This backs index-first Platform drill-in: the Platform scope roster comes
+// from the static index with no download, and picking a library fetches just that assembly
+// here. Types/assemblies are merged (deduped by id/name) so the runtime pack accumulates the
+// libraries the user visits, and per-type/member queries resolve because the assembly is a
+// CoreCLR runtimes/ entry the materializer knows.
+async function loadRuntimePackAssembly(framework, assemblyFileName) {
+  if (state.runtimePackLoading) return runtimePackPackage();
+  state.runtimePackLoading = true;
+  state.runtimePackError = "";
+  try {
+    const result = await inspectLoadRuntimePackAssembly(framework || "", assemblyFileName);
+    refreshPackageStats();
+    const newTypes = (result.types ?? []).map(type => ({ ...type, api: type.api ?? [] }));
+    const existing = runtimePackPackage();
+    if (existing) {
+      const seenTypes = new Set(existing.types.map(type => type.id));
+      for (const type of newTypes) if (!seenTypes.has(type.id)) existing.types.push(type);
+      const seenAsm = new Set((existing.assemblies || []).map(item => item.name));
+      for (const asm of (result.assemblies ?? [])) if (!seenAsm.has(asm.name)) existing.assemblies.push(asm);
+      existing.assembly = (existing.assemblies || []).map(item => item.name).join(", ");
+      existing.totalTypes = existing.types.length;
+      existing.totalMembers = (existing.totalMembers || 0) + (result.totalMembers || 0);
+      state.runtimePackLoading = false;
+      return existing;
+    }
+    const packageModel = {
+      id: result.package,
+      version: result.version,
+      frameworks: (result.frameworks ?? []).slice().sort(compareFrameworks),
+      activeFramework: result.activeFramework,
+      assembly: (result.assemblies ?? []).map(item => item.name).join(", "),
+      assemblies: result.assemblies ?? [],
+      types: newTypes,
+      totalTypes: newTypes.length,
+      totalMembers: result.totalMembers,
+      documents: result.documents ?? [],
+      isRuntimePack: true
+    };
+    state.packages.push(packageModel);
     state.runtimePackLoading = false;
     return packageModel;
   } catch (error) {

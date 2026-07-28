@@ -2102,6 +2102,63 @@ public static partial class BrowserInspectionEngine
         return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageSurface);
     }
 
+    // Loads ONE named assembly from the CoreCLR runtime pack (e.g. System.Text.Json.dll,
+    // System.Reflection.Metadata.dll) and returns its full type surface as a package-shaped
+    // payload the client merges into the resident runtime pseudo-package. This backs the
+    // index-first Platform scope: selecting Platform lists the library roster from the static
+    // index with no download, and drilling into a specific library fetches just that
+    // assembly here. Only the CoreCLR pack is served — its runtimes/ layout is what
+    // MaterializeImplementationAsync range-extracts for deeper per-type/member queries, so
+    // the merged types resolve end to end. ASP.NET Core libraries are not loadable this way
+    // yet (their materialization pack differs).
+    [JSExport]
+    public static async Task<string> LoadRuntimePackAssembly(string targetFramework, string assemblyFileName)
+    {
+        if (string.IsNullOrWhiteSpace(assemblyFileName))
+            throw new InvalidOperationException("An assembly file name is required.");
+        var fileName = assemblyFileName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            ? assemblyFileName
+            : assemblyFileName + ".dll";
+
+        var major = ParseTfmMajor(targetFramework);
+        var version = await ResolveRuntimePackVersionAsync(PlatformRuntimePackId, major);
+        var bytes = await AcquireRuntimeFileAsync(PlatformRuntimePackId, version, fileName)
+            ?? throw new InvalidOperationException(
+                $"Could not acquire {fileName} from {PlatformRuntimePackId} {version}.");
+
+        using var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
+            new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(fileName), null, null, null),
+            Path: null,
+            OpenRead: () => new MemoryStream(bytes, writable: false),
+            Provenance: $"runtime-pack/{PlatformRuntimePackId}/{fileName}"));
+        if (!inspection.HasMetadata)
+            throw new InvalidOperationException($"{fileName} has no metadata.");
+
+        var assemblyTypes = inspection.ApiSurface().Types
+            .Select(type => ToBrowserType(type, fileName))
+            .OrderBy(type => type.Namespace, StringComparer.Ordinal)
+            .ThenBy(type => type.Name, StringComparer.Ordinal)
+            .ToArray();
+
+        var tfm = string.IsNullOrWhiteSpace(targetFramework) ? $"net{major}.0" : targetFramework;
+        var result = new BrowserPackageSurface(
+            RuntimePackDisplayId,
+            version,
+            [tfm],
+            tfm,
+            [
+                new BrowserAssemblySurface(
+                    fileName,
+                    $"runtimes/*/lib/{tfm}/{fileName}",
+                    assemblyTypes.Length,
+                    assemblyTypes.Sum(type => type.Members)),
+            ],
+            assemblyTypes,
+            assemblyTypes.Sum(type => type.Members),
+            []);
+        return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageSurface);
+    }
+
     // Materializes the implementation assembly for a per-type/member query into tempRoot and
     // returns its path. For the runtime pseudo-package it range-extracts from the CoreCLR
     // runtime pack's runtimes/ layout (session-cached); for ordinary packages it uses the

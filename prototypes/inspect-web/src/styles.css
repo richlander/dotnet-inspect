@@ -1124,6 +1124,9 @@ kbd {
 .kind-icon.sl-pkg { color: var(--accent); }
 .kind-icon.sl-pkg-new { color: var(--muted); }
 .kind-icon.sl-member { color: var(--text); }
+.kind-icon.sl-lib { color: var(--accent); }
+.spotlight-lib-info { opacity: 0.62; cursor: default; }
+.spotlight-lib-info:hover { background: transparent; }
 .spotlight-empty { padding: 26px 14px; color: var(--dim); font: 12px var(--mono); text-align: center; }
 .spotlight-foot {
   display: flex;
