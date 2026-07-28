@@ -346,15 +346,19 @@ public class SourceLinkResolver
     }
 
     /// <summary>
-    /// Index on <paramref name="line"/> where code resumes, given the state carried into it, or
-    /// <c>-1</c> when the line is comment or literal text throughout. A line that closes a
-    /// multi-line comment or literal and then holds real code must be read as code from that
-    /// point (adversarial review, MAI-Code); asking only whether the line *began* in one
-    /// suppressed the question on exactly that line.
+    /// Index on <paramref name="line"/> where a declaration could begin, given the state
+    /// carried into it, or <c>-1</c> when nothing on the line is eligible.
+    /// <para>
+    /// A line that closes a multi-line comment, literal, or bracketed construct and then holds
+    /// a real declaration must be read as a declaration from that point. Asking only whether
+    /// the line *began* inside one suppressed the question on exactly the line that answers it
+    /// — first for comments and literals, then again for brackets (adversarial review,
+    /// MAI-Code and GPT). All three are the same question, so one answer serves them.
+    /// </para>
     /// </summary>
     private static int IndexWhereCodeResumes(string line, LexState state)
     {
-        if (!state.InBlockComment && !state.InLiteral)
+        if (!state.InBlockComment && !state.InLiteral && state.BracketDepth == 0)
             return 0;
 
         var probe = state.Clone();
@@ -491,11 +495,10 @@ public class SourceLinkResolver
         for (int i = to; i < limit; i++)
         {
             // Asked before the line is scanned, so it must be asked of the line's code alone. A
-            // "set" inside a multi-line block comment or raw string literal is text, not a
-            // sibling (adversarial review, Gemini) — but a line that *closes* one and then
-            // declares a real sibling is code from that point (adversarial review, MAI-Code).
-            // A line inside an unclosed bracketed construct is not a declaration either.
-            if (slicingAccessor && state.BracketDepth == 0)
+            // "set" inside a multi-line block comment, raw string literal, or attribute list
+            // is not a sibling — but a line that *closes* one and then declares a real sibling
+            // is a declaration from that point on.
+            if (slicingAccessor)
             {
                 int resume = IndexWhereCodeResumes(lines[i], state);
                 if (resume >= 0 && OpensSiblingAccessor(lines[i][resume..]))
@@ -702,7 +705,7 @@ public class SourceLinkResolver
             if (untilLiteralCloses && opened && !state.InLiteral)
                 return i;
 
-            if (untilCodeResumes && !state.InBlockComment && !state.InLiteral)
+            if (untilCodeResumes && !state.InBlockComment && !state.InLiteral && state.BracketDepth == 0)
                 return i;
 
             if (untilBracketsClose && bracketOpened && state.BracketDepth == 0)
