@@ -68,6 +68,8 @@ const state = {
   platformStack: [],
   platformDrillLoading: false,
   platformDrillError: "",
+  dotnetReleases: null,
+  dotnetReleasesLoading: false,
   memberFacts: null,
   memberFactsLoading: false,
   memberFactsError: "",
@@ -1006,7 +1008,7 @@ function render() {
         </div>
         <label class="version-select">
           <span>version</span>
-          <select id="package-version"${state.package.isRuntimePack ? " disabled" : ""}>
+          <select id="package-version">
             ${versionOptionsHtml(state.package)}
           </select>
         </label>
@@ -2642,9 +2644,11 @@ function bindEvents() {
     loadPackage(state.package.id, state.package.version, event.target.value);
   });
   document.querySelector("#package-version")?.addEventListener("change", event => {
-    switchPackageVersion(event.target.value);
+    if (state.package?.isRuntimePack) switchPlatformVersion(event.target.value);
+    else switchPackageVersion(event.target.value);
   });
   ensurePackageVersions(state.package);
+  if (state.package?.isRuntimePack) ensureDotnetReleases();
   const filter = document.querySelector("#type-filter");
   filter?.addEventListener("input", event => {
     state.typeFilter = event.target.value;
@@ -3360,6 +3364,7 @@ function compareVersionsDesc(a, b) {
 // Build the <option> list for the version selector. Always includes the currently loaded
 // version (even before the flatcontainer index has been fetched) so the control is never empty.
 function versionOptionsHtml(pkg) {
+  if (pkg.isRuntimePack) return platformVersionOptionsHtml(pkg);
   const idLower = pkg.id.toLowerCase();
   const fetched = state.packageVersions[idLower] ?? [];
   const versions = fetched.length ? fetched.slice() : [pkg.version];
@@ -3370,6 +3375,95 @@ function versionOptionsHtml(pkg) {
   return versions
     .map(v => `<option value="${escapeHtml(v)}" ${v.toLowerCase() === pkg.version.toLowerCase() ? "selected" : ""}>${escapeHtml(v)}</option>`)
     .join("");
+}
+
+// The Platform version selector's options: one entry per in-support .NET major (8+) from the
+// dotnet/core releases index, each labelled with that channel's latest patch release. The
+// option value is the TFM (net8.0 …) so a change reloads the whole Platform at that major.
+// Gated to majors the bundled platform library index actually carries, so every option
+// offers the full library roster (net11 preview is omitted until the index covers it). The
+// active TFM is always present so the control is never empty before the index loads.
+function platformVersionOptionsHtml(pkg) {
+  const releases = state.dotnetReleases || [];
+  const idxTfms = state.platformIndex ? state.platformIndex.tfms() : null;
+  const rows = releases.filter(r => !idxTfms || idxTfms.includes(r.tfm));
+  const list = rows.length ? rows.map(r => ({ tfm: r.tfm, version: r.version })) : [];
+  if (!list.some(r => r.tfm === pkg.activeFramework)) {
+    list.unshift({ tfm: pkg.activeFramework, version: pkg.version });
+  }
+  return list
+    .map(r => `<option value="${escapeHtml(r.tfm)}" ${r.tfm === pkg.activeFramework ? "selected" : ""}>${escapeHtml(r.version)}</option>`)
+    .join("");
+}
+
+// Lazily fetch the .NET release channels (latest patch per major) from the dotnet/core
+// release index (CORS-enabled), keep only in-support majors (8+), cache them, and repaint the
+// Platform version selector in place. Powers the Platform version dropdown; a transient
+// failure leaves the selector on the single current-version option.
+async function ensureDotnetReleases() {
+  if (state.dotnetReleases || state.dotnetReleasesLoading) return;
+  state.dotnetReleasesLoading = true;
+  try {
+    const url = "https://raw.githubusercontent.com/dotnet/core/refs/heads/main/release-notes/releases-index.json";
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.json();
+    const rows = (payload["releases-index"] || [])
+      .map(entry => {
+        const major = parseInt(entry["channel-version"], 10);
+        return { major, tfm: `net${entry["channel-version"]}`, version: entry["latest-release"] };
+      })
+      .filter(row => Number.isFinite(row.major) && row.major >= 8 && row.version)
+      .sort((a, b) => b.major - a.major);
+    state.dotnetReleases = rows;
+    if (state.package?.isRuntimePack) {
+      const select = document.querySelector("#package-version");
+      if (select) select.innerHTML = versionOptionsHtml(state.package);
+    }
+  } catch {
+    // Leave the selector on the single current-version option; a transient index failure
+    // must not break the workbench.
+  } finally {
+    state.dotnetReleasesLoading = false;
+  }
+}
+
+// Switch the resident Platform to a different .NET major (by TFM). Drops the current
+// pseudo-package and its accumulated drilled libraries, then loads a fresh Platform for the
+// chosen TFM and lands on its overview — mirroring the in-place version switch for ordinary
+// packages. The engine resolves the exact latest patch for that major.
+async function switchPlatformVersion(tfm) {
+  const pkg = runtimePackPackage();
+  if (!pkg || !tfm || tfm === pkg.activeFramework) return;
+  state.packages = state.packages.filter(item => !item.isRuntimePack);
+  state.libraryScope = null;
+  state.platformStack = [];
+  state.home = false;
+  state.loading = true;
+  state.error = "";
+  state.loadingMessage = "Loading the .NET Platform…";
+  state.loadingSubtitle = `.NET Platform · ${tfm}`;
+  render();
+  const loaded = await loadRuntimePack(tfm);
+  if (!loaded) {
+    state.loading = false;
+    state.error = state.runtimePackError || "Couldn’t load the .NET Platform.";
+    state.errorTitle = "Platform failed";
+    render();
+    return;
+  }
+  state.package = loaded;
+  state.loading = false;
+  state.atPackageRoot = true;
+  state.packageLens = "overview";
+  state.selectedTypeId = loaded.types[0]?.id || "";
+  state.selectedMemberKey = "";
+  state.selectedOverloadIndex = null;
+  state.typeFilter = "";
+  state.namespaceFilter = "";
+  state.kindFilter = "";
+  render();
+  loadSelectionData();
 }
 
 // Lazily fetch the full published-version list for a package straight from the NuGet
