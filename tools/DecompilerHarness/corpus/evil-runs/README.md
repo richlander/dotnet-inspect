@@ -428,6 +428,26 @@ test in the same change that crosses the bootstrap. Tracked as #3362.
   The gate asserts that the comparison actually *happened*, not merely that it
   found no regressions — an empty-regressions assertion alone passes for a skip,
   which is how the first version of this gate was vacuous.
+- **Every PR**: `AuthoredCorpusHarnessProcessTests` runs the harness *binary*
+  and asserts what it says for each gate-flag combination — a gate combined with
+  an earlier mode, a gate combined with `--help`, each modifier without its
+  gate, the contradictory pair, a mode that preempts nothing, and the scheduled
+  lane's own flags.
+
+  These exist because six review rounds found six instances of one defect: a
+  term of the gate rule stranded in `Program.cs`, which owns an entry point and
+  so cannot be linked into a test project. Each round moved one more term into
+  `AuthoredCorpusExitContract`, and the next round found the next one — a
+  forwarded argument, an array literal, a tuple's boolean. Every time, the
+  contract function was thoroughly tested, the suite was green, and the binary
+  exited 0 having measured nothing.
+
+  Pinning the call site's source text was tried and was worse than useless: a
+  behavior-preserving comment failed it, while a commented-out decoy above the
+  real call satisfied it. Running the binary leaves no seam to strand a rule
+  behind. The test project takes a `ReferenceOutputAssembly="false"` reference
+  on the harness so the binary is rebuilt with the tests, and a missing binary
+  fails rather than skips.
 - **Weekly**: the `authored-corpus-ratchet` lane in `deep-inspect.yml` restores
   the vendored corpus, prepares the EVIL pool, and runs the benchmark. It is a
   *periodic* job — the corpus and the 100-package sweep are far too expensive for
