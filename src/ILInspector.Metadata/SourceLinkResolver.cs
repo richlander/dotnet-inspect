@@ -86,6 +86,12 @@ public class SourceLinkResolver
     /// <see cref="IndexOutOfRangeException"/>, which callers already handle by treating the source
     /// as unavailable.
     /// <para>
+    /// Returns <see langword="null"/> when the range carries no authored member declaration to
+    /// isolate — a positional record's property accessor, a primary constructor, and a
+    /// constructor synthesized from field initializers all map to the enclosing type's header.
+    /// Callers must report that as absent source rather than rendering the captured text.
+    /// </para>
+    /// <para>
     /// <paramref name="isDestructor"/> must be set by the caller from the resolved member's
     /// identity (its kind/metadata name), not inferred from source text. A C# destructor's source
     /// line is "~Type(...)", which carries no accessibility keyword and whose metadata name
@@ -105,7 +111,7 @@ public class SourceLinkResolver
     /// grammar on one line.
     /// </para>
     /// </summary>
-    public static string ExtractMethodBody(string sourceText, int startLine, int endLine, string methodName, bool isDestructor = false, string? destructorTypeName = null)
+    public static string? ExtractMethodBody(string sourceText, int startLine, int endLine, string methodName, bool isDestructor = false, string? destructorTypeName = null)
     {
         var lines = sourceText.Split('\n');
         int start = startLine;
@@ -149,6 +155,36 @@ public class SourceLinkResolver
         int from = sigStart - 1;
         int to = end;
 
+        if (from < 0) from = 0;
+        if (to > lines.Length) to = lines.Length;
+
+        // A positional record's property accessor, a primary constructor, and a constructor
+        // synthesized from field initializers have no authored member declaration of their own,
+        // so their sequence points legitimately land on the enclosing type's header. There is
+        // nothing to slice: returning the header would present a truncated type declaration as
+        // the member's source, which is wrong output rather than absent output. Report absence
+        // and let the caller say so.
+        //
+        // A range that merely *contains* the header is a different case. The backward scan
+        // cannot recognize a constructor that leads with no modifier, because ".ctor" is not
+        // its source spelling, so it walks past the declaration and up to the header. That
+        // constructor does have authored source, and the header names the type it is named
+        // for, so look below the header for it before concluding there is nothing to show.
+        //
+        // This runs before the end boundary is decided, because moving the start moves the
+        // brace depth the end-boundary scan reads: measured from the type header the range
+        // still has the type's block open, and the forward scan would then append the type's
+        // closing brace to the constructor.
+        int headerIndex = IndexOfTypeDeclaration(lines[from..to], start - 1 - from, out string? declaredTypeName);
+        if (headerIndex >= 0)
+        {
+            int ctorIndex = IndexOfConstructorDeclaration(lines[from..to], headerIndex, start - 1 - from, declaredTypeName);
+            if (ctorIndex < 0)
+                return null;
+
+            from += ctorIndex;
+        }
+
         // A declaration whose range already terminates on its last line — an expression body's
         // ";" or an auto-property's "{ get; set; }" — owns no trailing brace to recover, so the
         // next "}" below it closes the enclosing type instead (issue #3278). A range that still
@@ -171,7 +207,6 @@ public class SourceLinkResolver
         if (!endsAtDeclaration)
             to = IndexPastClosingBrace(lines, from, to, IsAccessorName(methodName));
 
-        if (from < 0) from = 0;
         if (to > lines.Length) to = lines.Length;
 
         while (from < to && lines[from].TrimStart().Length == 0)
@@ -187,6 +222,469 @@ public class SourceLinkResolver
 
         var dedented = methodLines.Select(l => l.Length >= minIndent ? l[minIndent..] : l);
         return string.Join('\n', dedented).TrimEnd();
+    }
+
+    /// <summary>
+    /// Keywords that make a declaration a type or namespace rather than a member.
+    /// <c>record</c> covers <c>record class</c> and <c>record struct</c>, whose second keyword
+    /// this never reaches. <c>namespace</c> belongs here because a range that opens on one has
+    /// walked clear past every member; none of these is a legal identifier, so no member
+    /// declaration can begin with one.
+    /// </summary>
+    private static readonly string[] TypeDeclarationKeywords =
+        ["class", "struct", "interface", "enum", "record", "delegate", "namespace"];
+
+    /// <summary>
+    /// Modifiers that may precede a type keyword. This is deliberately a superset of
+    /// <see cref="DeclarationModifiers"/> — <c>ref</c>, <c>file</c>, and <c>new</c> lead a type
+    /// declaration but not a member whose body carries sequence points.
+    /// </summary>
+    private static readonly string[] TypeDeclarationModifiers =
+        ["public", "private", "protected", "internal", "static", "abstract",
+         "sealed", "partial", "readonly", "ref", "file", "unsafe", "new"];
+
+    /// <summary>
+    /// Index of the line in <paramref name="capturedLines"/> that opens a type declaration, or
+    /// <c>-1</c> when the range opens a member declaration instead. When a header is found,
+    /// <paramref name="typeName"/> receives the name it declares.
+    /// <para>
+    /// The match is token-based, walking leading modifiers until it reaches a type keyword or a
+    /// token that is neither. That distinction matters: a member such as
+    /// <c>public void Process(RecordBatch batch)</c> spells "Record" inside an identifier, and
+    /// <c>public int Classify()</c> spells "Class", so a substring test would misfire on both.
+    /// </para>
+    /// <para>
+    /// Attributes and comments are stripped from the head of the line rather than causing the
+    /// line to be skipped. Skipping the line lets <c>[Obsolete] public record R(int X)</c>
+    /// escape the check entirely, because the line opens with "[".
+    /// </para>
+    /// </summary>
+    private static int IndexOfTypeDeclaration(string[] capturedLines, int target, out string? typeName)
+    {
+        typeName = null;
+
+        int first = -1;
+        for (int i = 0; i < capturedLines.Length && first < 0; i++)
+        {
+            // A line that is only trivia — blank, a comment, a directive, an attribute on its
+            // own line — carries no declaration, so the declaration is on a later line.
+            if (StripLeadingTrivia(capturedLines[i].TrimStart()).Length > 0)
+                first = i;
+        }
+
+        if (first < 0 || !OpensTypeDeclaration(StripLeadingTrivia(capturedLines[first].TrimStart()), out _, out _))
+            return -1;
+
+        // The capture may run back through several enclosing scopes. The member belongs to the
+        // innermost type still open at the target line, not to the first declaration in the
+        // capture: taking the first reported every constructor inside a namespace or a nested
+        // type as absent, because it searched for the wrong name at the wrong depth
+        // (adversarial review, MAI-Code and GPT). A namespace is never a declaring type.
+        var open = new List<(int Index, string? Name, int BodyDepth, bool Entered)>();
+        var state = new LexState();
+        int depth = 0;
+
+        for (int i = first; i <= target && i < capturedLines.Length; i++)
+        {
+            var trimmed = StripLeadingTrivia(capturedLines[i].TrimStart());
+
+            if (trimmed.Length > 0 && OpensTypeDeclaration(trimmed, out string? name, out bool isNamespace) && !isNamespace)
+                open.Add((i, name, depth + 1, false));
+
+            char significant = ScanLine(capturedLines[i], state, ref depth);
+
+            if (state.Untracked)
+                return -1;
+
+            // The target's own line must not retire the type that declares it: "class C { C() { } }"
+            // opens and closes C there, and the constructor is still C's.
+            if (i == target)
+                break;
+
+            for (int j = 0; j < open.Count; j++)
+            {
+                if (!open[j].Entered && depth >= open[j].BodyDepth)
+                    open[j] = open[j] with { Entered = true };
+            }
+
+            // A type stops enclosing when its body closes, and equally when its declaration
+            // ends without ever opening one. Reading only the depth left at end of line saw
+            // neither bodiless form: "record R(int X);" never reaches its body depth, and
+            // "class Inner { }" is back below it before the line ends. Both stayed open, so a
+            // sibling above the target held the innermost slot and every constructor below it
+            // was reported absent (adversarial review, MAI-Code). A declaration that ended
+            // encloses nothing, and it ends on the ";" or "}" that terminates it — but only
+            // when that terminator is at declaration level. An attribute on a type parameter
+            // may hold an array initializer, whose closing brace ends nothing while the
+            // attribute's bracket is still open (adversarial review, GPT). This is the same
+            // carried-bracket blindness the sibling question had to learn in round 6.
+            while (open.Count > 0
+                && (open[^1].Entered
+                    ? depth < open[^1].BodyDepth
+                    : depth == open[^1].BodyDepth - 1
+                        && state.BracketDepth == 0
+                        && (significant == ';' || significant == '}')))
+            {
+                open.RemoveAt(open.Count - 1);
+            }
+        }
+
+        if (open.Count == 0)
+            return -1;
+
+        typeName = open[^1].Name;
+        return open[^1].Index;
+    }
+
+    /// <summary>
+    /// The line with any leading attribute lists and comments removed. A declaration may share
+    /// its line with either, and both may repeat.
+    /// </summary>
+    private static string StripLeadingTrivia(string trimmed)
+    {
+        while (trimmed.Length > 0)
+        {
+            if (trimmed.StartsWith('#') || trimmed.StartsWith("//"))
+                return string.Empty;
+
+            if (trimmed.StartsWith("/*"))
+            {
+                int close = trimmed.IndexOf("*/", 2, StringComparison.Ordinal);
+                if (close < 0)
+                    return string.Empty;
+
+                trimmed = trimmed[(close + 2)..].TrimStart();
+                continue;
+            }
+
+            if (trimmed.StartsWith('['))
+            {
+                int close = IndexPastAttributeList(trimmed);
+                if (close < 0)
+                    return string.Empty;
+
+                trimmed = trimmed[close..].TrimStart();
+                continue;
+            }
+
+            return trimmed;
+        }
+
+        return trimmed;
+    }
+
+    /// <summary>
+    /// Modifiers a constructor declaration may carry. Deliberately narrower than
+    /// <see cref="TypeDeclarationModifiers"/>: "new", "ref", "sealed", "abstract", "readonly",
+    /// and "file" cannot lead a constructor, and admitting "new" would let the statement
+    /// <c>new R(1);</c> read as a modifier followed by a declaration.
+    /// </summary>
+    private static readonly string[] ConstructorModifiers =
+        ["public", "private", "protected", "internal", "static", "extern", "unsafe"];
+
+    /// <summary>
+    /// Index of the line at or after <paramref name="searchFrom"/> that declares a constructor
+    /// for <paramref name="typeName"/>, or <c>-1</c> when the range holds none. A constructor
+    /// spells the type's own name followed by its parameter list, which is what tells an
+    /// authored <c>MetadataTypeNameResult(string name)</c> from a positional record's primary
+    /// constructor, whose parameters sit on the type header itself.
+    /// <para>
+    /// Spelling alone is not enough, because a statement can spell the same thing:
+    /// <c>new R(1);</c> and a bare <c>R(1);</c> call both reach the type's name followed by
+    /// "(". A declaration is separated from a statement by where it sits, so a candidate is
+    /// only considered at member level — directly inside the type's own block. A statement
+    /// lives in a method body, one block deeper. Adversarial review (MAI-Code) found this;
+    /// <c>ConstructorRecovery_IgnoresStatementsThatSpellTheTypeName</c> is the gate.
+    /// </para>
+    /// <para>
+    /// The accepted modifiers are the ones a constructor can carry. In particular "new" is not
+    /// among them, which is what stops <c>new R(1);</c> from reading as a modifier followed by
+    /// a declaration.
+    /// </para>
+    /// <para>
+    /// The search stops at <paramref name="searchTo"/>, the member's own first sequence point.
+    /// A declaration the backward scan walked past necessarily sits at or above that point, so
+    /// anything below it belongs to some other member: a positional record's range can span a
+    /// secondary constructor and its property initializers, and accepting that constructor
+    /// presented one member's source as another's (adversarial review, GPT).
+    /// </para>
+    /// </summary>
+    private static int IndexOfConstructorDeclaration(string[] capturedLines, int searchFrom, int searchTo, string? typeName)
+    {
+        if (string.IsNullOrEmpty(typeName))
+            return -1;
+
+        int start = Math.Max(0, searchFrom);
+        int last = Math.Min(searchTo, capturedLines.Length - 1);
+
+        // Depth relative to the declaring type's header, which the caller has already
+        // identified. The header's own line is scanned first so that "class C {" and a "{" on
+        // the next line both land at depth 1 for the lines that follow. Lines above the header
+        // are enclosing scopes: they contribute their lexical state, but not their depth, or a
+        // constructor inside a namespace or a nested type would never reach member level.
+        var state = new LexState();
+        int enclosing = 0;
+        for (int i = 0; i < start && i < capturedLines.Length; i++)
+            ScanLine(capturedLines[i], state, ref enclosing);
+
+        int depth = 0;
+
+        int commentOpenedAt = -1;
+
+        for (int i = start; i <= last; i++)
+        {
+            // A brace this scanner could not place leaves the depth unknown, so it can no
+            // longer tell a declaration from a statement. Stop rather than guess.
+            if (state.Untracked)
+                return -1;
+
+            bool carriedComment = state.InBlockComment;
+
+            if (DeclaresConstructorAtMemberLevel(capturedLines[i], state, depth, typeName))
+                return IndexOfDeclarationStart(capturedLines, start, carriedComment ? commentOpenedAt : i);
+
+            ScanLine(capturedLines[i], state, ref depth);
+
+            if (!carriedComment && state.InBlockComment)
+                commentOpenedAt = i;
+            else if (!state.InBlockComment)
+                commentOpenedAt = -1;
+        }
+
+        return -1;
+    }
+
+    /// <summary>
+    /// The first line of the declaration that <paramref name="declared"/> completes. A
+    /// declaration may begin above the line that spells the constructor's name: a modifier may
+    /// sit on its own line, and an attribute list or block comment may open above it. Starting
+    /// the slice at the name alone dropped those lines, which lost a modifier and — when a
+    /// block comment closed on the name's line — left a stray "*/" that does not parse
+    /// (adversarial review, GPT).
+    /// </summary>
+    private static int IndexOfDeclarationStart(string[] capturedLines, int limit, int declared)
+    {
+        int index = Math.Max(limit, declared);
+
+        while (index > limit && IsDeclarationPrefixOnly(capturedLines[index - 1]))
+            index--;
+
+        return index;
+    }
+
+    /// <summary>
+    /// True when the line carries only the head of a declaration that continues below it —
+    /// attribute lists, comments, and modifiers, with no name and nothing that terminates a
+    /// statement.
+    /// </summary>
+    private static bool IsDeclarationPrefixOnly(string line)
+    {
+        var trimmed = StripLeadingTrivia(line.TrimStart());
+
+        if (trimmed.Length == 0)
+            return false;
+
+        int index = 0;
+        while (index < trimmed.Length)
+        {
+            int end = index;
+            while (end < trimmed.Length && (char.IsLetterOrDigit(trimmed[end]) || trimmed[end] == '_'))
+                end++;
+
+            if (end == index || Array.IndexOf(ConstructorModifiers, trimmed[index..end]) < 0)
+                return false;
+
+            index = SkipTrivia(trimmed, end);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// True when <paramref name="text"/> opens a constructor declaration for
+    /// <paramref name="typeName"/>: the type's own name, under any modifiers a constructor may
+    /// carry, followed by its parameter list.
+    /// </summary>
+    private static bool DeclaresConstructor(string text, string typeName)
+    {
+        int index = SkipTrivia(text, 0);
+        while (index < text.Length)
+        {
+            int end = index;
+            while (end < text.Length && (char.IsLetterOrDigit(text[end]) || text[end] == '_'))
+                end++;
+
+            if (end == index)
+                return false;
+
+            var token = text[index..end];
+            int next = SkipTrivia(text, end);
+            if (token == typeName)
+                return next < text.Length && text[next] == '(';
+
+            if (Array.IndexOf(ConstructorModifiers, token) < 0)
+                return false;
+
+            index = next;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// True when <paramref name="line"/> declares a constructor for <paramref name="typeName"/>
+    /// at the type's member level, given the lexical state and brace depth carried into it.
+    /// <para>
+    /// Asking this only of the start of the line missed every constructor that shares a line
+    /// with something else: with the type header ("class C { C() { } }"), with an opening brace
+    /// below the header ("{ C() { } }"), or with an earlier member ("class C { int X; C() { } }")
+    /// — each reported as absent authored source (adversarial review, MAI-Code and Gemini). A
+    /// member can only begin where the previous one ended, so the candidates are the start of
+    /// the line and every position just past a brace or semicolon. Confirming each candidate's
+    /// depth with the shared scanner is also what keeps a brace inside a comment, a string, or a
+    /// character literal from being taken for the one that opens the type's block.
+    /// </para>
+    /// <para>
+    /// The answer is a line, not a column: the caller slices whole lines, so a constructor
+    /// anywhere on the line makes the whole line the answer.
+    /// </para>
+    /// </summary>
+    private static bool DeclaresConstructorAtMemberLevel(string line, LexState entry, int entryDepth, string typeName)
+    {
+        // A line that closes a comment, literal, or bracketed construct carried in from above
+        // and then declares the constructor is a declaration from that point, and no brace or
+        // semicolon precedes it (adversarial review, GPT).
+        int resumes = IndexWhereCodeResumes(line, entry);
+
+        for (int i = 0; i <= line.Length; i++)
+        {
+            if (i > 0 && i != resumes && line[i - 1] is not ('{' or '}' or ';'))
+                continue;
+
+            var probe = entry.Clone();
+            int depth = entryDepth;
+            ScanLine(line[..i], probe, ref depth);
+
+            // Rejects a candidate whose brace or semicolon turned out to be comment or literal
+            // text, and any position that is not at the type's member level.
+            if (depth != 1 || probe.InBlockComment || probe.InLiteral || probe.Untracked || probe.BracketDepth != 0)
+                continue;
+
+            if (DeclaresConstructor(StripLeadingTrivia(line[i..].TrimStart()), typeName))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Index of the next significant character at or after <paramref name="index"/>, skipping
+    /// whitespace and comments. C# allows either between any two tokens, so a tab-separated
+    /// modifier and an interposed <c>/* */</c> spell the same declaration (adversarial review,
+    /// GPT). A line comment runs to the end, so nothing significant follows it.
+    /// </summary>
+    private static int SkipTrivia(string text, int index)
+    {
+        while (index < text.Length)
+        {
+            if (char.IsWhiteSpace(text[index]))
+            {
+                index++;
+                continue;
+            }
+
+            if (text[index] == '/' && index + 1 < text.Length)
+            {
+                if (text[index + 1] == '/')
+                    return text.Length;
+
+                if (text[index + 1] == '*')
+                {
+                    int close = text.IndexOf("*/", index + 2, StringComparison.Ordinal);
+                    if (close < 0)
+                        return text.Length;
+
+                    index = close + 2;
+                    continue;
+                }
+            }
+
+            return index;
+        }
+
+        return text.Length;
+    }
+
+    private static bool OpensTypeDeclaration(string trimmed, out string? typeName, out bool isNamespace)
+    {
+        typeName = null;
+        isNamespace = false;
+        int index = 0;
+        while (index < trimmed.Length)
+        {
+            int end = index;
+            while (end < trimmed.Length && (char.IsLetterOrDigit(trimmed[end]) || trimmed[end] == '_'))
+                end++;
+
+            if (end == index)
+                return false;
+
+            var token = trimmed[index..end];
+            if (Array.IndexOf(TypeDeclarationKeywords, token) >= 0)
+            {
+                // "delegate*<int, int>" is a function-pointer *type*, so it leads a member's
+                // return type rather than a delegate declaration. C# allows trivia between the
+                // two tokens, so "delegate *<int, int>" is the same type (adversarial review,
+                // GPT).
+                if (token == "delegate")
+                {
+                    int star = SkipTrivia(trimmed, end);
+                    if (star < trimmed.Length && trimmed[star] == '*')
+                        return false;
+                }
+
+                isNamespace = token == "namespace";
+                typeName = NameAfterTypeKeyword(trimmed, end);
+                return true;
+            }
+
+            if (Array.IndexOf(TypeDeclarationModifiers, token) < 0)
+                return false;
+
+            index = SkipTrivia(trimmed, end);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The declared name following a type keyword, skipping the second keyword of the two-word
+    /// forms (<c>record struct</c>, <c>record class</c>), or null when none follows.
+    /// </summary>
+    private static string? NameAfterTypeKeyword(string trimmed, int index)
+    {
+        for (int pass = 0; pass < 2; pass++)
+        {
+            index = SkipTrivia(trimmed, index);
+
+            int end = index;
+            while (end < trimmed.Length && (char.IsLetterOrDigit(trimmed[end]) || trimmed[end] == '_'))
+                end++;
+
+            if (end == index)
+                return null;
+
+            var token = trimmed[index..end];
+            if (Array.IndexOf(TypeDeclarationKeywords, token) >= 0)
+            {
+                index = end;
+                continue;
+            }
+
+            return token;
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -1027,6 +1525,7 @@ public class SourceLinkResolver
 
         return i;
     }
+
     /// <summary>
     /// Words that can open a statement, and so rule out a declaration no matter what follows.
     /// </summary>
