@@ -307,11 +307,13 @@ dotnet-inspect library My.dll -S "Metadata: #Strings"
 dotnet-inspect library My.dll --heap "#Strings:0x1a4"
 ```
 
-Deep paging into the middle of a table is deliberately **not** a CLI gesture.
-`--head`/`--tail` are presentation limits rather than row selectors, and a
-start-row flag would blend those concepts. Random access at an arbitrary row
-stays a library concern, served by `ProjectRow` and the row window for the
-explorer host.
+Deep paging into the middle of a table needs no metadata-specific gesture. It is
+a general row-selection concern, and `--row`/`--rows` are being reworked to
+carry it: a row range such as `--rows 40000..40099` addresses an arbitrary
+window in any section, metadata tables included. This lens therefore adds
+nothing for paging and inherits whatever that work lands. Random access from a
+host that is not the CLI stays a library concern, served by `ProjectRow` and the
+row window.
 
 ## Safety
 
@@ -889,10 +891,13 @@ via the existing section pipeline and `OutputFormatter`.
 
 - **`HandleRef` shape.** Exact fields and whether `Display` is always populated
   or lazily resolved. Decide before code, since the explorer's value rests on it.
-- **Row addressing.** `--row` is currently a *printable-row* selector, not a
-  row-id addressor, so it cannot name `MethodDef[3]`; `--where` carries that
-  today. Reworking `--row` into a row-id addressor is a known weak point but is
-  deliberately out of scope for this series.
+- **Row addressing.** `--row` currently selects the Nth row that survived an
+  invisible printability filter, so it neither names `MethodDef[3]` nor matches
+  the row a reader counted in the output; `--where` carries row addressing
+  today. A general rework is designed — `-n` carries the count, `--rows` selects
+  the unit, `--tail` selects the direction, and `--rows` accepts `N`, `N..M`
+  (inclusive), and `N+K` (start plus count) — but it is a CLI-wide change and is
+  out of scope for this series. This lens inherits it.
 
 Resolved:
 
