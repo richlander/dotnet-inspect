@@ -40,7 +40,7 @@ row; add `--row N` when the selected section has multiple printable rows.
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json Serialize:1 -S "Original Source"
 dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
 dnx dotnet-inspect -y -- member JsonSerializer --platform System.Text.Json -m Serialize -S "Source Locations" --print --row 1
-dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --print-all --json-array
+dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1 --json-array
 ```
 
 ## URL forms

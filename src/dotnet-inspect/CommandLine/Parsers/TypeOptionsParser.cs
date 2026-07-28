@@ -182,7 +182,6 @@ public static class TypeOptionsParser
             Bare = parseResult.GetValue(opts.Bare),
             RequestAllTaste = parseResult.GetValue(opts.Taste),
             Print = parseResult.GetValue(opts.Print),
-            PrintAll = parseResult.GetValue(opts.PrintAll),
             PrintRow = opts.ParsePrintRow(parseResult),
             Value = parseResult.GetValue(opts.Value),
             Urls = parseResult.GetValue(opts.Urls),

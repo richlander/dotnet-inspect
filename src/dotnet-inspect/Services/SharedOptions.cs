@@ -38,7 +38,6 @@ public class SharedOptions
     public Option<int?> Tail { get; }
     public Option<bool> Count { get; } = new("--count") { Description = "Reduce a selected table/vector to a single row count" };
     public Option<bool> Print { get; } = new("--print") { Description = "Print one document behind a selected section row; use --row N|first|last to choose a row when multiple rows are printable" };
-    public Option<bool> PrintAll { get; } = new("--print-all") { Description = "Print all documents behind rows in the selected printable section, separated by item headers" };
     public Option<string?> Row { get; } = new("--row") { Description = "With --print or a shape projection, select a printable row: a 1-based index, first, or last" };
     public Option<bool> Value { get; } = new("--value") { Description = "Print one scalar value from a selected section; use --row N|first|last when multiple rows exist" };
     public Option<bool> Urls { get; } = new("--urls") { Description = "Project URL-bearing selected section rows to a URL list or JSONL rows" };
@@ -246,7 +245,6 @@ public class SharedOptions
     public void AddPrintOptionTo(Command command)
     {
         command.Options.Add(Print);
-        command.Options.Add(PrintAll);
         command.Options.Add(Row);
     }
 

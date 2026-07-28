@@ -4,7 +4,7 @@ dotnet-inspect output narrows through a small ladder of **shapes**. Markout
 defines the shapes and produces them; dotnet-inspect flags choose which rung you
 land on. Naming the ladder gives a shared vocabulary for the output flags
 (`-S`, `--fields`/`--columns`, `--tsv`/`--jsonl`, `--count`, `-n`/`--rows`,
-`--print`, `--print-all`, `--bare`, …) and for deciding what a new flag should
+`--print`, `--bare`, …) and for deciding what a new flag should
 do.
 
 Related docs:
@@ -107,19 +107,28 @@ modifier changes how a selected payload is rendered.
 it does not mean "take the first row." Cardinality is resolved after section
 selection, filtering, and printable-capability filtering:
 
-| Printable rows | `--print` | `--print --row N\|first\|last` | `--print-all` |
-| ---: | --- | --- | --- |
-| 0 | Error: the selected shape is not printable. | Error. | Error: the selected shape is not printable. |
-| 1 | Print the one payload. | Print row `1`, `first`, or `last`; any other index is an error. | Print the one payload. |
-| More than 1 | Guidance error requiring `--row` or `--print-all`. | Print exactly the selected printable row. | Print every printable payload in stable row order. |
+| Printable rows | `--print` | `--print --row N\|first\|last` |
+| ---: | --- | --- |
+| 0 | Error: the selected shape is not printable. | Error. |
+| 1 | Print the one payload. | Print row `1`, `first`, or `last`; any other index is an error. |
+| More than 1 | Guidance error requiring `--row`. | Print exactly the selected printable row. |
+
+`--print` resolves exactly one payload. There is no fan-out gesture: printing
+more than one document at a time is not currently expressible.
 
 Numeric `--row N` is one-based and counts printable rows, not every row in the
 selected table. `first` and `last` are stable aliases for the endpoints of that
-printable-row sequence. `--print-all` cannot be combined with `--row`.
+printable-row sequence.
+
+Because `--print` is exactly-one, failing to acquire the selected row's payload
+is an error, not an omission: it reports the failure and exits non-zero rather
+than rendering an empty or short success. This covers acquisition for the
+selected row; whether a section producer declares a row at all is that
+producer's concern.
 
 `-n N` / `--head N` and `--tail N` are rendered-line windows applied after
-printable-row cardinality is resolved and payloads are fetched. They do not
-select rows or limit `--print-all` fan-out:
+printable-row cardinality is resolved and the payload is fetched. They do not
+select rows:
 
 ```text
 --print --head 1
@@ -127,9 +136,6 @@ select rows or limit `--print-all` fan-out:
 
 --print --row 2 --head 20
   select printable row 2 -> fetch one payload -> render its first 20 lines
-
---print-all --tail 20
-  fetch every declared printable payload -> render the final 20 combined lines
 ```
 
 `--rows` changes head/tail from rendered-line windows into per-table data-row
@@ -138,18 +144,17 @@ windows:
 - `--rows --head N` keeps the first N data rows;
 - `--rows --tail N` keeps the last N data rows.
 
-Both row-window forms are incompatible with `--print` and `--print-all`;
+Both row-window forms are incompatible with `--print`;
 `--row N|first|last` is the explicit printable-row selector. The CLI implements
 both head and tail data-row windows symmetrically.
 
 This policy deliberately rejects implicit-first behavior. Row order may change
 with filtering, producer evolution, or package versions, and choosing the first
 row could silently fetch the wrong document. It also rejects implicit fan-out:
-`--print-all` is the gesture that explicitly accepts every declared payload
-fetch.
+one `--print` authorizes exactly one declared payload fetch.
 
 Printability is a row capability, not a property implied by Table or Vector
-shape. Neither `--print` nor `--print-all` may:
+shape. `--print` may not:
 
 - reinterpret an address row as the artifact at that address;
 - evaluate an unevaluated address;
@@ -370,9 +375,8 @@ The stable vocabulary is:
 - `--count` is a shape-reduction selector: it collapses a selected table/vector to a
   single scalar count.
 - `--print` is an exactly-one row-payload projection: it never chooses the first
-  of multiple printable rows implicitly.
-- `--print-all` is the explicit row-payload fan-out projection: it does not make
-  non-printable rows printable or evaluate new addresses.
+  of multiple printable rows implicitly, does not make non-printable rows
+  printable, and does not evaluate new addresses.
 - `--head` / `--tail` are post-projection line windows: they do not select rows
   or constrain payload acquisition.
 - `--rows` promotes head/tail to first/last data-row windows, but those windows
