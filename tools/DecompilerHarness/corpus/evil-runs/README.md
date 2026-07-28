@@ -453,8 +453,23 @@ test in the same change that crosses the bootstrap. Tracked as #3362.
   discarded a requested gate. Reading source text is guessing at what the
   program does, and a decoy is always available. The modes are declared in
   product code instead, and the refusal rejects a dispatch order that does not
-  match the declaration — so a mode added without declaring it makes every
-  invocation throw.
+  match the declaration.
+
+  That declaration is not the guarantee, though, and round twelve showed why:
+  both operands of that check are lists, and the dispatch itself is an
+  `if`-cascade neither list is derived from. A mode with a parse case and a
+  handler in the cascade, absent from both lists, discarded a requested gate at
+  exit 0 with the suite green — the twelfth instance of the same defect, and the
+  fourth mechanism to be defeated by something simply not being in a list.
+
+  So the last check names nothing. The harness records whether a gate was asked
+  for and whether that gate ran, and refuses to exit 0 when the first is true and
+  the second is not. Where it runs from, what selected it, and whether anyone
+  declared it are all irrelevant; the property is the outcome, not the route to
+  it. Since that state is only reachable when the harness is broken, the
+  `DOTNET_INSPECT_HARNESS_SIMULATE_PREEMPTION` variable makes review's exploit a
+  supported input, so a test keeps running it rather than the wiring going
+  unnoticed if it were deleted.
 
   Running the binary leaves no seam to strand a rule behind — but only as far as
   the binary actually gets. The first version of these tests pointed every run at
