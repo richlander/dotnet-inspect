@@ -10,6 +10,8 @@ using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using Markout;
 
+using ILInspector.CSharp;
+
 namespace DotnetInspector.Commands;
 
 public class ProjectCommand
@@ -638,6 +640,11 @@ public class ProjectCommand
             Console.Write(output);
     }
 
+    /// <summary>
+    /// Escapes a table cell for Markdown. This handles the pipe and the line
+    /// break only; rendering hazards are contained upstream on the row records,
+    /// which is the one place both of this command's table writers read from.
+    /// </summary>
     private static string EscapeMarkdownTableCell(string value)
         => value
             .Replace("\\", "\\\\", StringComparison.Ordinal)
@@ -646,20 +653,53 @@ public class ProjectCommand
             .Replace("\n", " ", StringComparison.Ordinal);
 }
 
+/// <summary>
+/// A row of the agents index. Every field is display text, and every field but
+/// the version came out of a package the user did not write, so each is
+/// contained here at the row boundary rather than at one of the two writers
+/// that render it (issue #3319).
+/// </summary>
 internal sealed record ProjectAgentsIndexRow(
     string Package,
     string Version,
     string Name,
     string Description,
-    string Path);
+    string Path)
+{
+    public string Package { get; init; } = CSharpIdentifier.ContainRenderedText(Package);
+    public string Version { get; init; } = CSharpIdentifier.ContainRenderedText(Version);
+    public string Name { get; init; } = CSharpIdentifier.ContainRenderedText(Name);
+    public string Description { get; init; } = CSharpIdentifier.ContainRenderedText(Description);
+    public string Path { get; init; } = CSharpIdentifier.ContainRenderedText(Path);
+}
 
+/// <summary>
+/// A document read out of a package. <c>Content</c> is deliberately left raw:
+/// the point of <c>--print</c> is to show the file as it is, and containing it
+/// would misrepresent the bytes on disk. The identifying fields around it are
+/// contained, because those are the tool's own framing (issue #3319).
+/// </summary>
 internal sealed record ProjectPackageDocument(
     string Package,
     string Version,
     string Path,
     long Size,
-    string Content);
+    string Content)
+{
+    public string Package { get; init; } = CSharpIdentifier.ContainRenderedText(Package);
+    public string Version { get; init; } = CSharpIdentifier.ContainRenderedText(Version);
+    public string Path { get; init; } = CSharpIdentifier.ContainRenderedText(Path);
+}
 
+/// <summary>
+/// A row of the skills listing.
+/// </summary>
+/// <remarks>
+/// <c>FullPath</c> is deliberately left raw: it is the path this command opens
+/// to read the skill, so containing it would break file access. It is also
+/// <see cref="JsonIgnoreAttribute"/>d and never rendered, so it is not a
+/// display channel. <c>Path</c> is the rendered one and is contained.
+/// </remarks>
 internal sealed record ProjectSkillRow(
     string Package,
     string Version,
@@ -667,7 +707,14 @@ internal sealed record ProjectSkillRow(
     long Size,
     string Name,
     string Description,
-    [property: JsonIgnore] string? FullPath);
+    [property: JsonIgnore] string? FullPath)
+{
+    public string Package { get; init; } = CSharpIdentifier.ContainRenderedText(Package);
+    public string Version { get; init; } = CSharpIdentifier.ContainRenderedText(Version);
+    public string Path { get; init; } = CSharpIdentifier.ContainRenderedText(Path);
+    public string Name { get; init; } = CSharpIdentifier.ContainRenderedText(Name);
+    public string Description { get; init; } = CSharpIdentifier.ContainRenderedText(Description);
+}
 
 [JsonSourceGenerationOptions(
     WriteIndented = true,

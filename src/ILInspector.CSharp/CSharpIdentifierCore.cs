@@ -84,9 +84,28 @@ internal static class CSharpIdentifierCore
     /// </para>
     /// </remarks>
     public static string ContainIdentifier(string name, Func<string, bool> requiresEscape)
-        => ContainsLineTerminator(name) || name.Any(IsRenderingHazard)
+        => RequiresContainment(name)
             ? SanitizeUnspellable(name, requiresEscape)
             : (requiresEscape(name) ? "@" + name : name);
+
+    /// <summary>
+    /// Whether containment will respell <paramref name="name"/> — that is, whether
+    /// the displayed spelling will differ from the metadata spelling.
+    /// </summary>
+    /// <remarks>
+    /// This exists so that a caller which must react to a respelling asks the same
+    /// question <see cref="ContainIdentifier"/> asks, rather than restating it.
+    /// <see cref="ApiMemberIdentity"/> has to persist a canonical identity for every
+    /// respelled name, because the text fallback locates the name inside the display
+    /// signature by search and a respelling makes that search miss. When it
+    /// approximated this predicate with <see cref="IsRenderingHazard"/> alone it
+    /// missed the line terminators that are not rendering hazards — <c>U+2028</c>
+    /// and <c>U+2029</c> among them — and a name carrying one silently lost its
+    /// generic arity across a JSON round-trip. Sharing the predicate makes that
+    /// class of drift unrepresentable rather than merely fixed.
+    /// </remarks>
+    public static bool RequiresContainment(string name)
+        => ContainsLineTerminator(name) || name.Any(IsRenderingHazard);
 
     /// <summary>
     /// The line terminators <c>ReplaceLineEndings</c> recognizes — the set that can

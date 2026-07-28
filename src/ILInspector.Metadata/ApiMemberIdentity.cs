@@ -222,7 +222,7 @@ public static class ApiMemberIdentity
     }
 
     static bool CarriesRenderingHazard(string? name)
-        => name is not null && name.Any(CSharpIdentifierCore.IsRenderingHazard);
+        => name is not null && CSharpIdentifierCore.RequiresContainment(name);
 
     public static string GetMemberSignatureSortKey(ApiMember member)
     {

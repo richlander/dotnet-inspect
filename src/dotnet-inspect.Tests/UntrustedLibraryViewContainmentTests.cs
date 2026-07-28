@@ -698,16 +698,49 @@ public class UntrustedPackageContainmentTests : IDisposable
                 $"'{marker}' never rendered, so this gate proves nothing about its channel");
         }
 
+        AssertNoRenderingHazard(output, "package");
+    }
+
+    /// <summary>
+    /// The file tree the <c>--layout</c> flag renders is a separate channel from
+    /// the package's file table, and it renders the ZIP entry name straight into
+    /// the tree gutter.
+    /// </summary>
+    [Fact]
+    public async Task PackageLayout_WithHostileEntryNames_RendersNoHazard()
+    {
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(new InspectionOptions
+            {
+                PackageArgs = [_path],
+                ListLayout = true,
+                TipLevel = TipLevel.Quiet,
+            }));
+
+        Assert.Equal(0, exit);
+
+        foreach (var marker in new[] { "INJECTEDPATH", "INJECTEDVPATH" })
+        {
+            Assert.True(
+                output.Contains(marker, StringComparison.Ordinal),
+                $"'{marker}' never rendered, so this gate proves nothing about its channel");
+        }
+
+        AssertNoRenderingHazard(output, "package --layout");
+    }
+
+    private static void AssertNoRenderingHazard(string output, string channel)
+    {
         for (int i = 0; i < output.Length; i++)
         {
             char c = output[i];
             if (c is not '\t' and not '\n' and not '\r'
                 && (char.IsControl(c)
-                    || c is '\u061C' or '\u200E' or '\u200F'
+                    || c is '\u061C' or '\u200E' or '\u200F' or '\u2028' or '\u2029'
                         or >= '\u202A' and <= '\u202E'
                         or >= '\u2066' and <= '\u2069'))
             {
-                Assert.Fail($"rendered package output carries U+{(int)c:X4} at index {i}");
+                Assert.Fail($"rendered {channel} output carries U+{(int)c:X4} at index {i}");
             }
         }
     }

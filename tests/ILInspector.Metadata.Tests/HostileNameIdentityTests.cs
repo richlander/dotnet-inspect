@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ILInspector.CSharp;
 using ILInspector.Metadata;
 
 namespace ILInspector.Metadata.Tests;
@@ -139,5 +140,49 @@ public sealed class HostileNameIdentityTests
         var (_, type, member) = BuildSurface(name, generic: true);
 
         Assert.Contains(Hazard, ApiMemberIdentity.GetCanonicalSignature(type, member), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Exhaustive linkage between respelling and identity: for every character in
+    /// the BMP, if containment changes the displayed spelling of a name, then a
+    /// member carrying that character must persist a canonical identity.
+    /// </summary>
+    /// <remarks>
+    /// The two sides of this claim were originally two predicates —
+    /// <c>ContainIdentifier</c> asked "line terminator OR rendering hazard" while
+    /// the identity check asked only "rendering hazard" — and they drifted:
+    /// U+2028 and U+2029 are line terminators that are not rendering hazards, so
+    /// a name carrying one was respelled without persisting an identity and lost
+    /// its generic arity across a JSON round-trip.
+    ///
+    /// This gate does not restate either predicate. It observes the *behavior*
+    /// that matters — did the display spelling change? — and requires identity to
+    /// follow it, so it holds for whatever the hazard set becomes next.
+    /// </remarks>
+    [Fact]
+    public void EveryRespelledCharacter_PersistsCanonicalIdentity()
+    {
+        List<string> failures = [];
+
+        for (int c = 0; c <= 0xFFFF; c++)
+        {
+            if (char.IsSurrogate((char)c))
+                continue;
+
+            var name = $"A{(char)c}B";
+            var displayed = CSharpIdentifierCore.ContainIdentifier(name, _ => false);
+            if (string.Equals(displayed, name, StringComparison.Ordinal))
+                continue;
+
+            var (surface, _, member) = BuildSurface(name, generic: true);
+            ApiMemberIdentity.PopulateCanonicalIdentities(surface);
+
+            if (member.CanonicalSignature is null)
+                failures.Add($"U+{c:X4}");
+        }
+
+        Assert.True(
+            failures.Count == 0,
+            $"containment respells these characters but identity is not persisted for them: {string.Join(", ", failures)}");
     }
 }
