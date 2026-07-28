@@ -709,22 +709,60 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
-    /// Only the first type declaration on a line is seen, so a second type on the same line is
-    /// never entered and never encloses anything. A constructor belonging to it is reported
-    /// absent (adversarial review, GPT). Pin today's wrong answer so the gap cannot widen
-    /// unnoticed and closing it is a visible test change.
+    /// A type declaration is recognized only at the head of a line, so a second declaration
+    /// sharing the target's line is never entered and never retired. Whichever one was seen
+    /// first holds the innermost slot, and a constructor belonging to the other is reported
+    /// absent. Found by GPT (a second type) and Gemini (a bodiless type ahead of the
+    /// constructor). Pin today's wrong answer so the gap cannot widen unnoticed and closing it
+    /// is a visible test change.
     /// <para>
-    /// This is not a regression from the bodiless-type retirement: verified <c>null</c> at
-    /// fa1af2b6 as well. Reading every declaration on a line needs intra-line declaration
-    /// scanning, which is not worth its false-positive surface for a shape that does not occur
-    /// — real source declares one type per line, and the one-line form that does occur,
-    /// <c>class C { C() { } }</c>, is covered above.
+    /// Neither is a regression from the bodiless-type retirement: both are <c>null</c> at
+    /// fa1af2b6 as well. Retirement cannot simply be applied on the target's own line, because
+    /// that is exactly what would retire <c>C</c> in <c>class C { C() { } }</c> and reopen the
+    /// round-4 defect; telling the two apart needs intra-line declaration positions, which
+    /// this scanner does not track. Real source declares one type per line, and the one-line
+    /// form that does occur is covered by
+    /// <see cref="ConstructorRecovery_KeepsTheTypeThatOpensAndClosesOnTheTargetLine"/>.
+    /// </para>
+    /// </summary>
+    [Theory]
+    [InlineData("class A { } class B { B() { } }", 1, 1)]
+    [InlineData("public class C {\n    public record R(int X); C() { }\n}", 2, 2)]
+    public void ASecondDeclarationOnTheTargetLine_IsNotRecognized_KnownGap(string source, int startLine, int endLine)
+    {
+        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine, endLine, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// Member level is read as brace depth 1, and an expression body or lambda adds no brace,
+    /// so a call spelled like the type's name on a continuation line of a field initializer is
+    /// accepted as the declaration (adversarial review, Gemini). Reaching the shape needs a
+    /// base type exposing a member named for the derived type, because CS0542 forbids
+    /// declaring one directly.
+    /// <para>
+    /// A guard was designed and rejected: restricting a line-initial candidate to one whose
+    /// preceding code ended at <c>;</c>, <c>{</c>, or <c>}</c> also rejects a constructor
+    /// following a multi-line attribute list, a modifier on its own line, and a doc comment,
+    /// each needing its own exception. That is a fifth narrow suppression on the pile that
+    /// rounds 4 through 8 each had to unwind. Pinned instead, with the real fix being
+    /// intra-line declaration positions.
     /// </para>
     /// </summary>
     [Fact]
-    public void ASecondTypeDeclaredOnTheSameLine_IsNotRecognized_KnownGap()
+    public void ACallNamedForTheTypeInsideALambda_IsTakenForTheDeclaration_KnownGap()
     {
-        Assert.Null(SourceLinkResolver.ExtractMethodBody("class A { } class B { B() { } }", startLine: 1, endLine: 1, methodName: ".ctor"));
+        var source = string.Join('\n',
+        [
+            "public class Base { public static C C() => null!; }",
+            "public class C : Base {",
+            "    System.Action A = () =>",
+            "        C();",
+            "",
+            "    C() { }",
+            "}",
+        ]);
+
+        Assert.Equal("    C();\n\nC() { }", SourceLinkResolver.ExtractMethodBody(source, startLine: 6, endLine: 6, methodName: ".ctor"));
     }
 
     /// <summary>
