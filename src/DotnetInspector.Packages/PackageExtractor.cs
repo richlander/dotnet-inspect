@@ -1372,21 +1372,26 @@ public static class PackageExtractor
         return (listings, authoritative);
     }
 
-    // Cache line format: "<version>" for listed, "<version>\tU" for unlisted.
+    // Cache line format: "<version>\tL" for listed, "<version>\tU" for unlisted. Both statuses
+    // carry an explicit two-char tab suffix so the encoding is unambiguous for ANY version text:
+    // decoding always strips exactly two trailing chars and reads the flag from the first, which
+    // round-trips even a (SemVer-impossible) version that itself ends in "\tL"/"\tU". Legacy caches
+    // wrote bare "<version>" for listed; a line with no recognized suffix is decoded as listed for
+    // backward compatibility.
     private static string SerializeListings(IEnumerable<PackageVersionInfo> listings) =>
-        string.Join('\n', listings.Select(l => l.Listed ? l.Version : $"{l.Version}\tU"));
+        string.Join('\n', listings.Select(l => l.Listed ? $"{l.Version}\tL" : $"{l.Version}\tU"));
 
     private static List<PackageVersionInfo> DeserializeListings(string cached)
     {
         List<PackageVersionInfo> result = [];
         foreach (var line in cached.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
-            // Match the exact "\tU" suffix rather than the first tab, so a version is decoded
-            // whole even in the (SemVer-impossible) case that it contains a tab.
             if (line.EndsWith("\tU", StringComparison.Ordinal))
                 result.Add(new PackageVersionInfo(line[..^2], Listed: false));
+            else if (line.EndsWith("\tL", StringComparison.Ordinal))
+                result.Add(new PackageVersionInfo(line[..^2], Listed: true));
             else
-                result.Add(new PackageVersionInfo(line, Listed: true));
+                result.Add(new PackageVersionInfo(line, Listed: true)); // legacy bare-listed line
         }
         return result;
     }

@@ -210,6 +210,20 @@ listing, so verifying a known unlisted version reports it rather than
 "not found". When listing status is unknown (fail-open, or a non-nuget.org
 feed), versions are reported as listed.
 
+`--include-unlisted` composes with the other `--versions` lenses. With a limit
+(`--versions 1 --include-unlisted`) it takes the listing-aware path — the
+local-cache single-version shortcut is skipped, so the result still carries the
+`listed`/`unlisted` column. With an addressable range (`Name@A..B --versions
+--include-unlisted`) the vector is resolved from the full listing set — unlisted
+versions included — so an unlisted endpoint resolves rather than being reported
+as a missing endpoint, and each in-range row is marked. The bare range (without
+the flag) resolves against listed versions only, matching the hidden default.
+
+The version-list cache stores the listed bit per version. Each cache line
+carries an explicit two-character tab suffix (`\tL` listed, `\tU` unlisted) so
+the encoding is unambiguous for any version text; a legacy suffix-less line is
+read as listed.
+
 ## Cache locations
 
 | Cache | Location | TTL | Written by |

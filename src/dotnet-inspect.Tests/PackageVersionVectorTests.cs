@@ -91,6 +91,39 @@ public class PackageVersionVectorTests
         Assert.Contains("does not contain range endpoint 1.0.1", error.Message);
     }
 
+    static readonly PackageVersionInfo[] ListedVersions =
+    [
+        new("1.0.0", Listed: true),
+        new("1.1.0", Listed: false), // unlisted, between listed endpoints
+        new("1.2.0", Listed: true),
+        new("2.0.0", Listed: true),
+    ];
+
+    [Fact]
+    public void CreateListingAware_TagsListedStatusAcrossTheRange()
+    {
+        PackageVersionRange.TryParse("Example@1.0.0..1.2.0", out var range, out _);
+
+        var rows = PackageVersionVector.CreateListingAware(range!, ListedVersions).ToArray();
+
+        // The unlisted 1.1.0 is included (not dropped) and correctly tagged.
+        Assert.Equal(
+            [("1.0.0", true), ("1.1.0", false), ("1.2.0", true)],
+            rows.Select(row => (row.Version, row.Listed)));
+    }
+
+    [Fact]
+    public void CreateListingAware_ResolvesAnUnlistedEndpoint()
+    {
+        // A singleton range OF the unlisted version must resolve rather than reporting a missing
+        // endpoint: the vector is built from the full listing set, unlisted versions included.
+        PackageVersionRange.TryParse("Example@1.1.0..1.1.0", out var range, out _);
+
+        var rows = PackageVersionVector.CreateListingAware(range!, ListedVersions).ToArray();
+
+        Assert.Equal([("1.1.0", false)], rows.Select(row => (row.Version, row.Listed)));
+    }
+
     [Theory]
     [InlineData("Example@1.0.0", false, null)]
     [InlineData("Example@1.0.0..", false, "Expected Package@A..B")]

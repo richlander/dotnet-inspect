@@ -168,6 +168,27 @@ public class PackageCommand
             {
                 try
                 {
+                    if (options.IncludeUnlisted)
+                    {
+                        // Listing-aware range: resolve the vector from the full listing (unlisted
+                        // included) so unlisted endpoints are found rather than reported as missing,
+                        // then emit each in-range version tagged with its listed status.
+                        var rangeListings = await PackageExtractor.GetVersionListingsAsync(
+                            context.HttpClient, range!.PackageId, options.IncludePrerelease,
+                            includeUnlisted: true, limit: null, logger.Log, options.SourceOptions);
+                        if (rangeListings == null)
+                        {
+                            Console.Error.WriteLine($"Error: Package '{range.PackageId}' not found on nuget.org");
+                            return 1;
+                        }
+
+                        var unlistedVector = PackageVersionVector.CreateListingAware(
+                            range!, rangeListings, options.IncludePrerelease);
+                        var rangeRows = unlistedVector.Take(options.Limit ?? int.MaxValue);
+                        OutputFormatter.WriteVersionListings(rangeRows, options.Tsv, options.Jsonl, Console.Out);
+                        return 0;
+                    }
+
                     var vector = await PackageVersionVector.ResolveAsync(
                         context.HttpClient,
                         range!,
@@ -238,7 +259,10 @@ public class PackageCommand
 
             // Cache-first for bare --version (Limit==1 && !ForceLatest):
             // check local caches before hitting NuGet, matching router behavior.
-            if (options.Limit == 1 && !options.ForceLatest && !options.IncludePrerelease)
+            // Skipped under --include-unlisted: that flag requires the listing-aware path below
+            // (a locally-cached single version carries no listed/unlisted status column).
+            if (options.Limit == 1 && !options.ForceLatest && !options.IncludePrerelease
+                && !options.IncludeUnlisted)
             {
                 var cachedVersion = NuGetCache.TryGetLatestCachedVersion(normalizedName);
                 if (cachedVersion != null)
