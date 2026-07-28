@@ -446,6 +446,66 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
+    /// Constructor recovery matches a declaration, not a spelling. A statement inside a method
+    /// body can spell the type's own name followed by "(" — <c>new R(1);</c>, a bare
+    /// <c>R(1);</c> call — and treating one as the member's declaration would relocate the
+    /// slice into the body and present a fragment of a statement as authored source.
+    /// <para>
+    /// This is the gate named by <c>IndexOfConstructorDeclaration</c>: a candidate counts only
+    /// at member level, directly inside the type's own block, and "new" is not a constructor
+    /// modifier. Found by adversarial review (MAI-Code).
+    /// </para>
+    /// </summary>
+    [Theory]
+    [InlineData("new R(1);")]
+    [InlineData("R(1);")]
+    [InlineData("var a = new R(1);")]
+    [InlineData("string R(int x) => x.ToString();")]
+    [InlineData("R(int x) => x.ToString();")]
+    public void ConstructorRecovery_IgnoresStatementsThatSpellTheTypeName(string statement)
+    {
+        var source = string.Join('\n', [
+            "public record R(int X)",   // 1  <- StartLine
+            "{",                        // 2
+            "    void M()",             // 3
+            "    {",                    // 4
+            "        " + statement,     // 5  <- EndLine
+            "    }",                    // 6
+            "}",                        // 7
+        ]);
+
+        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 1, endLine: 5, methodName: "get_X"));
+    }
+
+    /// <summary>
+    /// The positive half of the same discriminator: a constructor that really is declared at
+    /// member level is still recovered, whichever accepted modifier leads it or none at all.
+    /// </summary>
+    [Theory]
+    [InlineData("Result")]
+    [InlineData("public Result")]
+    [InlineData("internal Result")]
+    [InlineData("protected Result")]
+    public void ConstructorRecovery_AcceptsMemberLevelDeclarations(string declaration)
+    {
+        var source = string.Join('\n', [
+            "public sealed record Result",          // 1
+            "{",                                    // 2
+            $"    {declaration}(string name)",      // 3
+            "    {",                                // 4  <- StartLine
+            "        Name = name;",                 // 5
+            "    }",                                // 6  <- EndLine
+            "}",                                    // 7
+        ]);
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: ".ctor");
+
+        Assert.Equal(
+            $"{declaration}(string name)\n{{\n    Name = name;\n}}",
+            body);
+    }
+
+    /// <summary>
     /// A brace inside an interpolation hole belongs to the hole, not to the enclosing block.
     /// The end-boundary decision reads brace depth to tell a range that closes its own block
     /// from one that does not, so a hole whose nested string quotes a brace must not move that

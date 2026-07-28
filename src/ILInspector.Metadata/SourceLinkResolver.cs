@@ -363,21 +363,64 @@ public class SourceLinkResolver
     }
 
     /// <summary>
+    /// Modifiers a constructor declaration may carry. Deliberately narrower than
+    /// <see cref="TypeDeclarationModifiers"/>: "new", "ref", "sealed", "abstract", "readonly",
+    /// and "file" cannot lead a constructor, and admitting "new" would let the statement
+    /// <c>new R(1);</c> read as a modifier followed by a declaration.
+    /// </summary>
+    private static readonly string[] ConstructorModifiers =
+        ["public", "private", "protected", "internal", "static", "extern", "unsafe"];
+
+    /// <summary>
     /// Index of the line at or after <paramref name="searchFrom"/> that declares a constructor
     /// for <paramref name="typeName"/>, or <c>-1</c> when the range holds none. A constructor
     /// spells the type's own name followed by its parameter list, which is what tells an
     /// authored <c>MetadataTypeNameResult(string name)</c> from a positional record's primary
     /// constructor, whose parameters sit on the type header itself.
+    /// <para>
+    /// Spelling alone is not enough, because a statement can spell the same thing:
+    /// <c>new R(1);</c> and a bare <c>R(1);</c> call both reach the type's name followed by
+    /// "(". A declaration is separated from a statement by where it sits, so a candidate is
+    /// only considered at member level — directly inside the type's own block. A statement
+    /// lives in a method body, one block deeper. Adversarial review (MAI-Code) found this;
+    /// <c>ConstructorRecovery_IgnoresStatementsThatSpellTheTypeName</c> is the gate.
+    /// </para>
+    /// <para>
+    /// The accepted modifiers are the ones a constructor can carry. In particular "new" is not
+    /// among them, which is what stops <c>new R(1);</c> from reading as a modifier followed by
+    /// a declaration.
+    /// </para>
     /// </summary>
     private static int IndexOfConstructorDeclaration(string[] capturedLines, int searchFrom, string? typeName)
     {
         if (string.IsNullOrEmpty(typeName))
             return -1;
 
-        for (int i = Math.Max(0, searchFrom); i < capturedLines.Length; i++)
+        int start = Math.Max(0, searchFrom);
+
+        // Depth relative to the type header, which the caller has already identified. The
+        // header's own line is scanned first so that "class C {" and a "{" on the next line
+        // both land at depth 1 for the lines that follow.
+        int depth = 0;
+        bool inBlockComment = false;
+        bool inVerbatimString = false;
+        bool untracked = false;
+        for (int i = 0; i < start && i < capturedLines.Length; i++)
+            ScanLine(capturedLines[i], ref inBlockComment, ref inVerbatimString, ref depth, ref untracked);
+
+        for (int i = start; i < capturedLines.Length; i++)
         {
+            // A brace this scanner could not place leaves the depth unknown, so it can no
+            // longer tell a declaration from a statement. Stop rather than guess.
+            if (untracked)
+                return -1;
+
+            bool atMemberLevel = depth == 1;
             var trimmed = StripLeadingTrivia(capturedLines[i].TrimStart());
-            if (trimmed.Length == 0)
+
+            ScanLine(capturedLines[i], ref inBlockComment, ref inVerbatimString, ref depth, ref untracked);
+
+            if (!atMemberLevel || trimmed.Length == 0)
                 continue;
 
             int index = 0;
@@ -394,7 +437,7 @@ public class SourceLinkResolver
                 if (token == typeName && end < trimmed.Length && trimmed[end] == '(')
                     return i;
 
-                if (Array.IndexOf(TypeDeclarationModifiers, token) < 0)
+                if (Array.IndexOf(ConstructorModifiers, token) < 0)
                     break;
 
                 index = end;
