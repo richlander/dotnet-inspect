@@ -155,6 +155,36 @@ public class SourceLinkResolver
         int from = sigStart - 1;
         int to = end;
 
+        if (from < 0) from = 0;
+        if (to > lines.Length) to = lines.Length;
+
+        // A positional record's property accessor, a primary constructor, and a constructor
+        // synthesized from field initializers have no authored member declaration of their own,
+        // so their sequence points legitimately land on the enclosing type's header. There is
+        // nothing to slice: returning the header would present a truncated type declaration as
+        // the member's source, which is wrong output rather than absent output. Report absence
+        // and let the caller say so.
+        //
+        // A range that merely *contains* the header is a different case. The backward scan
+        // cannot recognize a constructor that leads with no modifier, because ".ctor" is not
+        // its source spelling, so it walks past the declaration and up to the header. That
+        // constructor does have authored source, and the header names the type it is named
+        // for, so look below the header for it before concluding there is nothing to show.
+        //
+        // This runs before the end boundary is decided, because moving the start moves the
+        // brace depth the end-boundary scan reads: measured from the type header the range
+        // still has the type's block open, and the forward scan would then append the type's
+        // closing brace to the constructor.
+        int headerIndex = IndexOfTypeDeclaration(lines[from..to], out string? declaredTypeName);
+        if (headerIndex >= 0)
+        {
+            int ctorIndex = IndexOfConstructorDeclaration(lines[from..to], headerIndex + 1, declaredTypeName);
+            if (ctorIndex < 0)
+                return null;
+
+            from += ctorIndex;
+        }
+
         // A declaration whose range already terminates on its last line — an expression body's
         // ";" or an auto-property's "{ get; set; }" — owns no trailing brace to recover, so the
         // next "}" below it closes the enclosing type instead (issue #3278). A range that still
@@ -186,22 +216,12 @@ public class SourceLinkResolver
                 break;
         }
 
-        if (from < 0) from = 0;
         if (to > lines.Length) to = lines.Length;
 
         while (from < to && lines[from].TrimStart().Length == 0)
             from++;
 
         var methodLines = lines[from..to];
-
-        // A positional record's property accessor, a primary constructor, and a constructor
-        // synthesized from field initializers have no authored member declaration of their own,
-        // so their sequence points legitimately land on the enclosing type's header. There is
-        // nothing to slice: returning the header would present a truncated type declaration as
-        // the member's source, which is wrong output rather than absent output. Report absence
-        // and let the caller say so.
-        if (DeclaresEnclosingType(methodLines))
-            return null;
 
         int minIndent = methodLines
             .Where(l => l.TrimStart().Length > 0)
@@ -233,33 +253,162 @@ public class SourceLinkResolver
          "sealed", "partial", "readonly", "ref", "file", "unsafe", "new"];
 
     /// <summary>
-    /// True when the captured range opens a type declaration instead of a member declaration,
-    /// meaning the slice never found a member to isolate.
+    /// Index of the line in <paramref name="capturedLines"/> that opens a type declaration, or
+    /// <c>-1</c> when the range opens a member declaration instead. When a header is found,
+    /// <paramref name="typeName"/> receives the name it declares.
     /// <para>
     /// The match is token-based, walking leading modifiers until it reaches a type keyword or a
     /// token that is neither. That distinction matters: a member such as
     /// <c>public void Process(RecordBatch batch)</c> spells "Record" inside an identifier, and
     /// <c>public int Classify()</c> spells "Class", so a substring test would misfire on both.
     /// </para>
+    /// <para>
+    /// Attributes and comments are stripped from the head of the line rather than causing the
+    /// line to be skipped. Skipping the line lets <c>[Obsolete] public record R(int X)</c>
+    /// escape the check entirely, because the line opens with "[".
+    /// </para>
     /// </summary>
-    private static bool DeclaresEnclosingType(string[] capturedLines)
+    private static int IndexOfTypeDeclaration(string[] capturedLines, out string? typeName)
     {
-        foreach (var line in capturedLines)
+        typeName = null;
+
+        for (int i = 0; i < capturedLines.Length; i++)
         {
-            var trimmed = line.TrimStart();
-            // Attributes, doc comments, comments, and directives may precede the declaration.
-            if (trimmed.Length == 0 || trimmed.StartsWith('[') || trimmed.StartsWith("//")
-                || trimmed.StartsWith('#'))
+            var trimmed = StripLeadingTrivia(capturedLines[i].TrimStart());
+
+            // A line that is only trivia — blank, a comment, a directive, an attribute on its
+            // own line — carries no declaration, so the declaration is on a later line.
+            if (trimmed.Length == 0)
                 continue;
 
-            return OpensTypeDeclaration(trimmed);
+            return OpensTypeDeclaration(trimmed, out typeName) ? i : -1;
         }
 
-        return false;
+        return -1;
     }
 
-    private static bool OpensTypeDeclaration(string trimmed)
+    /// <summary>
+    /// The line with any leading attribute lists and comments removed. A declaration may share
+    /// its line with either, and both may repeat.
+    /// </summary>
+    private static string StripLeadingTrivia(string trimmed)
     {
+        while (trimmed.Length > 0)
+        {
+            if (trimmed.StartsWith('#') || trimmed.StartsWith("//"))
+                return string.Empty;
+
+            if (trimmed.StartsWith("/*"))
+            {
+                int close = trimmed.IndexOf("*/", 2, StringComparison.Ordinal);
+                if (close < 0)
+                    return string.Empty;
+
+                trimmed = trimmed[(close + 2)..].TrimStart();
+                continue;
+            }
+
+            if (trimmed.StartsWith('['))
+            {
+                int close = IndexPastAttributeList(trimmed);
+                if (close < 0)
+                    return string.Empty;
+
+                trimmed = trimmed[close..].TrimStart();
+                continue;
+            }
+
+            return trimmed;
+        }
+
+        return trimmed;
+    }
+
+    /// <summary>
+    /// Index just past the attribute list opening at index 0, or <c>-1</c> when it does not
+    /// close on this line. Brackets nest — <c>[Foo(new[] { 1 })]</c> — and a string inside the
+    /// list may spell a bracket of its own, so neither is counted structurally.
+    /// </summary>
+    private static int IndexPastAttributeList(string trimmed)
+    {
+        int depth = 0;
+        for (int i = 0; i < trimmed.Length; i++)
+        {
+            char c = trimmed[i];
+
+            if (c == '"')
+            {
+                int end = EndOfStringLiteral(trimmed, i);
+                if (end < 0)
+                    return -1;
+                i = end - 1;
+                continue;
+            }
+
+            if (c == '\'')
+            {
+                i++;
+                while (i < trimmed.Length && trimmed[i] != '\'')
+                    i += trimmed[i] == '\\' ? 2 : 1;
+                continue;
+            }
+
+            if (c == '[')
+                depth++;
+            else if (c == ']' && --depth == 0)
+                return i + 1;
+        }
+
+        return -1;
+    }
+
+    /// <summary>
+    /// Index of the line at or after <paramref name="searchFrom"/> that declares a constructor
+    /// for <paramref name="typeName"/>, or <c>-1</c> when the range holds none. A constructor
+    /// spells the type's own name followed by its parameter list, which is what tells an
+    /// authored <c>MetadataTypeNameResult(string name)</c> from a positional record's primary
+    /// constructor, whose parameters sit on the type header itself.
+    /// </summary>
+    private static int IndexOfConstructorDeclaration(string[] capturedLines, int searchFrom, string? typeName)
+    {
+        if (string.IsNullOrEmpty(typeName))
+            return -1;
+
+        for (int i = Math.Max(0, searchFrom); i < capturedLines.Length; i++)
+        {
+            var trimmed = StripLeadingTrivia(capturedLines[i].TrimStart());
+            if (trimmed.Length == 0)
+                continue;
+
+            int index = 0;
+            while (index < trimmed.Length)
+            {
+                int end = index;
+                while (end < trimmed.Length && (char.IsLetterOrDigit(trimmed[end]) || trimmed[end] == '_'))
+                    end++;
+
+                if (end == index)
+                    break;
+
+                var token = trimmed[index..end];
+                if (token == typeName && end < trimmed.Length && trimmed[end] == '(')
+                    return i;
+
+                if (Array.IndexOf(TypeDeclarationModifiers, token) < 0)
+                    break;
+
+                index = end;
+                while (index < trimmed.Length && trimmed[index] == ' ')
+                    index++;
+            }
+        }
+
+        return -1;
+    }
+
+    private static bool OpensTypeDeclaration(string trimmed, out string? typeName)
+    {
+        typeName = null;
         int index = 0;
         while (index < trimmed.Length)
         {
@@ -272,7 +421,16 @@ public class SourceLinkResolver
 
             var token = trimmed[index..end];
             if (Array.IndexOf(TypeDeclarationKeywords, token) >= 0)
+            {
+                // "delegate*<int, int>" is a function-pointer *type*, so it leads a member's
+                // return type rather than a delegate declaration.
+                if (token == "delegate" && end < trimmed.Length && trimmed[end] == '*')
+                    return false;
+
+                typeName = NameAfterTypeKeyword(trimmed, end);
                 return true;
+            }
+
             if (Array.IndexOf(TypeDeclarationModifiers, token) < 0)
                 return false;
 
@@ -282,6 +440,37 @@ public class SourceLinkResolver
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// The declared name following a type keyword, skipping the second keyword of the two-word
+    /// forms (<c>record struct</c>, <c>record class</c>), or null when none follows.
+    /// </summary>
+    private static string? NameAfterTypeKeyword(string trimmed, int index)
+    {
+        for (int pass = 0; pass < 2; pass++)
+        {
+            while (index < trimmed.Length && trimmed[index] == ' ')
+                index++;
+
+            int end = index;
+            while (end < trimmed.Length && (char.IsLetterOrDigit(trimmed[end]) || trimmed[end] == '_'))
+                end++;
+
+            if (end == index)
+                return null;
+
+            var token = trimmed[index..end];
+            if (Array.IndexOf(TypeDeclarationKeywords, token) >= 0)
+            {
+                index = end;
+                continue;
+            }
+
+            return token;
+        }
+
+        return null;
     }
 
     /// <summary>

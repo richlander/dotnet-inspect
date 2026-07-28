@@ -335,6 +335,13 @@ public class AuthoredSourceValidityTests
     /// <summary>
     /// Positive cases. A range that lands on a type header has no member declaration to
     /// isolate, whatever modifiers lead it, so the slicer reports absence.
+    /// <para>
+    /// The declaration is the first line of the source deliberately. An earlier version put
+    /// "namespace N;" above it, which masked the check: "namespace" is itself a type-declaration
+    /// keyword, so the first line answered for every case and the declaration under test was
+    /// never read. Adversarial review (Gemini Pro) caught that, and the same-line attribute
+    /// cases below fail without the trivia-stripping fix.
+    /// </para>
     /// </summary>
     [Theory]
     [InlineData("public record ForwarderSummaryRow(")]
@@ -342,15 +349,100 @@ public class AuthoredSourceValidityTests
     [InlineData("internal readonly ref struct Slice")]
     [InlineData("public sealed partial record struct Point(")]
     [InlineData("file static class Helpers")]
+    // A declaration may share its line with the attributes and comments that lead it.
+    [InlineData("[System.Obsolete] public record R(int X)")]
+    [InlineData("[A][B] public record struct R(int X)")]
+    [InlineData("[Foo(new[] { 1 })] public record R(int X)")]
+    [InlineData("[Foo(\"]\")] public record R(int X)")]
+    [InlineData("/* leading */ public record R(int X)")]
+    [InlineData("/* a */ [B] /* c */ public class R")]
     public void RangesLandingOnATypeHeader_ReportAbsence(string declaration)
     {
         var source = string.Join('\n', [
-            "namespace N;",             // 1
-            declaration,                // 2  <- StartLine
-            "    int X = 1;",           // 3  <- EndLine
+            declaration,                // 1  <- StartLine
+            "    int X = 1;",           // 2  <- EndLine
         ]);
 
-        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 2, endLine: 3, methodName: ".ctor"));
+        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 1, endLine: 2, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// A function-pointer return type spells <c>delegate*</c>, which leads a member's return
+    /// type rather than a delegate declaration. Reading it as a type header discarded the
+    /// authored source of a member that has it — a false absence, which is the failure mode
+    /// that costs a user real output. Found by adversarial review (GPT).
+    /// </summary>
+    [Fact]
+    public void FunctionPointerReturnType_IsNotATypeDeclaration()
+    {
+        var source = string.Join('\n', [
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public unsafe delegate*<int, int> Ret()",   // 3
+            "    {",                                        // 4  <- StartLine
+            "        return null;",                         // 5
+            "    }",                                        // 6  <- EndLine
+            "}",                                            // 7
+        ]);
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: "Ret");
+
+        Assert.Equal(
+            "public unsafe delegate*<int, int> Ret()\n{\n    return null;\n}",
+            body);
+    }
+
+    /// <summary>
+    /// A constructor that leads with no accessibility modifier is invisible to the backward
+    /// scan, because ".ctor" is not how source spells it, so the scan walks up to the enclosing
+    /// type header. That header is real, but the constructor below it is real too: the member
+    /// has authored source and must not be reported absent. Found by adversarial review (GPT).
+    /// <para>
+    /// The relocated start must also be the start the end boundary is measured from. Measured
+    /// from the type header the range still has the type's block open, so the forward scan
+    /// would append the type's closing brace — which is what the assertion below pins.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ConstructorWithoutAccessibilityModifier_KeepsItsAuthoredSource()
+    {
+        var source = string.Join('\n', [
+            "namespace N;",                                 // 1
+            "readonly struct Result",                       // 2
+            "{",                                            // 3
+            "    Result(string name)",                      // 4
+            "    {",                                        // 5  <- StartLine
+            "        Name = name;",                         // 6
+            "    }",                                        // 7  <- EndLine
+            "}",                                            // 8
+        ]);
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 7, methodName: ".ctor");
+
+        Assert.Equal(
+            "Result(string name)\n{\n    Name = name;\n}",
+            body);
+    }
+
+    /// <summary>
+    /// The counterpart to the case above: a primary constructor's parameters sit on the type
+    /// header itself, so there is no constructor declaration below it and absence is correct.
+    /// This is what keeps the constructor recovery from re-opening the bug it sits next to.
+    /// </summary>
+    [Theory]
+    [InlineData("public class C(int x)")]
+    [InlineData("public record R(int X)")]
+    [InlineData("public readonly record struct P(int X)")]
+    public void PrimaryConstructor_StillReportsAbsence(string declaration)
+    {
+        var source = string.Join('\n', [
+            declaration,                // 1  <- StartLine
+            "{",                        // 2
+            "    int F = x;",           // 3  <- EndLine
+            "}",                        // 4
+        ]);
+
+        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 1, endLine: 3, methodName: ".ctor"));
     }
 
     /// <summary>
