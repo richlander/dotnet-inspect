@@ -217,34 +217,104 @@ session-lifetime rule in
 
 ## Surface — the `metadata` table lens
 
-The projection is exposed as its own table lens so it composes with the existing
-verbosity model and can be selected explicitly. It rides the `library` command
-(the assembly-oriented surface; note the deprecated `package X --metadata` alias
-already redirects there):
+**Status: designed, not yet implemented.** Nothing in this section runs today;
+`-S @Metadata` currently fails with `Select value '@Metadata' not found.` The
+commands and outputs below are the intended surface, recorded so the
+implementation has a target.
+
+Each metadata table is **one section**, and the tables together form a section
+category, `@Metadata`, registered the same way `@Performance` is:
+
+```csharp
+.AddCategory(SectionCategoryNames.Metadata, MetadataTables.Sections)
+```
+
+The lens therefore adds **no new shape flags**. Metadata tables introduce no new
+currency — they are sections, addressed by name — so they are reached with the
+existing selection vocabulary rather than a focused flag. It rides the `library`
+command (the assembly-oriented surface; note the deprecated `package X
+--metadata` alias already redirects there):
 
 ```bash
-# enumerate a single table
-dotnet-inspect library My.dll --table TypeDef
+# Document: every projected table
+dotnet-inspect library My.dll -S @Metadata
 
-# a single row with its columns and resolvable handle refs
-dotnet-inspect library My.dll --table MethodDef --row 3
+# Table: one metadata table
+dotnet-inspect library My.dll -S "Metadata: TypeRef"
+
+# Vector: one column of that table
+dotnet-inspect library My.dll -S "Metadata: TypeRef" --columns Name --tsv
+
+# Scalar: collapse to a row count
+dotnet-inspect library My.dll -S "Metadata: TypeDef" --count
+
+# a bounded window into a large table
+dotnet-inspect library My.dll -S "Metadata: MethodDef" --rows --head 20
 
 # structured, for tooling
-dotnet-inspect library My.dll --table TypeRef --jsonl
+dotnet-inspect library My.dll -S "Metadata: TypeRef" --jsonl
 ```
 
 This obeys the shape ladder in [output-shapes.md](output-shapes.md): a table is a
-**Table**, one column is a **Vector**, `--count` / one row is a **Scalar**. Each
-metadata table is one section; a `HandleRef` cell renders as its token +
-optional label in Markdown and as structured fields in JSON/JSONL.
+**Table**, one column is a **Vector**, and `--count` is a **Scalar**. A
+`HandleRef` cell renders as its token + optional label in Markdown and as
+structured fields in JSON/JSONL.
+
+Because `--count` reduces *each* selected section to a count, the category
+selection doubles as the table-stream overview, with no separate rendering path:
+
+```bash
+dotnet-inspect library My.dll -S @Metadata --count
+```
+
+```md
+| Section | Count |
+| ------- | ----- |
+| Metadata: TypeRef | 309 |
+| Metadata: TypeDef | 118 |
+| Metadata: MethodDef | 1204 |
+```
+
+The parts of the image that are not rows of a table — stream sizes, the
+table-present bitmask, the metadata version string — are not expressible as row
+counts, so they remain a single `Metadata: Image` section.
 
 Progressive-disclosure discipline (see
 [progressive-disclosure.md](progressive-disclosure.md) and
 [section-model.md](section-model.md)): raw tables are **not** in the default
-`-v:m` view. They are reached by explicit selection (`--table <Name>` or
-`-S`), following the same focused-flag-promotes-sections pattern that
-`library --il-offset` uses to add its coordinate-scoped sections. Heap dumps are
-a further explicit opt-in on top of that.
+`-v:m` view. Two separate mechanisms are involved, and they do different jobs:
+
+- Each metadata table descriptor sets `ExplicitOnly => true`. That is the
+  render gate — `SectionPipeline.IsRequested` returns `false` for an
+  `ExplicitOnly` entry unless it is explicitly included, so no verbosity level
+  auto-selects it. This is per-section configuration, the same as the
+  `@Performance` sections and the `--il-offset` coordinate sections.
+- The `@Metadata` category is the *selection and discovery* affordance. It lets
+  `-S @Metadata` name the whole group and gives `-D` something to list; it does
+  not by itself suppress anything.
+
+Heap **addressing** is the one place this lens does introduce a new currency: a
+heap coordinate such as `#Strings:0x1a4` is not a section name, so it needs a
+carrier. `--heap` is that carrier, and it behaves like `--il-offset` — it makes a
+coordinate-scoped section available and discoverable only when present (see the
+coordinate-carrier family in [output-shapes.md](output-shapes.md)):
+
+```bash
+# bounded heap preview — just a section
+dotnet-inspect library My.dll -S "Metadata: #Strings"
+
+# one address — a coordinate
+dotnet-inspect library My.dll --heap "#Strings:0x1a4"
+```
+
+Deep paging into the middle of a table needs no metadata-specific gesture. It is
+a general row-selection concern, and `--row`/`--rows` are being reworked to
+carry it ([#3364](https://github.com/richlander/dotnet-inspect/issues/3364)):
+once that lands, a row range such as `--rows 40000..40099` will address an
+arbitrary window in any section, metadata tables included. Neither spelling
+parses a range today. This lens therefore adds nothing for paging and inherits
+whatever that work lands. Random access from a host that is not the CLI stays a
+library concern, served by `ProjectRow` and the row window.
 
 ## Safety
 
@@ -822,10 +892,26 @@ via the existing section pipeline and `OutputFormatter`.
 
 - **`HandleRef` shape.** Exact fields and whether `Display` is always populated
   or lazily resolved. Decide before code, since the explorer's value rests on it.
-- **Lens home.** A focused `--table <Name>` flag on `library`, a `-S` section
-  group ("Metadata Tables"), or a dedicated `metadata` command. Leaning toward a
-  `library` flag to reuse assembly acquisition and the section pipeline.
-- **Heap surfacing flags.** The exact opt-in gesture(s) for dumping string / blob
-  / user-string / guid heaps, and their bounded-preview defaults.
-- **Table selection grammar.** Whether tables are addressed by ECMA name
-  (`TypeDef`), by index (`0x02`), or both.
+- **Row addressing.** `--row` currently selects the Nth row that survived an
+  invisible printability filter, so it neither names `MethodDef[3]` nor matches
+  the row a reader counted in the output; `--where` carries row addressing
+  today. Part of the shape is already in place: `-n`/`--head` and `--tail` take
+  a count, and `--rows` is a boolean that switches their unit from output lines
+  to data rows. What is missing is range addressing — neither `--row` nor
+  `--rows` parses a range today. The rework designed in
+  [#3364](https://github.com/richlander/dotnet-inspect/issues/3364) would give
+  `--rows` a value of `N`, `N..M` (inclusive), or `N+K` (start plus count), but
+  it is a CLI-wide change and is out of scope for this series. This lens
+  inherits it.
+
+Resolved:
+
+- **Lens home.** A `@Metadata` section category, not a focused flag and not a
+  dedicated command. Metadata tables introduce no new currency, so section
+  selection already addresses them. This also avoids a collision: `--table` is
+  already taken as a presentation modifier ("render as a pretty table").
+- **Heap surfacing flags.** Bounded per-heap previews are ordinary sections
+  (`Metadata: #Strings`). Reading a specific address is a coordinate, so it gets
+  a carrier: `--heap "#Strings:0x1a4"`.
+- **Table selection grammar.** Both, since output already prints hex tokens and
+  users will paste them: `TypeDef` and `0x02` address the same table.
