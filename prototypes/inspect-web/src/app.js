@@ -309,6 +309,11 @@ function encodeShareState() {
     t: state.packages.map(item => [item.id, item.version, item.activeFramework || ""]),
     a: Math.max(0, state.packages.indexOf(state.package))
   };
+  // Which platform library the runtime pack is scoped to is part of the view's provenance —
+  // capture it so refresh/back/share land on that library instead of the aggregate platform.
+  if (isRuntimePackId(state.package.id) && state.libraryScope && state.libraryScope.size === 1) {
+    packet.l = [...state.libraryScope][0];
+  }
   if (state.atPackageRoot) {
     packet.v = state.packageLens && state.packageLens !== "overview" ? `pkg:${state.packageLens}` : "pkg";
   } else {
@@ -340,7 +345,7 @@ function decodeShareState(value) {
     const raw = JSON.parse(base64UrlDecode(value));
     // Legacy form: a bare tuple array of tabs, carrying no view or selection.
     if (Array.isArray(raw)) {
-      return { tabs: tabsFromTuples(raw), active: 0, view: "", rich: false, type: null, member: null, overload: null, section: null };
+      return { tabs: tabsFromTuples(raw), active: 0, view: "", rich: false, type: null, member: null, overload: null, section: null, library: null };
     }
     if (raw && Array.isArray(raw.t)) {
       return {
@@ -351,7 +356,8 @@ function decodeShareState(value) {
         type: raw.y != null ? String(raw.y) : null,
         member: raw.m != null ? String(raw.m) : null,
         overload: raw.o != null ? String(raw.o) : null,
-        section: raw.c != null ? String(raw.c) : null
+        section: raw.c != null ? String(raw.c) : null,
+        library: raw.l != null ? String(raw.l) : null
       };
     }
     return null;
@@ -389,6 +395,7 @@ function parseLocation() {
   let viewToken = location.hash.slice(1);
   let tabs = [];
   let active = 0;
+  let library = null;
 
   if (share) {
     tabs = share.tabs;
@@ -402,6 +409,7 @@ function parseLocation() {
       member = share.member;
       overload = share.overload;
       section = share.section;
+      library = share.library;
     } else {
       // Legacy array packet carries only the extra tab set; the visible params stay the
       // target. Point the active index at the visible package so it opens focused.
@@ -423,7 +431,8 @@ function parseLocation() {
     atPackageRoot: view.atPackageRoot,
     packageLens: view.packageLens,
     tabs,
-    active
+    active,
+    library
   };
 }
 
@@ -6217,6 +6226,11 @@ async function restoreInitialWorkspace() {
   const targetModel = state.packages.find(matchesTarget);
   if (targetModel) {
     state.package = targetModel;
+    // Restore the platform library scope captured in the share packet before applying the
+    // deep link, so a refreshed/shared platform-library link lands on that library.
+    if (isRuntimePackId(targetModel.id) && initialLocation.library) {
+      await applyPlatformLibraryScope(initialLocation.library);
+    }
     applyDeepLink(savedDeep);
   }
   state.loading = false;
@@ -6409,9 +6423,15 @@ window.addEventListener("popstate", () => {
       : (loc.package.toLowerCase() === state.package.id.toLowerCase()
         && (!loc.version || loc.version.toLowerCase() === state.package.version.toLowerCase())));
   if (samePackage || !loc.package) {
-    applyDeepLink(loc);
-    render();
-    loadSelectionData();
+    if (isRuntimePackId(state.package.id)) {
+      // Back/forward within the platform: re-scope to the target library (or the
+      // aggregate) before restoring selection, since scope is part of the view.
+      restorePlatformScopeThenDeepLink(loc);
+    } else {
+      applyDeepLink(loc);
+      render();
+      loadSelectionData();
+    }
   } else if (isRuntimePackId(loc.package)) {
     // The runtime pack has no nupkg; rebuild it from its TFM instead of 404-ing
     // on a NuGet fetch when back/forward lands on a platform state.
@@ -6423,15 +6443,40 @@ window.addEventListener("popstate", () => {
   }
 });
 
+// Re-scope the active runtime pack to the platform library named in a share/history packet
+// (lazily loading that assembly if needed via the same drill-in path as clicking it), or
+// clear the scope for the aggregate platform, then restore the deep-linked selection.
+async function restorePlatformScopeThenDeepLink(loc) {
+  await applyPlatformLibraryScope(loc.library);
+  applyDeepLink(loc);
+  render();
+  loadSelectionData();
+}
+
+// Load and scope to a single platform library key (or clear the scope when null). Reuses
+// openPlatformLibrary so a restored view matches clicking the library in the selector.
+async function applyPlatformLibraryScope(libraryKey) {
+  const key = String(libraryKey || "").replace(/\.dll$/i, "");
+  if (!key) { state.libraryScope = null; return; }
+  // The pack (CoreCLR vs ASP.NET Core) is resolved from the static index roster; ensure it
+  // is loaded on a cold shared/refreshed link so the right assembly is fetched.
+  if (!state.platformIndex) {
+    try { state.platformIndex = await loadPlatformIndex(); } catch { /* best effort; defaults to CoreCLR */ }
+  }
+  await openPlatformLibrary(key, platformPackForAssembly(key));
+}
+
 // History (back/forward) landed on a .NET Platform state. Its resident pseudo-package
-// has no nupkg, so restore it via loadRuntimePack (usually already resident, so instant)
-// and re-apply the deep link, mirroring restoreInitialWorkspace's runtime-pack path.
+// has no nupkg, so restore it via loadRuntimePack (usually already resident, so instant),
+// re-scope to the captured library, and re-apply the deep link, mirroring
+// restoreInitialWorkspace's runtime-pack path.
 async function restoreRuntimePackFromHistory(loc) {
   const pack = await loadRuntimePack(loc.framework || "");
   const deep = pendingDeepLink;
   pendingDeepLink = null;
   if (pack) {
     state.package = pack;
+    if (loc.library) await applyPlatformLibraryScope(loc.library);
     applyDeepLink(deep || loc);
   }
   render();
