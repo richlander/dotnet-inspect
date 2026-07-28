@@ -34,4 +34,11 @@ public interface IProjectionOptions
 
     /// <summary>Whether <c>--paths</c> was requested. False for commands with no such option.</summary>
     bool Paths => false;
+
+    /// <summary>
+    /// The <c>--out</c> destination, or null for stdout. A projected payload is still a payload,
+    /// so it must honor the destination the caller asked for rather than falling back to stdout.
+    /// Null for commands with no such option.
+    /// </summary>
+    string? OutputPath => null;
 }

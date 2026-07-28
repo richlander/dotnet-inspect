@@ -3836,6 +3836,30 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LensCount_WritesToTheRequestedOutputFile()
+    {
+        // A count is the command's payload, so --out has to apply to it. Writing it to stdout
+        // instead leaves the requested file absent and silently ignores the option.
+        var path = Path.Combine(Path.GetTempPath(), $"lens-count-{Guid.NewGuid():N}.txt");
+
+        try
+        {
+            var (exit, output, _) = await RunAppAsync(
+                "package", "Newtonsoft.Json@13.0.4", "--tfms", "--count", "--out", path);
+
+            Assert.Equal(0, exit);
+            Assert.True(File.Exists(path), "--out was ignored: the requested file was never written.");
+            Assert.Equal(8, int.Parse(File.ReadAllText(path).Trim(), CultureInfo.InvariantCulture));
+            Assert.Empty(output.Trim());
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task Discover_ShapeProjection_ReportsTheLensRefusalWithoutRequiringASelection()
     {
         // The ordinary shape gate ran first and reported a missing -S, which is not the actual
