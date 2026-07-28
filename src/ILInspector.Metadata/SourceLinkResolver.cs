@@ -493,13 +493,6 @@ public class SourceLinkResolver
 
         int limit = Math.Min(lines.Length, to + ForwardScanLimit);
 
-        // The line after the member's own block closed, when the scan gets that far without
-        // reaching the end of the enclosing type. Yielding to a sibling by returning the range
-        // unchanged discarded the closing brace already consumed, truncating the member and its
-        // last statement (adversarial review, Gemini). Lines that carry the sibling's own
-        // attributes or comments close nothing, so they are not mistaken for the member's end.
-        int closed = -1;
-
         for (int i = to; i < limit; i++)
         {
             // Asked before the line is scanned, so it must be asked of the line's code alone. A
@@ -510,23 +503,56 @@ public class SourceLinkResolver
             {
                 int resume = IndexWhereCodeResumes(lines[i], state);
                 if (resume >= 0 && OpensSiblingAccessor(lines[i][resume..]))
-                    return closed > 0 ? closed : to;
+                    return IndexPastTrailingTrivia(lines, to, i);
             }
 
-            int before = depth;
             ScanLine(lines[i], state, ref depth);
 
             if (state.Untracked)
-                return closed > 0 ? closed : to;
+                return to;
 
             if (depth <= 0)
                 return i + 1;
-
-            if (slicingAccessor && depth < before)
-                closed = i + 1;
         }
 
-        return closed > 0 ? closed : to;
+        return to;
+    }
+
+    /// <summary>
+    /// The end of a member that yielded to the sibling declaration on <paramref name="sibling"/>.
+    /// <para>
+    /// Everything above that sibling is the member's, so the range runs to it. Returning the
+    /// original range instead discarded the accessor's own closing brace and the statements
+    /// above it (adversarial review, Gemini). Answering with the last brace that closed put
+    /// the end inside a lambda nested in an expression-bodied accessor, truncating the
+    /// expression (adversarial review, MAI-Code and Gemini, independently): a member with no
+    /// block of its own has no brace to find, so brace depth cannot answer this. The sibling's
+    /// own position can, and it does not care how either member is bodied.
+    /// </para>
+    /// <para>
+    /// Only the sibling's own leading trivia is given back. A line holding code is kept, so a
+    /// line that merely looks like trivia mid-construct costs nothing.
+    /// </para>
+    /// </summary>
+    private static int IndexPastTrailingTrivia(string[] lines, int from, int sibling)
+    {
+        int end = sibling;
+
+        while (end > from && HoldsOnlyTrivia(lines[end - 1]))
+            end--;
+
+        return end;
+    }
+
+    /// <summary>
+    /// True when the line carries nothing but blank space, a comment, or an attribute list.
+    /// </summary>
+    private static bool HoldsOnlyTrivia(string line)
+    {
+        var trimmed = line.TrimStart();
+        return trimmed.Length == 0
+            || trimmed.StartsWith('[')
+            || StripLeadingComments(trimmed).Length == 0;
     }
 
     /// <summary>
