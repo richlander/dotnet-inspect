@@ -1333,8 +1333,8 @@ public class AuthoredSourceValidityTests
         string[] lines =
         [
             "",
-            "class C {",
-            "    int Prop {",
+            "public class C {",
+            "    public int Prop {",
             "        get => true ?",
             "            new System.Func<int>(() => {",
             "                return 1;",
