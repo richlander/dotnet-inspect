@@ -3611,13 +3611,13 @@ public class CommandExecutionTests
     public async Task Type_SourceFiles_PrintRow_FetchFailureIsHardError()
     {
         using var client = new HttpClient(new NotFoundHandler());
-        DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
         string cacheDir = Path.Combine(
             Path.GetTempPath(),
             $"dotnet-inspect-fetch-failure-{Guid.NewGuid():N}");
-        NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
         try
         {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+            NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
             var (exit, output, error) = await RunAppAsync(
                 "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
                 "-S", "Source Files", "--print", "--row", "2", "--raw", "--tips", "q");
@@ -3644,13 +3644,13 @@ public class CommandExecutionTests
     public async Task Type_SourceFiles_PrintRowJson_FetchFailureIsHardError()
     {
         using var client = new HttpClient(new NotFoundHandler());
-        DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
         string cacheDir = Path.Combine(
             Path.GetTempPath(),
             $"dotnet-inspect-fetch-failure-json-{Guid.NewGuid():N}");
-        NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
         try
         {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+            NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
             var (exit, output, error) = await RunAppAsync(
                 "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
                 "-S", "Source Files", "--print", "--row", "2", "--json", "--raw", "--tips", "q");
