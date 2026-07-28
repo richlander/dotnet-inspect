@@ -654,6 +654,12 @@ public class ApiCommand
 
     // ===== Single Type Rendering =====
 
+    // --json selects an output format; --print/--value/--urls/--paths select an
+    // output shape. They compose, so the plain type-surface serializer must not
+    // claim a request that a projection owns.
+    private static bool IsProjectionRequested(ApiOptions options)
+        => options.Print || options.Value || options.Urls || options.Paths;
+
     internal static async Task<int> WriteTypeOutputAsync(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options, TextWriter? output = null)
     {
         var sink = output ?? Console.Out;
@@ -664,7 +670,7 @@ public class ApiCommand
             return 0;
         }
 
-        if (options.JsonOutput && !options.Count)
+        if (options.JsonOutput && !options.Count && !IsProjectionRequested(options))
         {
             WriteJsonTypeOutput(type, options);
             return 0;

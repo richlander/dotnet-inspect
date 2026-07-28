@@ -14,6 +14,7 @@ public static class HttpClientFactory
     private static bool _offline;
     private static HttpClient? _shared;
     private static HttpClient? _sharedUntrustedFetch;
+    private static HttpClient? _untrustedFetchOverride;
     private static IDisposable? _networkTrafficLoggingSubscription;
 
     /// <summary>
@@ -55,6 +56,7 @@ public static class HttpClientFactory
     {
         _shared = null;
         _sharedUntrustedFetch = null;
+        _untrustedFetchOverride = null;
         _networkTrafficLoggingSubscription?.Dispose();
         _networkTrafficLoggingSubscription = null;
     }
@@ -70,7 +72,15 @@ public static class HttpClientFactory
     /// in untrusted artifacts (SourceLink URLs embedded in a PDB, etc.). Use this — not <see cref="Shared"/> —
     /// for any URL that came from inspected package/PDB data. Do not dispose.
     /// </summary>
-    public static HttpClient SharedUntrustedFetch => _sharedUntrustedFetch ??= CreateUntrustedFetchClient();
+    public static HttpClient SharedUntrustedFetch => _untrustedFetchOverride ?? (_sharedUntrustedFetch ??= CreateUntrustedFetchClient());
+
+    /// <summary>
+    /// Test-only: substitutes the transport used by untrusted-source fetches so acquisition
+    /// paths (including failure) can be exercised without network access. This replaces only
+    /// the transport; callers still run the real <c>SourceFetcher</c>, so scheme restriction,
+    /// caching, and status handling stay under test. Pass null to restore the real client.
+    /// </summary>
+    internal static void SetUntrustedFetchForTesting(HttpClient? client) => _untrustedFetchOverride = client;
 
     /// <summary>
     /// Whether <paramref name="url"/> is an absolute http/https URL. Untrusted-source fetches restrict
