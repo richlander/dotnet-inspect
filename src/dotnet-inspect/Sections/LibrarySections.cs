@@ -10,8 +10,12 @@ namespace DotnetInspector.Sections;
 /// </summary>
 public static class LibrarySections
 {
-    // Scanner keys identify data collection steps in LibraryMetadataService
+    // Scanner keys identify data collection steps in LibraryMetadataService. Most are registered in
+    // CreateScannerRegistry and run after the shared metadata read. ScannerReferences is the
+    // exception: assembly references are extracted during that read, so LibraryMetadataService
+    // consumes the key directly instead of registering a scanner that would have nothing to do.
     public const string ScannerTransitiveRefs = "TransitiveRefs";
+    public const string ScannerReferences = "References";
     public const string ScannerExtensionMethods = "ExtensionMethods";
     public const string ScannerClassifiedMethods = "ClassifiedMethods";
     public const string ScannerResources = "Resources";
@@ -116,6 +120,8 @@ public static class LibrarySections
     public static ScannerRegistry CreateScannerRegistry()
     {
         return new ScannerRegistry()
+            .Add(ScannerTransitiveRefs, ctx =>
+                LibraryMetadataService.ScanTransitiveReferences(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerExtensionMethods, ctx =>
                 LibraryMetadataService.ScanExtensionMembers(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerClassifiedMethods, ctx =>
@@ -505,21 +511,24 @@ public static class LibrarySections
         public static string Name => SectionNames.References;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        public static string? ScannerKey => null;
+        public static string? ScannerKey => ScannerReferences;
         public static bool CanRender(LibraryInspection model)
-            => model.AssemblyReferenceInspection.HasFindings()
-               && model.AssemblyInfo?.TransitiveReferences is not { Count: > 0 };
+            => model.AssemblyReferenceInspection.HasFindings();
     }
 
     public sealed class Dependencies : ISectionDescriptor<LibraryInspection>
     {
         public static string Name => SectionNames.Dependencies;
         public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
+        // The transitive closure grows without a meaningful bound, and building it resolves and
+        // reads every referenced assembly recursively, so the tree is declared Verbose/Unbounded:
+        // reachable by explicit selection, never auto-run by a verbosity the caller did not ask
+        // for. It also restates what References already shows, plus the closure.
+        public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
+        public static SectionCost Cost => SectionCost.Unbounded;
         public static string? ScannerKey => ScannerTransitiveRefs;
         public static bool CanRender(LibraryInspection model)
-            => model.UseDependenciesView
-               && model.AssemblyInfo?.TransitiveReferences is { Count: > 0 };
+            => model.AssemblyInfo?.TransitiveReferences is { Count: > 0 };
     }
 
     public sealed class ExtensionMethods : ISectionDescriptor<LibraryInspection>

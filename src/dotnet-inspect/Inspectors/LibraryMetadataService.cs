@@ -70,6 +70,11 @@ internal static class LibraryMetadataService
             }
 
             var needsAuditSignals = scanners?.Contains(LibrarySections.ScannerAuditSignals) == true;
+            // The References and Dependencies sections both read assembly references, which are
+            // extracted during the metadata read below rather than by a registered scanner. Their
+            // scanner keys therefore have to be consulted here, before that read.
+            var needsReferences = scanners?.Contains(LibrarySections.ScannerReferences) == true
+                || scanners?.Contains(LibrarySections.ScannerTransitiveRefs) == true;
 
             var inspection = new LibraryInspection
             {
@@ -80,7 +85,7 @@ internal static class LibraryMetadataService
                 PerformanceTriageOptions = options.PerformanceTriage
             };
 
-            inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.IncludeDependencies || needsAuditSignals);
+            inspection.AssemblyInfo = pdbContext.ExtractAssemblyInfo(options.IncludeReferences || options.IncludeDependencies || needsAuditSignals || needsReferences);
             if (inspection.AssemblyInfo?.References is { } references)
             {
                 inspection.AssemblyReferenceInspection = MetadataFindings.InspectAssemblyReferences(
@@ -130,20 +135,10 @@ internal static class LibraryMetadataService
             inspection.NonNormalizedPaths = pdbContext.NonNormalizedPaths;
             inspection.IsDeterministic = pdbContext.HasReproducibleFlag && pdbContext.HasNormalizedPaths != false;
 
-            // Build transitive reference tree if requested
-            if (options.IncludeDependencies && inspection.AssemblyInfo?.References != null)
-            {
-                var sourceDir = Path.GetDirectoryName(path);
-                var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                visited.Add(inspection.AssemblyInfo.AssemblyName ?? Path.GetFileNameWithoutExtension(path));
-
-                inspection.AssemblyInfo.TransitiveReferences = BuildTransitiveReferences(
-                    inspection.AssemblyInfo.References,
-                    sourceDir,
-                    visited,
-                    logger,
-                    deduplicate: options.IncludeDependencies);
-            }
+            // Build transitive reference tree if requested. The Dependencies section requests the
+            // same work through the ScannerTransitiveRefs scanner, which runs below.
+            if (options.IncludeDependencies)
+                ScanTransitiveReferences(path, inspection, logger);
 
             // Run registered scanners for the requested sections
             if (scannerRegistry != null && scanners != null)
@@ -483,6 +478,32 @@ internal static class LibraryMetadataService
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Populates <see cref="AssemblyInfo.TransitiveReferences"/> for the Dependencies section.
+    /// Idempotent: the <c>--dependencies</c> flag builds the tree before the scanner registry runs,
+    /// so an already-populated tree is left alone rather than rebuilt.
+    /// </summary>
+    public static void ScanTransitiveReferences(string path, LibraryInspection model, VerboseLogger logger)
+    {
+        if (model.AssemblyInfo is not { References: { } references } info
+            || info.TransitiveReferences is { Count: > 0 })
+        {
+            return;
+        }
+
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            info.AssemblyName ?? Path.GetFileNameWithoutExtension(path)
+        };
+
+        info.TransitiveReferences = BuildTransitiveReferences(
+            references,
+            Path.GetDirectoryName(path),
+            visited,
+            logger,
+            deduplicate: true);
     }
 
     /// <summary>

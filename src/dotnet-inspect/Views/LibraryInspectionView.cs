@@ -123,12 +123,9 @@ public class LibraryInspectionView
             .Select(t => new UnionTypeRow(t.TypeName, t.Kind, t.ImplementsIUnion ? "Yes" : "No", string.Join(", ", t.CaseTypes)))
             .ToList() is { Count: > 0 } rows ? rows : null;
 
-    [MarkoutIgnore]
-    public bool UseDependenciesView => _data.UseDependenciesView;
-
     [MarkoutSection(Name = "Dependencies")]
     public List<TreeNode>? DependenciesSection =>
-        !_data.UseDependenciesView || _data.AssemblyInfo?.TransitiveReferences is not { Count: > 0 } ? null :
+        _data.AssemblyInfo?.TransitiveReferences is not { Count: > 0 } ? null :
         BuildNestedDependencyTree(_data.AssemblyInfo.TransitiveReferences);
 
     [MarkoutIgnore]
@@ -182,7 +179,6 @@ public class LibraryInspectionView
 
     [MarkoutSection(Name = "References")]
     public List<ReferenceRow>? AssemblyReferencesSection =>
-        _data.AssemblyInfo?.TransitiveReferences is { Count: > 0 } ? null :
         _data.AssemblyReferenceInspection.PayloadsForRendering().OrderBy(r => r.Name)
             .Select(r => new ReferenceRow(r.Name, r.Version, r.PublicKeyToken ?? "-"))
             .ToList() is { Count: > 0 } list ? list : null;

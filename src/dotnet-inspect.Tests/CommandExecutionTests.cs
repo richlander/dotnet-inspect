@@ -6821,6 +6821,66 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_SelectReferences_RendersReferenceRows()
+    {
+        // Regression: References declared a null scanner key, meaning "data always collected",
+        // but assembly references are extracted only on demand. Selecting the section reported
+        // "no data" for every assembly.
+        var (exit, output, _) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "References", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## References", output);
+        Assert.Contains("| System.Runtime |", output);
+        Assert.DoesNotContain("no data", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_SelectDependencies_RendersTransitiveTree()
+    {
+        // Regression: Dependencies named the "TransitiveRefs" scanner, but no scanner was
+        // registered under that key and the section additionally gated on the --dependencies
+        // view-routing flag, so -S Dependencies could never produce data.
+        var (exit, output, _) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "Dependencies", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Dependencies", output);
+        Assert.Contains("System.Runtime", output);
+        Assert.DoesNotContain("no data", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_SelectDependenciesAndReferences_RendersBoth()
+    {
+        // The flat list and the tree are independent lenses. References used to blank itself
+        // whenever a tree existed, which suppressed it when both were selected together.
+        var (exit, output, _) = await RunAppAsync(
+            "library", "System.Text.Json", "-S", "Dependencies,References", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Dependencies", output);
+        Assert.Contains("## References", output);
+        Assert.DoesNotContain("no data", output);
+    }
+
+    [Fact]
+    public async Task LibraryCommand_Dependencies_StaysOutOfDefaultViewsAndDiscoverable()
+    {
+        // Building the tree reads every referenced assembly transitively, so it is opt-in; it
+        // must still be listed by -D or the only way to find it is to already know it exists.
+        var (detailExit, detailOutput, _) = await RunAppAsync(
+            "library", "System.Text.Json", "-v:d", "--tips", "q");
+        var (discoverExit, discoverOutput, _) = await RunAppAsync(
+            "library", "System.Text.Json", "-D", "--tips", "q");
+
+        Assert.Equal(0, detailExit);
+        Assert.DoesNotContain("## Dependencies", detailOutput);
+        Assert.Equal(0, discoverExit);
+        Assert.Contains("| Dependencies | section (opt-in) |", discoverOutput);
+    }
+
+    [Fact]
     public async Task LibraryCommand_PlatformFacade_LibraryInfoShowsFacadeAssemblyYes()
     {
         var (assemblyPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Runtime.CompilerServices.Unsafe");
