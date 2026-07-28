@@ -57,6 +57,7 @@ public static class FixtureIds
 
     public const string AnalysisCallerGraphCaller = "analysis.caller-graph.caller";
     public const string AnalysisCallerGraphCallerTwin = "analysis.caller-graph.caller-twin";
+    public const string AnalysisCallerGraphIndirectCaller = "analysis.caller-graph.indirect-caller";
     public const string AnalysisCallerGraphLookalikeCaller = "analysis.caller-graph.lookalike-caller";
     public const string AnalysisCallerGraphTarget = "analysis.caller-graph.target";
     public const string AnalysisCallerLoop = "analysis.caller-loop";
@@ -149,6 +150,13 @@ public static class FixtureCatalog
         "ILInspector.Analysis.CallerGraphCallerTwin.dll",
         Boundaries(FixtureBoundary.CrossAssemblyBoundary),
         "analysis", "caller-graph", "caller", "twin");
+
+    public static readonly FixtureDefinition AnalysisCallerGraphIndirectCaller = Fixture(
+        FixtureIds.AnalysisCallerGraphIndirectCaller,
+        "ILInspector.Analysis.CallerGraphIndirectCaller",
+        "ILInspector.Analysis.CallerGraphIndirectCaller.dll",
+        Boundaries(FixtureBoundary.CrossAssemblyBoundary),
+        "analysis", "caller-graph", "indirect");
 
     public static readonly FixtureDefinition AnalysisCallerGraphLookalikeCaller = Fixture(
         FixtureIds.AnalysisCallerGraphLookalikeCaller,
@@ -368,6 +376,7 @@ public static class FixtureCatalog
         DiffAsmTarget,
         AnalysisCallerGraphCaller,
         AnalysisCallerGraphCallerTwin,
+        AnalysisCallerGraphIndirectCaller,
         AnalysisCallerGraphLookalikeCaller,
         AnalysisCallerGraphTarget,
         AnalysisCallerLoop,
@@ -413,6 +422,7 @@ public static class FixtureCatalog
             AnalysisCallerGraphTarget,
             AnalysisCallerGraphCaller,
             AnalysisCallerGraphCallerTwin,
+            AnalysisCallerGraphIndirectCaller,
             AnalysisCallerGraphLookalikeCaller,
             AnalysisCallerLoop,
             AnalysisCrossAsmCollision,

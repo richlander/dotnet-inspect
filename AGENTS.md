@@ -131,6 +131,16 @@ Match evidence to the claim and use the smallest existing check that proves it:
   the change explicitly intends otherwise.
 - For output changes, exercise the affected Markdown and structured modes,
   schema/query fields, ordering, and verbosity behavior.
+- For any taste- or style-oriented raise or rendering change, consult **both**
+  facets of the dotnet/runtime style oracle before landing it and record what
+  each says: the **declared** facet (`dotnet/runtime`'s `.editorconfig` and
+  enabled analyzers — quote the `dotnet_style_*`/`csharp_style_*` key or state
+  it is silent) and the **revealed** facet (the dominant form in
+  `dotnet/runtime` source, with `path/file.cs:line` witnesses). Cite the facet a
+  claim rests on; never assert "oracle approved" uncited, and never infer one
+  facet from the other. A knowing divergence is legitimate only when the
+  consultation happened and is recorded. See
+  [`docs/decompiler-taste.md`](docs/decompiler-taste.md#consulting-both-facets-is-required).
 - For corpus or performance claims, record the pinned input, command, baseline,
   and result. Static analysis proves structural evidence, not runtime heat,
   frequency, bytes, or impact; use a benchmark or profiler for runtime claims.

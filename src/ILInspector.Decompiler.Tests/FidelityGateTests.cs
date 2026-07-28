@@ -335,6 +335,18 @@ public class FidelityGateTests
         // JsonElement structs through one such temp but cannot itself be fed to the
         // compile-back oracle (internal System.Text.Json surface).
         "SwapStructPair",
+        // #3164: the inline-Current foreach. On its Array arm DeepEquals runs a
+        // compiler `foreach` whose single-use iteration variable csc hoists as
+        // `item = e.Current`; ExpressionInliningPass folds that store into its one
+        // use before ForeachStatementPass runs, so the hidden enumerator survives
+        // referenced only by MoveNext and one inline `e.Current`. The pass rebinds
+        // that inline read to a fresh foreach variable. Because the raised
+        // `foreach` re-lowers to csc's original hoist, the transform is
+        // opcode-exact — this pins it. Mirrors System.Text.Json.JsonElement.
+        // DeepEquals, whose Array arm iterates one enumerator by `foreach` while a
+        // second is advanced manually, but which cannot itself be fed to the
+        // compile-back oracle (internal System.Text.Json surface, #3197).
+        "ForeachSingleUseWithParallelEnumerator",
         // The compile-back oracle replays the fixture's runtime-async feature,
         // so these methods must retain the same lowering rather than merely
         // remaining recompilable.

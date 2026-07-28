@@ -76,6 +76,15 @@ public static class MetadataTableProjector
     ];
 
     /// <summary>
+    /// The tables this projector models, in ECMA-335 table order. A table absent
+    /// from this set is not projected at all, which is a different fact from a
+    /// table that is projected and empty — see
+    /// <see cref="MetadataTableSummary.IsProjected"/>.
+    /// </summary>
+    public static ImmutableArray<TableIndex> ProjectedTables { get; } =
+        [.. SupportedTables.Select(static spec => spec.Index)];
+
+    /// <summary>
     /// Projects the supported metadata tables of <paramref name="peReader"/>.
     /// Returns an empty projection when the image carries no metadata.
     /// </summary>
@@ -112,16 +121,418 @@ public static class MetadataTableProjector
         return new MetadataTableProjection(views.ToImmutable());
     }
 
+    /// <summary>
+    /// Projects a single row of one table on demand, independent of any row
+    /// window applied to a wider projection. This is the handle click-through
+    /// primitive: a <see cref="HandleRef"/> whose target lies outside the current
+    /// window is still reachable without re-projecting the target table.
+    ///
+    /// The row is returned inside its table's <see cref="MetadataTableView"/> so
+    /// the caller also gets the column schema and the table's physical
+    /// <see cref="MetadataTableView.RowCount"/>, which a single row cannot carry.
+    ///
+    /// <paramref name="table"/> names the target directly, so
+    /// <see cref="MetadataProjectionOptions.Tables"/> and
+    /// <see cref="MetadataProjectionOptions.StartRowId"/> are deliberately
+    /// ignored here; only the cell budgets apply. Honouring the table selection
+    /// would dead-end the very edges this method exists to follow — a caller
+    /// browsing TypeRef could not follow a TypeRef row into TypeDef.
+    ///
+    /// Returns <see langword="null"/> when the image has no metadata, when
+    /// <paramref name="table"/> is not one this projector supports, or when
+    /// <paramref name="rowId"/> is past the table's last row.
+    /// </summary>
+    public static MetadataTableView? ProjectRow(
+        PEReader peReader,
+        TableIndex table,
+        int rowId,
+        MetadataProjectionOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(peReader);
+        ArgumentOutOfRangeException.ThrowIfLessThan(rowId, 1);
+        options ??= new MetadataProjectionOptions();
+
+        if (!peReader.HasMetadata)
+            return null;
+
+        TableSpec? match = null;
+        foreach (var candidate in SupportedTables)
+        {
+            if (candidate.Index == table)
+            {
+                match = candidate;
+                break;
+            }
+        }
+
+        if (match is not { } spec)
+            return null;
+
+        var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
+        int rowCount = reader.GetTableRowCount(spec.Index);
+        if (rowId > rowCount)
+            return null;
+
+        // Reuse the windowed reader rather than a second row path: a one-row
+        // window at rowId is exactly this lookup, including malformed-row containment.
+        return BuildView(reader, spec, rowCount, options with { StartRowId = rowId, MaxRowsPerTable = 1 });
+    }
+
+    /// <summary>
+    /// Finds every row that points at <paramref name="targetTable"/> row
+    /// <paramref name="targetRowId"/> — the reverse of the forward
+    /// <see cref="HandleRef"/>/<see cref="HandleRange"/> edges a projection
+    /// exposes, and the "who references this?" gesture an explorer needs.
+    ///
+    /// Both edge shapes are searched. A handle column matches when it names the
+    /// row directly; a list column matches when the target falls inside its run,
+    /// which is how ECMA-335 encodes ownership — so this answers which
+    /// <c>TypeDef</c> declares a given <c>Field</c>, <c>MethodDef</c>, or which
+    /// <c>MethodDef</c> owns a given <c>Param</c>.
+    ///
+    /// The scan covers every supported table, up to the point
+    /// <paramref name="maxReferences"/> stops it. It takes no
+    /// <see cref="MetadataProjectionOptions"/> at all, and in particular offers
+    /// no equivalent of <see cref="MetadataProjectionOptions.Tables"/>, because
+    /// a reverse search narrowed to part of the image could report "nothing
+    /// points here" while a pointer sat in an unsearched table. Four blind
+    /// spots are reported instead of hidden:
+    /// <see cref="MetadataRowReferenceSet.Truncated"/> when
+    /// <paramref name="maxReferences"/> stopped the scan,
+    /// <see cref="MetadataRowReferenceSet.UnreadableRows"/> for rows whose edges
+    /// could not be fully determined,
+    /// <see cref="MetadataRowReferenceSet.UnscannedTables"/> for populated
+    /// tables the scan did not read in full — because the projection does not
+    /// model the table, or because the scan stopped part-way through it or
+    /// before reaching it — and
+    /// <see cref="MetadataRowReferenceSet.TargetExists"/> when the target row id
+    /// is past the end of its table.
+    ///
+    /// A fifth limit is real and cannot be reported per query: only edges
+    /// spelled as handle columns are matched, so a reference carried inside a
+    /// blob is never found. It is disclosed unconditionally by the renderer
+    /// rather than through this result. See
+    /// <see cref="MetadataRowReferenceSet.IsComplete"/>, which does not mean
+    /// nothing points at the target.
+    ///
+    /// A dangling edge is not a reference: a handle whose row lies outside its
+    /// target table projects as <see cref="MetadataValue.Malformed"/>, so it
+    /// cannot match. It does, however, make its row an
+    /// <see cref="MetadataRowReferenceSet.UnreadableRows"/> entry, because an
+    /// edge column the projection could not resolve is an edge this search
+    /// cannot account for.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="targetRowId"/> is less than 1. A row id past the *end* of
+    /// the table is reported through
+    /// <see cref="MetadataRowReferenceSet.TargetExists"/> rather than rejected,
+    /// because a dangling edge points at exactly such rows.
+    /// </exception>
+    public static MetadataRowReferenceSet FindReferences(
+        PEReader peReader,
+        TableIndex targetTable,
+        int targetRowId,
+        int maxReferences = MetadataRowReferenceSet.DefaultMaxReferences)
+    {
+        ArgumentNullException.ThrowIfNull(peReader);
+        ArgumentOutOfRangeException.ThrowIfLessThan(targetRowId, 1);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxReferences);
+
+        var target = new MetadataRowLocation(targetTable, targetRowId);
+        var references = ImmutableArray.CreateBuilder<MetadataRowReference>();
+        var unreadable = ImmutableArray.CreateBuilder<MetadataRowLocation>();
+
+        if (!peReader.HasMetadata)
+            return new MetadataRowReferenceSet(
+                target, references.ToImmutable(), unreadable.ToImmutable(), [],
+                Truncated: false, TargetExists: false);
+
+        var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
+
+        // Reported rather than rejected. A row id past the end of the table is
+        // usually a typo, and answering it with a clean empty result makes that
+        // typo indistinguishable from a real row nothing points at. But it is
+        // not simply invalid input either: a dangling edge points exactly at
+        // rows that do not exist, so "what points at TypeRef[1]?" stays a
+        // legitimate question in an image whose TypeRef table is empty.
+        bool targetExists = targetRowId <= reader.GetTableRowCount(targetTable);
+
+        // The scan needs edges, not text. Handle and range cells carry their
+        // target table and row id independently of these budgets, so trimming the
+        // heap previews cannot change which rows match — it only avoids decoding
+        // strings and blobs the result never shows.
+        var scan = new MetadataProjectionOptions { MaxStringChars = 1, MaxPreviewBytes = 0 };
+
+        // What the scan actually reached, recorded as it goes. The blind-spot
+        // report is derived from this rather than from SupportedTables, so a
+        // table the loop skips — because the projection does not model it, or
+        // because the budget stopped the scan before reaching it — cannot be
+        // declared searched by a list that disagrees with the loop.
+        var visited = new HashSet<TableIndex>();
+
+        bool truncated = false;
+        foreach (var spec in SupportedTables)
+        {
+            if (truncated)
+                break;
+
+            int rowCount = reader.GetTableRowCount(spec.Index);
+            int rid = 1;
+            bool abandonedMidTable = false;
+            for (; rid <= rowCount && !truncated; rid++)
+            {
+                ImmutableArray<MetadataValue> cells;
+                try
+                {
+                    cells = spec.ReadRow(reader, rid, scan);
+                }
+                catch (Exception ex) when (ex is BadImageFormatException or ArgumentException or InvalidOperationException)
+                {
+                    // The row's edges are unknowable, so record the blind spot
+                    // rather than letting a missed reference look like an absent one.
+                    unreadable.Add(new MetadataRowLocation(spec.Index, rid));
+                    continue;
+                }
+
+                bool blind = false;
+                for (int column = 0; column < cells.Length; column++)
+                {
+                    // A cell that failed to decode in an *edge* column may have
+                    // been an edge onto the target. The cell-level readers
+                    // contain such failures as Malformed rather than throwing, so
+                    // ReadRow succeeds and the row would otherwise pass as fully
+                    // searched. Record the blind spot instead, or a missed
+                    // reference reads as an absent one.
+                    //
+                    // The column's declared kind decides, not the cell: a
+                    // Malformed heap, scalar, or flags cell was never an edge and
+                    // cannot hide a reference.
+                    if (cells[column] is MetadataValue.Malformed
+                        && spec.Columns[column].Kind is MetadataColumnKind.Handle or MetadataColumnKind.HandleRange)
+                    {
+                        blind = true;
+                        continue;
+                    }
+
+                    if (!PointsAt(cells[column], targetTable, targetRowId, out var kind))
+                        continue;
+
+                    if (references.Count >= maxReferences)
+                    {
+                        truncated = true;
+
+                        // Whether this table still holds anything unlooked-at:
+                        // the columns after this one on this row, or any row
+                        // after it. Stopping on the very last column of the very
+                        // last row leaves nothing unexamined, so the table was
+                        // genuinely searched in full even though the scan ended
+                        // inside it.
+                        //
+                        // This also covers `blind` going under-determined. A
+                        // break before the last column leaves the remaining
+                        // columns unchecked for Malformed edges, so this row
+                        // might belong in unreadable without our knowing — but
+                        // that break is exactly the case where the flag is true,
+                        // so the table is disclosed as unscanned instead. When
+                        // the break is on the last column, every column was
+                        // checked and `blind` is fully determined. Either way
+                        // the gap is reported.
+                        abandonedMidTable = column + 1 < cells.Length || rid < rowCount;
+                        break;
+                    }
+
+                    references.Add(new MetadataRowReference(
+                        new MetadataRowLocation(spec.Index, rid),
+                        column,
+                        spec.Columns[column].Name,
+                        kind));
+                }
+
+                // Recorded once per row, and after the column loop, so a row with
+                // one broken edge still reports the good edges it does have.
+                if (blind)
+                    unreadable.Add(new MetadataRowLocation(spec.Index, rid));
+            }
+
+            // Recorded after the row loop and only when every row the image says
+            // exists was examined in full. "Entered" is not the same as
+            // "searched", at either granularity:
+            //
+            //  - A row loop that stopped short leaves whole rows unread, so rid
+            //    never passes the count and the table is not recorded.
+            //  - The budget check sits inside the *column* loop, so truncation
+            //    on a table's final row leaves that row entered but abandoned
+            //    part-way through its columns. rid still passes the count, so
+            //    the row loop alone cannot tell.
+            //
+            // abandonedMidTable carries that column-level fact. Note it is not
+            // the same as truncated: a scan that stops on the last column of the
+            // last row examined every cell this table has, so reporting it
+            // unscanned would be a false blind spot — claiming an unread row
+            // could hide an edge when no row went unread.
+            //
+            // The count is re-read from the reader rather than trusting the
+            // local, so the claim "we covered this table" is anchored to the
+            // metadata instead of to a variable the loop could have narrowed.
+            if (!abandonedMidTable && rid > reader.GetTableRowCount(spec.Index))
+                visited.Add(spec.Index);
+        }
+
+        return new MetadataRowReferenceSet(
+            target,
+            references.ToImmutable(),
+            unreadable.ToImmutable(),
+            CollectUnscannedTables(reader, visited),
+            truncated,
+            targetExists);
+    }
+
+    /// <summary>
+    /// The populated tables a reverse search did not reach — because the
+    /// projection does not model them, or because the result budget stopped the
+    /// scan first. Derived from the tables the scan actually visited, not from a
+    /// parallel declaration of what it intends to visit: the two could drift,
+    /// and a blind spot that under-reports is the bug this exists to prevent.
+    /// Empty tables are excluded: a table with no rows cannot hold an edge onto
+    /// the target, so reporting it would overstate the blind spot.
+    /// </summary>
+    static ImmutableArray<TableIndex> CollectUnscannedTables(
+        MetadataReader reader,
+        HashSet<TableIndex> visited)
+    {
+        var unscanned = ImmutableArray.CreateBuilder<TableIndex>();
+        foreach (var table in Enum.GetValues<TableIndex>())
+        {
+            if (visited.Contains(table))
+                continue;
+
+            // Every defined TableIndex is below the reader's table count, so
+            // this is a range check plus an array index over counts parsed at
+            // MetadataReader construction. It cannot fail here.
+            if (reader.GetTableRowCount(table) > 0)
+                unscanned.Add(table);
+        }
+
+        return unscanned.ToImmutable();
+    }
+
+    /// <summary>
+    /// Reads one heap value by address, independent of any table row that
+    /// references it. This is the heap counterpart of
+    /// <see cref="ProjectRow"/>: a <see cref="MetadataValue.HeapReference"/> cell
+    /// carries a bounded preview plus an <see cref="MetadataValue.HeapReference.Offset"/>,
+    /// and this resolves that address back to a value so a browser can show the
+    /// whole entry, or browse a heap the tables never point into at all (the
+    /// UserString heap is referenced only from IL).
+    ///
+    /// <paramref name="address"/> uses the same convention as
+    /// <see cref="MetadataValue.HeapReference.Offset"/>, so a value read from a
+    /// projected cell round-trips: a byte offset for the String, Blob, and
+    /// UserString heaps, but a 1-based index for the GUID heap. See
+    /// <see cref="MetadataHeapAddressing"/>. Address zero is the nil value of
+    /// every heap and reads as <see cref="MetadataValue.Nil"/>.
+    ///
+    /// The result is shaped exactly like the projected cell for the same value,
+    /// so one renderer serves both. An address past the end of the heap yields
+    /// <see cref="MetadataValue.Malformed"/> rather than an empty value.
+    ///
+    /// Returns <see langword="null"/> when the image carries no metadata.
+    /// </summary>
+    public static MetadataValue? ReadHeapValue(
+        PEReader peReader,
+        HeapKind heap,
+        int address,
+        MetadataProjectionOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(peReader);
+        ArgumentOutOfRangeException.ThrowIfNegative(address);
+        options ??= new MetadataProjectionOptions();
+
+        if (!peReader.HasMetadata)
+            return null;
+
+        var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
+
+        // Address zero is nil in every heap, including an absent one, so it is
+        // answered before the bounds check rather than reported out of range.
+        if (address == 0)
+            return new MetadataValue.Nil();
+
+        int size = reader.GetHeapSize(MetadataImageInspector.ToHeapIndex(heap));
+        bool addressable = MetadataImageInspector.AddressingOf(heap) is MetadataHeapAddressing.Index
+            ? address <= size / MetadataHeapAddressingSizes.GuidSize
+            : address < size;
+
+        if (!addressable)
+            return new MetadataValue.Malformed(
+                $"{heap} heap address {address} is past the end of a {size}-byte heap.");
+
+        try
+        {
+            return heap switch
+            {
+                HeapKind.String => StringCell(reader, MetadataTokens.StringHandle(address), options),
+                HeapKind.Blob => BlobCell(reader, MetadataTokens.BlobHandle(address), options),
+                HeapKind.Guid => GuidCell(reader, MetadataTokens.GuidHandle(address)),
+                HeapKind.UserString => UserStringCell(reader, MetadataTokens.UserStringHandle(address), options),
+                _ => throw new System.Diagnostics.UnreachableException($"Unhandled heap {heap}."),
+            };
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
+        {
+            // Handle construction happens outside the cell readers' own guards,
+            // so a rejected address is contained here rather than escaping as a
+            // throw from a read-only query. An unknown HeapKind is not caught
+            // here: ToHeapIndex above already rejected it.
+            return new MetadataValue.Malformed($"{heap} heap read failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="value"/> is an edge onto the target row. A handle
+    /// names one row; a list column covers the half-open run
+    /// <c>[StartRowId, EndRowId)</c>, so membership — not equality — decides.
+    /// </summary>
+    static bool PointsAt(MetadataValue value, TableIndex table, int rowId, out MetadataRowReferenceKind kind)
+    {
+        switch (value)
+        {
+            case MetadataValue.Handle handle
+                when handle.Reference.TargetTable == table && handle.Reference.TargetRowId == rowId:
+                kind = MetadataRowReferenceKind.Handle;
+                return true;
+
+            case MetadataValue.Range range
+                when range.Reference.TargetTable == table
+                    && rowId >= range.Reference.StartRowId
+                    && rowId < range.Reference.EndRowId:
+                kind = MetadataRowReferenceKind.Range;
+                return true;
+
+            default:
+                kind = default;
+                return false;
+        }
+    }
+
     static MetadataTableView BuildView(
         MetadataReader reader,
         TableSpec spec,
         int rowCount,
         MetadataProjectionOptions options)
     {
-        int limit = Math.Min(rowCount, Math.Max(0, options.MaxRowsPerTable));
-        var rows = ImmutableArray.CreateBuilder<MetadataRow>(limit);
+        int start = Math.Max(1, options.StartRowId);
+        int budget = Math.Max(0, options.MaxRowsPerTable);
 
-        for (int rid = 1; rid <= limit; rid++)
+        // Widen before adding: a caller-supplied start near int.MaxValue would
+        // otherwise overflow into a window that wrongly overlaps the table.
+        long inclusiveEnd = (long)start + budget - 1;
+        int end = (int)Math.Min(rowCount, inclusiveEnd);
+        int projected = end < start ? 0 : end - start + 1;
+
+        var rows = ImmutableArray.CreateBuilder<MetadataRow>(projected);
+
+        for (int rid = start; rid <= end; rid++)
         {
             int token = ((int)spec.Index << 24) | rid;
 
@@ -141,7 +552,7 @@ public static class MetadataTableProjector
             }
         }
 
-        var truncation = limit < rowCount ? new MetadataTableTruncation(limit, rowCount) : null;
+        var truncation = projected < rowCount ? new MetadataTableTruncation(projected, rowCount) : null;
         return new MetadataTableView(spec.Index, spec.Name, rowCount, spec.Columns, rows.ToImmutable(), truncation);
     }
 
@@ -512,6 +923,24 @@ public static class MetadataTableProjector
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
             return new MetadataValue.Malformed($"String heap read failed: {ex.Message}");
+        }
+    }
+
+    static MetadataValue UserStringCell(MetadataReader reader, UserStringHandle handle, MetadataProjectionOptions options)
+    {
+        if (handle.IsNil)
+            return new MetadataValue.Nil();
+
+        try
+        {
+            string raw = reader.GetUserString(handle);
+            string text = EscapeText(raw, options.MaxStringChars, out bool truncated);
+            return new MetadataValue.HeapReference(
+                HeapKind.UserString, MetadataTokens.GetHeapOffset(handle), raw.Length, text, text, truncated);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
+        {
+            return new MetadataValue.Malformed($"UserString heap read failed: {ex.Message}");
         }
     }
 

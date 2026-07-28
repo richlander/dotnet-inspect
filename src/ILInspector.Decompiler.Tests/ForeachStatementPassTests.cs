@@ -472,6 +472,168 @@ public class ForeachStatementPassTests
     }
 
     [Fact]
+    public void InlineCurrentForeach_RaisesToForeach()
+    {
+        // The single-use iteration variable is folded into its one use by
+        // ExpressionInliningPass before this pass runs, so no `item = e.Current`
+        // store survives — the hidden enumerator is referenced only by MoveNext
+        // and one inline `e.Current`. The pass rebinds that inline read to a
+        // fresh foreach variable. (JsonElement.DeepEquals Array arm, #3164.)
+        var function = Raised(nameof(CfgSampleClass.ForeachSingleUseWithParallelEnumerator));
+
+        var foreachStatement = Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.Equal("int", foreachStatement.LocalType.ToDisplayString());
+        Assert.Empty(function.Descendants.OfType<UsingStatement>());
+        // Only the manually advanced parallel enumerator's while loop is gone;
+        // the foreach replaced the compiler loop, leaving no WhileLoop behind.
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+        Assert.Contains(foreachStatement.ConsumedMemberRefs, method => method.Name == "get_Current");
+        Assert.Contains(foreachStatement.ConsumedMemberRefs, method => method.Name == "MoveNext");
+    }
+
+    [Fact]
+    public void InlineCurrentForeach_PrintRaised_RendersForeachWithInlineCurrentRebound()
+    {
+        var output = CSharpPrinter.Print(
+            Raised(nameof(CfgSampleClass.ForeachSingleUseWithParallelEnumerator))).Output;
+
+        Assert.NotNull(output);
+        // The foreach header binds a fresh variable and the inline use is rebound
+        // to it; the parallel manual enumerator keeps its own MoveNext/Current.
+        Assert.Contains("foreach (int ", output);
+        Assert.Contains("in a)", output);
+        Assert.Contains("other.MoveNext();", output);
+        // No compiler enumerator loop survives: the foreach's own
+        // GetEnumerator/MoveNext are consumed (the parallel `other` enumerator
+        // keeps its own, which is expected).
+        Assert.DoesNotContain("using (", output);
+        Assert.DoesNotContain(".MoveNext())", output);
+    }
+
+    [Fact]
+    public void InlineCurrentForeach_WithoutSymbols_StaysUsingWhile()
+    {
+        // Same discriminator as the hoisted enumerator form: without the hidden
+        // enumerator slot the compiler foreach cannot be told from a hand-written
+        // using/while, so it declines and the loop stays lowered.
+        var function = RaisedWithoutSymbols(
+            nameof(CfgSampleClass.ForeachSingleUseWithParallelEnumerator));
+
+        Assert.DoesNotContain(function.Descendants.OfType<ForeachStatement>(), _ => true);
+        Assert.Single(function.Descendants.OfType<UsingStatement>());
+    }
+
+    [Fact]
+    public void InlineCurrentForeach_ConditionalCurrentRead_StaysUsingWhile()
+    {
+        // The inline matcher must decline a loop whose single `e.Current` read is
+        // reached conditionally (here, inside an `if`-then), the shape a
+        // hand-written `while` produces when it reads Current only some
+        // iterations — e.g. Enumerable.ElementAt's `if (index == 0) return
+        // e.Current;`. csc emits that read after the branch test, so its source
+        // offset is not the loop body's minimum; ReadOriginatesAtLoopBodyTop
+        // therefore declines it. Re-hoisting it to a foreach header would run
+        // get_Current every iteration, changing how often it executes (and, for a
+        // throwing/side-effecting enumerator, observable behavior). The
+        // enumerator is a hidden slot over a supported IEnumerable<int>, so the
+        // symbol/collection gate passes and the decision rests entirely on the
+        // provenance guard.
+        var function = BuildInlineConditionalCurrentEnumeratorLoop();
+
+        new ForeachStatementPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Single(function.Descendants.OfType<UsingStatement>());
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
+    public void InlineCurrentForeach_UnconditionalReadAfterSideEffect_StaysUsingWhile()
+    {
+        // Reorder guard: the single `e.Current` read is unconditional (it sits in
+        // the loop-body `if`-*condition*, evaluated every iteration), so a
+        // frequency-only check would wrongly accept it — but a side-effecting
+        // `SideEffect()` call was emitted before it. Hoisting get_Current to the
+        // foreach header would move it ahead of that call, changing their order
+        // (observable if either throws or mutates shared state). The read's source
+        // offset is not the loop body's minimum (the call's is), so
+        // ReadOriginatesAtLoopBodyTop declines and the loop stays lowered.
+        var function = BuildInlineCurrentReadAfterSideEffectLoop();
+
+        new ForeachStatementPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Single(function.Descendants.OfType<UsingStatement>());
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
+    public void InlineCurrentForeach_ReadInsideNestedLoopAtBodyTop_StaysUsingWhile()
+    {
+        // A nested loop contributes no distinguishing leading IL, so a
+        // `do { if (e.Current == 0) ... } while (...)` at the loop-body top has
+        // get_Current as the first executable instruction (offset == body top) —
+        // the offset check alone would accept it. But the read runs once per inner
+        // iteration, i.e. many times per outer iteration; hoisting it to the
+        // foreach header would run it exactly once, changing execution count.
+        // ReadOriginatesAtLoopBodyTop rejects a read wrapped in any nested loop.
+        // (A real foreach whose iteration variable is used inside a nested loop
+        // must store it — the stack-cached inline form cannot cross the loop
+        // boundary — so this declines no real foreach.)
+        var function = BuildInlineCurrentReadInNestedLoop();
+
+        new ForeachStatementPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Single(function.Descendants.OfType<UsingStatement>());
+    }
+
+    [Fact]
+    public void InlineCurrentForeach_ReadInsideTryAtBodyTop_StaysUsingWhile()
+    {
+        // Exception regions emit no IL of their own, so a hand-written
+        // `try { if (e.Current == 0) ... } catch { ... }` at the loop-body top has
+        // get_Current as the first *executable* instruction (offset == body top) —
+        // the offset check alone would accept it. But the read is protected by the
+        // handler; hoisting it to the foreach header moves get_Current out of the
+        // try, so a throwing enumerator would escape the loop instead of being
+        // caught. ReadOriginatesAtLoopBodyTop rejects a read wrapped in any
+        // try/catch/finally within the body. (A real foreach whose iteration
+        // variable is used inside a try must store it — the stack-cached inline
+        // form cannot cross the region boundary — so this declines no real
+        // foreach.)
+        var function = BuildInlineCurrentReadInTryLoop();
+
+        new ForeachStatementPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Single(function.Descendants.OfType<UsingStatement>());
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
+    public void InlineCurrentForeach_UnconditionalCurrentReadInsideIfCondition_RaisesToForeach()
+    {
+        // Positive control for the guard: the same hidden-enumerator loop, but the
+        // single `e.Current` read sits in the loop-body `if`-*condition* as the
+        // first operation, so its source offset is the loop body's minimum — the
+        // provenance of a real foreach header. The inline matcher recovers the
+        // foreach.
+        var function = BuildInlineUnconditionalCurrentEnumeratorLoop();
+
+        new ForeachStatementPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.Empty(function.Descendants.OfType<UsingStatement>());
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
     public void HandWrittenEnumeratorUsingLoop_WithoutSymbols_StaysUsingWhile()
     {
         var function = RaisedWithoutSymbols(nameof(CfgSampleClass.StructUsing));
@@ -616,6 +778,190 @@ public class ForeachStatementPassTests
             [enumeratorType, intType],
             body);
     }
+
+    // A compiler foreach over IEnumerable<int> whose single-use iteration
+    // variable's `e.Current` read was inlined by ExpressionInliningPass — but
+    // into an `if` branch, so the read is reached only some iterations. Models
+    // the Enumerable.ElementAt shape the inline matcher must decline. When
+    // <paramref name="conditional"/> is false the read instead sits in the
+    // loop-body `if`-condition (evaluated every iteration), the safe shape the
+    // matcher raises.
+    enum InlineReadPlacement
+    {
+        // e.Current read is the first operation of the loop body (foreach header).
+        BodyTop,
+        // e.Current read sits inside an `if`-then, reached only some iterations.
+        ConditionalThen,
+        // e.Current read is unconditional but a side-effecting statement precedes
+        // it in the body, so hoisting it to the loop top would reorder get_Current
+        // ahead of that statement.
+        AfterSideEffect,
+        // e.Current read is the first executable instruction of the body but sits
+        // inside a try, so hoisting it to the foreach header would move it out of
+        // the protected region — the offset is body-top but the region is metadata.
+        TryProtectedBodyTop,
+        // e.Current read is the first executable instruction of the body but sits
+        // inside a nested do-loop at the body top, so it runs many times per outer
+        // iteration; hoisting to the header would run it once.
+        NestedLoopBodyTop,
+    }
+
+    static IrFunction BuildInlineCurrentEnumeratorLoop(InlineReadPlacement placement)
+    {
+        // The loop body's first IL instruction sits at this offset; the guard
+        // compares the read's origin to the body block's import-stamped StartOffset.
+        const int BodyStart = 0x10;
+
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var exceptionType = TypeRef.CoreLib("System", "Exception");
+        var collectionType = TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1");
+        var enumeratorType = TypeRef.CoreLib("System.Collections.Generic", "IEnumerator`1");
+        var ownerType = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var getEnumerator = new MethodRef(collectionType, "GetEnumerator", enumeratorType, [], HasThis: true);
+        var moveNext = new MethodRef(enumeratorType, "MoveNext", boolType, [], HasThis: true);
+        var sideEffect = new MethodRef(ownerType, "SideEffect", voidType, [], HasThis: false);
+        var current = new MethodRef(enumeratorType, "get_Current", intType, [], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+
+        // Stamp source offsets in emission order: the guard recovers foreach-header
+        // provenance from them (the read is a real header only when its subtree's
+        // minimum offset equals the loop body's entry offset).
+        static T Stamp<T>(T node, int offset) where T : IrNode
+        {
+            node.SetSourceOffset(offset);
+            return node;
+        }
+
+        LoadProperty CurrentRead(int receiverOffset)
+            => Stamp(new LoadProperty(current, Stamp(new LoadLocal(0, enumeratorType), receiverOffset), []), receiverOffset + 1);
+
+        var loopBody = new Block(BodyStart);
+        switch (placement)
+        {
+            case InlineReadPlacement.BodyTop:
+                // if (e.Current == 0) return true;  — the read is the first thing
+                // in the body (in the `if`-condition), evaluated every iteration.
+                {
+                    var thenArm = new Block();
+                    thenArm.Add(Stamp(new Return(Stamp(new Constant(1, boolType), BodyStart + 4)), BodyStart + 5));
+                    loopBody.Add(Stamp(new IfStatement(
+                        Stamp(new Comparison(ComparisonKind.Equal, isUnsigned: false, CurrentRead(BodyStart), Stamp(new Constant(0, intType), BodyStart + 2)), BodyStart + 3),
+                        thenArm,
+                        null), BodyStart + 3));
+                }
+                break;
+
+            case InlineReadPlacement.ConditionalThen:
+                // if (probe == 0) return e.Current;  — the read runs only when the
+                // branch is taken, and is emitted after the probe comparison.
+                {
+                    var thenArm = new Block();
+                    thenArm.Add(Stamp(new Return(CurrentRead(BodyStart + 5)), BodyStart + 7));
+                    loopBody.Add(Stamp(new IfStatement(
+                        Stamp(new Comparison(ComparisonKind.Equal, isUnsigned: false, Stamp(new LoadArgument(1, "probe", intType), BodyStart), Stamp(new Constant(0, intType), BodyStart + 1)), BodyStart + 2),
+                        thenArm,
+                        null), BodyStart + 2));
+                }
+                break;
+
+            case InlineReadPlacement.AfterSideEffect:
+                // SideEffect(); if (e.Current == 0) return true;  — the read is
+                // unconditional (in the `if`-condition) but a side-effecting call
+                // was emitted first, so get_Current is not the body's first op.
+                {
+                    loopBody.Add(Stamp(new ExpressionStatement(Stamp(new Call(sideEffect, isVirtual: false, []), BodyStart)), BodyStart));
+                    var thenArm = new Block();
+                    thenArm.Add(Stamp(new Return(Stamp(new Constant(1, boolType), BodyStart + 8)), BodyStart + 9));
+                    loopBody.Add(Stamp(new IfStatement(
+                        Stamp(new Comparison(ComparisonKind.Equal, isUnsigned: false, CurrentRead(BodyStart + 5), Stamp(new Constant(0, intType), BodyStart + 7)), BodyStart + 8),
+                        thenArm,
+                        null), BodyStart + 8));
+                }
+                break;
+
+            case InlineReadPlacement.TryProtectedBodyTop:
+                // try { if (e.Current == 0) return true; } catch { return false; }
+                // — get_Current is the first executable instruction (offset ==
+                // body top), but it is inside the try's protected region, which
+                // emits no IL of its own. Hoisting it to the foreach header would
+                // move it out of the handler's scope.
+                {
+                    var thenArm = new Block();
+                    thenArm.Add(Stamp(new Return(Stamp(new Constant(1, boolType), BodyStart + 4)), BodyStart + 5));
+                    var tryInner = new Block(BodyStart);
+                    tryInner.Add(Stamp(new IfStatement(
+                        Stamp(new Comparison(ComparisonKind.Equal, isUnsigned: false, CurrentRead(BodyStart), Stamp(new Constant(0, intType), BodyStart + 2)), BodyStart + 3),
+                        thenArm,
+                        null), BodyStart + 3));
+                    var tryBody = new BlockContainer();
+                    tryBody.Add(tryInner);
+
+                    var catchInner = new Block(BodyStart + 0x10);
+                    catchInner.Add(Stamp(new Return(Stamp(new Constant(0, boolType), BodyStart + 0x11)), BodyStart + 0x12));
+                    var catchBody = new BlockContainer();
+                    catchBody.Add(catchInner);
+                    var catchClause = new CatchClause(exceptionType, catchBody);
+
+                    loopBody.Add(Stamp(new TryCatch(tryBody, [catchClause]), BodyStart));
+                }
+                break;
+
+            case InlineReadPlacement.NestedLoopBodyTop:
+                // do { if (e.Current == 0) return true; } while (probe == 0);
+                // — get_Current is the first executable instruction (offset ==
+                // body top), but it is inside a nested do-loop, so it runs once
+                // per inner iteration, many times per outer iteration.
+                {
+                    var thenArm = new Block();
+                    thenArm.Add(Stamp(new Return(Stamp(new Constant(1, boolType), BodyStart + 4)), BodyStart + 5));
+                    var doInner = new Block(BodyStart);
+                    doInner.Add(Stamp(new IfStatement(
+                        Stamp(new Comparison(ComparisonKind.Equal, isUnsigned: false, CurrentRead(BodyStart), Stamp(new Constant(0, intType), BodyStart + 2)), BodyStart + 3),
+                        thenArm,
+                        null), BodyStart + 3));
+                    var doBody = new BlockContainer();
+                    doBody.Add(doInner);
+                    var condition = Stamp(new Comparison(ComparisonKind.Equal, isUnsigned: false, Stamp(new LoadArgument(1, "probe", intType), BodyStart + 8), Stamp(new Constant(0, intType), BodyStart + 9)), BodyStart + 10);
+                    loopBody.Add(Stamp(new DoWhileLoop(doBody, condition), BodyStart));
+                }
+                break;
+        }
+
+        var usingBody = new BlockContainer();
+        var usingBlock = new Block();
+        usingBlock.Add(new WhileLoop(new Call(moveNext, isVirtual: true, [new LoadLocal(0, enumeratorType)]), loopBody));
+        usingBody.Add(usingBlock);
+
+        var entry = new Block();
+        entry.Add(new UsingStatement(0, enumeratorType, new Call(getEnumerator, isVirtual: true, [new LoadArgument(0, "items", collectionType)]), usingBody));
+        var body = new BlockContainer();
+        body.Add(entry);
+        return new IrFunction(
+            "M",
+            ownerType,
+            new MethodSignature(boolType, [new Parameter("items", collectionType), new Parameter("probe", intType)], HasThis: false, GenericParameterCount: 0),
+            [enumeratorType],
+            body);
+    }
+
+    static IrFunction BuildInlineConditionalCurrentEnumeratorLoop()
+        => BuildInlineCurrentEnumeratorLoop(InlineReadPlacement.ConditionalThen);
+
+    static IrFunction BuildInlineUnconditionalCurrentEnumeratorLoop()
+        => BuildInlineCurrentEnumeratorLoop(InlineReadPlacement.BodyTop);
+
+    static IrFunction BuildInlineCurrentReadAfterSideEffectLoop()
+        => BuildInlineCurrentEnumeratorLoop(InlineReadPlacement.AfterSideEffect);
+
+    static IrFunction BuildInlineCurrentReadInTryLoop()
+        => BuildInlineCurrentEnumeratorLoop(InlineReadPlacement.TryProtectedBodyTop);
+
+    static IrFunction BuildInlineCurrentReadInNestedLoop()
+        => BuildInlineCurrentEnumeratorLoop(InlineReadPlacement.NestedLoopBodyTop);
 
     static IrFunction BuildStructCollectionEnumeratorUsingWhile()
     {

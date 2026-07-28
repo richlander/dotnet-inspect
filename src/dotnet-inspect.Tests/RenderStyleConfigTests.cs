@@ -967,14 +967,35 @@ public class RenderStyleConfigTests
     [Fact]
     public void ApiOnlyCatalogKnobs_HaveNoConfigKey()
     {
-        // Knobs with no config key (formatting/synthesis) are API-only and must not
-        // be reachable through the file vocabulary; a made-up key still warns.
+        // Knobs with no config key (formatting) are API-only and must not be
+        // reachable through the file vocabulary; a made-up key still warns. The
+        // whitespace-only wrappers are the standing API-only examples (synthesis's
+        // readable-local-names is now file-reachable under a tool-owned key).
         var apiOnly = StyleOptionCatalog.Options.Where(o => o.ConfigKey is null).ToArray();
-        Assert.Contains(apiOnly, o => o.Id == "readable-local-names");
+        Assert.Contains(apiOnly, o => o.Id == "wrap-splittable-expressions");
+        Assert.Contains(apiOnly, o => o.Id == "disable-one-liner-wrapping");
 
-        var result = RenderStyleConfig.Parse("readable_local_names = true", origin: "cfg");
-        Assert.False(result.Options.ReadableLocalNames);
+        var result = RenderStyleConfig.Parse("wrap_splittable_expressions = true", origin: "cfg");
+        Assert.False(result.Options.WrapSplittableExpressions);
         Assert.Contains(result.Warnings, w => w.Contains("unknown key"));
+    }
+
+    [Fact]
+    public void ReadableLocalNamesConfigKey_RoundTrips()
+    {
+        // readable-local-names is byte-preserving synthesis, so it is not in the
+        // oracle-endorsed taste aggregate; it carries its own tool-owned key.
+        var on = RenderStyleConfig.Parse("dotnet_inspect_style_readable_local_names = true", origin: "cfg");
+        Assert.Empty(on.Warnings);
+        Assert.True(on.Options.ReadableLocalNames);
+
+        var off = RenderStyleConfig.Parse("dotnet_inspect_style_readable_local_names = false", origin: "cfg");
+        Assert.Empty(off.Warnings);
+        Assert.False(off.Options.ReadableLocalNames);
+
+        // The aggregate must not turn it on (it is not oracle-endorsed).
+        var taste = RenderStyleConfig.Parse("dotnet_inspect_style_full_taste = true", origin: "cfg");
+        Assert.False(taste.Options.ReadableLocalNames);
     }
 
     private static string CreateTempDirectory()

@@ -108,13 +108,18 @@ public sealed class MethodBodyInspectionSession
 
     /// <summary>
     /// Inbound caller graph rooted at one method, extended across sibling caller-scope
-    /// <paramref name="scopes"/> (opened as their own sessions). Empty scopes fall back to the
-    /// same-assembly-only reverse graph.
+    /// <paramref name="scopes"/> (opened as their own sessions).
+    ///
+    /// A <see langword="null"/> <paramref name="scopes"/> means no cross-assembly scope was
+    /// requested and selects the same-assembly-only reverse graph. A non-null but empty list means
+    /// a scope was requested and contributed no assemblies; that still takes the cross-assembly
+    /// builder, because the two builders key the reverse graph differently and the result must not
+    /// depend on how many scope assemblies happened to survive filtering.
     /// </summary>
-    public Analysis.CallTreeNode CallerTree(int methodToken, IReadOnlyList<MethodBodyInspectionSession> scopes)
-        => scopes is { Count: > 0 }
-            ? BodyIndex.BuildCallerTree(methodToken, scopes.Select(s => s.BodyIndex).ToArray())
-            : BodyIndex.BuildCallerTree(methodToken);
+    public Analysis.CallTreeNode CallerTree(int methodToken, IReadOnlyList<MethodBodyInspectionSession>? scopes)
+        => scopes is null
+            ? BodyIndex.BuildCallerTree(methodToken)
+            : BodyIndex.BuildCallerTree(methodToken, scopes.Select(s => s.BodyIndex).ToArray());
 
     /// <summary>
     /// Inbound call edges targeting one method (<paramref name="targetToken"/>), each tagged with the

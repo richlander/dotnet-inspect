@@ -211,7 +211,7 @@ SourceLink URLs are exposed on the command you are already using.
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --table
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --urls --json-array
 dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1
-dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print-all --jsonl
+dotnet-inspect type JsonSerializer --platform System.Text.Json -S "Source Files" --print --row 1 --jsonl
 ```
 
 ```expect

@@ -118,9 +118,9 @@ public class LibraryCommand
         if (options.Count && !CountOutput.ValidateSectionsSelected(options.IncludeSections))
             return 1;
 
-        if (options.Count && (options.Print || options.PrintAll))
+        if (options.Count && options.Print)
         {
-            Console.Error.WriteLine("Error: --count cannot be combined with --print or --print-all.");
+            Console.Error.WriteLine("Error: --count cannot be combined with --print.");
             return 1;
         }
 
@@ -136,9 +136,9 @@ public class LibraryCommand
             var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
             if (!ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
                 return 1;
-            if (options.Count || options.Print || options.PrintAll)
+            if (options.Count || options.Print)
             {
-                Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count, --print, or --print-all.");
+                Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count or --print.");
                 return 1;
             }
             if (options.Rows is not null)
@@ -148,9 +148,9 @@ public class LibraryCommand
             }
         }
 
-        if (options.JsonArray && shapeCount == 0 && !options.Print && !options.PrintAll)
+        if (options.JsonArray && shapeCount == 0 && !options.Print)
         {
-            Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, --print, or --print-all.");
+            Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, or --print.");
             return 1;
         }
 
@@ -160,28 +160,16 @@ public class LibraryCommand
             return 1;
         }
 
-        if ((options.Print || options.PrintAll) && !ValidateLibraryPrintSelection(options.IncludeSections))
+        if (options.Print && !ValidateLibraryPrintSelection(options.IncludeSections))
             return 1;
 
-        if ((options.Print || options.PrintAll) && options.Rows is not null)
+        if (options.Print && options.Rows is not null)
         {
-            Console.Error.WriteLine("Error: --rows cannot be combined with --print or --print-all; use --row N|first|last to choose a printed row.");
+            Console.Error.WriteLine("Error: --rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
             return 1;
         }
 
-        if (options.Print && options.PrintAll)
-        {
-            Console.Error.WriteLine("Error: --print cannot be combined with --print-all.");
-            return 1;
-        }
-
-        if (options.PrintAll && options.PrintRow is not null)
-        {
-            Console.Error.WriteLine("Error: --print-all cannot be combined with --row.");
-            return 1;
-        }
-
-        if (options.ProjectionRow is not null && !options.Print && !options.PrintAll && shapeCount == 0)
+        if (options.ProjectionRow is not null && !options.Print && shapeCount == 0)
         {
             Console.Error.WriteLine("Error: --row requires --print, --value, --urls, or --paths.");
             return 1;
@@ -285,7 +273,7 @@ public class LibraryCommand
                     return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline, userVerbosity, cache: !HasILOffsetCoordinate(options));
                 if (TryWriteLibrarySingletonCount(inspection, options))
                     return 0;
-                if (options.Print || options.PrintAll)
+                if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspection, options);
@@ -355,7 +343,7 @@ public class LibraryCommand
                     return WriteEffectiveSections(assemblyPaths[0], inspections[0], options, pipeline, userVerbosity, cache: !HasILOffsetCoordinate(options));
                 if (TryWriteLibrarySingletonCount(inspections[0], options))
                     return 0;
-                if (options.Print || options.PrintAll)
+                if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspections[0], options);
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspections[0], options);
@@ -411,7 +399,7 @@ public class LibraryCommand
                     return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline, userVerbosity, cache: !HasILOffsetCoordinate(options));
                 if (TryWriteLibrarySingletonCount(inspection, options))
                     return 0;
-                if (options.Print || options.PrintAll)
+                if (options.Print)
                     return await WriteLibraryPrintProjectionAsync(inspection, options);
                 if (options.Value || options.Urls || options.Paths)
                     return WriteLibraryShapeProjection(inspection, options);
@@ -486,7 +474,6 @@ public class LibraryCommand
                 Select = [.. sections],
                 Discover = null,
                 Print = false,
-                PrintAll = false,
                 Count = false,
                 Value = false,
                 Urls = false,
@@ -871,7 +858,6 @@ public class LibraryCommand
         return PrintProjectionOutput.Write(
             projection.Documents,
             new PrintProjectionOptions(
-                options.PrintAll,
                 options.PrintRow,
                 options.JsonOutput,
                 options.Jsonl,

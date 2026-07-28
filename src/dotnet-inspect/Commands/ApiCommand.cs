@@ -47,11 +47,13 @@ public class ApiCommand
             NoHeader = options.NoHeader, Limit = options.Limit, MemberFilter = options.MemberFilter,
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
             IncludeSections = options.IncludeSections,
-            Print = options.Print, PrintAll = options.PrintAll, PrintRow = options.PrintRow,
+            Print = options.Print, PrintRow = options.PrintRow,
             Value = options.Value, Urls = options.Urls, Paths = options.Paths,
             Select = options.Select, Columns = options.Columns, Fields = options.Fields,
             Schema = options.Schema, Count = options.Count, SourceOptions = options.SourceOptions,
-            TipLevel = options.TipLevel, RenderOptions = options.RenderOptions
+            TipLevel = options.TipLevel, RenderOptions = options.RenderOptions,
+            RequestAllTaste = options.RequestAllTaste,
+            RequestReadableLocalNames = options.RequestReadableLocalNames
         })
     };
 
@@ -127,9 +129,9 @@ public class ApiCommand
             var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
             if (!ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
                 return (null!, 1);
-            if (options.Count || options.Print || options.PrintAll)
+            if (options.Count || options.Print)
             {
-                Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count, --print, or --print-all.");
+                Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count or --print.");
                 return (null!, 1);
             }
             if (options.Rows is not null)
@@ -139,9 +141,9 @@ public class ApiCommand
             }
         }
 
-        if (options.JsonArray && shapeCount == 0 && !options.Print && !options.PrintAll)
+        if (options.JsonArray && shapeCount == 0 && !options.Print)
         {
-            Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, --print, or --print-all.");
+            Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, or --print.");
             return (null!, 1);
         }
 
@@ -151,24 +153,18 @@ public class ApiCommand
             return (null!, 1);
         }
 
-        if ((options.Print || options.PrintAll) && !ValidateApiPrintSelection(options.IncludeSections))
+        if (options.Print && !ValidateApiPrintSelection(options.IncludeSections))
             return (null!, 1);
 
-        if ((options.Print || options.PrintAll) && options.Rows is not null)
+        if (options.Print && options.Rows is not null)
         {
-            Console.Error.WriteLine("Error: --rows cannot be combined with --print or --print-all; use --row N|first|last to choose a printed row.");
+            Console.Error.WriteLine("Error: --rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
             return (null!, 1);
         }
 
         if (options.PrintRow is not null && !options.Print && shapeCount == 0)
         {
             Console.Error.WriteLine("Error: --row requires --print, --value, --urls, or --paths.");
-            return (null!, 1);
-        }
-
-        if (options.Print && options.PrintAll)
-        {
-            Console.Error.WriteLine("Error: --print cannot be combined with --print-all.");
             return (null!, 1);
         }
 
@@ -214,6 +210,11 @@ public class ApiCommand
         var renderOptions = options.RequestAllTaste
             ? ILInspector.Decompiler.Pipeline.StyleOptionCatalog.ApplyFullTaste(renderStyle.Options)
             : renderStyle.Options;
+        // --readable-names is orthogonal to the style axes the config/--taste cover
+        // (it names V_index locals, not a byte-divergent lens), so it applies on top
+        // of whatever those resolved and never has to be re-checked against them.
+        if (options.RequestReadableLocalNames)
+            renderOptions = renderOptions with { ReadableLocalNames = true };
         options = options with
         {
             RenderOptions = renderOptions,
@@ -242,7 +243,7 @@ public class ApiCommand
         if (includeSections is { Count: 1 })
             return true;
 
-        Console.Error.WriteLine("Error: --print/--print-all requires -S/--select to match exactly one printable section.");
+        Console.Error.WriteLine("Error: --print requires -S/--select to match exactly one printable section.");
         return false;
     }
 
@@ -862,7 +863,7 @@ public class ApiCommand
             }
         }
 
-        if (options.Print || options.PrintAll)
+        if (options.Print)
             return await PrintApiProjectionAsync(view, options);
 
         if (options.Value || options.Urls || options.Paths)
@@ -996,7 +997,6 @@ public class ApiCommand
         return PrintProjectionOutput.Write(
             documents,
             new PrintProjectionOptions(
-                options.PrintAll,
                 options.PrintRow,
                 options.JsonOutput,
                 options.Jsonl,
@@ -1119,50 +1119,45 @@ public class ApiCommand
             .Where(row => !string.IsNullOrWhiteSpace(row.Url))
             .ToList();
         if (printableRows.Count == 0)
-            return PrintProjectionOutput.Write(
-                [],
-                new PrintProjectionOptions(options.PrintAll, null, options.JsonOutput, options.Jsonl, options.JsonArray, options.Bare, OutputPath: null));
-
-        if (!options.PrintAll)
         {
-            if (options.PrintRow is null && printableRows.Count != 1)
-            {
-                Console.Error.WriteLine($"Error: selected section has {printableRows.Count} printable rows; use --row N|first|last to choose one row or --print-all.");
-                return 1;
-            }
-
-            var targetIndex = options.PrintRow?.Resolve(printableRows.Count) ?? 1;
-            if (targetIndex < 1 || targetIndex > printableRows.Count)
-            {
-                Console.Error.WriteLine($"Error: printable row {targetIndex} is out of range. Use 1 through {printableRows.Count}, first, or last.");
-                return 1;
-            }
-
-            printableRows = [printableRows[targetIndex - 1]];
+            Console.Error.WriteLine("Error: selected section has no printable rows.");
+            return 1;
         }
 
+        if (options.PrintRow is null && printableRows.Count != 1)
+        {
+            Console.Error.WriteLine($"Error: selected section has {printableRows.Count} printable rows; use --row N|first|last to choose one row.");
+            return 1;
+        }
+
+        var targetIndex = options.PrintRow?.Resolve(printableRows.Count) ?? 1;
+        if (targetIndex < 1 || targetIndex > printableRows.Count)
+        {
+            Console.Error.WriteLine($"Error: printable row {targetIndex} is out of range. Use 1 through {printableRows.Count}, first, or last.");
+            return 1;
+        }
+
+        var selectedRow = printableRows[targetIndex - 1];
+        var rawUrl = GitHubUrlResolver.ConvertBlobToRawUrl(selectedRow.Url!);
         var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-        List<PrintableDocument> documents = [];
-        foreach (var row in printableRows)
+        var content = await fetcher.FetchSourceAsync(rawUrl);
+        if (content == null)
         {
-            var rawUrl = GitHubUrlResolver.ConvertBlobToRawUrl(row.Url!);
-            var content = await fetcher.FetchSourceAsync(rawUrl);
-            if (content == null)
-                continue;
-
-            documents.Add(new PrintableDocument(
-                row.Row,
-                section,
-                string.IsNullOrWhiteSpace(row.Label) ? rawUrl : row.Label!,
-                null,
-                rawUrl,
-                content));
+            Console.Error.WriteLine($"Error: failed to fetch the document for printable row {targetIndex} from {rawUrl}.");
+            return 1;
         }
+
+        var document = new PrintableDocument(
+            selectedRow.Row,
+            section,
+            string.IsNullOrWhiteSpace(selectedRow.Label) ? rawUrl : selectedRow.Label!,
+            null,
+            rawUrl,
+            content);
 
         return PrintProjectionOutput.Write(
-            documents,
+            [document],
             new PrintProjectionOptions(
-                options.PrintAll,
                 Row: null,
                 options.JsonOutput,
                 options.Jsonl,

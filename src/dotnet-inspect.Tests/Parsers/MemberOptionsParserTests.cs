@@ -69,6 +69,7 @@ public class MemberOptionsParserTests
         memberCommand.Options.Add(opts.Markdown);
         memberCommand.Options.Add(opts.PlainText);
         memberCommand.Options.Add(opts.Bare);
+        memberCommand.Options.Add(opts.ReadableNames);
         opts.AddOutputOptionsTo(memberCommand);
         opts.AddNuGetOptionsTo(memberCommand);
 
@@ -194,6 +195,22 @@ public class MemberOptionsParserTests
         Assert.Empty(options.CallerScopeProjects);
         Assert.Empty(options.CallerScopePackages);
         Assert.False(options.HasCallerScope);
+    }
+
+    [Fact]
+    public async Task ReadableNamesFlag_SetsRequestReadableLocalNames()
+    {
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json", "--readable-names");
+
+        Assert.True(options.RequestReadableLocalNames);
+    }
+
+    [Fact]
+    public async Task WithoutReadableNamesFlag_RequestReadableLocalNamesIsFalse()
+    {
+        var options = await ParseSuccessAsync("member", "JsonSerializer", "--package", "System.Text.Json");
+
+        Assert.False(options.RequestReadableLocalNames);
     }
 
     [Fact]

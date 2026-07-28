@@ -22,6 +22,7 @@ public class SharedOptions
     public Option<bool> BrowsableUrls { get; } = new("--blob") { Description = "Emit GitHub URLs as browser-friendly /blob/ URLs (URL-shape modifier, not an output-shape modifier)" };
     public Option<bool> Mermaid { get; } = new("--mermaid") { Description = "Output as mermaid diagram (standalone or with --markdown for embedded)" };
     public Option<bool> Taste { get; } = new("--taste") { Description = "Render source with the full oracle-endorsed style set (includes byte-divergent lenses); Annotated Source names the applied knobs on the signature" };
+    public Option<bool> ReadableNames { get; } = new("--readable-names") { Description = "Synthesize readable names (from a local's type/role) for locals that have no usable PDB source name, instead of the V_index fallback; byte-preserving (names do not affect IL)" };
     public Option<string?> Focus { get; } = new("--focus") { Description = "Report a fact family with the caret gesture (underlined beneath the statement) instead of a trailing comment: a category (allocation), a descriptor id (alloc.box), or an id prefix (alloc). Promotes, never filters: unmatched facts keep their trailing comment", Arity = ArgumentArity.ExactlyOne };
     public Option<bool> Table { get; } = new("--table") { Description = "Output as a pretty table (space-padded columns)" };
     public Option<bool> Tsv { get; } = new("--tsv") { Description = "Output as normalized tab-separated values" };
@@ -38,7 +39,6 @@ public class SharedOptions
     public Option<int?> Tail { get; }
     public Option<bool> Count { get; } = new("--count") { Description = "Reduce a selected table/vector to a single row count" };
     public Option<bool> Print { get; } = new("--print") { Description = "Print one document behind a selected section row; use --row N|first|last to choose a row when multiple rows are printable" };
-    public Option<bool> PrintAll { get; } = new("--print-all") { Description = "Print all documents behind rows in the selected printable section, separated by item headers" };
     public Option<string?> Row { get; } = new("--row") { Description = "With --print or a shape projection, select a printable row: a 1-based index, first, or last" };
     public Option<bool> Value { get; } = new("--value") { Description = "Print one scalar value from a selected section; use --row N|first|last when multiple rows exist" };
     public Option<bool> Urls { get; } = new("--urls") { Description = "Project URL-bearing selected section rows to a URL list or JSONL rows" };
@@ -246,7 +246,6 @@ public class SharedOptions
     public void AddPrintOptionTo(Command command)
     {
         command.Options.Add(Print);
-        command.Options.Add(PrintAll);
         command.Options.Add(Row);
     }
 

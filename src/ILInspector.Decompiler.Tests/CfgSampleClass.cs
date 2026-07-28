@@ -2106,6 +2106,30 @@ public class CfgSampleClass
         return sum;
     }
 
+    // Compiler foreach whose iteration variable is used exactly once, next to a
+    // second enumerator advanced manually in the loop body. csc hoists `x =
+    // e.Current` to the loop top, but because `x` is single-use and (in the
+    // absence of a source name) inlinable, ExpressionInliningPass can fold that
+    // store into its one use before ForeachStatementPass runs — leaving the
+    // hidden enumerator referenced only by MoveNext and one inline `e.Current`.
+    // This is the shape System.Text.Json.JsonElement.DeepEquals exhibits on its
+    // Array arm (#3164): the pass must still recover the foreach by rebinding the
+    // inline Current to a fresh iteration variable.
+    public static bool ForeachSingleUseWithParallelEnumerator(
+        System.Collections.Generic.List<int> a, System.Collections.Generic.List<int> b)
+    {
+        System.Collections.Generic.List<int>.Enumerator other = b.GetEnumerator();
+        foreach (int x in a)
+        {
+            other.MoveNext();
+            if (x != other.Current)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public ref struct RefStructResource
     {
         public RefStructResource(int value) => Value = value;
@@ -5024,6 +5048,33 @@ public class CfgSampleClass
         using (DisposableFromObjectSpan([a, b])) { n = 1; }
         return n;
     }
+
+    // #3336 stage 1: a struct-typed member assigned `default` in an object
+    // initializer. Roslyn spills `default(InitFlag)` to a local via `initobj`
+    // (a struct has no `ldnull` default), then reads it back as the member value
+    // AFTER the `newobj` — a single-use member-value spill interleaved in the dup
+    // chain. #3272's skip guard only tolerates spills computed BEFORE the newobj,
+    // so without folding the spill the trailing member (and thus the whole
+    // initializer) stays lowered. This must fold to
+    // `new InitTargetWithFlag { X = a, Y = b, Flag = default(InitFlag) }`.
+    // Placed last (with its non-capturing helper types) so it shifts no
+    // pre-existing method's compiler-generated ordinal — the fidelity docket keys
+    // on `<>9__N`/`<>c__DisplayClassN` names (see #3129 S4, #3281).
+    public static InitTargetWithFlag MakeTargetWithDefaultStructMember(int a, int b)
+        => new InitTargetWithFlag { X = a, Y = b, Flag = default };
+
+    public struct InitFlag
+    {
+        public int First;
+        public int Second;
+    }
+
+    public sealed class InitTargetWithFlag
+    {
+        public int X { get; set; }
+        public int Y { get; set; }
+        public InitFlag Flag { get; set; }
+    }
 }
 
 internal static class AwaitOrderingHelpers
@@ -6108,4 +6159,39 @@ public static class FlagsEnumAccumulatorSamples
             | FlagCaps64.MultiResults;
         return (int)caps;
     }
+}
+
+// #3371 follow-up witnesses: a record `with` expression and an anonymous object
+// wide enough that the printer's brace-body width wrapper breaks them Allman-style
+// (one entry per line). New top-level types appended at end of file so they cannot
+// shift any existing CfgSampleClass generated-code ordinals.
+public sealed record MeasuredRecord(
+    int FirstMeasuredValue,
+    int SecondMeasuredValue,
+    int ThirdMeasuredValue,
+    int FourthMeasuredValue);
+
+public static class BraceBodyWrappingSamples
+{
+    // `source with { A = .., B = .., C = .., D = .. }` — flat form exceeds 120 cols.
+    public static MeasuredRecord WidenMeasuredRecord(MeasuredRecord source, int first, int second, int third, int fourth)
+        => source with
+        {
+            FirstMeasuredValue = first,
+            SecondMeasuredValue = second,
+            ThirdMeasuredValue = third,
+            FourthMeasuredValue = fourth,
+        };
+
+    // Anonymous types are reference types, so returning one as `object` needs no
+    // box/cast; the anonymous object stays the bare return value. Explicit
+    // `Name = value` form (value names differ from property names), flat > 120 cols.
+    public static object ProjectMeasuredValues(int first, int second, int third, int fourth)
+        => new
+        {
+            FirstMeasuredProjection = first,
+            SecondMeasuredProjection = second,
+            ThirdMeasuredProjection = third,
+            FourthMeasuredProjection = fourth,
+        };
 }
