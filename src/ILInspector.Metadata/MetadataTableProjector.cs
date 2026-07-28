@@ -219,17 +219,18 @@ public static class MetadataTableProjector
 
         var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
 
-        // Populated tables outside the projection are never visited, so an edge
-        // living in one of them cannot be found. Report that as a blind spot
-        // rather than letting the caller read an empty result as an absent
-        // reference. Row counts only — no scanning is required to learn this.
-        var unscanned = CollectUnscannedTables(reader);
-
         // The scan needs edges, not text. Handle and range cells carry their
         // target table and row id independently of these budgets, so trimming the
         // heap previews cannot change which rows match — it only avoids decoding
         // strings and blobs the result never shows.
         var scan = new MetadataProjectionOptions { MaxStringChars = 1, MaxPreviewBytes = 0 };
+
+        // What the scan actually reached, recorded as it goes. The blind-spot
+        // report is derived from this rather than from SupportedTables, so a
+        // table the loop skips — because the projection does not model it, or
+        // because the budget stopped the scan before reaching it — cannot be
+        // declared searched by a list that disagrees with the loop.
+        var visited = new HashSet<TableIndex>();
 
         bool truncated = false;
         foreach (var spec in SupportedTables)
@@ -294,28 +295,40 @@ public static class MetadataTableProjector
                 if (blind)
                     unreadable.Add(new MetadataRowLocation(spec.Index, rid));
             }
+
+            // Recorded after the row loop, not before it, so any path that
+            // skips this table's rows also leaves it out of `visited` and it
+            // shows up as a blind spot. A budget that stopped the scan mid-table
+            // still counts as visited: the table was searched up to that point,
+            // and `Truncated` is what carries the rest.
+            visited.Add(spec.Index);
         }
 
         return new MetadataRowReferenceSet(
-            target, references.ToImmutable(), unreadable.ToImmutable(), unscanned, truncated);
+            target,
+            references.ToImmutable(),
+            unreadable.ToImmutable(),
+            CollectUnscannedTables(reader, visited),
+            truncated);
     }
 
     /// <summary>
-    /// The populated tables a reverse search cannot see, because the projection
-    /// does not model them. Empty tables are excluded: a table with no rows
-    /// cannot hold an edge onto the target, so reporting it would overstate the
-    /// blind spot.
+    /// The populated tables a reverse search did not reach — because the
+    /// projection does not model them, or because the result budget stopped the
+    /// scan first. Derived from the tables the scan actually visited, not from a
+    /// parallel declaration of what it intends to visit: the two could drift,
+    /// and a blind spot that under-reports is the bug this exists to prevent.
+    /// Empty tables are excluded: a table with no rows cannot hold an edge onto
+    /// the target, so reporting it would overstate the blind spot.
     /// </summary>
-    static ImmutableArray<TableIndex> CollectUnscannedTables(MetadataReader reader)
+    static ImmutableArray<TableIndex> CollectUnscannedTables(
+        MetadataReader reader,
+        HashSet<TableIndex> visited)
     {
-        var modeled = new HashSet<TableIndex>();
-        foreach (var spec in SupportedTables)
-            modeled.Add(spec.Index);
-
         var unscanned = ImmutableArray.CreateBuilder<TableIndex>();
         foreach (var table in Enum.GetValues<TableIndex>())
         {
-            if (modeled.Contains(table))
+            if (visited.Contains(table))
                 continue;
 
             // Every defined TableIndex is below the reader's table count, so

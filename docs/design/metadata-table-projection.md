@@ -440,13 +440,21 @@ oversights:
   tables. A real assembly populates tables outside that subset — `NestedClass`,
   `MethodSemantics`, `InterfaceImpl`, `Property` and friends — so an edge living
   in one of them is invisible to the search. A nested type's declaring type is
-  exactly such an edge. `UnscannedTables` names the populated unmodelled tables
-  so the gap is disclosed rather than answered as an absence. Empty tables are
-  excluded: they cannot hide a reference.
+  exactly such an edge. `UnscannedTables` names the populated tables the scan
+  did not reach so the gap is disclosed rather than answered as an absence.
+  Empty tables are excluded: they cannot hide a reference.
+- **`UnscannedTables` is derived from the traversal, not declared.** The scan
+  records each table as it finishes it, and the blind spot is the populated
+  tables missing from that record. Computing it from the list of tables the
+  scan *intends* to visit would let the two drift, and a blind spot that
+  under-reports is the whole failure this exists to prevent. It also makes the
+  budget interaction fall out for free: a scan the budget stops leaves modelled
+  tables unreached, and those are unscanned in exactly the sense the report
+  means.
 - **Blind spots are reported, not folded in.** `Truncated` marks a scan the
   result budget stopped, `UnreadableRows` lists rows whose edges could not be
   fully determined, and `UnscannedTables` lists the populated tables the scan
-  never visited. `IsComplete` is true only when none of the three happened,
+  never reached. `IsComplete` is true only when none of the three happened,
   which is what would make an empty result trustworthy — and today that means it
   is **false for essentially every real assembly**, because the third blind spot
   always fires. That is the honest reading: until the projection covers every

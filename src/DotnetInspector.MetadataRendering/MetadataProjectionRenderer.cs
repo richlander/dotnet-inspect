@@ -207,7 +207,11 @@ public static class MetadataProjectionRenderer
         {
             int count = references.UnscannedTables.Length;
             var names = string.Join(", ", references.UnscannedTables);
-            yield return $"{count} populated {(count == 1 ? "table is" : "tables are")} not modelled by the projection and {(count == 1 ? "was" : "were")} not searched, so an edge from {(count == 1 ? "it" : "them")} would have been missed: {names}.";
+            // Deliberately does not say *why* a table went unsearched. A table is
+            // here either because the projection does not model it or because the
+            // budget stopped the scan first, and naming one cause would be a
+            // false claim about the other.
+            yield return $"{count} populated {(count == 1 ? "table was" : "tables were")} not searched, so an edge from {(count == 1 ? "it" : "them")} would have been missed: {names}.";
         }
     }
 

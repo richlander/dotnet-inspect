@@ -299,9 +299,39 @@ public class MetadataRowReferenceSearchTests
     }
 
     /// <summary>
+    /// An independent restatement of the tables the projection models, spelled
+    /// out rather than read back from <c>SupportedTables</c>. Deriving the
+    /// expectation from the product would make the exactness check below
+    /// tautological: it would agree with any table list, including a wrong one.
+    /// Growing the projection is expected to fail this list — that is the point,
+    /// because the blind-spot report must move in lockstep with coverage.
+    /// </summary>
+    static readonly ImmutableArray<TableIndex> ModelledTables =
+    [
+        TableIndex.Module,
+        TableIndex.TypeRef,
+        TableIndex.TypeDef,
+        TableIndex.Field,
+        TableIndex.MethodDef,
+        TableIndex.Param,
+        TableIndex.MemberRef,
+        TableIndex.Constant,
+        TableIndex.CustomAttribute,
+        TableIndex.StandAloneSig,
+        TableIndex.MethodImpl,
+        TableIndex.TypeSpec,
+        TableIndex.Assembly,
+        TableIndex.AssemblyRef,
+        TableIndex.ExportedType,
+        TableIndex.GenericParam,
+        TableIndex.MethodSpec,
+    ];
+
+    /// <summary>
     /// The blind spot must be exactly the populated tables the projection does
     /// not model — no modelled table, and no empty table. Over-reporting would
-    /// scare a caller off a result the search actually did cover.
+    /// scare a caller off a result the search actually did cover;
+    /// under-reporting is the original bug.
     /// </summary>
     [Fact]
     public void FindReferences_UnscannedTables_AreExactlyThePopulatedUnmodelledOnes()
@@ -309,17 +339,65 @@ public class MetadataRowReferenceSearchTests
         using var peReader = OpenSelfFromBytes();
         var reader = peReader.GetMetadataReader();
 
-        var projected = FullProjection(peReader).Tables.Select(t => t.Index).ToHashSet();
+        // Guard the restatement itself: if the projection's coverage moves, this
+        // fires first and names the drift, rather than the exactness assertion
+        // failing for a reason the reader has to reverse-engineer.
+        Assert.Equal(
+            ModelledTables.Order().ToArray(),
+            FullProjection(peReader).Tables.Select(t => t.Index).Order().ToArray());
+
+        var modelled = ModelledTables.ToHashSet();
         var expected = Enum.GetValues<TableIndex>()
-            .Where(t => !projected.Contains(t) && reader.GetTableRowCount(t) > 0)
+            .Where(t => !modelled.Contains(t) && reader.GetTableRowCount(t) > 0)
             .ToArray();
 
         var set = MetadataTableProjector.FindReferences(peReader, TableIndex.TypeDef, 1, int.MaxValue);
 
         Assert.NotEmpty(expected);
         Assert.Equal(expected, set.UnscannedTables);
-        Assert.All(set.UnscannedTables, t => Assert.DoesNotContain(t, projected));
+        Assert.All(set.UnscannedTables, t => Assert.DoesNotContain(t, modelled));
         Assert.All(set.UnscannedTables, t => Assert.True(reader.GetTableRowCount(t) > 0));
+    }
+
+    /// <summary>
+    /// A budget that stops the scan leaves modelled tables unreached, and those
+    /// are unscanned in exactly the sense the report means: the search did not
+    /// look. Deriving the blind spot from a static list of what the scan
+    /// *intends* to visit would miss them and under-report — the same failure
+    /// as the unmodelled-table gap, at a smaller scale.
+    /// </summary>
+    [Fact]
+    public void FindReferences_TruncatedScan_ReportsTheTablesItNeverReached()
+    {
+        using var peReader = OpenSelfFromBytes();
+        var reader = peReader.GetMetadataReader();
+        int popular = MostReferencedTypeRef(FullProjection(peReader));
+
+        // One result is enough to stop the scan almost immediately, leaving most
+        // of the modelled tables unvisited.
+        var capped = MetadataTableProjector.FindReferences(peReader, TableIndex.TypeRef, popular, 1);
+        Assert.True(capped.Truncated, "Expected the budget to stop this scan.");
+
+        var full = MetadataTableProjector.FindReferences(peReader, TableIndex.TypeRef, popular, int.MaxValue);
+        Assert.False(full.Truncated);
+
+        // Stopping early can only widen the blind spot, never narrow it.
+        var cappedBlind = capped.UnscannedTables.ToHashSet();
+        var fullBlind = full.UnscannedTables.ToHashSet();
+        Assert.True(
+            cappedBlind.IsSupersetOf(fullBlind),
+            $"Stopped scan lost blind spots the full scan reported: {string.Join(", ", fullBlind.Except(cappedBlind))}");
+        Assert.True(
+            cappedBlind.Count > fullBlind.Count,
+            "A stopped scan left modelled tables unreached, so it must report more of them.");
+
+        // Every extra entry must be a modelled table the full scan did reach —
+        // that is what makes it evidence of truncation rather than noise.
+        foreach (var table in cappedBlind.Except(fullBlind))
+        {
+            Assert.Contains(table, ModelledTables);
+            Assert.True(reader.GetTableRowCount(table) > 0);
+        }
     }
 
     /// <summary>
@@ -403,6 +481,12 @@ public class MetadataRowReferenceSearchTests
             direct.References.Select(r => (r.Source.Table, r.Source.RowId, r.ColumnName, r.Kind)),
             viaSession.References.Select(r => (r.Source.Table, r.Source.RowId, r.ColumnName, r.Kind)));
         Assert.Equal(direct.Target.Token, viaSession.Target.Token);
+        // Comparing IsComplete alone would be vacuous: both are false on a real
+        // assembly. Compare the blind spots themselves, so the facet cannot
+        // silently report a different search than the projector ran.
+        Assert.Equal(direct.UnscannedTables, viaSession.UnscannedTables);
+        Assert.Equal(direct.UnreadableRows, viaSession.UnreadableRows);
+        Assert.Equal(direct.Truncated, viaSession.Truncated);
         Assert.Equal(direct.IsComplete, viaSession.IsComplete);
         AssertScanRanClean(viaSession);
     }

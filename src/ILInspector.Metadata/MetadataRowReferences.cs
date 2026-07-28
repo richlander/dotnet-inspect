@@ -138,12 +138,13 @@ public sealed record MetadataRowReferenceSet
     public ImmutableArray<MetadataRowLocation> UnreadableRows { get; }
 
     /// <summary>
-    /// Populated tables the scan never looked at, because the projection does
-    /// not model them. This is the largest blind spot of the three and the only
-    /// one that fires on well-formed metadata: the search covers the projected
-    /// tables, not all of ECMA-335, so an edge living in an unmodelled table —
-    /// <c>NestedClass</c>, <c>MethodSemantics</c>, <c>InterfaceImpl</c> and
-    /// friends on a typical assembly — is invisible to it. A nested type's
+    /// Populated tables the scan never reached: either the projection does not
+    /// model them, or the result budget stopped the scan before it got to them.
+    /// This is the largest blind spot of the three and the only one that fires
+    /// on well-formed metadata, because the search covers the projected tables
+    /// rather than all of ECMA-335 — so an edge in an unmodelled table
+    /// (<c>NestedClass</c>, <c>MethodSemantics</c>, <c>InterfaceImpl</c> and
+    /// friends on a typical assembly) is invisible to it. A nested type's
     /// declaring type is exactly such an edge. Empty tables are excluded: they
     /// cannot hide a reference.
     /// </summary>

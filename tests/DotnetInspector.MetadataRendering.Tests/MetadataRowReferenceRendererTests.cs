@@ -57,7 +57,7 @@ public class MetadataRowReferenceRendererTests
         // Nothing was hidden, so no caveat may appear.
         Assert.DoesNotContain("budget", markdown);
         Assert.DoesNotContain("could not be read", markdown);
-        Assert.DoesNotContain("not modelled by the projection", markdown);
+        Assert.DoesNotContain("not searched", markdown);
     }
 
     [Fact]
@@ -164,11 +164,11 @@ public class MetadataRowReferenceRendererTests
     public void Markdown_UnscannedTables_AreNamedNotJustCounted()
     {
         // A reader cannot judge what the search missed from a bare count, so the
-        // caveat must name the tables that went unvisited.
+        // caveat must name the tables that went unsearched.
         var markdown = Render(Set(
             unscanned: ImmutableArray.Create(TableIndex.NestedClass, TableIndex.MethodSemantics)));
 
-        Assert.Contains("2 populated tables are not modelled by the projection", markdown);
+        Assert.Contains("2 populated tables were not searched", markdown);
         Assert.Contains("NestedClass", markdown);
         Assert.Contains("MethodSemantics", markdown);
     }
@@ -178,8 +178,25 @@ public class MetadataRowReferenceRendererTests
     {
         var markdown = Render(Set(unscanned: ImmutableArray.Create(TableIndex.NestedClass)));
 
-        Assert.Contains("1 populated table is not modelled by the projection", markdown);
+        Assert.Contains("1 populated table was not searched", markdown);
         Assert.DoesNotContain("1 populated tables", markdown);
+    }
+
+    /// <summary>
+    /// A table goes unsearched either because the projection does not model it
+    /// or because the budget stopped the scan first. The caveat cannot see
+    /// which, so it must not assert a cause it does not know — a modelled table
+    /// the budget never reached would make "not modelled" a false statement.
+    /// </summary>
+    [Fact]
+    public void Markdown_UnscannedTables_DoNotClaimACause()
+    {
+        var markdown = Render(Set(
+            unscanned: ImmutableArray.Create(TableIndex.Assembly),
+            truncated: true));
+
+        Assert.Contains("Assembly", markdown);
+        Assert.DoesNotContain("not modelled", markdown);
     }
 
     [Fact]
