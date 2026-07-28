@@ -949,7 +949,8 @@ function render() {
       <header class="titlebar">
         <a class="brand" href="/" aria-label="dotnet inspect home"><span class="brand-glyph">◇</span><span>dotnet-inspect</span></a>
         <div class="package-tabs" role="tablist" aria-label="Package scope">
-          ${state.packages.map(item => `
+          ${platformTabHtml()}
+          ${state.packages.filter(item => !item.isRuntimePack).map(item => `
             <button class="package-tab ${item.id === state.package.id ? "active" : ""}" data-package="${escapeHtml(item.id)}" role="tab">
               <span class="package-cube">⬡</span>
               <span class="tab-label">${escapeHtml(item.id)}</span>
@@ -2397,6 +2398,7 @@ function bindEvents() {
     state.kindFilter = "";
     render();
   }));
+  document.querySelector("[data-platform-open]")?.addEventListener("click", () => openRuntimePackFromHome());
   // Browser-tab behavior for a crowded strip: keep the active tab in view, and let a
   // vertical wheel scroll the horizontal strip so hidden tabs stay reachable.
   const tabStrip = document.querySelector(".package-tabs");
@@ -2978,7 +2980,7 @@ const SPOTLIGHT_SCOPES = [
   { id: "packages", label: "Packages" },
   { id: "types", label: "Types" },
   { id: "members", label: "Members" },
-  { id: "runtime", label: "Runtime" },
+  { id: "runtime", label: "Platform" },
 ];
 
 // Runtime-pack types as spotlight match items (empty-query listing for the Runtime scope).
@@ -5595,6 +5597,22 @@ function runtimePackLoaded() {
 
 function runtimePackPackage() {
   return state.packages.find(item => item.isRuntimePack) || null;
+}
+
+// The always-present, non-closable, left-most "Platform" tab. It abstracts the .NET runtime
+// packs (netcore.app, aspnetcore.app, …) behind a single surface: when a pack is resident it
+// activates it; otherwise clicking loads it lazily. Rendered separately from the normal tab
+// map so it is always first and never carries a close affordance.
+function platformTabHtml() {
+  const rt = runtimePackPackage();
+  const active = rt && state.package && state.package.id === rt.id ? "active" : "";
+  const framework = rt?.activeFramework || state.package?.activeFramework || "";
+  const attr = rt ? `data-package="${escapeHtml(rt.id)}"` : `data-platform-open="1"`;
+  return `<button class="package-tab platform ${active}" ${attr} role="tab" title="Platform · .NET runtime libraries">
+      <span class="package-cube">◎</span>
+      <span class="tab-label">Platform</span>
+      <small>${escapeHtml(framework || "load")}</small>
+    </button>`;
 }
 
 // The resident runtime pseudo-package rides in the shared workspace/URL packet under the

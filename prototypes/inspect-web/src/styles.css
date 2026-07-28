@@ -169,6 +169,11 @@ body {
 .package-cube { color: var(--accent); font: 13px var(--mono); }
 .tab-close { margin-left: 8px; color: var(--dim); }
 .package-tab:hover { background: var(--panel-raised); color: var(--text); }
+/* The always-present Platform tab: pinned left, non-closable, with a steady width
+   floor and an accent glyph so it reads as the fixed home for platform libraries. */
+.package-tab.platform { flex: 0 1 auto; min-width: 96px; border-right-color: var(--line); }
+.package-tab.platform .package-cube { color: var(--accent); }
+.package-tab.platform .tab-label { font-weight: 600; }
 
 .package-query {
   width: clamp(210px, 24vw, 340px);
