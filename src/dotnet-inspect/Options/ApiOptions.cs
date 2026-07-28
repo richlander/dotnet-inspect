@@ -255,6 +255,14 @@ public record MemberOptions : ApiOptions
     public bool MemberHasNoBody { get; init; }
 
     /// <summary>
+    /// True when the selected member has an IL body but no authored declaration of its own —
+    /// its sequence points map to the declaring type's header (positional record accessor,
+    /// primary constructor, field-initializer constructor). <see cref="MethodSource"/> is
+    /// absent because there is nothing to isolate, not because resolution failed.
+    /// </summary>
+    public bool MemberHasNoAuthoredDeclaration { get; init; }
+
+    /// <summary>
     /// Output directories (<c>--bin</c>/<c>--directory</c>) to scan for inbound callers of the
     /// selected member, in addition to the member's own assembly. Empty = own assembly only.
     /// </summary>

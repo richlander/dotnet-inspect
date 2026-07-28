@@ -548,7 +548,7 @@ public class CommandExecutionTests
             }
             try
             {
-                return await result.InvokeAsync();
+                return await CommandLineBuilder.InvokeAsync(result);
             }
             catch (RowWindowValidationException ex)
             {
@@ -3423,6 +3423,258 @@ public class CommandExecutionTests
         Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", rows[1].GetProperty("url").GetString());
     }
 
+    [Theory]
+    [InlineData("--value")]
+    [InlineData("--urls")]
+    [InlineData("--paths")]
+    [InlineData("--print")]
+    public async Task WholeSurfaceListing_DroppedProjection_FailsLoudly(string projectionFlag)
+    {
+        // The whole-surface type listing renders sections but has no projection dispatch, so
+        // before the audit it answered a projection request with the full unprojected listing
+        // and exit 0. The audit turns that silent drop into a reported failure. When this route
+        // gains real column projection, this expectation changes to a projected payload.
+        var (exit, _, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes", projectionFlag);
+
+        Assert.Equal(1, exit);
+        Assert.Contains($"'{projectionFlag}' was accepted but this command path produced unprojected output", error);
+    }
+
+    [Fact]
+    public async Task ProjectionAudit_DoesNotFireForHelp()
+    {
+        // --help short-circuits rendering, so the projection is not dropped; it is moot.
+        var (exit, _, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes", "--value", "--help");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("produced unprojected output", error);
+    }
+
+    [Fact]
+    public async Task ProjectionAudit_DoesNotFireWhenProjectionIsRejected()
+    {
+        // A command that rejects an unsupported projection has already reported the problem;
+        // the audit must not add a second, misleading "this is a bug" line on top of it.
+        var (exit, _, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "Signals", "--urls");
+
+        Assert.Equal(1, exit);
+        Assert.DoesNotContain("produced unprojected output", error);
+    }
+
+    [Fact]
+    public async Task ProjectionAudit_DoesNotFireForHonoredCount()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "References", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("produced unprojected output", error);
+        Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
+    }
+
+    [Fact]
+    public async Task Router_RewrittenCommand_IsAudited()
+    {
+        // The router captures projection flags as raw tokens, so the outer invocation records
+        // nothing. It used to invoke the rewritten parse directly, bypassing the audit, which
+        // left every bare-mode invocation unguarded. It now goes through the choke point.
+        var (exit, _, error) = await RunAppAsync("Regex", "--count", "--print", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("--count cannot be combined with --print", error);
+    }
+
+    [Fact]
+    public void ProjectionAudit_NestedInvocationDoesNotDiscardOuterRequest()
+    {
+        // Invocations nest: the router invokes the command it rewrites to. An inner invocation
+        // must not consume the outer one's request, or the outer verify finds nothing to check
+        // and a dropped projection escapes.
+        var root = CommandLineBuilder.CreateRootCommand();
+        var outer = root.Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
+        var inner = root.Parse(["library", TestAssemblyPath, "-S", "References"]);
+
+        try
+        {
+            using (ProjectionAudit.BeginRequest(outer))
+            {
+                using (ProjectionAudit.BeginRequest(inner))
+                {
+                    Assert.Equal(0, ProjectionAudit.Verify(0));
+                }
+
+                Assert.Equal(1, ProjectionAudit.Verify(0));
+            }
+        }
+        finally
+        {
+            ProjectionAudit.ResetForTesting();
+        }
+    }
+
+    [Fact]
+    public void ProjectionAudit_TracksProjectionDeclaredByAnAncestorCommand()
+    {
+        // `package --count search <id>` binds --count to the parent command, which the parser
+        // accepts. Inspecting only the executing command missed it, so the subcommand rendered
+        // its full payload and exited 0 with the projection silently discarded.
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(["package", "--count", "search", "Newtonsoft.Json"]);
+
+        try
+        {
+            ProjectionAudit.BeginRequest(result);
+
+            Assert.Equal(1, ProjectionAudit.Verify(0));
+        }
+        finally
+        {
+            ProjectionAudit.ResetForTesting();
+        }
+    }
+
+    [Fact]
+    public void ProjectionAudit_RejectsConflictDeclaredByAnAncestorCommand()
+    {
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(["package", "--count", "--print", "search", "Newtonsoft.Json"]);
+
+        Assert.False(ProjectionAudit.ValidateExclusive(result));
+    }
+
+    [Fact]
+    public void ProjectionAudit_WrongFlagDoesNotSatisfyRequest()
+    {
+        // The print writer also serves --bare, so an untyped "honored" signal would let it
+        // satisfy an unrelated recorded --count and let that drop escape.
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
+
+        try
+        {
+            ProjectionAudit.BeginRequest(result);
+            ProjectionAudit.MarkHonored(ProjectionAudit.Print);
+
+            Assert.Equal(1, ProjectionAudit.Verify(0));
+        }
+        finally
+        {
+            ProjectionAudit.ResetForTesting();
+        }
+    }
+
+    [Fact]
+    public void ProjectionAudit_MatchingFlagSatisfiesRequest()
+    {
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
+
+        try
+        {
+            ProjectionAudit.BeginRequest(result);
+            ProjectionAudit.MarkHonored(ProjectionAudit.Count);
+
+            Assert.Equal(0, ProjectionAudit.Verify(0));
+        }
+        finally
+        {
+            ProjectionAudit.ResetForTesting();
+        }
+    }
+
+    [Fact]
+    public void ProjectionAudit_HelpTokenAsOptionValueDoesNotDisableAudit()
+    {
+        // '/h' here is the value of --type, not a help request. Matching raw token text
+        // rather than option tokens would silently disable the audit for the invocation.
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(["type", "--library", TestAssemblyPath, "-S", "Classes", "--value", "--type", "/h"]);
+
+        try
+        {
+            ProjectionAudit.BeginRequest(result);
+
+            Assert.Equal(1, ProjectionAudit.Verify(0));
+        }
+        finally
+        {
+            ProjectionAudit.ResetForTesting();
+        }
+    }
+
+    [Fact]
+    public async Task ProjectionFlags_AreMutuallyExclusive()
+    {
+        // Two projections cannot both shape one payload, so honoring either one would
+        // discard the other.
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes", "--count", "--print");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--count cannot be combined with --print", error);
+    }
+
+    [Fact]
+    public async Task ProjectionFlags_ConflictIsMootUnderHelp()
+    {
+        // Help renders no payload, so there is nothing for two projections to fight over.
+        // Rejecting the combination here would turn a working help request into an error.
+        var (exit, output, _) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes", "--count", "--print", "--help");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Usage", output, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Find_Count_ComposesWithJson()
+    {
+        // Found by the projection audit: --json was resolved before --count, so a count
+        // request was answered with the full unprojected result set and exit 0.
+        var (exit, output, _) = await RunAppAsync(
+            "find", "Cache", "--library", TestAssemblyPath, "--count", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
+    }
+
+    [Fact]
+    public async Task Implements_Count_ComposesWithJson()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "implements", "IDisposable", "--library", TestAssemblyPath, "--count", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
+    }
+
+    [Fact]
+    public async Task Extensions_Count_ComposesWithJson()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "extensions", "String", "--library", TestAssemblyPath, "--count", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
+    }
+
+    [Fact]
+    public async Task Depends_Count_ComposesWithJson()
+    {
+        // The type with dependencies matters: a type with none short-circuits before the
+        // JSON branch, which is why an earlier probe using such a type saw no defect.
+        var (exit, output, _) = await RunAppAsync(
+            "depends", "SampleGenericClass`1", "--library", TestAssemblyPath, "--count", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out var count), $"expected a bare count, got: {output}");
+        Assert.True(count > 0, "fixture must have dependencies for this to be a meaningful regression test");
+    }
+
     [Fact]
     public async Task Type_SourceFiles_Value_RowSelectsUrl()
     {
@@ -3532,6 +3784,151 @@ public class CommandExecutionTests
         Assert.Equal(1, single.GetProperty("row").GetInt32());
         Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", single.GetProperty("url").GetString());
         Assert.Contains("JsonReader", single.GetProperty("content").GetString());
+    }
+
+    /// <summary>
+    /// <c>--json</c> selects an output format and <c>--print</c> selects an output shape,
+    /// so they compose: the projection owns the request and the plain type surface must not
+    /// claim it. Regression for #3379, where the type-surface early return preceded the
+    /// projection dispatch and silently discarded <c>--print</c> with exit 0.
+    /// </summary>
+    [Fact]
+    public async Task Type_SourceFiles_PrintJson_EmitsSelectedDocumentNotTypeSurface()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--print", "--row", "1", "--json", "--raw", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(1, document.RootElement.GetProperty("row").GetInt32());
+        Assert.Equal("Source Files", document.RootElement.GetProperty("section").GetString());
+        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", document.RootElement.GetProperty("url").GetString());
+        Assert.Contains("JsonReader", document.RootElement.GetProperty("content").GetString());
+        Assert.False(document.RootElement.TryGetProperty("metadata_name", out _));
+    }
+
+    /// <summary>
+    /// Cardinality validation belongs to the projection, so it must run under <c>--json</c> too.
+    /// </summary>
+    [Fact]
+    public async Task Type_SourceFiles_PrintJson_RequiresRowWhenMultipleUrls()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--print", "--json", "--raw", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("selected section has 2 printable rows; use --row N|first|last to choose one row", error);
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_UrlsJson_EmitsProjectedRowsNotTypeSurface()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--urls", "--json", "--raw", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        var rows = document.RootElement.EnumerateArray().ToArray();
+        Assert.Equal(2, rows.Length);
+        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", rows[0].GetProperty("url").GetString());
+        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", rows[1].GetProperty("url").GetString());
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_ValueJson_EmitsSelectedRowNotTypeSurface()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--value", "--row", "2", "--json", "--raw", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(2, document.RootElement.GetProperty("row").GetInt32());
+        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", document.RootElement.GetProperty("value").GetString());
+    }
+
+    /// <summary>
+    /// A failed acquisition of the selected row must stay visible rather than degrade into
+    /// success-shaped output. Only the transport is substituted, so the real SourceFetcher
+    /// still applies scheme restriction, caching, and status handling.
+    /// </summary>
+    [Fact]
+    public async Task Type_SourceFiles_PrintRow_FetchFailureIsHardError()
+    {
+        using var client = new HttpClient(new NotFoundHandler());
+        string cacheDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-fetch-failure-{Guid.NewGuid():N}");
+        try
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+            NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
+            var (exit, output, error) = await RunAppAsync(
+                "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+                "-S", "Source Files", "--print", "--row", "2", "--raw", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("failed to fetch the document for printable row 2 from", error);
+            Assert.Contains("/Src/Newtonsoft.Json/JsonReader.Async.cs", error);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The acquisition guarantee must hold under <c>--json</c> as well; before #3379 this
+    /// combination exited 0 with the type surface and never attempted the fetch.
+    /// </summary>
+    [Fact]
+    public async Task Type_SourceFiles_PrintRowJson_FetchFailureIsHardError()
+    {
+        using var client = new HttpClient(new NotFoundHandler());
+        string cacheDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-fetch-failure-json-{Guid.NewGuid():N}");
+        try
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+            NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
+            var (exit, output, error) = await RunAppAsync(
+                "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+                "-S", "Source Files", "--print", "--row", "2", "--json", "--raw", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("failed to fetch the document for printable row 2 from", error);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    private sealed class NotFoundHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.NotFound)
+            {
+                RequestMessage = request,
+            });
     }
 
     [Fact]

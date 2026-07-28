@@ -124,5 +124,50 @@ public sealed class AssemblyInspectionSession : IDisposable
     public MetadataTableProjection MetadataTables(MetadataProjectionOptions? options = null)
         => MetadataTableProjector.Project(_image.PEReader, options);
 
+    /// <summary>
+    /// A single row of one metadata table, read on demand and independent of any
+    /// row window. This is the handle click-through primitive: it reaches a
+    /// target row that a windowed <see cref="MetadataTables"/> call did not
+    /// include. Null when the table is unsupported or the row id is past its end.
+    /// </summary>
+    public MetadataTableView? MetadataTableRow(
+        System.Reflection.Metadata.Ecma335.TableIndex table,
+        int rowId,
+        MetadataProjectionOptions? options = null)
+        => MetadataTableProjector.ProjectRow(_image.PEReader, table, rowId, options);
+
+    /// <summary>
+    /// The reverse of the projection's handle edges: every row pointing at the
+    /// given row, including through list-column runs so ownership resolves. The
+    /// result reports its own blind spots rather than folding them into an empty
+    /// answer.
+    /// </summary>
+    public MetadataRowReferenceSet MetadataReferences(
+        System.Reflection.Metadata.Ecma335.TableIndex targetTable,
+        int targetRowId,
+        int maxReferences = MetadataRowReferenceSet.DefaultMaxReferences)
+        => MetadataTableProjector.FindReferences(_image.PEReader, targetTable, targetRowId, maxReferences);
+
+    /// <summary>
+    /// Image-level facts outside the table projection: metadata root identity,
+    /// heap sizes and addressing, physical row counts for every ECMA-335 table
+    /// (including tables the projection does not model), and PE/CLI header
+    /// facts. Null when the image carries no metadata.
+    /// </summary>
+    public MetadataImageOverview? MetadataImage()
+        => MetadataImageInspector.Describe(_image.PEReader);
+
+    /// <summary>
+    /// One heap value read by address, independent of any row that references
+    /// it. The address follows
+    /// <see cref="MetadataValue.HeapReference.Offset"/>, so a projected cell's
+    /// offset round-trips. Null when the image carries no metadata.
+    /// </summary>
+    public MetadataValue? MetadataHeapValue(
+        HeapKind heap,
+        int address,
+        MetadataProjectionOptions? options = null)
+        => MetadataTableProjector.ReadHeapValue(_image.PEReader, heap, address, options);
+
     public void Dispose() => _image.Dispose();
 }

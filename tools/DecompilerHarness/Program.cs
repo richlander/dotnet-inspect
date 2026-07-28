@@ -26,7 +26,26 @@ namespace ILInspector.DecompilerHarness;
 /// </summary>
 static class Program
 {
+    /// <summary>Set once the flags are parsed, if a protected gate was asked for.</summary>
+    static bool s_protectedGateRequested;
+
+    /// <summary>Set at the gate's own dispatch site, so it records the gate running
+    /// rather than the harness intending to run it.</summary>
+    static bool s_protectedGateDispatched;
+
     static int Main(string[] args)
+    {
+        int exit = RunHarness(args);
+        if (AuthoredCorpusExitContract.GateExitedWithoutRunning(
+                exit, s_protectedGateRequested, s_protectedGateDispatched) is { } escaped)
+        {
+            return Fail(escaped);
+        }
+
+        return exit;
+    }
+
+    static int RunHarness(string[] args)
     {
         List<string> inputs = [];
         int maxExamples = 5;
@@ -75,6 +94,9 @@ static class Program
         string? harvestOutputPath = null;
         bool benchmarkAuthoredCorpus = false;
         string? benchmarkCorpusPath = null;
+        string? ratchetBaselinePath = null;
+        bool integrityOnly = false;
+        bool showHelp = false;
         bool historyCard = false;
         string? historyCardPath = null;
         int historyCardWindow = 3;
@@ -212,6 +234,8 @@ static class Program
                         benchmarkAuthoredCorpus = true;
                         benchmarkCorpusPath = NextArg(args, ref i, flag);
                         break;
+                    case "--ratchet-baseline": ratchetBaselinePath = NextArg(args, ref i, flag); break;
+                    case "--integrity-only": integrityOnly = true; break;
                     case "--history-card": historyCard = true; break;
                     case "--history-path": historyCardPath = NextArg(args, ref i, flag); break;
                     case "--history-window": historyCardWindow = NextIntArg(args, ref i, flag); break;
@@ -316,7 +340,7 @@ static class Program
                     case "--slot-residual-census": slotResidualCensus = true; break;
                     case "--slot-unifier-census": slotUnifierCensus = true; break;
                     case "--fixture-source-inventory": fixtureSourceInventory = true; break;
-                    case "--help" or "-h": PrintUsage(); return 0;
+                    case "--help" or "-h": showHelp = true; break;
                     default: inputs.Add(args[i]); break;
                 }
             }
@@ -330,8 +354,83 @@ static class Program
             return Fail(ex.Message);
         }
 
+        // --help is answered after flag validation, not during parsing: returning 0 from
+        // the parse loop let a gate flag be silently ignored, which is a permanently
+        // green gate. The rule is a function in AuthoredCorpusExitContract because this
+        // file cannot be linked into the test project, and an unreachable rule is one
+        // nothing notices the deletion of — see JudgeGateFlags.
+        var flags = AuthoredCorpusExitContract.JudgeGateFlags(
+            showHelp, benchmarkAuthoredCorpus, verifyAuthoredCorpus, ratchetBaselinePath is not null, integrityOnly);
+        switch (flags.Disposition)
+        {
+            case AuthoredCorpusExitContract.FlagDisposition.PrintUsage:
+                PrintUsage();
+                return 0;
+            case AuthoredCorpusExitContract.FlagDisposition.Refuse:
+                return Fail(flags.Message!);
+        }
+
         if (returnToSenderMarkout && !returnToSenderCatalog)
             return Fail("--return-to-sender-markout requires --return-to-sender-catalog.");
+        // Two of these modes are selected by more than one flag, and the first version
+        // of the refusal below spelled the conditions out a second time — which is how a
+        // reviewer got exit 0 out of `--benchmark-authored-corpus ...
+        // --emit-assertion-violations`: the refusal said `assertionScan`, the dispatch
+        // said `assertionScan || emitAssertionViolations is not null ||
+        // diffAssertionViolations is not null`, and the four extra flags fell through the
+        // gap. These booleans are the *only* spelling; the dispatches below read them
+        // too, so the refusal cannot drift from what actually runs.
+        bool assertionScanMode = assertionScan || emitAssertionViolations is not null || diffAssertionViolations is not null;
+        bool validityCheckMode = validityCheck || emitValidityDefects is not null || diffValidityDefects is not null;
+        bool fidelityCheckMode = fidelityCheck || fidelityMethodDelta is not null;
+
+        // The modes below, in the order they dispatch. A gate is preempted by any mode
+        // earlier in this list: combining them does not run the gate second, it does not
+        // run it at all. A reviewer pointed a gate request at a nonexistent corpus, added
+        // --history-card, and got exit 0 — the same permanently-green failure as the flag
+        // nobody passes (#3245), one level up, since a CI lane that grew a second flag
+        // would stop gating and report success. Refusing is the only answer that cannot
+        // be misread; silently preferring either mode would still discard what the caller
+        // asked for.
+        //
+        // Both gates derive their refusal from this one list rather than each carrying
+        // its own copy. The second gate was found unprotected in review precisely because
+        // the first fix was written as a hand-maintained array next to one of them.
+        (string Flag, bool Selected)[] dispatchOrder =
+        [
+            ("--fixture-source-inventory", fixtureSourceInventory),
+            ("--history-card", historyCard),
+            ("--generated-fixtures", generatedFixtures),
+            ("--fuzz-signatures", fuzzSignatures),
+            ("--return-to-sender-catalog", returnToSenderCatalog),
+            ("--emit-inverse-ledger", emitInverseLedger is not null),
+            ("--assertion-scan", assertionScanMode),
+            ("--validity-check", validityCheckMode),
+            ("--validity-predicate-scan", validityPredicateScan),
+            ("--fidelity-check", fidelityCheckMode),
+            ("--return-to-sender", returnToSender),
+            ("--return-address", returnAddress),
+            ("--not-my-type", notMyType),
+            ("--enumerate-real-methods", enumerateRealMethods),
+            ("--harvest-authored-corpus", harvestAuthoredCorpus),
+            ("--harvest-evil-corpus", harvestEvilCorpus),
+            ("--benchmark-authored-corpus", benchmarkAuthoredCorpus),
+            ("--verify-authored-corpus", verifyAuthoredCorpus),
+        ];
+
+        if (AuthoredCorpusExitContract.PreemptedGateRefusal(
+                dispatchOrder,
+                AuthoredCorpusExitContract.ProtectedGates) is { } preempted)
+        {
+            return Fail(preempted);
+        }
+
+        s_protectedGateRequested = dispatchOrder.Any(
+            entry => entry.Selected && AuthoredCorpusExitContract.ProtectedGates.Contains(entry.Flag));
+
+        if (Environment.GetEnvironmentVariable(AuthoredCorpusExitContract.SimulatePreemptionVariable) == "1")
+            return 0;
+
         if (cfgStageSpecified && (!cfg || dumpMethod is null))
             return Fail("--cfg-stage requires --dump --cfg.");
         int harnessReportModes = (returnAddress ? 1 : 0)
@@ -420,7 +519,7 @@ static class Program
         if (assemblies.Count == 0)
             return Fail("No managed assemblies found in the given inputs.");
 
-        if (assertionScan || emitAssertionViolations is not null || diffAssertionViolations is not null)
+        if (assertionScanMode)
             return AssertionScan.Run(
                 assemblies,
                 new AssertionScan.Options(
@@ -432,7 +531,7 @@ static class Program
                     sequential,
                     assertionFixtureGuarantee));
 
-        if (validityCheck || emitValidityDefects is not null || diffValidityDefects is not null)
+        if (validityCheckMode)
             return ValidityCheck.Run(assemblies, compileCap, maxExamples, emitValidityDefects, diffValidityDefects, lowered);
         if (validityPredicateScan)
             return ValidityPredicateScan.Run(assemblies, maxExamples, workers, sequential);
@@ -481,11 +580,20 @@ static class Program
         if (harvestEvilCorpus)
             return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget, evil: true, repositoryPaths: sourceRepositories);
 
-        if (benchmarkAuthoredCorpus)
-            return AuthoredCorpusBenchmark.Run(assemblies, benchmarkCorpusPath!, json);
+        if (benchmarkAuthoredCorpus || verifyAuthoredCorpus)
+        {
+            // One assignment, not one per gate. Review round thirteen deleted this line
+            // from the verify gate's own dispatch and the suite stayed green, while the
+            // identical deletion at the benchmark's was caught — the same rule spelled
+            // twice, with only one of the copies covered. Reaching an honest exit 0 from
+            // the drift gate needs SourceLink acquisition, so the missing test was
+            // expensive to write and the duplicate was not worth keeping to be tested.
+            s_protectedGateDispatched = true;
 
-        if (verifyAuthoredCorpus)
-            return AuthoredCorpusDrift.Run(assemblies, verifyCorpusPath!, json, failOnDrift, sourceRepositories);
+            return benchmarkAuthoredCorpus
+                ? AuthoredCorpusBenchmark.Run(assemblies, benchmarkCorpusPath!, json, ratchetBaselinePath, integrityOnly)
+                : AuthoredCorpusDrift.Run(assemblies, verifyCorpusPath!, json, failOnDrift, sourceRepositories);
+        }
 
         if (returnToSenderAb)
             return ReturnToSender.RunComparison(assemblies, cap, maxExamples);
@@ -1784,10 +1892,34 @@ static class Program
     // Reads the value that follows a value-taking flag, guarding against a missing
     // trailing value so the parser reports a clean usage error instead of crashing
     // with an unhandled IndexOutOfRangeException.
+    //
+    // A trailing value is also missing when the next token is another flag. Review ran
+    // "--emit-inverse-ledger --benchmark-authored-corpus <corpus>": the ledger flag ate
+    // the benchmark flag as its output path, the benchmark was never parsed or requested,
+    // and the harness wrote a file named "--benchmark-authored-corpus" and exited 0. That
+    // is #3245 reached through the parser rather than through dispatch, and the escape
+    // check in Main cannot see it, because a gate that was never parsed was never
+    // requested.
+    //
+    // The rule is the token's own shape, not a list of flags to keep in step with the
+    // parser. Anything a caller must remember to extend is a list that will one day be
+    // short one entry, and every earlier attempt to enumerate this parser's vocabulary
+    // was wrong. A single leading dash still reads as a value, so negative numbers are
+    // untouched.
     static string NextArg(string[] args, ref int i, string flag)
-        => i + 1 < args.Length
-            ? args[++i]
-            : throw new MissingArgumentException(flag);
+    {
+        if (i + 1 >= args.Length)
+            throw new MissingArgumentException(flag);
+
+        string value = args[i + 1];
+        if (value.StartsWith("--", StringComparison.Ordinal))
+            throw new ArgumentException(
+                $"{flag} requires a value, but the next argument is '{value}', which is another flag. "
+                + "Supply a value, or move the flag before this one.");
+
+        i++;
+        return value;
+    }
 
     static int NextIntArg(string[] args, ref int i, string flag)
     {
@@ -2046,6 +2178,37 @@ static class Program
           --fail-on-drift        with --verify-authored-corpus: fail-closed gate —
                                 exit non-zero unless every evaluated row is
                                 Verified (any Drifted or Unavailable row fails).
+          --benchmark-authored-corpus <corpus.jsonl>
+                                run the offline authored-source correspondence
+                                benchmark over a vendored corpus. Supply the pinned
+                                assemblies the corpus was harvested from as inputs.
+                                Exit code splits measurement integrity (unmatched
+                                rows, a non-closing partition, drift, unsupported,
+                                or an unknown outcome always fail) from quality
+                                level (see --ratchet-baseline).
+          --ratchet-baseline <history.jsonl>
+                                with --benchmark-authored-corpus: judge quality by
+                                movement against the newest comparable row in a
+                                trend store instead of by perfection. Without it,
+                                success still requires invalid == 0, so the store's
+                                documented append run keeps exiting 1 by design.
+                                With it, the run fails only on a regression in
+                                valid (the exact row count, not the rounded
+                                percentage), correct, invalid, or
+                                productBodyDefect — strictly, no tolerance band. A baseline that is
+                                missing or unparseable is a hard error; a baseline
+                                that parses but holds no comparable row is a loud
+                                skip, never a silent pass.
+          --integrity-only      with --benchmark-authored-corpus: report measurement
+                                integrity only, making no quality claim at all. For a
+                                lane that cannot yet ratchet because its pool is not
+                                pinned. Without it and without --ratchet-baseline the
+                                exit code still demands invalid == 0, so such a lane
+                                would be red by construction. Contradicts
+                                --ratchet-baseline and is refused alongside it; the
+                                run output and the JSON both record which contract
+                                applied, so a green run cannot be misread as a
+                                quality pass.
           --history-card         render a Markout progress card over the committed
                                 EVIL run-history trend store: every run as a trend
                                 table plus a pivoted movement table over the last N

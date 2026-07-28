@@ -550,10 +550,15 @@ public class ApiCommand
     /// True when the member carries no IL body, so <paramref name="Source"/> is absent because
     /// there is nothing to show rather than because resolution failed (issue #3299).
     /// </param>
+    /// <param name="MemberHasNoAuthoredDeclaration">
+    /// True when the member has a body but no authored declaration of its own, so its source
+    /// range is the declaring type's header and there is nothing to isolate.
+    /// </param>
     internal sealed record ResolvedMethodSource(
         MethodSourceContext? Source,
         string? PdbPath,
-        bool MemberHasNoBody = false);
+        bool MemberHasNoBody = false,
+        bool MemberHasNoAuthoredDeclaration = false);
 
     internal static async Task<ResolvedMethodSource> ResolveMethodSourceAsync(
         string dllPath, string typeName, string methodName, int overloadIndex,
@@ -631,6 +636,12 @@ public class ApiCommand
                 content, methodInfo.StartLine, methodInfo.EndLine, methodName, isDestructor,
                 isDestructor ? typeName : null);
 
+            // No authored declaration of its own (positional record accessor, primary
+            // constructor, field-initializer constructor): report no source rather than the
+            // enclosing type's header.
+            if (sourceCode is null)
+                return new ResolvedMethodSource(null, pdbPath, MemberHasNoAuthoredDeclaration: true);
+
             return new ResolvedMethodSource(
                 new MethodSourceContext(sourceCode, methodInfo.SourceUrl ?? methodInfo.FilePath), pdbPath);
         }
@@ -643,6 +654,12 @@ public class ApiCommand
 
     // ===== Single Type Rendering =====
 
+    // --json selects an output format; --print/--value/--urls/--paths select an
+    // output shape. They compose, so the plain type-surface serializer must not
+    // claim a request that a projection owns.
+    private static bool IsProjectionRequested(ApiOptions options)
+        => options.Print || options.Value || options.Urls || options.Paths;
+
     internal static async Task<int> WriteTypeOutputAsync(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options, TextWriter? output = null)
     {
         var sink = output ?? Console.Out;
@@ -653,7 +670,7 @@ public class ApiCommand
             return 0;
         }
 
-        if (options.JsonOutput && !options.Count)
+        if (options.JsonOutput && !options.Count && !IsProjectionRequested(options))
         {
             WriteJsonTypeOutput(type, options);
             return 0;
@@ -812,6 +829,12 @@ public class ApiCommand
                 {
                     view.MemberCode ??= new MemberCodeView();
                     view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", BodylessMemberNote);
+                    view.MemberCode.OriginalSourceUnavailable = true;
+                }
+                else if (mo5.MemberHasNoAuthoredDeclaration)
+                {
+                    view.MemberCode ??= new MemberCodeView();
+                    view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", NoAuthoredDeclarationNote);
                     view.MemberCode.OriginalSourceUnavailable = true;
                 }
             }
@@ -1443,6 +1466,12 @@ public class ApiCommand
                         view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", BodylessMemberNote);
                         view.MemberCode.OriginalSourceUnavailable = true;
                     }
+                    else if (memberOptions.MemberHasNoAuthoredDeclaration)
+                    {
+                        view.MemberCode ??= new MemberCodeView();
+                        view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", NoAuthoredDeclarationNote);
+                        view.MemberCode.OriginalSourceUnavailable = true;
+                    }
                 }
                 PopulateSourceDiff(view, requestedSections);
             }
@@ -1541,6 +1570,17 @@ public class ApiCommand
     /// </summary>
     internal const string BodylessMemberNote =
         "// This member has no IL body, so it has no authored source to show.";
+
+    /// <summary>
+    /// Stands in for Original Source when the selected member has an IL body but no authored
+    /// declaration of its own — a positional record's property accessor, a primary constructor,
+    /// or a constructor synthesized from field initializers. Its sequence points map to the
+    /// declaring type's header, which is not this member's source, so saying so beats rendering
+    /// a truncated type declaration (issue #3299's principle, applied to a second cause).
+    /// </summary>
+    internal const string NoAuthoredDeclarationNote =
+        "// This member is declared by its type's header (positional record, primary constructor,\n"
+        + "// or field initializers), so it has no authored declaration of its own to show.";
 
     private static void PopulateSourceDiff(TypeView view, IReadOnlySet<string> requestedSections)
     {

@@ -39,9 +39,10 @@ Most sections are Tables, but a section can also be a key-value field set, a
 list, a code/text blob, or a tree (for example a call graph). Those are still
 "one section" — the Table rung — and they collapse to Scalars the same way.
 
-## Three flag families
+## Flag families
 
-A flag can contribute in one of three ways:
+Three families walk the shape ladder, and a fourth sits before it. A flag in one
+of the ladder families contributes in one of three ways:
 
 - **Shape selectors** narrow the requested shape (`-S`, `--fields`/`--columns`,
   `--count`, `-n 1`).
@@ -50,6 +51,40 @@ A flag can contribute in one of three ways:
   `--jsonl`, `--plaintext`, `--no-headers`).
 - **URL-shape modifiers** change only the form of GitHub URLs emitted as data
   (`--raw`, `--blob`). They are orthogonal to the output-shape ladder.
+
+### Coordinate carriers sit before the ladder
+
+A fourth kind of flag does not walk the ladder at all: it *supplies an input the
+command has no other way to express*, and in doing so changes which sections
+exist to be selected. The IL coordinate is the family's one implemented
+currency; `--heap` (see
+[metadata-table-projection.md](metadata-table-projection.md)) is designed to be
+the second.
+
+The family is counted in currencies, not flags, because one currency can have
+more than one spelling. The IL coordinate has two: `--il-offset` takes a single
+coordinate, and `--il-offsets` takes a file of them for batch reporting. They
+are mutually exclusive (`--il-offset cannot be combined with --il-offsets`) and
+carry the same currency, so they are one member of this family rather than two.
+
+A coordinate carrier is the right shape for a flag only when the input is a
+genuinely new currency — a value that is not a section name, a column name, or a
+row. An IL coordinate (`0x06000002+0x1`) and a heap address (`#Strings:0x1a4`)
+qualify; a table name does not, because a table is already a section and `-S`
+already addresses sections.
+
+Carriers behave consistently:
+
+- The sections they enable are **discoverable only when the carrier is present**,
+  so `-D` reflects the carrier (see the IL-offset case study below).
+- Absent the carrier, requesting a coordinate-scoped section is an error that
+  names the missing carrier, for example
+  `IL coordinate sections require --il-offset`.
+- Once the carrier resolves, its sections are ordinary sections: they obey `-S`,
+  `--columns`, `--count`, and the rest of the ladder like any other.
+
+Prefer a section, a category, or `--where` before reaching for a new carrier.
+The bar is a new currency, not merely a new thing to look at.
 
 ## How Markout produces the shapes
 
@@ -165,12 +200,35 @@ could name a package. The explicit transition to that package artifact remains
 `package Package@version`. Likewise, printing a timeline may use only declared
 payloads on already evaluated rows; it cannot probe missing cells.
 
+### A payload projection is never silently dropped
+
+`--print`, `--value`, `--urls`, `--paths`, and `--count` reshape the payload, so
+a render path that ignores one answers a question the caller did not ask while
+still exiting 0. That failure is invisible to exit-code checks and to tests that
+only cover the unprojected path.
+
+Every accepted payload projection must therefore end in one of two outcomes: the
+payload is projected, or the command reports why it cannot be and exits non-zero.
+Rendering the full unprojected shape is not a third option. The requirement is
+enforced structurally rather than per command — the request is recorded from the
+parse result and the projection writers report which projection they honored, so
+a route that drops one fails loudly instead of shipping the wrong payload.
+
+Writers report *which* flag they honored rather than merely acknowledging one.
+A writer can be reached for more than one reason — the print writer also serves
+`--bare` — so an untyped signal would let it satisfy an unrelated request and let
+that drop escape.
+
+The projections are mutually exclusive. Two of them cannot both shape one
+payload, so a combination is rejected before the command runs rather than
+resolved by discarding one.
+
 ### Presentation modifiers (render the chosen shape)
 
 | Flag | Effect |
 | --- | --- |
 | `--markdown` | force the full Markdown Document format |
-| `--json` | the whole Document as one JSON object |
+| `--json` | render the selected shape as JSON: the whole Document when no narrower shape is selected, otherwise the projected payload (`--print`, `--value`, `--urls`, `--paths`) |
 | `--tsv` / `--jsonl` | render the single selected section as TSV / JSON Lines (a Table or Vector) |
 | `--table` | render the single selected section as a space-padded pretty table |
 | `--no-header` (`--no-headers`) | drop the Table header row |
@@ -387,5 +445,10 @@ The stable vocabulary is:
   GitHub links, not the shape of the payload itself.
 - `--plaintext` remains distinct from `--bare`; if it stays in the product, it is
   a whole-document plain-text rendering mode rather than a bare-payload mode.
+- `--il-offset` / `--il-offsets` are coordinate carriers: they supply an input
+  that has no other expression and gate the sections it makes meaningful. They
+  do not narrow a shape, and a flag qualifies for this family only if its input
+  is a new currency. Both spell the same currency, so they are one member;
+  `--heap` is the designed second.
 
 New flags should fit one of those buckets rather than blending concepts.

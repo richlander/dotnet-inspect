@@ -23,6 +23,8 @@ public static class PrintProjectionOutput
 {
     public static int Write(IReadOnlyList<PrintableDocument> documents, PrintProjectionOptions options)
     {
+        ProjectionAudit.MarkHonored(ProjectionAudit.Print);
+
         if (documents.Count == 0)
         {
             Console.Error.WriteLine("Error: selected section has no printable rows.");

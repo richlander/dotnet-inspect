@@ -264,7 +264,12 @@ public class AuthoredCorpusHistoryCardTests
             incomplete.OrderBy(date => date, StringComparer.Ordinal));
     }
 
-    static IReadOnlyList<HistoryRun> TrackedHistory()
+    /// <summary>
+    /// The tracked trend store, parsed. Internal so the ratchet gate
+    /// (<see cref="AuthoredCorpusRatchetTests"/>) reads the same store through the
+    /// same parser rather than locating and parsing it a second way.
+    /// </summary>
+    internal static IReadOnlyList<HistoryRun> TrackedHistory()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null

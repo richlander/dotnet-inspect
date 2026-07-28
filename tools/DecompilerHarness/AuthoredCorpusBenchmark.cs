@@ -27,15 +27,51 @@ static class AuthoredCorpusBenchmark
     /// </summary>
     internal const int MethodologyVersion = SpanAttribution.MethodologyVersion;
 
-    public static int Run(IReadOnlyList<string> assemblies, string corpusPath, bool json)
+    /// <param name="output">
+    /// Where the report is written. Defaults to standard output; tests pass their own
+    /// writer so that capturing a run does not mutate process-global console state,
+    /// which raced other test classes under xunit's parallel runner.
+    /// </param>
+    public static int Run(
+        IReadOnlyList<string> assemblies,
+        string corpusPath,
+        bool json,
+        string? ratchetBaselinePath = null,
+        bool integrityOnly = false,
+        TextWriter? output = null)
     {
+        output ??= Console.Out;
+
         if (!File.Exists(corpusPath))
         {
             Console.Error.WriteLine($"Corpus file not found: {corpusPath}");
             return 1;
         }
 
-        var records = ReadCorpus(corpusPath);
+        // A baseline that cannot be read is a hard error, never a skip. A typo'd path
+        // that degraded into "nothing to compare" would be a permanently green gate —
+        // the exact failure mode this ratchet exists to remove.
+        IReadOnlyList<HistoryRun>? baselines = null;
+        if (ratchetBaselinePath is not null)
+        {
+            if (!File.Exists(ratchetBaselinePath))
+            {
+                Console.Error.WriteLine($"Ratchet baseline not found: {ratchetBaselinePath}");
+                return 1;
+            }
+
+            try
+            {
+                baselines = AuthoredCorpusHistoryCard.ParseHistory(File.ReadLines(ratchetBaselinePath));
+            }
+            catch (JsonException ex)
+            {
+                Console.Error.WriteLine($"Ratchet baseline is not valid JSONL: {ratchetBaselinePath}: {ex.Message}");
+                return 1;
+            }
+        }
+
+        var records = ReadCorpus(corpusPath, out int malformedRows);
         if (records.Count == 0)
         {
             Console.Error.WriteLine($"Corpus is empty or unparseable: {corpusPath}");
@@ -46,31 +82,75 @@ static class AuthoredCorpusBenchmark
             .GroupBy(record => record.Assembly, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => (IReadOnlyList<AuthoredSourceHarvest.CorpusRecord>)group.ToArray(), StringComparer.Ordinal);
 
+        // Selection and identity come out of one call, so the pool this run identifies
+        // is the pool it measures. They used to be computed separately, and a reviewer
+        // showed the two could disagree: evaluation takes the first path per assembly
+        // identity, so reordering two byte-distinct assemblies with the same identity
+        // changed what was measured without changing the digest.
+        var pool = AuthoredCorpusRatchet.SelectPool(
+            assemblies,
+            path => File.Exists(path)
+                && AuthoredSourceHarvest.ReadAssemblyIdentity(path).Name is { } name
+                && byAssembly.ContainsKey(name)
+                    ? name
+                    : null);
+
+        if (pool.Assemblies.Count == 0)
+        {
+            Console.Error.WriteLine($"No supplied assembly matched the corpus, so the run measured nothing: {corpusPath}");
+            return 1;
+        }
+
         var results = new List<ReturnToSenderSourceProbeResult>();
         var matchedGroups = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var assemblyPath in assemblies)
+        for (int i = 0; i < pool.Assemblies.Count; i++)
         {
-            if (!File.Exists(assemblyPath))
-                continue;
-
-            string name = AuthoredSourceHarvest.ReadAssemblyIdentity(assemblyPath).Name;
-            if (!byAssembly.TryGetValue(name, out var group) || !matchedGroups.Add(name))
-                continue;
+            string assemblyPath = pool.Assemblies[i];
+            var group = byAssembly[pool.Identities[i]];
+            matchedGroups.Add(pool.Identities[i]);
 
             var index = ReturnToSenderSourceIndex.FromMembers(group.Select(ToSourceMember));
             var targets = group.Select(ToTarget).ToArray();
             results.AddRange(ReturnToSenderSourceProbe.EvaluateWithIndex(assemblyPath, targets, index));
         }
 
+        string? poolSha256 = pool.Sha256;
+
         int unmatchedRows = byAssembly
             .Where(entry => !matchedGroups.Contains(entry.Key))
             .Sum(entry => entry.Value.Count);
 
-        if (json)
-            return WriteJson(results, records.Count, matchedGroups.Count, byAssembly.Count, unmatchedRows);
+        // Always identified, baseline or not: the trend-store append procedure runs
+        // *without* --ratchet-baseline, and it is that run's JSON the recorded row is
+        // copied from. Withholding the digest here would make every appended row
+        // unidentifiable, and so unusable as a future baseline.
+        string corpusSha256 = AuthoredCorpusRatchet.CorpusDigest(corpusPath);
 
-        return WriteCard(results, records.Count, matchedGroups.Count, byAssembly.Count, unmatchedRows);
+        var inputs = new RunInputs(
+            matchedGroups.Count,
+            byAssembly.Count,
+            unmatchedRows,
+            malformedRows,
+            poolSha256,
+            corpusSha256);
+
+        if (json)
+            return WriteJson(results, records.Count, inputs, baselines, integrityOnly, output);
+
+        return WriteCard(results, records.Count, inputs, baselines, integrityOnly, output);
     }
+
+    /// <summary>
+    /// What the run was fed, as distinct from what it found. Every field here feeds
+    /// measurement integrity or run identity, never the quality metrics.
+    /// </summary>
+    internal sealed record RunInputs(
+        int MatchedAssemblies,
+        int CorpusAssemblies,
+        int UnmatchedRows,
+        int MalformedRows,
+        string? PoolSha256,
+        string? CorpusSha256);
 
     static ReturnToSenderSourceMember ToSourceMember(AuthoredSourceHarvest.CorpusRecord record)
         => new(
@@ -84,34 +164,121 @@ static class AuthoredCorpusBenchmark
     static ReturnToSender.RequestedTarget ToTarget(AuthoredSourceHarvest.CorpusRecord record)
         => new(record.Type, record.Method, record.Overload, record.Signature);
 
-    static List<AuthoredSourceHarvest.CorpusRecord> ReadCorpus(string corpusPath)
+    /// <summary>
+    /// Reads a JSONL authored corpus, counting every line that is not a usable row.
+    ///
+    /// <para>Shared with the drift gate. It had its own reader, which counted malformed
+    /// JSON but skipped blank lines uncounted and never checked the declared schema, so
+    /// the same corpus that this gate rejected for an erased row the drift gate verified
+    /// and exited 0 over. Two readers for one format is two answers to "how many rows did
+    /// you actually read", and only one of them was hardened by the reviews that found
+    /// these cases.</para>
+    /// </summary>
+    internal static List<AuthoredSourceHarvest.CorpusRecord> ReadCorpus(string corpusPath, out int malformedRows)
     {
         var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
         var records = new List<AuthoredSourceHarvest.CorpusRecord>();
+        var seen = new HashSet<(string, string, string, int)>();
+        int malformed = 0;
         foreach (var line in File.ReadLines(corpusPath))
         {
+            // Counted, not skipped. A reviewer replaced one corpus row with whitespace
+            // and the run reported 99 rows, 0 malformed, inputsComplete true — the
+            // denominator quietly shortened, which is the shape of defect this gate
+            // exists to catch. Blank lines are not a legitimate part of a JSONL corpus,
+            // and File.ReadLines does not manufacture one for the trailing newline.
             if (string.IsNullOrWhiteSpace(line))
+            {
+                malformed++;
+                Console.Error.WriteLine("Skipping malformed corpus row: the line is empty, so a row was erased rather than absent.");
                 continue;
+            }
+
             try
             {
-                if (JsonSerializer.Deserialize<AuthoredSourceHarvest.CorpusRecord>(line, options) is { } record)
+                if (JsonSerializer.Deserialize<AuthoredSourceHarvest.CorpusRecord>(line, options) is not { } record)
+                {
+                    malformed++;
+                }
+                else if (MissingRequiredField(record) is { } field)
+                {
+                    // Valid JSON is not a valid corpus row. Every string field below is
+                    // declared non-nullable on CorpusRecord, but System.Text.Json will
+                    // happily leave them null when the property is absent, and the run
+                    // then died on a null grouping key with an unhandled
+                    // ArgumentNullException and exit 134 — a crash where the contract
+                    // promises a reported integrity failure. Enforcing the declared
+                    // schema here keeps the row counted, not fatal.
+                    malformed++;
+                    Console.Error.WriteLine(
+                        $"Skipping malformed corpus row: required field '{field}' is missing or empty.");
+                }
+                else if (!seen.Add((record.Assembly, record.AssemblyVersion, record.Tfm, record.MetadataToken)))
+                {
+                    // A metadata token is unique within an assembly, so a repeated
+                    // identity is one method presented as two measurements. Review
+                    // duplicated the sole fixture row and both gates reported two
+                    // evaluated targets and exited 0. A shortened denominator and a
+                    // padded one distort the ratchet the same way: swapping a regressed
+                    // row for a copy of a healthy one holds every count still. Nothing
+                    // pins corpus content -- PoolDigest covers the assembly pool, not the
+                    // rows -- so this is the only place the substitution is visible.
+                    malformed++;
+                    Console.Error.WriteLine(
+                        $"Skipping malformed corpus row: {record.Assembly} token 0x{record.MetadataToken:X8} "
+                        + "already appeared, so one method is counted twice.");
+                }
+                else
+                {
                     records.Add(record);
+                }
             }
             catch (JsonException ex)
             {
+                malformed++;
                 Console.Error.WriteLine($"Skipping malformed corpus row: {ex.Message}");
             }
         }
 
+        malformedRows = malformed;
         return records;
+    }
+
+    /// <summary>
+    /// The name of the first required field this row does not supply, or null when the
+    /// row satisfies the schema <see cref="AuthoredSourceHarvest.CorpusRecord"/>
+    /// declares.
+    ///
+    /// <para>The set below is exactly the record's non-nullable string properties.
+    /// <c>CorpusRecordSchemaTests</c> derives that set by reflection and asserts this
+    /// validator rejects each one, so adding a required field without listing it here
+    /// fails rather than silently going unchecked.</para>
+    /// </summary>
+    internal static string? MissingRequiredField(AuthoredSourceHarvest.CorpusRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        if (string.IsNullOrEmpty(record.Assembly))
+            return nameof(record.Assembly);
+        if (string.IsNullOrEmpty(record.AssemblyVersion))
+            return nameof(record.AssemblyVersion);
+        if (string.IsNullOrEmpty(record.Tfm))
+            return nameof(record.Tfm);
+        if (string.IsNullOrEmpty(record.Type))
+            return nameof(record.Type);
+        if (string.IsNullOrEmpty(record.Method))
+            return nameof(record.Method);
+        if (string.IsNullOrEmpty(record.AuthoredBody))
+            return nameof(record.AuthoredBody);
+        return null;
     }
 
     static int WriteCard(
         IReadOnlyList<ReturnToSenderSourceProbeResult> results,
         int corpusRows,
-        int matchedAssemblies,
-        int corpusAssemblies,
-        int unmatchedRows)
+        RunInputs inputs,
+        IReadOnlyList<HistoryRun>? baselines,
+        bool integrityOnly,
+        TextWriter output)
     {
         var census = Census(results);
         int match = census.Correct;
@@ -121,56 +288,65 @@ static class AuthoredCorpusBenchmark
         int valid = match + different;
         var invalidBreakdown = InvalidBreakdown(results);
 
-        Console.WriteLine($"AUTHORED-SOURCE CORPUS BENCHMARK");
-        Console.WriteLine();
-        Console.WriteLine($"  corpus rows        : {corpusRows}");
-        Console.WriteLine($"  assemblies matched : {matchedAssemblies} / {corpusAssemblies}");
-        if (unmatchedRows > 0)
-            Console.WriteLine($"  rows without asm   : {unmatchedRows} (BLOCKER: no local assembly supplied)");
-        Console.WriteLine($"  targets evaluated  : {evaluated}");
+        output.WriteLine($"AUTHORED-SOURCE CORPUS BENCHMARK");
+        output.WriteLine();
+        output.WriteLine($"  corpus rows        : {corpusRows}");
+        output.WriteLine($"  assemblies matched : {inputs.MatchedAssemblies} / {inputs.CorpusAssemblies}");
+        if (inputs.UnmatchedRows > 0)
+            output.WriteLine($"  rows without asm   : {inputs.UnmatchedRows} (BLOCKER: no local assembly supplied)");
+        if (inputs.MalformedRows > 0)
+            output.WriteLine($"  malformed rows     : {inputs.MalformedRows} (BLOCKER: corpus row dropped, denominator is short)");
+        output.WriteLine($"  targets evaluated  : {evaluated}");
         if (evaluated == 0)
-            Console.WriteLine($"  (BLOCKER: no targets evaluated — nothing was checked)");
+            output.WriteLine($"  (BLOCKER: no targets evaluated — nothing was checked)");
 
-        Console.WriteLine();
-        Console.WriteLine($"  Correct  (valid, matches authored)  : {match}");
-        Console.WriteLine($"  Valid    (valid, differs)           : {different}");
-        Console.WriteLine($"    lowering (inherent, unrecoverable): {census.Lowering}");
-        Console.WriteLine($"    known taste (documented decision) : {census.KnownTaste}");
-        Console.WriteLine($"    frontier, IL-exact (cosmetic)     : {census.FrontierIlExact}");
-        Console.WriteLine($"    frontier, IL-diff (semantic)      : {census.FrontierIlDiff}");
-        Console.WriteLine($"    UNMEASURED (oracle no verdict)    : {census.FrontierIlNoVerdict}");
-        Console.WriteLine($"  Invalid  (does not round-trip)      : {invalid}");
-        Console.WriteLine($"    product body defects              : {invalidBreakdown.ProductBodyDefect}");
-        Console.WriteLine($"    harness shell reconstruction      : {invalidBreakdown.HarnessShellReconstruction}");
-        Console.WriteLine($"    unclassified invalid              : {invalidBreakdown.Unclassified}");
-        Console.WriteLine($"  Not-Full (uncheckable at Full)      : {census.NotFull}");
-        Console.WriteLine($"  Drift    (corpus source unresolved) : {census.Drift}");
-        Console.WriteLine($"  Unsupported (rts-target)            : {census.Unsupported}");
-        Console.WriteLine($"  Unknown outcome (unclassified)      : {census.UnknownOutcome}");
-        Console.WriteLine();
+        output.WriteLine();
+        output.WriteLine($"  Correct  (valid, matches authored)  : {match}");
+        output.WriteLine($"  Valid    (valid, differs)           : {different}");
+        output.WriteLine($"    lowering (inherent, unrecoverable): {census.Lowering}");
+        output.WriteLine($"    known taste (documented decision) : {census.KnownTaste}");
+        output.WriteLine($"    frontier, IL-exact (cosmetic)     : {census.FrontierIlExact}");
+        output.WriteLine($"    frontier, IL-diff (semantic)      : {census.FrontierIlDiff}");
+        output.WriteLine($"    UNMEASURED (oracle no verdict)    : {census.FrontierIlNoVerdict}");
+        output.WriteLine($"  Invalid  (does not round-trip)      : {invalid}");
+        output.WriteLine($"    product body defects              : {invalidBreakdown.ProductBodyDefect}");
+        output.WriteLine($"    harness shell reconstruction      : {invalidBreakdown.HarnessShellReconstruction}");
+        output.WriteLine($"    unclassified invalid              : {invalidBreakdown.Unclassified}");
+        output.WriteLine($"  Not-Full (uncheckable at Full)      : {census.NotFull}");
+        output.WriteLine($"  Drift    (corpus source unresolved) : {census.Drift}");
+        output.WriteLine($"  Unsupported (rts-target)            : {census.Unsupported}");
+        output.WriteLine($"  Unknown outcome (unclassified)      : {census.UnknownOutcome}");
+        output.WriteLine();
         if (valid + invalid > 0)
         {
             double correctPct = valid == 0 ? 0 : 100.0 * match / valid;
             double validPct = evaluated == 0 ? 0 : 100.0 * valid / evaluated;
-            Console.WriteLine($"  Valid rate         : {valid}/{evaluated} ({validPct:F1}%)");
-            Console.WriteLine($"  Correct rate       : {match}/{valid} of valid ({correctPct:F1}%)");
+            output.WriteLine($"  Valid rate         : {valid}/{evaluated} ({validPct:F1}%)");
+            output.WriteLine($"  Correct rate       : {match}/{valid} of valid ({correctPct:F1}%)");
         }
 
-        WriteReasonBuckets("Frontier, IL-diff (semantic) reasons", results, result => ClassifyTaste(result) == TasteBucket.FrontierIlDiff);
-        WriteReasonBuckets("Frontier, IL-exact (cosmetic) reasons", results, result => ClassifyTaste(result) == TasteBucket.FrontierIlExact);
-        WriteReasonBuckets("Lowering (inherent) reasons", results, result => ClassifyTaste(result) == TasteBucket.Lowering);
-        WriteReasonBuckets("Known-taste reasons", results, result => ClassifyTaste(result) == TasteBucket.KnownTaste);
-        WriteReasonBuckets("Invalid reasons", results, result => ClassifyTaste(result) == TasteBucket.Invalid);
-        WriteReasonBuckets("Not-Full reasons", results, result => ClassifyTaste(result) == TasteBucket.NotFull);
-        WriteReasonBuckets("Drift reasons", results, result => ClassifyTaste(result) == TasteBucket.Drift);
-        WriteReasonBuckets("Unsupported reasons", results, result => ClassifyTaste(result) == TasteBucket.Unsupported);
+        WriteReasonBuckets("Frontier, IL-diff (semantic) reasons", results, result => ClassifyTaste(result) == TasteBucket.FrontierIlDiff, output);
+        WriteReasonBuckets("Frontier, IL-exact (cosmetic) reasons", results, result => ClassifyTaste(result) == TasteBucket.FrontierIlExact, output);
+        WriteReasonBuckets("Lowering (inherent) reasons", results, result => ClassifyTaste(result) == TasteBucket.Lowering, output);
+        WriteReasonBuckets("Known-taste reasons", results, result => ClassifyTaste(result) == TasteBucket.KnownTaste, output);
+        WriteReasonBuckets("Invalid reasons", results, result => ClassifyTaste(result) == TasteBucket.Invalid, output);
+        WriteReasonBuckets("Not-Full reasons", results, result => ClassifyTaste(result) == TasteBucket.NotFull, output);
+        WriteReasonBuckets("Drift reasons", results, result => ClassifyTaste(result) == TasteBucket.Drift, output);
+        WriteReasonBuckets("Unsupported reasons", results, result => ClassifyTaste(result) == TasteBucket.Unsupported, output);
 
         // Both output modes share one exit contract and one partition check, so a
         // malformed run cannot pass in text mode and fail in --json mode.
         if (!census.PartitionClosed)
             Console.Error.WriteLine(census.PartitionFailureMessage);
 
-        return ExitCode(census, unmatchedRows);
+        var ratchet = Ratchet(census, invalidBreakdown, inputs, baselines);
+        if (ratchet is not null)
+            AuthoredCorpusRatchet.Report(ratchet, output);
+
+        var contract = AuthoredCorpusExitContract.ContractFor(integrityOnly, ratchet);
+        ReportContract(contract, census.Invalid, output);
+
+        return ExitCode(census, inputs, ratchet, contract);
     }
 
     /// <summary>
@@ -194,11 +370,15 @@ static class AuthoredCorpusBenchmark
         int Unsupported,
         int UnknownOutcome)
     {
-        public int ValidDifferentSum
-            => Lowering + KnownTaste + FrontierIlExact + FrontierIlDiff + FrontierIlNoVerdict;
+        // Summed as long for the same reason the recorded-row sums are, even though
+        // these counts are measured here rather than supplied by a caller: a partition
+        // check that can wrap is not a partition check, and which side is trusted is
+        // not a property worth depending on.
+        public long ValidDifferentSum
+            => (long)Lowering + KnownTaste + FrontierIlExact + FrontierIlDiff + FrontierIlNoVerdict;
 
-        public int TopLevelSum
-            => Correct + ValidDifferent + Invalid + NotFull + Drift + Unsupported + UnknownOutcome;
+        public long TopLevelSum
+            => (long)Correct + ValidDifferent + Invalid + NotFull + Drift + Unsupported + UnknownOutcome;
 
         /// <summary>
         /// Both partitions close exactly. A shortfall means a row was counted in a
@@ -254,24 +434,75 @@ static class AuthoredCorpusBenchmark
     }
 
     /// <summary>
-    /// The single exit contract for both output modes. Nonzero if any target failed
-    /// to round-trip (Invalid) or the corpus no longer corresponds to the pinned
-    /// assembly (Drift/Unsupported). Not-Full is a surfaced decompiler limitation,
-    /// not a corpus problem, so it does not fail the run on its own. Inputs-complete:
-    /// an empty or partially unmatched run is never a success. An unrecognized
-    /// outcome or a non-closing partition is a measurement failure, not a result.
+    /// Builds the ratchet comparison for a completed run, or null when no baseline was
+    /// supplied. Shared by both output modes so text and <c>--json</c> cannot disagree
+    /// about whether quality regressed.
     /// </summary>
-    static int ExitCode(BucketCensus census, int unmatchedRows)
+    static AuthoredCorpusRatchet.Comparison? Ratchet(
+        BucketCensus census,
+        InvalidBreakdownCounts invalidBreakdown,
+        RunInputs inputs,
+        IReadOnlyList<HistoryRun>? baselines)
     {
-        bool inputsComplete = unmatchedRows == 0 && census.Evaluated > 0;
-        return inputsComplete
-            && census.PartitionClosed
-            && census.Invalid == 0
-            && census.Drift == 0
-            && census.Unsupported == 0
-            && census.UnknownOutcome == 0
-            ? 0
-            : 1;
+        if (baselines is null)
+            return null;
+
+        // A live run always identifies its pool, because the identity is taken from the
+        // assemblies it measured. A recorded row that predates that scheme carries no
+        // pool identity, and RunKey.IsComparableTo refuses the comparison rather than
+        // assuming the inputs matched.
+        var key = new AuthoredCorpusRatchet.RunKey(
+            census.Evaluated,
+            inputs.MatchedAssemblies,
+            inputs.CorpusAssemblies,
+            inputs.PoolSha256,
+            inputs.CorpusSha256);
+
+        var metrics = new AuthoredCorpusRatchet.RunMetrics(
+            Valid: census.Correct + census.ValidDifferent,
+            census.Correct,
+            census.Invalid,
+            invalidBreakdown.ProductBodyDefect,
+            MethodologyVersion);
+
+        return AuthoredCorpusRatchet.Compare(key, metrics, baselines);
+    }
+
+    static bool InputsComplete(BucketCensus census, RunInputs inputs)
+        => AuthoredCorpusExitContract.InputsComplete(inputs.UnmatchedRows, inputs.MalformedRows, census.Evaluated);
+
+    /// <summary>
+    /// The single exit contract for both output modes, delegating to
+    /// <see cref="AuthoredCorpusExitContract"/> so the decision is unit-testable
+    /// without running the corpus. See that type for the integrity/quality split.
+    /// Not-Full is a surfaced decompiler limitation, not a corpus problem, so it does
+    /// not fail the run on its own.
+    /// </summary>
+    internal static int ExitCode(
+        BucketCensus census,
+        RunInputs inputs,
+        AuthoredCorpusRatchet.Comparison? ratchet,
+        AuthoredCorpusExitContract.QualityContract contract)
+    {
+        bool measurementIsSound = AuthoredCorpusExitContract.MeasurementIsSound(
+            InputsComplete(census, inputs),
+            census.PartitionClosed,
+            census.Drift,
+            census.Unsupported,
+            census.UnknownOutcome);
+
+        return AuthoredCorpusExitContract.ExitCode(measurementIsSound, census.Invalid, ratchet, contract);
+    }
+
+    /// <summary>
+    /// Says out loud which quality claim the exit code is about to make, so that a
+    /// green integrity-only run cannot be read as a quality pass by anyone looking at
+    /// the log or the exit code alone.
+    /// </summary>
+    static void ReportContract(AuthoredCorpusExitContract.QualityContract contract, int invalid, TextWriter writer)
+    {
+        if (contract is AuthoredCorpusExitContract.QualityContract.NotJudged)
+            writer.WriteLine($"[integrity-only] Quality was not judged: {invalid} invalid rows stand unreviewed. This exit code reports measurement integrity only.");
     }
 
     enum TasteBucket
@@ -378,7 +609,8 @@ static class AuthoredCorpusBenchmark
     static void WriteReasonBuckets(
         string title,
         IReadOnlyList<ReturnToSenderSourceProbeResult> results,
-        Func<ReturnToSenderSourceProbeResult, bool> predicate)
+        Func<ReturnToSenderSourceProbeResult, bool> predicate,
+        TextWriter output)
     {
         var buckets = results
             .Where(predicate)
@@ -389,31 +621,41 @@ static class AuthoredCorpusBenchmark
         if (buckets.Length == 0)
             return;
 
-        Console.WriteLine();
-        Console.WriteLine($"  {title}:");
+        output.WriteLine();
+        output.WriteLine($"  {title}:");
         foreach (var bucket in buckets)
-            Console.WriteLine($"    {bucket.Count(),5}  {bucket.Key}");
+            output.WriteLine($"    {bucket.Count(),5}  {bucket.Key}");
     }
 
     static int WriteJson(
         IReadOnlyList<ReturnToSenderSourceProbeResult> results,
         int corpusRows,
-        int matchedAssemblies,
-        int corpusAssemblies,
-        int unmatchedRows)
+        RunInputs inputs,
+        IReadOnlyList<HistoryRun>? baselines,
+        bool integrityOnly,
+        TextWriter output)
     {
         var census = Census(results);
         var invalidBreakdown = InvalidBreakdown(results);
-        // Inputs-complete contract: an empty or partially unmatched run is never a
-        // success — unmatched rows (assembly not supplied) and a zero-target run fail.
-        // This flag reports only that the inputs were all present; it makes no claim
-        // that every evaluated row's product status was measured (see
-        // frontierIlNoVerdict and invalidBreakdown.harnessShellReconstruction, both
-        // of which are unmeasured rather than clean).
-        bool inputsComplete = unmatchedRows == 0 && census.Evaluated > 0;
+        // Inputs-complete contract: an empty run, a row whose assembly was not
+        // supplied, or a corpus row that failed to parse all mean the denominator is
+        // not the one the corpus describes. This flag reports only that the inputs were
+        // all present; it makes no claim that every evaluated row's product status was
+        // measured (see frontierIlNoVerdict and invalidBreakdown.harnessShellReconstruction,
+        // both of which are unmeasured rather than clean).
+        bool inputsComplete = InputsComplete(census, inputs);
+        var ratchet = Ratchet(census, invalidBreakdown, inputs, baselines);
+        var contract = AuthoredCorpusExitContract.ContractFor(integrityOnly, ratchet);
 
+        // `total` leads, and is emitted here rather than only as the sibling
+        // `validDifferent` field, because this object is what an author copies into the
+        // trend store's `validDifferent` row member — where the total is the number the
+        // ratchet's `valid` metric is built from. Emitting the parts without their sum
+        // invited a row that recorded 0, and a row whose partition does not close is
+        // rejected as unsound: a loud skip, but one caused by the shape of this output.
         var validBreakdown = new
         {
+            total = census.ValidDifferent,
             lowering = census.Lowering,
             knownTaste = census.KnownTaste,
             frontierIlExact = census.FrontierIlExact,
@@ -424,12 +666,19 @@ static class AuthoredCorpusBenchmark
         var payload = new
         {
             corpusRows,
-            matchedAssemblies,
-            corpusAssemblies,
-            unmatchedRows,
+            matchedAssemblies = inputs.MatchedAssemblies,
+            corpusAssemblies = inputs.CorpusAssemblies,
+            unmatchedRows = inputs.UnmatchedRows,
+            malformedRows = inputs.MalformedRows,
+            poolSha256 = inputs.PoolSha256,
+            corpusSha256 = inputs.CorpusSha256,
             targetsEvaluated = census.Evaluated,
             methodologyVersion = MethodologyVersion,
             inputsComplete,
+            // Which quality claim this run's exit code makes. A consumer that sees
+            // exit 0 must read this before treating the run as a quality pass:
+            // "NotJudged" means no quality claim was made at all.
+            qualityContract = contract.ToString(),
             correct = census.Correct,
             validDifferent = census.ValidDifferent,
             validBreakdown,
@@ -444,6 +693,22 @@ static class AuthoredCorpusBenchmark
             drift = census.Drift,
             unsupported = census.Unsupported,
             unknownOutcome = census.UnknownOutcome,
+            ratchet = ratchet is null ? null : new
+            {
+                skipped = ratchet.Skipped,
+                skipReason = ratchet.SkipReason,
+                baselineDate = ratchet.Baseline?.Date,
+                baselineCommit = ratchet.Baseline?.Commit,
+                regressed = ratchet.Regressions.Count > 0,
+                metrics = ratchet.Metrics.Select(metric => new
+                {
+                    name = metric.Name,
+                    baseline = metric.Baseline,
+                    current = metric.Current,
+                    higherIsBetter = metric.HigherIsBetter,
+                    regressed = metric.Regressed,
+                }),
+            },
             rows = results.Select(result => new
             {
                 type = result.Target.Type,
@@ -461,12 +726,19 @@ static class AuthoredCorpusBenchmark
             }),
         };
 
-        Console.WriteLine(JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
+        output.WriteLine(JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
 
-        // Same partition check and exit contract as the text-report path.
+        // Same partition check and exit contract as the text-report path. The ratchet
+        // verdict goes to stderr here so it stays visible without corrupting the JSON
+        // document that callers redirect to a file; it is also in the payload above.
         if (!census.PartitionClosed)
             Console.Error.WriteLine(census.PartitionFailureMessage);
 
-        return ExitCode(census, unmatchedRows);
+        if (ratchet is not null)
+            AuthoredCorpusRatchet.Report(ratchet, Console.Error);
+
+        ReportContract(contract, census.Invalid, Console.Error);
+
+        return ExitCode(census, inputs, ratchet, contract);
     }
 }

@@ -12,6 +12,7 @@ on:
           - test
           - census
           - package-sweep
+          - authored-corpus
           - nightly
           - all
   schedule:
@@ -487,13 +488,92 @@ jobs:
           path: artifacts/opt-in-corpus/
           if-no-files-found: warn
 
+  authored-corpus-ratchet:
+    name: Authored-corpus integrity lane
+    # The first caller this benchmark has ever had. Before this job nothing ran it:
+    # no workflow referenced it, so its exit code — the headline quality metric —
+    # was never read by anything (#3245).
+    #
+    # This is a *periodic* gate, not a merge gate. The run needs the vendored EVIL
+    # corpus (an orphan branch) plus a 100-package NuGet sweep, so it is far too
+    # expensive for the PR lane.
+    #
+    # This lane deliberately does NOT pass --ratchet-baseline. docs/data/nuget-top-packages.json
+    # records no versions, so the sweep resolves *latest* and a fresh pool can never
+    # match a recorded baseline's pool identity — the ratchet would skip, and a skip
+    # fails, so the job would be red by construction. Pinning the pool is tracked
+    # separately (#3353); until then this lane is the integrity gate and the artifact
+    # source, and the ratchet's caller is AuthoredCorpusRatchetTests on every PR.
+    #
+    # It passes --integrity-only to say that in the exit code. Merely omitting
+    # --ratchet-baseline is NOT enough: that selects the historical perfection
+    # contract (invalid == 0), which this ~5,200-invalid corpus cannot satisfy, so the
+    # job would fail every week and file a scheduled-failure issue every time.
+    # Permanently red reports exactly as much as permanently green.
+    #
+    # What it still catches: unmatched rows, malformed corpus rows, a non-closing
+    # partition, drift, unsupported targets, and unrecognized outcomes — all of which
+    # mean the run is untrustworthy and want a corpus refresh, not a product fix. It
+    # also archives the run JSON, which is the input to appending a trend-store row.
+    if: github.event_name == 'schedule' || inputs.lane == 'authored-corpus' || inputs.lane == 'all'
+    runs-on: ubuntu-26.04
+    # Extrapolated, not measured: a 60-row run takes ~16s locally, so 12,000 rows is
+    # roughly 45-60 minutes, plus the package sweep. The budget is deliberately loose
+    # because this job has never run in CI.
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', '**/*.slnx') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build solution (tool + fixtures)
+        run: dotnet build dotnet-inspect.slnx -c Release
+
+      - name: Restore the vendored authored-source corpus
+        run: bash eng/restore-authored-source-corpus.sh
+
+      - name: Prepare the EVIL assembly pool
+        run: bash eng/prepare-evil-corpus.sh evil-pool
+
+      - name: Run the authored-corpus benchmark (measurement-integrity gate)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/deep-inspect
+          mapfile -t assemblies < evil-pool/assemblies.txt
+          dotnet run --project tools/DecompilerHarness -c Release -- \
+            --benchmark-authored-corpus external/authored-source-corpus/evil/corpus.jsonl \
+            --integrity-only \
+            --json "${assemblies[@]}" \
+            > artifacts/deep-inspect/authored-corpus-run.json
+
+      - name: Upload the run JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deep-inspect-authored-corpus
+          path: artifacts/deep-inspect/authored-corpus-run.json
+          if-no-files-found: warn
+
   report-scheduled-failure:
     name: Report scheduled failure
     # Deep Inspect has no interactive watcher, so a failed *scheduled* run would
     # otherwise go unnoticed. Open (or comment on) a tracking issue when any
     # scheduled slow lane fails. Manual dispatches are watched by the dispatcher
     # and are intentionally excluded.
-    needs: [package-sweep, test, decompiler-corpus]
+    needs: [package-sweep, test, decompiler-corpus, authored-corpus-ratchet]
     if: ${{ github.event_name == 'schedule' && failure() }}
     runs-on: ubuntu-26.04
     permissions:

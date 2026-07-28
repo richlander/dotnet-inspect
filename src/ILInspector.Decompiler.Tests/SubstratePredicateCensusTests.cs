@@ -20,6 +20,10 @@ public class SubstratePredicateCensusTests
             "Pass-local side-effect-free place equality composing PlaceIdentity.SameOperand/SameStackSlot with field-rooted recursion, for the user-defined ++/-- self-update lvalue.",
         [new("ExpressionInliningPass.cs", "IsInsideCatchFilter")] =
             "Inlining-specific EH guard that first finds the containing catch clause before using ReferenceOwnership.IsInside on its filter.",
+        [new("ForeachStatementPass.cs", "IsInsideNestedFunction")] =
+            "Foreach-recovery guard: an ancestor-kind scan that declines an inline Current read nested in a Lambda/LocalFunctionStatement within the loop body, since such a read is not the enclosing loop's foreach header. Node-kind ancestor containment, distinct from ReferenceOwnership.IsInside place/subtree identity.",
+        [new("ForeachStatementPass.cs", "IsInsideNestedLoopOrExceptionRegion")] =
+            "Foreach-recovery guard: an ancestor-kind scan that declines an inline Current read wrapped in a nested loop or EH region between the read and the loop body. Such a region repeats or protects a body-top read invisibly to the Block.StartOffset ordering check, so it must be rejected structurally. Node-kind ancestor containment, distinct from ReferenceOwnership.IsInside.",
         [new("ExpressionInliningPass.cs", "SameRegions")] =
             "Inlining-specific EH range equality for candidate movement; the predicate is over function region spans, not IR identity.",
         [new("FixedArrayRaising.cs", "SameLoadPlace")] =
