@@ -570,6 +570,30 @@ public class ForeachStatementPassTests
     }
 
     [Fact]
+    public void InlineCurrentForeach_ReadInsideTryAtBodyTop_StaysUsingWhile()
+    {
+        // Exception regions emit no IL of their own, so a hand-written
+        // `try { if (e.Current == 0) ... } catch { ... }` at the loop-body top has
+        // get_Current as the first *executable* instruction (offset == body top) —
+        // the offset check alone would accept it. But the read is protected by the
+        // handler; hoisting it to the foreach header moves get_Current out of the
+        // try, so a throwing enumerator would escape the loop instead of being
+        // caught. ReadOriginatesAtLoopBodyTop rejects a read wrapped in any
+        // try/catch/finally within the body. (A real foreach whose iteration
+        // variable is used inside a try must store it — the stack-cached inline
+        // form cannot cross the region boundary — so this declines no real
+        // foreach.)
+        var function = BuildInlineCurrentReadInTryLoop();
+
+        new ForeachStatementPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Single(function.Descendants.OfType<UsingStatement>());
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
     public void InlineCurrentForeach_UnconditionalCurrentReadInsideIfCondition_RaisesToForeach()
     {
         // Positive control for the guard: the same hidden-enumerator loop, but the
@@ -750,13 +774,22 @@ public class ForeachStatementPassTests
         // it in the body, so hoisting it to the loop top would reorder get_Current
         // ahead of that statement.
         AfterSideEffect,
+        // e.Current read is the first executable instruction of the body but sits
+        // inside a try, so hoisting it to the foreach header would move it out of
+        // the protected region — the offset is body-top but the region is metadata.
+        TryProtectedBodyTop,
     }
 
     static IrFunction BuildInlineCurrentEnumeratorLoop(InlineReadPlacement placement)
     {
+        // The loop body's first IL instruction sits at this offset; the guard
+        // compares the read's origin to the body block's import-stamped StartOffset.
+        const int BodyStart = 0x10;
+
         var intType = TypeRef.CoreLib("System", "Int32");
         var boolType = TypeRef.CoreLib("System", "Boolean");
         var voidType = TypeRef.CoreLib("System", "Void");
+        var exceptionType = TypeRef.CoreLib("System", "Exception");
         var collectionType = TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1");
         var enumeratorType = TypeRef.CoreLib("System.Collections.Generic", "IEnumerator`1");
         var ownerType = TypeRef.Definition("Synthetic", "Samples", "Owner");
@@ -769,8 +802,8 @@ public class ForeachStatementPassTests
         };
 
         // Stamp source offsets in emission order: the guard recovers foreach-header
-        // provenance from them (the read is a real header only when its subtree
-        // carries the minimum IL offset in the loop body).
+        // provenance from them (the read is a real header only when its subtree's
+        // minimum offset equals the loop body's entry offset).
         static T Stamp<T>(T node, int offset) where T : IrNode
         {
             node.SetSourceOffset(offset);
@@ -780,7 +813,7 @@ public class ForeachStatementPassTests
         LoadProperty CurrentRead(int receiverOffset)
             => Stamp(new LoadProperty(current, Stamp(new LoadLocal(0, enumeratorType), receiverOffset), []), receiverOffset + 1);
 
-        var loopBody = new Block();
+        var loopBody = new Block(BodyStart);
         switch (placement)
         {
             case InlineReadPlacement.BodyTop:
@@ -788,11 +821,11 @@ public class ForeachStatementPassTests
                 // in the body (in the `if`-condition), evaluated every iteration.
                 {
                     var thenArm = new Block();
-                    thenArm.Add(Stamp(new Return(Stamp(new Constant(1, boolType), 4)), 5));
+                    thenArm.Add(Stamp(new Return(Stamp(new Constant(1, boolType), BodyStart + 4)), BodyStart + 5));
                     loopBody.Add(Stamp(new IfStatement(
-                        Stamp(new Comparison(ComparisonKind.Equal, isUnsigned: false, CurrentRead(0), Stamp(new Constant(0, intType), 2)), 3),
+                        Stamp(new Comparison(ComparisonKind.Equal, isUnsigned: false, CurrentRead(BodyStart), Stamp(new Constant(0, intType), BodyStart + 2)), BodyStart + 3),
                         thenArm,
-                        null), 3));
+                        null), BodyStart + 3));
                 }
                 break;
 
@@ -801,11 +834,11 @@ public class ForeachStatementPassTests
                 // branch is taken, and is emitted after the probe comparison.
                 {
                     var thenArm = new Block();
-                    thenArm.Add(Stamp(new Return(CurrentRead(5)), 7));
+                    thenArm.Add(Stamp(new Return(CurrentRead(BodyStart + 5)), BodyStart + 7));
                     loopBody.Add(Stamp(new IfStatement(
-                        Stamp(new Comparison(ComparisonKind.Equal, isUnsigned: false, Stamp(new LoadArgument(1, "probe", intType), 0), Stamp(new Constant(0, intType), 1)), 2),
+                        Stamp(new Comparison(ComparisonKind.Equal, isUnsigned: false, Stamp(new LoadArgument(1, "probe", intType), BodyStart), Stamp(new Constant(0, intType), BodyStart + 1)), BodyStart + 2),
                         thenArm,
-                        null), 2));
+                        null), BodyStart + 2));
                 }
                 break;
 
@@ -814,13 +847,40 @@ public class ForeachStatementPassTests
                 // unconditional (in the `if`-condition) but a side-effecting call
                 // was emitted first, so get_Current is not the body's first op.
                 {
-                    loopBody.Add(Stamp(new ExpressionStatement(Stamp(new Call(sideEffect, isVirtual: false, []), 0)), 0));
+                    loopBody.Add(Stamp(new ExpressionStatement(Stamp(new Call(sideEffect, isVirtual: false, []), BodyStart)), BodyStart));
                     var thenArm = new Block();
-                    thenArm.Add(Stamp(new Return(Stamp(new Constant(1, boolType), 8)), 9));
+                    thenArm.Add(Stamp(new Return(Stamp(new Constant(1, boolType), BodyStart + 8)), BodyStart + 9));
                     loopBody.Add(Stamp(new IfStatement(
-                        Stamp(new Comparison(ComparisonKind.Equal, isUnsigned: false, CurrentRead(5), Stamp(new Constant(0, intType), 7)), 8),
+                        Stamp(new Comparison(ComparisonKind.Equal, isUnsigned: false, CurrentRead(BodyStart + 5), Stamp(new Constant(0, intType), BodyStart + 7)), BodyStart + 8),
                         thenArm,
-                        null), 8));
+                        null), BodyStart + 8));
+                }
+                break;
+
+            case InlineReadPlacement.TryProtectedBodyTop:
+                // try { if (e.Current == 0) return true; } catch { return false; }
+                // — get_Current is the first executable instruction (offset ==
+                // body top), but it is inside the try's protected region, which
+                // emits no IL of its own. Hoisting it to the foreach header would
+                // move it out of the handler's scope.
+                {
+                    var thenArm = new Block();
+                    thenArm.Add(Stamp(new Return(Stamp(new Constant(1, boolType), BodyStart + 4)), BodyStart + 5));
+                    var tryInner = new Block(BodyStart);
+                    tryInner.Add(Stamp(new IfStatement(
+                        Stamp(new Comparison(ComparisonKind.Equal, isUnsigned: false, CurrentRead(BodyStart), Stamp(new Constant(0, intType), BodyStart + 2)), BodyStart + 3),
+                        thenArm,
+                        null), BodyStart + 3));
+                    var tryBody = new BlockContainer();
+                    tryBody.Add(tryInner);
+
+                    var catchInner = new Block(BodyStart + 0x10);
+                    catchInner.Add(Stamp(new Return(Stamp(new Constant(0, boolType), BodyStart + 0x11)), BodyStart + 0x12));
+                    var catchBody = new BlockContainer();
+                    catchBody.Add(catchInner);
+                    var catchClause = new CatchClause(exceptionType, catchBody);
+
+                    loopBody.Add(Stamp(new TryCatch(tryBody, [catchClause]), BodyStart));
                 }
                 break;
         }
@@ -850,6 +910,9 @@ public class ForeachStatementPassTests
 
     static IrFunction BuildInlineCurrentReadAfterSideEffectLoop()
         => BuildInlineCurrentEnumeratorLoop(InlineReadPlacement.AfterSideEffect);
+
+    static IrFunction BuildInlineCurrentReadInTryLoop()
+        => BuildInlineCurrentEnumeratorLoop(InlineReadPlacement.TryProtectedBodyTop);
 
     static IrFunction BuildStructCollectionEnumeratorUsingWhile()
     {

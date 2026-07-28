@@ -547,48 +547,39 @@ public sealed class ForeachStatementPass : IIrPass
         return false;
     }
 
-    // True iff <paramref name="node"/> is reached exactly once on every iteration
-    // of the loop whose body is <paramref name="loopBody"/> — i.e. control from
-    // the loop-body entry always flows through it, with no branch, nested loop,
-    // handler, or short-circuit that could skip or repeat it. Walk the ancestor
-    // chain to the body and reject the moment a step enters a conditional slot:
-    // an `if`/ternary arm (only the condition is unconditional), the right side
-    // of `&&`/`||`/`??`, a `?.` continuation, a switch section, a catch/finally,
-    // or any nested loop body/condition. Every other container (blocks,
-    // statements, and non-short-circuit expression operands) is straight-line, so
-    // reaching it keeps the node unconditional.
-    // The inline Current read is a genuine foreach header only when csc emitted
-    // its `get_Current` as the first operation of the loop body. We recover that
-    // provenance from source offsets (preserved through the Call→LoadProperty
-    // raise via InheritSourceOffset): the read's subtree must carry the *minimum*
-    // IL offset of every operation in the loop body's own scope — excluding
-    // nested lambdas/local functions, which run at a different time and carry
-    // their own offset space. If any sibling operation was emitted earlier — a
-    // preceding side-effecting statement, an `if`/`??=` guard, or ElementAt's
-    // conditional `return e.Current` — the read is not the minimum and we
-    // decline, because re-hoisting it to the loop top would move `get_Current`
-    // ahead of that operation, changing both how often it runs and its order
-    // (observable if either throws or mutates shared state). Requiring provenance
-    // at the body top preserves execution frequency and ordering at once, and
-    // fails closed when the read carries no offset.
+    // True iff the inline `e.Current` read is a genuine compiler foreach header:
+    // csc emits a foreach header's `get_Current` as the *first instruction of the
+    // loop body*, leaving the value live until the live-range inliner sinks it to
+    // its one use. We prove that origin from the loop body block's import-stamped
+    // entry offset (Block.StartOffset — the IL offset of its first instruction,
+    // fixed at import and immune to later passes that erase interior node
+    // offsets, e.g. NullCoalescingAssignmentPass dropping the `??=` null-check's
+    // offset): the read's subtree must carry exactly that entry offset. A
+    // conditional read (ElementAt's `if (index == 0) return e.Current;`), a `??=`
+    // read, or a read after any preceding statement starts later than the entry,
+    // so it is declined — re-hoisting it would move `get_Current` ahead of that
+    // operation, changing how often it runs and its order (observable if either
+    // throws or mutates shared state). Fails closed when the read carries no
+    // offset. Exception regions carry no IL of their own (they are pure PE
+    // metadata), so a hand-written `try { x = e.Current; }` at the body top has
+    // `get_Current` as the first *executable* instruction yet is protected by the
+    // handler; the offset check cannot see that, so we additionally reject a read
+    // wrapped in any try/catch/finally within the body. (A real foreach whose
+    // iteration variable is used inside a `try` must *store* it — crossing the
+    // region boundary forbids the stack-cached single-use form — so it takes the
+    // hoisted matcher, never this inline path; declining here loses no real
+    // foreach.) A read inside a nested lambda/local function runs at a different
+    // time, so it is excluded too.
     static bool ReadOriginatesAtLoopBodyTop(LoadProperty inlineCurrent, Block loopBody)
     {
+        if (IsInsideExceptionRegion(inlineCurrent, loopBody))
+            return false;
+
         int readMin = MinOffset(inlineCurrent);
         if (readMin == int.MaxValue)
             return false;
 
-        int bodyMin = int.MaxValue;
-        foreach (var node in loopBody.Descendants)
-        {
-            if (node.SourceOffset >= 0
-                && node.SourceOffset < bodyMin
-                && !IsInsideNestedFunction(node, loopBody))
-            {
-                bodyMin = node.SourceOffset;
-            }
-        }
-
-        return readMin == bodyMin;
+        return readMin == loopBody.StartOffset;
 
         static int MinOffset(IrNode node)
         {
@@ -598,6 +589,18 @@ public sealed class ForeachStatementPass : IIrPass
                     min = descendant.SourceOffset;
             return min;
         }
+    }
+
+    // Walk the ancestor chain from the read up to (but excluding) the loop body,
+    // reporting whether any step passes through an exception region. Such regions
+    // emit no IL, so an offset comparison alone cannot tell a body-top read that
+    // is protected by a handler from one that is not.
+    static bool IsInsideExceptionRegion(IrNode node, Block loopBody)
+    {
+        for (var current = node.Parent; current is not null && !ReferenceEquals(current, loopBody); current = current.Parent)
+            if (current is TryCatch or TryFinally or CatchClause)
+                return true;
+        return false;
     }
 
     sealed record PatternMatch(
