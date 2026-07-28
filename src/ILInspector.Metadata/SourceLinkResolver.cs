@@ -158,20 +158,18 @@ public class SourceLinkResolver
         // Both answers read the same lexical state, so one scan produces both. A trailing
         // comment must not hide the terminating ";" (issue #3300), and a brace inside a comment
         // or a literal must not count as structural.
-        bool endsAtDeclaration = startsAtDeclaration && EndsDeclaration(lines, from, to);
+        //
+        // This asks the captured range alone, not where the range began. A conventionally
+        // braced member starts its sequence range on "{", so it is not "at" its declaration,
+        // yet the range still closes its own block and owns no brace below it. Gating on the
+        // start let the forward scan run for every such member; that was harmless while a
+        // sibling followed, and swallowed the enclosing type's "}" when the member was the
+        // last one in its type.
+        bool endsAtDeclaration = EndsDeclaration(lines, from, to);
 
-        // Scan forward to include the closing brace.
-        for (int i = to; !endsAtDeclaration && i < Math.Min(to + 3, lines.Length); i++)
-        {
-            var trimmed = lines[i].TrimStart();
-            if (trimmed.StartsWith("}"))
-            {
-                to = i + 1;
-                break;
-            }
-            if (trimmed.Length > 0)
-                break;
-        }
+        // Recover the member's own closing brace when its range stops above it.
+        if (!endsAtDeclaration)
+            to = IndexPastClosingBrace(lines, from, to, IsAccessorName(methodName));
 
         if (from < 0) from = 0;
         if (to > lines.Length) to = lines.Length;
@@ -279,16 +277,14 @@ public class SourceLinkResolver
             return false;
 
         int depth = 0;
-        bool inBlockComment = false;
-        bool inVerbatimString = false;
-        bool untracked = false;
+        var state = new LexState();
         char terminator = '\0';
 
         for (int i = first; i < last; i++)
         {
             // A blank, whitespace-only, or comment-only line contributes no significant
             // character, and must not erase the terminator an earlier line established.
-            char significant = ScanLine(lines[i], ref inBlockComment, ref inVerbatimString, ref depth, ref untracked);
+            char significant = ScanLine(lines[i], state, ref depth);
             if (significant != '\0')
                 terminator = significant;
         }
@@ -296,162 +292,740 @@ public class SourceLinkResolver
         if (terminator != ';' && terminator != '}')
             return false;
 
-        return last - first <= 1 || (!untracked && depth <= 0);
+        return last - first <= 1 || (!state.Untracked && depth <= 0);
     }
 
     /// <summary>
-    /// Index just past the first run of at least <paramref name="minimum"/> consecutive quotes
-    /// at or after <paramref name="start"/>, or <c>-1</c> when the line holds no such run.
+    /// Lines the forward scan will read past the captured range looking for a closing brace.
+    /// A member longer than this is not extended rather than scanned without bound.
     /// </summary>
-    private static int IndexOfQuoteRun(string line, int start, int minimum)
+    private const int ForwardScanLimit = 500;
+
+    /// <summary>
+    /// Accessor keywords, which open a sibling declaration inside a property or event block.
+    /// </summary>
+    private static readonly string[] AccessorKeywords = ["get", "set", "init", "add", "remove"];
+
+    /// <summary>
+    /// The metadata name prefixes that mark a member as one accessor of a property or event.
+    /// </summary>
+    private static readonly string[] AccessorNamePrefixes =
+        ["get_", "set_", "init_", "add_", "remove_"];
+
+    /// <summary>
+    /// True when <paramref name="methodName"/> names an accessor, which is the only member that
+    /// can have a sibling accessor inside the block its slice runs through.
+    /// </summary>
+    private static bool IsAccessorName(string methodName)
     {
-        for (int i = start; i < line.Length; i++)
+        foreach (var prefix in AccessorNamePrefixes)
         {
-            if (line[i] != '"')
-                continue;
-
-            int end = i;
-            while (end < line.Length && line[end] == '"')
-                end++;
-
-            if (end - i >= minimum)
-                return end;
-
-            i = end - 1;
+            if (methodName.StartsWith(prefix, StringComparison.Ordinal))
+                return true;
         }
 
-        return -1;
+        return false;
     }
 
     /// <summary>
-    /// Scans one line of C# text, carrying <paramref name="inBlockComment"/> and
-    /// <paramref name="inVerbatimString"/> across lines, and returns the last significant
-    /// character on it — the last non-whitespace character that is not inside a comment.
-    /// Braces outside comments and literals are counted into <paramref name="depth"/>.
-    /// Raw string literals are not tracked; <paramref name="untracked"/> is set instead so the
-    /// caller can fall back to the unconditional forward scan, which is the conservative answer.
+    /// The line with any leading comments removed. A declaration may share its line with either
+    /// comment form, and both may repeat.
     /// </summary>
-    private static char ScanLine(
-        string line,
-        ref bool inBlockComment,
-        ref bool inVerbatimString,
-        ref int depth,
-        ref bool untracked)
+    private static string StripLeadingComments(string trimmed)
     {
-        char significant = '\0';
-
-        for (int j = 0; j < line.Length; j++)
+        while (trimmed.StartsWith("/*", StringComparison.Ordinal))
         {
-            char c = line[j];
+            int end = trimmed.IndexOf("*/", 2, StringComparison.Ordinal);
+            if (end < 0)
+                return string.Empty;
 
-            if (inBlockComment)
+            trimmed = trimmed[(end + 2)..].TrimStart();
+        }
+
+        return trimmed.StartsWith("//", StringComparison.Ordinal) ? string.Empty : trimmed;
+    }
+
+    /// <summary>
+    /// Index on <paramref name="line"/> where a declaration could begin, given the state
+    /// carried into it, or <c>-1</c> when nothing on the line is eligible.
+    /// <para>
+    /// A line that closes a multi-line comment, literal, or bracketed construct and then holds
+    /// a real declaration must be read as a declaration from that point. Asking only whether
+    /// the line *began* inside one suppressed the question on exactly the line that answers it
+    /// — first for comments and literals, then again for brackets (adversarial review,
+    /// MAI-Code and GPT). All three are the same question, so one answer serves them.
+    /// </para>
+    /// </summary>
+    private static int IndexWhereCodeResumes(string line, LexState state)
+    {
+        if (!state.InBlockComment && !state.InLiteral && state.BracketDepth == 0)
+            return 0;
+
+        var probe = state.Clone();
+        int depth = 0;
+        int index = Scan(line, probe, ref depth, start: 0, untilLiteralCloses: false, out _, untilCodeResumes: true);
+        return probe.InBlockComment || probe.InLiteral ? -1 : index;
+    }
+
+    /// <summary>
+    /// Index just past the attribute list opening at index 0, or <c>-1</c> when it does not
+    /// close on this line. Brackets nest — <c>[Foo(new[] { 1 })]</c> — and a string inside the
+    /// list may spell a bracket of its own, so neither is counted structurally.
+    /// </summary>
+    private static int IndexPastAttributeList(string trimmed)
+    {
+        var probe = new LexState();
+        int depth = 0;
+        int index = Scan(trimmed, probe, ref depth, start: 0, untilLiteralCloses: false, out _, untilBracketsClose: true);
+
+        // The list did not finish on this line: it continues below, or a comment or literal
+        // swallowed the rest of the line.
+        if (probe.BracketDepth != 0 || probe.InBlockComment || probe.InLiteral || probe.Untracked)
+            return -1;
+
+        return index;
+    }
+
+    /// <summary>
+    /// True when <paramref name="line"/> opens an accessor sibling to the one being sliced.
+    /// <para>
+    /// This is asked only while slicing an accessor. Asking it of every member read a
+    /// <c>static</c> local function, and any other statement that opens with a declaration
+    /// modifier, as a sibling and truncated the enclosing method at it (adversarial review,
+    /// Gemini). Only a property or event block can hold a sibling accessor, so only an accessor
+    /// can be interrupted by one.
+    /// </para>
+    /// </summary>
+    private static bool OpensSiblingAccessor(string line)
+    {
+        var trimmed = StripLeadingComments(line.TrimStart());
+
+        // An accessor may carry attributes of its own. An attribute list is not itself an
+        // accessor, though: reading one as a sibling truncated an accessor at an attributed
+        // local function in its body (adversarial review, MAI-Code). Skip past the list and
+        // ask about what follows it — nothing, when the list has the line to itself, in which
+        // case the accessor below it is the line that answers.
+        while (trimmed.StartsWith('['))
+        {
+            int close = IndexPastAttributeList(trimmed);
+            if (close < 0)
+                return false;
+
+            trimmed = StripLeadingComments(trimmed[close..].TrimStart());
+        }
+
+        if (StartsWithDeclarationModifier(trimmed))
+            trimmed = StripLeadingComments(SkipLeadingModifiers(trimmed));
+
+        foreach (var keyword in AccessorKeywords)
+        {
+            if (!trimmed.StartsWith(keyword, StringComparison.Ordinal))
+                continue;
+
+            // "get;", "get =>", "get {", and a bare "get" whose body is below are accessors.
+            // "getCount" and "setting" are not, and neither is an assignment to a local named
+            // "set", which a bare "=" accepted (adversarial review, GPT).
+            var rest = StripLeadingComments(trimmed[keyword.Length..].TrimStart());
+
+            if (rest.Length == 0 || rest[0] is ';' or '{' || rest.StartsWith("=>", StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The line past any run of leading declaration modifiers.
+    /// </summary>
+    private static string SkipLeadingModifiers(string trimmed)
+    {
+        bool advanced = true;
+        while (advanced)
+        {
+            advanced = false;
+            foreach (var modifier in DeclarationModifiers)
             {
-                if (c == '*' && j + 1 < line.Length && line[j + 1] == '/')
+                if (!trimmed.StartsWith(modifier, StringComparison.Ordinal))
+                    continue;
+
+                int i = modifier.Length;
+                if (i >= trimmed.Length || !char.IsWhiteSpace(trimmed[i]))
+                    continue;
+
+                trimmed = trimmed[i..].TrimStart();
+                advanced = true;
+                break;
+            }
+        }
+
+        return trimmed;
+    }
+
+    /// <summary>
+    /// Index just past the line closing the block the captured range leaves open, or
+    /// <paramref name="to"/> when the range closes on its own, the depth cannot be read, a
+    /// sibling declaration intervenes, or no closing line appears within
+    /// <see cref="ForwardScanLimit"/> lines.
+    /// <para>
+    /// Stopping at the first non-empty line below the range instead truncated every member
+    /// whose sequence range ends on a statement above its closing brace, dropping the remaining
+    /// statements along with the brace (found by adversarial review, MAI-Code). Reading the
+    /// depth is what separates "the member's own brace is below" from "the next brace closes
+    /// the enclosing type" (issue #3278), and the caller has already excluded the second case.
+    /// </para>
+    /// <para>
+    /// The scan stops short of a sibling declaration because the open block may belong to a
+    /// property rather than to the member: a getter's range sits inside the property's braces,
+    /// and running to the closing brace would present the setter as part of the getter's source.
+    /// Accessors resolve separately, so the scan yields rather than merge them.
+    /// </para>
+    /// </summary>
+    private static int IndexPastClosingBrace(string[] lines, int from, int to, bool slicingAccessor)
+    {
+        var state = new LexState();
+        int depth = 0;
+
+        for (int i = Math.Max(0, from); i < to; i++)
+            ScanLine(lines[i], state, ref depth);
+
+        if (state.Untracked || depth <= 0)
+            return to;
+
+        int limit = Math.Min(lines.Length, to + ForwardScanLimit);
+
+        // Where the run of lines leading up to the current one stopped holding code, or -1
+        // when the current line does. A sibling's attributes and comments are the sibling's,
+        // so the member ends where that run began.
+        int triviaRunStart = -1;
+
+        for (int i = to; i < limit; i++)
+        {
+            // Asked before the line is scanned, so it must be asked of the line's code alone. A
+            // "set" inside a multi-line block comment, raw string literal, or attribute list
+            // is not a sibling — but a line that *closes* one and then declares a real sibling
+            // is a declaration from that point on.
+            if (slicingAccessor)
+            {
+                int resume = IndexWhereCodeResumes(lines[i], state);
+                if (resume >= 0 && OpensSiblingAccessor(lines[i][resume..]))
+                    return triviaRunStart >= 0 ? triviaRunStart : i;
+
+                triviaRunStart = HoldsOnlyTrivia(lines[i], state, triviaRunStart >= 0)
+                    ? (triviaRunStart >= 0 ? triviaRunStart : i)
+                    : -1;
+            }
+
+            ScanLine(lines[i], state, ref depth);
+
+            if (state.Untracked)
+                return to;
+
+            if (depth <= 0)
+                return i + 1;
+        }
+
+        return to;
+    }
+
+    /// <summary>
+    /// True when <paramref name="line"/> carries nothing but blank space, comments, or
+    /// attribute lists, given the state carried into it.
+    /// <para>
+    /// Asking this of the line's text alone answered only for trivia that both opens and
+    /// closes on one line: a multi-line attribute list or block comment leading the sibling
+    /// was kept as the member's source, which does not parse (adversarial review, GPT). It is
+    /// the same lesson the sibling question itself took three rounds to learn — a line-level
+    /// predicate must be asked of the line's code, not its text.
+    /// </para>
+    /// <para>
+    /// A carried literal or attribute list belongs to whichever side opened it, and the run
+    /// answers that: every line since it began held only trivia, so a construct still open is
+    /// the sibling's. With no run open there is nothing above but the member, so the construct
+    /// is the member's code. Reading the literal alone got the first half wrong — a raw string
+    /// inside the sibling's own attribute broke the run and left the attribute in the slice
+    /// (adversarial review, Gemini) — and reading neither got the second half wrong, which is
+    /// how a collection expression came to be discarded as an attribute list in round 8.
+    /// </para>
+    /// <para>
+    /// A preprocessor directive is trivia too. It must be the first token on its line, so it
+    /// is recognized once the carried constructs are accounted for (adversarial review,
+    /// MAI-Code).
+    /// </para>
+    /// </summary>
+    private static bool HoldsOnlyTrivia(string line, LexState state, bool runOpen)
+    {
+        if (!runOpen && (state.InLiteral || state.BracketDepth > 0))
+            return false;
+
+        int resume = IndexWhereCodeResumes(line, state);
+        if (resume < 0)
+            return true;
+
+        if (!state.InBlockComment && !state.InLiteral && line.AsSpan().TrimStart().StartsWith("#"))
+            return true;
+
+        var rest = StripLeadingComments(line[resume..].TrimStart());
+
+        while (rest.StartsWith('['))
+        {
+            int close = IndexPastAttributeList(rest);
+
+            // The list runs past this line, so nothing else can be on it.
+            if (close < 0)
+                return true;
+
+            rest = StripLeadingComments(rest[close..].TrimStart());
+        }
+
+        return rest.Length == 0;
+    }
+
+    /// <summary>
+    /// The lexical state a C# scan carries from one line to the next.
+    /// <para>
+    /// C# literals nest: an interpolation hole holds ordinary C#, which may open a further
+    /// literal, whose holes may open more. A scanner that recognizes literal forms one at a
+    /// time cannot express that, and each form it gets wrong reports the wrong brace depth —
+    /// which is the one thing the callers read. A stack of frames states the nesting directly,
+    /// so a hole's braces are counted against the hole that owns them and never against the
+    /// enclosing block.
+    /// </para>
+    /// </summary>
+    private sealed class LexState
+    {
+        private readonly List<Frame> frames = [];
+
+        /// <summary>An unterminated block comment continues onto the next line.</summary>
+        public bool InBlockComment;
+
+        /// <summary>
+        /// Open square brackets carried across lines. An attribute list, like any bracketed
+        /// construct, may span lines; a line inside one is not a declaration, and reading it as
+        /// one truncated an accessor at a "set" that was really an attribute name (adversarial
+        /// review, GPT).
+        /// </summary>
+        public int BracketDepth;
+
+        /// <summary>
+        /// Set when a brace could not be placed — an unterminated single-line literal, or a
+        /// delimiter run this scanner will not guess at. The depth count is unusable from that
+        /// point on, and callers treat it as "do not know" rather than as a depth.
+        /// </summary>
+        public bool Untracked;
+
+        public bool InLiteral => frames.Count > 0;
+
+        public Frame Top => frames[^1];
+
+        public void Push(Frame frame) => frames.Add(frame);
+
+        public void Pop() => frames.RemoveAt(frames.Count - 1);
+
+        public void Replace(Frame frame) => frames[^1] = frame;
+
+        /// <summary>
+        /// A copy that can be advanced without disturbing the scan in progress. Used to ask
+        /// where a line's code resumes without consuming the line.
+        /// </summary>
+        public LexState Clone()
+        {
+            var copy = new LexState { InBlockComment = InBlockComment, Untracked = Untracked, BracketDepth = BracketDepth };
+            copy.frames.AddRange(frames);
+            return copy;
+        }
+
+        /// <summary>
+        /// True when the state cannot survive a line break: an ordinary or single-quoted
+        /// interpolated literal must close on the line that opens it.
+        /// </summary>
+        public bool HasLineBoundLiteral
+        {
+            get
+            {
+                foreach (var frame in frames)
                 {
-                    inBlockComment = false;
-                    j++;
+                    // Since C# 11 a hole may span lines even in a single-quoted literal; only
+                    // the literal's own text is bound to one line (adversarial review, Gemini).
+                    if (!frame.Verbatim && !frame.Raw && !frame.InHole)
+                        return true;
                 }
+
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// One string literal. <see cref="InHole"/> separates the literal's own text from the
+        /// ordinary C# inside an interpolation hole, which is scanned as code.
+        /// </summary>
+        public struct Frame
+        {
+            /// <summary>Quotes that close the literal: three or more for a raw form, else one.</summary>
+            public int QuoteRun;
+
+            /// <summary>Braces that open a hole, and the "$" count that set them. Zero when not interpolated.</summary>
+            public int DollarRun;
+
+            /// <summary>"" escapes a quote and the literal may span lines.</summary>
+            public bool Verbatim;
+
+            /// <summary>A raw form: no backslash escapes, and it may span lines.</summary>
+            public bool Raw;
+
+            /// <summary>Scanning the ordinary C# of an interpolation hole rather than literal text.</summary>
+            public bool InHole;
+
+            /// <summary>Braces open inside the hole, counted from the hole's own opener.</summary>
+            public int HoleDepth;
+        }
+    }
+
+    /// <summary>
+    /// Length of the run of <paramref name="c"/> starting at <paramref name="start"/>.
+    /// </summary>
+    /// <summary>
+    /// Reports whether <paramref name="line"/> is a preprocessor directive, and whether it is one
+    /// of the conditional-compilation directives whose branches the compiler may discard.
+    /// </summary>
+    private static bool IsDirective(string line, out bool conditional)
+    {
+        conditional = false;
+
+        var trimmed = line.AsSpan().TrimStart();
+
+        if (trimmed.IsEmpty || trimmed[0] != '#')
+            return false;
+
+        var name = trimmed[1..].TrimStart();
+
+        foreach (var candidate in (ReadOnlySpan<string>)["if", "elif", "else", "endif"])
+        {
+            if (name.StartsWith(candidate, StringComparison.Ordinal) &&
+                (name.Length == candidate.Length || !char.IsLetterOrDigit(name[candidate.Length])))
+            {
+                conditional = true;
+                break;
+            }
+        }
+
+        return true;
+    }
+
+    private static int RunLength(string line, int start, char c)
+    {
+        int i = start;
+        while (i < line.Length && line[i] == c)
+            i++;
+        return i - start;
+    }
+
+    /// <summary>
+    /// Scans one line of C# text, carrying <paramref name="state"/> across lines, and returns
+    /// the last significant character on it — the last non-whitespace character that is not
+    /// inside a comment. Braces adjust <paramref name="depth"/> only where they are structural:
+    /// in code that is not inside any literal. Braces inside an interpolation hole belong to
+    /// that hole, and braces in literal text or a comment are content.
+    /// </summary>
+    private static char ScanLine(string line, LexState state, ref int depth)
+    {
+        Scan(line, state, ref depth, start: 0, untilLiteralCloses: false, out char significant);
+        return significant;
+    }
+
+    /// <summary>
+    /// Scans <paramref name="line"/> from <paramref name="start"/>, returning the index it
+    /// stopped at. With <paramref name="untilLiteralCloses"/> the scan stops as soon as the
+    /// literal it opened is closed, which is how a caller consumes a single literal.
+    /// </summary>
+    private static int Scan(
+        string line,
+        LexState state,
+        ref int depth,
+        int start,
+        bool untilLiteralCloses,
+        out char significant,
+        bool untilCodeResumes = false,
+        bool untilBracketsClose = false)
+    {
+        significant = '\0';
+        int i = start;
+        bool opened = false;
+        bool bracketOpened = false;
+
+        if (!state.InBlockComment && !state.InLiteral && IsDirective(line, out bool conditional))
+        {
+            // A preprocessor directive is not code, so nothing on the line is scanned. A
+            // conditional directive additionally means the braces around it may belong to a
+            // branch the compiler discards, which leaves the structural depth unknowable.
+            if (conditional)
+                state.Untracked = true;
+
+            return line.Length;
+        }
+
+        while (i < line.Length)
+        {
+            if (untilLiteralCloses && opened && !state.InLiteral)
+                return i;
+
+            if (untilCodeResumes && !state.InBlockComment && !state.InLiteral && state.BracketDepth == 0)
+                return i;
+
+            if (untilBracketsClose && bracketOpened && state.BracketDepth == 0)
+                return i;
+
+            char c = line[i];
+
+            if (state.InBlockComment)
+            {
+                if (c == '*' && i + 1 < line.Length && line[i + 1] == '/')
+                {
+                    state.InBlockComment = false;
+                    i += 2;
+                }
+                else
+                {
+                    i++;
+                }
+
                 continue;
             }
 
-            if (inVerbatimString)
+            // Literal text. Only this literal's closing delimiter and its hole openers matter;
+            // everything else, braces included, is content.
+            if (state.InLiteral && !state.Top.InHole)
             {
+                var frame = state.Top;
+
+                if (c == '{' || c == '}')
+                {
+                    int run = RunLength(line, i, c);
+
+                    if (frame.DollarRun == 0 || c == '}')
+                    {
+                        // Not interpolated, or a closing run in literal text: content either
+                        // way. A hole is closed from inside the hole, not from here.
+                        i += run;
+                        continue;
+                    }
+
+                    if (run < frame.DollarRun)
+                    {
+                        // Too short to delimit a hole.
+                        i += run;
+                        continue;
+                    }
+
+                    if (!frame.Raw)
+                    {
+                        // One "$": braces pair off as escapes, and an odd one out opens a hole.
+                        if (run % 2 == 0)
+                        {
+                            i += run;
+                            continue;
+                        }
+                    }
+
+                    // The braces that open the hole are the last DollarRun of the run; any
+                    // ahead of them are literal text.
+                    frame.InHole = true;
+                    frame.HoleDepth = 1;
+                    state.Replace(frame);
+                    i += run;
+                    continue;
+                }
+
+                if (c == '\\' && !frame.Verbatim && !frame.Raw)
+                {
+                    i += 2;
+                    continue;
+                }
+
                 if (c == '"')
                 {
-                    if (j + 1 < line.Length && line[j + 1] == '"')
+                    int run = RunLength(line, i, '"');
+
+                    if (frame.Verbatim)
                     {
-                        j++;
-                    }
-                    else
-                    {
-                        inVerbatimString = false;
+                        // "" is an escaped quote; a lone quote closes.
+                        if (run >= 2)
+                        {
+                            i += 2;
+                            continue;
+                        }
+
+                        state.Pop();
                         significant = '"';
+                        i += 1;
+                        continue;
                     }
-                }
 
-                continue;
-            }
-
-            if (c == '/' && j + 1 < line.Length)
-            {
-                if (line[j + 1] == '/')
-                    break;
-                if (line[j + 1] == '*')
-                {
-                    inBlockComment = true;
-                    j++;
-                    continue;
-                }
-            }
-
-            if (c == '@' && j + 1 < line.Length)
-            {
-                if (line[j + 1] == '"')
-                {
-                    inVerbatimString = true;
-                    significant = '"';
-                    j++;
-                    continue;
-                }
-
-                if (line[j + 1] == '$' && j + 2 < line.Length && line[j + 2] == '"')
-                {
-                    inVerbatimString = true;
-                    significant = '"';
-                    j += 2;
-                    continue;
-                }
-            }
-
-            if (c == '"')
-            {
-                if (j + 2 < line.Length && line[j + 1] == '"' && line[j + 2] == '"')
-                {
-                    int open = j;
-                    while (open < line.Length && line[open] == '"')
-                        open++;
-                    int quotes = open - j;
-
-                    int close = IndexOfQuoteRun(line, open, quotes);
-                    if (close < 0)
+                    if (run >= frame.QuoteRun)
                     {
-                        // A raw string that spans lines is not tracked; report the range as
-                        // still open so the caller falls back to the forward scan.
-                        untracked = true;
-                        return significant;
+                        state.Pop();
+                        significant = '"';
+                        i += run;
+                        continue;
                     }
 
-                    j = close - 1;
-                    significant = '"';
+                    // A shorter run inside a raw literal is content.
+                    i += run;
                     continue;
                 }
 
-                j++;
-                while (j < line.Length && line[j] != '"')
-                    j += line[j] == '\\' ? 2 : 1;
-                significant = '"';
+                i++;
                 continue;
+            }
+
+            // Ordinary C#: either top-level code or the inside of an interpolation hole.
+            bool inHole = state.InLiteral;
+
+            if (c == '/' && i + 1 < line.Length)
+            {
+                if (line[i + 1] == '/')
+                {
+                    // A line comment runs to the end of the line. Inside a hole that means the
+                    // literal cannot close here, which only a multi-line form survives.
+                    break;
+                }
+
+                if (line[i + 1] == '*')
+                {
+                    state.InBlockComment = true;
+                    i += 2;
+                    continue;
+                }
             }
 
             if (c == '\'')
             {
-                j++;
-                while (j < line.Length && line[j] != '\'')
-                    j += line[j] == '\\' ? 2 : 1;
+                i++;
+                while (i < line.Length && line[i] != '\'')
+                    i += line[i] == '\\' ? 2 : 1;
+                i++;
                 significant = '\'';
                 continue;
             }
 
+            if (c == '$' || c == '@' || c == '"')
+            {
+                int open = i;
+                int dollars = 0;
+                bool verbatim = false;
+
+                while (open < line.Length && (line[open] == '$' || line[open] == '@'))
+                {
+                    if (line[open] == '$')
+                        dollars += RunLength(line, open, '$');
+                    else
+                        verbatim = true;
+
+                    open += line[open] == '$' ? RunLength(line, open, '$') : 1;
+                }
+
+                if (open >= line.Length || line[open] != '"')
+                {
+                    // "$" or "@" not opening a literal: an identifier like "@class", or an
+                    // interpolation-free use. Consume what was examined and carry on.
+                    i = open > i ? open : i + 1;
+                    if (!char.IsWhiteSpace(c))
+                        significant = c;
+                    continue;
+                }
+
+                int quotes = RunLength(line, open, '"');
+
+                // Only a non-verbatim literal can be raw. After `@`, a run of three quotes is
+                // an opener and one escaped quote, not a raw delimiter.
+                bool raw = quotes >= 3 && !verbatim;
+
+                if (!raw && quotes == 2)
+                {
+                    // The empty literal.
+                    i = open + 2;
+                    significant = '"';
+                    if (untilLiteralCloses)
+                        return i;
+                    continue;
+                }
+
+                state.Push(new LexState.Frame
+                {
+                    QuoteRun = raw ? quotes : 1,
+                    DollarRun = dollars,
+                    Verbatim = verbatim,
+                    Raw = raw,
+                });
+
+                opened = true;
+                significant = '"';
+                i = open + (raw ? quotes : 1);
+                continue;
+            }
+
             if (c == '{')
-                depth++;
+            {
+                if (inHole)
+                {
+                    var frame = state.Top;
+                    frame.HoleDepth++;
+                    state.Replace(frame);
+                }
+                else
+                {
+                    depth++;
+                }
+            }
+            else if (c == '[')
+            {
+                if (!inHole)
+                {
+                    state.BracketDepth++;
+                    bracketOpened = true;
+                }
+            }
+            else if (c == ']')
+            {
+                if (!inHole && state.BracketDepth > 0)
+                    state.BracketDepth--;
+            }
             else if (c == '}')
-                depth--;
+            {
+                if (inHole)
+                {
+                    var frame = state.Top;
+                    int run = frame.DollarRun > 1 ? RunLength(line, i, '}') : 1;
+
+                    if (frame.HoleDepth == 1)
+                    {
+                        // The hole closes and the literal's own text resumes.
+                        frame.InHole = false;
+                        frame.HoleDepth = 0;
+                        state.Replace(frame);
+                        i += frame.DollarRun > 1 ? Math.Min(run, frame.DollarRun) : 1;
+                        continue;
+                    }
+
+                    frame.HoleDepth--;
+                    state.Replace(frame);
+                }
+                else
+                {
+                    depth--;
+                }
+            }
 
             if (!char.IsWhiteSpace(c))
                 significant = c;
+
+            i++;
         }
 
-        return significant;
+        // A literal that must close on its own line did not, so the scan lost its place.
+        if (state.HasLineBoundLiteral)
+            state.Untracked = true;
+
+        return i;
     }
     /// <summary>
     /// Words that can open a statement, and so rule out a declaration no matter what follows.
