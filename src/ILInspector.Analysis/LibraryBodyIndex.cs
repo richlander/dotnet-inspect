@@ -1106,6 +1106,14 @@ public sealed class LibraryBodyIndex
         Dictionary<string, List<ReverseCallerEdge>>? _reverse;
 
         /// <summary>True when this cache was built for exactly the same scope instances, in order.</summary>
+        /// <remarks>
+        /// The root is part of the key because it is itself a graph participant, not merely the
+        /// object holding the cache. That clause cannot currently fail — the only storage is
+        /// <c>_scopeGraph</c> on the same instance <c>ScopeGraphFor</c> passes as <c>this</c> — so it
+        /// is an uncoverable branch, worth knowing if branch coverage here is ever read as
+        /// meaningful. It stays because dropping it would leave the key incomplete rather than
+        /// simplified, and silently wrong if a graph were ever cached anywhere but its own root.
+        /// </remarks>
         public bool Matches(LibraryBodyIndex requestRoot, IReadOnlyList<LibraryBodyIndex> requested)
         {
             if (!ReferenceEquals(root, requestRoot) || _scopes.Length != requested.Count)
