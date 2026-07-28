@@ -2020,7 +2020,8 @@ public sealed partial class CSharpPrinter
         {
             if (!TryAppendFluentChain(sb, node, line, indent)
                 && !TryAppendSplittableExpression(sb, node, line, indent)
-                && !TryAppendBitwiseChain(sb, node, line, indent))
+                && !TryAppendBitwiseChain(sb, node, line, indent)
+                && !TryAppendObjectInitializer(sb, node, line, indent))
                 sb.Append(pad).AppendLine(line);
         }
     }
@@ -2353,6 +2354,67 @@ public sealed partial class CSharpPrinter
                 return true;
             default:
                 root = null!;
+                prefix = "";
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Emits <paramref name="node"/> as a wrapped object/collection initializer —
+    /// the <c>new T(...)</c> head on the first line, an Allman <c>{</c>/<c>}</c>
+    /// pair on their own lines, and one <c>Member = value</c> / element entry per
+    /// line — when it is an initializer-valued statement whose flat single-line
+    /// form would exceed <see cref="FluentChainWrapWidth"/>, returning true after
+    /// appending; false to fall through to the flat single-line emit. The broken
+    /// form is only chosen when the flat statement <paramref name="line"/> is
+    /// exactly <c>prefix + initializer + ";"</c>, so any coercion cast the renderer
+    /// added around the initializer keeps the statement inline — breaking never
+    /// drops or reshapes a token.
+    /// </summary>
+    bool TryAppendObjectInitializer(StringBuilder sb, IrNode node, string line, int indent)
+    {
+        if (_options.DisableOneLinerWrapping)
+            return false;
+        if (!TryObjectInitializerStatement(node, out var initializer, out var prefix))
+            return false;
+        if (line != prefix + ObjectInitializerText(initializer) + ";")
+            return false;
+        if (ObjectInitializerLines(initializer, prefix, ";", indent) is not { } broken)
+            return false;
+        sb.AppendLine(broken);
+        return true;
+    }
+
+    /// <summary>
+    /// Recognizes the statement positions whose value is a bare object/collection
+    /// initializer — a <c>return</c> or a (non-ref) local or stack-slot store — and
+    /// yields the initializer plus the exact statement prefix the flat renderer
+    /// prints before it. The caller re-derives the flat text and only breaks the
+    /// initializer when it matches, so the prefix here need only cover the common
+    /// (cast-free) spelling.
+    /// </summary>
+    bool TryObjectInitializerStatement(IrNode node, out ObjectInitializerExpression initializer, out string prefix)
+    {
+        switch (node)
+        {
+            case Return { Value: ObjectInitializerExpression init }:
+                initializer = init;
+                prefix = "return ";
+                return true;
+            case StoreLocal { Type.Kind: not TypeRefKind.ByRef, Value: ObjectInitializerExpression init } store:
+                initializer = init;
+                prefix = _declaringStores.Contains(store)
+                    ? $"{DeclarationTypeText(store.Type, store.Value)} {LocalName(store.Index)} = "
+                    : $"{LocalName(store.Index)} = ";
+                return true;
+            case StoreStackSlot store when store.Value is ObjectInitializerExpression init && StackSlotTargetType(store) is { Kind: not TypeRefKind.ByRef }:
+                initializer = init;
+                prefix = _declaringStores.Contains(store)
+                    ? $"{DeclarationTypeText(StackSlotTargetType(store)!, store.Value)} {StackSlotName(store)} = "
+                    : $"{StackSlotName(store)} = ";
+                return true;
+            default:
+                initializer = null!;
                 prefix = "";
                 return false;
         }
