@@ -322,6 +322,10 @@ public class LibraryBodyIndexTests
     /// rather than only on staying correct. Both directions fail: a cache the doc claims to drop
     /// but doesn't, and a cache dropped that the doc says survives. A newly added cache field
     /// belongs to neither list and fails until someone decides which side it is on.
+    /// <para>
+    /// Known boundary: this compares populated-ness, so it would not see a future release method
+    /// that empties a readonly collection in place instead of nulling a field.
+    /// </para>
     /// </summary>
     [Fact]
     public void ReleaseMethods_DropExactlyTheCachesTheyDocument()
@@ -360,7 +364,9 @@ public class LibraryBodyIndexTests
         var before = PopulatedCaches(index);
 
         // The gate is only meaningful if the caches under test were populated to begin with.
-        foreach (var name in callGraphCaches)
+        // Both halves need this: an unpopulated cache is absent from `before` and from `after`,
+        // so the set comparison would hold no matter what the release methods did to it.
+        foreach (var name in callGraphCaches.Concat(retainedCaches))
             Assert.Contains(name, before);
 
         index.ReleaseCallGraphCaches();
@@ -382,6 +388,15 @@ public class LibraryBodyIndexTests
             index.BuildCallerTree(token, maxDepth: 2, maxNodes: 50);
             index.BuildCallTree(token, maxDepth: 2, maxNodes: 50);
             index.BuildCallerTree(token, new[] { scope }, maxDepth: 2, maxNodes: 50);
+
+            // The retained half of the contract is only gated on caches this workload actually
+            // populates, and the call-tree builders alone reach just one of the seven. Touch the
+            // evidence-domain producers too; OptimizationOpportunities is what pulls in
+            // _directCallerLoops and _rootReachByToken, which have no direct test access.
+            _ = index.OptimizationOpportunities;
+            _ = index.AllocationFanoutOpportunities;
+            _ = index.GetUnsafeEvidenceByMember();
+            _ = index.GeneratedFrameworkTypeNames;
             return index;
         }
 
