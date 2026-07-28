@@ -507,6 +507,59 @@ public class AuthoredCorpusHarnessProcessTests
             StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Every way the benchmark can decline to measure exits non-zero.
+    ///
+    /// <para>This is the gate for an assumption
+    /// <see cref="AuthoredCorpusExitContract.GateExitedWithoutRunning"/> depends on and
+    /// cannot check for itself. That check reads a flag set at the gate's dispatch site,
+    /// so it learns that the gate was <em>entered</em>, not that it measured anything. The
+    /// distinction is harmless only while every path that enters the benchmark and
+    /// measures nothing exits non-zero, because the check deliberately ignores non-zero
+    /// exits. A future early <c>return 0</c> would be a gate reporting success without
+    /// measuring — #3245 again — and nothing else here would notice.</para>
+    ///
+    /// <para>Each case names the message that identifies the path, so a run that failed
+    /// somewhere else cannot be mistaken for the path under test.</para>
+    /// </summary>
+    [Fact]
+    [Trait("Area", "Corpus")]
+    public void Benchmark_ExitsNonZeroOnEveryPathThatMeasuresNothing()
+    {
+        string empty = Path.Combine(Path.GetTempPath(), $"empty-corpus-{Guid.NewGuid():N}.jsonl");
+        File.WriteAllText(empty, string.Empty);
+        string realCorpus = Path.Combine(
+            AuthoredCorpusRatchetTests.FindRepositoryRoot(),
+            "tools", "DecompilerHarness", "corpus", "one-row-authored-corpus.jsonl");
+
+        try
+        {
+            (string Message, string[] Invocation)[] cases =
+            [
+                ("Corpus file not found",
+                    ["--benchmark-authored-corpus", "/does-not-exist.jsonl"]),
+                ("Ratchet baseline not found",
+                    ["--benchmark-authored-corpus", empty, "--ratchet-baseline", "/does-not-exist.json"]),
+                ("Corpus is empty or unparseable",
+                    ["--benchmark-authored-corpus", empty]),
+                ("the run measured nothing",
+                    [typeof(Xunit.FactAttribute).Assembly.Location, "--benchmark-authored-corpus", realCorpus]),
+            ];
+
+            foreach ((string message, string[] invocation) in cases)
+            {
+                var run = RunHarness(invocation);
+
+                Assert.Contains(message, run.Output, StringComparison.Ordinal);
+                Assert.NotEqual(0, run.ExitCode);
+            }
+        }
+        finally
+        {
+            File.Delete(empty);
+        }
+    }
+
     sealed record HarnessRun(int ExitCode, string Output);
 
     static HarnessRun RunHarness(params string[] arguments)
