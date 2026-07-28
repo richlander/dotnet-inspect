@@ -200,13 +200,14 @@ public class AuthoredCorpusHarnessProcessTests
     [MemberData(nameof(PreemptionCases))]
     public void Harness_RefusesEveryPreemptingModeAgainstEveryProtectedGate(
         string gate,
-        string[] mode)
+        string mode,
+        string[] invocation)
     {
-        var run = RunHarness([gate, "/does-not-exist.jsonl", .. mode]);
+        var run = RunHarness([gate, "/does-not-exist.jsonl", .. invocation]);
 
         Assert.Equal(1, run.ExitCode);
         Assert.Contains(
-            $"{mode[0]} runs instead of {gate}",
+            $"{mode} runs instead of {gate}",
             run.Output,
             StringComparison.Ordinal);
     }
@@ -219,9 +220,9 @@ public class AuthoredCorpusHarnessProcessTests
     /// <see cref="Preemption_CoversEveryModeThatPrecedesAGate"/> rather than silently
     /// going ungated.</para>
     /// </summary>
-    public static TheoryData<string, string[]> PreemptionCases()
+    public static TheoryData<string, string, string[]> PreemptionCases()
     {
-        var cases = new TheoryData<string, string[]>();
+        var cases = new TheoryData<string, string, string[]>();
         string[] order = AuthoredCorpusRatchetTests.DispatchOrderFlags;
 
         foreach (string gate in AuthoredCorpusExitContract.ProtectedGates)
@@ -229,13 +230,13 @@ public class AuthoredCorpusHarnessProcessTests
             int gateIndex = Array.IndexOf(order, gate);
             Assert.True(gateIndex >= 0, $"{gate} is not in the dispatch order.");
 
-            foreach (string[] mode in PreemptingModeInvocations)
+            foreach ((string mode, string[] invocation) in PreemptingModeInvocations)
             {
                 // Only a mode that dispatches *earlier* preempts this gate. The two gates
                 // are themselves in the order, so pairing them the other way round would
                 // assert a refusal naming the wrong flag.
-                if (Array.IndexOf(order, mode[0]) < gateIndex)
-                    cases.Add(gate, mode);
+                if (Array.IndexOf(order, mode) < gateIndex)
+                    cases.Add(gate, mode, invocation);
             }
         }
 
@@ -251,39 +252,47 @@ public class AuthoredCorpusHarnessProcessTests
     {
         Assert.Equal(
             AuthoredCorpusRatchetTests.DispatchOrderFlags,
-            PreemptingModeInvocations.Select(mode => mode[0]).Distinct().ToArray());
+            PreemptingModeInvocations.Select(mode => mode.Mode).Distinct().ToArray());
     }
 
     /// <summary>
-    /// How to invoke each dispatch mode, in dispatch order.
+    /// How to invoke each dispatch mode, in dispatch order, paired with the flag name the
+    /// refusal will report.
     ///
-    /// <para>Most are bare flags. The ones carrying a value must be spelled with it or
-    /// the flag would swallow the gate that follows it as its own argument, and the test
-    /// would pass while proving nothing — the gate was never requested.
-    /// <c>--fidelity-check</c> appears twice because the harness selects it from a
-    /// two-term disjunction, and one term covered would leave the other unpinned.</para>
+    /// <para>The two are separate because a mode is not always selected by the flag it is
+    /// named after. Most are bare flags. The ones carrying a value must be spelled with
+    /// it, or the flag would swallow the gate that follows it as its own argument and the
+    /// test would pass having never requested a gate.</para>
+    ///
+    /// <para><c>--fidelity-check</c> is selected by a two-term disjunction, so it appears
+    /// twice — and the second case must <em>omit</em> <c>--fidelity-check</c>, or the
+    /// first term alone would satisfy it and the second would never be the reason the
+    /// mode was selected. Review round eleven found exactly that: both cases passed the
+    /// flag, so deleting the second term left the suite green. This list pairs the
+    /// isolating invocation with the flag the harness reports for it, which is why the
+    /// two columns exist at all.</para>
     /// </summary>
-    static readonly string[][] PreemptingModeInvocations =
+    static readonly (string Mode, string[] Invocation)[] PreemptingModeInvocations =
     [
-        ["--fixture-source-inventory"],
-        ["--history-card"],
-        ["--generated-fixtures"],
-        ["--fuzz-signatures"],
-        ["--return-to-sender-catalog"],
-        ["--emit-inverse-ledger", UnusedOutputPath],
-        ["--assertion-scan"],
-        ["--validity-check"],
-        ["--validity-predicate-scan"],
-        ["--fidelity-check"],
-        ["--fidelity-check", "--fidelity-method-delta", "SomeType.SomeMethod"],
-        ["--return-to-sender"],
-        ["--return-address"],
-        ["--not-my-type"],
-        ["--enumerate-real-methods"],
-        ["--harvest-authored-corpus", UnusedOutputPath],
-        ["--harvest-evil-corpus", UnusedOutputPath],
-        ["--benchmark-authored-corpus", "/does-not-exist.jsonl"],
-        ["--verify-authored-corpus", "/does-not-exist.jsonl"],
+        ("--fixture-source-inventory", ["--fixture-source-inventory"]),
+        ("--history-card", ["--history-card"]),
+        ("--generated-fixtures", ["--generated-fixtures"]),
+        ("--fuzz-signatures", ["--fuzz-signatures"]),
+        ("--return-to-sender-catalog", ["--return-to-sender-catalog"]),
+        ("--emit-inverse-ledger", ["--emit-inverse-ledger", UnusedOutputPath]),
+        ("--assertion-scan", ["--assertion-scan"]),
+        ("--validity-check", ["--validity-check"]),
+        ("--validity-predicate-scan", ["--validity-predicate-scan"]),
+        ("--fidelity-check", ["--fidelity-check"]),
+        ("--fidelity-check", ["--fidelity-method-delta", "SomeType.SomeMethod"]),
+        ("--return-to-sender", ["--return-to-sender"]),
+        ("--return-address", ["--return-address"]),
+        ("--not-my-type", ["--not-my-type"]),
+        ("--enumerate-real-methods", ["--enumerate-real-methods"]),
+        ("--harvest-authored-corpus", ["--harvest-authored-corpus", UnusedOutputPath]),
+        ("--harvest-evil-corpus", ["--harvest-evil-corpus", UnusedOutputPath]),
+        ("--benchmark-authored-corpus", ["--benchmark-authored-corpus", "/does-not-exist.jsonl"]),
+        ("--verify-authored-corpus", ["--verify-authored-corpus", "/does-not-exist.jsonl"]),
     ];
 
     /// <summary>

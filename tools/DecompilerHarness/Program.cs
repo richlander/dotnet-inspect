@@ -363,6 +363,7 @@ static class Program
         // too, so the refusal cannot drift from what actually runs.
         bool assertionScanMode = assertionScan || emitAssertionViolations is not null || diffAssertionViolations is not null;
         bool validityCheckMode = validityCheck || emitValidityDefects is not null || diffValidityDefects is not null;
+        bool fidelityCheckMode = fidelityCheck || fidelityMethodDelta is not null;
 
         // The modes below, in the order they dispatch. A gate is preempted by any mode
         // earlier in this list: combining them does not run the gate second, it does not
@@ -387,7 +388,7 @@ static class Program
             ("--assertion-scan", assertionScanMode),
             ("--validity-check", validityCheckMode),
             ("--validity-predicate-scan", validityPredicateScan),
-            ("--fidelity-check", fidelityCheck || fidelityMethodDelta is not null),
+            ("--fidelity-check", fidelityCheckMode),
             ("--return-to-sender", returnToSender),
             ("--return-address", returnAddress),
             ("--not-my-type", notMyType),
