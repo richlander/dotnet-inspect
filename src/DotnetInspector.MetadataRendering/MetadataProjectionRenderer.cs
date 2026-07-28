@@ -97,8 +97,8 @@ public static class MetadataProjectionRenderer
     ///
     /// A reverse search has three blind spots the table renderer has no
     /// equivalent of, and none may be dropped: a budget that stopped the scan,
-    /// rows that could not be decoded, and populated tables no row of which was
-    /// searched. All are rendered as explicit caveats, so an empty result is
+    /// rows that could not be decoded, and populated tables the scan did not
+    /// read in full. All are rendered as explicit caveats, so an empty result is
     /// never mistaken for a confident "nothing points here".
     /// </summary>
     public static void Render(
@@ -211,8 +211,10 @@ public static class MetadataProjectionRenderer
             // Deliberately does not say *why* a table went unsearched. A table is
             // here either because the projection does not model it or because the
             // budget stopped the scan first, and naming one cause would be a
-            // false claim about the other.
-            yield return $"{count} populated {(count == 1 ? "table was" : "tables were")} not searched, so an edge from {(count == 1 ? "it" : "them")} would have been missed: {names}.";
+            // false claim about the other. "in full" is load-bearing for the same
+            // reason: the budget can stop part-way through a table, so claiming
+            // none of its rows was read would be false.
+            yield return $"{count} populated {(count == 1 ? "table was" : "tables were")} not searched in full, so an edge in a row the scan never read would have been missed: {names}.";
         }
     }
 

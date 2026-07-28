@@ -187,6 +187,10 @@ public class MetadataRowReferenceRendererTests
     /// or because the budget stopped the scan first. The caveat cannot see
     /// which, so it must not assert a cause it does not know — a modelled table
     /// the budget never reached would make "not modelled" a false statement.
+    ///
+    /// It must not overstate the extent either. The budget can stop *part-way
+    /// through* a table, so a caveat claiming none of the table's rows was
+    /// searched would be false for the very table truncation landed in.
     /// </summary>
     [Fact]
     public void Markdown_UnscannedTables_DoNotClaimACause()
@@ -197,6 +201,7 @@ public class MetadataRowReferenceRendererTests
 
         Assert.Contains("Assembly", markdown);
         Assert.DoesNotContain("not modelled", markdown);
+        Assert.Contains("not searched in full", markdown);
     }
 
     [Fact]

@@ -87,7 +87,7 @@ public sealed record MetadataRowReference
 /// result: <see cref="Truncated"/> when the result budget stopped the scan,
 /// <see cref="UnreadableRows"/> for rows the scan could not decode and therefore
 /// could not inspect, and <see cref="UnscannedTables"/> for populated tables the
-/// projection does not model and so never visited.
+/// scan did not read in full.
 /// </summary>
 public sealed record MetadataRowReferenceSet
 {
@@ -138,11 +138,13 @@ public sealed record MetadataRowReferenceSet
     public ImmutableArray<MetadataRowLocation> UnreadableRows { get; }
 
     /// <summary>
-    /// Populated tables no row of which was searched: either the projection does
-    /// not model the table, or the result budget stopped the scan before it
-    /// covered every row of it. A table is only counted as searched once every
-    /// one of its rows was examined, because an edge onto the target could sit
-    /// in any row left unread.
+    /// Populated tables the scan did not read in full: either the projection
+    /// does not model the table, so no row of it was read, or the result budget
+    /// stopped the scan part-way through the table or before reaching it. A
+    /// table is only counted as searched once every one of its rows was
+    /// examined, because an edge onto the target could sit in any row left
+    /// unread — a table read in part is as unable to rule out an edge as one
+    /// never opened.
     ///
     /// This is the largest blind spot of the three and the only one that fires
     /// on well-formed metadata, because the search covers the projected tables
