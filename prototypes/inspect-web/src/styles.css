@@ -102,6 +102,7 @@ body {
 .titlebar, .scopebar, .lensbar {
   display: flex;
   align-items: center;
+  min-width: 0;
   border-bottom: 1px solid var(--line);
 }
 
@@ -121,10 +122,23 @@ body {
 }
 .brand-glyph { color: var(--accent); font-size: 18px; }
 
-.package-tabs { min-width: 0; flex: 1; height: 100%; display: flex; align-items: end; overflow: hidden; }
+.package-tabs {
+  min-width: 0;
+  flex: 1 1 0;
+  height: 100%;
+  display: flex;
+  align-items: end;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.package-tabs::-webkit-scrollbar { height: 0; }
 .package-tab {
   height: 35px;
-  max-width: 285px;
+  flex: 1 1 0;
+  min-width: 46px;
+  max-width: 220px;
+  container-type: inline-size;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -137,10 +151,15 @@ body {
   white-space: nowrap;
   overflow: hidden;
 }
-.package-tab .tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.package-tab .tab-label { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
 .package-tab small { flex: none; }
+/* Browser-tab style: as a tab is squeezed, shed the version then the icon so the
+   name stays legible down to the min-width floor before the strip scrolls. */
+@container (max-width: 150px) { .package-tab small { display: none; } }
+@container (max-width: 96px) { .package-tab .package-cube { display: none; } }
 .package-tab.active {
   height: 37px;
+  min-width: 120px;
   color: var(--text);
   border-color: var(--line);
   border-bottom-color: var(--panel);
@@ -153,6 +172,7 @@ body {
 
 .package-query {
   width: clamp(210px, 24vw, 340px);
+  flex: none;
   height: 29px;
   display: flex;
   align-items: center;
@@ -187,7 +207,7 @@ body {
 }
 .package-query button:hover { color: var(--text); background: var(--panel-active); }
 
-.title-actions { display: flex; gap: 6px; padding: 0 10px; }
+.title-actions { display: flex; flex: none; gap: 6px; padding: 0 10px; }
 .title-actions button, .detail-actions button, .tiny-button {
   height: 26px;
   border: 1px solid var(--line);

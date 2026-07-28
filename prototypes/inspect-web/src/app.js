@@ -2362,6 +2362,18 @@ function bindEvents() {
     state.kindFilter = "";
     render();
   }));
+  // Browser-tab behavior for a crowded strip: keep the active tab in view, and let a
+  // vertical wheel scroll the horizontal strip so hidden tabs stay reachable.
+  const tabStrip = document.querySelector(".package-tabs");
+  if (tabStrip) {
+    requestAnimationFrame(() =>
+      tabStrip.querySelector(".package-tab.active")?.scrollIntoView({ block: "nearest", inline: "nearest" }));
+    tabStrip.addEventListener("wheel", event => {
+      if (event.deltaY === 0) return;
+      event.preventDefault();
+      tabStrip.scrollLeft += event.deltaY;
+    }, { passive: false });
+  }
   document.querySelectorAll("[data-scope]").forEach(button => button.addEventListener("click", () => {
     const target = button.dataset.scope;
     if (target === "package") {
