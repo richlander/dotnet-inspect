@@ -5024,6 +5024,33 @@ public class CfgSampleClass
         using (DisposableFromObjectSpan([a, b])) { n = 1; }
         return n;
     }
+
+    // #3336 stage 1: a struct-typed member assigned `default` in an object
+    // initializer. Roslyn spills `default(InitFlag)` to a local via `initobj`
+    // (a struct has no `ldnull` default), then reads it back as the member value
+    // AFTER the `newobj` — a single-use member-value spill interleaved in the dup
+    // chain. #3272's skip guard only tolerates spills computed BEFORE the newobj,
+    // so without folding the spill the trailing member (and thus the whole
+    // initializer) stays lowered. This must fold to
+    // `new InitTargetWithFlag { X = a, Y = b, Flag = default(InitFlag) }`.
+    // Placed last (with its non-capturing helper types) so it shifts no
+    // pre-existing method's compiler-generated ordinal — the fidelity docket keys
+    // on `<>9__N`/`<>c__DisplayClassN` names (see #3129 S4, #3281).
+    public static InitTargetWithFlag MakeTargetWithDefaultStructMember(int a, int b)
+        => new InitTargetWithFlag { X = a, Y = b, Flag = default };
+
+    public struct InitFlag
+    {
+        public int First;
+        public int Second;
+    }
+
+    public sealed class InitTargetWithFlag
+    {
+        public int X { get; set; }
+        public int Y { get; set; }
+        public InitFlag Flag { get; set; }
+    }
 }
 
 internal static class AwaitOrderingHelpers
