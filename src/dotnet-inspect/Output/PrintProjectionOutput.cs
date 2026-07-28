@@ -34,14 +34,19 @@ public static class PrintProjectionOutput
         PrintableDocument selected;
         if (options.Row is { } selector)
         {
-            var row = selector.Resolve(documents.Count);
-            if (row < 1 || row > documents.Count)
+            // Same rule as the shape projections: the ordinal names the row the
+            // reader saw, and every document already carries that number.
+            var rowNumbers = documents.Select(document => document.Row).ToList();
+            var row = selector.Resolve(rowNumbers);
+            var position = RowNumbering.IndexOf(rowNumbers, row);
+            if (position < 0)
             {
-                Console.Error.WriteLine($"Error: printable row {row} is out of range. Use 1 through {documents.Count}, first, or last.");
+                Console.Error.WriteLine(
+                    $"Error: row {row} is not in this section. Use --row {RowNumbering.Describe(rowNumbers)}, first, or last.");
                 return 1;
             }
 
-            selected = documents[row - 1];
+            selected = documents[position];
         }
         else
         {
