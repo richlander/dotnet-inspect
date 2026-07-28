@@ -664,9 +664,17 @@ static class AuthoredCorpusExitContract
     /// name mirror "can false-red but cannot false-green". That reasoning was wrong, and
     /// the lesson is narrower than "avoid source parsing": a test that reads source text
     /// is guessing at what the program does, and a decoy is always available. Naming the
-    /// modes here, where the running binary checks them, cannot be decoyed — a mode added
-    /// to the harness without being declared makes every invocation throw, and the
-    /// black-box tests all invoke it.</para>
+    /// modes here, where the running binary checks them, cannot be decoyed.</para>
+    ///
+    /// <para><strong>What this does and does not guarantee.</strong> Both operands of
+    /// that check are declarations: this list, and the harness's <c>dispatchOrder</c>.
+    /// Comparing them keeps <c>dispatchOrder</c> honest, so the refusal below sees every
+    /// mode the harness admits to having — that is all it is for. It does <em>not</em>
+    /// see the dispatch itself, which is an <c>if</c>-cascade neither list is derived
+    /// from. Review round twelve demonstrated the gap: a mode with a parse case and a
+    /// handler in the cascade, but absent from both lists, discarded a requested gate at
+    /// exit 0 with the suite green. That hole is closed by
+    /// <see cref="GateExitedWithoutRunning"/>, which does not consult any list.</para>
     /// </summary>
     internal static readonly ImmutableArray<string> DispatchModes =
     [
@@ -689,6 +697,54 @@ static class AuthoredCorpusExitContract
         "--benchmark-authored-corpus",
         "--verify-authored-corpus",
     ];
+
+    /// <summary>
+    /// The refusal owed when a protected gate was requested and the process is about to
+    /// report success without the gate having run, or <see langword="null"/> if none.
+    ///
+    /// <para>Every other defense in this file names something: the modes that exist, the
+    /// order they dispatch in, the gates that are protected. Naming is why they kept
+    /// failing. A rule that lists what may preempt a gate is only as complete as the
+    /// list, and eleven review rounds produced a new way to be absent from one — an
+    /// argument dropped at the call site, a decoy above the declaration, a mode dispatched
+    /// from an <c>if</c>-cascade that no list is derived from.</para>
+    ///
+    /// <para>This check names nothing. It observes two facts the harness knows about
+    /// itself — the gate was asked for, and the gate ran — and refuses the one
+    /// combination that is #3245: <em>exit 0 without having measured.</em> A mode added
+    /// anywhere, declared or not, that returns before the gate leaves
+    /// <paramref name="gateDispatched"/> false and is caught, because the property being
+    /// checked is the outcome rather than the route to it.</para>
+    ///
+    /// <para>A non-zero exit is deliberately not checked. The failure being closed is a
+    /// gate that reports success without measuring; a process that already failed has
+    /// said so, and re-reporting it here would bury the real error — the refusal below,
+    /// or an argument validation — under a second, vaguer one.</para>
+    /// </summary>
+    internal static string? GateExitedWithoutRunning(int exitCode, bool gateRequested, bool gateDispatched)
+        => exitCode == 0 && gateRequested && !gateDispatched
+            ? "A protected gate was requested but never ran, and the harness was about to "
+              + "report success. Some other mode returned first. This is the failure the gate "
+              + "exists to prevent, so it is an error rather than a silent success."
+            : null;
+
+    /// <summary>
+    /// Set to <c>1</c> to inject the defect <see cref="GateExitedWithoutRunning"/> exists
+    /// to catch: the harness returns 0 after parsing, before any mode dispatches.
+    ///
+    /// <para>The check is reachable only when the harness is broken, so no ordinary
+    /// invocation exercises it and nothing would notice if its wiring were deleted. Review
+    /// round twelve reached the real hole by hand-editing a mode into the dispatch cascade;
+    /// this makes that exploit a supported input, so a test can keep running it.</para>
+    ///
+    /// <para>It is deliberately an environment variable rather than a flag. A flag would
+    /// be a mode, and would need declaring in the very lists this check exists in order to
+    /// not depend on. It lives here rather than in the harness because the test assembly
+    /// cannot see the harness's own types — the project reference that builds the binary
+    /// sets <c>ReferenceOutputAssembly="false"</c>, which is what keeps these tests
+    /// black-box.</para>
+    /// </summary>
+    internal const string SimulatePreemptionVariable = "DOTNET_INSPECT_HARNESS_SIMULATE_PREEMPTION";
 
     /// <summary>
     /// The refusal owed by the flag combination, or <see langword="null"/> if none.

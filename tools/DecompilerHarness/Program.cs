@@ -26,7 +26,26 @@ namespace ILInspector.DecompilerHarness;
 /// </summary>
 static class Program
 {
+    /// <summary>Set once the flags are parsed, if a protected gate was asked for.</summary>
+    static bool s_protectedGateRequested;
+
+    /// <summary>Set at the gate's own dispatch site, so it records the gate running
+    /// rather than the harness intending to run it.</summary>
+    static bool s_protectedGateDispatched;
+
     static int Main(string[] args)
+    {
+        int exit = RunHarness(args);
+        if (AuthoredCorpusExitContract.GateExitedWithoutRunning(
+                exit, s_protectedGateRequested, s_protectedGateDispatched) is { } escaped)
+        {
+            return Fail(escaped);
+        }
+
+        return exit;
+    }
+
+    static int RunHarness(string[] args)
     {
         List<string> inputs = [];
         int maxExamples = 5;
@@ -406,6 +425,12 @@ static class Program
             return Fail(preempted);
         }
 
+        s_protectedGateRequested = dispatchOrder.Any(
+            entry => entry.Selected && AuthoredCorpusExitContract.ProtectedGates.Contains(entry.Flag));
+
+        if (Environment.GetEnvironmentVariable(AuthoredCorpusExitContract.SimulatePreemptionVariable) == "1")
+            return 0;
+
         if (cfgStageSpecified && (!cfg || dumpMethod is null))
             return Fail("--cfg-stage requires --dump --cfg.");
         int harnessReportModes = (returnAddress ? 1 : 0)
@@ -556,10 +581,16 @@ static class Program
             return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget, evil: true, repositoryPaths: sourceRepositories);
 
         if (benchmarkAuthoredCorpus)
+        {
+            s_protectedGateDispatched = true;
             return AuthoredCorpusBenchmark.Run(assemblies, benchmarkCorpusPath!, json, ratchetBaselinePath, integrityOnly);
+        }
 
         if (verifyAuthoredCorpus)
+        {
+            s_protectedGateDispatched = true;
             return AuthoredCorpusDrift.Run(assemblies, verifyCorpusPath!, json, failOnDrift, sourceRepositories);
+        }
 
         if (returnToSenderAb)
             return ReturnToSender.RunComparison(assemblies, cap, maxExamples);

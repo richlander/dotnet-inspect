@@ -438,9 +438,70 @@ public class AuthoredCorpusHarnessProcessTests
         }
     }
 
+    /// <summary>
+    /// A mode that returns before a requested gate makes the harness fail rather than
+    /// report a success it did not measure.
+    ///
+    /// <para>This is the round-twelve finding, and it is the only test that reaches the
+    /// check. Every list-based defense in this area — the declared modes, the dispatch
+    /// order, the refusal — was defeated at least once by something absent from the list
+    /// doing the preempting, most recently by a mode hand-edited into the harness's
+    /// <c>if</c>-cascade and left out of both lists. The check under test names nothing
+    /// and asks only whether the requested gate ran, so this test injects the defect
+    /// rather than one particular route to it.</para>
+    ///
+    /// <para>The injection is real harness code
+    /// (<see cref="AuthoredCorpusExitContract.SimulatePreemptionVariable"/>) because no ordinary invocation
+    /// reaches the check: it is live only when the harness is broken. Without this test
+    /// the wiring in <c>Main</c> could be deleted and nothing would go red.</para>
+    /// </summary>
+    [Theory]
+    [Trait("Area", "Corpus")]
+    [InlineData("--benchmark-authored-corpus")]
+    [InlineData("--verify-authored-corpus")]
+    public void Harness_FailsWhenARequestedGateNeverRan(string gate)
+    {
+        var run = RunHarness(
+            (AuthoredCorpusExitContract.SimulatePreemptionVariable, "1"),
+            gate,
+            "/does-not-exist.jsonl");
+
+        Assert.Equal(1, run.ExitCode);
+        Assert.Contains(
+            "A protected gate was requested but never ran",
+            run.Output,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The same preempting mode is not an error when no gate was requested.
+    ///
+    /// <para>Without this, the test above would pass just as well against a harness that
+    /// failed on the environment variable alone, and it would be asserting the injection
+    /// rather than the property. A mode returning 0 is the harness working normally; only
+    /// a mode returning 0 <em>while a gate was asked for</em> is the defect.</para>
+    /// </summary>
+    [Fact]
+    [Trait("Area", "Corpus")]
+    public void Harness_SucceedsWhenAModeReturnsFirstAndNoGateWasRequested()
+    {
+        var run = RunHarness((AuthoredCorpusExitContract.SimulatePreemptionVariable, "1"), "--history-card");
+
+        Assert.Equal(0, run.ExitCode);
+        Assert.DoesNotContain(
+            "A protected gate was requested but never ran",
+            run.Output,
+            StringComparison.Ordinal);
+    }
+
     sealed record HarnessRun(int ExitCode, string Output);
 
     static HarnessRun RunHarness(params string[] arguments)
+        => RunHarness(environment: null, arguments);
+
+    static HarnessRun RunHarness(
+        (string Name, string Value)? environment,
+        params string[] arguments)
     {
         var startInfo = new ProcessStartInfo("dotnet")
         {
@@ -452,6 +513,9 @@ public class AuthoredCorpusHarnessProcessTests
             // output directory.
             WorkingDirectory = AuthoredCorpusRatchetTests.FindRepositoryRoot(),
         };
+
+        if (environment is { } variable)
+            startInfo.Environment[variable.Name] = variable.Value;
 
         startInfo.ArgumentList.Add(HarnessBinary());
         foreach (string argument in arguments)

@@ -1063,6 +1063,35 @@ public class AuthoredCorpusRatchetTests
     static readonly string[] Gates = ["--benchmark-authored-corpus", "--verify-authored-corpus"];
 
     /// <summary>
+    /// The escape check fires on exactly one of the four combinations, and the three it
+    /// lets through are each let through for a different reason.
+    ///
+    /// <para>A check whose whole job is to be silent almost always would pass a test that
+    /// only ever ran the failing case, so all four are pinned: no gate asked for means the
+    /// harness is running some other mode normally; a gate that ran is the ordinary
+    /// success; and a non-zero exit has already reported a real error that this check must
+    /// not overwrite with a vaguer one.</para>
+    /// </summary>
+    [Theory]
+    [Trait("Area", "Corpus")]
+    // exit, requested, dispatched, refuses
+    [InlineData(0, true, false, true)]
+    [InlineData(0, true, true, false)]
+    [InlineData(0, false, false, false)]
+    [InlineData(1, true, false, false)]
+    public void GateExitedWithoutRunning_RefusesOnlySilentSuccess(
+        int exitCode,
+        bool requested,
+        bool dispatched,
+        bool refuses)
+    {
+        string? escape = AuthoredCorpusExitContract.GateExitedWithoutRunning(
+            exitCode, requested, dispatched);
+
+        Assert.Equal(refuses, escape is not null);
+    }
+
+    /// <summary>
     /// A mode earlier in the dispatch order preempts the gate; one later does not.
     ///
     /// <para>Preemption means the gate does not run <em>at all</em> and the process exits
