@@ -271,6 +271,14 @@ public class AuthoredCorpusHarnessProcessTests
     /// flag, so deleting the second term left the suite green. This list pairs the
     /// isolating invocation with the flag the harness reports for it, which is why the
     /// two columns exist at all.</para>
+    ///
+    /// <para>Round twelve found the same shape in five more modes. A mode is selected by
+    /// every flag that sets its variable, whether the extra term sits in the selector
+    /// expression (<c>--assertion-scan</c>, <c>--validity-check</c>) or in the parser
+    /// (<c>--fuzz-signatures</c>, <c>--return-address</c>, <c>--not-my-type</c>), and an
+    /// alternate flag with no case here is an alternate way to discard a gate that no
+    /// test would notice. Every flag that selects a preempting mode gets an isolating
+    /// case, which is why several modes appear more than once.</para>
     /// </summary>
     static readonly (string Mode, string[] Invocation)[] PreemptingModeInvocations =
     [
@@ -278,16 +286,25 @@ public class AuthoredCorpusHarnessProcessTests
         ("--history-card", ["--history-card"]),
         ("--generated-fixtures", ["--generated-fixtures"]),
         ("--fuzz-signatures", ["--fuzz-signatures"]),
+        ("--fuzz-signatures", ["--fuzz-unguarded"]),
         ("--return-to-sender-catalog", ["--return-to-sender-catalog"]),
         ("--emit-inverse-ledger", ["--emit-inverse-ledger", UnusedOutputPath]),
         ("--assertion-scan", ["--assertion-scan"]),
+        ("--assertion-scan", ["--emit-assertion-violations", UnusedOutputPath]),
+        ("--assertion-scan", ["--diff-assertion-violations", UnusedOutputPath]),
         ("--validity-check", ["--validity-check"]),
+        ("--validity-check", ["--emit-validity-defects", UnusedOutputPath]),
+        ("--validity-check", ["--diff-validity-defects", UnusedOutputPath]),
         ("--validity-predicate-scan", ["--validity-predicate-scan"]),
         ("--fidelity-check", ["--fidelity-check"]),
         ("--fidelity-check", ["--fidelity-method-delta", "SomeType.SomeMethod"]),
         ("--return-to-sender", ["--return-to-sender"]),
         ("--return-address", ["--return-address"]),
+        ("--return-address", ["--emit-return-address-snapshot", UnusedOutputPath]),
+        ("--return-address", ["--diff-return-address-baseline", UnusedOutputPath]),
         ("--not-my-type", ["--not-my-type"]),
+        ("--not-my-type", ["--emit-not-my-type-snapshot", UnusedOutputPath]),
+        ("--not-my-type", ["--diff-not-my-type-baseline", UnusedOutputPath]),
         ("--enumerate-real-methods", ["--enumerate-real-methods"]),
         ("--harvest-authored-corpus", ["--harvest-authored-corpus", UnusedOutputPath]),
         ("--harvest-evil-corpus", ["--harvest-evil-corpus", UnusedOutputPath]),
