@@ -315,9 +315,27 @@ set equality by `TrackedHistory_OnlyTheUnconfirmableRowIsNotTrustworthy`.
 Soundness is checked by **summing the buckets**, not by confirming they were
 recorded. A row claiming 12,000 evaluated whose buckets total 11,999 has lost a
 target, and a lost target reads as a lower `invalid` — the same "looks like
-progress, is actually absence" shape. Both levels are checked: the top-level
-buckets must account for `evaluated`, and the `validDifferent` sub-buckets must
-account for their own total.
+progress, is actually absence" shape. All three levels are checked: the
+top-level buckets must account for `evaluated`, the `validDifferent` sub-buckets
+must account for their own total, and — when the row states it — the
+`invalidBreakdown` reasons must account for `invalid`.
+
+The third level is not decorative. Review forged a row pairing `invalid: 0` with
+`productBodyDefect: 100`. It closed the other two partitions, became comparable,
+and set a `productBodyDefect` ceiling of 100 that a real regression could then
+pass under with `RATCHET OK` and exit 0 — a threshold laundered from a run that
+cannot exist. A row that omits the breakdown *entirely* is a different case and
+is refused separately, by the rule below.
+
+Every recorded count must also be **non-negative**, at every level. Closure and
+non-negativity are each load-bearing and neither implies the other: given
+closure alone, pushing one bucket above the run's own size stays expressible by
+driving another negative, so 100 `productBodyDefect` on a 60-target run is
+reachable by recording `-40` somewhere else.
+
+When you append a row by hand, this is the rule most likely to reject it: take
+`invalidBreakdown` from the run JSON verbatim rather than filling in the reason
+you care about and zeroing the rest.
 
 A baseline must also be able to **state every metric the run states**. A metric
 is only emitted when both sides have a number for it, so a row missing one
@@ -364,6 +382,14 @@ A **malformed corpus row** is an integrity failure, not a logged curiosity, for
 the same reason. Dropping one silently shrinks `evaluated`, which makes the run
 incomparable, which produces a skip — so before this was enforced, a corpus
 quietly losing rows would have *disarmed* the gate instead of tripping it.
+
+"Malformed" means unparseable *or* the wrong shape. A row can be valid JSON and
+still not be a corpus row, and such a row used to abort the process on a null
+grouping key with an unhandled exception and exit 134 — no report, no JSON, and
+no way for a caller to tell an unmeasurable corpus from a broken tool. Rows are
+checked against the fields `CorpusRecord` declares non-nullable, and the set is
+derived from that type by reflection rather than restated, so a new required
+field that goes unchecked fails a test instead of going unenforced.
 
 `productBodyDefect` is reported with its lower-bound caveat attached: it counts
 decompiler-caused body defects the oracle could adjudicate (~5.9% coverage), so
