@@ -1372,6 +1372,102 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
+    /// And that trivia must be recognized by the line's code, not its text. Asked of the text
+    /// alone, only trivia that opened and closed on one line was seen, so a multi-line
+    /// attribute list or block comment leading the sibling was kept as the member's source and
+    /// did not parse (adversarial review, GPT, which reported the attribute form; the comment
+    /// form was found while reproducing it). This is the same lesson the sibling question
+    /// itself took three rounds to learn.
+    /// </summary>
+    [Theory]
+    [InlineData("        [\n            System.Obsolete\n        ]")]
+    [InlineData("        /* the\n           setter */")]
+    [InlineData("        /// <summary>\n        /// doc\n        /// </summary>")]
+    public void TheSiblingsMultiLineLeadingTrivia_IsNotPartOfTheMember(string trivia)
+    {
+        var source = string.Join('\n',
+        [
+            "public class C",
+            "{",
+            "    public int P",
+            "    {",
+            "        get",
+            "        {",
+            "            return 1;",
+            "        }",
+            trivia,
+            "        set { }",
+            "    }",
+            "}",
+        ]);
+
+        var slice = SourceLinkResolver.ExtractMethodBody(source, 5, 7, "get_P");
+
+        Assert.Equal("public int P\n{\n    get\n    {\n        return 1;\n    }", slice);
+    }
+
+    /// <summary>
+    /// The mirror of that, found independently by MAI-Code: a line opening with "[" may be a
+    /// collection expression rather than an attribute list, and dropping it as trivia eats the
+    /// member's own body. Both directions are one question — what does the line's code say —
+    /// so one answer settles them.
+    /// </summary>
+    [Theory]
+    [InlineData("            [1, 2];", "        [1, 2];")]
+    [InlineData("        [\n            1,\n            2,\n        ];", "    [\n        1,\n        2,\n    ];")]
+    public void ACollectionExpressionLine_IsTheMembersCode_NotAnAttributeList(string body, string expectedTail)
+    {
+        var source = string.Join('\n',
+        [
+            "public class C",
+            "{",
+            "    public int[] Tfm",
+            "    {",
+            "        get =>",
+            body,
+            "        set { }",
+            "    }",
+            "}",
+        ]);
+
+        var slice = SourceLinkResolver.ExtractMethodBody(source, 5, 5, "get_Tfm");
+
+        Assert.Equal("public int[] Tfm\n{\n    get =>\n" + expectedTail, slice);
+    }
+
+    /// <summary>
+    /// A line inside a carried *literal* is the member's own code, so it is the one carried
+    /// construct that is not the sibling's trivia. A raw string spelling "set" would otherwise
+    /// be read as the sibling itself.
+    /// </summary>
+    [Fact]
+    public void ALineInsideARawStringLiteral_IsTheMembersCode_NotTrivia()
+    {
+        var source = string.Join('\n',
+        [
+            "public class C",
+            "{",
+            "    public string P",
+            "    {",
+            "        get",
+            "        {",
+            "            return \"\"\"",
+            "                set",
+            "                \"\"\";",
+            "        }",
+            "        set { }",
+            "    }",
+            "}",
+        ]);
+
+        var slice = SourceLinkResolver.ExtractMethodBody(source, 5, 7, "get_P");
+
+        Assert.Equal(
+            "public string P\n{\n    get\n    {\n        return \"\"\"\n            set\n            \"\"\";\n    }",
+            slice);
+    }
+
+    /// <summary>
     /// Running to the sibling must still stop short of what belongs to the sibling. Its own
     /// blank lines, comments, and attribute lists are not the member's source.
     /// </summary>
