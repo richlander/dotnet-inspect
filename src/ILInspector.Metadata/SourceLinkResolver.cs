@@ -205,7 +205,7 @@ public class SourceLinkResolver
 
         // Recover the member's own closing brace when its range stops above it.
         if (!endsAtDeclaration)
-            to = IndexPastClosingBrace(lines, from, to);
+            to = IndexPastClosingBrace(lines, from, to, IsAccessorName(methodName));
 
         if (to > lines.Length) to = lines.Length;
 
@@ -623,14 +623,64 @@ public class SourceLinkResolver
     private static readonly string[] AccessorKeywords = ["get", "set", "init", "add", "remove"];
 
     /// <summary>
-    /// True when <paramref name="trimmed"/> opens a declaration that is a sibling of the member
-    /// being sliced rather than a continuation of it — another member, or another accessor of
-    /// the same property or event.
+    /// The metadata name prefixes that mark a member as one accessor of a property or event.
     /// </summary>
-    private static bool OpensSiblingDeclaration(string trimmed)
+    private static readonly string[] AccessorNamePrefixes =
+        ["get_", "set_", "init_", "add_", "remove_"];
+
+    /// <summary>
+    /// True when <paramref name="methodName"/> names an accessor, which is the only member that
+    /// can have a sibling accessor inside the block its slice runs through.
+    /// </summary>
+    private static bool IsAccessorName(string methodName)
     {
-        if (StartsWithDeclarationModifier(trimmed) || trimmed.StartsWith('['))
+        foreach (var prefix in AccessorNamePrefixes)
+        {
+            if (methodName.StartsWith(prefix, StringComparison.Ordinal))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The line with any leading comments removed. A declaration may share its line with either
+    /// comment form, and both may repeat.
+    /// </summary>
+    private static string StripLeadingComments(string trimmed)
+    {
+        while (trimmed.StartsWith("/*", StringComparison.Ordinal))
+        {
+            int end = trimmed.IndexOf("*/", 2, StringComparison.Ordinal);
+            if (end < 0)
+                return string.Empty;
+
+            trimmed = trimmed[(end + 2)..].TrimStart();
+        }
+
+        return trimmed.StartsWith("//", StringComparison.Ordinal) ? string.Empty : trimmed;
+    }
+
+    /// <summary>
+    /// True when <paramref name="line"/> opens an accessor sibling to the one being sliced.
+    /// <para>
+    /// This is asked only while slicing an accessor. Asking it of every member read a
+    /// <c>static</c> local function, and any other statement that opens with a declaration
+    /// modifier, as a sibling and truncated the enclosing method at it (adversarial review,
+    /// Gemini). Only a property or event block can hold a sibling accessor, so only an accessor
+    /// can be interrupted by one.
+    /// </para>
+    /// </summary>
+    private static bool OpensSiblingAccessor(string line)
+    {
+        var trimmed = StripLeadingComments(line.TrimStart());
+
+        // An accessor may carry attributes or an accessibility modifier of its own.
+        if (trimmed.StartsWith('['))
             return true;
+
+        if (StartsWithDeclarationModifier(trimmed))
+            trimmed = StripLeadingComments(SkipLeadingModifiers(trimmed));
 
         foreach (var keyword in AccessorKeywords)
         {
@@ -648,6 +698,33 @@ public class SourceLinkResolver
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// The line past any run of leading declaration modifiers.
+    /// </summary>
+    private static string SkipLeadingModifiers(string trimmed)
+    {
+        bool advanced = true;
+        while (advanced)
+        {
+            advanced = false;
+            foreach (var modifier in DeclarationModifiers)
+            {
+                if (!trimmed.StartsWith(modifier, StringComparison.Ordinal))
+                    continue;
+
+                int i = modifier.Length;
+                if (i >= trimmed.Length || !char.IsWhiteSpace(trimmed[i]))
+                    continue;
+
+                trimmed = trimmed[i..].TrimStart();
+                advanced = true;
+                break;
+            }
+        }
+
+        return trimmed;
     }
 
     /// <summary>
@@ -669,7 +746,7 @@ public class SourceLinkResolver
     /// Accessors resolve separately, so the scan yields rather than merge them.
     /// </para>
     /// </summary>
-    private static int IndexPastClosingBrace(string[] lines, int from, int to)
+    private static int IndexPastClosingBrace(string[] lines, int from, int to, bool slicingAccessor)
     {
         var state = new LexState();
         int depth = 0;
@@ -683,8 +760,7 @@ public class SourceLinkResolver
         int limit = Math.Min(lines.Length, to + ForwardScanLimit);
         for (int i = to; i < limit; i++)
         {
-            var trimmed = lines[i].TrimStart();
-            if (trimmed.Length > 0 && !trimmed.StartsWith('}') && OpensSiblingDeclaration(trimmed))
+            if (slicingAccessor && OpensSiblingAccessor(lines[i]))
                 return to;
 
             ScanLine(lines[i], state, ref depth);
@@ -744,7 +820,9 @@ public class SourceLinkResolver
             {
                 foreach (var frame in frames)
                 {
-                    if (!frame.Verbatim && !frame.Raw)
+                    // Since C# 11 a hole may span lines even in a single-quoted literal; only
+                    // the literal's own text is bound to one line (adversarial review, Gemini).
+                    if (!frame.Verbatim && !frame.Raw && !frame.InHole)
                         return true;
                 }
 
@@ -781,6 +859,34 @@ public class SourceLinkResolver
     /// <summary>
     /// Length of the run of <paramref name="c"/> starting at <paramref name="start"/>.
     /// </summary>
+    /// <summary>
+    /// Reports whether <paramref name="line"/> is a preprocessor directive, and whether it is one
+    /// of the conditional-compilation directives whose branches the compiler may discard.
+    /// </summary>
+    private static bool IsDirective(string line, out bool conditional)
+    {
+        conditional = false;
+
+        var trimmed = line.AsSpan().TrimStart();
+
+        if (trimmed.IsEmpty || trimmed[0] != '#')
+            return false;
+
+        var name = trimmed[1..].TrimStart();
+
+        foreach (var candidate in (ReadOnlySpan<string>)["if", "elif", "else", "endif"])
+        {
+            if (name.StartsWith(candidate, StringComparison.Ordinal) &&
+                (name.Length == candidate.Length || !char.IsLetterOrDigit(name[candidate.Length])))
+            {
+                conditional = true;
+                break;
+            }
+        }
+
+        return true;
+    }
+
     private static int RunLength(string line, int start, char c)
     {
         int i = start;
@@ -835,6 +941,17 @@ public class SourceLinkResolver
         significant = '\0';
         int i = start;
         bool opened = false;
+
+        if (!state.InBlockComment && !state.InLiteral && IsDirective(line, out bool conditional))
+        {
+            // A preprocessor directive is not code, so nothing on the line is scanned. A
+            // conditional directive additionally means the braces around it may belong to a
+            // branch the compiler discards, which leaves the structural depth unknowable.
+            if (conditional)
+                state.Untracked = true;
+
+            return '\0';
+        }
 
         while (i < line.Length)
         {
@@ -1001,7 +1118,10 @@ public class SourceLinkResolver
                 }
 
                 int quotes = RunLength(line, open, '"');
-                bool raw = quotes >= 3;
+
+                // Only a non-verbatim literal can be raw. After `@`, a run of three quotes is
+                // an opener and one escaped quote, not a raw delimiter.
+                bool raw = quotes >= 3 && !verbatim;
 
                 if (!raw && quotes == 2)
                 {
@@ -1023,7 +1143,7 @@ public class SourceLinkResolver
 
                 opened = true;
                 significant = '"';
-                i = open + quotes;
+                i = open + (raw ? quotes : 1);
                 continue;
             }
 
