@@ -1945,4 +1945,41 @@ public class AuthoredCorpusRatchetTests
 
         Assert.True(AuthoredCorpusRatchet.Compare(Key(), Metrics(), [forged]).Skipped);
     }
+
+    /// <summary>
+    /// The top-level partition sum is arithmetic, not wrapped arithmetic.
+    ///
+    /// <para>Unlike the other two levels this one carries no <em>passing</em> exploit:
+    /// reaching the wrap needs two buckets near <see cref="int.MaxValue"/>, and once
+    /// <c>drift</c>, <c>unsupported</c>, and <c>unknownOutcome</c> are pinned to zero the
+    /// two that remain free cannot carry enough without pushing <c>valid</c> or
+    /// <c>correct</c> above the current run — which regresses and fails loudly rather
+    /// than passing.</para>
+    ///
+    /// <para>It is pinned anyway, and as arithmetic rather than through
+    /// <see cref="AuthoredCorpusRatchet.Compare"/>, because reverting the widening left
+    /// this level with nothing red while the other two went red immediately. "No exploit
+    /// today" is not the same claim as "the sum is right", and only the second one
+    /// survives someone adding a metric that reads these buckets.</para>
+    /// </summary>
+    [Fact]
+    public void Ratchet_TheTopLevelPartitionSumIsArithmeticNotWrapped()
+    {
+        var forged = Row(evaluated: 60, correct: 61, invalid: int.MaxValue) with
+        {
+            ValidDifferent = new HistoryRunValidDifferent(1, 1, 0, 0, 0, 0),
+            NotFull = int.MaxValue,
+        };
+
+        Assert.Equal(60, unchecked(61 + 1 + int.MaxValue + int.MaxValue));
+
+        // Widened through a local rather than asserted directly on the property: int?
+        // converts implicitly to long?, so this still compiles if the widening is
+        // reverted and then fails as a test. Binding the assertion to the property's own
+        // type would make reverting a compile error instead, which is a weaker gate —
+        // it can be silenced by editing this line rather than by restoring the cast.
+        long? sum = forged.TopLevelSum;
+        Assert.Equal(4294967356L, sum);
+        Assert.NotEqual(forged.Evaluated, sum);
+    }
 }
