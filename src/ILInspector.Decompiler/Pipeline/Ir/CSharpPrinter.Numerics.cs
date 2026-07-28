@@ -1007,6 +1007,17 @@ public sealed partial class CSharpPrinter
         // so demand the next-tighter level there. The left side can associate
         // bare at equal precedence (`(a - b) - c`).
         var demand = rightSide ? TighterThan(parentPrecedence) : parentPrecedence;
+        // The long-literal lens (#3347) at an operator operand. The folded literal
+        // carries its own precedence — Primary for `10L`, Unary for `-1L`, the same
+        // level the `(long)-1` cast it replaces reports — so the demand still decides
+        // the parentheses and no context can misbind.
+        if (TryLongLiteralText(operand) is { } longOperandLiteral)
+        {
+            return new Rendered(
+                longOperandLiteral,
+                longOperandLiteral[0] == '-' ? Precedence.Unary : Precedence.Primary).At(demand);
+        }
+
         return RenderedExpression(operand).At(demand);
     }
 
@@ -1751,6 +1762,12 @@ public sealed partial class CSharpPrinter
     /// </summary>
     string CoerceText(IrExpression value, TypeRef? target)
     {
+        // The long-literal lens (#3347) at a value sink — a return, an argument, an
+        // assignment, a field/array store, a box. Gated on an Int64 sink so the fold
+        // only ever replaces a rendering that was already the bare `(long)N` cast;
+        // a wider or differently-typed sink keeps whichever coercion cast it needs.
+        if (IsCoreInt64(target) && TryLongLiteralText(value) is { } longSinkLiteral)
+            return longSinkLiteral;
         if (target is { } nativeTarget
             && IsNativeInteger(nativeTarget)
             && AddressOfValue(value) is { } address)
@@ -2110,7 +2127,15 @@ public sealed partial class CSharpPrinter
             && IsBooleanLike(conditional.WhenTrue);
 
     string ConditionalArm(IrExpression arm, TypeRef? target, TypeRef? primitiveCoercionSourceType = null, bool joinHasExactTypedArm = true)
-        => target is { } charTarget && IsCoreChar(charTarget) && TryCharConstantText(arm, out var charText)
+        // The long-literal lens (#3347). Only at a join whose target is Int64 or
+        // neutralized (EffectiveJoinTarget returns null when the arms already render
+        // bare at the target — the reference witness's case): the folded literal is
+        // long-typed exactly as the `(long)N` cast it replaces, so the join's natural
+        // type is unchanged. A join distributing some OTHER target still needs its own
+        // coercion cast and falls through untouched.
+        => (target is null || IsCoreInt64(target)) && TryLongLiteralText(arm) is { } longArmLiteral
+            ? longArmLiteral
+            : target is { } charTarget && IsCoreChar(charTarget) && TryCharConstantText(arm, out var charText)
             ? charText
             // An integer arm flowing into an enum-typed conditional (`ci ? 4 : raw`
             // into StringComparison) is CS0266 — int does not convert to the enum.
@@ -2389,6 +2414,47 @@ public sealed partial class CSharpPrinter
 
     static bool IsCoreChar(TypeRef type)
         => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Char" };
+
+    static bool IsCoreInt64(TypeRef? type)
+        => type is { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Int64" };
+
+    /// <summary>
+    /// The opt-in long-literal fold (#3347), gated on
+    /// <see cref="PrinterOptions.PreferLongLiteralSuffix"/>: the <c>NL</c> spelling
+    /// of a <c>Convert(→Int64, Int32 Constant)</c> — the IR shape csc's
+    /// <c>ldc.i4(.s) N; conv.i8</c> produces for every small <c>long</c> literal —
+    /// or <see langword="null"/> when the lens is off or the node does not qualify.
+    /// Returns a bare literal, so the caller may place it wherever it would have
+    /// placed the <c>(long)N</c> cast: <c>NL</c> is a primary expression and a
+    /// negative one is unary, exactly the cast's own precedence.
+    ///
+    /// <para>The opcode-fidelity guard is the node shape itself, not a heuristic. A
+    /// genuine <c>ldc.i8</c> reaches the printer as a bare <see cref="Constant"/>
+    /// carrying a <c>long</c> payload with no <see cref="Convert"/> over it, so it
+    /// cannot match here and keeps its current spelling with the lens on or off.
+    /// Only the plain widening <c>conv.i8</c> qualifies: <c>conv.ovf.i8</c>
+    /// (<see cref="Convert.IsChecked"/>) and the <c>.un</c> forms
+    /// (<see cref="Convert.IsUnsigned"/>) are distinct opcodes and are declined, as
+    /// is any operand that is not an <c>Int32</c>-typed constant — a bool, char, or
+    /// enum-retyped constant spells a keyword or a member name that a bare integer
+    /// literal would silently drop.</para>
+    /// </summary>
+    string? TryLongLiteralText(IrExpression expression)
+        => _options.PreferLongLiteralSuffix
+            && expression is Convert
+            {
+                IsChecked: false,
+                IsUnsigned: false,
+                Target: { } convertTarget,
+                Operand: Constant
+                {
+                    Value: int payload,
+                    Type: { Kind: TypeRefKind.Definition, Assembly: TypeRef.CoreLibrary, Namespace: "System", Name: "Int32" },
+                },
+            }
+            && IsCoreInt64(convertTarget)
+                ? $"{payload.ToString(System.Globalization.CultureInfo.InvariantCulture)}L"
+                : null;
 
     static bool TryCharConstantText(IrExpression expression, out string text)
     {

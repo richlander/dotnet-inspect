@@ -352,6 +352,16 @@ public static class StyleOptionCatalog
             with: static (o, v) => o with { QualifyEventAccess = v }),
         GuardedBooleanReturnStyle(),
         VarSpellingStyle(),
+        Boolean(
+            id: "prefer-long-literal-suffix",
+            title: "Long literal suffix (10L)",
+            summary: "Render a long constant the IL spells `ldc.i4(.s) N; conv.i8` as the idiomatic NL literal instead of the (long)N cast; a genuine ldc.i8 source keeps its current spelling.",
+            tier: StyleOptionTier.Lens,
+            byteDivergent: true,
+            oracleEndorsed: false,
+            configKey: "dotnet_inspect_style_prefer_long_literal_suffix",
+            get: static o => o.PreferLongLiteralSuffix,
+            with: static (o, v) => o with { PreferLongLiteralSuffix = v }),
     ];
 
     /// <summary>
