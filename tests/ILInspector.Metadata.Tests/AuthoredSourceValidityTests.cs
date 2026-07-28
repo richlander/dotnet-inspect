@@ -751,6 +751,46 @@ public class AuthoredSourceValidityTests
     /// </para>
     /// </summary>
     /// <summary>
+    /// Round 9 guarded the *unentered* branch of the retirement rule on bracket depth but left
+    /// the entered branch unguarded, so a brace inside an attribute's array initializer both
+    /// enters a type and then retires it (adversarial review, Gemini). With the declaring type
+    /// gone, constructor recovery is skipped and the slice starts at the type's opening brace.
+    /// <para>
+    /// This is not a regression: it fails at 7e1a5702 and fa1af2b6 alike. The reported repro
+    /// used <c>new int[] { 1 }</c> as a default parameter value, which is CS1736; the shape
+    /// pinned here is a type-parameter attribute, which compiles.
+    /// </para>
+    /// <para>
+    /// The real defect is that braces inside brackets move the block-depth counter at all.
+    /// The scanner already knows better in the analogous case — a brace inside an interpolation
+    /// hole is counted against the hole, not the block — and extending that to brackets is the
+    /// fix. It is deliberately not made here: block depth feeds every consumer in this file,
+    /// and the same change is subsumed by locating declarations over a token stream.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ABraceInAMultiLineAttributeInitializer_RetiresTheDeclaringType_KnownGap()
+    {
+        var source = string.Join('\n',
+        [
+            "public class C<",
+            "    [Attr(new int[] {",
+            "        1",
+            "    })] T>",
+            "{",
+            "    public",
+            "    C()",
+            "    {",
+            "    }",
+            "}",
+        ]);
+
+        var slice = SourceLinkResolver.ExtractMethodBody(source, startLine: 8, endLine: 9, methodName: ".ctor");
+
+        Assert.Equal("{\n    public\n    C()\n    {\n    }\n}", slice);
+    }
+
+    /// <summary>
     /// A declaration ends on the ";" or "}" that terminates it, but only at declaration level.
     /// An attribute on a type parameter may hold an array initializer whose closing brace ends
     /// nothing while the attribute's bracket is still open; reading it as the terminator
@@ -1576,7 +1616,8 @@ public class AuthoredSourceValidityTests
     /// sibling accessor (adversarial review, Gemini).</item>
     /// </list>
     /// Pinned at today's answer so none can widen unnoticed and closing them is a visible test
-    /// change.
+    /// change. Constructor recovery changes one of the three answers for the better; the row
+    /// records which.
     /// </summary>
     [Theory]
     [InlineData(
@@ -1590,9 +1631,13 @@ public class AuthoredSourceValidityTests
     [InlineData(
         "class C {\n    const int set = 0;\n    int Prop {\n        get {\n            int x = 0;\n            return x switch {\n                // comment\n                set => 2,\n                _ => 1\n            };\n        }\n    }\n}\n",
         4, 6, "get_Prop",
-        "class C {\n    const int set = 0;\n    int Prop {\n        get {\n            int x = 0;\n            return x switch {")]
+        // On this branch the switch-arm case improves: the capture starts with a type header
+        // and no member declaration is found inside it, so it reports absent rather than
+        // returning a truncated type header. The other two rows are unchanged, because their
+        // captures begin at the property, not the type.
+        null)]
     public void TheSiblingQuestionAskedOfSomethingThatIsNotASibling_TruncatesTheSlice_KnownGap(
-        string source, int startLine, int endLine, string methodName, string truncated)
+        string source, int startLine, int endLine, string methodName, string? truncated)
     {
         Assert.Equal(truncated, SourceLinkResolver.ExtractMethodBody(source, startLine, endLine, methodName));
     }
