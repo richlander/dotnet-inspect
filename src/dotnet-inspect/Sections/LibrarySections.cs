@@ -79,7 +79,7 @@ public static class LibrarySections
             .Add<PerformanceHotspots>()
             .Add<PerformanceAsync>()
             .Add<PerformanceOther>()
-            .Add<EscapeArrayPool>()
+            .Add<ArrayPoolEscapes>()
             .Add<PInvokeMethods>()
             .Add<AsyncMethods>()
             .Add<Resources>()
@@ -89,25 +89,26 @@ public static class LibrarySections
             .Add<NonNormalizedPaths>()
             .AddCategory(SectionCategoryNames.Audit,
                 SectionNames.UnsafeMembers,
-                "P/Invoke Methods",
-                "Non-normalized Paths",
-                "Signals",
-                "Symbols")
+                SectionNames.PInvokeMethods,
+                SectionNames.NonNormalizedPaths,
+                SectionNames.Signals,
+                SectionNames.Symbols)
             .AddCategory(SectionCategoryNames.Performance,
                 PerformanceKinds.Sections)
             .AddCategory(SectionCategoryNames.Surface,
-                "Async Methods",
-                "Custom Attributes",
-                "Extension Methods",
-                "Resources",
-                "Switches",
-                "Type Forwarders",
-                "Union Types",
-                "P/Invoke Methods")
+                SectionNames.AsyncMethods,
+                SectionNames.CustomAttributes,
+                SectionNames.ExtensionMethods,
+                SectionNames.Resources,
+                SectionNames.Switches,
+                SectionNames.TypeForwarders,
+                SectionNames.UnionTypes,
+                SectionNames.PInvokeMethods)
             .AddCategory(SectionCategoryNames.SourceLink,
                 SectionNames.SourceLinkFiles,
                 SectionNames.SourceLinkAvailability,
-                SectionNames.SourceLinkMissingFiles)
+                SectionNames.SourceLinkMissingFiles,
+                SectionNames.SourceLinkIntegrity)
             .AddCategory(SectionCategoryNames.Integrations, [.. LibraryIntegrationCatalog.CategorySections, IntegrationSectionNames.Opportunities]);
     }
 
@@ -161,7 +162,7 @@ public static class LibrarySections
 
     public sealed class LibraryInfo : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Library Info";
+        public static string Name => SectionNames.LibraryInfo;
         public static bool IsExpensive => false;
         public static bool Info => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
@@ -171,7 +172,7 @@ public static class LibrarySections
 
     public sealed class InspectionFailures : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Inspection Failures";
+        public static string Name => SectionNames.InspectionFailures;
         public static bool IsExpensive => false;
         public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
@@ -274,7 +275,7 @@ public static class LibrarySections
 
     public sealed class Symbols : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Symbols";
+        public static string Name => SectionNames.Symbols;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static string? ScannerKey => ScannerSymbols;
@@ -283,7 +284,7 @@ public static class LibrarySections
 
     public sealed class Signals : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Signals";
+        public static string Name => SectionNames.Signals;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
         public static string? ScannerKey => ScannerAuditSignals;
@@ -293,7 +294,7 @@ public static class LibrarySections
 
     public sealed class Switches : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Switches";
+        public static string Name => SectionNames.Switches;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static string? ScannerKey => ScannerSwitches;
@@ -479,7 +480,7 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.SourceLinkMissingFiles;
         public static bool IsExpensive => true;
-        // Opt-in only: derived from the same per-file HEAD pass as Source Link: Availability.
+        // Opt-in only: derived from the same per-file HEAD pass as SourceLink: Availability.
         public static bool ExplicitOnly => true;
         public static SectionCost Cost => SectionCost.Unbounded;
         public static string? ScannerKey => null;
@@ -501,7 +502,7 @@ public static class LibrarySections
 
     public sealed class References : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "References";
+        public static string Name => SectionNames.References;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static string? ScannerKey => null;
@@ -512,7 +513,7 @@ public static class LibrarySections
 
     public sealed class Dependencies : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Dependencies";
+        public static string Name => SectionNames.Dependencies;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
         public static string? ScannerKey => ScannerTransitiveRefs;
@@ -523,7 +524,7 @@ public static class LibrarySections
 
     public sealed class ExtensionMethods : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Extension Methods";
+        public static string Name => SectionNames.ExtensionMethods;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static string? ScannerKey => ScannerExtensionMethods;
@@ -533,7 +534,7 @@ public static class LibrarySections
 
     public sealed class UnsafeMembers : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Unsafe Members";
+        public static string Name => SectionNames.UnsafeMembers;
         public static bool IsExpensive => false;
         public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
@@ -664,10 +665,16 @@ public static class LibrarySections
             => HasPerformanceKind(model, SectionNames.PerformanceOther) || model.HasMethodBodies;
     }
 
-    public sealed class EscapeArrayPool : ISectionDescriptor<LibraryInspection>
+    public sealed class ArrayPoolEscapes : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => SectionNames.EscapeArrayPool;
+        public static string Name => SectionNames.ArrayPoolEscapes;
         public static bool IsExpensive => false;
+        // Catalog-hidden: applicability is a capability predicate (the scan can run), not a
+        // content predicate (the scan found something), and determining content costs a full
+        // resource-triage scan. Sections list in -D only when >0 rows can be established
+        // cheaply, so this one is reachable by exact name instead of advertising itself and
+        // then rendering nothing.
+        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerResourceTriage;
         public static bool CanRender(LibraryInspection model)
             => model.ResourceLifecycleInspection?.Value
@@ -678,7 +685,7 @@ public static class LibrarySections
 
     public sealed class PInvokeMethods : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "P/Invoke Methods";
+        public static string Name => SectionNames.PInvokeMethods;
         public static bool IsExpensive => false;
         public static string? ScannerKey => ScannerClassifiedMethods;
         public static bool CanRender(LibraryInspection model)
@@ -688,7 +695,7 @@ public static class LibrarySections
 
     public sealed class AsyncMethods : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Async Methods";
+        public static string Name => SectionNames.AsyncMethods;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static string? ScannerKey => ScannerClassifiedMethods;
@@ -700,7 +707,7 @@ public static class LibrarySections
 
     public sealed class Resources : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Resources";
+        public static string Name => SectionNames.Resources;
         public static bool IsExpensive => false;
         public static string? ScannerKey => ScannerResources;
         public static bool CanRender(LibraryInspection model)
@@ -709,7 +716,7 @@ public static class LibrarySections
 
     public sealed class CustomAttributes : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Custom Attributes";
+        public static string Name => SectionNames.CustomAttributes;
         public static bool IsExpensive => false;
         public static string? ScannerKey => ScannerCustomAttributes;
         public static bool CanRender(LibraryInspection model)
@@ -718,7 +725,7 @@ public static class LibrarySections
 
     public sealed class UnionTypes : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Union Types";
+        public static string Name => SectionNames.UnionTypes;
         public static bool IsExpensive => false;
         public static string? ScannerKey => ScannerUnionTypes;
         public static bool CanRender(LibraryInspection model)
@@ -727,7 +734,7 @@ public static class LibrarySections
 
     public sealed class TypeForwarders : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Type Forwarders";
+        public static string Name => SectionNames.TypeForwarders;
         public static bool IsExpensive => false;
         public static string? ScannerKey => ScannerTypeForwarders;
         public static bool CanRender(LibraryInspection model)
@@ -736,7 +743,7 @@ public static class LibrarySections
 
     public sealed class NonNormalizedPaths : ISectionDescriptor<LibraryInspection>
     {
-        public static string Name => "Non-normalized Paths";
+        public static string Name => SectionNames.NonNormalizedPaths;
         public static bool IsExpensive => false;
         public static string? ScannerKey => null; // data comes from PdbContext (always collected)
         public static bool CanRender(LibraryInspection model) => model.NonNormalizedPaths is { Count: > 0 };

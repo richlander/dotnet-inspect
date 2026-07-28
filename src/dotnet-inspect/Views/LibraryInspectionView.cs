@@ -846,7 +846,7 @@ public class LibraryInspectionView
     public bool HasResourceTriage => ResourceTriageSection.Count > 0;
 
     [MarkoutSection(
-        Name = SectionNames.EscapeArrayPool,
+        Name = SectionNames.ArrayPoolEscapes,
         ShowWhenProperty = nameof(HasResourceTriage))]
     public List<ResourceTriageRow> ResourceTriageSection =>
         (_data.ResourceTriage ?? [])

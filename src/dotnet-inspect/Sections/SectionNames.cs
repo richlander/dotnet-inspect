@@ -110,21 +110,21 @@ public static class SectionNames
 
     /// <summary>
     /// SourceLink source file listing (library scope). Part of the <c>@SourceLink</c> family;
-    /// prefixed <c>Source Link:</c> so the family sorts together.
+    /// prefixed <c>SourceLink:</c> to match the category door so the family sorts together.
     /// </summary>
-    public const string SourceLinkFiles = "Source Link: Files";
+    public const string SourceLinkFiles = "SourceLink: Files";
 
     /// <summary>
     /// SourceLink availability audit (library scope): per-source-file HEAD probe results. Part of
-    /// the <c>@SourceLink</c> family; prefixed <c>Source Link:</c> so the family sorts together.
+    /// the <c>@SourceLink</c> family; prefixed <c>SourceLink:</c> to match the category door.
     /// </summary>
-    public const string SourceLinkAvailability = "Source Link: Availability";
+    public const string SourceLinkAvailability = "SourceLink: Availability";
 
     /// <summary>SourceLink audit rows for source files that failed their availability probe.</summary>
-    public const string SourceLinkMissingFiles = "Source Link: Missing Files";
+    public const string SourceLinkMissingFiles = "SourceLink: Missing Files";
 
     /// <summary>SourceLink integrity audit (library scope): content hash verification of sources.</summary>
-    public const string SourceLinkIntegrity = "Source Link: Integrity";
+    public const string SourceLinkIntegrity = "SourceLink: Integrity";
 
     /// <summary>Section for SourceLink source locations for member signatures.</summary>
     public const string SourceLocations = "Source Locations";
@@ -212,16 +212,16 @@ public static class SectionNames
     public const string PerformanceArrays = "Performance: Arrays";
 
     /// <summary>Closure/delegate-allocation performance findings.</summary>
-    public const string PerformanceClosures = "Performance: Closures and delegates";
+    public const string PerformanceClosures = "Performance: Closures and Delegates";
 
     /// <summary>Enumerator-allocation performance findings.</summary>
     public const string PerformanceEnumerators = "Performance: Enumerators";
 
     /// <summary>Loop hot-path performance findings (scan/materialize/build inside loops).</summary>
-    public const string PerformanceLoops = "Performance: Loop hot paths";
+    public const string PerformanceLoops = "Performance: Loop Hot Paths";
 
     /// <summary>Aggregate allocation hotspot/fanout performance findings.</summary>
-    public const string PerformanceHotspots = "Performance: Allocation hotspots";
+    public const string PerformanceHotspots = "Performance: Allocation Hotspots";
 
     /// <summary>Async state-machine performance findings.</summary>
     public const string PerformanceAsync = "Performance: Async";
@@ -231,12 +231,57 @@ public static class SectionNames
 
     /// <summary>
     /// Escape/exception-safety section for the array-pool shape: an <c>ArrayPool&lt;T&gt;.Shared.Rent</c>
-    /// that is not returned on an exception path. Part of the <c>@Escape</c> (Resource Escape Triage)
-    /// family; named for the specific resource because the analysis is array-pool-specific today.
+    /// that is not returned on an exception path. Named for the specific resource because the
+    /// analysis is array-pool-specific today. Unprefixed: a prefix marks an exclusive family with
+    /// a matching category door, and this section has neither.
     /// </summary>
-    public const string EscapeArrayPool = "Escape: Array Pool";
+    public const string ArrayPoolEscapes = "Array Pool Escapes";
 
     /// <summary>Section for unsafe-relevant evidence from the selected member body.</summary>
     public const string UnsafeOperations = "Unsafe Operations";
+
+    // ===== Library-scope sections (LibrarySections) =====
+    // Declared here rather than as descriptor-local literals so that category membership in
+    // LibrarySections.AddCategory references the same symbol the descriptor's Name returns. A
+    // rename then moves both together instead of silently dropping the section from its category.
+
+    /// <summary>Section for the assembly identity header.</summary>
+    public const string LibraryInfo = "Library Info";
+
+    /// <summary>Section for scans that failed, so a partial inspection never reads as a clean one.</summary>
+    public const string InspectionFailures = "Inspection Failures";
+
+    /// <summary>Section for debug symbol availability and provenance.</summary>
+    public const string Symbols = "Symbols";
+
+    /// <summary>Section summarizing high-value audit answers across the assembly.</summary>
+    public const string Signals = "Signals";
+
+    /// <summary>Section for AppContext feature switches.</summary>
+    public const string Switches = "Switches";
+
+    /// <summary>Section for direct assembly references.</summary>
+    public const string References = "References";
+
+    /// <summary>Section for transitive assembly dependencies.</summary>
+    public const string Dependencies = "Dependencies";
+
+    /// <summary>Section for P/Invoke declarations.</summary>
+    public const string PInvokeMethods = "P/Invoke Methods";
+
+    /// <summary>Section for async methods.</summary>
+    public const string AsyncMethods = "Async Methods";
+
+    /// <summary>Section for embedded resources.</summary>
+    public const string Resources = "Resources";
+
+    /// <summary>Section for union types.</summary>
+    public const string UnionTypes = "Union Types";
+
+    /// <summary>Section for type forwarders.</summary>
+    public const string TypeForwarders = "Type Forwarders";
+
+    /// <summary>Section for build paths that leak non-deterministic local or CI directories.</summary>
+    public const string NonNormalizedPaths = "Non-normalized Paths";
 
 }

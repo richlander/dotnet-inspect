@@ -217,9 +217,9 @@ Rules:
 
 At `library` scope the performance findings are decomposed into kind-scoped
 sections under the `@Performance` category (`Performance: Boxing`,
-`Performance: Arrays`, `Performance: Closures and delegates`,
-`Performance: Enumerators`, `Performance: Loop hot paths`,
-`Performance: Allocation hotspots`, `Performance: Async`, plus a non-lossy
+`Performance: Arrays`, `Performance: Closures and Delegates`,
+`Performance: Enumerators`, `Performance: Loop Hot Paths`,
+`Performance: Allocation Hotspots`, `Performance: Async`, plus a non-lossy
 `Performance: Other`). They follow the il-offset section model: opt-in, absent
 when empty, selectable individually or as a group, with a nested `performance`
 JSON object (one array per kind with rows) and a per-kind `--count` map. The

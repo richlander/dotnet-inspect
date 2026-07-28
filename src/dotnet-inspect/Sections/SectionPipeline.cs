@@ -116,10 +116,23 @@ public sealed class SectionPipeline<TModel>
         return this;
     }
 
+    /// <summary>
+    /// Declares a topical category door over already-registered sections. Members are validated
+    /// against the registered section names, so a rename that misses a membership list fails at
+    /// construction instead of silently dropping the section out of its category.
+    /// </summary>
     public SectionPipeline<TModel> AddCategory(string name, params string[] sections)
     {
         if (!name.StartsWith("@", StringComparison.Ordinal))
             throw new ArgumentException("Section category names must start with '@'.", nameof(name));
+
+        var known = _entries.Select(e => e.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var unknown = sections.Where(s => !known.Contains(s)).ToArray();
+        if (unknown.Length > 0)
+            throw new InvalidOperationException(
+                $"Category {name} lists unregistered section(s): {string.Join(", ", unknown)}. " +
+                "Category membership must name a registered section; use the SectionNames constant " +
+                "the descriptor returns so renames move both together.");
 
         _categories.Add(new SectionCategory(name, sections));
         return this;

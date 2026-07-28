@@ -32,7 +32,7 @@ public class OutputFormatterTests
         };
 
         var failure = Assert.Single(inspection.InspectionFailures!);
-        Assert.Equal(SectionNames.EscapeArrayPool, failure.Section);
+        Assert.Equal(SectionNames.ArrayPoolEscapes, failure.Section);
         Assert.Equal("Resource lifecycle occurrence", failure.Finding);
         Assert.Equal("fixture failure", failure.Reason);
     }
@@ -1262,7 +1262,7 @@ public class OutputFormatterTests
             [
                 "Library Info",
                 "Integration: OpenTelemetry",
-                "Source Link: Integrity"
+                "SourceLink: Integrity"
             ]
         };
         var libraryOutput = SerializeWithInclude(
@@ -1856,7 +1856,7 @@ public class OutputFormatterTests
 
         var output = Serialize(inspection);
 
-        Assert.Contains("## Source Link: Integrity", output);
+        Assert.Contains("## SourceLink: Integrity", output);
         Assert.Contains("| Mismatched | 2 |", output);
         Assert.Contains("| Mismatched Files | `/_/src/A.cs`, `/_/src/B.cs` |", output);
         Assert.DoesNotContain("Source integrity mismatch:", output);
@@ -1872,7 +1872,7 @@ public class OutputFormatterTests
 
         var output = Serialize(inspection);
 
-        Assert.Contains("## Source Link: Integrity", output);
+        Assert.Contains("## SourceLink: Integrity", output);
         Assert.Contains("| CR/LF Mismatch | 2 normalized |", output);
         Assert.Contains("| Status | Verified |", output);
         Assert.Contains("| Verified | 2 |", output);
@@ -1913,7 +1913,7 @@ public class OutputFormatterTests
 
         Assert.Contains("## Signals", output);
         Assert.DoesNotContain("SourceLink CR/LF", output);
-        Assert.Contains("## Source Link: Integrity", output);
+        Assert.Contains("## SourceLink: Integrity", output);
         Assert.Contains("| CR/LF Mismatch | 2 normalized |", output);
     }
 

@@ -16,17 +16,18 @@ public static class SectionCategoryNames
 
     /// <summary>
     /// SourceLink / PDB provenance sections (library scope): the source-file listing derived from
-    /// the PDB plus the <c>Source Link: &lt;X&gt;</c> availability/integrity audit sections.
+    /// the PDB plus the <c>SourceLink: &lt;X&gt;</c> availability/integrity audit sections.
     /// </summary>
     public const string SourceLink = "@SourceLink";
 
     /// <summary>Cheap-but-verbose surface sections (Async Methods, Custom Attributes, Resources, etc.).</summary>
     public const string Surface = "@Surface";
 
-    // No @Escape category: the Escape: <Resource> family has exactly one member today
-    // (Escape: Array Pool), and a door with a single room behind it is pure indirection --
-    // the shared "Escape: " prefix already groups the family in the flat catalog and under
-    // alphabetical render order. Reintroduce the category when a second member lands.
+    // No @Escape category: the escape/exception-safety family has exactly one member today
+    // (Array Pool Escapes), and a door with a single room behind it is pure indirection.
+    // The member is unprefixed for the same reason -- a Group: Leaf prefix advertises a
+    // category door, so a prefix with no door behind it makes a promise the catalog does not
+    // keep. Reintroduce the category, and the prefix, together when a second member lands.
 
     /// <summary>
     /// Ecosystem integration sections (library scope): the <c>Integration: &lt;X&gt;</c> members

@@ -38,10 +38,10 @@ Use inspection commands for detailed exploration:
 dotnet-inspect package Markout@0.1.4 -S Signals       # package metadata signals
 dotnet-inspect library System.Text.Json -S Signals    # platform library metadata signals
 dotnet-inspect library ./bin/MyLib.dll -S Signals     # local file metadata signals
-dotnet-inspect library System.Text.Json -S "Signals,Source Link: Availability,Source Link: Missing Files"
+dotnet-inspect library System.Text.Json -S "Signals,SourceLink: Availability,SourceLink: Missing Files"
 ```
 
-High-cost audit work is exposed as opt-in sections rather than broad flags. For packages, select `Signals` for package and registry-backed signals. For libraries, select `Source Link: Availability`, `Source Link: Missing Files`, or `Source Link: Integrity` for per-source-file network/content checks.
+High-cost audit work is exposed as opt-in sections rather than broad flags. For packages, select `Signals` for package and registry-backed signals. For libraries, select `SourceLink: Availability`, `SourceLink: Missing Files`, or `SourceLink: Integrity` for per-source-file network/content checks.
 
 ## Command Patterns
 

@@ -322,22 +322,22 @@ public class SectionPipelineTests
         Assert.Contains("Integration: OpenAPI", pipeline.AllSectionNames);
         Assert.Contains("Integration: OpenTelemetry", pipeline.AllSectionNames);
         Assert.Contains("Integration: Options", pipeline.AllSectionNames);
-        Assert.Contains("Source Link: Files", pipeline.AllSectionNames);
-        Assert.Contains("Source Link: Availability", pipeline.AllSectionNames);
-        Assert.Contains("Source Link: Missing Files", pipeline.AllSectionNames);
-        Assert.Contains("Source Link: Integrity", pipeline.AllSectionNames);
+        Assert.Contains("SourceLink: Files", pipeline.AllSectionNames);
+        Assert.Contains("SourceLink: Availability", pipeline.AllSectionNames);
+        Assert.Contains("SourceLink: Missing Files", pipeline.AllSectionNames);
+        Assert.Contains("SourceLink: Integrity", pipeline.AllSectionNames);
         Assert.Contains("Switches", pipeline.AllSectionNames);
         Assert.Contains("Top Leverage", pipeline.AllSectionNames);
         Assert.Contains("Performance: Boxing", pipeline.AllSectionNames);
         Assert.Contains("Performance: Arrays", pipeline.AllSectionNames);
-        Assert.Contains("Performance: Closures and delegates", pipeline.AllSectionNames);
+        Assert.Contains("Performance: Closures and Delegates", pipeline.AllSectionNames);
         Assert.Contains("Performance: Enumerators", pipeline.AllSectionNames);
-        Assert.Contains("Performance: Loop hot paths", pipeline.AllSectionNames);
-        Assert.Contains("Performance: Allocation hotspots", pipeline.AllSectionNames);
+        Assert.Contains("Performance: Loop Hot Paths", pipeline.AllSectionNames);
+        Assert.Contains("Performance: Allocation Hotspots", pipeline.AllSectionNames);
         Assert.Contains("Performance: Async", pipeline.AllSectionNames);
         Assert.Contains("Performance: Other", pipeline.AllSectionNames);
         Assert.DoesNotContain("Performance Triage", pipeline.AllSectionNames);
-        Assert.Contains("Escape: Array Pool", pipeline.AllSectionNames);
+        Assert.Contains("Array Pool Escapes", pipeline.AllSectionNames);
         Assert.Contains("Context: Return Address", pipeline.AllSectionNames);
         Assert.Contains("Union Types", pipeline.AllSectionNames);
     }
@@ -377,8 +377,8 @@ public class SectionPipelineTests
             Assert.Contains(integration, hidden);
         foreach (var footgun in new[]
                  {
-                     "Top Leverage", "Unsafe Members", "Source Link: Integrity",
-                     "Source Link: Files", "Source Link: Availability", "Source Link: Missing Files",
+                     "Top Leverage", "Unsafe Members", "SourceLink: Integrity",
+                     "SourceLink: Files", "SourceLink: Availability", "SourceLink: Missing Files",
                      "Context: Member"
                  })
         {
@@ -586,8 +586,8 @@ public class SectionPipelineTests
             ]
         };
 
-        // capturing-delegate buckets into the "Closures and delegates" kind section.
-        const string section = "Performance: Closures and delegates";
+        // capturing-delegate buckets into the "Closures and Delegates" kind section.
+        const string section = "Performance: Closures and Delegates";
         var effective = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
         var selected = pipeline.GetEffectiveSections(model, Verbosity.Detailed,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase) { section });
@@ -637,12 +637,12 @@ public class SectionPipelineTests
 
         // Even at Detailed, an ExplicitOnly section must not be auto-selected.
         var detailed = pipeline.GetEffectiveSections(model, Verbosity.Detailed);
-        Assert.DoesNotContain("Source Link: Integrity", detailed);
+        Assert.DoesNotContain("SourceLink: Integrity", detailed);
 
         // It renders only when explicitly included.
         var included = pipeline.GetEffectiveSections(model, Verbosity.Normal,
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Source Link: Integrity" });
-        Assert.Contains("Source Link: Integrity", included);
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SourceLink: Integrity" });
+        Assert.Contains("SourceLink: Integrity", included);
     }
 
     [Fact]
@@ -661,12 +661,12 @@ public class SectionPipelineTests
         var applicable = pipeline.GetApplicableSections(model);
         var renderable = pipeline.GetAvailableSections(model);
 
-        Assert.Contains("Source Link: Availability", applicable);
-        Assert.Contains("Source Link: Missing Files", applicable);
-        Assert.Contains("Source Link: Integrity", applicable);
-        Assert.DoesNotContain("Source Link: Availability", renderable);
-        Assert.DoesNotContain("Source Link: Missing Files", renderable);
-        Assert.DoesNotContain("Source Link: Integrity", renderable);
+        Assert.Contains("SourceLink: Availability", applicable);
+        Assert.Contains("SourceLink: Missing Files", applicable);
+        Assert.Contains("SourceLink: Integrity", applicable);
+        Assert.DoesNotContain("SourceLink: Availability", renderable);
+        Assert.DoesNotContain("SourceLink: Missing Files", renderable);
+        Assert.DoesNotContain("SourceLink: Integrity", renderable);
     }
 
     [Fact]
@@ -684,10 +684,10 @@ public class SectionPipelineTests
 
         var applicable = pipeline.GetApplicableSections(model);
 
-        Assert.DoesNotContain("Source Link: Files", applicable);
-        Assert.DoesNotContain("Source Link: Availability", applicable);
-        Assert.DoesNotContain("Source Link: Missing Files", applicable);
-        Assert.DoesNotContain("Source Link: Integrity", applicable);
+        Assert.DoesNotContain("SourceLink: Files", applicable);
+        Assert.DoesNotContain("SourceLink: Availability", applicable);
+        Assert.DoesNotContain("SourceLink: Missing Files", applicable);
+        Assert.DoesNotContain("SourceLink: Integrity", applicable);
     }
 
     [Fact]
@@ -745,7 +745,7 @@ public class SectionPipelineTests
     [Fact]
     public void LibrarySourcePlan_SourceIntegrityAuthorizedOnlyByExplicitSelection()
     {
-        var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Source Link: Integrity" };
+        var include = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "SourceLink: Integrity" };
 
         Assert.False(LibrarySourcePlans.For(Verbosity.Detailed, null).RunIntegrity);
         Assert.True(LibrarySourcePlans.For(Verbosity.Normal, include).RunIntegrity);
@@ -770,7 +770,7 @@ public class SectionPipelineTests
         // trigger the audit at any verbosity.
         var signals = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Signals" };
         var availability = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            { "Source Link: Availability" };
+            { "SourceLink: Availability" };
 
         Assert.False(LibrarySourcePlans.For(Verbosity.Normal, null).RunHeadAudit);
         Assert.False(LibrarySourcePlans.For(Verbosity.Detailed, null).RunHeadAudit);
@@ -799,12 +799,12 @@ public class SectionPipelineTests
         string[] sourceSections =
         [
             SectionNames.ILOffset,
-            "Source Link: Files",
+            "SourceLink: Files",
             "Symbols",
             "Signals",
-            "Source Link: Availability",
-            "Source Link: Missing Files",
-            "Source Link: Integrity",
+            "SourceLink: Availability",
+            "SourceLink: Missing Files",
+            "SourceLink: Integrity",
         ];
 
         foreach (var verbosity in Enum.GetValues<Verbosity>())
@@ -826,8 +826,8 @@ public class SectionPipelineTests
                     : include.Overlaps(sourceSections);
                 bool expectedAudit = include is not null
                     && include.Overlaps(
-                        ["Source Link: Availability", "Source Link: Missing Files"]);
-                bool expectedIntegrity = include?.Contains("Source Link: Integrity") == true;
+                        ["SourceLink: Availability", "SourceLink: Missing Files"]);
+                bool expectedIntegrity = include?.Contains("SourceLink: Integrity") == true;
 
                 Assert.Equal(
                     expectedPdb,
@@ -835,7 +835,7 @@ public class SectionPipelineTests
                 Assert.Equal(expectedAudit, plan.RunHeadAudit);
                 Assert.Equal(expectedIntegrity, plan.RunIntegrity);
                 Assert.Equal(
-                    include?.Contains("Source Link: Files") == true,
+                    include?.Contains("SourceLink: Files") == true,
                     plan.CollectSourceFiles);
             }
         }
@@ -896,7 +896,7 @@ public class SectionPipelineTests
     {
         var pipeline = LibrarySections.CreatePipeline();
 
-        var verbosity = pipeline.GetRequiredVerbosity(new HashSet<string> { "Source Link: Availability" });
+        var verbosity = pipeline.GetRequiredVerbosity(new HashSet<string> { "SourceLink: Availability" });
 
         Assert.Equal(Verbosity.Detailed, verbosity);
     }
@@ -974,6 +974,53 @@ public class SectionPipelineTests
         Assert.Contains(LibrarySections.ScannerClassifiedMethods, scanners);
     }
 
+    /// <summary>
+    /// Non-vacuity gate for the <see cref="SectionPipeline{TModel}.AddCategory"/> membership
+    /// validation. Category membership is declared by name, so without this check a rename that
+    /// updated a descriptor but missed a membership list would silently drop the section out of
+    /// its category rather than fail. This test is what proves that validation is still wired.
+    /// </summary>
+    [Fact]
+    public void SectionPipeline_AddCategory_WithUnregisteredSectionName_Throws()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            LibrarySections.CreatePipeline().AddCategory("@Bogus", "No Such Section"));
+
+        Assert.Contains("No Such Section", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Every declared category member must resolve to a registered section in every pipeline that
+    /// declares categories. Complements the constructor-time check by covering pipelines this
+    /// suite would not otherwise build.
+    /// </summary>
+    [Fact]
+    public void AllPipelines_CategoryMembers_ResolveToRegisteredSections()
+    {
+        var pipelines = new (string Name, string[] All, IReadOnlyDictionary<string, string[]> Categories)[]
+        {
+            ("library", LibrarySections.CreatePipeline().AllSectionNames,
+                LibrarySections.CreatePipeline().GetCategoryMap()),
+            ("api-type", ApiTypeSectionDescriptors.CreatePipeline().AllSectionNames,
+                ApiTypeSectionDescriptors.CreatePipeline().GetCategoryMap()),
+            ("api-member", ApiMemberSectionDescriptors.CreatePipeline().AllSectionNames,
+                ApiMemberSectionDescriptors.CreatePipeline().GetCategoryMap()),
+            ("api-member-detail", ApiMemberDetailSectionDescriptors.CreatePipeline().AllSectionNames,
+                ApiMemberDetailSectionDescriptors.CreatePipeline().GetCategoryMap()),
+            ("api-member-overload", ApiMemberOverloadSectionDescriptors.CreatePipeline().AllSectionNames,
+                ApiMemberOverloadSectionDescriptors.CreatePipeline().GetCategoryMap()),
+        };
+
+        foreach (var (name, all, categories) in pipelines)
+        {
+            var known = all.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var (category, members) in categories)
+                foreach (var member in members)
+                    Assert.True(known.Contains(member),
+                        $"{name}: category {category} lists unregistered section '{member}'.");
+        }
+    }
+
     [Fact]
     public void LibraryPipeline_AuditCategory_MapsToAuditWorkflowSections()
     {
@@ -983,12 +1030,31 @@ public class SectionPipelineTests
         Assert.Equal(
             [
                 SectionNames.UnsafeMembers,
-                "P/Invoke Methods",
-                "Non-normalized Paths",
-                "Signals",
-                "Symbols"
+                SectionNames.PInvokeMethods,
+                SectionNames.NonNormalizedPaths,
+                SectionNames.Signals,
+                SectionNames.Symbols
             ],
             sections);
+    }
+
+    /// <summary>
+    /// The whole <c>SourceLink:</c> prefix family is reachable through the <c>@SourceLink</c> door.
+    /// A prefix advertises membership, so a prefixed section outside its own category is a
+    /// discoverability hole — this pins the family and the door together.
+    /// </summary>
+    [Fact]
+    public void LibraryPipeline_SourceLinkCategory_ContainsEverySourceLinkPrefixedSection()
+    {
+        var pipeline = LibrarySections.CreatePipeline();
+        var categories = pipeline.GetCategoryMap();
+
+        Assert.True(categories.TryGetValue(SectionCategoryNames.SourceLink, out var sections));
+        Assert.Equal(
+            pipeline.AllSectionNames
+                .Where(n => n.StartsWith("SourceLink:", StringComparison.Ordinal))
+                .OrderBy(n => n, StringComparer.Ordinal),
+            sections.OrderBy(n => n, StringComparer.Ordinal));
     }
 
     [Fact]

@@ -18,7 +18,7 @@ public sealed class ScannerContext
 
     /// <summary>
     /// Analysis features required by the complete scanner set. The shared body session computes
-    /// their union once, so Escape: Array Pool can share acquisition with leverage/performance scans
+    /// their union once, so Array Pool Escapes can share acquisition with leverage/performance scans
     /// without making a resource-only request pay for unrelated body evidence.
     /// </summary>
     public Analysis.LibraryBodyAnalysisFeatures BodyAnalysisFeatures { get; init; }

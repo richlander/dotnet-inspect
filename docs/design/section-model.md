@@ -58,9 +58,30 @@ Two orthogonal facts round out a section's placement:
 
 A category earns its keep only at two or more members: a door with a single
 room behind it is pure indirection, since the flat catalog already lists that
-section and a shared name prefix (`Escape:`, `Performance:`) already groups
-the family under alphabetical render order. This is why the `Escape: <Resource>`
-family has no `@Escape` door while it has exactly one member.
+section and a shared name prefix (`Performance:`, `Integration:`) already groups
+the family under alphabetical render order. This is why the array-pool escape
+section is a flat `Array Pool Escapes` rather than a prefixed member of a
+single-member `@Escape` door.
+
+**A prefix and a category door are two halves of one claim.** A `Group: Leaf`
+prefix advertises membership in a family, so every prefixed section must be
+reachable through that family's door, and a prefix is only appropriate when the
+family is *exclusively* owned by one door. `P/Invoke Methods` belongs to both
+`@Audit` and `@Surface`, so no prefix can describe it — cross-cutting lenses
+stay unprefixed, and only exclusive families (`Performance:`, `Integration:`,
+`SourceLink:`) carry a prefix. The `SourceLink` family's half of this is
+enforced by a test that pins the door's membership to the set of
+`SourceLink:`-prefixed sections.
+
+**A section lists in `-D` only when >0 rows can be established cheaply.** If
+applicability is a *capability* predicate (the scan could run) rather than a
+*content* predicate (the scan found something), and establishing content costs
+a real scan, the section sets `ListedInCatalog => false`. It stays reachable by
+exact name, through `@All`/`--schema`, and through any category door that roots
+it — a door drops zero-row members from render but still reports them under
+`--count`. `Array Pool Escapes` and the kind-scoped `Performance:` sections both
+follow this rule; listing them unconditionally would advertise sections that
+then render nothing.
 
 `Effective` is not a declared axis — it is the existing `CanRender` filter: an
 auto-selected section that would produce zero rows is suppressed. `Unbounded`
@@ -120,8 +141,9 @@ view.
   - **Known footgun (deferred hardening):** because a topical door is a render
     selector, rooting an `Unbounded` member in it means `-S @Category` fans out
     to that unbounded work. This is inherited from the pre-curated model:
-    `@SourceLink` roots Source Link: Files / Source Link: Availability / Source Link:
-    Missing Files, and `@Audit` roots Unsafe Members. `-D @SourceLink` / `-D @Audit` never
+    `@SourceLink` roots SourceLink: Files / SourceLink: Availability /
+    SourceLink: Missing Files / SourceLink: Integrity, and `@Audit` roots Unsafe
+    Members. `-D @SourceLink` / `-D @Audit` never
     execute them, but `-S @SourceLink` / `-S @Audit` do. Gating door *render*
     expansion to skip `Unbounded` members (a "discovery-listed, exact-name-run"
     nuance) is a deferred follow-up; today `ExplicitOnly` only keeps them out of
@@ -137,8 +159,8 @@ view.
 
 ### Symbol-dependent discovery (SourceLink family)
 
-The SourceLink section family — Source Link: Files / Availability / Missing
-Files (rooted in `@SourceLink`) and Source Link: Integrity (behind `@Hidden`) —
+The SourceLink section family — SourceLink: Files / Availability / Missing
+Files (rooted in `@SourceLink`) and SourceLink: Integrity (behind `@Hidden`) —
 is **symbol-dependent**: it is only discoverable when a local PDB (embedded,
 adjacent, or **already in the symbol cache**) exposes a SourceLink document.
 This is an orthogonal discovery gate, not a peer of cost: rendering these
@@ -212,7 +234,7 @@ standalone set, `@Hidden` is its complement, and neither is a user-facing door
   regardless of registration or view-model declaration order. The same sections
   sort the same way in every library view and selection — the default ladder,
   `@Category` doors, and `@All`. Because sections share a `Group: Leaf` prefix
-  (`Performance:`, `Source Link:`, `Integration:`, `Escape:`, `Context:`), a
+  (`Performance:`, `SourceLink:`, `Integration:`, `Context:`), a
   group's members still cluster together while sorting alphabetically within the
   cluster; no group carries a curated non-alphabetical display order at render
   time.
@@ -234,8 +256,8 @@ standalone set, `@Hidden` is its complement, and neither is a user-facing door
 | Surface (Type Forwarders) | `Terse` | `NetworkFree` | `-v:n` | `@Surface` |
 | Noisy-but-cheap (Custom Attributes) | `Terse` | `NetworkFree` | `-v:n` | `@Surface` |
 | Large surface (Extension Methods, `Performance:` buckets, Async Methods) | `Verbose` | `NetworkFree` | `-v:d` | `@Surface` / `@Performance` |
-| Networked (Source Link: Availability) | `Terse` | `Moderated` | `-v:d` | `@SourceLink` |
-| Footgun (Unsafe Members, Top Leverage, Source Link: Files, Source Link: Integrity) | `Verbose` | `Unbounded` | never (exact name only) | — / `@SourceLink` |
+| Networked (SourceLink: Availability) | `Terse` | `Moderated` | `-v:d` | `@SourceLink` |
+| Footgun (Unsafe Members, Top Leverage, SourceLink: Files, SourceLink: Integrity) | `Verbose` | `Unbounded` | never (exact name only) | — / `@SourceLink` |
 
 ## Query paths
 

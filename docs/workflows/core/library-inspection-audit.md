@@ -95,11 +95,11 @@ Use `--version <runtime-version>` when you need a specific installed shared runt
 ### 2a. Run source audit
 
 ```bash
-dotnet-inspect library System.CommandLine -S "Signals,Source Link: Availability,Source Link: Missing Files"
+dotnet-inspect library System.CommandLine -S "Signals,SourceLink: Availability,SourceLink: Missing Files"
 ```
 
 ```expect
-## Source Link: Availability
+## SourceLink: Availability
 | Property | Value |
 Status
 files accessible
@@ -113,11 +113,11 @@ Tips:
 ### 2b. Audit with large file count
 
 ```bash
-dotnet-inspect library Newtonsoft.Json -S "Signals,Source Link: Availability,Source Link: Missing Files"
+dotnet-inspect library Newtonsoft.Json -S "Signals,SourceLink: Availability,SourceLink: Missing Files"
 ```
 
 ```expect
-## Source Link: Availability
+## SourceLink: Availability
 | Property | Value |
 Status
 files accessible
