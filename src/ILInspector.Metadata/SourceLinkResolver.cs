@@ -492,6 +492,14 @@ public class SourceLinkResolver
             return to;
 
         int limit = Math.Min(lines.Length, to + ForwardScanLimit);
+
+        // The line after the member's own block closed, when the scan gets that far without
+        // reaching the end of the enclosing type. Yielding to a sibling by returning the range
+        // unchanged discarded the closing brace already consumed, truncating the member and its
+        // last statement (adversarial review, Gemini). Lines that carry the sibling's own
+        // attributes or comments close nothing, so they are not mistaken for the member's end.
+        int closed = -1;
+
         for (int i = to; i < limit; i++)
         {
             // Asked before the line is scanned, so it must be asked of the line's code alone. A
@@ -502,19 +510,23 @@ public class SourceLinkResolver
             {
                 int resume = IndexWhereCodeResumes(lines[i], state);
                 if (resume >= 0 && OpensSiblingAccessor(lines[i][resume..]))
-                    return to;
+                    return closed > 0 ? closed : to;
             }
 
+            int before = depth;
             ScanLine(lines[i], state, ref depth);
 
             if (state.Untracked)
-                return to;
+                return closed > 0 ? closed : to;
 
             if (depth <= 0)
                 return i + 1;
+
+            if (slicingAccessor && depth < before)
+                closed = i + 1;
         }
 
-        return to;
+        return closed > 0 ? closed : to;
     }
 
     /// <summary>

@@ -725,6 +725,40 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
+    /// Yielding to a sibling must not discard what the scan already recovered. Returning the
+    /// range unchanged threw away the accessor's own closing brace and the statements above it,
+    /// truncating the member (adversarial review, Gemini). The sibling's own attributes and
+    /// comments close nothing, so they must not be kept as if they were the member's end.
+    /// </summary>
+    [Theory]
+    [InlineData(8)]
+    [InlineData(9)]
+    [InlineData(10)]
+    public void SiblingAfterTheAccessorsClosingBrace_KeepsTheBrace(int endLine)
+    {
+        string[] lines =
+        [
+            "",
+            "public class C",
+            "{",
+            "    public int Prop",
+            "    {",
+            "        get",
+            "        {",
+            "            var s = 1;",
+            "            return 1;",
+            "        }",
+            "        set { }",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 6, endLine, "get_Prop");
+
+        Assert.Equal("public int Prop\n{\n    get\n    {\n        var s = 1;\n        return 1;\n    }", slice);
+    }
+
+    /// <summary>
     /// And the mirror of that, for the same reason the comment and literal cases needed one:
     /// the line that *closes* a multi-line attribute list can carry the sibling itself, and
     /// suppressing the question for the whole line swallowed it (adversarial review, GPT).
