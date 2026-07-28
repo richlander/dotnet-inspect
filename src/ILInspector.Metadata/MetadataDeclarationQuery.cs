@@ -1331,7 +1331,9 @@ public static class MetadataDeclarationQuery
         '\r' => "\\r",
         '\t' => "\\t",
         '\v' => "\\v",
-        _ when char.IsControl(ch) => $"\\u{(int)ch:x4}",
+        // Bidi overrides are Unicode category Cf, so char.IsControl is false for
+        // them and they would reach rendered output raw (issue #3319).
+        _ when CSharpIdentifierCore.IsRenderingHazard(ch) => $"\\u{(int)ch:x4}",
         _ => ch.ToString(),
     };
 

@@ -1,4 +1,12 @@
 using System;
+using System.Reflection;
+
+// Assembly-level attribute text reaches the library "Library Info" table, which
+// read these strings raw before #3319. It is a channel distinct from the member
+// literals below: it never passes through a C# literal escaper.
+[assembly: AssemblyCompany("Comp\u202EINJECTEDCOMPANY")]
+[assembly: AssemblyProduct("Prod\u000BINJECTEDPRODUCT")]
+[assembly: AssemblyCopyright("Copy\u202EINJECTEDCOPYRIGHT")]
 
 namespace DotnetInspector.HostileNameFixtures;
 
@@ -26,4 +34,25 @@ public static class HostileLiterals
     public static void Marked()
     {
     }
+}
+
+/// <summary>
+/// Docs‮INJECTEDTYPEDOC summary.
+/// </summary>
+public static class HostileDocs
+{
+    /// <summary>
+    /// Member‮INJECTEDMEMBERDOC summary.
+    /// </summary>
+    /// <returns>Ret‮INJECTEDRETURNSDOC value.</returns>
+    public static string Documented() => "ok";
+}
+
+public static class HostileBodyLiterals
+{
+    // A bidi override inside a method-body string literal survives into the
+    // decompiled source that renders inside a Markdown code fence.
+    public static string Literal() => "Body\u202EINJECTEDBODYLITERAL";
+
+    public static char Character() => '\u202E';
 }

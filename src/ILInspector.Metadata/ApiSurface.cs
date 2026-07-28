@@ -1,19 +1,50 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
 using ILInspector.CSharp;
 
 namespace ILInspector.Metadata;
 
 /// <summary>
+/// Containment for XML documentation text.
+/// </summary>
+/// <remarks>
+/// Doc comments are read from an untrusted assembly's companion XML file, and
+/// their text is rendered into Markdown prose and table cells. A summary
+/// carrying a line terminator, ANSI escape, or bidi override breaks out of its
+/// cell and injects text that reads as genuine tool output (issue #3319). Doc
+/// text is prose only -- no consumer matches, keys, or compares it -- so unlike
+/// <see cref="ApiMember.Signature"/> it can be contained at the model rather
+/// than at each of its ~40 render sites.
+/// </remarks>
+internal static class DocText
+{
+    [return: NotNullIfNotNull(nameof(value))]
+    public static string? Contain(string? value)
+        => value is null ? null : CSharpIdentifierCore.ContainComposedName(value);
+}
+
+/// <summary>
 /// Represents extracted documentation comments from source code.
 /// </summary>
 public class DocComment
 {
-    public string? Summary { get; set; }
-    public string? Remarks { get; set; }
+    /// <inheritdoc cref="DocText"/>
+    public string? Summary { get => field; set => field = DocText.Contain(value); }
+
+    /// <inheritdoc cref="DocText"/>
+    public string? Remarks { get => field; set => field = DocText.Contain(value); }
 
     [JsonIgnore]
-    public Dictionary<string, string>? Parameters { get; set; }
-    public string? Returns { get; set; }
+    public Dictionary<string, string>? Parameters
+    {
+        get => field;
+        set => field = value is null
+            ? null
+            : value.ToDictionary(e => DocText.Contain(e.Key), e => DocText.Contain(e.Value));
+    }
+
+    /// <inheritdoc cref="DocText"/>
+    public string? Returns { get => field; set => field = DocText.Contain(value); }
 
     /// <summary>
     /// Sample code references extracted from doc comments.

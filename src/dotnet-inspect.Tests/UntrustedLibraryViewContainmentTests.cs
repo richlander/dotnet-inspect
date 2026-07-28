@@ -453,26 +453,89 @@ public class UntrustedILOffsetContainmentTests
 [Collection("Console")]
 public class UntrustedStringLiteralContainmentTests
 {
-    [Fact]
-    public async Task StringLiteralChannels_WithHostileText_RenderNoHazard()
+    /// <summary>
+    /// Each case is a separate escaper. Attribute and default-value text goes
+    /// through the metadata literal escapers, method-body literals go through
+    /// the decompiler printer, and doc text goes through the doc model. They
+    /// were fixed in three different rounds because a green result on one says
+    /// nothing about the others.
+    /// </summary>
+    public static TheoryData<string, string?, string[]> LiteralChannels() => new()
     {
-        var (exit, output, _) = await RunAppAsync(
-            "type", "HostileLiterals",
-            "--library", FixtureCatalog.HostileLiterals.AssemblyPath(),
-            "-S", "Decompiled Source",
-            "-v:d");
+        {
+            "HostileLiterals",
+            "Decompiled Source",
+            new[] { "INJECTEDDEFAULT", "INJECTEDOBSOLETE", "INJECTEDATTRIBUTE" }
+        },
+        {
+            "HostileBodyLiterals",
+            "Decompiled Source",
+            new[] { "INJECTEDBODYLITERAL" }
+        },
+        {
+            // Doc text renders in the member listing, not behind a section flag.
+            "HostileDocs",
+            null,
+            new[] { "INJECTEDTYPEDOC", "INJECTEDMEMBERDOC" }
+        },
+    };
+
+    [Theory]
+    [MemberData(nameof(LiteralChannels))]
+    public async Task StringLiteralChannels_WithHostileText_RenderNoHazard(
+        string typeName,
+        string? section,
+        string[] markers)
+    {
+        string[] args = section is null
+            ? ["member", typeName, "--library", FixtureCatalog.HostileLiterals.AssemblyPath(), "-v:d"]
+            : ["type", typeName, "--library", FixtureCatalog.HostileLiterals.AssemblyPath(), "-S", section, "-v:d"];
+
+        var (exit, output, _) = await RunAppAsync(args);
 
         Assert.Equal(0, exit);
 
         // Per-channel non-vacuity: each hostile literal must actually have
         // rendered, or the hazard scan below would pass on output that never
-        // carried it. The default value, the [Obsolete] message, and the custom
-        // attribute argument travel through three different escapers.
-        foreach (var marker in new[] { "INJECTEDDEFAULT", "INJECTEDOBSOLETE", "INJECTEDATTRIBUTE" })
+        // carried it.
+        foreach (var marker in markers)
         {
             Assert.Contains(marker, output, StringComparison.Ordinal);
         }
 
+        AssertNoHazard(output);
+        AssertNoLineSplit(output, markers);
+    }
+
+    /// <summary>
+    /// The hazard scan permits '\n' by construction, so on its own it accepts
+    /// the exact injection this issue is about: a containment that rewrote a
+    /// hazard as a newline would pass it. Correct containment leaves the marker
+    /// welded to its prefix, so the character before it is never a line break.
+    /// </summary>
+    private static void AssertNoLineSplit(string output, string[] markers)
+    {
+        foreach (var marker in markers)
+        {
+            int at = output.IndexOf(marker, StringComparison.Ordinal);
+            while (at > 0)
+            {
+                char before = output[at - 1];
+                Assert.False(
+                    before is '\n' or '\r' or '\u0085' or '\u2028' or '\u2029',
+                    $"{marker} starts a new line: containment split the text it was embedded in");
+                at = output.IndexOf(marker, at + marker.Length, StringComparison.Ordinal);
+            }
+        }
+    }
+
+    /// <summary>
+    /// An oracle independent of the product: this repeats the hazard set from
+    /// the issue rather than calling <c>CSharpIdentifier.IsRenderingHazard</c>,
+    /// so tampering the product predicate cannot silently make this pass.
+    /// </summary>
+    private static void AssertNoHazard(string output)
+    {
         for (int i = 0; i < output.Length; i++)
         {
             char c = output[i];
@@ -485,6 +548,36 @@ public class UntrustedStringLiteralContainmentTests
                 Assert.Fail($"rendered output carries U+{(int)c:X4} at index {i}");
             }
         }
+    }
+
+    /// <summary>
+    /// Assembly-level attribute text (Company, Product, Copyright) reaches the
+    /// "Library Info" table. It is a separate channel from the member-level
+    /// literals above because it never passes through a C# literal escaper --
+    /// it is read straight from the attribute blob into a view property.
+    /// </summary>
+    [Fact]
+    public async Task LibraryInfo_WithHostileAssemblyAttributes_RendersNoHazard()
+    {
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => LibraryCommand.ExecuteAsync(new LibraryOptions
+            {
+                AssemblyName = FixtureCatalog.HostileLiterals.AssemblyPath(),
+                IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Library Info" },
+                Markdown = true,
+                Verbosity = Verbosity.Detailed,
+            }));
+
+        Assert.Equal(0, exit);
+
+        string[] markers = ["INJECTEDCOMPANY", "INJECTEDPRODUCT", "INJECTEDCOPYRIGHT"];
+        foreach (var marker in markers)
+        {
+            Assert.Contains(marker, output, StringComparison.Ordinal);
+        }
+
+        AssertNoHazard(output);
+        AssertNoLineSplit(output, markers);
     }
 
     /// <summary>Mirrors the Program.cs entry point, so this gate exercises the

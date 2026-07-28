@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
+using ILInspector.CSharp;
 using ILInspector.ControlFlow;
 using ILInspector.Metadata;
 
@@ -5323,7 +5324,12 @@ public sealed partial class CSharpPrinter
         // constant"). Escape them explicitly.
         '\u2028' => "\\u2028",
         '\u2029' => "\\u2029",
-        _ when char.IsControl(c) => $"\\u{(int)c:x4}",
+        // Bidi overrides (U+202A-U+202E, U+2066-U+2069, U+200E/U+200F) are
+        // Unicode category Cf, so char.IsControl is false for them. Emitted raw
+        // into a literal they survive into the rendered code fence and reorder
+        // the displayed source without changing what it compiles to -- Trojan
+        // Source (issue #3319). The \u escape is the same C# string.
+        _ when CSharpIdentifier.IsRenderingHazard(c) => $"\\u{(int)c:x4}",
         // A lone surrogate code unit has no valid UTF-8/UTF-16 text form: emitted
         // raw it cannot survive an encode (writers substitute U+FFFD, corrupting
         // the literal \u2014 char.IsHighSurrogate's own bounds rendered as two

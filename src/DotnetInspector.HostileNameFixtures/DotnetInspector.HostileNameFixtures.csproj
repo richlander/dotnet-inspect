@@ -18,7 +18,16 @@
     <IsPackable>false</IsPackable>
     <IsAotCompatible>false</IsAotCompatible>
     <Optimize>true</Optimize>
-    <NoWarn>$(NoWarn);CS0618</NoWarn>
+    <NoWarn>$(NoWarn);CS0618;CS1591</NoWarn>
+    <!-- The hostile assembly-level attributes are declared in C# instead: XML
+         1.0 cannot carry a raw U+000B at all, not even as a character
+         reference, so an MSBuild property cannot express this fixture. -->
+    <GenerateAssemblyCompanyAttribute>false</GenerateAssemblyCompanyAttribute>
+    <GenerateAssemblyProductAttribute>false</GenerateAssemblyProductAttribute>
+    <GenerateAssemblyCopyrightAttribute>false</GenerateAssemblyCopyrightAttribute>
+    <!-- Doc comments must reach the companion XML file: the doc-text
+         channel is only observable when the .xml is emitted. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
 </Project>

@@ -1593,37 +1593,54 @@ public record IntegrationApiSignalRow(
 [MarkoutSkipNull]
 public class LibraryInfoSection
 {
-    public string? Architecture { get; init; }
-    public string? AssemblyVersion { get; init; }
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Architecture { get => field; init => field = LibraryViewText.Contain(value); }
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? AssemblyVersion { get => field; init => field = LibraryViewText.Contain(value); }
     public int AsyncMethods { get; init; }
-    public string? Company { get; init; }
-    public string? Compilation { get; init; }
-    public string? Copyright { get; init; }
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Company { get => field; init => field = LibraryViewText.Contain(value); }
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Compilation { get => field; init => field = LibraryViewText.Contain(value); }
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Copyright { get => field; init => field = LibraryViewText.Contain(value); }
     public int CustomAttributes { get; init; }
     [MarkoutBoolFormat("Yes", "No")]
     public bool Deterministic { get; init; }
     public int ExtensionMethods { get; init; }
     [MarkoutBoolFormat("Yes", "No")]
     public bool? Facade { get; init; }
-    public string? FileSize { get; init; }
-    public string? InformationalVersion { get; init; }
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? FileSize { get => field; init => field = LibraryViewText.Contain(value); }
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? InformationalVersion { get => field; init => field = LibraryViewText.Contain(value); }
     public int Integrations { get; init; }
-    public string? Methods { get; init; }
-    public string? Modified { get; init; }
-    public string? Name { get; init; }
-    public string? Product { get; init; }
-    public string? PublicKeyToken { get; init; }
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Methods { get => field; init => field = LibraryViewText.Contain(value); }
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Modified { get => field; init => field = LibraryViewText.Contain(value); }
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Name { get => field; init => field = LibraryViewText.Contain(value); }
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Product { get => field; init => field = LibraryViewText.Contain(value); }
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? PublicKeyToken { get => field; init => field = LibraryViewText.Contain(value); }
     [MarkoutBoolFormat("Yes", "No")]
     public bool Reproducible { get; init; }
     public int Resources { get; init; }
-    public string? Signed { get; init; }
-    public string? Source { get; init; }
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Signed { get => field; init => field = LibraryViewText.Contain(value); }
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Source { get => field; init => field = LibraryViewText.Contain(value); }
     public int Switches { get; init; }
-    public string? TargetFramework { get; init; }
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? TargetFramework { get => field; init => field = LibraryViewText.Contain(value); }
     public int TypeForwarders { get; init; }
-    public string? Types { get; init; }
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Types { get => field; init => field = LibraryViewText.Contain(value); }
     public int UnionTypes { get; init; }
-    public string? Version { get; init; }
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Version { get => field; init => field = LibraryViewText.Contain(value); }
 }
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
