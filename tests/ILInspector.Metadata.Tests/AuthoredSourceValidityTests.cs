@@ -759,6 +759,136 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
+    /// And what it recovers must not be a brace nested inside the body. Answering with the
+    /// last structural close truncated an expression-bodied accessor at the "}" of a lambda
+    /// inside it, cutting the expression in half — found independently by MAI-Code and Gemini.
+    /// A member with no block of its own has no brace to find, so brace depth cannot answer
+    /// where it ends; the sibling's position can, whatever either member's body shape.
+    /// </summary>
+    [Theory]
+    [InlineData(5)]
+    [InlineData(10)]
+    public void ABraceNestedInsideAnAccessorBody_IsNotItsEnd(int endLine)
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public int P",
+            "    {",
+            "        get => (",
+            "            () =>",
+            "            {",
+            "                return 1;",
+            "            })()",
+            "            + 1;",
+            "        set => _ = value;",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, endLine, "get_P");
+
+        Assert.Equal(
+            "public int P\n{\n    get => (\n        () =>\n        {\n            return 1;\n        })()\n        + 1;",
+            slice);
+    }
+
+    /// <summary>
+    /// The same defect in a conditional expression, where the tail after the nested block
+    /// carries no brace at all to re-synchronize on (adversarial review, Gemini).
+    /// </summary>
+    [Theory]
+    [InlineData(6)]
+    [InlineData(8)]
+    public void AnExpressionBodiedAccessorKeepsTheTailAfterANestedBlock(int endLine)
+    {
+        string[] lines =
+        [
+            "",
+            "class C {",
+            "    int Prop {",
+            "        get => true ?",
+            "            new System.Func<int>(() => {",
+            "                return 1;",
+            "            })() :",
+            "            2;",
+            "        set { }",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, endLine, "get_Prop");
+
+        Assert.NotNull(slice);
+        Assert.EndsWith("2;", slice, StringComparison.Ordinal);
+        Assert.DoesNotContain("set", slice, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Running to the sibling must still stop short of what belongs to the sibling. Its own
+    /// blank lines, comments, and attribute lists are not the member's source.
+    /// </summary>
+    [Fact]
+    public void TheSiblingsOwnLeadingTrivia_IsNotPartOfTheMember()
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public int P",
+            "    {",
+            "        get",
+            "        {",
+            "            return 1;",
+            "        }",
+            "",
+            "        // the setter",
+            "        [System.Obsolete]",
+            "        set { }",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, 7, "get_P");
+
+        Assert.Equal("public int P\n{\n    get\n    {\n        return 1;\n    }", slice);
+    }
+
+    /// <summary>
+    /// A range that stops inside a nested block still recovers the accessor's brace, not the
+    /// nested one: later closes overwrite earlier ones, so the outermost wins.
+    /// </summary>
+    [Fact]
+    public void ARangeEndingInsideANestedBlock_StillRecoversTheAccessorsBrace()
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public int Prop",
+            "    {",
+            "        get",
+            "        {",
+            "            if (true)",
+            "            {",
+            "                return 1;",
+            "            }",
+            "            return 2;",
+            "        }",
+            "        set { }",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, 9, "get_Prop");
+
+        Assert.Equal(
+            "public int Prop\n{\n    get\n    {\n        if (true)\n        {\n            return 1;\n        }\n        return 2;\n    }",
+            slice);
+    }
+
+    /// <summary>
     /// And the mirror of that, for the same reason the comment and literal cases needed one:
     /// the line that *closes* a multi-line attribute list can carry the sibling itself, and
     /// suppressing the question for the whole line swallowed it (adversarial review, GPT).
