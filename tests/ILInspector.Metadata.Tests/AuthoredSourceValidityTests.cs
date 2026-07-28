@@ -1559,6 +1559,45 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
+    /// Three shapes in which the sibling-accessor question is asked of something that is not a
+    /// sibling. All three fail at the merge base with main as well, so they are latent defects
+    /// in the line-based scanner rather than anything this branch introduced, and all three
+    /// stop being expressible once declarations are located over a token stream instead of
+    /// re-derived from each line's text:
+    /// <list type="bullet">
+    /// <item>An inactive <c>#if</c> region is read as live code, so a "set" the compiler
+    /// discards ends the slice (adversarial review, GPT).</item>
+    /// <item>A block comment opened by the member's own trailing code starts a sibling trivia
+    /// run on its continuation, so the slice keeps the opener and drops the rest (adversarial
+    /// review, GPT). Round 9 excluded <c>InBlockComment</c> from the ownership rule on the
+    /// grounds that a line inside a comment is trivia whoever opened it; that reasoning was
+    /// wrong for a comment the member opened.</item>
+    /// <item>A constant pattern spelled "set" at the head of a switch arm is read as the
+    /// sibling accessor (adversarial review, Gemini).</item>
+    /// </list>
+    /// Pinned at today's answer so none can widen unnoticed and closing them is a visible test
+    /// change.
+    /// </summary>
+    [Theory]
+    [InlineData(
+        "public class C\n{\n    public int P\n    {\n        get\n        {\n            return 1;\n        #if false\n        }\n        set { }\n        #endif\n        }\n        set { }\n    }\n}",
+        5, 7, "get_P",
+        "public int P\n{\n    get\n    {\n        return 1;")]
+    [InlineData(
+        "public class C\n{\n    public int P\n    {\n        get\n        {\n            return 1;\n        } /* setter comment\n           continued\n        */\n        set { }\n    }\n}",
+        5, 7, "get_P",
+        "public int P\n{\n    get\n    {\n        return 1;\n    } /* setter comment")]
+    [InlineData(
+        "class C {\n    const int set = 0;\n    int Prop {\n        get {\n            int x = 0;\n            return x switch {\n                // comment\n                set => 2,\n                _ => 1\n            };\n        }\n    }\n}\n",
+        4, 6, "get_Prop",
+        "class C {\n    const int set = 0;\n    int Prop {\n        get {\n            int x = 0;\n            return x switch {")]
+    public void TheSiblingQuestionAskedOfSomethingThatIsNotASibling_TruncatesTheSlice_KnownGap(
+        string source, int startLine, int endLine, string methodName, string truncated)
+    {
+        Assert.Equal(truncated, SourceLinkResolver.ExtractMethodBody(source, startLine, endLine, methodName));
+    }
+
+    /// <summary>
     /// A preprocessor directive ahead of the sibling is the sibling's trivia, not the member's
     /// code. It must be the first token on its line, so it is recognized once the carried
     /// constructs are accounted for (adversarial review, MAI-Code).
