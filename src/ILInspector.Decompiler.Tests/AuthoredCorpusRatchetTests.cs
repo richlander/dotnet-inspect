@@ -979,6 +979,89 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
+    /// A mode only preempts a gate that was actually requested.
+    ///
+    /// <para>This is the conjunction, and it is tested here rather than left at the call
+    /// site because leaving it there produced a regression worse than the bug it fixed:
+    /// every mode in the harness refused, since each one preempted a gate nobody had
+    /// asked for. <c>--history-card</c> alone, and even
+    /// <c>--benchmark-authored-corpus</c> alone (preempting the unrequested verify
+    /// gate), exited 1. The scheduled lane could not have run.</para>
+    ///
+    /// <para>It survived my own verification because I checked exit codes and not
+    /// messages: the harness exited 1, which is what a missing corpus also does. That is
+    /// this PR's own subject matter — an exit code that reads the same for two different
+    /// reasons — so the rule and its conjunction now live together where a test sees
+    /// both.</para>
+    /// </summary>
+    [Theory]
+    // The selected flags, then the refusal expected (null = proceed).
+    [InlineData("--history-card", null)]
+    [InlineData("--not-my-type", null)]
+    [InlineData("--benchmark-authored-corpus", null)]
+    [InlineData("--verify-authored-corpus", null)]
+    [InlineData("--history-card,--benchmark-authored-corpus", "--history-card")]
+    [InlineData("--history-card,--verify-authored-corpus", "--history-card")]
+    [InlineData("--not-my-type,--verify-authored-corpus", "--not-my-type")]
+    [InlineData("--benchmark-authored-corpus,--verify-authored-corpus", "--benchmark-authored-corpus")]
+    public void PreemptedGateRefusal_AppliesOnlyToARequestedGate(string selected, string? expectedPreempting)
+    {
+        var order = DispatchOrder(selected.Split(','));
+
+        string? refusal = AuthoredCorpusExitContract.PreemptedGateRefusal(order, Gates);
+
+        if (expectedPreempting is null)
+        {
+            Assert.Null(refusal);
+        }
+        else
+        {
+            Assert.NotNull(refusal);
+            Assert.StartsWith(expectedPreempting + " runs instead of", refusal, StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// No mode selected on its own is refused.
+    ///
+    /// <para>Enumerated over every flag in the dispatch order rather than sampled. The
+    /// regression this guards refused <em>all</em> of them, and a sampled test that
+    /// happened to pick a gate would have missed which ones.</para>
+    /// </summary>
+    [Fact]
+    public void PreemptedGateRefusal_RefusesNoModeOnItsOwn()
+    {
+        var refused = new List<string>();
+
+        foreach (var (flag, _) in DispatchOrder("--history-card"))
+        {
+            if (AuthoredCorpusExitContract.PreemptedGateRefusal(DispatchOrder([flag]), Gates) is not null)
+                refused.Add(flag);
+        }
+
+        Assert.Empty(refused);
+    }
+
+    /// <summary>
+    /// The scheduled lane's own flag combination proceeds.
+    ///
+    /// <para>`deep-inspect.yml` invokes `--benchmark-authored-corpus &lt;corpus&gt;
+    /// --integrity-only`. The regression above refused exactly that, so the lane this PR
+    /// adds could never have run. Naming the caller's combination is what turns "the
+    /// rule is correct" into "the caller works".</para>
+    /// </summary>
+    [Fact]
+    public void PreemptedGateRefusal_LetsTheScheduledLaneRun()
+    {
+        var order = DispatchOrder(["--benchmark-authored-corpus"]);
+
+        Assert.Null(AuthoredCorpusExitContract.PreemptedGateRefusal(order, Gates));
+    }
+
+    /// <summary>The gates the harness protects, in the order it names them.</summary>
+    static readonly string[] Gates = ["--benchmark-authored-corpus", "--verify-authored-corpus"];
+
+    /// <summary>
     /// A mode earlier in the dispatch order preempts the gate; one later does not.
     ///
     /// <para>Preemption means the gate does not run <em>at all</em> and the process exits
@@ -1079,7 +1162,10 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>The harness's dispatch order, with exactly one mode selected.</summary>
-    static (string Flag, bool Selected)[] DispatchOrder(string selected)
+    static (string Flag, bool Selected)[] DispatchOrder(string selected) => DispatchOrder([selected]);
+
+    /// <summary>The harness's dispatch order, with the named modes selected.</summary>
+    static (string Flag, bool Selected)[] DispatchOrder(string[] selected)
     {
         string[] flags =
         [
@@ -1103,8 +1189,10 @@ public class AuthoredCorpusRatchetTests
             "--verify-authored-corpus",
         ];
 
-        Assert.Contains(selected, flags);
-        return [.. flags.Select(flag => (flag, string.Equals(flag, selected, StringComparison.Ordinal)))];
+        foreach (string flag in selected)
+            Assert.Contains(flag, flags);
+
+        return [.. flags.Select(flag => (flag, selected.Contains(flag, StringComparer.Ordinal)))];
     }
 
     /// <summary>

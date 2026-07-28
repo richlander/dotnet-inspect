@@ -398,10 +398,12 @@ static class Program
             ("--verify-authored-corpus", verifyAuthoredCorpus),
         ];
 
-        if (AuthoredCorpusExitContract.FindPreemptingMode(dispatchOrder, "--benchmark-authored-corpus") is { } preemptsBenchmark)
-            return Fail(AuthoredCorpusExitContract.PreemptedGateMessage(preemptsBenchmark, "--benchmark-authored-corpus"));
-        if (AuthoredCorpusExitContract.FindPreemptingMode(dispatchOrder, "--verify-authored-corpus") is { } preemptsVerify)
-            return Fail(AuthoredCorpusExitContract.PreemptedGateMessage(preemptsVerify, "--verify-authored-corpus"));
+        if (AuthoredCorpusExitContract.PreemptedGateRefusal(
+                dispatchOrder,
+                ["--benchmark-authored-corpus", "--verify-authored-corpus"]) is { } preempted)
+        {
+            return Fail(preempted);
+        }
 
         if (cfgStageSpecified && (!cfg || dumpMethod is null))
             return Fail("--cfg-stage requires --dump --cfg.");
@@ -2132,8 +2134,9 @@ static class Program
                                 success still requires invalid == 0, so the store's
                                 documented append run keeps exiting 1 by design.
                                 With it, the run fails only on a regression in
-                                validPct, correct, invalid, or productBodyDefect —
-                                strictly, with no tolerance band. A baseline that is
+                                valid (the exact row count, not the rounded
+                                percentage), correct, invalid, or
+                                productBodyDefect — strictly, no tolerance band. A baseline that is
                                 missing or unparseable is a hard error; a baseline
                                 that parses but holds no comparable row is a loud
                                 skip, never a silent pass.

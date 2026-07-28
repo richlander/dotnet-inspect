@@ -600,35 +600,78 @@ static class AuthoredCorpusExitContract
     }
 
     /// <summary>
+    /// The refusal owed by the flag combination, or <see langword="null"/> if none.
+    ///
+    /// <para>A gate is preempted when a mode earlier in the dispatch order is also
+    /// selected: that mode does not run the gate second, it runs instead of it, and the
+    /// process exits 0 having measured nothing. That is the permanently-green failure of
+    /// #3245 one level up — a CI lane that grew a second flag would stop gating and
+    /// report success.</para>
+    ///
+    /// <para>The whole rule lives here, <em>including the conjunction that a gate must
+    /// actually be requested</em>. The first version left that conjunction at the call
+    /// site, testing only the search, and the result was worse than the bug it fixed:
+    /// every mode in the harness refused, because each one preempted a gate nobody had
+    /// asked for. It exited 1 for a wrong reason, which an exit-code-only check reads as
+    /// correct. A rule split between a tested function and an untested caller is only as
+    /// strong as the caller.</para>
+    ///
+    /// <para>Throws when a named gate is absent from the order, because a gate that has
+    /// silently dropped out would otherwise be reported as unpreemptable — the exact
+    /// false green this exists to prevent.</para>
+    /// </summary>
+    internal static string? PreemptedGateRefusal(
+        IReadOnlyList<(string Flag, bool Selected)> dispatchOrder,
+        IReadOnlyList<string> gates)
+    {
+        foreach (string gate in gates)
+        {
+            int position = IndexOfGate(dispatchOrder, gate);
+            if (!dispatchOrder[position].Selected)
+                continue;
+
+            for (int index = 0; index < position; index++)
+            {
+                if (dispatchOrder[index].Selected)
+                    return PreemptedGateMessage(dispatchOrder[index].Flag, gate);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// The first selected mode that dispatches strictly before <paramref name="gate"/>,
     /// or <see langword="null"/> if the gate is reached.
     ///
-    /// <para>A mode earlier in the dispatch order does not run the gate second — it does
-    /// not run it at all, and the process exits 0 having measured nothing. That is the
-    /// permanently-green failure of #3245 one level up: a CI lane that grew a second flag
-    /// would stop gating and report success.</para>
-    ///
-    /// <para>Taking the order as data, and each gate's refusal as a prefix of it, is
-    /// deliberate. The first fix for this was a hand-maintained array written next to one
-    /// gate, and review then found the <em>other</em> authored-corpus gate entirely
-    /// unprotected — plus, one round earlier, four flags missing from the array itself.
-    /// A list that both gates read cannot protect one and forget the other, and a mode
-    /// inserted into it is covered without anyone remembering to.</para>
-    ///
-    /// <para>Throws when <paramref name="gate"/> is absent, because a gate that has
-    /// silently dropped out of the dispatch order would otherwise be reported as
-    /// unpreemptable — the exact false green this exists to prevent.</para>
+    /// <para>Taking the dispatch order as data, and each gate's exposure as a prefix of
+    /// it, is deliberate. The first fix for preemption was a hand-maintained array
+    /// written next to one gate, and review then found the <em>other</em>
+    /// authored-corpus gate entirely unprotected — plus, one round earlier, four flags
+    /// missing from the array itself. A list both gates read cannot protect one and
+    /// forget the other, and a mode inserted into it is covered without anyone
+    /// remembering to.</para>
     /// </summary>
     internal static string? FindPreemptingMode(
         IReadOnlyList<(string Flag, bool Selected)> dispatchOrder,
         string gate)
     {
+        int position = IndexOfGate(dispatchOrder, gate);
+        for (int index = 0; index < position; index++)
+        {
+            if (dispatchOrder[index].Selected)
+                return dispatchOrder[index].Flag;
+        }
+
+        return null;
+    }
+
+    static int IndexOfGate(IReadOnlyList<(string Flag, bool Selected)> dispatchOrder, string gate)
+    {
         for (int index = 0; index < dispatchOrder.Count; index++)
         {
             if (string.Equals(dispatchOrder[index].Flag, gate, StringComparison.Ordinal))
-                return null;
-            if (dispatchOrder[index].Selected)
-                return dispatchOrder[index].Flag;
+                return index;
         }
 
         throw new ArgumentException($"{gate} is not in the dispatch order, so it cannot be gated.", nameof(gate));
