@@ -702,10 +702,12 @@ warm-up left the post-drop delta at 24 bytes.
 
 So the experiment establishes something narrower but still useful: for this input
 and runtime, nothing row-proportional that was allocated **after the baseline**
-survived dropping the projection. That is the relevant class, because per-image
-lazy state is created by the reader under measurement rather than by the warm-up
-run. Ruling out pre-warmed static retention would need source inspection or a
-cold-baseline experiment, and neither was done.
+survived dropping the projection. What that covers follows from how the probe is
+built rather than from any claim about SRM. The warm-up uses a separate
+`PEReader`, so lazy state held *per reader instance* is created after the
+baseline and would be visible; a process-wide static cache populated during
+warm-up would not be. Which of those SRM actually uses was not verified here, and
+settling it would need source inspection or a cold-baseline run.
 
 ### What the numbers say
 
@@ -731,11 +733,13 @@ genuinely expensive today.
 
 **`ReadOnlySpan<T>` specifically is the wrong tool for this problem.** It is
 worth stating plainly because it was the intuitive candidate. A span is a
-`ref struct`: it cannot be stored in a field, cannot live in an
-`ImmutableArray`, and cannot outlive the stack frame that produced it. The
-projection is a *retained object graph handed to a caller that holds it* —
-precisely the shape a span cannot express. Spans help transient decode paths
-that borrow and discard.
+`ref struct`: it cannot be stored in a reference-type field, cannot live in an
+`ImmutableArray`, and cannot cross an `await` or `yield`. It *can* be returned
+when it is backed by longer-lived memory — which is why a span-returning
+accessor appears below as still open — but it cannot itself be the thing the
+caller holds. The projection is a *retained object graph handed to a caller that
+holds it*, precisely the shape a span cannot express. Spans help transient decode
+paths that borrow and discard.
 
 That argument is about `ReadOnlySpan<T>` and does not generalize to borrowing or
 laziness as such. These remain open and are simply not needed yet:
