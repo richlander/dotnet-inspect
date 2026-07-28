@@ -508,6 +508,82 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
+    /// A positional record's primary constructor has no authored declaration, and its sequence
+    /// range can span the whole type body — a secondary constructor and the property
+    /// initializers below it included. Searching that whole range found the secondary
+    /// constructor and presented one member's source as another's (adversarial review, GPT).
+    /// A declaration the backward scan walked past sits at or above the member's own first
+    /// sequence point, so nothing below that point is a candidate.
+    /// </summary>
+    [Fact]
+    public void ConstructorRecovery_IgnoresConstructorsBelowTheFirstSequencePoint()
+    {
+        var source = string.Join('\n', [
+            "public sealed record Present(",                     //  1  <- StartLine
+            "    int Old,",                                      //  2
+            "    int New,",                                      //  3
+            "    string? Detail = null) : I",                    //  4
+            "{",                                                 //  5
+            "    public Present(",                               //  6
+            "        int Old,",                                  //  7
+            "        int New)",                                  //  8
+            "        : this(Old, New, Detail: null)",            //  9
+            "    {",                                             // 10
+            "    }",                                             // 11
+            "",                                                  // 12
+            "    public int Old { get; } = Old;",                // 13
+            "}",                                                 // 14
+        ]);
+
+        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 1, endLine: 13, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// A function-pointer return type leads a method, not a delegate declaration, and C# allows
+    /// trivia between <c>delegate</c> and <c>*</c>. Requiring them to be adjacent made the
+    /// spaced spelling read as a delegate type and the method vanish (adversarial review, GPT).
+    /// </summary>
+    [Theory]
+    [InlineData("delegate*<int, int>")]
+    [InlineData("delegate *<int, int>")]
+    [InlineData("delegate  *<int, int>")]
+    [InlineData("delegate\t*<int, int>")]
+    public void FunctionPointerReturnType_IsNotADelegateDeclaration(string returnType)
+    {
+        var source = string.Join('\n', [
+            "unsafe class C",                       // 1
+            "{",                                    // 2
+            $"    public static {returnType} Ret()",// 3
+            "    {",                                // 4  <- StartLine
+            "        return null;",                 // 5
+            "    }",                                // 6  <- EndLine
+            "}",                                    // 7
+        ]);
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: "Ret");
+
+        Assert.Equal($"public static {returnType} Ret()\n{{\n    return null;\n}}", body);
+    }
+
+    /// <summary>
+    /// An attribute list's brackets are counted structurally, and a comment inside the list may
+    /// spell one of its own. Reading the comment as code closed the list early, which left a
+    /// positional record's header looking like an ordinary declaration and returned the
+    /// truncated header as the member's source (adversarial review, MAI-Code).
+    /// </summary>
+    [Theory]
+    [InlineData("[Foo(/* ] */)] public record R(int X);")]
+    [InlineData("[Foo(/* [ */)] public record R(int X);")]
+    public void CommentsInsideAnAttributeList_DoNotCloseIt(string header)
+    {
+        var source = string.Join('\n', [
+            header,                       // 1  <- StartLine
+        ]);
+
+        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 1, endLine: 1, methodName: ".ctor"));
+    }
+
+    /// <summary>
     /// The positive half of the same discriminator: a constructor that really is declared at
     /// member level is still recovered, whichever accepted modifier leads it or none at all.
     /// </summary>

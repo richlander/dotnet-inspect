@@ -178,7 +178,7 @@ public class SourceLinkResolver
         int headerIndex = IndexOfTypeDeclaration(lines[from..to], out string? declaredTypeName);
         if (headerIndex >= 0)
         {
-            int ctorIndex = IndexOfConstructorDeclaration(lines[from..to], headerIndex + 1, declaredTypeName);
+            int ctorIndex = IndexOfConstructorDeclaration(lines[from..to], headerIndex + 1, start - 1 - from, declaredTypeName);
             if (ctorIndex < 0)
                 return null;
 
@@ -344,6 +344,22 @@ public class SourceLinkResolver
                 continue;
             }
 
+            if (c == '/' && i + 1 < trimmed.Length && trimmed[i + 1] == '/')
+            {
+                // The rest of the line is a comment, so the list does not close on it.
+                return -1;
+            }
+
+            if (c == '/' && i + 1 < trimmed.Length && trimmed[i + 1] == '*')
+            {
+                int close = trimmed.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                if (close < 0)
+                    return -1;
+
+                i = close + 1;
+                continue;
+            }
+
             if (c == '[')
                 depth++;
             else if (c == ']' && --depth == 0)
@@ -381,13 +397,21 @@ public class SourceLinkResolver
     /// among them, which is what stops <c>new R(1);</c> from reading as a modifier followed by
     /// a declaration.
     /// </para>
+    /// <para>
+    /// The search stops at <paramref name="searchTo"/>, the member's own first sequence point.
+    /// A declaration the backward scan walked past necessarily sits at or above that point, so
+    /// anything below it belongs to some other member: a positional record's range can span a
+    /// secondary constructor and its property initializers, and accepting that constructor
+    /// presented one member's source as another's (adversarial review, GPT).
+    /// </para>
     /// </summary>
-    private static int IndexOfConstructorDeclaration(string[] capturedLines, int searchFrom, string? typeName)
+    private static int IndexOfConstructorDeclaration(string[] capturedLines, int searchFrom, int searchTo, string? typeName)
     {
         if (string.IsNullOrEmpty(typeName))
             return -1;
 
         int start = Math.Max(0, searchFrom);
+        int last = Math.Min(searchTo, capturedLines.Length - 1);
 
         // Depth relative to the type header, which the caller has already identified. The
         // header's own line is scanned first so that "class C {" and a "{" on the next line
@@ -397,7 +421,7 @@ public class SourceLinkResolver
         for (int i = 0; i < start && i < capturedLines.Length; i++)
             ScanLine(capturedLines[i], state, ref depth);
 
-        for (int i = start; i < capturedLines.Length; i++)
+        for (int i = start; i <= last; i++)
         {
             // A brace this scanner could not place leaves the depth unknown, so it can no
             // longer tell a declaration from a statement. Stop rather than guess.
@@ -455,9 +479,18 @@ public class SourceLinkResolver
             if (Array.IndexOf(TypeDeclarationKeywords, token) >= 0)
             {
                 // "delegate*<int, int>" is a function-pointer *type*, so it leads a member's
-                // return type rather than a delegate declaration.
-                if (token == "delegate" && end < trimmed.Length && trimmed[end] == '*')
-                    return false;
+                // return type rather than a delegate declaration. C# allows trivia between the
+                // two tokens, so "delegate *<int, int>" is the same type (adversarial review,
+                // GPT).
+                if (token == "delegate")
+                {
+                    int star = end;
+                    while (star < trimmed.Length && char.IsWhiteSpace(trimmed[star]))
+                        star++;
+
+                    if (star < trimmed.Length && trimmed[star] == '*')
+                        return false;
+                }
 
                 typeName = NameAfterTypeKeyword(trimmed, end);
                 return true;
