@@ -570,6 +570,28 @@ public class ForeachStatementPassTests
     }
 
     [Fact]
+    public void InlineCurrentForeach_ReadInsideNestedLoopAtBodyTop_StaysUsingWhile()
+    {
+        // A nested loop contributes no distinguishing leading IL, so a
+        // `do { if (e.Current == 0) ... } while (...)` at the loop-body top has
+        // get_Current as the first executable instruction (offset == body top) —
+        // the offset check alone would accept it. But the read runs once per inner
+        // iteration, i.e. many times per outer iteration; hoisting it to the
+        // foreach header would run it exactly once, changing execution count.
+        // ReadOriginatesAtLoopBodyTop rejects a read wrapped in any nested loop.
+        // (A real foreach whose iteration variable is used inside a nested loop
+        // must store it — the stack-cached inline form cannot cross the loop
+        // boundary — so this declines no real foreach.)
+        var function = BuildInlineCurrentReadInNestedLoop();
+
+        new ForeachStatementPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Single(function.Descendants.OfType<UsingStatement>());
+    }
+
+    [Fact]
     public void InlineCurrentForeach_ReadInsideTryAtBodyTop_StaysUsingWhile()
     {
         // Exception regions emit no IL of their own, so a hand-written
@@ -778,6 +800,10 @@ public class ForeachStatementPassTests
         // inside a try, so hoisting it to the foreach header would move it out of
         // the protected region — the offset is body-top but the region is metadata.
         TryProtectedBodyTop,
+        // e.Current read is the first executable instruction of the body but sits
+        // inside a nested do-loop at the body top, so it runs many times per outer
+        // iteration; hoisting to the header would run it once.
+        NestedLoopBodyTop,
     }
 
     static IrFunction BuildInlineCurrentEnumeratorLoop(InlineReadPlacement placement)
@@ -883,6 +909,26 @@ public class ForeachStatementPassTests
                     loopBody.Add(Stamp(new TryCatch(tryBody, [catchClause]), BodyStart));
                 }
                 break;
+
+            case InlineReadPlacement.NestedLoopBodyTop:
+                // do { if (e.Current == 0) return true; } while (probe == 0);
+                // — get_Current is the first executable instruction (offset ==
+                // body top), but it is inside a nested do-loop, so it runs once
+                // per inner iteration, many times per outer iteration.
+                {
+                    var thenArm = new Block();
+                    thenArm.Add(Stamp(new Return(Stamp(new Constant(1, boolType), BodyStart + 4)), BodyStart + 5));
+                    var doInner = new Block(BodyStart);
+                    doInner.Add(Stamp(new IfStatement(
+                        Stamp(new Comparison(ComparisonKind.Equal, isUnsigned: false, CurrentRead(BodyStart), Stamp(new Constant(0, intType), BodyStart + 2)), BodyStart + 3),
+                        thenArm,
+                        null), BodyStart + 3));
+                    var doBody = new BlockContainer();
+                    doBody.Add(doInner);
+                    var condition = Stamp(new Comparison(ComparisonKind.Equal, isUnsigned: false, Stamp(new LoadArgument(1, "probe", intType), BodyStart + 8), Stamp(new Constant(0, intType), BodyStart + 9)), BodyStart + 10);
+                    loopBody.Add(Stamp(new DoWhileLoop(doBody, condition), BodyStart));
+                }
+                break;
         }
 
         var usingBody = new BlockContainer();
@@ -913,6 +959,9 @@ public class ForeachStatementPassTests
 
     static IrFunction BuildInlineCurrentReadInTryLoop()
         => BuildInlineCurrentEnumeratorLoop(InlineReadPlacement.TryProtectedBodyTop);
+
+    static IrFunction BuildInlineCurrentReadInNestedLoop()
+        => BuildInlineCurrentEnumeratorLoop(InlineReadPlacement.NestedLoopBodyTop);
 
     static IrFunction BuildStructCollectionEnumeratorUsingWhile()
     {

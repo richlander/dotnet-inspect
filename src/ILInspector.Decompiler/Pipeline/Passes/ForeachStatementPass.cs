@@ -550,29 +550,41 @@ public sealed class ForeachStatementPass : IIrPass
     // True iff the inline `e.Current` read is a genuine compiler foreach header:
     // csc emits a foreach header's `get_Current` as the *first instruction of the
     // loop body*, leaving the value live until the live-range inliner sinks it to
-    // its one use. We prove that origin from the loop body block's import-stamped
-    // entry offset (Block.StartOffset — the IL offset of its first instruction,
-    // fixed at import and immune to later passes that erase interior node
-    // offsets, e.g. NullCoalescingAssignmentPass dropping the `??=` null-check's
-    // offset): the read's subtree must carry exactly that entry offset. A
-    // conditional read (ElementAt's `if (index == 0) return e.Current;`), a `??=`
-    // read, or a read after any preceding statement starts later than the entry,
-    // so it is declined — re-hoisting it would move `get_Current` ahead of that
-    // operation, changing how often it runs and its order (observable if either
-    // throws or mutates shared state). Fails closed when the read carries no
-    // offset. Exception regions carry no IL of their own (they are pure PE
-    // metadata), so a hand-written `try { x = e.Current; }` at the body top has
-    // `get_Current` as the first *executable* instruction yet is protected by the
-    // handler; the offset check cannot see that, so we additionally reject a read
-    // wrapped in any try/catch/finally within the body. (A real foreach whose
-    // iteration variable is used inside a `try` must *store* it — crossing the
-    // region boundary forbids the stack-cached single-use form — so it takes the
-    // hoisted matcher, never this inline path; declining here loses no real
-    // foreach.) A read inside a nested lambda/local function runs at a different
-    // time, so it is excluded too.
+    // its one use. Two conditions must hold, and neither alone is sufficient:
+    //
+    // Ordering — the read must originate at the body top. We prove that from the
+    // loop body block's import-stamped entry offset (Block.StartOffset, the IL
+    // offset of its first instruction, fixed at import and immune to later passes
+    // that erase interior node offsets — e.g. NullCoalescingAssignmentPass
+    // dropping the `??=` null-check's offset): the read's subtree must carry
+    // exactly that entry offset. A conditional read (ElementAt's `if (index == 0)
+    // return e.Current;`), a `??=` read, or a read after any preceding statement
+    // starts later than the entry and is declined — re-hoisting it would move
+    // `get_Current` ahead of that operation, changing its order (observable if
+    // either throws or mutates shared state). Fails closed when the read has no
+    // offset.
+    //
+    // Frequency and placement — being the first *instruction* does not by itself
+    // mean the read runs exactly once per iteration in an unprotected position,
+    // because two constructs contribute no distinguishing leading IL of their own:
+    //   * A nested loop whose body begins at the outer body top (`do { use(
+    //     e.Current); } while (...)`) makes the read the first instruction yet
+    //     runs it many times per outer iteration; hoisting to the header would run
+    //     it once.
+    //   * An exception region is pure PE metadata (`try { x = e.Current; }` at the
+    //     body top has `get_Current` first, but the handler protects it); hoisting
+    //     to the header moves the read out of the try, so a throwing enumerator
+    //     escapes instead of being caught.
+    // The offset check cannot see either, so we also reject a read wrapped in any
+    // nested loop or try/catch/finally within the body. (A real foreach whose
+    // iteration variable is used inside a nested loop or a `try` must *store* it —
+    // crossing that boundary forbids the stack-cached single-use form — so it
+    // takes the hoisted matcher, never this inline path; declining here loses no
+    // real foreach.) A read inside a nested lambda/local function is excluded at
+    // the call site for the same reason.
     static bool ReadOriginatesAtLoopBodyTop(LoadProperty inlineCurrent, Block loopBody)
     {
-        if (IsInsideExceptionRegion(inlineCurrent, loopBody))
+        if (IsInsideNestedLoopOrExceptionRegion(inlineCurrent, loopBody))
             return false;
 
         int readMin = MinOffset(inlineCurrent);
@@ -592,13 +604,16 @@ public sealed class ForeachStatementPass : IIrPass
     }
 
     // Walk the ancestor chain from the read up to (but excluding) the loop body,
-    // reporting whether any step passes through an exception region. Such regions
-    // emit no IL, so an offset comparison alone cannot tell a body-top read that
-    // is protected by a handler from one that is not.
-    static bool IsInsideExceptionRegion(IrNode node, Block loopBody)
+    // reporting whether any step passes through a nested loop or an exception
+    // region. A nested loop can execute a body-top read multiple times per outer
+    // iteration; an exception region (pure metadata, no IL of its own) protects or
+    // relocates it. Neither is visible to the body-top offset comparison, so both
+    // must be rejected structurally.
+    static bool IsInsideNestedLoopOrExceptionRegion(IrNode node, Block loopBody)
     {
         for (var current = node.Parent; current is not null && !ReferenceEquals(current, loopBody); current = current.Parent)
-            if (current is TryCatch or TryFinally or CatchClause)
+            if (current is WhileLoop or DoWhileLoop or ForLoop or ForeachStatement
+                or TryCatch or TryFinally or CatchClause)
                 return true;
         return false;
     }
