@@ -333,15 +333,46 @@ public class CallerScopeFilterTests
                 + "which indicates the walk revisits an adjacency entry per sharer");
     }
 
-    // A candidate whose own name is also one of its references, and a candidate naming the same
-    // reference twice, are both indexed once per name. Nothing above depends on the count, so this
-    // pins the dedupe directly rather than through an observable it cannot reach.
+    // An assembly may name the same reference more than once, and its own name may repeat a
+    // reference. Selection must be correct either way.
     [Fact]
-    public void RepeatedNamesIndexACandidateOnce()
+    public void RepeatedNamesSelectTheSameAsDistinctOnes()
     {
         Assert.True(Selects("Target", "Target", ["Target", "Target"]));
         Assert.True(Selects("Target", "Self", ["Self", "Target", "Target"]));
         Assert.False(Selects("Target", "Self", ["Self", "Self"]));
+    }
+
+    // Round-6 review: the previous version of this test asserted only the selection results above,
+    // which hold with or without the dedupe in Index — it survived its own mutation and pinned
+    // nothing. Deduping is invisible in the ANSWER; it is visible in the FOOTPRINT, which is the
+    // binding constraint for the interactive consumer this change exists to serve.
+    //
+    // A candidate whose reference list is entirely duplicates indexes one entry rather than one
+    // per row: measured at 592 bytes flat with the dedupe against ~1 MB at 100k rows and ~8.4 MB
+    // at 1M rows without it. The bound below sits three orders of magnitude above the former and
+    // an order of magnitude below the latter, so it discriminates without being a tight
+    // measurement.
+    [Fact]
+    public void RepeatedReferencesDoNotGrowTheIndex()
+    {
+        const int references = 100_000;
+        var duplicates = new string[references];
+        Array.Fill(duplicates, "Target");
+        var candidates = new[] { CallerScopeFilter.Candidate.Known("Dup", duplicates) };
+
+        // Warm up so first-call JIT and canonicalization caches are not attributed to the walk.
+        CallerScopeFilter.SelectCouldReach("Target", candidates);
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        var selected = CallerScopeFilter.SelectCouldReach("Target", candidates);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.True(selected[0]);
+        Assert.True(
+            allocated < 64 * 1024,
+            $"selection over a candidate with {references} duplicate references allocated "
+                + $"{allocated} bytes, which indicates the reverse index grows with duplicate rows");
     }
 
     [Fact]
