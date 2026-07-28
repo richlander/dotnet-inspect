@@ -52,6 +52,11 @@ public static class CommandLineBuilder
     /// </summary>
     public static async Task<int> InvokeAsync(ParseResult parseResult)
     {
+        // Two projections cannot both shape one payload, so reject the combination before
+        // the command runs rather than letting one of them be discarded.
+        if (!ProjectionAudit.ValidateExclusive(parseResult))
+            return 1;
+
         ProjectionAudit.BeginRequest(parseResult);
         return ProjectionAudit.Verify(await parseResult.InvokeAsync());
     }

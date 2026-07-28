@@ -458,6 +458,7 @@ public class PackageCommand
 
             if (options.Count)
             {
+                ProjectionAudit.MarkHonored(ProjectionAudit.Count);
                 Console.WriteLine(OutputFormatter.FormatResult(result, options, pipeline));
                 return 0;
             }

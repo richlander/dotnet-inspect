@@ -73,7 +73,7 @@ public static class CountOutput
     /// </summary>
     public static void WriteCount(int count)
     {
-        ProjectionAudit.MarkHonored();
+        ProjectionAudit.MarkHonored(ProjectionAudit.Count);
         // Invariant: a count is machine-readable output, so it must not pick up
         // culture-specific digits or grouping from the ambient locale.
         Console.WriteLine(count.ToString(CultureInfo.InvariantCulture));
@@ -81,7 +81,7 @@ public static class CountOutput
 
     public static void WriteCountFromMarkdown(string markdown)
     {
-        ProjectionAudit.MarkHonored();
+        ProjectionAudit.MarkHonored(ProjectionAudit.Count);
         Console.WriteLine(CountMarkdownTableRows(markdown));
     }
 
@@ -143,7 +143,7 @@ public static class CountOutput
     /// </summary>
     public static void WriteCountMapFromMarkdown(string markdown, IReadOnlyList<string> orderedSections)
     {
-        ProjectionAudit.MarkHonored();
+        ProjectionAudit.MarkHonored(ProjectionAudit.Count);
         var counts = CountMarkdownTableRowsBySection(markdown);
         Console.WriteLine("| Section | Count |");
         Console.WriteLine("| ------- | ----- |");

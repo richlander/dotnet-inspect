@@ -3476,6 +3476,79 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public void ProjectionAudit_WrongFlagDoesNotSatisfyRequest()
+    {
+        // The print writer also serves --bare, so an untyped "honored" signal would let it
+        // satisfy an unrelated recorded --count and let that drop escape.
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
+
+        try
+        {
+            ProjectionAudit.BeginRequest(result);
+            ProjectionAudit.MarkHonored(ProjectionAudit.Print);
+
+            Assert.Equal(1, ProjectionAudit.Verify(0));
+        }
+        finally
+        {
+            ProjectionAudit.ResetForTesting();
+        }
+    }
+
+    [Fact]
+    public void ProjectionAudit_MatchingFlagSatisfiesRequest()
+    {
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
+
+        try
+        {
+            ProjectionAudit.BeginRequest(result);
+            ProjectionAudit.MarkHonored(ProjectionAudit.Count);
+
+            Assert.Equal(0, ProjectionAudit.Verify(0));
+        }
+        finally
+        {
+            ProjectionAudit.ResetForTesting();
+        }
+    }
+
+    [Fact]
+    public void ProjectionAudit_HelpTokenAsOptionValueDoesNotDisableAudit()
+    {
+        // '/h' here is the value of --type, not a help request. Matching raw token text
+        // rather than option tokens would silently disable the audit for the invocation.
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(["type", "--library", TestAssemblyPath, "-S", "Classes", "--value", "--type", "/h"]);
+
+        try
+        {
+            ProjectionAudit.BeginRequest(result);
+
+            Assert.Equal(1, ProjectionAudit.Verify(0));
+        }
+        finally
+        {
+            ProjectionAudit.ResetForTesting();
+        }
+    }
+
+    [Fact]
+    public async Task ProjectionFlags_AreMutuallyExclusive()
+    {
+        // Two projections cannot both shape one payload, so honoring either one would
+        // discard the other.
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes", "--count", "--print");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--count cannot be combined with --print", error);
+    }
+
+    [Fact]
     public async Task Find_Count_ComposesWithJson()
     {
         // Found by the projection audit: --json was resolved before --count, so a count

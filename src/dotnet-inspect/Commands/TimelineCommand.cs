@@ -1211,7 +1211,7 @@ public static class TimelineCommand
             int count = selectedSections.Contains(EvaluationsSection)
                 ? view.Evaluations?.Count ?? 0
                 : view.Transitions?.Count ?? 0;
-            Console.WriteLine(count);
+            CountOutput.WriteCount(count);
             return;
         }
 

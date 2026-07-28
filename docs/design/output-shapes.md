@@ -211,8 +211,17 @@ Every accepted payload projection must therefore end in one of two outcomes: the
 payload is projected, or the command reports why it cannot be and exits non-zero.
 Rendering the full unprojected shape is not a third option. The requirement is
 enforced structurally rather than per command — the request is recorded from the
-parse result and the projection writers mark it honored, so a route that drops
-one fails loudly instead of shipping the wrong payload.
+parse result and the projection writers report which projection they honored, so
+a route that drops one fails loudly instead of shipping the wrong payload.
+
+Writers report *which* flag they honored rather than merely acknowledging one.
+A writer can be reached for more than one reason — the print writer also serves
+`--bare` — so an untyped signal would let it satisfy an unrelated request and let
+that drop escape.
+
+The projections are mutually exclusive. Two of them cannot both shape one
+payload, so a combination is rejected before the command runs rather than
+resolved by discarding one.
 
 ### Presentation modifiers (render the chosen shape)
 

@@ -46,7 +46,12 @@ public static class ShapeProjectionOutput
 
     public static int Write(IReadOnlyList<ShapeProjectionRow> rows, ShapeProjectionOptions options)
     {
-        ProjectionAudit.MarkHonored();
+        ProjectionAudit.MarkHonored(options.Kind switch
+        {
+            ShapeProjectionKind.Value => ProjectionAudit.Value,
+            ShapeProjectionKind.Urls => ProjectionAudit.Urls,
+            _ => ProjectionAudit.Paths
+        });
 
         if (rows.Count == 0)
         {

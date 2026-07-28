@@ -23,7 +23,7 @@ public static class PrintProjectionOutput
 {
     public static int Write(IReadOnlyList<PrintableDocument> documents, PrintProjectionOptions options)
     {
-        ProjectionAudit.MarkHonored();
+        ProjectionAudit.MarkHonored(ProjectionAudit.Print);
 
         if (documents.Count == 0)
         {

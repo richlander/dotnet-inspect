@@ -340,7 +340,7 @@ public class ProjectCommand
             return PrintSkillDocument(rows, options);
 
         if (options.Count)
-            ProjectionAudit.MarkHonored();
+            ProjectionAudit.MarkHonored(ProjectionAudit.Count);
 
         var output = options.Count
             ? rows.Count.ToString(CultureInfo.InvariantCulture) + Environment.NewLine
