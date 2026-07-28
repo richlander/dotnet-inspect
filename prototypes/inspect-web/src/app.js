@@ -11,6 +11,29 @@ function loadStoredTaste() {
   }
 }
 
+const PLATFORM_RECENT_MAX = 8;
+
+// Recently-opened platform libraries, most-recent first, persisted across sessions.
+// Backs the selector's "Recent" group and the "start on the library you were last
+// looking at instead of the aggregate overview" behaviour. Each entry is
+// { assembly, pack }; the pack (netcore.app | aspnetcore.app) rides along so a
+// remembered ASP.NET Core library re-materialises from the right shared framework.
+function loadPlatformRecent() {
+  try {
+    const value = JSON.parse(localStorage.getItem("inspect-platform-recent") || "[]");
+    if (!Array.isArray(value)) return [];
+    return value
+      .filter(entry => entry && typeof entry.assembly === "string")
+      .map(entry => ({
+        assembly: entry.assembly.replace(/\.dll$/i, ""),
+        pack: entry.pack === "aspnetcore.app" ? "aspnetcore.app" : "netcore.app",
+      }))
+      .slice(0, PLATFORM_RECENT_MAX);
+  } catch {
+    return [];
+  }
+}
+
 let spotlightCache = null;
 
 const state = {
@@ -82,6 +105,7 @@ const state = {
   namespaceFilter: "",
   kindFilter: "",
   libraryScope: null,
+  platformRecent: loadPlatformRecent(),
   accessibilityFilter: new Set(["public"]),
   command: "",
   completionIndex: 0,
@@ -2489,6 +2513,7 @@ function bindEvents() {
   document.querySelectorAll("[data-lib-scope]").forEach(button => button.addEventListener("click", () => {
     state.atPackageRoot = false;
     state.libraryScope = new Set([button.dataset.libScope]);
+    if (state.package?.isRuntimePack) recordPlatformRecent(button.dataset.libScope);
     state.kindFilter = button.dataset.libKind || "";
     state.namespaceFilter = "";
     state.typeFilter = "";
@@ -2632,11 +2657,9 @@ function bindEvents() {
   });
   document.querySelectorAll("[data-platform-library-select]").forEach(select => select.addEventListener("change", () => {
     const name = select.value;
-    if (!name) { state.libraryScope = null; afterLibraryScopeChange(); return; }
+    if (!name) return;
     const pack = select.selectedOptions[0]?.dataset.pack || "netcore.app";
-    const loaded = (runtimePackPackage()?.types || []).some(type => libraryKey(type) === name);
-    if (loaded) { state.libraryScope = new Set([name]); afterLibraryScopeChange(); }
-    else openPlatformLibrary(name, pack);
+    openPlatformLibrary(name, pack);
   }));
   bindCommandCompletionClicks(document);
 
@@ -3067,6 +3090,46 @@ function platformLibraryRoster(query) {
     || b.publicTypes - a.publicTypes
     || a.assembly.localeCompare(b.assembly));
   return rows;
+}
+
+// Which shared framework an assembly ships in, resolved from the static index
+// roster (defaulting to CoreCLR). Used when recording a recent library from a
+// context that does not already carry the pack token.
+function platformPackForAssembly(key) {
+  const hit = platformLibraryRoster("").find(lib => lib.assembly === key);
+  return hit ? hit.pack : "netcore.app";
+}
+
+// Remember an opened platform library at the front of the recent list (most-recent
+// first, deduped, capped) and persist it. Recent duplicates the .NET / ASP.NET Core
+// catalog groups by design — no cross-group de-dupe.
+function recordPlatformRecent(assembly, pack) {
+  const key = (assembly || "").replace(/\.dll$/i, "");
+  if (!key) return;
+  const normPack = pack === "aspnetcore.app" ? "aspnetcore.app"
+    : pack === "netcore.app" ? "netcore.app"
+    : platformPackForAssembly(key);
+  const rest = (state.platformRecent || []).filter(entry => entry.assembly !== key);
+  state.platformRecent = [{ assembly: key, pack: normPack }, ...rest].slice(0, PLATFORM_RECENT_MAX);
+  try {
+    localStorage.setItem("inspect-platform-recent", JSON.stringify(state.platformRecent));
+  } catch {
+    // Persistence is best-effort; an in-memory recent list still works this session.
+  }
+}
+
+// The most-recently-opened library that is actually available in the active
+// platform framework's roster, or null. Lets the Platform land on the library you
+// were last looking at instead of the aggregate overview.
+function mostRecentAvailableLibrary() {
+  const roster = platformLibraryRoster("");
+  if (!roster.length) return null;
+  const byAssembly = new Map(roster.map(lib => [lib.assembly, lib]));
+  for (const entry of state.platformRecent || []) {
+    const hit = byAssembly.get(entry.assembly);
+    if (hit) return { assembly: hit.assembly, pack: hit.pack };
+  }
+  return null;
 }
 
 // Blends the four targets into one ordered result list, honouring the active scope chip.
@@ -3627,6 +3690,7 @@ async function openPlatformLibrary(assembly, pack) {
   state.loading = false;
   const hasLib = pkg.types.some(type => libraryKey(type) === key);
   state.libraryScope = hasLib ? new Set([key]) : null;
+  if (hasLib) recordPlatformRecent(key, pack);
   state.atPackageRoot = !hasLib; // scoped → jump straight to the type list; otherwise the overview
   state.packageLens = "overview";
   state.namespaceFilter = "";
@@ -4183,12 +4247,20 @@ async function openRuntimePackFromHome() {
     return;
   }
   state.package = pack;
+  state.home = false;
+  state.loading = false;
+  // Start on the library you were last looking at, not the aggregate overview,
+  // when one is available in this framework's roster.
+  const recent = mostRecentAvailableLibrary();
+  if (recent) {
+    await openPlatformLibrary(recent.assembly, recent.pack);
+    return;
+  }
   state.atPackageRoot = true;
   state.packageLens = "overview";
   state.selectedTypeId = pack.types[0]?.id || "";
   state.selectedMemberKey = "";
   state.selectedOverloadIndex = null;
-  state.loading = false;
   render();
   loadSelectionData();
 }
@@ -5853,17 +5925,32 @@ function packageDisplayName(pkg) {
 function platformLibrarySelectHtml() {
   const roster = platformLibraryRoster("");
   if (!roster.length) return "";
+  const byAssembly = new Map(roster.map(lib => [lib.assembly, lib]));
   const scoped = state.libraryScope && state.libraryScope.size === 1 ? [...state.libraryScope][0] : "";
-  const loadedCount = roster.filter(lib => lib.loaded).length;
+  // Recent = libraries you have opened, resolved against the active framework's
+  // roster (so counts are honest and stale entries drop out). Duplicates the
+  // .NET / ASP.NET Core catalog groups by design.
+  const recent = (state.platformRecent || [])
+    .map(entry => byAssembly.get(entry.assembly))
+    .filter(Boolean);
+  // The selector always shows a single "current" library: whatever is scoped,
+  // else the most-recent, else the largest library — never a useless reset row.
+  const current = scoped || recent[0]?.assembly || roster[0]?.assembly || "";
+  let selectedMarked = false;
+  const option = lib => {
+    const isSel = !selectedMarked && lib.assembly === current;
+    if (isSel) selectedMarked = true;
+    return `<option value="${escapeHtml(lib.assembly)}" data-pack="${escapeHtml(lib.pack)}" ${isSel ? "selected" : ""}>${escapeHtml(lib.assembly)} · ${lib.publicTypes} types</option>`;
+  };
+  const recentGroup = recent.length
+    ? `<optgroup label="Recent">${recent.map(option).join("")}</optgroup>`
+    : "";
   const group = (pack, label) => {
-    const rows = roster
-      .filter(lib => lib.pack === pack)
-      .map(lib => `<option value="${escapeHtml(lib.assembly)}" data-pack="${escapeHtml(lib.pack)}" ${scoped === lib.assembly ? "selected" : ""}>${escapeHtml(lib.assembly)} · ${lib.publicTypes} types${lib.loaded ? "" : " · load"}</option>`)
-      .join("");
+    const rows = roster.filter(lib => lib.pack === pack).map(option).join("");
     return rows ? `<optgroup label="${escapeHtml(label)}">${rows}</optgroup>` : "";
   };
-  return `<select class="scope-select platform-library-select" data-platform-library-select aria-label="Select a platform library" title="Pick a library to scope the type list to it, or one marked ‘load’ to fetch it. ‘All loaded’ shows every library already loaded.">
-      <option value="" ${!scoped ? "selected" : ""}>All loaded libraries · ${loadedCount}</option>
+  return `<select class="scope-select platform-library-select" data-platform-library-select aria-label="Select a platform library" title="Pick a library to scope the type list to it. Recent lists libraries you have opened; .NET and ASP.NET Core are the full catalog.">
+      ${recentGroup}
       ${group("netcore.app", ".NET")}
       ${group("aspnetcore.app", "ASP.NET Core")}
     </select>`;
