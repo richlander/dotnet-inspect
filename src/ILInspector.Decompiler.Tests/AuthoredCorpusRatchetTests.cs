@@ -1898,4 +1898,51 @@ public class AuthoredCorpusRatchetTests
             AuthoredCorpusBenchmark.Run(
                 [assembly], corpus, json: false, integrityOnly: true, output: new StringWriter()));
     }
+
+    /// <summary>
+    /// A baseline whose invalid reasons <em>overflow</em> into its invalid count is not a
+    /// baseline.
+    ///
+    /// <para>Closing the breakdown partition was round eight's fix for a forged ceiling.
+    /// Summed as <see cref="int"/>, that check was satisfiable by overflow:
+    /// <c>int.MaxValue + int.MaxValue + 9</c> wraps to exactly 7, so a row recording
+    /// <c>invalid: 7</c> could state <c>productBodyDefect: int.MaxValue</c>, close every
+    /// partition, and set a ceiling no regression could ever exceed — the same laundered
+    /// threshold, through the check that was added to stop it. The sums are computed as
+    /// <see cref="long"/> so the arithmetic cannot wrap.</para>
+    /// </summary>
+    [Fact]
+    public void Ratchet_ABaselineWhoseReasonsOverflowIntoItsInvalidCountIsNotABaseline()
+    {
+        var forged = Row() with
+        {
+            Invalid = 7,
+            InvalidBreakdown = new HistoryRunInvalidBreakdown(int.MaxValue, int.MaxValue, 9),
+        };
+
+        // The wrap the int arithmetic would have produced, stated so the fixture cannot
+        // drift into testing nothing: unchecked, these three land exactly on `invalid`.
+        Assert.Equal(7, unchecked(int.MaxValue + int.MaxValue + 9));
+        Assert.NotEqual(forged.Invalid, forged.InvalidBreakdown!.Sum);
+
+        var comparison = AuthoredCorpusRatchet.Compare(Key(), Metrics(), [forged]);
+
+        Assert.True(comparison.Skipped);
+        Assert.Contains("measurement not sound", comparison.SkipReason!, StringComparison.Ordinal);
+    }
+
+    /// <summary>The same wrap one level up, inside the <c>validDifferent</c> partition.</summary>
+    [Fact]
+    public void Ratchet_ABaselineWhoseSubBucketsOverflowIntoTheirTotalIsNotABaseline()
+    {
+        var forged = Row() with
+        {
+            ValidDifferent = new HistoryRunValidDifferent(49, int.MaxValue, int.MaxValue, 51, 0, 0),
+        };
+
+        Assert.Equal(49, unchecked(51 + int.MaxValue + int.MaxValue));
+        Assert.NotEqual(forged.ValidDifferent!.Total, forged.ValidDifferent!.SubBucketSum);
+
+        Assert.True(AuthoredCorpusRatchet.Compare(Key(), Metrics(), [forged]).Skipped);
+    }
 }

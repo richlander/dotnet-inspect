@@ -344,11 +344,15 @@ static class AuthoredCorpusBenchmark
         int Unsupported,
         int UnknownOutcome)
     {
-        public int ValidDifferentSum
-            => Lowering + KnownTaste + FrontierIlExact + FrontierIlDiff + FrontierIlNoVerdict;
+        // Summed as long for the same reason the recorded-row sums are, even though
+        // these counts are measured here rather than supplied by a caller: a partition
+        // check that can wrap is not a partition check, and which side is trusted is
+        // not a property worth depending on.
+        public long ValidDifferentSum
+            => (long)Lowering + KnownTaste + FrontierIlExact + FrontierIlDiff + FrontierIlNoVerdict;
 
-        public int TopLevelSum
-            => Correct + ValidDifferent + Invalid + NotFull + Drift + Unsupported + UnknownOutcome;
+        public long TopLevelSum
+            => (long)Correct + ValidDifferent + Invalid + NotFull + Drift + Unsupported + UnknownOutcome;
 
         /// <summary>
         /// Both partitions close exactly. A shortfall means a row was counted in a

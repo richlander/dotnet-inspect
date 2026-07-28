@@ -238,9 +238,16 @@ internal sealed record HistoryRunValidDifferent(
     /// <summary>True when every sub-bucket was recorded, so the partition is checkable.</summary>
     public bool IsComplete => Lowering is not null && KnownTaste is not null && FrontierIlNoVerdict is not null;
 
-    /// <summary>Sum of the recorded sub-buckets, or null when the partition is incomplete.</summary>
-    public int? SubBucketSum => IsComplete
-        ? Lowering!.Value + KnownTaste!.Value + FrontierIlExact + FrontierIlDiff + FrontierIlNoVerdict!.Value
+    /// <summary>
+    /// Sum of the recorded sub-buckets, or null when the partition is incomplete.
+    ///
+    /// <para>Widened to <see cref="long"/> so the addition cannot wrap. A recorded row
+    /// can be caller-supplied via <c>--ratchet-baseline</c>, and sub-buckets of
+    /// <c>int.MaxValue, int.MaxValue, 51</c> summed as <see cref="int"/> to exactly 49 —
+    /// a partition that "closed" only because it overflowed.</para>
+    /// </summary>
+    public long? SubBucketSum => IsComplete
+        ? (long)Lowering!.Value + KnownTaste!.Value + FrontierIlExact + FrontierIlDiff + FrontierIlNoVerdict!.Value
         : null;
 
     /// <summary>True when no recorded sub-bucket is a negative count.</summary>
@@ -259,7 +266,7 @@ internal sealed record HistoryRunInvalidBreakdown(
     [property: JsonRequired] int Unclassified)
 {
     /// <summary>Sum of the recorded reason buckets, to compare against <c>invalid</c>.</summary>
-    public int Sum => ProductBodyDefect + HarnessShellReconstruction + Unclassified;
+    public long Sum => (long)ProductBodyDefect + HarnessShellReconstruction + Unclassified;
 
     /// <summary>True when no recorded reason bucket is a negative count.</summary>
     public bool CountsAreNonNegative
@@ -309,9 +316,13 @@ internal sealed record HistoryRun(
     /// </summary>
     public bool TopLevelIsComplete => ValidDifferent is not null && NotFull is not null && UnknownOutcome is not null;
 
-    /// <summary>Sum of the recorded top-level buckets, or null when any is unrecorded.</summary>
-    public int? TopLevelSum => TopLevelIsComplete
-        ? Correct + ValidDifferent!.Total + Invalid + NotFull!.Value + Drift + Unsupported + UnknownOutcome!.Value
+    /// <summary>
+    /// Sum of the recorded top-level buckets, or null when any is unrecorded. Widened
+    /// to <see cref="long"/> for the same reason as <see cref="HistoryRunValidDifferent.SubBucketSum"/>:
+    /// a sum that can wrap is not a partition check.
+    /// </summary>
+    public long? TopLevelSum => TopLevelIsComplete
+        ? (long)Correct + ValidDifferent!.Total + Invalid + NotFull!.Value + Drift + Unsupported + UnknownOutcome!.Value
         : null;
 
     /// <summary>
