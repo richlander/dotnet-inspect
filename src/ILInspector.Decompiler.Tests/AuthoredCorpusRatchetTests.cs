@@ -1,4 +1,6 @@
 using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
@@ -483,6 +485,58 @@ public class AuthoredCorpusRatchetTests
     [Fact]
     public void PoolDigest_RefusesARunThatMeasuredNoAssemblies()
         => Assert.Throws<InvalidOperationException>(() => AuthoredCorpusRatchet.PoolDigest([]));
+
+    /// <summary>
+    /// The benchmark's own wiring, not just the seam it is supposed to use. Everything
+    /// above tests <see cref="AuthoredCorpusRatchet"/>, and a reviewer's challenge —
+    /// find a semantic change no test catches — was answered by reverting the call site
+    /// to digest the supplied assemblies again. That passed the whole suite, because
+    /// <c>AuthoredCorpusBenchmark</c> was not linked into this project. It is now, so
+    /// the property is gated where it actually lives.
+    ///
+    /// <para>The exploit reproduced: two byte-distinct copies of one assembly, which
+    /// therefore share an identity. Evaluation measures whichever comes first, so the
+    /// two orders must not report the same pool.</para>
+    /// </summary>
+    [Fact]
+    public void Benchmark_IdentifiesThePoolItMeasured_NotThePoolItWasHanded()
+    {
+        using var pool = new TempPool();
+        string original = typeof(AuthoredCorpusRatchetTests).Assembly.Location;
+        string identity = AuthoredSourceHarvest.ReadAssemblyIdentity(original).Name;
+        byte[] bytes = File.ReadAllBytes(original);
+
+        string first = pool.Write("first", "Copy.dll", bytes);
+        string second = pool.Write("second", "Copy.dll", [.. bytes, 0, 0, 0, 0]);
+        string corpus = pool.Write("corpus", "corpus.jsonl", Encoding.UTF8.GetBytes(
+            $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"source":"class T { }"}"""));
+
+        string firstOrder = PoolIdentityOf([first, second], corpus);
+        string secondOrder = PoolIdentityOf([second, first], corpus);
+
+        Assert.Equal(AuthoredCorpusRatchet.PoolDigest([first]), firstOrder);
+        Assert.Equal(AuthoredCorpusRatchet.PoolDigest([second]), secondOrder);
+        Assert.NotEqual(firstOrder, secondOrder);
+    }
+
+    /// <summary>Runs the benchmark for its JSON and reports the pool it identified.</summary>
+    static string PoolIdentityOf(string[] assemblies, string corpusPath)
+    {
+        var captured = new StringWriter();
+        var restore = Console.Out;
+        try
+        {
+            Console.SetOut(captured);
+            AuthoredCorpusBenchmark.Run(assemblies, corpusPath, json: true, integrityOnly: true);
+        }
+        finally
+        {
+            Console.SetOut(restore);
+        }
+
+        using var report = JsonDocument.Parse(captured.ToString());
+        return report.RootElement.GetProperty("poolSha256").GetString()!;
+    }
 
     sealed class TempPool : IDisposable
     {

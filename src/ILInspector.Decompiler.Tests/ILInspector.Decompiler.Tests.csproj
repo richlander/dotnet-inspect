@@ -158,6 +158,14 @@
              Link="TypeBindCheck.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AuthoredCorpusHistoryCard.cs"
              Link="AuthoredCorpusHistoryCard.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\IlDifficultyScorer.cs"
+             Link="IlDifficultyScorer.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\RealMethodTargetEnumerator.cs"
+             Link="RealMethodTargetEnumerator.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\AuthoredSourceHarvest.cs"
+             Link="AuthoredSourceHarvest.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\AuthoredCorpusBenchmark.cs"
+             Link="AuthoredCorpusBenchmark.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AuthoredCorpusRatchet.cs"
              Link="AuthoredCorpusRatchet.cs" />
   </ItemGroup>
