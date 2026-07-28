@@ -1993,7 +1993,7 @@ function renderMember(type, member) {
     const scopeLine = !scope
       ? ""
       : platformView
-      ? `<div class="graph-scope"><strong>Platform${drilled ? " descent" : ""}</strong><span>${escapeHtml(scope.calleeScope)} · CoreCLR runtime pack</span><strong>Callees</strong><span>depth 2</span></div>`
+      ? `<div class="graph-scope"><strong>Platform${drilled ? " descent" : ""}</strong><span>${escapeHtml(scope.calleeScope)} · runtime pack</span><strong>Callees</strong><span>depth 2</span></div>`
       : `<div class="graph-scope"><strong>Workspace callers</strong><span>${scope.packages} loaded packages · ${scope.callerAssemblies} scanned assemblies</span><strong>Callees</strong><span>${escapeHtml(scope.calleeScope)} · depth 2</span></div>`;
     content = state.memberCallGraphLoading
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Building workspace call graph…</h2><p>Scanning implementation IL across ${state.packages.length} loaded package${state.packages.length === 1 ? "" : "s"}.</p></section>`
@@ -2004,7 +2004,7 @@ function renderMember(type, member) {
             <div class="section-title"><h2>Call graph</h2><span>${callers.length} caller${callers.length === 1 ? "" : "s"} · ${callees.length} callee${callees.length === 1 ? "" : "s"}</span></div>
             ${breadcrumb}
             ${state.platformDrillLoading
-              ? `<div class="graph-expanding"><span class="loader"></span> Range-fetching the implementation assembly from the CoreCLR runtime pack…</div>`
+              ? `<div class="graph-expanding"><span class="loader"></span> Range-fetching the implementation assembly from the runtime pack…</div>`
               : ""}
             ${state.platformDrillError
               ? `<div class="graph-drill-error">${escapeHtml(state.platformDrillError)}</div>`

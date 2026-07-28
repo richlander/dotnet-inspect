@@ -1921,6 +1921,21 @@ public static partial class BrowserInspectionEngine
     // ref pack would leave every BCL call a dead leaf; the runtime pack carries IL.
     const string PlatformRuntimePackId = "microsoft.netcore.app.runtime.linux-x64";
 
+    // The ASP.NET Core shared framework ships as its own runtime pack, layered on top of the
+    // CoreCLR pack: RouteBuilder, endpoint routing, MVC, SignalR host types, and the
+    // Microsoft.Extensions.* hosting surface live here, not in microsoft.netcore.app. Descent
+    // into a Microsoft.AspNetCore.* callee must fetch from this pack (same runtimes/ layout).
+    const string AspNetCoreRuntimePackId = "microsoft.aspnetcore.app.runtime.linux-x64";
+
+    // Picks the runtime pack that carries a platform callee's implementation. The callee's
+    // TypeRef assembly (or, as a fallback, its namespace) distinguishes the ASP.NET Core
+    // shared framework from the base CoreCLR pack; everything else resolves against CoreCLR.
+    static string SelectRuntimePackId(string? assembly, string typeFullName) =>
+        (assembly?.StartsWith("Microsoft.AspNetCore", StringComparison.OrdinalIgnoreCase) == true
+            || typeFullName.StartsWith("Microsoft.AspNetCore.", StringComparison.Ordinal))
+            ? AspNetCoreRuntimePackId
+            : PlatformRuntimePackId;
+
     // Display id of the runtime pseudo-package the client adds to its workspace when the
     // user requests the platform pack from Spotlight. Its normalized form is the marker the
     // shared image resolver keys on to fetch from the runtime pack rather than a lib/ layout.
@@ -1946,7 +1961,7 @@ public static partial class BrowserInspectionEngine
     {
         var major = ParseTfmMajor(targetFramework);
         var version = await ResolveRuntimePackVersionAsync(PlatformRuntimePackId, major);
-        var bytes = await AcquireRuntimeFileAsync(version, RuntimeCoreAssembly)
+        var bytes = await AcquireRuntimeFileAsync(PlatformRuntimePackId, version, RuntimeCoreAssembly)
             ?? throw new InvalidOperationException(
                 $"Could not acquire {RuntimeCoreAssembly} from {PlatformRuntimePackId} {version}.");
 
@@ -1997,7 +2012,7 @@ public static partial class BrowserInspectionEngine
     {
         if (normalizedId.Equals(RuntimePackPackageId, StringComparison.OrdinalIgnoreCase))
         {
-            var bytes = await AcquireRuntimeFileAsync(normalizedVersion, assemblyName)
+            var bytes = await AcquireRuntimeFileAsync(PlatformRuntimePackId, normalizedVersion, assemblyName)
                 ?? throw new InvalidOperationException(
                     $"No runtime-pack asset for {assemblyName} in {PlatformRuntimePackId} {normalizedVersion}.");
             var runtimePath = Path.Combine(tempRoot, assemblyName);
@@ -2030,19 +2045,19 @@ public static partial class BrowserInspectionEngine
         return implementationPath;
     }
 
-    // Fetches one file from the CoreCLR runtime pack (runtimes/.../<file>), range-extracting
-    // just that entry from the ~38 MB nupkg with a full-download fallback, and caches the
-    // bytes for the session.
-    static async Task<byte[]?> AcquireRuntimeFileAsync(string version, string fileName)
+    // Fetches one file from a runtime pack (runtimes/.../<file>), range-extracting just that
+    // entry from the multi-MB nupkg with a full-download fallback, and caches the bytes for
+    // the session. packId selects the CoreCLR or ASP.NET Core pack.
+    static async Task<byte[]?> AcquireRuntimeFileAsync(string packId, string version, string fileName)
     {
-        var cacheKey = $"{version}/{fileName}";
+        var cacheKey = $"{packId}/{version}/{fileName}";
         if (RuntimeFileCache.TryGetValue(cacheKey, out var cached))
             return cached;
 
         var nupkgUrl =
-            $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(PlatformRuntimePackId)}/" +
+            $"https://api.nuget.org/v3-flatcontainer/{Uri.EscapeDataString(packId)}/" +
             $"{Uri.EscapeDataString(version)}/" +
-            $"{Uri.EscapeDataString(PlatformRuntimePackId)}.{Uri.EscapeDataString(version)}.nupkg";
+            $"{Uri.EscapeDataString(packId)}.{Uri.EscapeDataString(version)}.nupkg";
         bool IsWanted(string entryName) =>
             entryName.StartsWith("runtimes/", StringComparison.OrdinalIgnoreCase)
             && Path.GetFileName(entryName).Equals(fileName, StringComparison.OrdinalIgnoreCase);
@@ -2052,7 +2067,7 @@ public static partial class BrowserInspectionEngine
         catch { bytes = null; }
         if (bytes is null)
         {
-            var fullPack = await GetPackageBytesAsync(PlatformRuntimePackId, version);
+            var fullPack = await GetPackageBytesAsync(packId, version);
             bytes = ExtractEntryFromArchive(fullPack, IsWanted);
         }
         if (bytes is not null)
@@ -2072,7 +2087,8 @@ public static partial class BrowserInspectionEngine
         ArgumentException.ThrowIfNullOrWhiteSpace(memberName);
 
         var major = ParseTfmMajor(targetFramework);
-        var version = await ResolveRuntimePackVersionAsync(PlatformRuntimePackId, major);
+        var packId = SelectRuntimePackId(assembly, typeFullName);
+        var version = await ResolveRuntimePackVersionAsync(packId, major);
         // TypeRef.Assembly canonicalizes the corelib facades (System.Private.CoreLib,
         // System.Runtime, mscorlib, netstandard) to "corelib"; those all implement in
         // System.Private.CoreLib.dll in the runtime pack.
@@ -2084,9 +2100,9 @@ public static partial class BrowserInspectionEngine
         Directory.CreateDirectory(tempRoot);
         try
         {
-            var acquired = await AcquirePlatformAssemblyAsync(version, startFile, typeFullName)
+            var acquired = await AcquirePlatformAssemblyAsync(packId, version, startFile, typeFullName)
                 ?? throw new InvalidOperationException(
-                    $"Could not acquire an implementation assembly for '{typeFullName}' from {PlatformRuntimePackId} {version}.");
+                    $"Could not acquire an implementation assembly for '{typeFullName}' from {packId} {version}.");
             var path = Path.Combine(tempRoot, acquired.FileName);
             await File.WriteAllBytesAsync(path, acquired.Bytes);
 
@@ -2094,21 +2110,27 @@ public static partial class BrowserInspectionEngine
                 new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(acquired.FileName), null, null, null),
                 path,
                 () => File.OpenRead(path),
-                Provenance: $"runtime-pack/{PlatformRuntimePackId}/{acquired.FileName}"));
+                Provenance: $"runtime-pack/{packId}/{acquired.FileName}"));
             var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
                 candidate.FullName.Equals(typeFullName, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException(
                     $"Type '{typeFullName}' is not defined in {acquired.FileName}.");
-            var member = SelectPlatformMember(type, memberName, paramSig)
-                ?? throw new InvalidOperationException(
-                    $"Member '{memberName}' was not found on '{typeFullName}'.");
-            if (member.MetadataToken is not int token)
-                throw new InvalidOperationException("The selected platform member has no method body identity.");
+            var member = SelectPlatformMember(type, memberName, paramSig);
+            // Call-graph rows spell property/event accessors by their IL method name
+            // (get_Foo, set_Foo, add_Bar, remove_Bar); ApiSurface exposes the owning
+            // property/event instead, carrying the accessor's MethodDef token. Fall back to
+            // that token so descent into an accessor callee (e.g. RouteBuilder.get_ServiceProvider)
+            // resolves instead of reporting the member missing.
+            var token = member?.MetadataToken ?? ResolveAccessorToken(type, memberName);
+            if (token is not int methodToken)
+                throw new InvalidOperationException(member is null
+                    ? $"Member '{memberName}' was not found on '{typeFullName}'."
+                    : "The selected platform member has no method body identity.");
 
             var index = Analysis.LibraryBodyIndex.Open(
                 path,
                 Analysis.LibraryBodyAnalysisFeatures.MethodEvidence);
-            var callees = index.BuildCallTree(token, maxDepth: 2, maxNodes: 30);
+            var callees = index.BuildCallTree(methodToken, maxDepth: 2, maxNodes: 30);
             var calleeNode = ToBrowserCallNode(callees);
             var result = new BrowserCallGraph(
                 CallGraphMermaid.Render(
@@ -2162,6 +2184,7 @@ public static partial class BrowserInspectionEngine
     // type-forwards (a facade like System.Runtime.dll forwards its public surface to
     // System.Private.CoreLib.dll) up to a bounded number of hops.
     static async Task<(byte[] Bytes, string FileName)?> AcquirePlatformAssemblyAsync(
+        string packId,
         string version,
         string startFile,
         string typeFullName)
@@ -2171,8 +2194,8 @@ public static partial class BrowserInspectionEngine
         var current = startFile;
         for (int hop = 0; hop < 5 && visited.Add(current); hop++)
         {
-            // Range-extract (and session-cache) just this assembly from the ~38 MB pack.
-            var bytes = await AcquireRuntimeFileAsync(version, current);
+            // Range-extract (and session-cache) just this assembly from the pack.
+            var bytes = await AcquireRuntimeFileAsync(packId, version, current);
             if (bytes is null)
                 return null;
 
@@ -2318,6 +2341,32 @@ public static partial class BrowserInspectionEngine
         var pool = byArity.Length > 0 ? byArity : named;
         var wantKey = SimpleParamKey(paramSig);
         return pool.FirstOrDefault(candidate => MemberParamKey(candidate) == wantKey) ?? pool[0];
+    }
+
+    // Maps an accessor's IL method name (get_/set_/add_/remove_) back to the MethodDef token
+    // ApiSurface records on the owning property or event, so descent into an accessor callee
+    // that ApiSurface does not expose as a standalone method still finds a body to graph.
+    static int? ResolveAccessorToken(ApiType type, string memberName)
+    {
+        (string Prefix, Func<ApiMember, int?> Pick)[] accessors =
+        [
+            ("get_", member => member.GetterToken),
+            ("set_", member => member.SetterToken),
+            ("add_", member => member.AdderToken),
+            ("remove_", member => member.RemoverToken),
+        ];
+        foreach (var (prefix, pick) in accessors)
+        {
+            if (!memberName.StartsWith(prefix, StringComparison.Ordinal))
+                continue;
+            var ownerName = memberName[prefix.Length..];
+            foreach (var member in type.Members)
+            {
+                if (string.Equals(member.Name, ownerName, StringComparison.Ordinal) && pick(member) is int token)
+                    return token;
+            }
+        }
+        return null;
     }
 
     static string MemberParamKey(ApiMember member)
