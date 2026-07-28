@@ -149,12 +149,20 @@ public sealed class LibraryBodyIndex
     public void ReleaseScopeGraph() => _scopeGraph = null;
 
     /// <summary>
-    /// Drops every derived call-graph map this index has cached, including the scope graph.
+    /// Drops the maps that back the call-tree builders: the scope graph, the definition map, the
+    /// distinct-caller counts and edges, and the direct-call grouping.
     /// <para>
-    /// For a consumer under a hard memory ceiling that is done asking call-graph questions.
-    /// Prefer <see cref="ReleaseScopeGraph"/> between renders that keep visiting members of this
-    /// same assembly: the single-assembly maps are comparatively small and are what make repeated
-    /// requests cheap. Everything rebuilds on next use.
+    /// For a consumer under a hard memory ceiling that is done asking call-graph questions. This
+    /// deliberately does <em>not</em> drop the evidence-domain caches — method signals, caller-loop
+    /// evidence, root-reach roll-ups, unsafe-evidence grouping — which serve other producers and
+    /// together retain well under a megabyte. Prefer <see cref="ReleaseScopeGraph"/> between
+    /// renders that keep visiting members of this same assembly: the single-assembly maps are
+    /// comparatively small and are what make repeated requests cheap. Everything rebuilds on next
+    /// use, so this only trades time for memory.
+    /// </para>
+    /// <para>
+    /// <c>ReleaseMethods_DropExactlyTheCachesTheyDocument</c> derives this type's cache fields by
+    /// reflection and fails if one is added, or moved across that boundary, without updating it.
     /// </para>
     /// </summary>
     public void ReleaseCallGraphCaches()

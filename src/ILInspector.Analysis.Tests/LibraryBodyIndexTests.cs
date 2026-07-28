@@ -316,6 +316,86 @@ public class LibraryBodyIndexTests
             child.Member.Name == nameof(BodilessRootFixtures.InvokesThroughInterface));
     }
 
+    /// <summary>
+    /// Derives this type's mutable cache fields by reflection and pins each one to a side of the
+    /// release boundary, so the two release methods are gated on the property they exist for
+    /// rather than only on staying correct. Both directions fail: a cache the doc claims to drop
+    /// but doesn't, and a cache dropped that the doc says survives. A newly added cache field
+    /// belongs to neither list and fails until someone decides which side it is on.
+    /// </summary>
+    [Fact]
+    public void ReleaseMethods_DropExactlyTheCachesTheyDocument()
+    {
+        // Dropped by ReleaseCallGraphCaches(); _scopeGraph is also dropped by ReleaseScopeGraph().
+        string[] callGraphCaches =
+        [
+            "_directCallsByCaller",
+            "_distinctCallerEdgesByCallee",
+            "_distinctCallersByCallee",
+            "_methodMap",
+            "_scopeGraph",
+        ];
+
+        // Evidence-domain caches the release methods deliberately retain.
+        string[] retainedCaches =
+        [
+            "_directCallerLoops",
+            "_generatedFrameworkTypes",
+            "_rootReachByToken",
+            "_signals",
+            "_unsafeEvidenceByMember",
+        ];
+
+        Assert.Equal(
+            callGraphCaches.Concat(retainedCaches).OrderBy(name => name, StringComparer.Ordinal),
+            MutableCacheFields().Select(field => field.Name).OrderBy(name => name, StringComparer.Ordinal));
+
+        string analysisPath = typeof(LibraryBodyIndex).Assembly.Location;
+        string testPath = typeof(LibraryBodyIndexTests).Assembly.Location;
+        var scope = LibraryBodyIndex.Open(testPath);
+
+        var index = Exercised(analysisPath, scope);
+        var before = PopulatedCaches(index);
+
+        // The gate is only meaningful if the caches under test were populated to begin with.
+        foreach (var name in callGraphCaches)
+            Assert.Contains(name, before);
+
+        index.ReleaseCallGraphCaches();
+        Assert.Equal(before.Where(name => !callGraphCaches.Contains(name)), PopulatedCaches(index));
+
+        // ReleaseScopeGraph drops the scope graph and nothing else — that is the whole point of
+        // having it separately, since the single-assembly maps are the cheap, high-value half.
+        var scopeOnly = Exercised(analysisPath, scope);
+        var beforeScopeRelease = PopulatedCaches(scopeOnly);
+        Assert.Contains("_scopeGraph", beforeScopeRelease);
+
+        scopeOnly.ReleaseScopeGraph();
+        Assert.Equal(beforeScopeRelease.Where(name => name != "_scopeGraph"), PopulatedCaches(scopeOnly));
+
+        static LibraryBodyIndex Exercised(string path, LibraryBodyIndex scope)
+        {
+            var index = LibraryBodyIndex.Open(path);
+            int token = index.Methods.First().MetadataToken;
+            index.BuildCallerTree(token, maxDepth: 2, maxNodes: 50);
+            index.BuildCallTree(token, maxDepth: 2, maxNodes: 50);
+            index.BuildCallerTree(token, new[] { scope }, maxDepth: 2, maxNodes: 50);
+            return index;
+        }
+
+        static IEnumerable<FieldInfo> MutableCacheFields()
+            => typeof(LibraryBodyIndex)
+                .GetFields(BindingFlags.NonPublic | BindingFlags.Instance)
+                .Where(field => field.Name.StartsWith('_') && !field.IsInitOnly && !field.FieldType.IsValueType);
+
+        static List<string> PopulatedCaches(LibraryBodyIndex index)
+            => MutableCacheFields()
+                .Where(field => field.GetValue(index) is not null)
+                .Select(field => field.Name)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToList();
+    }
+
     // #3342: the whole-graph maps behind the call-tree builders (definition map, distinct-caller
     // counts, reverse edges, and the cross-assembly scope maps) are cached per index so a
     // consumer that asks many questions of one index pays for them once. That is only sound if
