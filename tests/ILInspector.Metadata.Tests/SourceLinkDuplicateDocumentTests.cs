@@ -108,6 +108,27 @@ public class SourceLinkDuplicateDocumentTests
             () => JsonSerializer.Deserialize(cached, SourceLinkJsonContext.Default.DictionaryStringStringArray));
     }
 
+    /// <summary>
+    /// The cache is written and read by the same context, so hardening the reader must not break
+    /// the write/read round trip that source lookup depends on.
+    /// </summary>
+    [Fact]
+    public void TypeFileIndexCache_RoundTripsWhatItWrites()
+    {
+        var index = new Dictionary<string, string[]>
+        {
+            ["A.B"] = ["one.cs", "two.cs"],
+            ["A.C"] = [],
+        };
+
+        string written = JsonSerializer.Serialize(index, SourceLinkJsonContext.Default.DictionaryStringStringArray);
+        var read = JsonSerializer.Deserialize(written, SourceLinkJsonContext.Default.DictionaryStringStringArray);
+
+        Assert.NotNull(read);
+        Assert.Equal(["one.cs", "two.cs"], read["A.B"]);
+        Assert.Empty(read["A.C"]);
+    }
+
     [Fact]
     public void TypeFileIndexCache_StillReadsDistinctKeys()
     {

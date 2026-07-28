@@ -9,11 +9,13 @@ namespace DotnetInspector.Core;
 /// <remarks>
 /// <para>
 /// JSON does not define how duplicate object keys are resolved, so independent readers of the same
-/// payload can disagree. <c>JsonElement.TryGetProperty</c> returns the first match while
-/// <c>JsonElement.EnumerateObject</c> yields every occurrence, and any two readers that filter or
-/// order that set differently can end up on different values. The disagreement is exploitable
-/// whenever one reader decides policy and another decides what is shown or acted on, letting a
-/// single document present two views of itself. See CVE-2017-12635 for the canonical instance.
+/// payload can disagree. <c>JsonElement.TryGetProperty</c> resolves to the <em>last</em>
+/// occurrence, while <c>JsonElement.EnumerateObject</c> yields every occurrence in document order,
+/// so a reader that takes the first enumerated match already disagrees with a reader that looks
+/// the name up. Any two readers that filter or order that set differently can end up on different
+/// values. The disagreement is exploitable whenever one reader decides policy and another decides
+/// what is shown or acted on, letting a single document present two views of itself. See
+/// CVE-2017-12635 for the canonical instance.
 /// </para>
 /// <para>
 /// This mirrors <see cref="HardenedXml"/>: parsing untrusted input goes through a named, hardened

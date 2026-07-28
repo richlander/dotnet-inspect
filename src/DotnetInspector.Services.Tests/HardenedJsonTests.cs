@@ -70,4 +70,26 @@ public class HardenedJsonTests
             ".NETCoreApp,Version=v10.0",
             doc.RootElement.GetProperty("runtimeTarget").GetProperty("name").GetString());
     }
+
+    /// <summary>
+    /// Pins the permissive-parsing behavior that motivates <see cref="HardenedJson"/>, because it
+    /// is easy to state backwards: a name lookup resolves to the <em>last</em> duplicate, while
+    /// enumeration yields every occurrence in document order. A reader that takes the first
+    /// enumerated match therefore disagrees with a reader that looks the name up, on the same
+    /// document. If a future runtime changes this, the rationale in that class needs rewriting.
+    /// </summary>
+    [Fact]
+    public void PermissiveParsing_ResolvesANameLookupToTheLastDuplicate()
+    {
+        using var doc = JsonDocument.Parse("""{"id":"first","other":1,"id":"second"}""");
+
+        Assert.True(doc.RootElement.TryGetProperty("id", out var looked));
+        Assert.Equal("second", looked.GetString());
+
+        Assert.Equal(
+            ["first", "second"],
+            doc.RootElement.EnumerateObject()
+                .Where(static p => p.Name == "id")
+                .Select(static p => p.Value.GetString()));
+    }
 }

@@ -246,8 +246,14 @@ only ordinary compiler output.
    reports the repository from the first `documents` entry while
    `SourceDocumentPathResolver` selects by longest matching pattern, so a
    well-formed map with distinct keys can resolve source from one origin while
-   provenance names another. Report no repository when entries disagree on
-   origin.
+   provenance names another. Requiring entries to agree on the *repository* is
+   not sufficient: the reader derives `owner/repo` and discards the commit, and
+   `raw.githubusercontent.com` serves any commit reachable in a repository,
+   including the head of an unmerged pull request. Two entries naming the same
+   repository at different commits would therefore "agree" while resolving
+   attacker-authored content. Require agreement on the full resolved URL prefix
+   including the commit, or derive provenance from the mapping the resolver
+   actually selects, and report nothing when entries disagree.
 2. Fix GitHub repository provenance. The precondition tests the value for
    `github.com`, which canonical `raw.githubusercontent.com` SourceLink URLs do
    not contain, so GitHub-hosted assemblies report no repository at all. Match
