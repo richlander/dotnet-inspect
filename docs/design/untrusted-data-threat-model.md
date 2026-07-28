@@ -278,11 +278,13 @@ only ordinary compiler output.
      segments still traverses out. Reject encoded separators and encoded dot
      segments rather than assuming canonicalization removed them.
 
-   Checking that the canonicalized resolved URL still lies beneath the
-   canonicalized mapping prefix addresses all four, but do not take that as
-   sufficient on its own: whatever check is implemented must ship with tests
-   covering at least these cases, since each was found only by attacking a
-   previous formulation of this item.
+   These four are evidence that the weaker forms fail, not a specification of
+   what to block; each was found only by attacking a previous formulation of
+   this item, and no formulation reviewed so far has survived contact with the
+   next reviewer. Treat the invariant as the requirement and this list as a
+   regression floor: whatever check is implemented must ship with tests
+   covering at least these cases, and passing them is not evidence that the
+   invariant holds.
 
 2. Fix GitHub repository provenance. The precondition tests the value for
    `github.com`, which canonical `raw.githubusercontent.com` SourceLink URLs do
