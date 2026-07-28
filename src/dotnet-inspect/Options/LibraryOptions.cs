@@ -191,8 +191,6 @@ public record LibraryOptions
 
     public bool Print { get; init; }
 
-    public bool PrintAll { get; init; }
-
     public bool Value { get; init; }
 
     public bool Urls { get; init; }

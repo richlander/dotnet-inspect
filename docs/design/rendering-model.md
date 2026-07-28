@@ -60,7 +60,6 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 | `--urls` | URL projection | Prints URL-bearing selected-section rows as a URL list, JSONL rows, or a JSON array |
 | `--paths` | Path projection | Prints path-bearing selected-section rows as a path list, JSONL rows, or a JSON array |
 | `--print` | Row payload | Prints one document behind a selected printable section row; use `--row N\|first\|last` to choose the printable row when multiple printable rows exist |
-| `--print-all` | Row payloads | Prints every printable row from one selected section, using separators for text, JSONL rows, or one JSON array with `--json-array` |
 | `--versions` | Version history | Available versions from nuget.org |
 | `--library` | Library metadata | Delegates to library inspection |
 
@@ -108,7 +107,7 @@ A mode-switch flag says "show me this aspect of the subject." It does not intera
 
 ### Each lens owns its own rendering
 
-The `--files` view renders a tree. The `--readme` compatibility view renders raw markdown. The `--versions` view renders a list. `--print` projects one row of a selected printable section to the referenced document body; `--row N` chooses the Nth printable row, and multiple printable rows without `--row` produce a guidance error. `--print-all` projects every printable row and separates text payloads with `--- label ---` headers; `--jsonl` emits one object per printed row. These rendering choices are intrinsic to the lens, not controlled by verbosity. A lens may support its own sub-options (e.g. `--files --all` to include all files, not just DLLs) but those are scoped to that lens.
+The `--files` view renders a tree. The `--readme` compatibility view renders raw markdown. The `--versions` view renders a list. `--print` projects one row of a selected printable section to the referenced document body; `--row N` chooses the Nth printable row, and multiple printable rows without `--row` produce a guidance error. `--jsonl` emits the printed row as one object. These rendering choices are intrinsic to the lens, not controlled by verbosity. A lens may support its own sub-options (e.g. `--files --all` to include all files, not just DLLs) but those are scoped to that lens.
 
 ### Default rendering should be the most useful
 
@@ -119,7 +118,7 @@ When a lens has multiple possible rendering modes, the default should be the mos
 | Command | Identity (verbosity) | Lenses (mode-switch flags) |
 | ------- | -------------------- | -------------------------- |
 | `package` | Package Info, Statistics, Dependencies, Vulnerabilities | `--files`, `-S Grounding --print`, `--readme`, `--versions`, `-S Signals` |
-| `project` | — | `-S Skills`, `-S Skills --print --row N`, `-S Skills --print-all` |
+| `project` | — | `-S Skills`, `-S Skills --print --row N` |
 | `type`/`member` | Type/member identity and sectioned evidence | `-S "Source Files" --print --row N`, `-S "Source Locations" --print --row N`, `-S "Original Source" --print` |
 | `api` | Type fields, Members table | `--docs`, `--samples`, `--table`, `--tsv` |
 | `library` | Library info, PE headers | `--sourcelink`, `--references` |

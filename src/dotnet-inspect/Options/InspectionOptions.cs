@@ -109,8 +109,6 @@ public record InspectionOptions
     /// </summary>
     public bool Print { get; init; }
 
-    public bool PrintAll { get; init; }
-
     public RowSelector? PrintRow { get; init; }
 
     public bool Value { get; init; }
@@ -262,7 +260,7 @@ public record InspectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => Bare || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || ShowReadme || Print || PrintAll || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
+    public bool IsRawOutput => Bare || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || ShowReadme || Print || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
 
     /// <summary>
     /// All inspection features enabled.
