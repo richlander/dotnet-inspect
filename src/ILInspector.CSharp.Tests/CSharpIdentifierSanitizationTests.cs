@@ -200,4 +200,116 @@ public sealed class CSharpIdentifierSanitizationTests
         }
         return names;
     }
+
+    /// <summary>
+    /// A line terminator is not the whole hazard. Vertical tab is not a C# line
+    /// terminator, so <c>ReplaceLineEndings</c> leaves it, but it still moves a
+    /// terminal cursor down a row -- the same injection by a different character.
+    /// ANSI escapes erase or recolor the rendering, and a bidi override reorders
+    /// what follows it (the Trojan Source shape, CVE-2021-42574).
+    /// </summary>
+    /// <remarks>
+    /// The repository already held this position for the taste side-comment
+    /// channel; <c>ApiOutputFormatter.NeutralizeForSideComment</c> now shares
+    /// <see cref="CSharpIdentifier.IsRenderingHazard"/> with the identifier
+    /// channel, and <see cref="ContainIdentifier_HazardSetIsExactlyTheSharedOne"/>
+    /// keeps the two from drifting apart.
+    /// </remarks>
+    [Theory]
+    [InlineData("\v")]
+    [InlineData("\u001b[2J")]
+    [InlineData("\u001b]0;title\u0007")]
+    [InlineData("\0")]
+    [InlineData("\u202e")]
+    [InlineData("\u001c")]
+    [InlineData("\u001f")]
+    public void ContainIdentifier_ContainsRenderingHazardsThatAreNotLineTerminators(string hazard)
+    {
+        string hostile = $"p{hazard}    public int Injected() => 42; //";
+
+        foreach (var contained in new[]
+                 {
+                     CSharpIdentifier.ContainIdentifier(hostile),
+                     CSharpIdentifier.ContainIdentifierForDeclaration(hostile),
+                 })
+        {
+            // Independent oracle on purpose -- see AssertNoRenderingHazard.
+            AssertNoRenderingHazard(contained);
+
+            // And the containment still yields something C# can parse.
+            Assert.True(CSharpIdentifier.IsEscapable(contained));
+        }
+    }
+
+    [Theory]
+    [InlineData("\v")]
+    [InlineData("\u001b[2J")]
+    [InlineData("\0")]
+    [InlineData("\u202e")]
+    public void ContainComposedName_EscapesRenderingHazardsVisibly(string hazard)
+    {
+        var contained = CSharpIdentifierCore.ContainComposedName($"Meth{hazard}rest");
+
+        // Escaped to a visible \uXXXX rather than folded away: a composed name is
+        // already not compilable C#, so identity is worth more than spelling.
+        AssertNoRenderingHazard(contained);
+        Assert.Contains("\\u", contained, StringComparison.Ordinal);
+        Assert.StartsWith("Meth", contained, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Tab is legal in the rendered channels and renders as a space, so containing
+    /// it would corrupt ordinary names for nothing. This is the close negative case
+    /// for the hazard set.
+    /// </summary>
+    [Fact]
+    public void ContainIdentifier_DoesNotTreatTabAsAHazard()
+        => Assert.False(CSharpIdentifier.IsRenderingHazard('\t'));
+
+    /// <summary>
+    /// The identifier channel and the taste side-comment channel must agree on what
+    /// is dangerous. This asserts they are literally the same predicate over the
+    /// whole BMP, so a future edit to one cannot silently narrow the other.
+    /// </summary>
+    [Fact]
+    public void ContainIdentifier_HazardSetIsExactlyTheSharedOne()
+    {
+        int hazards = 0;
+        for (int c = 0; c <= 0xFFFF; c++)
+        {
+            var ch = (char)c;
+            bool expected = ch != '\t'
+                && (char.IsControl(ch)
+                    || ch is '\u061C' or '\u200E' or '\u200F'
+                        or >= '\u202A' and <= '\u202E'
+                        or >= '\u2066' and <= '\u2069');
+
+            Assert.Equal(expected, CSharpIdentifier.IsRenderingHazard(ch));
+            if (expected)
+                hazards++;
+        }
+
+        // Non-vacuity: the sweep really did find both sets. C0 (U+0000-U+001F, 32)
+        // plus C1 and DEL (U+007F-U+009F, 33) is 65 controls, less tab, is 64; the
+        // bidi set adds ALM (1), LRM/RLM (2), LRE..RLO (5), and LRI..PDI (4) = 12.
+        Assert.Equal(64 + 12, hazards);
+    }
+
+    /// <summary>
+    /// The harness's own definition of the hazard set. Deliberately not a call to
+    /// <see cref="CSharpIdentifier.IsRenderingHazard"/>: a gate that asks the
+    /// product what counts as dangerous cannot fail when the product's answer is
+    /// wrong, which is the one thing it is here to catch. Tampering
+    /// <c>IsRenderingHazard</c> to return <c>false</c> left the product-predicate
+    /// version of this assertion green.
+    /// </summary>
+    static void AssertNoRenderingHazard(string text)
+        => Assert.DoesNotContain(
+            text,
+            c => c != '\t' && (char.IsControl(c) || IsBidiControl(c)));
+
+    static bool IsBidiControl(char ch)
+        => ch is '\u061C' or '\u200E' or '\u200F'
+            or >= '\u202A' and <= '\u202E'
+            or >= '\u2066' and <= '\u2069';
 }

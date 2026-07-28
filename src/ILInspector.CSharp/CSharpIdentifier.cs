@@ -98,4 +98,33 @@ public static class CSharpIdentifier
     /// character becomes <c>_</c>. The result is keyword-escaped for completeness.</summary>
     public static string SanitizeUnspellable(string name)
         => CSharpIdentifierCore.SanitizeUnspellable(name, CSharpKeywords.RequiresBodyEscape);
+
+    /// <summary>
+    /// A character that is safe as C# syntax but not safe once rendered: a C0/C1
+    /// control that moves or rewrites the terminal cursor (vertical tab, ESC, NUL),
+    /// or a Unicode bidi control that reorders its neighbors. Tab is allowed.
+    /// </summary>
+    /// <remarks>
+    /// Public so that presentation channels which neutralize rather than sanitize —
+    /// <c>ApiOutputFormatter.NeutralizeForSideComment</c> — share one definition of
+    /// the hazard set with <see cref="ContainIdentifier"/> rather than keeping a
+    /// second copy that can drift.
+    /// </remarks>
+    public static bool IsRenderingHazard(char ch) => CSharpIdentifierCore.IsRenderingHazard(ch);
+
+    /// <summary>
+    /// Contains free text that is rendered but is not a C# identifier — an IL side
+    /// comment, a composed member name (<c>.ctor</c>, <c>IFoo.Bar</c>), a taste
+    /// annotation. Folds line terminators to a space and rewrites every rendering
+    /// hazard as a visible <c>\uXXXX</c>, changing nothing else.
+    /// </summary>
+    /// <remarks>
+    /// One definition for every "neutralize, do not sanitize" channel. These
+    /// channels are not compilable C# to begin with, so identity is worth more than
+    /// spelling and the escape keeps the real bytes legible. Sharing it is the
+    /// point: issue #3319 existed because four copies of the identifier escaper had
+    /// drifted, and this text channel had already drifted the same way — the IL
+    /// projection folded line endings but let a vertical tab through.
+    /// </remarks>
+    public static string ContainRenderedText(string text) => CSharpIdentifierCore.ContainComposedName(text);
 }

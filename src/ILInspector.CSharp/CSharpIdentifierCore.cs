@@ -1,6 +1,7 @@
 namespace ILInspector.CSharp;
 
 using System.Globalization;
+using System.Linq;
 using System.Text;
 
 /// <summary>
@@ -55,9 +56,10 @@ internal static class CSharpIdentifierCore
 
     /// <summary>
     /// The spelling for a metadata name that reaches rendered output: keyword
-    /// escaping, plus containment of the one thing a name must never do, which is
-    /// carry a line terminator out of its code fence, Markdown table row, or
-    /// <c>type</c> tree gutter (issue #3319).
+    /// escaping, plus containment of the two things a name must never do, which are
+    /// to carry a line terminator out of its code fence, Markdown table row, or
+    /// <c>type</c> tree gutter, and to move or rewrite the terminal cursor once it
+    /// gets there (issue #3319).
     /// </summary>
     /// <remarks>
     /// Deliberately narrower than <see cref="Sanitize"/>. An unspellable name that
@@ -66,11 +68,23 @@ internal static class CSharpIdentifierCore
     /// problem through the fidelity marker instead of quietly rewriting the name;
     /// <c>KeywordIdentifierTests.RaisedNullConditionalUnspellableProperty_PreservesIdentity</c>
     /// and <c>UnspeakableNameFidelityTests</c> gate exactly that. Narrowing to line
-    /// terminators is also what makes this byte-neutral for every name a compiler
-    /// can emit, since none of them contain one.
+    /// terminators and rendering hazards is also what makes this byte-neutral for
+    /// every name a compiler can emit, since none of them contain either.
+    /// <para>
+    /// A line terminator is not the whole hazard. Vertical tab is not a C# line
+    /// terminator, so <c>ReplaceLineEndings</c> and
+    /// <see cref="ContainsLineTerminator"/> both leave it, but it still moves a
+    /// terminal cursor down a row — which is the same injection by a different
+    /// character. ANSI escapes recolor or erase the rendered output, and bidi
+    /// overrides reorder what follows them. This is the repository's existing
+    /// position for the taste side-comment channel; see
+    /// <c>ApiOutputFormatter.NeutralizeForSideComment</c>, which shares
+    /// <see cref="IsRenderingHazard"/> with this method so the two channels cannot
+    /// drift apart.
+    /// </para>
     /// </remarks>
     public static string ContainIdentifier(string name, Func<string, bool> requiresEscape)
-        => ContainsLineTerminator(name)
+        => ContainsLineTerminator(name) || name.Any(IsRenderingHazard)
             ? SanitizeUnspellable(name, requiresEscape)
             : (requiresEscape(name) ? "@" + name : name);
 
@@ -120,7 +134,47 @@ internal static class CSharpIdentifierCore
     /// <c>CSharpIdentifierSanitizationTests.ContainComposedName_*</c>.
     /// </remarks>
     public static string ContainComposedName(string name)
-        => name.ReplaceLineEndings(" ");
+    {
+        var folded = name.ReplaceLineEndings(" ");
+        if (!folded.Any(IsRenderingHazard))
+            return folded;
+
+        // A visible \uXXXX keeps the identity legible, which matters more here than
+        // it does for an identifier: this text is already not compilable C#, so
+        // there is nothing to be gained by folding it to identifier characters and
+        // something to be lost by dropping the real bytes of the name.
+        var builder = new StringBuilder(folded.Length);
+        foreach (var ch in folded)
+        {
+            if (IsRenderingHazard(ch))
+                builder.Append(CultureInfo.InvariantCulture, $"\\u{(int)ch:X4}");
+            else
+                builder.Append(ch);
+        }
+
+        return builder.ToString();
+    }
+
+    /// <summary>
+    /// A character that is safe as C# syntax but not safe once rendered: a C0/C1
+    /// control that moves or rewrites the terminal cursor (vertical tab, ESC, NUL),
+    /// or a Unicode bidi control that reorders its neighbors. Tab is deliberately
+    /// allowed — it is legal and renders as space.
+    /// </summary>
+    public static bool IsRenderingHazard(char ch)
+        => ch != '\t' && (char.IsControl(ch) || IsBidiControl(ch));
+
+    /// <summary>
+    /// Exactly Unicode's Bidi_Control set: ALM, LRM/RLM, the LRE/RLE/PDF/LRO/RLO
+    /// embeddings and overrides, and the LRI/RLI/FSI/PDI isolates. Deliberately
+    /// narrower than the Cf category — a zero-width joiner or a BOM does not
+    /// reorder its neighbors, and legitimate identifiers may contain format
+    /// characters, so escaping all of Cf would corrupt ordinary names.
+    /// </summary>
+    public static bool IsBidiControl(char ch)
+        => ch is '\u061C' or '\u200E' or '\u200F'
+            or >= '\u202A' and <= '\u202E'
+            or >= '\u2066' and <= '\u2069';
 
     static bool IsIdentifierStartRune(Rune rune)
         => rune.Value == '_'

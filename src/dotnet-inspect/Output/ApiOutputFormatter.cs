@@ -1823,39 +1823,7 @@ public static class ApiOutputFormatter
     // which keeps the identity legible instead of dropping characters that are
     // part of the real name.
     private static string NeutralizeForSideComment(string value)
-    {
-        var folded = value.ReplaceLineEndings(" ");
-        if (!folded.Any(IsRenderingHazard))
-            return folded;
-
-        var builder = new StringBuilder(folded.Length);
-        foreach (var ch in folded)
-        {
-            if (IsRenderingHazard(ch))
-                builder.Append(CultureInfo.InvariantCulture, $"\\u{(int)ch:X4}");
-            else
-                builder.Append(ch);
-        }
-
-        return builder.ToString();
-
-        // Tab is deliberately allowed: it is legal in a comment and renders as
-        // space. Vertical tab is not a C# line terminator, so ReplaceLineEndings
-        // leaves it, but it does move the cursor down a line in a terminal — it is
-        // caught here as the C0 control it is.
-        static bool IsRenderingHazard(char ch) =>
-            ch != '\t' && (char.IsControl(ch) || IsBidiControl(ch));
-
-        // Exactly Unicode's Bidi_Control set: ALM, LRM/RLM, the LRE/RLE/PDF/LRO/RLO
-        // embeddings and overrides, and the LRI/RLI/FSI/PDI isolates. Deliberately
-        // narrower than the Cf category — a zero-width joiner or a BOM does not
-        // reorder its neighbors, and legitimate identifiers may contain format
-        // characters, so escaping all of Cf would corrupt ordinary names.
-        static bool IsBidiControl(char ch) =>
-            ch is '\u061C' or '\u200E' or '\u200F'
-                or >= '\u202A' and <= '\u202E'
-                or >= '\u2066' and <= '\u2069';
-    }
+        => CSharpIdentifier.ContainRenderedText(value);
 
     static string TrimLensPrefix(string ruleId)
         => ruleId.StartsWith("style-lens.", StringComparison.Ordinal)

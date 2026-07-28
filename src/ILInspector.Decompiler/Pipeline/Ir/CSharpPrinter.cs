@@ -4901,9 +4901,20 @@ public sealed partial class CSharpPrinter
             // enclosing printer (when this renders a lambda/local-function body with
             // its own scope), nested lambda/local-function parameters, and the
             // printer's own synthetic locals (stack slots S_n, switch temps). It
-            // mixes raw and escaped names; SafeIdentifier is idempotent on an
-            // already-escaped spelling, so normalize all to the sanitized spelling
-            // the rendered call name uses.
+            // mixes raw and escaped names, so the normalizer has to be idempotent
+            // on an already-escaped spelling: ContainedIdentifier maps both `int`
+            // and `@int` to `@int`, which is what the rendered call name carries.
+            // SafeIdentifier would NOT work here despite being the spelling
+            // SourceMethodName uses -- it is not idempotent, and rewrites `@int` to
+            // `__int`, which matches nothing.
+            //
+            // That leaves one residual mismatch, pre-existing and deliberately not
+            // widened here: an unspellable binder stays `<>c` in this set while
+            // SourceMethodName sanitizes the call name to `___c`, so a shadow by an
+            // unspellable name is missed. The IsUnspeakableName guard in
+            // RecordBareCallName covers that for the recording path; the remaining
+            // hole is tracked separately rather than fixed inside a security change
+            // whose corpus evidence is byte-neutrality.
             foreach (var name in CurrentScopeNames())
                 _staticScopeShadowNames.Add(CSharpNaming.ContainedIdentifier(name));
         }

@@ -20,9 +20,15 @@ public sealed class UntrustedIdentifierPresentationTests
 {
     const string Marker = "public int Injected() => 42; //";
 
+    /// <summary>
+    /// The line terminators, plus the rendering hazards that are not line
+    /// terminators but still break the rendering: vertical tab moves a terminal
+    /// cursor down a row, and an ANSI escape erases or recolors what is already
+    /// there.
+    /// </summary>
     public static TheoryData<string> LineTerminators => new()
     {
-        "\n", "\r\n", "\u2028",
+        "\n", "\r\n", "\u2028", "\v", "\u001b[2J",
     };
 
     [Theory]
@@ -128,6 +134,28 @@ public sealed class UntrustedIdentifierPresentationTests
         // And no line consists solely of the payload.
         foreach (var line in hostileOutput.ReplaceLineEndings("\n").Split('\n'))
             Assert.NotEqual(Marker, line.Trim());
+
+        // Line count cannot see a vertical tab or an ANSI escape -- neither adds a
+        // line to the string, they only move or rewrite the terminal cursor once
+        // the string is rendered. So assert the hazard set directly as well.
+        // The output's own line structure is legitimate, so exempt CR and LF; every
+        // other hazard character in the rendering came from the name.
+        //
+        // The predicate is spelled out here rather than calling
+        // CSharpIdentifier.IsRenderingHazard: a gate that asks the product what
+        // counts as dangerous goes vacuous the moment the product's answer is
+        // wrong, which is the one case it exists to catch. Tampering
+        // IsRenderingHazard to `false` left this test green until it owned its own
+        // oracle.
+        Assert.DoesNotContain(
+            hostileOutput,
+            c => c is not ('\n' or '\r' or '\t')
+                && (char.IsControl(c) || IsBidiControl(c)));
+
+        static bool IsBidiControl(char ch)
+            => ch is '\u061C' or '\u200E' or '\u200F'
+                or >= '\u202A' and <= '\u202E'
+                or >= '\u2066' and <= '\u2069';
     }
 
     static string Render(
