@@ -446,12 +446,21 @@ test in the same change that crosses the bootstrap. Tracked as #3362.
 
   Pinning the call site's source text was tried and was worse than useless: a
   behavior-preserving comment failed it, while a commented-out decoy above the
-  real call satisfied it. Running the binary leaves no seam to strand a rule
-  behind — but only as far as the binary actually gets. The first version of
-  these tests pointed every run at a missing corpus, so the process returned at
-  "corpus file not found" before reading the arguments the tests were named for,
-  and dropping either one left the suite green. Reaching past that guard is the
-  point.
+  real call satisfied it. A second source-parsing test survived one round longer
+  on the reasoning that a name mirror can false-red but cannot false-green;
+  review then added an untested mode to the live dispatch list behind a
+  commented-out copy of the old one, and the suite stayed green while the binary
+  discarded a requested gate. Reading source text is guessing at what the
+  program does, and a decoy is always available. The modes are declared in
+  product code instead, and the refusal rejects a dispatch order that does not
+  match the declaration — so a mode added without declaring it makes every
+  invocation throw.
+
+  Running the binary leaves no seam to strand a rule behind — but only as far as
+  the binary actually gets. The first version of these tests pointed every run at
+  a missing corpus, so the process returned at "corpus file not found" before
+  reading the arguments the tests were named for, and dropping either one left
+  the suite green. Reaching past that guard is the point.
 
   The test project takes a `ReferenceOutputAssembly="false"` reference on the
   harness so the binary is rebuilt with the tests, and a missing binary fails
