@@ -1,0 +1,1077 @@
+tfm	assembly	file	kind	forwardsTo	version	publicTypes
+net6.0	Microsoft.CSharp	Microsoft.CSharp.dll	impl		6.0.0.0	6
+net6.0	Microsoft.VisualBasic	Microsoft.VisualBasic.dll	facade	Microsoft.VisualBasic.Core	10.0.0.0	0
+net6.0	Microsoft.VisualBasic.Core	Microsoft.VisualBasic.Core.dll	impl		11.0.0.0	74
+net6.0	Microsoft.Win32.Primitives	Microsoft.Win32.Primitives.dll	impl		6.0.0.0	1
+net6.0	Microsoft.Win32.Registry	Microsoft.Win32.Registry.dll	impl		6.0.0.0	13
+net6.0	mscorlib	mscorlib.dll	facade	System.Private.CoreLib	4.0.0.0	0
+net6.0	netstandard	netstandard.dll	facade	System.Runtime	2.1.0.0	0
+net6.0	System	System.dll	facade	System.ComponentModel.TypeConverter	4.0.0.0	0
+net6.0	System.AppContext	System.AppContext.dll	facade	System.Private.CoreLib	6.0.0.0	0
+net6.0	System.Buffers	System.Buffers.dll	facade	System.Private.CoreLib	6.0.0.0	0
+net6.0	System.Collections	System.Collections.dll	impl		6.0.0.0	17
+net6.0	System.Collections.Concurrent	System.Collections.Concurrent.dll	impl		6.0.0.0	10
+net6.0	System.Collections.Immutable	System.Collections.Immutable.dll	impl		6.0.0.0	23
+net6.0	System.Collections.NonGeneric	System.Collections.NonGeneric.dll	impl		6.0.0.0	9
+net6.0	System.Collections.Specialized	System.Collections.Specialized.dll	impl		6.0.0.0	10
+net6.0	System.ComponentModel	System.ComponentModel.dll	impl		6.0.0.0	5
+net6.0	System.ComponentModel.Annotations	System.ComponentModel.Annotations.dll	impl		6.0.0.0	43
+net6.0	System.ComponentModel.DataAnnotations	System.ComponentModel.DataAnnotations.dll	facade	System.ComponentModel.Annotations	4.0.0.0	0
+net6.0	System.ComponentModel.EventBasedAsync	System.ComponentModel.EventBasedAsync.dll	impl		6.0.0.0	11
+net6.0	System.ComponentModel.Primitives	System.ComponentModel.Primitives.dll	impl		6.0.0.0	30
+net6.0	System.ComponentModel.TypeConverter	System.ComponentModel.TypeConverter.dll	impl		6.0.0.0	209
+net6.0	System.Configuration	System.Configuration.dll	facade	System.Configuration.ConfigurationManager	4.0.0.0	0
+net6.0	System.Console	System.Console.dll	impl		6.0.0.0	8
+net6.0	System.Core	System.Core.dll	facade	System.Linq.Expressions	4.0.0.0	0
+net6.0	System.Data	System.Data.dll	facade	System.Data.Common	4.0.0.0	0
+net6.0	System.Data.Common	System.Data.Common.dll	impl		6.0.0.0	170
+net6.0	System.Data.DataSetExtensions	System.Data.DataSetExtensions.dll	facade	System.Data.Common	4.0.0.0	0
+net6.0	System.Diagnostics.Contracts	System.Diagnostics.Contracts.dll	facade	System.Private.CoreLib	6.0.0.0	15
+net6.0	System.Diagnostics.Debug	System.Diagnostics.Debug.dll	facade	System.Private.CoreLib	6.0.0.0	0
+net6.0	System.Diagnostics.DiagnosticSource	System.Diagnostics.DiagnosticSource.dll	impl		6.0.0.0	31
+net6.0	System.Diagnostics.FileVersionInfo	System.Diagnostics.FileVersionInfo.dll	impl		6.0.0.0	1
+net6.0	System.Diagnostics.Process	System.Diagnostics.Process.dll	impl		6.0.0.0	15
+net6.0	System.Diagnostics.StackTrace	System.Diagnostics.StackTrace.dll	impl		6.0.0.0	18
+net6.0	System.Diagnostics.TextWriterTraceListener	System.Diagnostics.TextWriterTraceListener.dll	impl		6.0.0.0	4
+net6.0	System.Diagnostics.Tools	System.Diagnostics.Tools.dll	facade	System.Private.CoreLib	6.0.0.0	0
+net6.0	System.Diagnostics.TraceSource	System.Diagnostics.TraceSource.dll	impl		6.0.0.0	20
+net6.0	System.Diagnostics.Tracing	System.Diagnostics.Tracing.dll	facade	System.Private.CoreLib	6.0.0.0	30
+net6.0	System.Drawing	System.Drawing.dll	facade	System.Drawing.Common	4.0.0.0	0
+net6.0	System.Drawing.Primitives	System.Drawing.Primitives.dll	impl		6.0.0.0	10
+net6.0	System.Dynamic.Runtime	System.Dynamic.Runtime.dll	facade	System.Linq.Expressions	6.0.0.0	0
+net6.0	System.Formats.Asn1	System.Formats.Asn1.dll	impl		6.0.0.0	9
+net6.0	System.Globalization	System.Globalization.dll	facade	System.Private.CoreLib	6.0.0.0	0
+net6.0	System.Globalization.Calendars	System.Globalization.Calendars.dll	facade	System.Private.CoreLib	6.0.0.0	0
+net6.0	System.Globalization.Extensions	System.Globalization.Extensions.dll	facade	System.Runtime	6.0.0.0	0
+net6.0	System.IO	System.IO.dll	facade	System.Runtime	6.0.0.0	0
+net6.0	System.IO.Compression	System.IO.Compression.dll	impl		6.0.0.0	8
+net6.0	System.IO.Compression.Brotli	System.IO.Compression.Brotli.dll	impl		6.0.0.0	3
+net6.0	System.IO.Compression.FileSystem	System.IO.Compression.FileSystem.dll	facade	System.IO.Compression.ZipFile	4.0.0.0	0
+net6.0	System.IO.Compression.ZipFile	System.IO.Compression.ZipFile.dll	impl		6.0.0.0	2
+net6.0	System.IO.FileSystem	System.IO.FileSystem.dll	facade	System.Runtime	6.0.0.0	0
+net6.0	System.IO.FileSystem.AccessControl	System.IO.FileSystem.AccessControl.dll	impl		6.0.0.0	8
+net6.0	System.IO.FileSystem.DriveInfo	System.IO.FileSystem.DriveInfo.dll	impl		6.0.0.0	3
+net6.0	System.IO.FileSystem.Primitives	System.IO.FileSystem.Primitives.dll	facade	System.Runtime	6.0.0.0	0
+net6.0	System.IO.FileSystem.Watcher	System.IO.FileSystem.Watcher.dll	impl		6.0.0.0	11
+net6.0	System.IO.IsolatedStorage	System.IO.IsolatedStorage.dll	impl		6.0.0.0	6
+net6.0	System.IO.MemoryMappedFiles	System.IO.MemoryMappedFiles.dll	impl		6.0.0.0	8
+net6.0	System.IO.Pipes	System.IO.Pipes.dll	impl		6.0.0.0	10
+net6.0	System.IO.Pipes.AccessControl	System.IO.Pipes.AccessControl.dll	impl		6.0.0.0	7
+net6.0	System.IO.UnmanagedMemoryStream	System.IO.UnmanagedMemoryStream.dll	facade	System.Private.CoreLib	6.0.0.0	0
+net6.0	System.Linq	System.Linq.dll	impl		6.0.0.0	5
+net6.0	System.Linq.Expressions	System.Linq.Expressions.dll	impl		6.0.0.0	77
+net6.0	System.Linq.Parallel	System.Linq.Parallel.dll	impl		6.0.0.0	6
+net6.0	System.Linq.Queryable	System.Linq.Queryable.dll	impl		6.0.0.0	5
+net6.0	System.Memory	System.Memory.dll	impl		6.0.0.0	20
+net6.0	System.Net	System.Net.dll	facade	System.Net.Primitives	4.0.0.0	0
+net6.0	System.Net.Http	System.Net.Http.dll	impl		6.0.0.0	55
+net6.0	System.Net.Http.Json	System.Net.Http.Json.dll	impl		6.0.0.0	3
+net6.0	System.Net.HttpListener	System.Net.HttpListener.dll	impl		6.0.0.0	10
+net6.0	System.Net.Mail	System.Net.Mail.dll	impl		6.0.0.0	25
+net6.0	System.Net.NameResolution	System.Net.NameResolution.dll	impl		6.0.0.0	2
+net6.0	System.Net.NetworkInformation	System.Net.NetworkInformation.dll	impl		6.0.0.0	36
+net6.0	System.Net.Ping	System.Net.Ping.dll	impl		6.0.0.0	7
+net6.0	System.Net.Primitives	System.Net.Primitives.dll	impl		6.0.0.0	33
+net6.0	System.Net.Quic	System.Net.Quic.dll	impl		6.0.0.0	12
+net6.0	System.Net.Requests	System.Net.Requests.dll	impl		6.0.0.0	23
+net6.0	System.Net.Security	System.Net.Security.dll	impl		6.0.0.0	23
+net6.0	System.Net.ServicePoint	System.Net.ServicePoint.dll	impl		6.0.0.0	4
+net6.0	System.Net.Sockets	System.Net.Sockets.dll	impl		6.0.0.0	31
+net6.0	System.Net.WebClient	System.Net.WebClient.dll	impl		6.0.0.0	23
+net6.0	System.Net.WebHeaderCollection	System.Net.WebHeaderCollection.dll	impl		6.0.0.0	3
+net6.0	System.Net.WebProxy	System.Net.WebProxy.dll	impl		6.0.0.0	2
+net6.0	System.Net.WebSockets	System.Net.WebSockets.dll	impl		6.0.0.0	12
+net6.0	System.Net.WebSockets.Client	System.Net.WebSockets.Client.dll	impl		6.0.0.0	2
+net6.0	System.Numerics	System.Numerics.dll	facade	System.Numerics.Vectors	4.0.0.0	0
+net6.0	System.Numerics.Vectors	System.Numerics.Vectors.dll	facade	System.Private.CoreLib	6.0.0.0	9
+net6.0	System.ObjectModel	System.ObjectModel.dll	impl		6.0.0.0	21
+net6.0	System.Private.CoreLib	System.Private.CoreLib.dll	impl		6.0.0.0	1121
+net6.0	System.Private.DataContractSerialization	System.Private.DataContractSerialization.dll	impl		6.0.0.0	36
+net6.0	System.Private.Uri	System.Private.Uri.dll	impl		6.0.0.0	20
+net6.0	System.Private.Xml	System.Private.Xml.dll	impl		6.0.0.0	296
+net6.0	System.Private.Xml.Linq	System.Private.Xml.Linq.dll	impl		6.0.0.0	25
+net6.0	System.Reflection	System.Reflection.dll	facade	System.Private.CoreLib	6.0.0.0	0
+net6.0	System.Reflection.DispatchProxy	System.Reflection.DispatchProxy.dll	impl		6.0.0.0	1
+net6.0	System.Reflection.Emit	System.Reflection.Emit.dll	facade	System.Private.CoreLib	6.0.0.0	11
+net6.0	System.Reflection.Emit.ILGeneration	System.Reflection.Emit.ILGeneration.dll	facade	System.Private.CoreLib	6.0.0.0	6
+net6.0	System.Reflection.Emit.Lightweight	System.Reflection.Emit.Lightweight.dll	facade	System.Private.CoreLib	6.0.0.0	2
+net6.0	System.Reflection.Extensions	System.Reflection.Extensions.dll	facade	System.Runtime	6.0.0.0	0
+net6.0	System.Reflection.Metadata	System.Reflection.Metadata.dll	impl		6.0.0.0	231
+net6.0	System.Reflection.Primitives	System.Reflection.Primitives.dll	facade	System.Private.CoreLib	6.0.0.0	7
+net6.0	System.Reflection.TypeExtensions	System.Reflection.TypeExtensions.dll	impl		6.0.0.0	7
+net6.0	System.Resources.Reader	System.Resources.Reader.dll	facade	System.Runtime	6.0.0.0	0
+net6.0	System.Resources.ResourceManager	System.Resources.ResourceManager.dll	facade	System.Private.CoreLib	6.0.0.0	0
+net6.0	System.Resources.Writer	System.Resources.Writer.dll	impl		6.0.0.0	2
+net6.0	System.Runtime	System.Runtime.dll	facade	System.Private.CoreLib	6.0.0.0	770
+net6.0	System.Runtime.CompilerServices.Unsafe	System.Runtime.CompilerServices.Unsafe.dll	impl		6.0.0.0	1
+net6.0	System.Runtime.CompilerServices.VisualC	System.Runtime.CompilerServices.VisualC.dll	impl		6.0.0.0	16
+net6.0	System.Runtime.Extensions	System.Runtime.Extensions.dll	facade	System.Private.CoreLib	6.0.0.0	0
+net6.0	System.Runtime.Handles	System.Runtime.Handles.dll	facade	System.Runtime	6.0.0.0	0
+net6.0	System.Runtime.InteropServices	System.Runtime.InteropServices.dll	impl		6.0.0.0	156
+net6.0	System.Runtime.InteropServices.RuntimeInformation	System.Runtime.InteropServices.RuntimeInformation.dll	impl		6.0.0.0	3
+net6.0	System.Runtime.Intrinsics	System.Runtime.Intrinsics.dll	facade	System.Private.CoreLib	6.0.0.0	32
+net6.0	System.Runtime.Loader	System.Runtime.Loader.dll	facade	System.Private.CoreLib	6.0.0.0	6
+net6.0	System.Runtime.Numerics	System.Runtime.Numerics.dll	impl		6.0.0.0	2
+net6.0	System.Runtime.Serialization	System.Runtime.Serialization.dll	facade	System.Runtime.Serialization.Xml	4.0.0.0	0
+net6.0	System.Runtime.Serialization.Formatters	System.Runtime.Serialization.Formatters.dll	impl		6.0.0.0	16
+net6.0	System.Runtime.Serialization.Json	System.Runtime.Serialization.Json.dll	facade	System.Private.DataContractSerialization	6.0.0.0	7
+net6.0	System.Runtime.Serialization.Primitives	System.Runtime.Serialization.Primitives.dll	impl		6.0.0.0	9
+net6.0	System.Runtime.Serialization.Xml	System.Runtime.Serialization.Xml.dll	facade	System.Private.DataContractSerialization	6.0.0.0	28
+net6.0	System.Security	System.Security.dll	facade	System.Security.Cryptography.Xml	4.0.0.0	0
+net6.0	System.Security.AccessControl	System.Security.AccessControl.dll	impl		6.0.0.0	46
+net6.0	System.Security.Claims	System.Security.Claims.dll	impl		6.0.0.0	7
+net6.0	System.Security.Cryptography.Algorithms	System.Security.Cryptography.Algorithms.dll	impl		6.0.0.0	60
+net6.0	System.Security.Cryptography.Cng	System.Security.Cryptography.Cng.dll	impl		6.0.0.0	29
+net6.0	System.Security.Cryptography.Csp	System.Security.Cryptography.Csp.dll	impl		6.0.0.0	18
+net6.0	System.Security.Cryptography.Encoding	System.Security.Cryptography.Encoding.dll	impl		6.0.0.0	12
+net6.0	System.Security.Cryptography.OpenSsl	System.Security.Cryptography.OpenSsl.dll	impl		6.0.0.0	5
+net6.0	System.Security.Cryptography.Primitives	System.Security.Cryptography.Primitives.dll	impl		6.0.0.0	16
+net6.0	System.Security.Cryptography.X509Certificates	System.Security.Cryptography.X509Certificates.dll	impl		6.0.0.0	44
+net6.0	System.Security.Principal	System.Security.Principal.dll	facade	System.Private.CoreLib	6.0.0.0	0
+net6.0	System.Security.Principal.Windows	System.Security.Principal.Windows.dll	impl		6.0.0.0	12
+net6.0	System.Security.SecureString	System.Security.SecureString.dll	facade	System.Runtime.InteropServices	6.0.0.0	0
+net6.0	System.ServiceModel.Web	System.ServiceModel.Web.dll	facade	System.ServiceModel.Syndication	4.0.0.0	0
+net6.0	System.ServiceProcess	System.ServiceProcess.dll	facade	System.ServiceProcess.ServiceController	4.0.0.0	0
+net6.0	System.Text.Encoding	System.Text.Encoding.dll	facade	System.Private.CoreLib	6.0.0.0	0
+net6.0	System.Text.Encoding.CodePages	System.Text.Encoding.CodePages.dll	impl		6.0.0.0	1
+net6.0	System.Text.Encoding.Extensions	System.Text.Encoding.Extensions.dll	facade	System.Private.CoreLib	6.0.0.0	5
+net6.0	System.Text.Encodings.Web	System.Text.Encodings.Web.dll	impl		6.0.0.0	7
+net6.0	System.Text.Json	System.Text.Json.dll	impl		6.0.0.0	59
+net6.0	System.Text.RegularExpressions	System.Text.RegularExpressions.dll	impl		6.0.0.0	15
+net6.0	System.Threading	System.Threading.dll	impl		6.0.0.0	36
+net6.0	System.Threading.Channels	System.Threading.Channels.dll	impl		6.0.0.0	10
+net6.0	System.Threading.Overlapped	System.Threading.Overlapped.dll	facade	System.Private.CoreLib	6.0.0.0	5
+net6.0	System.Threading.Tasks	System.Threading.Tasks.dll	facade	System.Private.CoreLib	6.0.0.0	0
+net6.0	System.Threading.Tasks.Dataflow	System.Threading.Tasks.Dataflow.dll	impl		6.0.0.0	23
+net6.0	System.Threading.Tasks.Extensions	System.Threading.Tasks.Extensions.dll	facade	System.Private.CoreLib	6.0.0.0	0
+net6.0	System.Threading.Tasks.Parallel	System.Threading.Tasks.Parallel.dll	impl		6.0.0.0	4
+net6.0	System.Threading.Thread	System.Threading.Thread.dll	facade	System.Private.CoreLib	6.0.0.0	14
+net6.0	System.Threading.ThreadPool	System.Threading.ThreadPool.dll	facade	System.Private.CoreLib	6.0.0.0	5
+net6.0	System.Threading.Timer	System.Threading.Timer.dll	facade	System.Private.CoreLib	6.0.0.0	0
+net6.0	System.Transactions	System.Transactions.dll	facade	System.Transactions.Local	4.0.0.0	0
+net6.0	System.Transactions.Local	System.Transactions.Local.dll	impl		6.0.0.0	34
+net6.0	System.ValueTuple	System.ValueTuple.dll	facade	System.Runtime	4.0.3.0	0
+net6.0	System.Web	System.Web.dll	facade	System.Web.HttpUtility	4.0.0.0	0
+net6.0	System.Web.HttpUtility	System.Web.HttpUtility.dll	impl		6.0.0.0	1
+net6.0	System.Windows	System.Windows.dll	facade	System.ObjectModel	4.0.0.0	0
+net6.0	System.Xml	System.Xml.dll	facade	System.Private.Xml	4.0.0.0	0
+net6.0	System.Xml.Linq	System.Xml.Linq.dll	facade	System.Xml.XDocument	4.0.0.0	0
+net6.0	System.Xml.ReaderWriter	System.Xml.ReaderWriter.dll	facade	System.Private.Xml	6.0.0.0	187
+net6.0	System.Xml.Serialization	System.Xml.Serialization.dll	facade	System.Xml.XmlSerializer	4.0.0.0	0
+net6.0	System.Xml.XDocument	System.Xml.XDocument.dll	facade	System.Private.Xml.Linq	6.0.0.0	24
+net6.0	System.Xml.XmlDocument	System.Xml.XmlDocument.dll	facade	System.Private.Xml	6.0.0.0	0
+net6.0	System.Xml.XmlSerializer	System.Xml.XmlSerializer.dll	facade	System.Private.Xml	6.0.0.0	58
+net6.0	System.Xml.XPath	System.Xml.XPath.dll	facade	System.Private.Xml	6.0.0.0	2
+net6.0	System.Xml.XPath.XDocument	System.Xml.XPath.XDocument.dll	impl		6.0.0.0	2
+net6.0	WindowsBase	WindowsBase.dll	facade	System.IO.Packaging	4.0.0.0	0
+net7.0	Microsoft.CSharp	Microsoft.CSharp.dll	impl		7.0.0.0	6
+net7.0	Microsoft.VisualBasic	Microsoft.VisualBasic.dll	facade	Microsoft.VisualBasic.Core	10.0.0.0	0
+net7.0	Microsoft.VisualBasic.Core	Microsoft.VisualBasic.Core.dll	impl		12.0.0.0	74
+net7.0	Microsoft.Win32.Primitives	Microsoft.Win32.Primitives.dll	facade	System.Private.CoreLib	7.0.0.0	1
+net7.0	Microsoft.Win32.Registry	Microsoft.Win32.Registry.dll	impl		7.0.0.0	13
+net7.0	mscorlib	mscorlib.dll	facade	System.Private.CoreLib	4.0.0.0	0
+net7.0	netstandard	netstandard.dll	facade	System.Runtime	2.1.0.0	0
+net7.0	System	System.dll	facade	System.ComponentModel.TypeConverter	4.0.0.0	0
+net7.0	System.AppContext	System.AppContext.dll	facade	System.Private.CoreLib	7.0.0.0	0
+net7.0	System.Buffers	System.Buffers.dll	facade	System.Private.CoreLib	7.0.0.0	0
+net7.0	System.Collections	System.Collections.dll	impl		7.0.0.0	17
+net7.0	System.Collections.Concurrent	System.Collections.Concurrent.dll	impl		7.0.0.0	10
+net7.0	System.Collections.Immutable	System.Collections.Immutable.dll	impl		7.0.0.0	23
+net7.0	System.Collections.NonGeneric	System.Collections.NonGeneric.dll	impl		7.0.0.0	9
+net7.0	System.Collections.Specialized	System.Collections.Specialized.dll	impl		7.0.0.0	10
+net7.0	System.ComponentModel	System.ComponentModel.dll	impl		7.0.0.0	5
+net7.0	System.ComponentModel.Annotations	System.ComponentModel.Annotations.dll	impl		7.0.0.0	43
+net7.0	System.ComponentModel.DataAnnotations	System.ComponentModel.DataAnnotations.dll	facade	System.ComponentModel.Annotations	4.0.0.0	0
+net7.0	System.ComponentModel.EventBasedAsync	System.ComponentModel.EventBasedAsync.dll	impl		7.0.0.0	11
+net7.0	System.ComponentModel.Primitives	System.ComponentModel.Primitives.dll	impl		7.0.0.0	30
+net7.0	System.ComponentModel.TypeConverter	System.ComponentModel.TypeConverter.dll	impl		7.0.0.0	214
+net7.0	System.Configuration	System.Configuration.dll	facade	System.Configuration.ConfigurationManager	4.0.0.0	0
+net7.0	System.Console	System.Console.dll	impl		7.0.0.0	8
+net7.0	System.Core	System.Core.dll	facade	System.Linq.Expressions	4.0.0.0	0
+net7.0	System.Data	System.Data.dll	facade	System.Data.Common	4.0.0.0	0
+net7.0	System.Data.Common	System.Data.Common.dll	impl		7.0.0.0	171
+net7.0	System.Data.DataSetExtensions	System.Data.DataSetExtensions.dll	facade	System.Data.Common	4.0.0.0	0
+net7.0	System.Diagnostics.Contracts	System.Diagnostics.Contracts.dll	facade	System.Private.CoreLib	7.0.0.0	15
+net7.0	System.Diagnostics.Debug	System.Diagnostics.Debug.dll	facade	System.Private.CoreLib	7.0.0.0	0
+net7.0	System.Diagnostics.DiagnosticSource	System.Diagnostics.DiagnosticSource.dll	impl		7.0.0.0	34
+net7.0	System.Diagnostics.FileVersionInfo	System.Diagnostics.FileVersionInfo.dll	impl		7.0.0.0	1
+net7.0	System.Diagnostics.Process	System.Diagnostics.Process.dll	impl		7.0.0.0	15
+net7.0	System.Diagnostics.StackTrace	System.Diagnostics.StackTrace.dll	impl		7.0.0.0	18
+net7.0	System.Diagnostics.TextWriterTraceListener	System.Diagnostics.TextWriterTraceListener.dll	impl		7.0.0.0	4
+net7.0	System.Diagnostics.Tools	System.Diagnostics.Tools.dll	facade	System.Private.CoreLib	7.0.0.0	0
+net7.0	System.Diagnostics.TraceSource	System.Diagnostics.TraceSource.dll	impl		7.0.0.0	22
+net7.0	System.Diagnostics.Tracing	System.Diagnostics.Tracing.dll	facade	System.Private.CoreLib	7.0.0.0	30
+net7.0	System.Drawing	System.Drawing.dll	facade	System.Drawing.Common	4.0.0.0	0
+net7.0	System.Drawing.Primitives	System.Drawing.Primitives.dll	impl		7.0.0.0	10
+net7.0	System.Dynamic.Runtime	System.Dynamic.Runtime.dll	facade	System.Linq.Expressions	7.0.0.0	0
+net7.0	System.Formats.Asn1	System.Formats.Asn1.dll	impl		7.0.0.0	9
+net7.0	System.Formats.Tar	System.Formats.Tar.dll	impl		7.0.0.0	12
+net7.0	System.Globalization	System.Globalization.dll	facade	System.Private.CoreLib	7.0.0.0	0
+net7.0	System.Globalization.Calendars	System.Globalization.Calendars.dll	facade	System.Private.CoreLib	7.0.0.0	0
+net7.0	System.Globalization.Extensions	System.Globalization.Extensions.dll	facade	System.Runtime	7.0.0.0	0
+net7.0	System.IO	System.IO.dll	facade	System.Runtime	7.0.0.0	0
+net7.0	System.IO.Compression	System.IO.Compression.dll	impl		7.0.0.0	8
+net7.0	System.IO.Compression.Brotli	System.IO.Compression.Brotli.dll	impl		7.0.0.0	3
+net7.0	System.IO.Compression.FileSystem	System.IO.Compression.FileSystem.dll	facade	System.IO.Compression.ZipFile	4.0.0.0	0
+net7.0	System.IO.Compression.ZipFile	System.IO.Compression.ZipFile.dll	impl		7.0.0.0	2
+net7.0	System.IO.FileSystem	System.IO.FileSystem.dll	facade	System.Runtime	7.0.0.0	0
+net7.0	System.IO.FileSystem.AccessControl	System.IO.FileSystem.AccessControl.dll	impl		7.0.0.0	8
+net7.0	System.IO.FileSystem.DriveInfo	System.IO.FileSystem.DriveInfo.dll	impl		7.0.0.0	3
+net7.0	System.IO.FileSystem.Primitives	System.IO.FileSystem.Primitives.dll	facade	System.Runtime	7.0.0.0	0
+net7.0	System.IO.FileSystem.Watcher	System.IO.FileSystem.Watcher.dll	impl		7.0.0.0	11
+net7.0	System.IO.IsolatedStorage	System.IO.IsolatedStorage.dll	impl		7.0.0.0	6
+net7.0	System.IO.MemoryMappedFiles	System.IO.MemoryMappedFiles.dll	impl		7.0.0.0	8
+net7.0	System.IO.Pipes	System.IO.Pipes.dll	impl		7.0.0.0	10
+net7.0	System.IO.Pipes.AccessControl	System.IO.Pipes.AccessControl.dll	impl		7.0.0.0	7
+net7.0	System.IO.UnmanagedMemoryStream	System.IO.UnmanagedMemoryStream.dll	facade	System.Private.CoreLib	7.0.0.0	0
+net7.0	System.Linq	System.Linq.dll	impl		7.0.0.0	5
+net7.0	System.Linq.Expressions	System.Linq.Expressions.dll	impl		7.0.0.0	77
+net7.0	System.Linq.Parallel	System.Linq.Parallel.dll	impl		7.0.0.0	6
+net7.0	System.Linq.Queryable	System.Linq.Queryable.dll	impl		7.0.0.0	5
+net7.0	System.Memory	System.Memory.dll	impl		7.0.0.0	19
+net7.0	System.Net	System.Net.dll	facade	System.Net.Primitives	4.0.0.0	0
+net7.0	System.Net.Http	System.Net.Http.dll	impl		7.0.0.0	56
+net7.0	System.Net.Http.Json	System.Net.Http.Json.dll	impl		7.0.0.0	3
+net7.0	System.Net.HttpListener	System.Net.HttpListener.dll	impl		7.0.0.0	10
+net7.0	System.Net.Mail	System.Net.Mail.dll	impl		7.0.0.0	25
+net7.0	System.Net.NameResolution	System.Net.NameResolution.dll	impl		7.0.0.0	2
+net7.0	System.Net.NetworkInformation	System.Net.NetworkInformation.dll	impl		7.0.0.0	36
+net7.0	System.Net.Ping	System.Net.Ping.dll	impl		7.0.0.0	7
+net7.0	System.Net.Primitives	System.Net.Primitives.dll	impl		7.0.0.0	33
+net7.0	System.Net.Quic	System.Net.Quic.dll	impl		7.0.0.0	11
+net7.0	System.Net.Requests	System.Net.Requests.dll	impl		7.0.0.0	23
+net7.0	System.Net.Security	System.Net.Security.dll	impl		7.0.0.0	27
+net7.0	System.Net.ServicePoint	System.Net.ServicePoint.dll	impl		7.0.0.0	4
+net7.0	System.Net.Sockets	System.Net.Sockets.dll	impl		7.0.0.0	31
+net7.0	System.Net.WebClient	System.Net.WebClient.dll	impl		7.0.0.0	23
+net7.0	System.Net.WebHeaderCollection	System.Net.WebHeaderCollection.dll	impl		7.0.0.0	3
+net7.0	System.Net.WebProxy	System.Net.WebProxy.dll	impl		7.0.0.0	2
+net7.0	System.Net.WebSockets	System.Net.WebSockets.dll	impl		7.0.0.0	12
+net7.0	System.Net.WebSockets.Client	System.Net.WebSockets.Client.dll	impl		7.0.0.0	2
+net7.0	System.Numerics	System.Numerics.dll	facade	System.Numerics.Vectors	4.0.0.0	0
+net7.0	System.Numerics.Vectors	System.Numerics.Vectors.dll	facade	System.Private.CoreLib	7.0.0.0	9
+net7.0	System.ObjectModel	System.ObjectModel.dll	impl		7.0.0.0	20
+net7.0	System.Private.CoreLib	System.Private.CoreLib.dll	impl		7.0.0.0	1165
+net7.0	System.Private.DataContractSerialization	System.Private.DataContractSerialization.dll	impl		7.0.0.0	41
+net7.0	System.Private.Uri	System.Private.Uri.dll	impl		7.0.0.0	20
+net7.0	System.Private.Xml	System.Private.Xml.dll	impl		7.0.0.0	296
+net7.0	System.Private.Xml.Linq	System.Private.Xml.Linq.dll	impl		7.0.0.0	25
+net7.0	System.Reflection	System.Reflection.dll	facade	System.Private.CoreLib	7.0.0.0	0
+net7.0	System.Reflection.DispatchProxy	System.Reflection.DispatchProxy.dll	impl		7.0.0.0	1
+net7.0	System.Reflection.Emit	System.Reflection.Emit.dll	facade	System.Private.CoreLib	7.0.0.0	11
+net7.0	System.Reflection.Emit.ILGeneration	System.Reflection.Emit.ILGeneration.dll	facade	System.Private.CoreLib	7.0.0.0	6
+net7.0	System.Reflection.Emit.Lightweight	System.Reflection.Emit.Lightweight.dll	facade	System.Private.CoreLib	7.0.0.0	2
+net7.0	System.Reflection.Extensions	System.Reflection.Extensions.dll	facade	System.Runtime	7.0.0.0	0
+net7.0	System.Reflection.Metadata	System.Reflection.Metadata.dll	impl		7.0.0.0	232
+net7.0	System.Reflection.Primitives	System.Reflection.Primitives.dll	facade	System.Private.CoreLib	7.0.0.0	7
+net7.0	System.Reflection.TypeExtensions	System.Reflection.TypeExtensions.dll	impl		7.0.0.0	7
+net7.0	System.Resources.Reader	System.Resources.Reader.dll	facade	System.Runtime	7.0.0.0	0
+net7.0	System.Resources.ResourceManager	System.Resources.ResourceManager.dll	facade	System.Private.CoreLib	7.0.0.0	0
+net7.0	System.Resources.Writer	System.Resources.Writer.dll	impl		7.0.0.0	2
+net7.0	System.Runtime	System.Runtime.dll	facade	System.Private.CoreLib	7.0.0.0	831
+net7.0	System.Runtime.CompilerServices.Unsafe	System.Runtime.CompilerServices.Unsafe.dll	facade	System.Private.CoreLib	7.0.0.0	0
+net7.0	System.Runtime.CompilerServices.VisualC	System.Runtime.CompilerServices.VisualC.dll	impl		7.0.0.0	16
+net7.0	System.Runtime.Extensions	System.Runtime.Extensions.dll	facade	System.Private.CoreLib	7.0.0.0	0
+net7.0	System.Runtime.Handles	System.Runtime.Handles.dll	facade	System.Runtime	7.0.0.0	0
+net7.0	System.Runtime.InteropServices	System.Runtime.InteropServices.dll	impl		7.0.0.0	164
+net7.0	System.Runtime.InteropServices.JavaScript	System.Runtime.InteropServices.JavaScript.dll	impl		7.0.0.0	10
+net7.0	System.Runtime.InteropServices.RuntimeInformation	System.Runtime.InteropServices.RuntimeInformation.dll	facade	System.Runtime	7.0.0.0	0
+net7.0	System.Runtime.Intrinsics	System.Runtime.Intrinsics.dll	facade	System.Private.CoreLib	7.0.0.0	33
+net7.0	System.Runtime.Loader	System.Runtime.Loader.dll	facade	System.Private.CoreLib	7.0.0.0	7
+net7.0	System.Runtime.Numerics	System.Runtime.Numerics.dll	impl		7.0.0.0	2
+net7.0	System.Runtime.Serialization	System.Runtime.Serialization.dll	facade	System.Runtime.Serialization.Xml	4.0.0.0	0
+net7.0	System.Runtime.Serialization.Formatters	System.Runtime.Serialization.Formatters.dll	impl		7.0.0.0	16
+net7.0	System.Runtime.Serialization.Json	System.Runtime.Serialization.Json.dll	facade	System.Private.DataContractSerialization	7.0.0.0	7
+net7.0	System.Runtime.Serialization.Primitives	System.Runtime.Serialization.Primitives.dll	impl		7.0.0.0	10
+net7.0	System.Runtime.Serialization.Xml	System.Runtime.Serialization.Xml.dll	facade	System.Private.DataContractSerialization	7.0.0.0	32
+net7.0	System.Security	System.Security.dll	facade	System.Security.Cryptography.Xml	4.0.0.0	0
+net7.0	System.Security.AccessControl	System.Security.AccessControl.dll	impl		7.0.0.0	46
+net7.0	System.Security.Claims	System.Security.Claims.dll	impl		7.0.0.0	7
+net7.0	System.Security.Cryptography	System.Security.Cryptography.dll	impl		7.0.0.0	193
+net7.0	System.Security.Cryptography.Algorithms	System.Security.Cryptography.Algorithms.dll	facade	System.Security.Cryptography	7.0.0.0	0
+net7.0	System.Security.Cryptography.Cng	System.Security.Cryptography.Cng.dll	facade	System.Security.Cryptography	7.0.0.0	0
+net7.0	System.Security.Cryptography.Csp	System.Security.Cryptography.Csp.dll	facade	System.Security.Cryptography	7.0.0.0	0
+net7.0	System.Security.Cryptography.Encoding	System.Security.Cryptography.Encoding.dll	facade	System.Security.Cryptography	7.0.0.0	0
+net7.0	System.Security.Cryptography.OpenSsl	System.Security.Cryptography.OpenSsl.dll	facade	System.Security.Cryptography	7.0.0.0	0
+net7.0	System.Security.Cryptography.Primitives	System.Security.Cryptography.Primitives.dll	facade	System.Security.Cryptography	7.0.0.0	0
+net7.0	System.Security.Cryptography.X509Certificates	System.Security.Cryptography.X509Certificates.dll	facade	System.Security.Cryptography	7.0.0.0	0
+net7.0	System.Security.Principal	System.Security.Principal.dll	facade	System.Private.CoreLib	7.0.0.0	0
+net7.0	System.Security.Principal.Windows	System.Security.Principal.Windows.dll	impl		7.0.0.0	12
+net7.0	System.Security.SecureString	System.Security.SecureString.dll	facade	System.Runtime.InteropServices	7.0.0.0	0
+net7.0	System.ServiceModel.Web	System.ServiceModel.Web.dll	facade	System.ServiceModel.Syndication	4.0.0.0	0
+net7.0	System.ServiceProcess	System.ServiceProcess.dll	facade	System.ServiceProcess.ServiceController	4.0.0.0	0
+net7.0	System.Text.Encoding	System.Text.Encoding.dll	facade	System.Private.CoreLib	7.0.0.0	0
+net7.0	System.Text.Encoding.CodePages	System.Text.Encoding.CodePages.dll	impl		7.0.0.0	1
+net7.0	System.Text.Encoding.Extensions	System.Text.Encoding.Extensions.dll	facade	System.Private.CoreLib	7.0.0.0	5
+net7.0	System.Text.Encodings.Web	System.Text.Encodings.Web.dll	impl		7.0.0.0	7
+net7.0	System.Text.Json	System.Text.Json.dll	impl		7.0.0.0	69
+net7.0	System.Text.RegularExpressions	System.Text.RegularExpressions.dll	impl		7.0.0.0	17
+net7.0	System.Threading	System.Threading.dll	impl		7.0.0.0	36
+net7.0	System.Threading.Channels	System.Threading.Channels.dll	impl		7.0.0.0	10
+net7.0	System.Threading.Overlapped	System.Threading.Overlapped.dll	facade	System.Private.CoreLib	7.0.0.0	5
+net7.0	System.Threading.Tasks	System.Threading.Tasks.dll	facade	System.Private.CoreLib	7.0.0.0	0
+net7.0	System.Threading.Tasks.Dataflow	System.Threading.Tasks.Dataflow.dll	impl		7.0.0.0	23
+net7.0	System.Threading.Tasks.Extensions	System.Threading.Tasks.Extensions.dll	facade	System.Private.CoreLib	7.0.0.0	0
+net7.0	System.Threading.Tasks.Parallel	System.Threading.Tasks.Parallel.dll	impl		7.0.0.0	4
+net7.0	System.Threading.Thread	System.Threading.Thread.dll	facade	System.Private.CoreLib	7.0.0.0	14
+net7.0	System.Threading.ThreadPool	System.Threading.ThreadPool.dll	facade	System.Private.CoreLib	7.0.0.0	5
+net7.0	System.Threading.Timer	System.Threading.Timer.dll	facade	System.Private.CoreLib	7.0.0.0	0
+net7.0	System.Transactions	System.Transactions.dll	facade	System.Transactions.Local	4.0.0.0	0
+net7.0	System.Transactions.Local	System.Transactions.Local.dll	impl		7.0.0.0	34
+net7.0	System.ValueTuple	System.ValueTuple.dll	facade	System.Runtime	4.0.3.0	0
+net7.0	System.Web	System.Web.dll	facade	System.Web.HttpUtility	4.0.0.0	0
+net7.0	System.Web.HttpUtility	System.Web.HttpUtility.dll	impl		7.0.0.0	1
+net7.0	System.Windows	System.Windows.dll	facade	System.ObjectModel	4.0.0.0	0
+net7.0	System.Xml	System.Xml.dll	facade	System.Private.Xml	4.0.0.0	0
+net7.0	System.Xml.Linq	System.Xml.Linq.dll	facade	System.Xml.XDocument	4.0.0.0	0
+net7.0	System.Xml.ReaderWriter	System.Xml.ReaderWriter.dll	facade	System.Private.Xml	7.0.0.0	187
+net7.0	System.Xml.Serialization	System.Xml.Serialization.dll	facade	System.Xml.XmlSerializer	4.0.0.0	0
+net7.0	System.Xml.XDocument	System.Xml.XDocument.dll	facade	System.Private.Xml.Linq	7.0.0.0	24
+net7.0	System.Xml.XmlDocument	System.Xml.XmlDocument.dll	facade	System.Private.Xml	7.0.0.0	0
+net7.0	System.Xml.XmlSerializer	System.Xml.XmlSerializer.dll	facade	System.Private.Xml	7.0.0.0	58
+net7.0	System.Xml.XPath	System.Xml.XPath.dll	facade	System.Private.Xml	7.0.0.0	2
+net7.0	System.Xml.XPath.XDocument	System.Xml.XPath.XDocument.dll	impl		7.0.0.0	2
+net7.0	WindowsBase	WindowsBase.dll	facade	System.IO.Packaging	4.0.0.0	0
+net8.0	Microsoft.CSharp	Microsoft.CSharp.dll	impl		8.0.0.0	6
+net8.0	Microsoft.VisualBasic	Microsoft.VisualBasic.dll	facade	Microsoft.VisualBasic.Core	10.0.0.0	0
+net8.0	Microsoft.VisualBasic.Core	Microsoft.VisualBasic.Core.dll	impl		13.0.0.0	74
+net8.0	Microsoft.Win32.Primitives	Microsoft.Win32.Primitives.dll	facade	System.Private.CoreLib	8.0.0.0	1
+net8.0	Microsoft.Win32.Registry	Microsoft.Win32.Registry.dll	impl		8.0.0.0	13
+net8.0	mscorlib	mscorlib.dll	facade	System.Private.CoreLib	4.0.0.0	0
+net8.0	netstandard	netstandard.dll	facade	System.Runtime	2.1.0.0	0
+net8.0	System	System.dll	facade	System.ComponentModel.TypeConverter	4.0.0.0	0
+net8.0	System.AppContext	System.AppContext.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.Buffers	System.Buffers.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.Collections	System.Collections.dll	impl		8.0.0.0	17
+net8.0	System.Collections.Concurrent	System.Collections.Concurrent.dll	impl		8.0.0.0	10
+net8.0	System.Collections.Immutable	System.Collections.Immutable.dll	impl		8.0.0.0	28
+net8.0	System.Collections.NonGeneric	System.Collections.NonGeneric.dll	impl		8.0.0.0	9
+net8.0	System.Collections.Specialized	System.Collections.Specialized.dll	impl		8.0.0.0	10
+net8.0	System.ComponentModel	System.ComponentModel.dll	impl		8.0.0.0	5
+net8.0	System.ComponentModel.Annotations	System.ComponentModel.Annotations.dll	impl		8.0.0.0	47
+net8.0	System.ComponentModel.DataAnnotations	System.ComponentModel.DataAnnotations.dll	facade	System.ComponentModel.Annotations	4.0.0.0	0
+net8.0	System.ComponentModel.EventBasedAsync	System.ComponentModel.EventBasedAsync.dll	impl		8.0.0.0	11
+net8.0	System.ComponentModel.Primitives	System.ComponentModel.Primitives.dll	impl		8.0.0.0	30
+net8.0	System.ComponentModel.TypeConverter	System.ComponentModel.TypeConverter.dll	impl		8.0.0.0	214
+net8.0	System.Configuration	System.Configuration.dll	facade	System.Configuration.ConfigurationManager	4.0.0.0	0
+net8.0	System.Console	System.Console.dll	impl		8.0.0.0	8
+net8.0	System.Core	System.Core.dll	facade	System.Linq.Expressions	4.0.0.0	0
+net8.0	System.Data	System.Data.dll	facade	System.Data.Common	4.0.0.0	0
+net8.0	System.Data.Common	System.Data.Common.dll	impl		8.0.0.0	171
+net8.0	System.Data.DataSetExtensions	System.Data.DataSetExtensions.dll	facade	System.Data.Common	8.0.0.0	0
+net8.0	System.Diagnostics.Contracts	System.Diagnostics.Contracts.dll	facade	System.Private.CoreLib	8.0.0.0	15
+net8.0	System.Diagnostics.Debug	System.Diagnostics.Debug.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.Diagnostics.DiagnosticSource	System.Diagnostics.DiagnosticSource.dll	impl		8.0.0.0	37
+net8.0	System.Diagnostics.FileVersionInfo	System.Diagnostics.FileVersionInfo.dll	impl		8.0.0.0	1
+net8.0	System.Diagnostics.Process	System.Diagnostics.Process.dll	impl		8.0.0.0	15
+net8.0	System.Diagnostics.StackTrace	System.Diagnostics.StackTrace.dll	impl		8.0.0.0	18
+net8.0	System.Diagnostics.TextWriterTraceListener	System.Diagnostics.TextWriterTraceListener.dll	impl		8.0.0.0	4
+net8.0	System.Diagnostics.Tools	System.Diagnostics.Tools.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.Diagnostics.TraceSource	System.Diagnostics.TraceSource.dll	impl		8.0.0.0	22
+net8.0	System.Diagnostics.Tracing	System.Diagnostics.Tracing.dll	facade	System.Private.CoreLib	8.0.0.0	30
+net8.0	System.Drawing	System.Drawing.dll	facade	System.Drawing.Common	4.0.0.0	0
+net8.0	System.Drawing.Primitives	System.Drawing.Primitives.dll	impl		8.0.0.0	10
+net8.0	System.Dynamic.Runtime	System.Dynamic.Runtime.dll	facade	System.Linq.Expressions	8.0.0.0	0
+net8.0	System.Formats.Asn1	System.Formats.Asn1.dll	impl		8.0.0.0	9
+net8.0	System.Formats.Tar	System.Formats.Tar.dll	impl		8.0.0.0	12
+net8.0	System.Globalization	System.Globalization.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.Globalization.Calendars	System.Globalization.Calendars.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.Globalization.Extensions	System.Globalization.Extensions.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.IO	System.IO.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.IO.Compression	System.IO.Compression.dll	impl		8.0.0.0	8
+net8.0	System.IO.Compression.Brotli	System.IO.Compression.Brotli.dll	impl		8.0.0.0	3
+net8.0	System.IO.Compression.FileSystem	System.IO.Compression.FileSystem.dll	facade	System.IO.Compression.ZipFile	4.0.0.0	0
+net8.0	System.IO.Compression.ZipFile	System.IO.Compression.ZipFile.dll	impl		8.0.0.0	2
+net8.0	System.IO.FileSystem	System.IO.FileSystem.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.IO.FileSystem.AccessControl	System.IO.FileSystem.AccessControl.dll	impl		8.0.0.0	8
+net8.0	System.IO.FileSystem.DriveInfo	System.IO.FileSystem.DriveInfo.dll	impl		8.0.0.0	3
+net8.0	System.IO.FileSystem.Primitives	System.IO.FileSystem.Primitives.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.IO.FileSystem.Watcher	System.IO.FileSystem.Watcher.dll	impl		8.0.0.0	11
+net8.0	System.IO.IsolatedStorage	System.IO.IsolatedStorage.dll	impl		8.0.0.0	6
+net8.0	System.IO.MemoryMappedFiles	System.IO.MemoryMappedFiles.dll	impl		8.0.0.0	8
+net8.0	System.IO.Pipes	System.IO.Pipes.dll	impl		8.0.0.0	10
+net8.0	System.IO.Pipes.AccessControl	System.IO.Pipes.AccessControl.dll	impl		8.0.0.0	7
+net8.0	System.IO.UnmanagedMemoryStream	System.IO.UnmanagedMemoryStream.dll	facade	System.Runtime.InteropServices	8.0.0.0	0
+net8.0	System.Linq	System.Linq.dll	impl		8.0.0.0	5
+net8.0	System.Linq.Expressions	System.Linq.Expressions.dll	impl		8.0.0.0	77
+net8.0	System.Linq.Parallel	System.Linq.Parallel.dll	impl		8.0.0.0	6
+net8.0	System.Linq.Queryable	System.Linq.Queryable.dll	impl		8.0.0.0	5
+net8.0	System.Memory	System.Memory.dll	impl		8.0.0.0	19
+net8.0	System.Net	System.Net.dll	facade	System.Net.Primitives	4.0.0.0	0
+net8.0	System.Net.Http	System.Net.Http.dll	impl		8.0.0.0	59
+net8.0	System.Net.Http.Json	System.Net.Http.Json.dll	impl		8.0.0.0	3
+net8.0	System.Net.HttpListener	System.Net.HttpListener.dll	impl		8.0.0.0	10
+net8.0	System.Net.Mail	System.Net.Mail.dll	impl		8.0.0.0	25
+net8.0	System.Net.NameResolution	System.Net.NameResolution.dll	impl		8.0.0.0	2
+net8.0	System.Net.NetworkInformation	System.Net.NetworkInformation.dll	impl		8.0.0.0	36
+net8.0	System.Net.Ping	System.Net.Ping.dll	impl		8.0.0.0	7
+net8.0	System.Net.Primitives	System.Net.Primitives.dll	impl		8.0.0.0	34
+net8.0	System.Net.Quic	System.Net.Quic.dll	impl		8.0.0.0	11
+net8.0	System.Net.Requests	System.Net.Requests.dll	impl		8.0.0.0	23
+net8.0	System.Net.Security	System.Net.Security.dll	impl		8.0.0.0	27
+net8.0	System.Net.ServicePoint	System.Net.ServicePoint.dll	impl		8.0.0.0	4
+net8.0	System.Net.Sockets	System.Net.Sockets.dll	impl		8.0.0.0	31
+net8.0	System.Net.WebClient	System.Net.WebClient.dll	impl		8.0.0.0	23
+net8.0	System.Net.WebHeaderCollection	System.Net.WebHeaderCollection.dll	impl		8.0.0.0	3
+net8.0	System.Net.WebProxy	System.Net.WebProxy.dll	impl		8.0.0.0	2
+net8.0	System.Net.WebSockets	System.Net.WebSockets.dll	impl		8.0.0.0	12
+net8.0	System.Net.WebSockets.Client	System.Net.WebSockets.Client.dll	impl		8.0.0.0	2
+net8.0	System.Numerics	System.Numerics.dll	facade	System.Numerics.Vectors	4.0.0.0	0
+net8.0	System.Numerics.Vectors	System.Numerics.Vectors.dll	facade	System.Private.CoreLib	8.0.0.0	9
+net8.0	System.ObjectModel	System.ObjectModel.dll	impl		8.0.0.0	20
+net8.0	System.Private.CoreLib	System.Private.CoreLib.dll	impl		8.0.0.0	1195
+net8.0	System.Private.DataContractSerialization	System.Private.DataContractSerialization.dll	impl		8.0.0.0	41
+net8.0	System.Private.Uri	System.Private.Uri.dll	impl		8.0.0.0	20
+net8.0	System.Private.Xml	System.Private.Xml.dll	impl		8.0.0.0	296
+net8.0	System.Private.Xml.Linq	System.Private.Xml.Linq.dll	impl		8.0.0.0	25
+net8.0	System.Reflection	System.Reflection.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.Reflection.DispatchProxy	System.Reflection.DispatchProxy.dll	impl		8.0.0.0	1
+net8.0	System.Reflection.Emit	System.Reflection.Emit.dll	facade	System.Private.CoreLib	8.0.0.0	11
+net8.0	System.Reflection.Emit.ILGeneration	System.Reflection.Emit.ILGeneration.dll	facade	System.Private.CoreLib	8.0.0.0	6
+net8.0	System.Reflection.Emit.Lightweight	System.Reflection.Emit.Lightweight.dll	facade	System.Private.CoreLib	8.0.0.0	2
+net8.0	System.Reflection.Extensions	System.Reflection.Extensions.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.Reflection.Metadata	System.Reflection.Metadata.dll	impl		8.0.0.0	233
+net8.0	System.Reflection.Primitives	System.Reflection.Primitives.dll	facade	System.Private.CoreLib	8.0.0.0	7
+net8.0	System.Reflection.TypeExtensions	System.Reflection.TypeExtensions.dll	impl		8.0.0.0	7
+net8.0	System.Resources.Reader	System.Resources.Reader.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.Resources.ResourceManager	System.Resources.ResourceManager.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.Resources.Writer	System.Resources.Writer.dll	impl		8.0.0.0	2
+net8.0	System.Runtime	System.Runtime.dll	facade	System.Private.CoreLib	8.0.0.0	857
+net8.0	System.Runtime.CompilerServices.Unsafe	System.Runtime.CompilerServices.Unsafe.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.Runtime.CompilerServices.VisualC	System.Runtime.CompilerServices.VisualC.dll	impl		8.0.0.0	16
+net8.0	System.Runtime.Extensions	System.Runtime.Extensions.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.Runtime.Handles	System.Runtime.Handles.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.Runtime.InteropServices	System.Runtime.InteropServices.dll	impl		8.0.0.0	186
+net8.0	System.Runtime.InteropServices.JavaScript	System.Runtime.InteropServices.JavaScript.dll	impl		8.0.0.0	10
+net8.0	System.Runtime.InteropServices.RuntimeInformation	System.Runtime.InteropServices.RuntimeInformation.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.Runtime.Intrinsics	System.Runtime.Intrinsics.dll	facade	System.Private.CoreLib	8.0.0.0	41
+net8.0	System.Runtime.Loader	System.Runtime.Loader.dll	facade	System.Private.CoreLib	8.0.0.0	7
+net8.0	System.Runtime.Numerics	System.Runtime.Numerics.dll	impl		8.0.0.0	2
+net8.0	System.Runtime.Serialization	System.Runtime.Serialization.dll	facade	System.Runtime.Serialization.Xml	4.0.0.0	0
+net8.0	System.Runtime.Serialization.Formatters	System.Runtime.Serialization.Formatters.dll	impl		8.0.0.0	16
+net8.0	System.Runtime.Serialization.Json	System.Runtime.Serialization.Json.dll	facade	System.Private.DataContractSerialization	8.0.0.0	7
+net8.0	System.Runtime.Serialization.Primitives	System.Runtime.Serialization.Primitives.dll	impl		8.0.0.0	10
+net8.0	System.Runtime.Serialization.Xml	System.Runtime.Serialization.Xml.dll	facade	System.Private.DataContractSerialization	8.0.0.0	32
+net8.0	System.Security	System.Security.dll	facade	System.Security.Cryptography.Xml	4.0.0.0	0
+net8.0	System.Security.AccessControl	System.Security.AccessControl.dll	impl		8.0.0.0	46
+net8.0	System.Security.Claims	System.Security.Claims.dll	impl		8.0.0.0	7
+net8.0	System.Security.Cryptography	System.Security.Cryptography.dll	impl		8.0.0.0	203
+net8.0	System.Security.Cryptography.Algorithms	System.Security.Cryptography.Algorithms.dll	facade	System.Security.Cryptography	8.0.0.0	0
+net8.0	System.Security.Cryptography.Cng	System.Security.Cryptography.Cng.dll	facade	System.Security.Cryptography	8.0.0.0	0
+net8.0	System.Security.Cryptography.Csp	System.Security.Cryptography.Csp.dll	facade	System.Security.Cryptography	8.0.0.0	0
+net8.0	System.Security.Cryptography.Encoding	System.Security.Cryptography.Encoding.dll	facade	System.Security.Cryptography	8.0.0.0	0
+net8.0	System.Security.Cryptography.OpenSsl	System.Security.Cryptography.OpenSsl.dll	facade	System.Security.Cryptography	8.0.0.0	0
+net8.0	System.Security.Cryptography.Primitives	System.Security.Cryptography.Primitives.dll	facade	System.Security.Cryptography	8.0.0.0	0
+net8.0	System.Security.Cryptography.X509Certificates	System.Security.Cryptography.X509Certificates.dll	facade	System.Security.Cryptography	8.0.0.0	0
+net8.0	System.Security.Principal	System.Security.Principal.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.Security.Principal.Windows	System.Security.Principal.Windows.dll	impl		8.0.0.0	12
+net8.0	System.Security.SecureString	System.Security.SecureString.dll	facade	System.Runtime.InteropServices	8.0.0.0	0
+net8.0	System.ServiceModel.Web	System.ServiceModel.Web.dll	facade	System.ServiceModel.Syndication	4.0.0.0	0
+net8.0	System.ServiceProcess	System.ServiceProcess.dll	facade	System.ServiceProcess.ServiceController	4.0.0.0	0
+net8.0	System.Text.Encoding	System.Text.Encoding.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.Text.Encoding.CodePages	System.Text.Encoding.CodePages.dll	impl		8.0.0.0	1
+net8.0	System.Text.Encoding.Extensions	System.Text.Encoding.Extensions.dll	facade	System.Private.CoreLib	8.0.0.0	5
+net8.0	System.Text.Encodings.Web	System.Text.Encodings.Web.dll	impl		8.0.0.0	7
+net8.0	System.Text.Json	System.Text.Json.dll	impl		8.0.0.0	75
+net8.0	System.Text.RegularExpressions	System.Text.RegularExpressions.dll	impl		8.0.0.0	17
+net8.0	System.Threading	System.Threading.dll	impl		8.0.0.0	36
+net8.0	System.Threading.Channels	System.Threading.Channels.dll	impl		8.0.0.0	10
+net8.0	System.Threading.Overlapped	System.Threading.Overlapped.dll	facade	System.Private.CoreLib	8.0.0.0	5
+net8.0	System.Threading.Tasks	System.Threading.Tasks.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.Threading.Tasks.Dataflow	System.Threading.Tasks.Dataflow.dll	impl		8.0.0.0	23
+net8.0	System.Threading.Tasks.Extensions	System.Threading.Tasks.Extensions.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.Threading.Tasks.Parallel	System.Threading.Tasks.Parallel.dll	impl		8.0.0.0	4
+net8.0	System.Threading.Thread	System.Threading.Thread.dll	facade	System.Private.CoreLib	8.0.0.0	14
+net8.0	System.Threading.ThreadPool	System.Threading.ThreadPool.dll	facade	System.Private.CoreLib	8.0.0.0	5
+net8.0	System.Threading.Timer	System.Threading.Timer.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.Transactions	System.Transactions.dll	facade	System.Transactions.Local	4.0.0.0	0
+net8.0	System.Transactions.Local	System.Transactions.Local.dll	impl		8.0.0.0	34
+net8.0	System.ValueTuple	System.ValueTuple.dll	facade	System.Runtime	8.0.0.0	0
+net8.0	System.Web	System.Web.dll	facade	System.Web.HttpUtility	4.0.0.0	0
+net8.0	System.Web.HttpUtility	System.Web.HttpUtility.dll	impl		8.0.0.0	2
+net8.0	System.Windows	System.Windows.dll	facade	System.ObjectModel	4.0.0.0	0
+net8.0	System.Xml	System.Xml.dll	facade	System.Xml.ReaderWriter	4.0.0.0	0
+net8.0	System.Xml.Linq	System.Xml.Linq.dll	facade	System.Xml.XDocument	4.0.0.0	0
+net8.0	System.Xml.ReaderWriter	System.Xml.ReaderWriter.dll	facade	System.Private.Xml	8.0.0.0	187
+net8.0	System.Xml.Serialization	System.Xml.Serialization.dll	facade	System.Xml.XmlSerializer	4.0.0.0	0
+net8.0	System.Xml.XDocument	System.Xml.XDocument.dll	facade	System.Private.Xml.Linq	8.0.0.0	24
+net8.0	System.Xml.XmlDocument	System.Xml.XmlDocument.dll	facade	System.Xml.ReaderWriter	8.0.0.0	0
+net8.0	System.Xml.XmlSerializer	System.Xml.XmlSerializer.dll	facade	System.Private.Xml	8.0.0.0	58
+net8.0	System.Xml.XPath	System.Xml.XPath.dll	facade	System.Private.Xml	8.0.0.0	2
+net8.0	System.Xml.XPath.XDocument	System.Xml.XPath.XDocument.dll	impl		8.0.0.0	2
+net8.0	WindowsBase	WindowsBase.dll	facade	System.IO.Packaging	4.0.0.0	0
+net9.0	Microsoft.CSharp	Microsoft.CSharp.dll	impl		9.0.0.0	6
+net9.0	Microsoft.VisualBasic	Microsoft.VisualBasic.dll	facade	Microsoft.VisualBasic.Core	10.0.0.0	0
+net9.0	Microsoft.VisualBasic.Core	Microsoft.VisualBasic.Core.dll	impl		14.0.0.0	74
+net9.0	Microsoft.Win32.Primitives	Microsoft.Win32.Primitives.dll	facade	System.Private.CoreLib	9.0.0.0	1
+net9.0	Microsoft.Win32.Registry	Microsoft.Win32.Registry.dll	impl		9.0.0.0	13
+net9.0	mscorlib	mscorlib.dll	facade	System.Private.CoreLib	4.0.0.0	0
+net9.0	netstandard	netstandard.dll	facade	System.Runtime	2.1.0.0	0
+net9.0	System	System.dll	facade	System.ComponentModel.TypeConverter	4.0.0.0	0
+net9.0	System.AppContext	System.AppContext.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.Buffers	System.Buffers.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.Collections	System.Collections.dll	impl		9.0.0.0	19
+net9.0	System.Collections.Concurrent	System.Collections.Concurrent.dll	impl		9.0.0.0	10
+net9.0	System.Collections.Immutable	System.Collections.Immutable.dll	impl		9.0.0.0	28
+net9.0	System.Collections.NonGeneric	System.Collections.NonGeneric.dll	impl		9.0.0.0	9
+net9.0	System.Collections.Specialized	System.Collections.Specialized.dll	impl		9.0.0.0	10
+net9.0	System.ComponentModel	System.ComponentModel.dll	impl		9.0.0.0	5
+net9.0	System.ComponentModel.Annotations	System.ComponentModel.Annotations.dll	impl		9.0.0.0	47
+net9.0	System.ComponentModel.DataAnnotations	System.ComponentModel.DataAnnotations.dll	facade	System.ComponentModel.Annotations	4.0.0.0	0
+net9.0	System.ComponentModel.EventBasedAsync	System.ComponentModel.EventBasedAsync.dll	impl		9.0.0.0	11
+net9.0	System.ComponentModel.Primitives	System.ComponentModel.Primitives.dll	impl		9.0.0.0	30
+net9.0	System.ComponentModel.TypeConverter	System.ComponentModel.TypeConverter.dll	impl		9.0.0.0	214
+net9.0	System.Configuration	System.Configuration.dll	facade	System.Configuration.ConfigurationManager	4.0.0.0	0
+net9.0	System.Console	System.Console.dll	impl		9.0.0.0	8
+net9.0	System.Core	System.Core.dll	facade	System.Linq.Expressions	4.0.0.0	0
+net9.0	System.Data	System.Data.dll	facade	System.Data.Common	4.0.0.0	0
+net9.0	System.Data.Common	System.Data.Common.dll	impl		9.0.0.0	171
+net9.0	System.Data.DataSetExtensions	System.Data.DataSetExtensions.dll	facade	System.Data.Common	9.0.0.0	0
+net9.0	System.Diagnostics.Contracts	System.Diagnostics.Contracts.dll	facade	System.Private.CoreLib	9.0.0.0	15
+net9.0	System.Diagnostics.Debug	System.Diagnostics.Debug.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.Diagnostics.DiagnosticSource	System.Diagnostics.DiagnosticSource.dll	impl		9.0.0.0	40
+net9.0	System.Diagnostics.FileVersionInfo	System.Diagnostics.FileVersionInfo.dll	impl		9.0.0.0	1
+net9.0	System.Diagnostics.Process	System.Diagnostics.Process.dll	impl		9.0.0.0	15
+net9.0	System.Diagnostics.StackTrace	System.Diagnostics.StackTrace.dll	impl		9.0.0.0	19
+net9.0	System.Diagnostics.TextWriterTraceListener	System.Diagnostics.TextWriterTraceListener.dll	impl		9.0.0.0	4
+net9.0	System.Diagnostics.Tools	System.Diagnostics.Tools.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.Diagnostics.TraceSource	System.Diagnostics.TraceSource.dll	impl		9.0.0.0	22
+net9.0	System.Diagnostics.Tracing	System.Diagnostics.Tracing.dll	facade	System.Private.CoreLib	9.0.0.0	30
+net9.0	System.Drawing	System.Drawing.dll	facade	System.Drawing.Common	4.0.0.0	0
+net9.0	System.Drawing.Primitives	System.Drawing.Primitives.dll	impl		9.0.0.0	10
+net9.0	System.Dynamic.Runtime	System.Dynamic.Runtime.dll	facade	System.Linq.Expressions	9.0.0.0	0
+net9.0	System.Formats.Asn1	System.Formats.Asn1.dll	impl		9.0.0.0	9
+net9.0	System.Formats.Tar	System.Formats.Tar.dll	impl		9.0.0.0	12
+net9.0	System.Globalization	System.Globalization.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.Globalization.Calendars	System.Globalization.Calendars.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.Globalization.Extensions	System.Globalization.Extensions.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.IO	System.IO.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.IO.Compression	System.IO.Compression.dll	impl		9.0.0.0	10
+net9.0	System.IO.Compression.Brotli	System.IO.Compression.Brotli.dll	impl		9.0.0.0	4
+net9.0	System.IO.Compression.FileSystem	System.IO.Compression.FileSystem.dll	facade	System.IO.Compression.ZipFile	4.0.0.0	0
+net9.0	System.IO.Compression.ZipFile	System.IO.Compression.ZipFile.dll	impl		9.0.0.0	2
+net9.0	System.IO.FileSystem	System.IO.FileSystem.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.IO.FileSystem.AccessControl	System.IO.FileSystem.AccessControl.dll	impl		9.0.0.0	8
+net9.0	System.IO.FileSystem.DriveInfo	System.IO.FileSystem.DriveInfo.dll	impl		9.0.0.0	3
+net9.0	System.IO.FileSystem.Primitives	System.IO.FileSystem.Primitives.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.IO.FileSystem.Watcher	System.IO.FileSystem.Watcher.dll	impl		9.0.0.0	11
+net9.0	System.IO.IsolatedStorage	System.IO.IsolatedStorage.dll	impl		9.0.0.0	6
+net9.0	System.IO.MemoryMappedFiles	System.IO.MemoryMappedFiles.dll	impl		9.0.0.0	8
+net9.0	System.IO.Pipelines	System.IO.Pipelines.dll	impl		9.0.0.0	11
+net9.0	System.IO.Pipes	System.IO.Pipes.dll	impl		9.0.0.0	11
+net9.0	System.IO.Pipes.AccessControl	System.IO.Pipes.AccessControl.dll	impl		9.0.0.0	6
+net9.0	System.IO.UnmanagedMemoryStream	System.IO.UnmanagedMemoryStream.dll	facade	System.Runtime.InteropServices	9.0.0.0	0
+net9.0	System.Linq	System.Linq.dll	impl		9.0.0.0	5
+net9.0	System.Linq.Expressions	System.Linq.Expressions.dll	impl		9.0.0.0	77
+net9.0	System.Linq.Parallel	System.Linq.Parallel.dll	impl		9.0.0.0	6
+net9.0	System.Linq.Queryable	System.Linq.Queryable.dll	impl		9.0.0.0	5
+net9.0	System.Memory	System.Memory.dll	impl		9.0.0.0	18
+net9.0	System.Net	System.Net.dll	facade	System.Net.Primitives	4.0.0.0	0
+net9.0	System.Net.Http	System.Net.Http.dll	impl		9.0.0.0	59
+net9.0	System.Net.Http.Json	System.Net.Http.Json.dll	impl		9.0.0.0	3
+net9.0	System.Net.HttpListener	System.Net.HttpListener.dll	impl		9.0.0.0	10
+net9.0	System.Net.Mail	System.Net.Mail.dll	impl		9.0.0.0	25
+net9.0	System.Net.NameResolution	System.Net.NameResolution.dll	impl		9.0.0.0	2
+net9.0	System.Net.NetworkInformation	System.Net.NetworkInformation.dll	impl		9.0.0.0	36
+net9.0	System.Net.Ping	System.Net.Ping.dll	impl		9.0.0.0	7
+net9.0	System.Net.Primitives	System.Net.Primitives.dll	impl		9.0.0.0	34
+net9.0	System.Net.Quic	System.Net.Quic.dll	impl		9.0.0.0	13
+net9.0	System.Net.Requests	System.Net.Requests.dll	impl		9.0.0.0	27
+net9.0	System.Net.Security	System.Net.Security.dll	impl		9.0.0.0	27
+net9.0	System.Net.ServicePoint	System.Net.ServicePoint.dll	facade	System.Net.Requests	9.0.0.0	0
+net9.0	System.Net.Sockets	System.Net.Sockets.dll	impl		9.0.0.0	31
+net9.0	System.Net.WebClient	System.Net.WebClient.dll	impl		9.0.0.0	23
+net9.0	System.Net.WebHeaderCollection	System.Net.WebHeaderCollection.dll	impl		9.0.0.0	3
+net9.0	System.Net.WebProxy	System.Net.WebProxy.dll	impl		9.0.0.0	2
+net9.0	System.Net.WebSockets	System.Net.WebSockets.dll	impl		9.0.0.0	12
+net9.0	System.Net.WebSockets.Client	System.Net.WebSockets.Client.dll	impl		9.0.0.0	2
+net9.0	System.Numerics	System.Numerics.dll	facade	System.Numerics.Vectors	4.0.0.0	0
+net9.0	System.Numerics.Vectors	System.Numerics.Vectors.dll	facade	System.Private.CoreLib	9.0.0.0	9
+net9.0	System.ObjectModel	System.ObjectModel.dll	impl		9.0.0.0	20
+net9.0	System.Private.CoreLib	System.Private.CoreLib.dll	impl		9.0.0.0	1216
+net9.0	System.Private.DataContractSerialization	System.Private.DataContractSerialization.dll	impl		9.0.0.0	41
+net9.0	System.Private.Uri	System.Private.Uri.dll	impl		9.0.0.0	20
+net9.0	System.Private.Xml	System.Private.Xml.dll	impl		9.0.0.0	296
+net9.0	System.Private.Xml.Linq	System.Private.Xml.Linq.dll	impl		9.0.0.0	25
+net9.0	System.Reflection	System.Reflection.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.Reflection.DispatchProxy	System.Reflection.DispatchProxy.dll	impl		9.0.0.0	1
+net9.0	System.Reflection.Emit	System.Reflection.Emit.dll	impl		9.0.0.0	12
+net9.0	System.Reflection.Emit.ILGeneration	System.Reflection.Emit.ILGeneration.dll	facade	System.Private.CoreLib	9.0.0.0	6
+net9.0	System.Reflection.Emit.Lightweight	System.Reflection.Emit.Lightweight.dll	facade	System.Private.CoreLib	9.0.0.0	2
+net9.0	System.Reflection.Extensions	System.Reflection.Extensions.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.Reflection.Metadata	System.Reflection.Metadata.dll	impl		9.0.0.0	236
+net9.0	System.Reflection.Primitives	System.Reflection.Primitives.dll	facade	System.Private.CoreLib	9.0.0.0	7
+net9.0	System.Reflection.TypeExtensions	System.Reflection.TypeExtensions.dll	impl		9.0.0.0	7
+net9.0	System.Resources.Reader	System.Resources.Reader.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.Resources.ResourceManager	System.Resources.ResourceManager.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.Resources.Writer	System.Resources.Writer.dll	impl		9.0.0.0	2
+net9.0	System.Runtime	System.Runtime.dll	facade	System.Private.CoreLib	9.0.0.0	871
+net9.0	System.Runtime.CompilerServices.Unsafe	System.Runtime.CompilerServices.Unsafe.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.Runtime.CompilerServices.VisualC	System.Runtime.CompilerServices.VisualC.dll	impl		9.0.0.0	16
+net9.0	System.Runtime.Extensions	System.Runtime.Extensions.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.Runtime.Handles	System.Runtime.Handles.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.Runtime.InteropServices	System.Runtime.InteropServices.dll	impl		9.0.0.0	189
+net9.0	System.Runtime.InteropServices.JavaScript	System.Runtime.InteropServices.JavaScript.dll	impl		9.0.0.0	10
+net9.0	System.Runtime.InteropServices.RuntimeInformation	System.Runtime.InteropServices.RuntimeInformation.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.Runtime.Intrinsics	System.Runtime.Intrinsics.dll	facade	System.Private.CoreLib	9.0.0.0	46
+net9.0	System.Runtime.Loader	System.Runtime.Loader.dll	facade	System.Private.CoreLib	9.0.0.0	7
+net9.0	System.Runtime.Numerics	System.Runtime.Numerics.dll	impl		9.0.0.0	2
+net9.0	System.Runtime.Serialization	System.Runtime.Serialization.dll	facade	System.Runtime.Serialization.Xml	4.0.0.0	0
+net9.0	System.Runtime.Serialization.Formatters	System.Runtime.Serialization.Formatters.dll	impl		8.1.0.0	16
+net9.0	System.Runtime.Serialization.Json	System.Runtime.Serialization.Json.dll	facade	System.Private.DataContractSerialization	9.0.0.0	7
+net9.0	System.Runtime.Serialization.Primitives	System.Runtime.Serialization.Primitives.dll	impl		9.0.0.0	10
+net9.0	System.Runtime.Serialization.Xml	System.Runtime.Serialization.Xml.dll	facade	System.Private.DataContractSerialization	9.0.0.0	32
+net9.0	System.Security	System.Security.dll	facade	System.Security.Cryptography.Xml	4.0.0.0	0
+net9.0	System.Security.AccessControl	System.Security.AccessControl.dll	impl		9.0.0.0	46
+net9.0	System.Security.Claims	System.Security.Claims.dll	impl		9.0.0.0	7
+net9.0	System.Security.Cryptography	System.Security.Cryptography.dll	impl		9.0.0.0	210
+net9.0	System.Security.Cryptography.Algorithms	System.Security.Cryptography.Algorithms.dll	facade	System.Security.Cryptography	9.0.0.0	0
+net9.0	System.Security.Cryptography.Cng	System.Security.Cryptography.Cng.dll	facade	System.Security.Cryptography	9.0.0.0	0
+net9.0	System.Security.Cryptography.Csp	System.Security.Cryptography.Csp.dll	facade	System.Security.Cryptography	9.0.0.0	0
+net9.0	System.Security.Cryptography.Encoding	System.Security.Cryptography.Encoding.dll	facade	System.Security.Cryptography	9.0.0.0	0
+net9.0	System.Security.Cryptography.OpenSsl	System.Security.Cryptography.OpenSsl.dll	facade	System.Security.Cryptography	9.0.0.0	0
+net9.0	System.Security.Cryptography.Primitives	System.Security.Cryptography.Primitives.dll	facade	System.Security.Cryptography	9.0.0.0	0
+net9.0	System.Security.Cryptography.X509Certificates	System.Security.Cryptography.X509Certificates.dll	facade	System.Security.Cryptography	9.0.0.0	0
+net9.0	System.Security.Principal	System.Security.Principal.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.Security.Principal.Windows	System.Security.Principal.Windows.dll	impl		9.0.0.0	12
+net9.0	System.Security.SecureString	System.Security.SecureString.dll	facade	System.Runtime.InteropServices	9.0.0.0	0
+net9.0	System.ServiceModel.Web	System.ServiceModel.Web.dll	facade	System.ServiceModel.Syndication	4.0.0.0	0
+net9.0	System.ServiceProcess	System.ServiceProcess.dll	facade	System.ServiceProcess.ServiceController	4.0.0.0	0
+net9.0	System.Text.Encoding	System.Text.Encoding.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.Text.Encoding.CodePages	System.Text.Encoding.CodePages.dll	impl		9.0.0.0	1
+net9.0	System.Text.Encoding.Extensions	System.Text.Encoding.Extensions.dll	facade	System.Private.CoreLib	9.0.0.0	5
+net9.0	System.Text.Encodings.Web	System.Text.Encodings.Web.dll	impl		9.0.0.0	7
+net9.0	System.Text.Json	System.Text.Json.dll	impl		9.0.0.0	81
+net9.0	System.Text.RegularExpressions	System.Text.RegularExpressions.dll	impl		9.0.0.0	17
+net9.0	System.Threading	System.Threading.dll	impl		9.0.0.0	36
+net9.0	System.Threading.Channels	System.Threading.Channels.dll	impl		9.0.0.0	11
+net9.0	System.Threading.Overlapped	System.Threading.Overlapped.dll	facade	System.Private.CoreLib	9.0.0.0	5
+net9.0	System.Threading.Tasks	System.Threading.Tasks.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.Threading.Tasks.Dataflow	System.Threading.Tasks.Dataflow.dll	impl		9.0.0.0	23
+net9.0	System.Threading.Tasks.Extensions	System.Threading.Tasks.Extensions.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.Threading.Tasks.Parallel	System.Threading.Tasks.Parallel.dll	impl		9.0.0.0	4
+net9.0	System.Threading.Thread	System.Threading.Thread.dll	facade	System.Private.CoreLib	9.0.0.0	14
+net9.0	System.Threading.ThreadPool	System.Threading.ThreadPool.dll	facade	System.Private.CoreLib	9.0.0.0	5
+net9.0	System.Threading.Timer	System.Threading.Timer.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.Transactions	System.Transactions.dll	facade	System.Transactions.Local	4.0.0.0	0
+net9.0	System.Transactions.Local	System.Transactions.Local.dll	impl		9.0.0.0	34
+net9.0	System.ValueTuple	System.ValueTuple.dll	facade	System.Runtime	9.0.0.0	0
+net9.0	System.Web	System.Web.dll	facade	System.Web.HttpUtility	4.0.0.0	0
+net9.0	System.Web.HttpUtility	System.Web.HttpUtility.dll	impl		9.0.0.0	2
+net9.0	System.Windows	System.Windows.dll	facade	System.ObjectModel	4.0.0.0	0
+net9.0	System.Xml	System.Xml.dll	facade	System.Xml.ReaderWriter	4.0.0.0	0
+net9.0	System.Xml.Linq	System.Xml.Linq.dll	facade	System.Xml.XDocument	4.0.0.0	0
+net9.0	System.Xml.ReaderWriter	System.Xml.ReaderWriter.dll	facade	System.Private.Xml	9.0.0.0	187
+net9.0	System.Xml.Serialization	System.Xml.Serialization.dll	facade	System.Xml.XmlSerializer	4.0.0.0	0
+net9.0	System.Xml.XDocument	System.Xml.XDocument.dll	facade	System.Private.Xml.Linq	9.0.0.0	24
+net9.0	System.Xml.XmlDocument	System.Xml.XmlDocument.dll	facade	System.Xml.ReaderWriter	9.0.0.0	0
+net9.0	System.Xml.XmlSerializer	System.Xml.XmlSerializer.dll	facade	System.Private.Xml	9.0.0.0	58
+net9.0	System.Xml.XPath	System.Xml.XPath.dll	facade	System.Private.Xml	9.0.0.0	2
+net9.0	System.Xml.XPath.XDocument	System.Xml.XPath.XDocument.dll	impl		9.0.0.0	2
+net9.0	WindowsBase	WindowsBase.dll	facade	System.IO.Packaging	4.0.0.0	0
+net10.0	Microsoft.CSharp	Microsoft.CSharp.dll	impl		10.0.0.0	6
+net10.0	Microsoft.VisualBasic	Microsoft.VisualBasic.dll	facade	Microsoft.VisualBasic.Core	10.0.0.0	0
+net10.0	Microsoft.VisualBasic.Core	Microsoft.VisualBasic.Core.dll	impl		15.0.0.0	74
+net10.0	Microsoft.Win32.Primitives	Microsoft.Win32.Primitives.dll	facade	System.Private.CoreLib	10.0.0.0	1
+net10.0	Microsoft.Win32.Registry	Microsoft.Win32.Registry.dll	impl		10.0.0.0	13
+net10.0	mscorlib	mscorlib.dll	facade	System.Private.CoreLib	4.0.0.0	0
+net10.0	netstandard	netstandard.dll	facade	System.Runtime	2.1.0.0	0
+net10.0	System	System.dll	facade	System.ComponentModel.TypeConverter	4.0.0.0	0
+net10.0	System.AppContext	System.AppContext.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.Buffers	System.Buffers.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.Collections	System.Collections.dll	impl		10.0.0.0	18
+net10.0	System.Collections.Concurrent	System.Collections.Concurrent.dll	impl		10.0.0.0	10
+net10.0	System.Collections.Immutable	System.Collections.Immutable.dll	impl		10.0.0.0	28
+net10.0	System.Collections.NonGeneric	System.Collections.NonGeneric.dll	impl		10.0.0.0	9
+net10.0	System.Collections.Specialized	System.Collections.Specialized.dll	impl		10.0.0.0	10
+net10.0	System.ComponentModel	System.ComponentModel.dll	impl		10.0.0.0	5
+net10.0	System.ComponentModel.Annotations	System.ComponentModel.Annotations.dll	impl		10.0.0.0	47
+net10.0	System.ComponentModel.DataAnnotations	System.ComponentModel.DataAnnotations.dll	facade	System.ComponentModel.Annotations	4.0.0.0	0
+net10.0	System.ComponentModel.EventBasedAsync	System.ComponentModel.EventBasedAsync.dll	impl		10.0.0.0	11
+net10.0	System.ComponentModel.Primitives	System.ComponentModel.Primitives.dll	impl		10.0.0.0	30
+net10.0	System.ComponentModel.TypeConverter	System.ComponentModel.TypeConverter.dll	impl		10.0.0.0	214
+net10.0	System.Configuration	System.Configuration.dll	facade	System.Configuration.ConfigurationManager	4.0.0.0	0
+net10.0	System.Console	System.Console.dll	impl		10.0.0.0	8
+net10.0	System.Core	System.Core.dll	facade	System.Linq.Expressions	4.0.0.0	0
+net10.0	System.Data	System.Data.dll	facade	System.Data.Common	4.0.0.0	0
+net10.0	System.Data.Common	System.Data.Common.dll	impl		10.0.0.0	171
+net10.0	System.Data.DataSetExtensions	System.Data.DataSetExtensions.dll	facade	System.Data.Common	10.0.0.0	0
+net10.0	System.Diagnostics.Contracts	System.Diagnostics.Contracts.dll	facade	System.Private.CoreLib	10.0.0.0	15
+net10.0	System.Diagnostics.Debug	System.Diagnostics.Debug.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.Diagnostics.DiagnosticSource	System.Diagnostics.DiagnosticSource.dll	impl		10.0.0.0	41
+net10.0	System.Diagnostics.FileVersionInfo	System.Diagnostics.FileVersionInfo.dll	impl		10.0.0.0	1
+net10.0	System.Diagnostics.Process	System.Diagnostics.Process.dll	impl		10.0.0.0	15
+net10.0	System.Diagnostics.StackTrace	System.Diagnostics.StackTrace.dll	impl		10.0.0.0	19
+net10.0	System.Diagnostics.TextWriterTraceListener	System.Diagnostics.TextWriterTraceListener.dll	impl		10.0.0.0	4
+net10.0	System.Diagnostics.Tools	System.Diagnostics.Tools.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.Diagnostics.TraceSource	System.Diagnostics.TraceSource.dll	impl		10.0.0.0	22
+net10.0	System.Diagnostics.Tracing	System.Diagnostics.Tracing.dll	facade	System.Private.CoreLib	10.0.0.0	30
+net10.0	System.Drawing	System.Drawing.dll	facade	System.Drawing.Common	4.0.0.0	0
+net10.0	System.Drawing.Primitives	System.Drawing.Primitives.dll	impl		10.0.0.0	10
+net10.0	System.Dynamic.Runtime	System.Dynamic.Runtime.dll	facade	System.Linq.Expressions	10.0.0.0	0
+net10.0	System.Formats.Asn1	System.Formats.Asn1.dll	impl		10.0.0.0	9
+net10.0	System.Formats.Tar	System.Formats.Tar.dll	impl		10.0.0.0	12
+net10.0	System.Globalization	System.Globalization.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.Globalization.Calendars	System.Globalization.Calendars.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.Globalization.Extensions	System.Globalization.Extensions.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.IO	System.IO.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.IO.Compression	System.IO.Compression.dll	impl		10.0.0.0	10
+net10.0	System.IO.Compression.Brotli	System.IO.Compression.Brotli.dll	impl		10.0.0.0	4
+net10.0	System.IO.Compression.FileSystem	System.IO.Compression.FileSystem.dll	facade	System.IO.Compression.ZipFile	4.0.0.0	0
+net10.0	System.IO.Compression.ZipFile	System.IO.Compression.ZipFile.dll	impl		10.0.0.0	2
+net10.0	System.IO.FileSystem	System.IO.FileSystem.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.IO.FileSystem.AccessControl	System.IO.FileSystem.AccessControl.dll	impl		10.0.0.0	8
+net10.0	System.IO.FileSystem.DriveInfo	System.IO.FileSystem.DriveInfo.dll	impl		10.0.0.0	3
+net10.0	System.IO.FileSystem.Primitives	System.IO.FileSystem.Primitives.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.IO.FileSystem.Watcher	System.IO.FileSystem.Watcher.dll	impl		10.0.0.0	11
+net10.0	System.IO.IsolatedStorage	System.IO.IsolatedStorage.dll	impl		10.0.0.0	6
+net10.0	System.IO.MemoryMappedFiles	System.IO.MemoryMappedFiles.dll	impl		10.0.0.0	8
+net10.0	System.IO.Pipelines	System.IO.Pipelines.dll	impl		10.0.0.0	11
+net10.0	System.IO.Pipes	System.IO.Pipes.dll	impl		10.0.0.0	11
+net10.0	System.IO.Pipes.AccessControl	System.IO.Pipes.AccessControl.dll	impl		10.0.0.0	6
+net10.0	System.IO.UnmanagedMemoryStream	System.IO.UnmanagedMemoryStream.dll	facade	System.Runtime.InteropServices	10.0.0.0	0
+net10.0	System.Linq	System.Linq.dll	impl		10.0.0.0	5
+net10.0	System.Linq.AsyncEnumerable	System.Linq.AsyncEnumerable.dll	impl		10.0.0.0	2
+net10.0	System.Linq.Expressions	System.Linq.Expressions.dll	impl		10.0.0.0	77
+net10.0	System.Linq.Parallel	System.Linq.Parallel.dll	impl		10.0.0.0	6
+net10.0	System.Linq.Queryable	System.Linq.Queryable.dll	impl		10.0.0.0	5
+net10.0	System.Memory	System.Memory.dll	impl		10.0.0.0	18
+net10.0	System.Net	System.Net.dll	facade	System.Net.Primitives	4.0.0.0	0
+net10.0	System.Net.Http	System.Net.Http.dll	impl		10.0.0.0	59
+net10.0	System.Net.Http.Json	System.Net.Http.Json.dll	impl		10.0.0.0	3
+net10.0	System.Net.HttpListener	System.Net.HttpListener.dll	impl		10.0.0.0	10
+net10.0	System.Net.Mail	System.Net.Mail.dll	impl		10.0.0.0	25
+net10.0	System.Net.NameResolution	System.Net.NameResolution.dll	impl		10.0.0.0	2
+net10.0	System.Net.NetworkInformation	System.Net.NetworkInformation.dll	impl		10.0.0.0	36
+net10.0	System.Net.Ping	System.Net.Ping.dll	impl		10.0.0.0	7
+net10.0	System.Net.Primitives	System.Net.Primitives.dll	impl		10.0.0.0	34
+net10.0	System.Net.Quic	System.Net.Quic.dll	impl		10.0.0.0	13
+net10.0	System.Net.Requests	System.Net.Requests.dll	impl		10.0.0.0	27
+net10.0	System.Net.Security	System.Net.Security.dll	impl		10.0.0.0	27
+net10.0	System.Net.ServerSentEvents	System.Net.ServerSentEvents.dll	impl		10.0.0.0	5
+net10.0	System.Net.ServicePoint	System.Net.ServicePoint.dll	facade	System.Net.Requests	10.0.0.0	0
+net10.0	System.Net.Sockets	System.Net.Sockets.dll	impl		10.0.0.0	31
+net10.0	System.Net.WebClient	System.Net.WebClient.dll	impl		10.0.0.0	23
+net10.0	System.Net.WebHeaderCollection	System.Net.WebHeaderCollection.dll	impl		10.0.0.0	3
+net10.0	System.Net.WebProxy	System.Net.WebProxy.dll	impl		10.0.0.0	2
+net10.0	System.Net.WebSockets	System.Net.WebSockets.dll	impl		10.0.0.0	13
+net10.0	System.Net.WebSockets.Client	System.Net.WebSockets.Client.dll	impl		10.0.0.0	2
+net10.0	System.Numerics	System.Numerics.dll	facade	System.Numerics.Vectors	4.0.0.0	0
+net10.0	System.Numerics.Vectors	System.Numerics.Vectors.dll	facade	System.Private.CoreLib	10.0.0.0	9
+net10.0	System.ObjectModel	System.ObjectModel.dll	impl		10.0.0.0	20
+net10.0	System.Private.CoreLib	System.Private.CoreLib.dll	impl		10.0.0.0	1260
+net10.0	System.Private.DataContractSerialization	System.Private.DataContractSerialization.dll	impl		10.0.0.0	41
+net10.0	System.Private.Uri	System.Private.Uri.dll	impl		10.0.0.0	20
+net10.0	System.Private.Xml	System.Private.Xml.dll	impl		10.0.0.0	296
+net10.0	System.Private.Xml.Linq	System.Private.Xml.Linq.dll	impl		10.0.0.0	25
+net10.0	System.Reflection	System.Reflection.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.Reflection.DispatchProxy	System.Reflection.DispatchProxy.dll	impl		10.0.0.0	1
+net10.0	System.Reflection.Emit	System.Reflection.Emit.dll	impl		10.0.0.0	12
+net10.0	System.Reflection.Emit.ILGeneration	System.Reflection.Emit.ILGeneration.dll	facade	System.Private.CoreLib	10.0.0.0	6
+net10.0	System.Reflection.Emit.Lightweight	System.Reflection.Emit.Lightweight.dll	facade	System.Private.CoreLib	10.0.0.0	2
+net10.0	System.Reflection.Extensions	System.Reflection.Extensions.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.Reflection.Metadata	System.Reflection.Metadata.dll	impl		10.0.0.0	236
+net10.0	System.Reflection.Primitives	System.Reflection.Primitives.dll	facade	System.Private.CoreLib	10.0.0.0	7
+net10.0	System.Reflection.TypeExtensions	System.Reflection.TypeExtensions.dll	impl		10.0.0.0	7
+net10.0	System.Resources.Reader	System.Resources.Reader.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.Resources.ResourceManager	System.Resources.ResourceManager.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.Resources.Writer	System.Resources.Writer.dll	impl		10.0.0.0	2
+net10.0	System.Runtime	System.Runtime.dll	facade	System.Private.CoreLib	10.0.0.0	898
+net10.0	System.Runtime.CompilerServices.Unsafe	System.Runtime.CompilerServices.Unsafe.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.Runtime.CompilerServices.VisualC	System.Runtime.CompilerServices.VisualC.dll	impl		10.0.0.0	16
+net10.0	System.Runtime.Extensions	System.Runtime.Extensions.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.Runtime.Handles	System.Runtime.Handles.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.Runtime.InteropServices	System.Runtime.InteropServices.dll	impl		10.0.0.0	198
+net10.0	System.Runtime.InteropServices.JavaScript	System.Runtime.InteropServices.JavaScript.dll	impl		10.0.0.0	10
+net10.0	System.Runtime.InteropServices.RuntimeInformation	System.Runtime.InteropServices.RuntimeInformation.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.Runtime.Intrinsics	System.Runtime.Intrinsics.dll	facade	System.Private.CoreLib	10.0.0.0	52
+net10.0	System.Runtime.Loader	System.Runtime.Loader.dll	facade	System.Private.CoreLib	10.0.0.0	8
+net10.0	System.Runtime.Numerics	System.Runtime.Numerics.dll	impl		10.0.0.0	2
+net10.0	System.Runtime.Serialization	System.Runtime.Serialization.dll	facade	System.Runtime.Serialization.Xml	4.0.0.0	0
+net10.0	System.Runtime.Serialization.Formatters	System.Runtime.Serialization.Formatters.dll	impl		8.1.0.0	16
+net10.0	System.Runtime.Serialization.Json	System.Runtime.Serialization.Json.dll	facade	System.Private.DataContractSerialization	10.0.0.0	7
+net10.0	System.Runtime.Serialization.Primitives	System.Runtime.Serialization.Primitives.dll	impl		10.0.0.0	10
+net10.0	System.Runtime.Serialization.Xml	System.Runtime.Serialization.Xml.dll	facade	System.Private.DataContractSerialization	10.0.0.0	32
+net10.0	System.Security	System.Security.dll	facade	System.Security.Cryptography.Xml	4.0.0.0	0
+net10.0	System.Security.AccessControl	System.Security.AccessControl.dll	impl		10.0.0.0	46
+net10.0	System.Security.Claims	System.Security.Claims.dll	impl		10.0.0.0	7
+net10.0	System.Security.Cryptography	System.Security.Cryptography.dll	impl		10.0.0.0	226
+net10.0	System.Security.Cryptography.Algorithms	System.Security.Cryptography.Algorithms.dll	facade	System.Security.Cryptography	10.0.0.0	0
+net10.0	System.Security.Cryptography.Cng	System.Security.Cryptography.Cng.dll	facade	System.Security.Cryptography	10.0.0.0	0
+net10.0	System.Security.Cryptography.Csp	System.Security.Cryptography.Csp.dll	facade	System.Security.Cryptography	10.0.0.0	0
+net10.0	System.Security.Cryptography.Encoding	System.Security.Cryptography.Encoding.dll	facade	System.Security.Cryptography	10.0.0.0	0
+net10.0	System.Security.Cryptography.OpenSsl	System.Security.Cryptography.OpenSsl.dll	facade	System.Security.Cryptography	10.0.0.0	0
+net10.0	System.Security.Cryptography.Primitives	System.Security.Cryptography.Primitives.dll	facade	System.Security.Cryptography	10.0.0.0	0
+net10.0	System.Security.Cryptography.X509Certificates	System.Security.Cryptography.X509Certificates.dll	facade	System.Security.Cryptography	10.0.0.0	0
+net10.0	System.Security.Principal	System.Security.Principal.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.Security.Principal.Windows	System.Security.Principal.Windows.dll	impl		10.0.0.0	12
+net10.0	System.Security.SecureString	System.Security.SecureString.dll	facade	System.Runtime.InteropServices	10.0.0.0	0
+net10.0	System.ServiceModel.Web	System.ServiceModel.Web.dll	facade	System.ServiceModel.Syndication	4.0.0.0	0
+net10.0	System.ServiceProcess	System.ServiceProcess.dll	facade	System.ServiceProcess.ServiceController	4.0.0.0	0
+net10.0	System.Text.Encoding	System.Text.Encoding.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.Text.Encoding.CodePages	System.Text.Encoding.CodePages.dll	impl		10.0.0.0	1
+net10.0	System.Text.Encoding.Extensions	System.Text.Encoding.Extensions.dll	facade	System.Private.CoreLib	10.0.0.0	5
+net10.0	System.Text.Encodings.Web	System.Text.Encodings.Web.dll	impl		10.0.0.0	7
+net10.0	System.Text.Json	System.Text.Json.dll	impl		10.0.0.0	82
+net10.0	System.Text.RegularExpressions	System.Text.RegularExpressions.dll	impl		10.0.0.0	17
+net10.0	System.Threading	System.Threading.dll	impl		10.0.0.0	37
+net10.0	System.Threading.AccessControl	System.Threading.AccessControl.dll	impl		10.0.0.0	16
+net10.0	System.Threading.Channels	System.Threading.Channels.dll	impl		10.0.0.0	11
+net10.0	System.Threading.Overlapped	System.Threading.Overlapped.dll	facade	System.Private.CoreLib	10.0.0.0	5
+net10.0	System.Threading.Tasks	System.Threading.Tasks.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.Threading.Tasks.Dataflow	System.Threading.Tasks.Dataflow.dll	impl		10.0.0.0	23
+net10.0	System.Threading.Tasks.Extensions	System.Threading.Tasks.Extensions.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.Threading.Tasks.Parallel	System.Threading.Tasks.Parallel.dll	impl		10.0.0.0	4
+net10.0	System.Threading.Thread	System.Threading.Thread.dll	facade	System.Private.CoreLib	10.0.0.0	14
+net10.0	System.Threading.ThreadPool	System.Threading.ThreadPool.dll	facade	System.Private.CoreLib	10.0.0.0	5
+net10.0	System.Threading.Timer	System.Threading.Timer.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.Transactions	System.Transactions.dll	facade	System.Transactions.Local	4.0.0.0	0
+net10.0	System.Transactions.Local	System.Transactions.Local.dll	impl		10.0.0.0	34
+net10.0	System.ValueTuple	System.ValueTuple.dll	facade	System.Runtime	10.0.0.0	0
+net10.0	System.Web	System.Web.dll	facade	System.Web.HttpUtility	4.0.0.0	0
+net10.0	System.Web.HttpUtility	System.Web.HttpUtility.dll	impl		10.0.0.0	2
+net10.0	System.Windows	System.Windows.dll	facade	System.ObjectModel	4.0.0.0	0
+net10.0	System.Xml	System.Xml.dll	facade	System.Xml.ReaderWriter	4.0.0.0	0
+net10.0	System.Xml.Linq	System.Xml.Linq.dll	facade	System.Xml.XDocument	4.0.0.0	0
+net10.0	System.Xml.ReaderWriter	System.Xml.ReaderWriter.dll	facade	System.Private.Xml	10.0.0.0	187
+net10.0	System.Xml.Serialization	System.Xml.Serialization.dll	facade	System.Xml.XmlSerializer	4.0.0.0	0
+net10.0	System.Xml.XDocument	System.Xml.XDocument.dll	facade	System.Private.Xml.Linq	10.0.0.0	24
+net10.0	System.Xml.XmlDocument	System.Xml.XmlDocument.dll	facade	System.Xml.ReaderWriter	10.0.0.0	0
+net10.0	System.Xml.XmlSerializer	System.Xml.XmlSerializer.dll	facade	System.Private.Xml	10.0.0.0	58
+net10.0	System.Xml.XPath	System.Xml.XPath.dll	facade	System.Private.Xml	10.0.0.0	2
+net10.0	System.Xml.XPath.XDocument	System.Xml.XPath.XDocument.dll	impl		10.0.0.0	2
+net10.0	WindowsBase	WindowsBase.dll	facade	System.IO.Packaging	4.0.0.0	0
+netstandard2.0	Microsoft.Win32.Primitives	Microsoft.Win32.Primitives.dll	facade	netstandard	4.0.3.0	0
+netstandard2.0	mscorlib	mscorlib.dll	facade	netstandard	4.0.0.0	0
+netstandard2.0	netstandard	netstandard.dll	ref		2.0.0.0	2367
+netstandard2.0	System	System.dll	facade	netstandard	4.0.0.0	0
+netstandard2.0	System.AppContext	System.AppContext.dll	facade	netstandard	4.1.2.0	0
+netstandard2.0	System.Collections	System.Collections.dll	facade	netstandard	4.0.11.0	0
+netstandard2.0	System.Collections.Concurrent	System.Collections.Concurrent.dll	facade	netstandard	4.0.11.0	0
+netstandard2.0	System.Collections.NonGeneric	System.Collections.NonGeneric.dll	facade	netstandard	4.0.3.0	0
+netstandard2.0	System.Collections.Specialized	System.Collections.Specialized.dll	facade	netstandard	4.0.3.0	0
+netstandard2.0	System.ComponentModel	System.ComponentModel.dll	facade	netstandard	4.0.1.0	0
+netstandard2.0	System.ComponentModel.Composition	System.ComponentModel.Composition.dll	facade	netstandard	4.0.0.0	0
+netstandard2.0	System.ComponentModel.EventBasedAsync	System.ComponentModel.EventBasedAsync.dll	facade	netstandard	4.0.11.0	0
+netstandard2.0	System.ComponentModel.Primitives	System.ComponentModel.Primitives.dll	facade	netstandard	4.1.2.0	0
+netstandard2.0	System.ComponentModel.TypeConverter	System.ComponentModel.TypeConverter.dll	facade	netstandard	4.1.2.0	0
+netstandard2.0	System.Console	System.Console.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.Core	System.Core.dll	facade	netstandard	4.0.0.0	0
+netstandard2.0	System.Data	System.Data.dll	facade	netstandard	4.0.0.0	0
+netstandard2.0	System.Data.Common	System.Data.Common.dll	facade	netstandard	4.1.2.0	0
+netstandard2.0	System.Diagnostics.Contracts	System.Diagnostics.Contracts.dll	facade	netstandard	4.0.1.0	0
+netstandard2.0	System.Diagnostics.Debug	System.Diagnostics.Debug.dll	facade	netstandard	4.0.11.0	0
+netstandard2.0	System.Diagnostics.FileVersionInfo	System.Diagnostics.FileVersionInfo.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.Diagnostics.Process	System.Diagnostics.Process.dll	facade	netstandard	4.1.2.0	0
+netstandard2.0	System.Diagnostics.StackTrace	System.Diagnostics.StackTrace.dll	facade	netstandard	4.0.4.0	0
+netstandard2.0	System.Diagnostics.TextWriterTraceListener	System.Diagnostics.TextWriterTraceListener.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.Diagnostics.Tools	System.Diagnostics.Tools.dll	facade	netstandard	4.0.1.0	0
+netstandard2.0	System.Diagnostics.TraceSource	System.Diagnostics.TraceSource.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.Diagnostics.Tracing	System.Diagnostics.Tracing.dll	facade	netstandard	4.1.2.0	0
+netstandard2.0	System.Drawing	System.Drawing.dll	facade	netstandard	4.0.0.0	0
+netstandard2.0	System.Drawing.Primitives	System.Drawing.Primitives.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.Dynamic.Runtime	System.Dynamic.Runtime.dll	facade	netstandard	4.0.11.0	0
+netstandard2.0	System.Globalization	System.Globalization.dll	facade	netstandard	4.0.11.0	0
+netstandard2.0	System.Globalization.Calendars	System.Globalization.Calendars.dll	facade	netstandard	4.0.3.0	0
+netstandard2.0	System.Globalization.Extensions	System.Globalization.Extensions.dll	facade	netstandard	4.0.3.0	0
+netstandard2.0	System.IO	System.IO.dll	facade	netstandard	4.1.2.0	0
+netstandard2.0	System.IO.Compression	System.IO.Compression.dll	facade	netstandard	4.1.3.0	0
+netstandard2.0	System.IO.Compression.FileSystem	System.IO.Compression.FileSystem.dll	facade	netstandard	4.0.0.0	0
+netstandard2.0	System.IO.Compression.ZipFile	System.IO.Compression.ZipFile.dll	facade	netstandard	4.0.3.0	0
+netstandard2.0	System.IO.FileSystem	System.IO.FileSystem.dll	facade	netstandard	4.0.3.0	0
+netstandard2.0	System.IO.FileSystem.DriveInfo	System.IO.FileSystem.DriveInfo.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.IO.FileSystem.Primitives	System.IO.FileSystem.Primitives.dll	facade	netstandard	4.0.3.0	0
+netstandard2.0	System.IO.FileSystem.Watcher	System.IO.FileSystem.Watcher.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.IO.IsolatedStorage	System.IO.IsolatedStorage.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.IO.MemoryMappedFiles	System.IO.MemoryMappedFiles.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.IO.Pipes	System.IO.Pipes.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.IO.UnmanagedMemoryStream	System.IO.UnmanagedMemoryStream.dll	facade	netstandard	4.0.3.0	0
+netstandard2.0	System.Linq	System.Linq.dll	facade	netstandard	4.1.2.0	0
+netstandard2.0	System.Linq.Expressions	System.Linq.Expressions.dll	facade	netstandard	4.1.2.0	0
+netstandard2.0	System.Linq.Parallel	System.Linq.Parallel.dll	facade	netstandard	4.0.1.0	0
+netstandard2.0	System.Linq.Queryable	System.Linq.Queryable.dll	facade	netstandard	4.0.1.0	0
+netstandard2.0	System.Net	System.Net.dll	facade	netstandard	4.0.0.0	0
+netstandard2.0	System.Net.Http	System.Net.Http.dll	facade	netstandard	4.1.2.0	0
+netstandard2.0	System.Net.NameResolution	System.Net.NameResolution.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.Net.NetworkInformation	System.Net.NetworkInformation.dll	facade	netstandard	4.1.2.0	0
+netstandard2.0	System.Net.Ping	System.Net.Ping.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.Net.Primitives	System.Net.Primitives.dll	facade	netstandard	4.0.11.0	0
+netstandard2.0	System.Net.Requests	System.Net.Requests.dll	facade	netstandard	4.0.11.0	0
+netstandard2.0	System.Net.Security	System.Net.Security.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.Net.Sockets	System.Net.Sockets.dll	facade	netstandard	4.1.2.0	0
+netstandard2.0	System.Net.WebHeaderCollection	System.Net.WebHeaderCollection.dll	facade	netstandard	4.0.1.0	0
+netstandard2.0	System.Net.WebSockets	System.Net.WebSockets.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.Net.WebSockets.Client	System.Net.WebSockets.Client.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.Numerics	System.Numerics.dll	facade	netstandard	4.0.0.0	0
+netstandard2.0	System.ObjectModel	System.ObjectModel.dll	facade	netstandard	4.0.11.0	0
+netstandard2.0	System.Reflection	System.Reflection.dll	facade	netstandard	4.1.2.0	0
+netstandard2.0	System.Reflection.Extensions	System.Reflection.Extensions.dll	facade	netstandard	4.0.1.0	0
+netstandard2.0	System.Reflection.Primitives	System.Reflection.Primitives.dll	facade	netstandard	4.0.1.0	0
+netstandard2.0	System.Resources.Reader	System.Resources.Reader.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.Resources.ResourceManager	System.Resources.ResourceManager.dll	facade	netstandard	4.0.1.0	0
+netstandard2.0	System.Resources.Writer	System.Resources.Writer.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.Runtime	System.Runtime.dll	facade	netstandard	4.1.2.0	0
+netstandard2.0	System.Runtime.CompilerServices.VisualC	System.Runtime.CompilerServices.VisualC.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.Runtime.Extensions	System.Runtime.Extensions.dll	facade	netstandard	4.1.2.0	0
+netstandard2.0	System.Runtime.Handles	System.Runtime.Handles.dll	facade	netstandard	4.0.1.0	0
+netstandard2.0	System.Runtime.InteropServices	System.Runtime.InteropServices.dll	facade	netstandard	4.1.2.0	0
+netstandard2.0	System.Runtime.InteropServices.RuntimeInformation	System.Runtime.InteropServices.RuntimeInformation.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.Runtime.Numerics	System.Runtime.Numerics.dll	facade	netstandard	4.0.1.0	0
+netstandard2.0	System.Runtime.Serialization	System.Runtime.Serialization.dll	facade	netstandard	4.0.0.0	0
+netstandard2.0	System.Runtime.Serialization.Formatters	System.Runtime.Serialization.Formatters.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.Runtime.Serialization.Json	System.Runtime.Serialization.Json.dll	facade	netstandard	4.0.1.0	0
+netstandard2.0	System.Runtime.Serialization.Primitives	System.Runtime.Serialization.Primitives.dll	facade	netstandard	4.1.3.0	0
+netstandard2.0	System.Runtime.Serialization.Xml	System.Runtime.Serialization.Xml.dll	facade	netstandard	4.1.3.0	0
+netstandard2.0	System.Security.Claims	System.Security.Claims.dll	facade	netstandard	4.0.3.0	0
+netstandard2.0	System.Security.Cryptography.Algorithms	System.Security.Cryptography.Algorithms.dll	facade	netstandard	4.2.2.0	0
+netstandard2.0	System.Security.Cryptography.Csp	System.Security.Cryptography.Csp.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.Security.Cryptography.Encoding	System.Security.Cryptography.Encoding.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.Security.Cryptography.Primitives	System.Security.Cryptography.Primitives.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.Security.Cryptography.X509Certificates	System.Security.Cryptography.X509Certificates.dll	facade	netstandard	4.1.2.0	0
+netstandard2.0	System.Security.Principal	System.Security.Principal.dll	facade	netstandard	4.0.1.0	0
+netstandard2.0	System.Security.SecureString	System.Security.SecureString.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.ServiceModel.Web	System.ServiceModel.Web.dll	facade	netstandard	4.0.0.0	0
+netstandard2.0	System.Text.Encoding	System.Text.Encoding.dll	facade	netstandard	4.0.11.0	0
+netstandard2.0	System.Text.Encoding.Extensions	System.Text.Encoding.Extensions.dll	facade	netstandard	4.0.11.0	0
+netstandard2.0	System.Text.RegularExpressions	System.Text.RegularExpressions.dll	facade	netstandard	4.1.1.0	0
+netstandard2.0	System.Threading	System.Threading.dll	facade	netstandard	4.0.11.0	0
+netstandard2.0	System.Threading.Overlapped	System.Threading.Overlapped.dll	facade	netstandard	4.0.3.0	0
+netstandard2.0	System.Threading.Tasks	System.Threading.Tasks.dll	facade	netstandard	4.0.11.0	0
+netstandard2.0	System.Threading.Tasks.Parallel	System.Threading.Tasks.Parallel.dll	facade	netstandard	4.0.1.0	0
+netstandard2.0	System.Threading.Thread	System.Threading.Thread.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.Threading.ThreadPool	System.Threading.ThreadPool.dll	facade	netstandard	4.0.12.0	0
+netstandard2.0	System.Threading.Timer	System.Threading.Timer.dll	facade	netstandard	4.0.1.0	0
+netstandard2.0	System.Transactions	System.Transactions.dll	facade	netstandard	4.0.0.0	0
+netstandard2.0	System.ValueTuple	System.ValueTuple.dll	facade	netstandard	4.0.2.0	0
+netstandard2.0	System.Web	System.Web.dll	facade	netstandard	4.0.0.0	0
+netstandard2.0	System.Windows	System.Windows.dll	facade	netstandard	4.0.0.0	0
+netstandard2.0	System.Xml	System.Xml.dll	facade	netstandard	4.0.0.0	0
+netstandard2.0	System.Xml.Linq	System.Xml.Linq.dll	facade	netstandard	4.0.0.0	0
+netstandard2.0	System.Xml.ReaderWriter	System.Xml.ReaderWriter.dll	facade	netstandard	4.1.1.0	0
+netstandard2.0	System.Xml.Serialization	System.Xml.Serialization.dll	facade	netstandard	4.0.0.0	0
+netstandard2.0	System.Xml.XDocument	System.Xml.XDocument.dll	facade	netstandard	4.0.11.0	0
+netstandard2.0	System.Xml.XmlDocument	System.Xml.XmlDocument.dll	facade	netstandard	4.0.3.0	0
+netstandard2.0	System.Xml.XmlSerializer	System.Xml.XmlSerializer.dll	facade	netstandard	4.0.11.0	0
+netstandard2.0	System.Xml.XPath	System.Xml.XPath.dll	facade	netstandard	4.0.3.0	0
+netstandard2.0	System.Xml.XPath.XDocument	System.Xml.XPath.XDocument.dll	facade	netstandard	4.0.3.0	0
+netstandard2.1	Microsoft.Win32.Primitives	Microsoft.Win32.Primitives.dll	facade	netstandard	4.0.3.0	0
+netstandard2.1	mscorlib	mscorlib.dll	facade	netstandard	4.0.0.0	0
+netstandard2.1	netstandard	netstandard.dll	ref		2.1.0.0	2533
+netstandard2.1	System	System.dll	facade	netstandard	4.0.0.0	0
+netstandard2.1	System.AppContext	System.AppContext.dll	facade	netstandard	4.1.2.0	0
+netstandard2.1	System.Buffers	System.Buffers.dll	facade	netstandard	4.0.3.0	0
+netstandard2.1	System.Collections	System.Collections.dll	facade	netstandard	4.0.11.0	0
+netstandard2.1	System.Collections.Concurrent	System.Collections.Concurrent.dll	facade	netstandard	4.0.11.0	0
+netstandard2.1	System.Collections.NonGeneric	System.Collections.NonGeneric.dll	facade	netstandard	4.0.3.0	0
+netstandard2.1	System.Collections.Specialized	System.Collections.Specialized.dll	facade	netstandard	4.0.3.0	0
+netstandard2.1	System.ComponentModel	System.ComponentModel.dll	facade	netstandard	4.0.1.0	0
+netstandard2.1	System.ComponentModel.Composition	System.ComponentModel.Composition.dll	facade	netstandard	4.0.0.0	0
+netstandard2.1	System.ComponentModel.EventBasedAsync	System.ComponentModel.EventBasedAsync.dll	facade	netstandard	4.0.11.0	0
+netstandard2.1	System.ComponentModel.Primitives	System.ComponentModel.Primitives.dll	facade	netstandard	4.1.2.0	0
+netstandard2.1	System.ComponentModel.TypeConverter	System.ComponentModel.TypeConverter.dll	facade	netstandard	4.1.2.0	0
+netstandard2.1	System.Console	System.Console.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.Core	System.Core.dll	facade	netstandard	4.0.0.0	0
+netstandard2.1	System.Data	System.Data.dll	facade	netstandard	4.0.0.0	0
+netstandard2.1	System.Data.Common	System.Data.Common.dll	facade	netstandard	4.1.2.0	0
+netstandard2.1	System.Diagnostics.Contracts	System.Diagnostics.Contracts.dll	facade	netstandard	4.0.1.0	0
+netstandard2.1	System.Diagnostics.Debug	System.Diagnostics.Debug.dll	facade	netstandard	4.0.11.0	0
+netstandard2.1	System.Diagnostics.FileVersionInfo	System.Diagnostics.FileVersionInfo.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.Diagnostics.Process	System.Diagnostics.Process.dll	facade	netstandard	4.1.2.0	0
+netstandard2.1	System.Diagnostics.StackTrace	System.Diagnostics.StackTrace.dll	facade	netstandard	4.0.4.0	0
+netstandard2.1	System.Diagnostics.TextWriterTraceListener	System.Diagnostics.TextWriterTraceListener.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.Diagnostics.Tools	System.Diagnostics.Tools.dll	facade	netstandard	4.0.1.0	0
+netstandard2.1	System.Diagnostics.TraceSource	System.Diagnostics.TraceSource.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.Diagnostics.Tracing	System.Diagnostics.Tracing.dll	facade	netstandard	4.1.2.0	0
+netstandard2.1	System.Drawing	System.Drawing.dll	facade	netstandard	4.0.0.0	0
+netstandard2.1	System.Drawing.Primitives	System.Drawing.Primitives.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.Dynamic.Runtime	System.Dynamic.Runtime.dll	facade	netstandard	4.0.11.0	0
+netstandard2.1	System.Globalization	System.Globalization.dll	facade	netstandard	4.0.11.0	0
+netstandard2.1	System.Globalization.Calendars	System.Globalization.Calendars.dll	facade	netstandard	4.0.3.0	0
+netstandard2.1	System.Globalization.Extensions	System.Globalization.Extensions.dll	facade	netstandard	4.0.3.0	0
+netstandard2.1	System.IO	System.IO.dll	facade	netstandard	4.1.2.0	0
+netstandard2.1	System.IO.Compression	System.IO.Compression.dll	facade	netstandard	4.1.3.0	0
+netstandard2.1	System.IO.Compression.FileSystem	System.IO.Compression.FileSystem.dll	facade	netstandard	4.0.0.0	0
+netstandard2.1	System.IO.Compression.ZipFile	System.IO.Compression.ZipFile.dll	facade	netstandard	4.0.3.0	0
+netstandard2.1	System.IO.FileSystem	System.IO.FileSystem.dll	facade	netstandard	4.0.3.0	0
+netstandard2.1	System.IO.FileSystem.DriveInfo	System.IO.FileSystem.DriveInfo.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.IO.FileSystem.Primitives	System.IO.FileSystem.Primitives.dll	facade	netstandard	4.0.3.0	0
+netstandard2.1	System.IO.FileSystem.Watcher	System.IO.FileSystem.Watcher.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.IO.IsolatedStorage	System.IO.IsolatedStorage.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.IO.MemoryMappedFiles	System.IO.MemoryMappedFiles.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.IO.Pipes	System.IO.Pipes.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.IO.UnmanagedMemoryStream	System.IO.UnmanagedMemoryStream.dll	facade	netstandard	4.0.3.0	0
+netstandard2.1	System.Linq	System.Linq.dll	facade	netstandard	4.1.2.0	0
+netstandard2.1	System.Linq.Expressions	System.Linq.Expressions.dll	facade	netstandard	4.1.2.0	0
+netstandard2.1	System.Linq.Parallel	System.Linq.Parallel.dll	facade	netstandard	4.0.1.0	0
+netstandard2.1	System.Linq.Queryable	System.Linq.Queryable.dll	facade	netstandard	4.0.1.0	0
+netstandard2.1	System.Memory	System.Memory.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.Net	System.Net.dll	facade	netstandard	4.0.0.0	0
+netstandard2.1	System.Net.Http	System.Net.Http.dll	facade	netstandard	4.1.2.0	0
+netstandard2.1	System.Net.NameResolution	System.Net.NameResolution.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.Net.NetworkInformation	System.Net.NetworkInformation.dll	facade	netstandard	4.1.2.0	0
+netstandard2.1	System.Net.Ping	System.Net.Ping.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.Net.Primitives	System.Net.Primitives.dll	facade	netstandard	4.0.11.0	0
+netstandard2.1	System.Net.Requests	System.Net.Requests.dll	facade	netstandard	4.0.11.0	0
+netstandard2.1	System.Net.Security	System.Net.Security.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.Net.Sockets	System.Net.Sockets.dll	facade	netstandard	4.1.2.0	0
+netstandard2.1	System.Net.WebHeaderCollection	System.Net.WebHeaderCollection.dll	facade	netstandard	4.0.1.0	0
+netstandard2.1	System.Net.WebSockets	System.Net.WebSockets.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.Net.WebSockets.Client	System.Net.WebSockets.Client.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.Numerics	System.Numerics.dll	facade	netstandard	4.0.0.0	0
+netstandard2.1	System.Numerics.Vectors	System.Numerics.Vectors.dll	facade	netstandard	4.1.5.0	0
+netstandard2.1	System.ObjectModel	System.ObjectModel.dll	facade	netstandard	4.0.11.0	0
+netstandard2.1	System.Reflection	System.Reflection.dll	facade	netstandard	4.1.2.0	0
+netstandard2.1	System.Reflection.DispatchProxy	System.Reflection.DispatchProxy.dll	facade	netstandard	4.0.5.0	0
+netstandard2.1	System.Reflection.Emit	System.Reflection.Emit.dll	facade	netstandard	4.0.1.0	0
+netstandard2.1	System.Reflection.Emit.ILGeneration	System.Reflection.Emit.ILGeneration.dll	facade	netstandard	4.0.1.0	0
+netstandard2.1	System.Reflection.Emit.Lightweight	System.Reflection.Emit.Lightweight.dll	facade	netstandard	4.0.1.0	0
+netstandard2.1	System.Reflection.Extensions	System.Reflection.Extensions.dll	facade	netstandard	4.0.1.0	0
+netstandard2.1	System.Reflection.Primitives	System.Reflection.Primitives.dll	facade	netstandard	4.0.1.0	0
+netstandard2.1	System.Resources.Reader	System.Resources.Reader.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.Resources.ResourceManager	System.Resources.ResourceManager.dll	facade	netstandard	4.0.1.0	0
+netstandard2.1	System.Resources.Writer	System.Resources.Writer.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.Runtime	System.Runtime.dll	facade	netstandard	4.1.2.0	0
+netstandard2.1	System.Runtime.CompilerServices.VisualC	System.Runtime.CompilerServices.VisualC.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.Runtime.Extensions	System.Runtime.Extensions.dll	facade	netstandard	4.1.2.0	0
+netstandard2.1	System.Runtime.Handles	System.Runtime.Handles.dll	facade	netstandard	4.0.1.0	0
+netstandard2.1	System.Runtime.InteropServices	System.Runtime.InteropServices.dll	facade	netstandard	4.1.2.0	0
+netstandard2.1	System.Runtime.InteropServices.RuntimeInformation	System.Runtime.InteropServices.RuntimeInformation.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.Runtime.Numerics	System.Runtime.Numerics.dll	facade	netstandard	4.0.1.0	0
+netstandard2.1	System.Runtime.Serialization	System.Runtime.Serialization.dll	facade	netstandard	4.0.0.0	0
+netstandard2.1	System.Runtime.Serialization.Formatters	System.Runtime.Serialization.Formatters.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.Runtime.Serialization.Json	System.Runtime.Serialization.Json.dll	facade	netstandard	4.0.1.0	0
+netstandard2.1	System.Runtime.Serialization.Primitives	System.Runtime.Serialization.Primitives.dll	facade	netstandard	4.1.3.0	0
+netstandard2.1	System.Runtime.Serialization.Xml	System.Runtime.Serialization.Xml.dll	facade	netstandard	4.1.3.0	0
+netstandard2.1	System.Security.Claims	System.Security.Claims.dll	facade	netstandard	4.0.3.0	0
+netstandard2.1	System.Security.Cryptography.Algorithms	System.Security.Cryptography.Algorithms.dll	facade	netstandard	4.2.2.0	0
+netstandard2.1	System.Security.Cryptography.Csp	System.Security.Cryptography.Csp.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.Security.Cryptography.Encoding	System.Security.Cryptography.Encoding.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.Security.Cryptography.Primitives	System.Security.Cryptography.Primitives.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.Security.Cryptography.X509Certificates	System.Security.Cryptography.X509Certificates.dll	facade	netstandard	4.1.2.0	0
+netstandard2.1	System.Security.Principal	System.Security.Principal.dll	facade	netstandard	4.0.1.0	0
+netstandard2.1	System.Security.SecureString	System.Security.SecureString.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.ServiceModel.Web	System.ServiceModel.Web.dll	facade	netstandard	4.0.0.0	0
+netstandard2.1	System.Text.Encoding	System.Text.Encoding.dll	facade	netstandard	4.0.11.0	0
+netstandard2.1	System.Text.Encoding.Extensions	System.Text.Encoding.Extensions.dll	facade	netstandard	4.0.11.0	0
+netstandard2.1	System.Text.RegularExpressions	System.Text.RegularExpressions.dll	facade	netstandard	4.1.1.0	0
+netstandard2.1	System.Threading	System.Threading.dll	facade	netstandard	4.0.11.0	0
+netstandard2.1	System.Threading.Overlapped	System.Threading.Overlapped.dll	facade	netstandard	4.0.3.0	0
+netstandard2.1	System.Threading.Tasks	System.Threading.Tasks.dll	facade	netstandard	4.0.11.0	0
+netstandard2.1	System.Threading.Tasks.Extensions	System.Threading.Tasks.Extensions.dll	facade	netstandard	4.2.1.0	0
+netstandard2.1	System.Threading.Tasks.Parallel	System.Threading.Tasks.Parallel.dll	facade	netstandard	4.0.1.0	0
+netstandard2.1	System.Threading.Thread	System.Threading.Thread.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.Threading.ThreadPool	System.Threading.ThreadPool.dll	facade	netstandard	4.0.12.0	0
+netstandard2.1	System.Threading.Timer	System.Threading.Timer.dll	facade	netstandard	4.0.1.0	0
+netstandard2.1	System.Transactions	System.Transactions.dll	facade	netstandard	4.0.0.0	0
+netstandard2.1	System.ValueTuple	System.ValueTuple.dll	facade	netstandard	4.0.2.0	0
+netstandard2.1	System.Web	System.Web.dll	facade	netstandard	4.0.0.0	0
+netstandard2.1	System.Windows	System.Windows.dll	facade	netstandard	4.0.0.0	0
+netstandard2.1	System.Xml	System.Xml.dll	facade	netstandard	4.0.0.0	0
+netstandard2.1	System.Xml.Linq	System.Xml.Linq.dll	facade	netstandard	4.0.0.0	0
+netstandard2.1	System.Xml.ReaderWriter	System.Xml.ReaderWriter.dll	facade	netstandard	4.1.1.0	0
+netstandard2.1	System.Xml.Serialization	System.Xml.Serialization.dll	facade	netstandard	4.0.0.0	0
+netstandard2.1	System.Xml.XDocument	System.Xml.XDocument.dll	facade	netstandard	4.0.11.0	0
+netstandard2.1	System.Xml.XmlDocument	System.Xml.XmlDocument.dll	facade	netstandard	4.0.3.0	0
+netstandard2.1	System.Xml.XmlSerializer	System.Xml.XmlSerializer.dll	facade	netstandard	4.0.11.0	0
+netstandard2.1	System.Xml.XPath	System.Xml.XPath.dll	facade	netstandard	4.0.3.0	0
+netstandard2.1	System.Xml.XPath.XDocument	System.Xml.XPath.XDocument.dll	facade	netstandard	4.0.3.0	0

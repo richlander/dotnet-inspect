@@ -1,4 +1,5 @@
 import { lenses, packageLenses, rootCommands } from "./data.js";
+import { loadPlatformIndex } from "/src/platform-index.js";
 import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectLoadRuntimePack, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageIntegrations, inspectPackageOpportunities, inspectPackagePerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
 
 function loadStoredTaste() {
@@ -5358,3 +5359,8 @@ window.addEventListener("popstate", () => {
 });
 
 bootstrap();
+
+// Warm the static platform-assembly/facade index in the background. It is a
+// hint layer (facade badges, library-scope selector) built on top of the app;
+// prefetching keeps it ready without blocking boot. Exposed for verification.
+window.__platformIndex = loadPlatformIndex();
