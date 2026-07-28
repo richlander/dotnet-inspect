@@ -115,7 +115,11 @@ public class LibraryCommand
             return 1;
         }
 
-        if (options.Count && !CountOutput.ValidateSectionsSelected(options.IncludeSections))
+        // --il-offsets counts resolved coordinate rows, not section rows, so it does not need a
+        // section filter to make --count meaningful.
+        var ilOffsetsBatchMode = !string.IsNullOrWhiteSpace(options.ILOffsetsPath);
+
+        if (!ilOffsetsBatchMode && options.Count && !CountOutput.ValidateSectionsSelected(options.IncludeSections))
             return 1;
 
         if (options.Count && options.Print)
@@ -134,7 +138,9 @@ public class LibraryCommand
         if (shapeCount == 1)
         {
             var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
-            if (!ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
+            // The batch path refuses shape projections with an accurate reason; a section
+            // requirement reported first would not be the actual problem.
+            if (!ilOffsetsBatchMode && !ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
                 return 1;
             if (options.Count || options.Print)
             {
@@ -492,9 +498,15 @@ public class LibraryCommand
                 : new ILCoordinateBatchRow(coordinate.Coordinate, coordinate.Label, null, null, "error", resolved.Error ?? "could not resolve"));
         }
 
+        var batchExitCode = rows.Any(row => row.Meaning == "error") ? 1 : 0;
+
+        // A coordinate that failed to resolve is still a reported row, so it counts; the
+        // non-zero exit remains the signal that some coordinate did not resolve.
+        if (LensProjection.TryProject(options, "--il-offsets", rows.Count, out var projectionExitCode))
+            return projectionExitCode != 0 ? projectionExitCode : batchExitCode;
+
         WriteILCoordinateBatchRows(rows, options);
-        return rows.Any(row => row.Meaning == "error") ? 1 : 0;
-    }
+        return batchExitCode;    }
 
     private static readonly string[] BatchCoordinateSections =
     [
@@ -1304,7 +1316,8 @@ public class LibraryCommand
             verbosity: (int)userVerbosity, rootLabel: rootLabel, fullSchema: schemaMap,
             sectionCostAnnotations: pipeline.GetCostAnnotations(),
             sectionCategories: pipeline.GetCategoryMap(),
-            catalogHiddenSections: EffectiveCatalogHidden(pipeline));
+            catalogHiddenSections: EffectiveCatalogHidden(pipeline),
+            projection: options);
     }
 
     // ── Effective sections cache ──
@@ -1376,7 +1389,8 @@ public class LibraryCommand
             verbosity: (int)userVerbosity, rootLabel: rootLabel,
             sectionCostAnnotations: LibrarySections.CreatePipeline().GetCostAnnotations(),
             sectionCategories: LibrarySections.CreatePipeline().GetCategoryMap(),
-            catalogHiddenSections: EffectiveCatalogHidden(LibrarySections.CreatePipeline()));
+            catalogHiddenSections: EffectiveCatalogHidden(LibrarySections.CreatePipeline()),
+            projection: options);
     }
 
     /// <summary>

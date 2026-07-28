@@ -46,6 +46,7 @@ public class ProjectCommand
             return DiscoverOutput.Execute(
                 options.Discover,
                 ProjectDiscoverySchema(),
+                projection: options,
                 tree: options.Tree,
                 json: options.JsonOutput,
                 tsv: options.Tsv,

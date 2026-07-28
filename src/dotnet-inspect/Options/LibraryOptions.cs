@@ -6,7 +6,7 @@ namespace DotnetInspector.Options;
 /// <summary>
 /// Configuration options for assembly inspection.
 /// </summary>
-public record LibraryOptions
+public record LibraryOptions : IProjectionOptions
 {
     /// <summary>
     /// Assembly name within a package (positional argument).

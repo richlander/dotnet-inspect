@@ -6,7 +6,7 @@ namespace DotnetInspector.Options;
 /// <summary>
 /// Configuration options for package inspection.
 /// </summary>
-public record InspectionOptions
+public record InspectionOptions : IProjectionOptions
 {
     /// <summary>
     /// Package name/path arguments (positional). First element is package identifier.
@@ -209,6 +209,13 @@ public record InspectionOptions
     /// Used to distinguish explicit tabular output from a tabular default.
     /// </summary>
     public bool TabularExplicitlySet { get; init; }
+
+    /// <summary>
+    /// Whether the caller actually passed <c>-S/--select</c>. <see cref="Select"/> alone cannot
+    /// answer this: <c>--path</c> and <c>--type</c> are sugar that synthesize a selection, so a
+    /// non-empty <see cref="Select"/> does not imply the caller asked for one.
+    /// </summary>
+    public bool SelectExplicitlySet { get; init; }
 
     /// <summary>
     /// True when the user explicitly chose an output format via CLI flags.

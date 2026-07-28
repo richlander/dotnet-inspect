@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Globalization;
 using System.IO.Compression;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -3617,6 +3618,186 @@ public class CommandExecutionTests
         Assert.Empty(output);
         Assert.Contains("--count cannot be combined with --print", error);
     }
+
+    // ---- Lens-mode payload projections (issues #3395, #3396, #3398) ----
+    //
+    // Each of these modes renders its own payload and returns before the section pipeline, so
+    // the pipeline's projection dispatch never runs for them. Every test here asserts the
+    // projected payload rather than just a zero exit: the defect being guarded against is an
+    // accepted projection that produces well-formed but unprojected output.
+
+    [Fact]
+    public async Task Discover_Count_CountsDiscoveredRows()
+    {
+        var (listExit, listOutput, _) = await RunAppAsync("project", "-D", "");
+        Assert.Equal(0, listExit);
+        // Data rows only: the markdown table adds a header and a separator line.
+        var expected = listOutput.ReplaceLineEndings("\n")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Count(line => line.StartsWith("| ", StringComparison.Ordinal)) - 2;
+        Assert.True(expected > 0, "Discovery must list rows for this test to prove anything.");
+
+        var (exit, output, error) = await RunAppAsync("project", "-D", "", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(expected, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task Discover_Count_CountsDiscoveredRowsForLibrary()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "", "--count", "-S", "Library Info", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.True(int.Parse(output.Trim(), CultureInfo.InvariantCulture) > 0);
+    }
+
+    [Fact]
+    public async Task Discover_Count_CountsDiscoveredRowsForTypeSchema()
+    {
+        // The type/member discovery path branches in the command definition, before an options
+        // record exists, so it reads the request from the parse result instead.
+        var (exit, output, error) = await RunAppAsync("type", "--schema", "-D", "", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.True(int.Parse(output.Trim(), CultureInfo.InvariantCulture) > 0);
+    }
+
+    [Fact]
+    public async Task IlOffsetsFile_Count_CountsCoordinateRows()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(path,
+            """
+            first 0x06000001+0x1
+            second 0x06000001+0x6
+            """,
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library", TestAssemblyPath, "--il-offsets", path, "--count", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Equal("2", output.Trim());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task IlOffsetsFile_Count_DoesNotRequireASectionFilter()
+    {
+        // --count here counts coordinate rows, not section rows, so demanding -S would force
+        // the caller to name a section the batch does not render.
+        var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(path, "only 0x06000001+0x1\n", TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "library", TestAssemblyPath, "--il-offsets", path, "--count", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("requires -S/--select", error);
+            Assert.Equal("1", output.Trim());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task IlOffsetsFile_ShapeProjection_IsRefusedWithItsActualReason()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(path, "only 0x06000001+0x1\n", TestContext.Current.CancellationToken);
+        try
+        {
+            var (exit, _, error) = await RunAppAsync(
+                "library", TestAssemblyPath, "--il-offsets", path, "--value", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Contains("--value is not available with --il-offsets", error);
+            // Not the section-count complaint, which is not the actual problem here.
+            Assert.DoesNotContain("requires -S/--select", error);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task LensMode_SectionFilter_IsRefusedRatherThanIgnored()
+    {
+        // -S was previously accepted and then ignored by the lens, and --count required it,
+        // so the mode was reachable only through a filter it did not honor.
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Newtonsoft.Json", "--versions", "1", "-S", "Files", "--count");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("-S/--select is not available with --versions", error);
+    }
+
+    [Fact]
+    public async Task Tfms_Count_CountsTheListedFrameworks()
+    {
+        var (listExit, listOutput, _) = await RunAppAsync("package", "Newtonsoft.Json@13.0.4", "--tfms");
+        Assert.Equal(0, listExit);
+        var expected = listOutput.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
+        Assert.True(expected > 0, "The package must list frameworks for this test to prove anything.");
+
+        var (exit, output, error) = await RunAppAsync("package", "Newtonsoft.Json@13.0.4", "--tfms", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(expected, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task Tfms_ShapeProjection_IsRefused()
+    {
+        var (exit, output, error) = await RunAppAsync("package", "Newtonsoft.Json@13.0.4", "--tfms", "--value");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--value is not available with --tfms", error);
+    }
+
+    [Fact]
+    public async Task Layout_Count_CountsFilesRatherThanRenderedTreeLines()
+    {
+        // The tree adds a line per directory, so a count taken from the rendered output would
+        // not equal the number of files the lens actually lists.
+        var (exit, output, error) = await RunAppAsync("package", "Newtonsoft.Json@13.0.4", "--layout", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Equal(19, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task Versions_Count_CountsVersionsRatherThanPrintingOne()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Newtonsoft.Json", "--versions", "1", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        // The defect printed the version itself here, which parses as neither a count nor a
+        // failure, so assert the count and not merely a zero exit.
+        Assert.Equal("1", output.Trim());
+    }
+
 
     [Fact]
     public async Task ProjectionFlags_ConflictIsMootUnderHelp()

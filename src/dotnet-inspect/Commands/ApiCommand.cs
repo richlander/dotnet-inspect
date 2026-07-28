@@ -100,7 +100,8 @@ public class ApiCommand
             return (null!, DiscoverOutput.Execute(options.Discover, schema,
                 tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
                 sectionCostAnnotations: singleTypeMode ? memberPipeline.GetCostAnnotations() : null,
-                sectionCategories: singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap()));
+                sectionCategories: singleTypeMode ? memberPipeline.GetCategoryMap() : typePipeline.GetCategoryMap(),
+                projection: options));
         }
 
         // -S/--select with values: resolve as section filter for backpressure
@@ -1291,7 +1292,8 @@ public class ApiCommand
             tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl, markdown: !options.Tabular && !options.JsonOutput,
             verbosity: (int)options.Verbosity, fullSchema: fullSchema,
             sectionCostAnnotations: displayAnnotations,
-            sectionCategories: memberPipeline.GetCategoryMap());
+            sectionCategories: memberPipeline.GetCategoryMap(),
+            projection: options);
     }
 
     /// <summary>
