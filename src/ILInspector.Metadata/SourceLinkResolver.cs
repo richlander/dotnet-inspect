@@ -543,6 +543,34 @@ public class SourceLinkResolver
     /// <summary>
     /// Length of the run of <paramref name="c"/> starting at <paramref name="start"/>.
     /// </summary>
+    /// <summary>
+    /// Reports whether <paramref name="line"/> is a preprocessor directive, and whether it is one
+    /// of the conditional-compilation directives whose branches the compiler may discard.
+    /// </summary>
+    private static bool IsDirective(string line, out bool conditional)
+    {
+        conditional = false;
+
+        var trimmed = line.AsSpan().TrimStart();
+
+        if (trimmed.IsEmpty || trimmed[0] != '#')
+            return false;
+
+        var name = trimmed[1..].TrimStart();
+
+        foreach (var candidate in (ReadOnlySpan<string>)["if", "elif", "else", "endif"])
+        {
+            if (name.StartsWith(candidate, StringComparison.Ordinal) &&
+                (name.Length == candidate.Length || !char.IsLetterOrDigit(name[candidate.Length])))
+            {
+                conditional = true;
+                break;
+            }
+        }
+
+        return true;
+    }
+
     private static int RunLength(string line, int start, char c)
     {
         int i = start;
@@ -562,6 +590,17 @@ public class SourceLinkResolver
     {
         char significant = '\0';
         int i = 0;
+
+        if (!state.InBlockComment && !state.InLiteral && IsDirective(line, out bool conditional))
+        {
+            // A preprocessor directive is not code, so nothing on the line is scanned. A
+            // conditional directive additionally means the braces around it may belong to a
+            // branch the compiler discards, which leaves the structural depth unknowable.
+            if (conditional)
+                state.Untracked = true;
+
+            return '\0';
+        }
 
         while (i < line.Length)
         {
@@ -725,7 +764,10 @@ public class SourceLinkResolver
                 }
 
                 int quotes = RunLength(line, open, '"');
-                bool raw = quotes >= 3;
+
+                // Only a non-verbatim literal can be raw. After `@`, a run of three quotes is
+                // an opener and one escaped quote, not a raw delimiter.
+                bool raw = quotes >= 3 && !verbatim;
 
                 if (!raw && quotes == 2)
                 {
@@ -744,7 +786,7 @@ public class SourceLinkResolver
                 });
 
                 significant = '"';
-                i = open + quotes;
+                i = open + (raw ? quotes : 1);
                 continue;
             }
 
