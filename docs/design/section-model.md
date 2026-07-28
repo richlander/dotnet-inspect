@@ -160,7 +160,7 @@ view.
 ### Symbol-dependent discovery (SourceLink family)
 
 The SourceLink section family — SourceLink: Files / Availability / Missing
-Files (rooted in `@SourceLink`) and SourceLink: Integrity (behind `@Hidden`) —
+Files / Integrity, all rooted in `@SourceLink` —
 is **symbol-dependent**: it is only discoverable when a local PDB (embedded,
 adjacent, or **already in the symbol cache**) exposes a SourceLink document.
 This is an orthogonal discovery gate, not a peer of cost: rendering these
@@ -257,7 +257,7 @@ standalone set, `@Hidden` is its complement, and neither is a user-facing door
 | Noisy-but-cheap (Custom Attributes) | `Terse` | `NetworkFree` | `-v:n` | `@Surface` |
 | Large surface (Extension Methods, `Performance:` buckets, Async Methods) | `Verbose` | `NetworkFree` | `-v:d` | `@Surface` / `@Performance` |
 | Networked (SourceLink: Availability) | `Terse` | `Moderated` | `-v:d` | `@SourceLink` |
-| Footgun (Unsafe Members, Top Leverage, SourceLink: Files, SourceLink: Integrity) | `Verbose` | `Unbounded` | never (exact name only) | — / `@SourceLink` |
+| Footgun (Unsafe Members, Top Leverage, SourceLink: Files, SourceLink: Integrity) | `Verbose` | `Unbounded` | never (exact name only) | `@Audit` / — / `@SourceLink` |
 
 ## Query paths
 
