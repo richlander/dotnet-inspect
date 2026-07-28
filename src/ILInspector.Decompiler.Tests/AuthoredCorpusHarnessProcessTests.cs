@@ -401,11 +401,24 @@ public class AuthoredCorpusHarnessProcessTests
     /// <summary>
     /// The run reached a verdict, so an assertion about which contract it reported is
     /// about the contract and not about the run having died first.
+    ///
+    /// <para>The exit code is checked because this is the only place a protected gate
+    /// runs to completion, which makes it the only test that can catch
+    /// <see cref="AuthoredCorpusExitContract.GateExitedWithoutRunning"/> firing on a
+    /// healthy run. That check reads a flag the gate sets at its own dispatch site;
+    /// deleting the flag turns every real gate run into a failure, and until this
+    /// assertion existed the suite stayed green while it did. A guard against a silent
+    /// success is worth little if it can start rejecting the successes that are real.</para>
     /// </summary>
     static void AssertTheBenchmarkActuallyRan(HarnessRun run)
     {
         Assert.DoesNotContain("measured nothing", run.Output, StringComparison.Ordinal);
         Assert.Contains("targets evaluated", run.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "A protected gate was requested but never ran",
+            run.Output,
+            StringComparison.Ordinal);
+        Assert.Equal(0, run.ExitCode);
     }
 
     /// <summary>
