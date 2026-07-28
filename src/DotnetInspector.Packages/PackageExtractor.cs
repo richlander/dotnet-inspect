@@ -1286,6 +1286,7 @@ public static class PackageExtractor
         foreach (var source in sources)
         {
             List<PackageVersionInfo>? listings = null;
+            bool fetchedAuthoritative = false;
 
             if (source.IsNuGetOrg && canCacheNuGetOrg)
             {
@@ -1297,7 +1298,8 @@ public static class PackageExtractor
                 }
             }
 
-            listings ??= await FetchVersionListingsFromSourceAsync(client, normalizedName, source, log).ConfigureAwait(false);
+            if (listings == null)
+                (listings, fetchedAuthoritative) = await FetchVersionListingsFromSourceAsync(client, normalizedName, source, log).ConfigureAwait(false);
             if (listings == null)
                 continue;
 
@@ -1310,7 +1312,11 @@ public static class PackageExtractor
                     : listing.Listed;
             }
 
-            if (source.IsNuGetOrg && canCacheNuGetOrg)
+            // Only cache a freshly fetched, authoritatively annotated list: a fail-open snapshot
+            // taken while the registration index was unavailable marks every version listed, so
+            // caching it would hide real unlisted versions for the whole TTL. A list served from
+            // cache is already persisted and need not be rewritten.
+            if (source.IsNuGetOrg && canCacheNuGetOrg && fetchedAuthoritative)
                 CoreCache.Set(VersionCacheCategory, $"{normalizedName}{ListingsCacheSuffix}", SerializeListings(listings), extension: "txt");
         }
 
@@ -1338,8 +1344,14 @@ public static class PackageExtractor
     /// nuget.org's status comes from the registration index; other feeds have no listed concept and
     /// are reported as listed. When the registration index is unavailable, versions fail open to
     /// listed rather than being dropped or mislabeled unlisted.
+    /// <para>
+    /// <c>Authoritative</c> is <see langword="false"/> only when the nuget.org registration index
+    /// could not be read, so the annotations are a fail-open (all-listed) snapshot that a caller
+    /// must not cache — otherwise a transient outage would mark real unlisted versions as listed for
+    /// the whole cache TTL.
+    /// </para>
     /// </summary>
-    private static async Task<List<PackageVersionInfo>?> FetchVersionListingsFromSourceAsync(
+    private static async Task<(List<PackageVersionInfo>? Listings, bool Authoritative)> FetchVersionListingsFromSourceAsync(
         HttpClient client,
         string packageName,
         NuGetSource source,
@@ -1347,15 +1359,17 @@ public static class PackageExtractor
     {
         var versions = await FetchAllVersionsFromSourceAsync(client, packageName, source, log).ConfigureAwait(false);
         if (versions == null)
-            return null;
+            return (null, Authoritative: true);
 
         HashSet<NuGet.Versioning.NuGetVersion>? unlisted = source.IsNuGetOrg
             ? await FetchUnlistedVersionsFromNuGetOrgAsync(client, packageName, log).ConfigureAwait(false)
             : null;
 
-        return versions
+        bool authoritative = !source.IsNuGetOrg || unlisted != null;
+        var listings = versions
             .Select(v => new PackageVersionInfo(v, unlisted == null || !IsUnlisted(v, unlisted)))
             .ToList();
+        return (listings, authoritative);
     }
 
     // Cache line format: "<version>" for listed, "<version>\tU" for unlisted.
@@ -1367,11 +1381,12 @@ public static class PackageExtractor
         List<PackageVersionInfo> result = [];
         foreach (var line in cached.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
-            int tab = line.IndexOf('\t', StringComparison.Ordinal);
-            if (tab < 0)
-                result.Add(new PackageVersionInfo(line, Listed: true));
+            // Match the exact "\tU" suffix rather than the first tab, so a version is decoded
+            // whole even in the (SemVer-impossible) case that it contains a tab.
+            if (line.EndsWith("\tU", StringComparison.Ordinal))
+                result.Add(new PackageVersionInfo(line[..^2], Listed: false));
             else
-                result.Add(new PackageVersionInfo(line[..tab], Listed: false));
+                result.Add(new PackageVersionInfo(line, Listed: true));
         }
         return result;
     }

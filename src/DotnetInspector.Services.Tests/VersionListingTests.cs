@@ -96,6 +96,19 @@ public class VersionListingTests : IDisposable
     }
 
     [Fact]
+    public async Task Listings_FailOpenResult_IsNotCached()
+    {
+        // A fail-open snapshot (registration unavailable) marks every version listed; it must not
+        // be cached, or a transient outage would hide real unlisted versions for the whole TTL.
+        using var client = new HttpClient(new NuGetOrgHandler("pkg", Registry, serveRegistration: false));
+
+        _ = await PackageExtractor.GetVersionListingsAsync(
+            client, "Pkg", includePrerelease: true, includeUnlisted: true, limit: null, log: null);
+
+        Assert.Null(CoreCache.TryGet(VersionCacheCategory, "pkg-listings", TimeSpan.FromHours(1), extension: "txt"));
+    }
+
+    [Fact]
     public async Task Listings_AreCached_WithListingBits()
     {
         using (var client = new HttpClient(new NuGetOrgHandler("pkg", Registry)))
@@ -139,7 +152,7 @@ public class VersionListingTests : IDisposable
                 body = "{\"versions\":[" + versions + "]}";
             }
             else if (serveRegistration &&
-                string.Equals(url, $"https://api.nuget.org/v3/registration5-semver1/{packageId}/index.json", StringComparison.OrdinalIgnoreCase))
+                string.Equals(url, $"https://api.nuget.org/v3/registration5-gz-semver2/{packageId}/index.json", StringComparison.OrdinalIgnoreCase))
             {
                 string items = string.Join(",", registry.Select(r =>
                     "{\"catalogEntry\":{\"version\":\"" + r.Version + "\",\"listed\":"
