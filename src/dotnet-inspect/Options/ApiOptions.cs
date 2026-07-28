@@ -78,6 +78,19 @@ public partial record ApiOptions
     public bool RequestAllTaste { get; init; }
 
     /// <summary>
+    /// The <c>--readable-names</c> gesture: for this run, synthesize a readable
+    /// identifier (from a local's type and role) for any local that has no usable
+    /// PDB source name, instead of the <c>V_index</c> fallback (see
+    /// <see cref="ILInspector.Decompiler.Pipeline.LocalNameSynthesizer"/> and
+    /// <c>docs/design/readable-local-names.md</c>). Byte-preserving — local names
+    /// do not affect IL, so it is not a byte-divergent lens and leaves the
+    /// Annotated view's interleaved IL intact. Applied on top of the resolved
+    /// <c>.dotnet-inspectconfig</c>/<c>--taste</c> options, since it is orthogonal
+    /// to the style axes those cover.
+    /// </summary>
+    public bool RequestReadableLocalNames { get; init; }
+
+    /// <summary>
     /// Pending <c>.dotnet-inspectconfig</c> parse/read warnings, emitted to stderr
     /// exactly once at the point a decompiled-source render consumes
     /// <see cref="RenderOptions"/> (see
