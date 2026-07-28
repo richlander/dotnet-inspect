@@ -345,7 +345,8 @@ inspector), a standalone tool that renders the tables the way `mdv` does:
   (`ToolCommandName=mdi`) whose System.CommandLine front-end maps flags onto
   `MetadataProjectionOptions` and delegates all output to the renderer below.
   Surface: `mdi <assembly> [--table|-t <Names>] [--format|-f md|tsv|jsonl]
-  [--max-rows|-n N] [--start-row|-s N] [--max-bytes N] [--max-chars N]`. Missing
+  [--max-rows|-n N] [--start-row|-s N] [--references|-r Table:RowId]
+  [--max-references N] [--max-bytes N] [--max-chars N]`. Missing
   files, native images, and unreadable metadata surface as visible errors, never
   success-shaped empty output.
 - **`src/DotnetInspector.MetadataRendering`** — a small reusable library holding
@@ -408,6 +409,157 @@ would read as the first three rows.
 Allocation shape — windowed or lazy materialization, and `ReadOnlySpan<T>` views
 over the current `ImmutableArray<T>` — remains open and **measurement-gated**;
 the browser's memory ceiling is the real constraint, and no benchmark exists yet.
+
+## Implemented: reverse references
+
+Forward navigation is only half of browsing. A reader looking at `Field[1]` asks
+"what declares this?", and looking at `TypeDef[5]` asks "what points here?".
+Neither question is answerable by following the projection's edges, because
+those edges only run one way.
+
+`MetadataTableProjector.FindReferences(peReader, targetTable, targetRowId,
+maxReferences)` inverts them, returning a `MetadataRowReferenceSet`: the
+`MetadataRowLocation` of every row pointing at the target, with the pointing
+column's index, its name, and whether the edge was a `Handle` or a `Range`.
+
+The `Range` case is the load-bearing one. ECMA-335 does not give an owned row a
+back-pointer to its owner: a `Field` is owned by whichever `TypeDef.FieldList`
+run covers it, and a `Param` by whichever `MethodDef.ParamList` run covers it.
+Reverse search over list columns is therefore how ownership is resolved at all —
+not an extra convenience on top of handle search.
+
+Two design points are deliberate and worth stating, because both look like
+oversights:
+
+- **`options.Tables` is not honored.** Like `ProjectRow`, the search is a query
+  over the whole projection, not a projection of a selection. Narrowing the scan
+  per call could report "nothing points here" while a pointer sat in an
+  unsearched table, which is worse than a slower answer.
+- **The projection's table coverage is itself a blind spot.** The scan cannot
+  be wider than the projection, and the projection models a subset of ECMA-335's
+  tables. A real assembly populates tables outside that subset — `NestedClass`,
+  `MethodSemantics`, `InterfaceImpl`, `Property` and friends — so an edge living
+  in one of them is invisible to the search. A nested type's declaring type is
+  exactly such an edge. `UnscannedTables` names the populated tables the scan
+  did not read in full, so the gap is disclosed rather than answered as an
+  absence. Empty tables are excluded: they cannot hide a reference.
+- **`UnscannedTables` is derived from the traversal, not declared.** The scan
+  records a table only after examining every row the image says it has, and the
+  blind spot is the populated tables missing from that record. Computing it from
+  the list of tables the scan *intends* to visit would let the two drift, and a
+  blind spot that under-reports is the whole failure this exists to prevent.
+  Entering a table is deliberately not enough: a loop that stops part-way leaves
+  rows unread, and an edge onto the target could sit in any of them. That also
+  makes the budget interaction mostly fall out for free — a scan the budget
+  stops leaves every table after it unsearched, and all of them are reported.
+
+  Reaching the end of the row loop is *also* not enough, because the budget is
+  checked inside the **column** loop: truncation on a table's final row leaves
+  that row entered and abandoned part-way through its columns while the row
+  counter still passes the row count, so the counter alone cannot tell a
+  completed scan from one stopped on the last row.
+
+  `Truncated` is too blunt to separate them, though, because of the boundary
+  case: if the budget trips on the **last column of the last row**, every cell
+  the table has was examined and the table genuinely was searched in full, even
+  though the scan ended inside it. Reporting it unscanned there would be a false
+  blind spot — it would tell the reader an unexamined cell could hide an edge
+  when no cell went unexamined. So the scan tracks the precise fact instead:
+  whether anything in this table was left unlooked-at, which is the columns
+  after the stop on that row, or any row after it.
+
+  That also keeps the malformed-cell blind spot sound. A stop before the last
+  column leaves the remaining columns unchecked for malformed edges, so the row
+  might belong in `UnreadableRows` without the scan knowing — but that is
+  exactly the case where the table is reported unscanned, so the gap is still
+  disclosed. When the stop is on the last column, every column was checked and
+  the row's status is fully determined.
+- **`UnscannedTables` covers unexamined cells, not just unread rows.** A table
+  lands there for three different reasons — never entered, entered and stopped
+  between rows, or entered and stopped between columns of its final row — and
+  only the first two leave a whole row unread. The caveat is therefore worded
+  around a cell the scan never examined, which is true of all three.
+- **A table with an unreadable row is not an `UnscannedTables` entry.** The two
+  blind spots partition the space rather than overlapping: `UnreadableRows` is
+  for rows the scan **read but could not decode**, `UnscannedTables` for cells it
+  **never examined**. A row whose read threw, or whose edge column decoded as
+  `Malformed`, is named individually in `UnreadableRows` and forces `IsComplete`
+  false, which is strictly more precise than implicating its whole table. Folding
+  it into `UnscannedTables` would also print a false statement, since every row
+  of that table was in fact read.
+- **Signature blobs are not searched, and that limit is not detectable.** The
+  scan matches `Handle` and `HandleRange` columns. A `TypeDefOrRef` coded token
+  spelled inside a signature blob lives in a `Heap` column, which is correctly
+  not an edge column, on a row of a table the scan reads in full. So no blind
+  spot fires: the row is read, the table is searched, and the edge is simply not
+  looked for. Among the tables modelled today those columns are
+  `Field.Signature`, `MethodDef.Signature`, `MemberRef.Signature`,
+  `TypeSpec.Signature`, `StandAloneSig.Signature` and
+  `MethodSpec.Instantiation`. Unmodelled tables hold signature blobs too —
+  `Property.Type` is one — but those tables are already disclosed by
+  `UnscannedTables`, so modelling one later moves its signature column into this
+  list rather than out of any disclosure. Decoding blobs is future work (see the
+  reverse-reference tagging note above); until then the limit is disclosed
+  **unconditionally** by the renderer rather than by a per-scan signal, because
+  there is no per-scan signal to give.
+
+  The caveat deliberately covers two unlike things. A signature blob spells a
+  reference as a TypeDefOrRef coded **token**, which is a genuine missed
+  row-to-row edge. A `CustomAttribute.Value` blob spells a `System.Type`
+  argument as a serialized type **name** (ECMA-335 II.23.3) — `[My(typeof(Alpha))]`
+  stores the bytes `0100 05 "Alpha" 0000`, with no token anywhere — so it is not
+  a row-to-row edge at all and is out of scope for a search defined over tokens.
+  A reader asking "what references this type?" is not served by that
+  distinction, though, so the caveat names both rather than resting on it.
+
+  The risk runs backwards here, which is why the unconditional caveat is not
+  redundant. `IsComplete` is true exactly when every populated table happens to
+  be modelled — that is, on small, simple assemblies, which are precisely the
+  images where a blob edge is the *only* remaining way to miss a reference. A
+  caveat conditioned on incompleteness would therefore go quiet exactly where it
+  is most needed.
+- **Blind spots are reported, not folded in.** `Truncated` marks a scan the
+  result budget stopped, `UnreadableRows` lists rows whose edges could not be
+  fully determined, `UnscannedTables` lists the populated tables the scan did not
+  read in full, and `TargetExists` marks a target row id past the end of its
+  table. `IsComplete` is true only when the scan hit none of the blind spots it
+  can detect — and today that means it is **false for essentially every real
+  assembly**, because the table-coverage blind spot always fires. That is the
+  honest reading: until the projection covers every table, the search has not
+  covered the whole image. `IsComplete` describes the scan, not the image: it
+  cannot account for the signature-blob limit above, which no scan can detect.
+  Callers that only want to know whether the scan itself finished should read
+  `Truncated`. Unlike `MetadataTableTruncation`, `Truncated` carries no total: a
+  stopped scan never learns how many references it did not reach.
+- **A row id past the end of its table is answered, not rejected.** Asking what
+  points at a row that does not exist is a well-formed question — a dangling
+  edge points at exactly the rows that are not there, so the search must stay
+  askable. What it must not do is answer "nothing points at this row", which
+  claims the image was searched and came back clean. `TargetExists` records the
+  distinction and takes `IsComplete` down with it, so an absent row reads as a
+  question that could not be answered rather than as an answer.
+
+`UnreadableRows` is subtler than "the row failed to read". The cell readers
+**contain** a decode failure as a `Malformed` cell rather than throwing, so a
+row holding a broken handle or list column reads back successfully and would
+otherwise pass as fully searched — a missed reference that reads as an absent
+one. A `Malformed` cell in an edge column therefore marks its row a blind spot.
+The **column's declared kind decides, not the cell**: a `Malformed` heap,
+scalar, or flags cell was never an edge and cannot hide a reference, so it is
+not counted. A row stays a blind spot only once, and after its good edges have
+been collected, so one broken column never costs the caller the edges that row
+does have.
+
+The search reuses the projection's single row-reading path rather than a faster
+private one, so a `HandleRef` or `HandleRange` means the same thing in a search
+result as in a rendered table. Cost is therefore proportional to the whole image
+per query; whether that needs an index is a measurement question, filed with the
+allocation work above rather than guessed at here.
+
+The renderer and `mdi` carry the blind spots into every format:
+`mdi --references TypeDef:5` prints them inline under the Markdown table, and
+the TSV/JSONL streams report them on stderr, since a pure row stream cannot
+distinguish a complete scan from a stopped one.
 
 ## Layer placement
 

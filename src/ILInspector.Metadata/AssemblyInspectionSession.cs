@@ -124,5 +124,29 @@ public sealed class AssemblyInspectionSession : IDisposable
     public MetadataTableProjection MetadataTables(MetadataProjectionOptions? options = null)
         => MetadataTableProjector.Project(_image.PEReader, options);
 
+    /// <summary>
+    /// A single row of one metadata table, read on demand and independent of any
+    /// row window. This is the handle click-through primitive: it reaches a
+    /// target row that a windowed <see cref="MetadataTables"/> call did not
+    /// include. Null when the table is unsupported or the row id is past its end.
+    /// </summary>
+    public MetadataTableView? MetadataTableRow(
+        System.Reflection.Metadata.Ecma335.TableIndex table,
+        int rowId,
+        MetadataProjectionOptions? options = null)
+        => MetadataTableProjector.ProjectRow(_image.PEReader, table, rowId, options);
+
+    /// <summary>
+    /// The reverse of the projection's handle edges: every row pointing at the
+    /// given row, including through list-column runs so ownership resolves. The
+    /// result reports its own blind spots rather than folding them into an empty
+    /// answer.
+    /// </summary>
+    public MetadataRowReferenceSet MetadataReferences(
+        System.Reflection.Metadata.Ecma335.TableIndex targetTable,
+        int targetRowId,
+        int maxReferences = MetadataRowReferenceSet.DefaultMaxReferences)
+        => MetadataTableProjector.FindReferences(_image.PEReader, targetTable, targetRowId, maxReferences);
+
     public void Dispose() => _image.Dispose();
 }
