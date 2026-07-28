@@ -73,8 +73,14 @@ public class PackageCommand
             // rejected outright below rather than silently dropped.
             var lensMode = options.ListVersions || options.ListLayout || options.ListTfms
                 || options.ShowContent || options.ShowReadme;
+            // Discovery also renders its own payload, so it is exempt from the single-section
+            // requirement below. It is deliberately not part of lensMode: unlike the lenses, -S
+            // is meaningful with -D, which restricts discovery to the selected sections.
+            var rendersOwnPayload = lensMode || options.Discover != null;
             // Gate on what the caller actually typed: --path and --type synthesize a selection,
-            // and rejecting that would break the lens modes' normal use.
+            // and rejecting that would break the lens modes' normal use. The refusal is
+            // unconditional rather than excusing --print: the lens prints its own document
+            // without a selection, so accepting -S there would silently ignore it.
             if (lensMode && options.SelectExplicitlySet)
             {
                 var lensName = options.ListVersions ? "--versions"
@@ -87,7 +93,7 @@ public class PackageCommand
                 return 1;
             }
 
-            if (!lensMode && options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
+            if (!rendersOwnPayload && options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
                 return 1;
 
             var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
@@ -103,7 +109,7 @@ public class PackageCommand
                 // In a lens mode the shape projection is refused by LensProjection with an
                 // accurate reason; demanding -S first would report a section requirement that is
                 // not the actual problem.
-                if (!lensMode && !ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
+                if (!rendersOwnPayload && !ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
                     return 1;
                 if (options.Count || options.Print)
                 {
@@ -129,7 +135,10 @@ public class PackageCommand
                 return 1;
             }
 
-            if (options.Print && !ValidatePackagePrintSelection(options.IncludeSections))
+            // A lens renders its own payload, so demanding a printable section selection reports a
+            // requirement the lens does not have. The readme lens prints its own document, and
+            // the rest refuse --print through LensProjection with an accurate reason.
+            if (options.Print && !lensMode && !ValidatePackagePrintSelection(options.IncludeSections))
                 return 1;
 
             if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, options.IncludeSections))
@@ -490,14 +499,17 @@ public class PackageCommand
             // Filter output based on options
             FilterResultForOutput(result, options);
 
-            if (options.Count)
+            // Effective discovery renders the discovered rows below and answers the projection
+            // against them. Counting here would count the package document instead, which is a
+            // different payload than the one -D displays.
+            if (options.Count && !effectiveDiscovery)
             {
                 ProjectionAudit.MarkHonored(ProjectionAudit.Count);
                 Console.WriteLine(OutputFormatter.FormatResult(result, options, pipeline));
                 return 0;
             }
 
-            if (options.Value || options.Urls || options.Paths)
+            if ((options.Value || options.Urls || options.Paths) && !effectiveDiscovery)
                 return WritePackageShapeProjection(result, options);
 
             if (options.Bare)
@@ -1463,7 +1475,7 @@ public class PackageCommand
     {
         var rows = FlattenPackageFileContentRows(results, options).ToList();
 
-        if (LensProjection.TryProject(options, "--content", rows.Count, out var contentProjectionExit))
+        if (LensProjection.TryProject(options, "--content", rows.Count, out var contentProjectionExit, scalarPayload: true))
             return contentProjectionExit;
 
         if (options.Bare)
@@ -1949,6 +1961,10 @@ public class PackageCommand
         if (sections.Count == 0)
         {
             Console.Error.WriteLine("Note: matched sections have no data across all libraries.");
+            // An empty match is still an answer to --count, and returning without projecting
+            // would report the absence as unprojected output.
+            if (libraryOptions.Count)
+                CountOutput.WriteCount(0);
             return 0;
         }
 
@@ -2759,7 +2775,7 @@ public class PackageCommand
         var file = result.Files[0];
         InfoTracker.SetDetail("readme", $"{file.Path} ({file.Size.ToString(CultureInfo.InvariantCulture)} B)");
 
-        if (LensProjection.TryProject(options, "--readme", result.Files.Count, out var readmeProjectionExit, printHandledByLens: true))
+        if (LensProjection.TryProject(options, "--readme", result.Files.Count, out var readmeProjectionExit, printHandledByLens: true, scalarPayload: true))
             return readmeProjectionExit;
         if (options.Print)
         {

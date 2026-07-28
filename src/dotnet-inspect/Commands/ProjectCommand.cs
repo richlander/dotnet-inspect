@@ -55,7 +55,7 @@ public class ProjectCommand
                 sectionCategories: ProjectCategoryMap());
         }
 
-        if (options.Count && !CountOutput.ValidateSingleSection(selectResult.Sections))
+        if (options.Discover == null && options.Count && !CountOutput.ValidateSingleSection(selectResult.Sections))
             return 1;
 
         var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);

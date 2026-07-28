@@ -3656,6 +3656,36 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Discover_Count_CountsDiscoveredRowsRatherThanTheDocument()
+    {
+        // Effective discovery renders discovered rows, but the command's own --count branch sat
+        // ahead of the discovery branch and counted the inspection document instead — exiting 0
+        // with a plausible number for a different payload. Pin the count to the payload.
+        var (listExit, listOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "", "--tips", "q");
+        Assert.Equal(0, listExit);
+
+        var rows = listOutput.Split('\n').Count(l => l.StartsWith("| ", StringComparison.Ordinal)) - 2;
+        Assert.True(rows > 0, "Discovery must list rows for this test to prove anything.");
+
+        var (exit, output, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "", "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(rows, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task Discover_ShapeProjection_IsRefusedRatherThanAnsweredFromTheDocument()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "", "--value", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("--value is not available with -D/--discover", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Discover_Count_CountsDiscoveredRowsForTypeSchema()
     {
         // The type/member discovery path branches in the command definition, before an options
@@ -3665,6 +3695,26 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.True(int.Parse(output.Trim(), CultureInfo.InvariantCulture) > 0);
+    }
+
+    [Fact]
+    public async Task Discover_Count_CountsStaticSchemaDiscoveryForLibrary()
+    {
+        // Static -D --schema returns before the library is resolved, a separate early return from
+        // the effective-discovery one below it.
+        var (countExit, countOutput, countError) = await RunAppAsync(
+            "library", TestAssemblyPath, "--schema", "-D", "--count", "--tips", "q");
+
+        Assert.Equal(0, countExit);
+        Assert.Empty(countError);
+
+        var (listExit, listOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "--schema", "-D", "--tips", "q");
+        Assert.Equal(0, listExit);
+
+        // The count must match the payload it stands in for: rendered rows less header and separator.
+        var rows = listOutput.Split('\n').Count(l => l.StartsWith("| ", StringComparison.Ordinal)) - 2;
+        Assert.Equal(rows, int.Parse(countOutput.Trim(), CultureInfo.InvariantCulture));
     }
 
     [Fact]
@@ -3736,6 +3786,39 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Readme_Print_PrintsWithoutASelectionAndRefusesOne()
+    {
+        // The lens renders its own document, so --print no longer needs a section selection.
+        var (exit, output, _) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.4", "--readme", "--print");
+
+        Assert.Equal(0, exit);
+        Assert.NotEmpty(output);
+
+        // Previously -S was required here and then ignored by the lens. It is now refused, so a
+        // selection naming anything other than the readme cannot pass unnoticed.
+        var (selectedExit, selectedOutput, selectedError) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.4", "-S", "Files", "--readme", "--print");
+
+        Assert.Equal(1, selectedExit);
+        Assert.Empty(selectedOutput);
+        Assert.Contains("-S/--select is not available with --readme", selectedError, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Readme_Count_IsRefusedBecauseThePayloadIsAScalar()
+    {
+        // A README is a text blob, and --count collapses a vector, so counting it could only
+        // ever report the number of blobs requested.
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.4", "--readme", "--count");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--count is not available with --readme", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task LensMode_SectionFilter_IsRefusedRatherThanIgnored()
     {
         // -S was previously accepted and then ignored by the lens, and --count required it,
@@ -3783,6 +3866,19 @@ public class CommandExecutionTests
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.Equal(19, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task AllLibraries_EmptyMatch_CountsZeroRatherThanReturningSilently()
+    {
+        // An empty match short-circuits ahead of the render path, which is exactly where a
+        // projection goes missing without an empty-result probe to catch it.
+        var (exit, output, _) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.4", "--all-libraries", "-S", "OpenTelemetry",
+            "--count", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(0, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
     }
 
     [Fact]

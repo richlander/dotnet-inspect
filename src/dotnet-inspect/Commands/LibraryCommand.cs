@@ -52,7 +52,8 @@ public class LibraryCommand
                     sectionCategories: pipeline.GetCategoryMap(),
                     // --schema reveals the full catalog including the @Hidden pole; a static -D
                     // without --schema keeps the curated top-level view.
-                    catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections());
+                    catalogHiddenSections: options.Schema ? null : pipeline.GetCatalogHiddenSections(),
+                    projection: options);
             }
         }
 
@@ -118,8 +119,11 @@ public class LibraryCommand
         // --il-offsets counts resolved coordinate rows, not section rows, so it does not need a
         // section filter to make --count meaningful.
         var ilOffsetsBatchMode = !string.IsNullOrWhiteSpace(options.ILOffsetsPath);
+        // Discovery renders its own rows, so a section requirement describes a filter it does
+        // not use. -S still narrows effective discovery, so it stays permitted.
+        var rendersOwnPayload = ilOffsetsBatchMode || options.Discover != null;
 
-        if (!ilOffsetsBatchMode && options.Count && !CountOutput.ValidateSectionsSelected(options.IncludeSections))
+        if (!rendersOwnPayload && options.Count && !CountOutput.ValidateSectionsSelected(options.IncludeSections))
             return 1;
 
         if (options.Count && options.Print)
@@ -140,7 +144,7 @@ public class LibraryCommand
             var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
             // The batch path refuses shape projections with an accurate reason; a section
             // requirement reported first would not be the actual problem.
-            if (!ilOffsetsBatchMode && !ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
+            if (!rendersOwnPayload && !ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
                 return 1;
             if (options.Count || options.Print)
             {

@@ -115,7 +115,7 @@ public class ApiCommand
         if (selectResult.Sections != null)
             options = options with { IncludeSections = selectResult.Sections };
 
-        if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
+        if (options.Discover == null && options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
             return (null!, 1);
 
         var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);

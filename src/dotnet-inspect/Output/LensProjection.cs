@@ -22,6 +22,12 @@ namespace DotnetInspector.Output;
 /// The refusal is the answer, so it does not need to mark the projection honored — the audit only
 /// inspects successful exits.
 /// </para>
+/// <para>
+/// Two lenses render a text blob rather than a list — <c>--content</c> and <c>--readme</c>. Those
+/// are Scalars in the shape model, and <c>--count</c> collapses a Vector, so counting them is not
+/// a smaller answer but a meaningless one: it can only ever report the number of blobs asked for.
+/// Those lenses pass <c>scalarPayload</c> and refuse <c>--count</c> as well.
+/// </para>
 /// </remarks>
 public static class LensProjection
 {
@@ -44,6 +50,10 @@ public static class LensProjection
     /// True when the lens itself renders <c>--print</c> (the readme lens does), so the request
     /// must be passed through rather than refused here.
     /// </param>
+    /// <param name="scalarPayload">
+    /// True when the lens renders a single text blob rather than a list of rows, so there is
+    /// nothing to count.
+    /// </param>
     /// <returns>
     /// True when the request was answered and the caller must return <paramref name="exitCode"/>
     /// without rendering; false when no projection was requested and the caller should render
@@ -54,7 +64,8 @@ public static class LensProjection
         string lens,
         int rowCount,
         out int exitCode,
-        bool printHandledByLens = false)
+        bool printHandledByLens = false,
+        bool scalarPayload = false)
     {
         exitCode = 0;
         if (!IsRequested(options))
@@ -62,6 +73,15 @@ public static class LensProjection
 
         if (options!.Count)
         {
+            if (scalarPayload)
+            {
+                Console.Error.WriteLine(
+                    $"Error: --count is not available with {lens}, which renders a single text " +
+                    "payload rather than a list of rows.");
+                exitCode = 1;
+                return true;
+            }
+
             CountOutput.WriteCount(rowCount);
             return true;
         }
@@ -74,9 +94,10 @@ public static class LensProjection
             : options.Urls ? "--urls"
             : "--paths";
 
+        var remedy = scalarPayload ? string.Empty : " Use --count to count that payload.";
         Console.Error.WriteLine(
             $"Error: {flag} is not available with {lens}, which renders its own payload rather " +
-            $"than a section. Use --count to count that payload.");
+            $"than a section.{remedy}");
         exitCode = 1;
         return true;
     }

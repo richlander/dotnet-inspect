@@ -238,13 +238,27 @@ unchanged. Because the lens owns the shape, its answers are fixed:
   files, IL offsets, discovered artifacts — not the lines used to render it. A
   layout count is a count of files, even though the rendered tree also shows the
   directories that contain them.
+- `--count` is refused by the two lenses whose payload is a text blob rather
+  than a list, `--content` and `--readme`. Those are Scalars, and `--count`
+  collapses a Vector; counting them would not be a smaller answer but a
+  meaningless one, since it could only ever report how many blobs were asked
+  for.
 - `--print`, `--value`, `--urls`, and `--paths` are refused with the reason,
   not approximated. They address a cell or a column of a selected section, and a
   lens payload has neither; answering anyway would require inferring structure
-  from rendered text.
+  from rendered text. The one exception is `--readme --print`, where the lens
+  renders exactly the printable document `--print` asks for, so it prints it
+  without needing a selection to name it.
 - `-S`/`--select` is refused when the caller typed it, rather than ignored. A
   lens and a section selection are competing answers to *what am I looking at*,
-  and silently honoring the lens hides that the selection did nothing.
+  and silently honoring the lens hides that the selection did nothing. The
+  refusal is unconditional: excusing it for `--print` would let `-S <other
+  section> --readme --print` pass while ignoring the selection.
+
+Discovery (`-D`/`--discover`) is a lens for the projections above but not for
+`-S`, which legitimately narrows what discovery reports. Its own `--count` must
+come from the discovered rows; the surrounding command's document count is a
+different payload that happens to be a plausible-looking number.
 
 `-S` here means an explicit selection. Some options are sugar that synthesize a
 selection internally, and a synthesized one must not be mistaken for a request
