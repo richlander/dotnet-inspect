@@ -426,13 +426,28 @@ function filteredTypes() {
   if (!state.package) return [];
   const needle = state.typeFilter.toLowerCase();
   return state.package.types.filter(item => {
-    const matchesText = !needle || `${item.name} ${item.namespace} ${item.kind}`.toLowerCase().includes(needle);
-    return matchesText
+    return typeMatchesFilterText(item, needle)
       && (!state.namespaceFilter || item.namespace === state.namespaceFilter)
       && (!state.kindFilter || typeKind(item.kind) === state.kindFilter)
       && (!state.libraryScope || state.libraryScope.has(libraryKey(item)))
       && state.accessibilityFilter.has(accessBucket(item.accessibility));
   });
+}
+
+// The "Filter types" box matches, within the active scope, on the type's own identity
+// (name/namespace/kind), the owning library (assembly) name, and — so a member you
+// remember surfaces its declaring type — any member name on the type. The member scan
+// runs only when the cheaper identity/library match misses, so keystroke filtering stays
+// responsive on large packs like the runtime pseudo-package.
+function typeMatchesFilterText(item, needle) {
+  if (!needle) return true;
+  if (`${item.name} ${item.namespace} ${item.kind} ${libraryKey(item)}`.toLowerCase().includes(needle)) return true;
+  const members = item.api;
+  if (!members || !members.length) return false;
+  for (const member of members) {
+    if ((member.name || "").toLowerCase().includes(needle)) return true;
+  }
+  return false;
 }
 
 // Owning-library key for a type: the assembly file name without a .dll suffix,
@@ -1143,7 +1158,7 @@ function renderTypeNav(current, visible) {
       </div>
       <label class="type-search">
         <span>/</span>
-        <input id="type-filter" value="${escapeHtml(state.typeFilter)}" placeholder="Filter types" autocomplete="off" spellcheck="false" />
+        <input id="type-filter" value="${escapeHtml(state.typeFilter)}" placeholder="Filter types, members, libraries" autocomplete="off" spellcheck="false" />
         <kbd>⌘F</kbd>
       </label>
       <div class="namespace-picker">
