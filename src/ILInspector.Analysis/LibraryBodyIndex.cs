@@ -1517,12 +1517,18 @@ public sealed class LibraryBodyIndex
     /// <c>--caller-package</c> scope). The graph is keyed by structural member identity rather
     /// than assembly-local tokens, so a dependency member can surface the product entry points
     /// and callers that reach it. Nodes from an assembly other than the selected member's own
-    /// carry their source assembly in <see cref="CallTreePerf.Source"/>. Falls back to the
-    /// single-assembly builder when no scopes are supplied.
+    /// carry their source assembly in <see cref="CallTreePerf.Source"/>.
+    ///
+    /// <paramref name="callerScopes"/> distinguishes "no cross-assembly scope was requested"
+    /// (<see langword="null"/>, which falls back to the single-assembly token-keyed builder) from
+    /// "a scope was requested but contributed no additional assemblies" (an empty list, which still
+    /// takes the structural walk). The two builders key the reverse graph differently and do not
+    /// produce identical trees, so the choice must follow what the user asked for and never the
+    /// incidental number of assemblies that survived scope filtering.
     /// </summary>
-    public CallTreeNode BuildCallerTree(int rootMethodToken, IReadOnlyList<LibraryBodyIndex> callerScopes, int maxDepth = 3, int maxNodes = 25)
+    public CallTreeNode BuildCallerTree(int rootMethodToken, IReadOnlyList<LibraryBodyIndex>? callerScopes, int maxDepth = 3, int maxNodes = 25)
     {
-        if (callerScopes is not { Count: > 0 })
+        if (callerScopes is null)
             return BuildCallerTree(rootMethodToken, maxDepth, maxNodes);
 
         var rootIdentity = Methods.FirstOrDefault(method => method.MetadataToken == rootMethodToken);

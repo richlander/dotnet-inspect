@@ -16,6 +16,7 @@
     <Project Path="src/ILInspector.Analysis.App/ILInspector.Analysis.App.csproj" />
     <Project Path="src/ILInspector.Analysis.CallerGraphCaller/ILInspector.Analysis.CallerGraphCaller.csproj" />
     <Project Path="src/ILInspector.Analysis.CallerGraphCallerTwin/ILInspector.Analysis.CallerGraphCallerTwin.csproj" />
+    <Project Path="src/ILInspector.Analysis.CallerGraphIndirectCaller/ILInspector.Analysis.CallerGraphIndirectCaller.csproj" />
     <Project Path="src/ILInspector.Analysis.CallerGraphLookalikeCaller/ILInspector.Analysis.CallerGraphLookalikeCaller.csproj" />
     <Project Path="src/ILInspector.Analysis.CallerGraphTarget/ILInspector.Analysis.CallerGraphTarget.csproj" />
     <Project Path="src/ILInspector.Analysis.CrossAsmCollisionFixtures/ILInspector.Analysis.CrossAsmCollisionFixtures.csproj" />

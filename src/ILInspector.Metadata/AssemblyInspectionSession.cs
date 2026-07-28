@@ -44,6 +44,15 @@ public sealed class AssemblyInspectionSession : IDisposable
     public AssemblyInfo AssemblyInfo(bool includeReferences = false)
         => AssemblyInspector.ExtractAssemblyInfo(_image.PEReader, includeReferences);
 
+    /// <summary>
+    /// The image's own simple assembly name and the simple names of its assembly references,
+    /// read from the <c>Assembly</c> and <c>AssemblyRef</c> tables alone. Use this in preference to
+    /// <see cref="AssemblyInfo"/> when only reachability by name is needed: it decodes no
+    /// signatures and derives no public-key tokens.
+    /// </summary>
+    public AssemblyIdentityNames IdentityNames()
+        => AssemblyIdentityScanner.Scan(_image.PEReader);
+
     /// <summary>The public (or, with <paramref name="includeAll"/>, full) API surface.</summary>
     public ApiSurface ApiSurface(bool includeAll = false, bool typesOnly = false)
         => ApiSurfaceExtractor.Extract(_image.PEReader, includeAll, typesOnly);
