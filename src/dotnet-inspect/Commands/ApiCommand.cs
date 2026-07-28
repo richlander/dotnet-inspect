@@ -208,6 +208,11 @@ public class ApiCommand
         var renderOptions = options.RequestAllTaste
             ? ILInspector.Decompiler.Pipeline.StyleOptionCatalog.ApplyFullTaste(renderStyle.Options)
             : renderStyle.Options;
+        // --readable-names is orthogonal to the style axes the config/--taste cover
+        // (it names V_index locals, not a byte-divergent lens), so it applies on top
+        // of whatever those resolved and never has to be re-checked against them.
+        if (options.RequestReadableLocalNames)
+            renderOptions = renderOptions with { ReadableLocalNames = true };
         options = options with
         {
             RenderOptions = renderOptions,
