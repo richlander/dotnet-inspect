@@ -2055,6 +2055,23 @@ public static partial class BrowserInspectionEngine
     // navigation into the pack does not re-range-fetch the same assembly.
     static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> RuntimeFileCache = new();
 
+    // Records which shared-framework runtime pack a resident pseudo-package assembly came
+    // from (lower-cased file name -> pack id), populated by LoadRuntimePackAssembly. The
+    // Platform surface presents the CoreCLR and ASP.NET Core packs as one pseudo-package, so
+    // later per-type/member queries carry only an assembly name; this map lets the
+    // materializer route each assembly to the pack that actually ships it instead of an
+    // assembly-name prefix heuristic (which would miss non-"Microsoft.AspNetCore.*" ASP.NET
+    // Core assemblies) or a wasteful cross-pack probe (which would download a full pack on a
+    // miss). Anything unrecorded defaults to the CoreCLR pack.
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> RuntimeAssemblyPack = new();
+
+    // Maps the client's platform-index pack token ("netcore.app" | "aspnetcore.app") to the
+    // concrete runtime pack id. Unknown tokens fall back to the CoreCLR pack.
+    static string RuntimePackIdForToken(string? pack) =>
+        pack is not null && pack.StartsWith("aspnetcore", StringComparison.OrdinalIgnoreCase)
+            ? AspNetCoreRuntimePackId
+            : PlatformRuntimePackId;
+
     // Eagerly loads the runtime pack's core assembly (System.Private.CoreLib) for the
     // workspace TFM and returns it as a package-shaped surface the client treats as a
     // resident package: its types become searchable in Spotlight and browsable in the type
@@ -2102,17 +2119,16 @@ public static partial class BrowserInspectionEngine
         return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageSurface);
     }
 
-    // Loads ONE named assembly from the CoreCLR runtime pack (e.g. System.Text.Json.dll,
-    // System.Reflection.Metadata.dll) and returns its full type surface as a package-shaped
-    // payload the client merges into the resident runtime pseudo-package. This backs the
-    // index-first Platform scope: selecting Platform lists the library roster from the static
-    // index with no download, and drilling into a specific library fetches just that
-    // assembly here. Only the CoreCLR pack is served — its runtimes/ layout is what
-    // MaterializeImplementationAsync range-extracts for deeper per-type/member queries, so
-    // the merged types resolve end to end. ASP.NET Core libraries are not loadable this way
-    // yet (their materialization pack differs).
+    // Loads ONE named assembly from a shared-framework runtime pack (CoreCLR by default, or
+    // the ASP.NET Core pack when pack == "aspnetcore.app") — e.g. System.Text.Json.dll,
+    // Microsoft.AspNetCore.Routing.dll — and returns its full type surface as a
+    // package-shaped payload the client merges into the resident runtime pseudo-package. This
+    // backs the index-first Platform scope: selecting Platform lists the library roster from
+    // the static index with no download, and drilling into a specific library fetches just
+    // that assembly here. The pack the assembly came from is recorded so later per-type/member
+    // queries (which carry only the assembly name) materialize from the right pack.
     [JSExport]
-    public static async Task<string> LoadRuntimePackAssembly(string targetFramework, string assemblyFileName)
+    public static async Task<string> LoadRuntimePackAssembly(string targetFramework, string assemblyFileName, string pack)
     {
         if (string.IsNullOrWhiteSpace(assemblyFileName))
             throw new InvalidOperationException("An assembly file name is required.");
@@ -2120,17 +2136,19 @@ public static partial class BrowserInspectionEngine
             ? assemblyFileName
             : assemblyFileName + ".dll";
 
+        var packId = RuntimePackIdForToken(pack);
         var major = ParseTfmMajor(targetFramework);
-        var version = await ResolveRuntimePackVersionAsync(PlatformRuntimePackId, major);
-        var bytes = await AcquireRuntimeFileAsync(PlatformRuntimePackId, version, fileName)
+        var version = await ResolveRuntimePackVersionAsync(packId, major);
+        var bytes = await AcquireRuntimeFileAsync(packId, version, fileName)
             ?? throw new InvalidOperationException(
-                $"Could not acquire {fileName} from {PlatformRuntimePackId} {version}.");
+                $"Could not acquire {fileName} from {packId} {version}.");
+        RuntimeAssemblyPack[fileName.ToLowerInvariant()] = packId;
 
         using var inspection = AssemblyInspectionSession.Open(new ResolvedAssemblyReference(
             new AssemblyReferenceIdentity(Path.GetFileNameWithoutExtension(fileName), null, null, null),
             Path: null,
             OpenRead: () => new MemoryStream(bytes, writable: false),
-            Provenance: $"runtime-pack/{PlatformRuntimePackId}/{fileName}"));
+            Provenance: $"runtime-pack/{packId}/{fileName}"));
         if (!inspection.HasMetadata)
             throw new InvalidOperationException($"{fileName} has no metadata.");
 
@@ -2174,9 +2192,15 @@ public static partial class BrowserInspectionEngine
     {
         if (normalizedId.Equals(RuntimePackPackageId, StringComparison.OrdinalIgnoreCase))
         {
-            var bytes = await AcquireRuntimeFileAsync(PlatformRuntimePackId, normalizedVersion, assemblyName)
+            // The resident runtime pseudo-package spans the CoreCLR and ASP.NET Core packs;
+            // route each assembly to the pack that shipped it (recorded when the library was
+            // loaded, defaulting to CoreCLR), resolving that pack's version for the framework
+            // rather than trusting the pseudo-package's single recorded version.
+            var packId = RuntimeAssemblyPack.GetValueOrDefault(assemblyName.ToLowerInvariant(), PlatformRuntimePackId);
+            var packVersion = await ResolveRuntimePackVersionAsync(packId, ParseTfmMajor(targetFramework));
+            var bytes = await AcquireRuntimeFileAsync(packId, packVersion, assemblyName)
                 ?? throw new InvalidOperationException(
-                    $"No runtime-pack asset for {assemblyName} in {PlatformRuntimePackId} {normalizedVersion}.");
+                    $"No runtime-pack asset for {assemblyName} in {packId} {packVersion}.");
             var runtimePath = Path.Combine(tempRoot, assemblyName);
             await File.WriteAllBytesAsync(runtimePath, bytes);
             return runtimePath;

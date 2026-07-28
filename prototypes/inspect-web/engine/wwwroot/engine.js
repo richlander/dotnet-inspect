@@ -204,9 +204,9 @@ export async function inspectLoadRuntimePack(framework) {
   return JSON.parse(json);
 }
 
-export async function inspectLoadRuntimePackAssembly(framework, assemblyFileName) {
+export async function inspectLoadRuntimePackAssembly(framework, assemblyFileName, pack) {
   if (!loadRuntimePackAssembly) throw new Error("The browser inspection engine is not initialized.");
-  const json = await loadRuntimePackAssembly(framework ?? "", assemblyFileName ?? "");
+  const json = await loadRuntimePackAssembly(framework ?? "", assemblyFileName ?? "", pack ?? "");
   return JSON.parse(json);
 }
 
