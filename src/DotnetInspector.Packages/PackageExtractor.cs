@@ -799,6 +799,142 @@ public static class PackageExtractor
         return null;
     }
 
+    // nuget.org registration index — the only nuget.org endpoint that carries the
+    // per-version `catalogEntry.listed` flag. The flat-container index.json omits it.
+    private const string NuGetOrgRegistrationBase =
+        "https://api.nuget.org/v3/registration5-semver1";
+
+    /// <summary>
+    /// Fetches all version strings for a package from a single source, then removes NuGet
+    /// <em>unlisted</em> versions so that discovery (enumeration and "latest" resolution) never
+    /// surfaces a version hidden on nuget.org. Only nuget.org exposes a listed flag (via the
+    /// registration index); other feeds are returned unfiltered. Explicit <c>Package@Version</c>
+    /// access does not enumerate, so it still resolves and loads a known unlisted version.
+    /// </summary>
+    private static async Task<List<string>?> FetchListedVersionsFromSourceAsync(
+        HttpClient client,
+        string packageName,
+        NuGetSource source,
+        Action<string>? log)
+    {
+        var versions = await FetchAllVersionsFromSourceAsync(client, packageName, source, log).ConfigureAwait(false);
+        if (versions == null || !source.IsNuGetOrg)
+            return versions;
+
+        var unlisted = await FetchUnlistedVersionsFromNuGetOrgAsync(client, packageName, log).ConfigureAwait(false);
+        if (unlisted == null || unlisted.Count == 0)
+            return versions;
+
+        var filtered = versions.Where(v => !IsUnlisted(v, unlisted)).ToList();
+        int removed = versions.Count - filtered.Count;
+        if (removed > 0)
+            log?.Invoke($"Excluded {removed} unlisted version(s) from enumeration");
+        return filtered;
+    }
+
+    private static bool IsUnlisted(string version, HashSet<NuGet.Versioning.NuGetVersion> unlisted) =>
+        NuGet.Versioning.NuGetVersion.TryParse(version, out var parsed) && unlisted.Contains(parsed);
+
+    /// <summary>
+    /// Reads the nuget.org registration index and returns the set of versions whose
+    /// <c>catalogEntry.listed</c> is explicitly <c>false</c>. A missing <c>listed</c> property is
+    /// treated as listed (older catalog entries omit it). Returns <c>null</c> when the index cannot
+    /// be fetched or parsed, so callers fail open (no filtering) rather than dropping real versions.
+    /// </summary>
+    private static async Task<HashSet<NuGet.Versioning.NuGetVersion>?> FetchUnlistedVersionsFromNuGetOrgAsync(
+        HttpClient client,
+        string packageName,
+        Action<string>? log)
+    {
+        string indexUrl = $"{NuGetOrgRegistrationBase}/{packageName}/index.json";
+        log?.Invoke($"Fetching listing status from: {indexUrl}");
+
+        string? json = await HttpRetryHelper.GetStringWithRetryAsync(
+            client, indexUrl,
+            trafficKind: NetworkTrafficKind.PackageMetadata).ConfigureAwait(false);
+        if (json == null)
+            return null;
+
+        var unlisted = new HashSet<NuGet.Versioning.NuGetVersion>();
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("items", out var pages))
+                return null;
+
+            foreach (var page in pages.EnumerateArray())
+            {
+                // A page either inlines its entries under "items" or points at a URL that must be
+                // fetched separately (registration pages are split for large version histories).
+                if (page.TryGetProperty("items", out var inlineItems))
+                {
+                    CollectUnlisted(inlineItems, unlisted);
+                }
+                else if (page.TryGetProperty("@id", out var pageIdElement)
+                    && pageIdElement.GetString() is string pageUrl)
+                {
+                    string? pageJson = await HttpRetryHelper.GetStringWithRetryAsync(
+                        client, pageUrl,
+                        trafficKind: NetworkTrafficKind.PackageMetadata).ConfigureAwait(false);
+                    if (pageJson == null)
+                        return null;
+                    using var pageDoc = System.Text.Json.JsonDocument.Parse(pageJson);
+                    if (pageDoc.RootElement.TryGetProperty("items", out var pageItems))
+                        CollectUnlisted(pageItems, unlisted);
+                }
+            }
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            log?.Invoke($"Could not parse listing status: {ex.Message}");
+            return null;
+        }
+
+        return unlisted;
+    }
+
+    private static void CollectUnlisted(
+        System.Text.Json.JsonElement items,
+        HashSet<NuGet.Versioning.NuGetVersion> unlisted)
+    {
+        foreach (var item in items.EnumerateArray())
+        {
+            if (!item.TryGetProperty("catalogEntry", out var entry))
+                continue;
+            if (!entry.TryGetProperty("listed", out var listedElement)
+                || listedElement.ValueKind != System.Text.Json.JsonValueKind.False)
+                continue;
+            if (entry.TryGetProperty("version", out var versionElement)
+                && versionElement.GetString() is string version
+                && NuGet.Versioning.NuGetVersion.TryParse(version, out var parsed))
+            {
+                unlisted.Add(parsed);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Selects the newest version from a set of version strings. When
+    /// <paramref name="includePrerelease"/> is false, prefers the newest stable version and only
+    /// falls back to a prerelease when no stable version exists. Unparseable entries are ignored.
+    /// </summary>
+    private static string? PickLatest(IEnumerable<string?> versions, bool includePrerelease)
+    {
+        NuGet.Versioning.NuGetVersion? latestStable = null;
+        NuGet.Versioning.NuGetVersion? latestAny = null;
+        foreach (var ver in versions)
+        {
+            if (ver != null && NuGet.Versioning.NuGetVersion.TryParse(ver, out var parsed))
+            {
+                if (latestAny == null || parsed > latestAny)
+                    latestAny = parsed;
+                if (!parsed.IsPrerelease && (latestStable == null || parsed > latestStable))
+                    latestStable = parsed;
+            }
+        }
+        return (includePrerelease ? latestAny : latestStable ?? latestAny)?.OriginalVersion;
+    }
+
     private static async Task<string?> GetLatestVersionFromSourceAsync(
         HttpClient client,
         string packageName,
@@ -814,6 +950,16 @@ public static class PackageExtractor
             var version = await GetLatestVersionFromSearchAsync(client, packageName, log).ConfigureAwait(false);
             if (version != null)
                 return version;
+        }
+
+        // For nuget.org, the flat-container/prerelease path must exclude unlisted versions.
+        // FetchListedVersionsFromSourceAsync consults the registration index; its result is
+        // authoritative for nuget.org, so do not fall through to the unfiltered index below.
+        if (source.IsNuGetOrg)
+        {
+            var listed = await FetchListedVersionsFromSourceAsync(client, packageName, source, log).ConfigureAwait(false);
+            if (listed != null)
+                return PickLatest(listed, includePrerelease);
         }
 
         // Fall back to flat-container index (enumerates all versions)
@@ -900,20 +1046,9 @@ public static class PackageExtractor
             {
                 // Use NuGetVersion for proper comparison — feeds may return
                 // versions in any order (nuget.org ascending, Azure DevOps descending).
-                NuGet.Versioning.NuGetVersion? latestStable = null;
-                NuGet.Versioning.NuGetVersion? latestAny = null;
-                foreach (var v in versions.EnumerateArray())
-                {
-                    var ver = v.GetString();
-                    if (ver != null && NuGet.Versioning.NuGetVersion.TryParse(ver, out var parsed))
-                    {
-                        if (latestAny == null || parsed > latestAny)
-                            latestAny = parsed;
-                        if (!parsed.IsPrerelease && (latestStable == null || parsed > latestStable))
-                            latestStable = parsed;
-                    }
-                }
-                return (includePrerelease ? latestAny : latestStable ?? latestAny)?.OriginalVersion;
+                return PickLatest(
+                    versions.EnumerateArray().Select(v => v.GetString()),
+                    includePrerelease);
             }
         }
         catch (System.Text.Json.JsonException)
@@ -982,7 +1117,7 @@ public static class PackageExtractor
                 }
             }
 
-            versions ??= await FetchAllVersionsFromSourceAsync(client, normalizedName, source, log).ConfigureAwait(false);
+            versions ??= await FetchListedVersionsFromSourceAsync(client, normalizedName, source, log).ConfigureAwait(false);
             if (versions == null)
                 continue;
 
@@ -990,7 +1125,8 @@ public static class PackageExtractor
             merged.UnionWith(versions);
 
             // Persist nuget.org's list (not the merged set) so private-feed versions don't
-            // pollute the shared, name-keyed cache.
+            // pollute the shared, name-keyed cache. The list is already listing-filtered, so the
+            // cache never re-surfaces an unlisted version within its TTL.
             if (source.IsNuGetOrg && canCacheNuGetOrg)
                 CoreCache.Set(VersionCacheCategory, $"{normalizedName}-all", string.Join('\n', versions), extension: "txt");
         }

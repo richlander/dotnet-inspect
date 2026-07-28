@@ -153,6 +153,33 @@ dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
 kind and producer detail establish identity, while IL offsets remain local to
 each endpoint.
 
+## Listed vs. unlisted versions
+
+NuGet lets a publisher **unlist** a version: it stays restorable by exact
+coordinate but is hidden from discovery on nuget.org. The flat-container
+`index.json` that drives version enumeration lists **every** published version
+and carries no listed flag, so it cannot distinguish an unlisted version on its
+own. Only the nuget.org **registration** index exposes the per-version
+`catalogEntry.listed` bit.
+
+Version resolution applies one shared listing-aware policy so discovery matches
+the nuget.org gallery:
+
+- **Enumeration** (`Name --versions`, wildcard resolution) and the
+  **flat-container / prerelease "latest"** paths consult the registration index
+  and drop versions whose `catalogEntry.listed` is explicitly `false`. The
+  stable "latest" path already uses the listing-aware search API and is
+  unaffected. This is nuget.org-only; other feeds have no listed concept and are
+  returned unfiltered.
+- **Explicit access is preserved.** A pinned `Name@Version` (including
+  `Name@latest` and the addressable-vector endpoints) never enumerates, so a
+  known unlisted version still resolves and loads — matching NuGet's own
+  behavior of restoring a known unlisted version.
+- **Fail-open.** If the registration index cannot be fetched or parsed, the list
+  is returned unfiltered rather than silently dropping versions; the condition
+  is logged. The filtered nuget.org list is what gets cached, so a cache hit
+  within the 1-hour TTL never re-surfaces an unlisted version.
+
 ## Cache locations
 
 | Cache | Location | TTL | Written by |
