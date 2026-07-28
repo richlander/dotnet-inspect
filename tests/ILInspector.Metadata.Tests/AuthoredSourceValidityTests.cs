@@ -292,7 +292,7 @@ public class AuthoredSourceValidityTests
             "\n",
             counts.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Value,6}  {100.0 * kv.Value / slices.Count,5:F2}%  {kv.Key}"));
 
-        // Measured at 18.21%, 1.67%, and 0.30% over this corpus.
+        // Measured at 18.31%, 0.46%, and 0.24% over this corpus.
         Assert.True(Rate(SliceOutcome.TypeHeader) < 22.0, $"type-header shapes grew:\n{summary}");
         Assert.True(Rate(SliceOutcome.UnderCapture) < 3.0, $"under-capture grew:\n{summary}\n\n{Report(slices.Where(s => s.Outcome == SliceOutcome.UnderCapture))}");
         Assert.True(Rate(SliceOutcome.Malformed) < 1.5, $"malformed slices grew:\n{summary}\n\n{Report(slices.Where(s => s.Outcome == SliceOutcome.Malformed))}");
@@ -473,6 +473,122 @@ public class AuthoredSourceValidityTests
         var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 4, 5, "M");
 
         Assert.DoesNotContain("int y = 2;", slice);
+    }
+
+    /// <summary>
+    /// A verbatim literal is never raw. Reading any run of three or more quotes as a raw
+    /// delimiter left <c>@""""</c> — a verbatim string holding one quote — open, and the member's
+    /// closing brace was lost with it (adversarial review, GPT).
+    /// </summary>
+    [Theory]
+    [InlineData("return @\"\"\"\";")]
+    [InlineData("return @\"a\"\"b\";")]
+    [InlineData("return $@\"\"\"\";")]
+    [InlineData("return @$\"\"\"\";")]
+    [InlineData("return \"\"\"raw\"\"\";")]
+    public void VerbatimQuoteRuns_AreNotReadAsRawDelimiters(string statement)
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public string M()",
+            "    {",
+            "        " + statement,
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 4, 5, "M");
+
+        Assert.NotNull(slice);
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+    }
+
+    /// <summary>
+    /// Conditional-compilation directives put braces in branches the compiler may discard, so the
+    /// structural depth below one is unknowable. Counting them made a discarded <c>{</c> consume
+    /// the member's own closing brace and take the enclosing type's instead (adversarial review,
+    /// GPT). The slice must fall back to the range rather than reach past it on a bad count.
+    /// </summary>
+    [Fact]
+    public void ConditionalDirective_SuppressesDepthBasedRecovery()
+    {
+        string[] lines =
+        [
+            "class C",
+            "{",
+            "    public void M()",
+            "    {",
+            "#if UNUSED",
+            "        {",
+            "#endif",
+            "        System.Console.WriteLine();",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 4, 8, "M");
+
+        Assert.NotNull(slice);
+        Assert.DoesNotContain("class C", slice);
+        Assert.EndsWith("System.Console.WriteLine();", slice.TrimEnd());
+    }
+
+    /// <summary>
+    /// Non-conditional directives do not move braces between branches, so they must not cost the
+    /// member its recovery.
+    /// </summary>
+    [Theory]
+    [InlineData("#line default")]
+    [InlineData("#nullable enable")]
+    [InlineData("#pragma warning disable CS0168")]
+    public void NonConditionalDirective_LeavesRecoveryIntact(string directive)
+    {
+        string[] lines =
+        [
+            "class C",
+            "{",
+            "    public void M()",
+            "    {",
+            directive,
+            "        System.Console.WriteLine();",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 4, 6, "M");
+
+        Assert.NotNull(slice);
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.EndsWith("}", slice.TrimEnd());
+    }
+
+    /// <summary>
+    /// A region pair is the directive most likely to appear inside a member. It moves no braces,
+    /// so it must not cost the member its recovery either.
+    /// </summary>
+    [Fact]
+    public void RegionDirective_LeavesRecoveryIntact()
+    {
+        string[] lines =
+        [
+            "class C",
+            "{",
+            "    public void M()",
+            "    {",
+            "#region R",
+            "        System.Console.WriteLine();",
+            "#endregion",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 4, 6, "M");
+
+        Assert.NotNull(slice);
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.EndsWith("}", slice.TrimEnd());
     }
 
     /// <summary>
