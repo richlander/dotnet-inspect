@@ -1259,7 +1259,7 @@ public class AuthoredCorpusRatchetTests
         Assert.Equal(["output ??= Console.Out;"], mentions);
     }
 
-    static string FindRepositoryRoot()
+    internal static string FindRepositoryRoot()
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
         {
@@ -1785,41 +1785,19 @@ public class AuthoredCorpusRatchetTests
     /// <para>Review deleted <c>--verify-authored-corpus</c> from the list the harness
     /// passed and the whole suite stayed green, while the real binary went back to
     /// running <c>--history-card</c> instead of the gate and exiting 0 having verified
-    /// nothing. Every other term of the preemption rule had already been moved somewhere
-    /// a test could see it; the argument naming <em>which</em> gates to protect was the
-    /// last piece that was not.</para>
+    /// nothing.</para>
+    ///
+    /// <para>This pins the contents only. The first attempt also pinned the call site by
+    /// reading its source text, and that test was wrong in both directions: a
+    /// behavior-preserving comment inside the argument list failed it, while a
+    /// commented-out decoy call above the real one satisfied it with the live call
+    /// passing a single gate. It was deleted rather than patched.
+    /// <see cref="AuthoredCorpusHarnessProcessTests"/> gates the behavior instead, by
+    /// running the binary.</para>
     /// </summary>
     [Fact]
     public void ProtectedGates_AreTheAuthoredCorpusGates()
-        => Assert.Equal(Gates, AuthoredCorpusExitContract.ProtectedGates);
-
-    /// <summary>
-    /// The harness passes that declaration, rather than a literal of its own.
-    ///
-    /// <para>Pinning the contents is only half the rule: a call site free to write its
-    /// own array can drop a gate without touching the declaration. This is the same
-    /// source-text pin <see cref="DispatchOrder_MatchesTheHarnessDispatchOrder"/> applies
-    /// to the other argument of the same call.</para>
-    /// </summary>
-    [Fact]
-    public void ProtectedGates_AreWhatTheHarnessActuallyPasses()
-    {
-        string source = File.ReadAllText(Path.Combine(
-            FindRepositoryRoot(), "tools", "DecompilerHarness", "Program.cs"));
-
-        int start = source.IndexOf("PreemptedGateRefusal(", StringComparison.Ordinal);
-        Assert.True(start >= 0, "Program.cs no longer calls PreemptedGateRefusal.");
-        int close = source.IndexOf(") is { } preempted", start, StringComparison.Ordinal);
-        Assert.True(close > start, "The PreemptedGateRefusal call no longer has the expected shape.");
-
-        string[] arguments = [.. source[(source.IndexOf('(', start) + 1)..close]
-            .Split(',')
-            .Select(argument => argument.Trim())];
-
-        Assert.Equal(
-            ["dispatchOrder", "AuthoredCorpusExitContract.ProtectedGates"],
-            arguments);
-    }
+        => Assert.Equal(Gates, AuthoredCorpusExitContract.ProtectedGates.AsEnumerable());
 
     /// <summary>
     /// The required-field check covers exactly the fields the corpus schema declares

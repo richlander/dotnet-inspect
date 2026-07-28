@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -638,7 +639,11 @@ static class AuthoredCorpusExitContract
     /// this list and not a fresh literal, so dropping a gate fails in one place and
     /// routing around the list fails in the other.</para>
     /// </summary>
-    internal static readonly string[] ProtectedGates =
+    /// <para>Immutable, not <c>static readonly string[]</c>. A readonly array field is
+    /// only readonly in its reference: <c>ProtectedGates[1] = "..."</c> would rewrite the
+    /// list before the call, and the contents pin runs in the test process where no such
+    /// write happened, so it would not notice.</para>
+    internal static readonly ImmutableArray<string> ProtectedGates =
         ["--benchmark-authored-corpus", "--verify-authored-corpus"];
 
     /// <summary>
