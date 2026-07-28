@@ -1,5 +1,6 @@
 using DotnetInspector.Models;
 using DotnetInspector.Views;
+using ILInspector.CSharp;
 
 namespace DotnetInspector.Output;
 
@@ -24,8 +25,8 @@ public static class FindOutputFormatter
             Description = matchCount == 0 ? "No types found matching the pattern." : null,
             Results = matchCount == 0 ? null : results.Select(r => new FindRow(
                 r.Pattern,
-                r.Match == MatchKind.NotFound ? "-" : r.Type,
-                r.Match == MatchKind.NotFound ? "-" : r.Namespace,
+                r.Match == MatchKind.NotFound ? "-" : CSharpIdentifier.ContainRenderedText(r.Type),
+                r.Match == MatchKind.NotFound ? "-" : CSharpIdentifier.ContainRenderedText(r.Namespace ?? ""),
                 r.Match == MatchKind.NotFound ? "-" : r.Kind,
                 r.Match == MatchKind.NotFound ? "-" : r.Library,
                 r.Match == MatchKind.NotFound ? "-" : SourceColumn.Format(r.Source, r.SourceVersion),

@@ -1,6 +1,9 @@
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.PortableExecutable;
+using DotnetInspector.Options;
+using DotnetInspector.Output;
+using DotnetInspector.Views;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
 
@@ -131,5 +134,121 @@ public class UntrustedMemberSignatureTests
             => ch is '\u061C' or '\u200E' or '\u200F'
                 or >= '\u202A' and <= '\u202E'
                 or >= '\u2066' and <= '\u2069';
+    }
+}
+
+/// <summary>
+/// A whole-view gate for issue #3319. The per-channel gates only cover channels
+/// someone thought to name, and three separate adversarial passes each found a
+/// channel the previous fix had missed. This walks the built view object graph
+/// reflectively instead, so a row type nobody has thought of yet is still
+/// covered the day it is added.
+/// </summary>
+public class UntrustedViewContainmentTests
+{
+    [Fact]
+    public void NoBuiltViewCarriesARenderingHazard()
+    {
+        const string Hazard = "\v";
+        var type = new ApiType
+        {
+            Name = $"Holder{Hazard}INJECTED",
+            Namespace = $"Ns{Hazard}INJECTED",
+            Kind = "class",
+            TypeParameters = [new TypeParameter { Name = $"T{Hazard}INJECTED" }],
+            Members =
+            [
+                new ApiMember { Name = $"Fld{Hazard}INJECTED", Kind = "field", ReturnType = "int" },
+                new ApiMember { Name = $"Prop{Hazard}INJECTED", Kind = "property", ReturnType = "int" },
+                new ApiMember { Name = $"Evt{Hazard}INJECTED", Kind = "event", ReturnType = "EventHandler" },
+                new ApiMember { Name = $"Meth{Hazard}INJECTED", Kind = "method", ReturnType = "void" },
+                new ApiMember { Name = ".ctor", Kind = "constructor" },
+            ]
+        };
+
+        var enumType = new ApiType
+        {
+            Name = "HostileEnum",
+            Kind = "enum",
+            Members =
+            [
+                new ApiMember { Name = $"Val{Hazard}INJECTED", Kind = "field", ReturnType = "int", EnumValue = 1 },
+            ]
+        };
+
+        var summaryView = new TypeView();
+        ApiOutputFormatter.PopulateMemberSummarySections(
+            summaryView, new MethodGroupsView(), new EventsView(), type, new ApiOptions());
+
+        var enumView = new TypeView();
+        ApiOutputFormatter.PopulateEnumValues(enumView, enumType, new ApiOptions());
+
+        var shapeView = ApiOutputFormatter.BuildShapeView(
+            type, foundIn: null, packageName: null, packageVersion: null, memberFilter: []);
+
+        var (tableView, _) = ApiOutputFormatter.BuildTypeTableView(type, new ApiOptions());
+
+        // Non-vacuity: the hostile names must actually be present in the views,
+        // or a view that dropped every member would pass trivially.
+        int seen = 0;
+        foreach (var view in new object[] { summaryView, enumView, shapeView, tableView })
+        {
+            foreach (string text in Strings(view, new HashSet<object>(ReferenceEqualityComparer.Instance)))
+            {
+                if (text.Contains("INJECTED", StringComparison.Ordinal))
+                    seen++;
+                Assert.DoesNotContain(text, IsHazard);
+            }
+        }
+
+        Assert.True(seen >= 5, $"expected the hostile names to reach the views, saw {seen}");
+    }
+
+    /// <summary>
+    /// The harness spells the hazard set out rather than calling
+    /// <see cref="CSharpIdentifier.IsRenderingHazard"/>, so that a wrong answer
+    /// from the product cannot make this gate agree with it.
+    /// </summary>
+    static bool IsHazard(char c)
+        => c != '\t'
+            && (char.IsControl(c)
+                || c is '\u061C' or '\u200E' or '\u200F'
+                    or >= '\u202A' and <= '\u202E'
+                    or >= '\u2066' and <= '\u2069');
+
+    /// <summary>Every string reachable from a built view, however nested.</summary>
+    static IEnumerable<string> Strings(object? node, HashSet<object> seen)
+    {
+        if (node is null || !seen.Add(node))
+            yield break;
+
+        if (node is string s)
+        {
+            yield return s;
+            yield break;
+        }
+
+        if (node is System.Collections.IEnumerable list)
+        {
+            foreach (var item in list)
+                foreach (string text in Strings(item, seen))
+                    yield return text;
+            yield break;
+        }
+
+        var type = node.GetType();
+        if (type.IsPrimitive || type.IsEnum || type.Namespace?.StartsWith("System", StringComparison.Ordinal) == true)
+            yield break;
+
+        foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (property.GetIndexParameters().Length > 0)
+                continue;
+            object? value;
+            try { value = property.GetValue(node); }
+            catch { continue; }
+            foreach (string text in Strings(value, seen))
+                yield return text;
+        }
     }
 }

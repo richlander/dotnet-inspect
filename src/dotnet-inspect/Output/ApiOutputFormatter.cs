@@ -669,7 +669,7 @@ public static class ApiOutputFormatter
 
         var rows = enumMembers.Select(m => new EnumValueRow
         {
-            Name = m.Name,
+            Name = OperatorNames.FormatDisplayName(m.Name),
             Value = m.EnumValue.ToString()!,
             Description = hasAnyDocs ? (m.Documentation.Summary ?? "") : null
         }).ToList();
@@ -1060,7 +1060,7 @@ public static class ApiOutputFormatter
                     {
                         var m = e.members[0];
                         return new PropertySummaryRow(
-                            m.Name,
+                            OperatorNames.FormatDisplayName(m.Name),
                             MemberReturnType(m),
                             MemberAccessors(m),
                             SignatureDecodeMarker(e.members));
@@ -1072,7 +1072,7 @@ public static class ApiOutputFormatter
                 {
                     var rows = byName.Select(e =>
                         new FieldSummaryRow(
-                            e.members[0].Name,
+                            OperatorNames.FormatDisplayName(e.members[0].Name),
                             e.members[0].ReturnType ?? "",
                             SignatureDecodeMarker(e.members))).ToList();
                     view.FieldSummaryRows = rows;
@@ -2514,8 +2514,14 @@ public static class ApiOutputFormatter
             .ToDictionary(g => g.Key, g => g.ToList());
     }
 
+    /// <summary>
+    /// The type's full name for display. Containment is applied here and not in
+    /// <see cref="MetadataTypeNameFormatter"/>, because that formatter also feeds
+    /// <c>ApiMemberIdentity</c> and <c>MemberTargetResolver</c>, where the name is
+    /// identity rather than presentation (issue #3319).
+    /// </summary>
     internal static string FormatGenericFullName(ApiType type)
-        => MetadataTypeNameFormatter.FormatFullName(type);
+        => CSharpIdentifier.ContainRenderedText(MetadataTypeNameFormatter.FormatFullName(type));
 
     internal static string GetMemberSignatureSortKey(ApiMember member)
         => ApiMemberIdentity.GetMemberSignatureSortKey(member);

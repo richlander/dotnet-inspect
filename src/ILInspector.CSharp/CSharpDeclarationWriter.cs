@@ -1231,7 +1231,7 @@ internal static class CSharpDeclarationWriter
             name = name[(sep + 1)..];
         var arityIndex = name.IndexOf('`');
         var typeName = arityIndex < 0 ? name : name[..arityIndex];
-        return EscapeIdentifier(typeName);
+        return SanitizeIdentifier(typeName);
     }
 
     static string EscapeMemberNameInSignature(string signature, string memberName)

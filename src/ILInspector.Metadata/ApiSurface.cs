@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using ILInspector.CSharp;
 
 namespace ILInspector.Metadata;
 
@@ -183,7 +184,12 @@ public class TypeParameter
     /// <summary>
     /// Returns the parameter name with variance prefix (e.g., "out T", "in TKey").
     /// </summary>
-    public string DisplayName => Variance != null ? $"{Variance} {Name}" : Name;
+    /// <remarks>
+    /// This is presentation, not identity — <see cref="Name"/> stays raw — so the
+    /// untrusted metadata name is contained here (issue #3319).
+    /// </remarks>
+    public string DisplayName => CSharpIdentifierCore.ContainComposedName(
+        Variance != null ? $"{Variance} {Name}" : Name);
 
     /// <summary>
     /// Returns constraints as a comma-separated string, or null if none.

@@ -2,6 +2,8 @@ using DotnetInspector.Options;
 using DotnetInspector.Views;
 using Markout;
 
+using ILInspector.CSharp;
+
 namespace DotnetInspector.Output;
 
 public record Tip(string Subcommand, string Args, string Comment)
@@ -30,7 +32,12 @@ public static class Hints
 
         var view = new TipsView
         {
-            Commands = visible.Select(t => new TipRow(t.CommandText, t.Comment)).ToList()
+            // A tip echoes type and member names that came from untrusted
+            // metadata. Containing at this single choke point covers every
+            // command's tips, so a new tip cannot reopen the hole (issue #3319).
+            Commands = visible.Select(t => new TipRow(
+                CSharpIdentifier.ContainRenderedText(t.CommandText),
+                t.Comment)).ToList()
         };
 
         Console.Out.Flush();
