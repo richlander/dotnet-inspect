@@ -147,7 +147,7 @@ public class FindCommand
     private static void WriteCount(List<TypeFindResult> rawData, string title)
     {
         var view = FindOutputFormatter.BuildView(rawData, title);
-        Console.WriteLine(view.Results?.Count ?? 0);
+        CountOutput.WriteCount(view.Results?.Count ?? 0);
     }
 
     private static void WriteMemberOutput(List<MemberFindResult> rawData, string title, FindOptions options)
@@ -178,7 +178,7 @@ public class FindCommand
     private static void WriteMemberCount(List<MemberFindResult> rawData, string title)
     {
         var view = FindOutputFormatter.BuildMemberView(rawData, title);
-        Console.WriteLine(view.Results?.Count ?? 0);
+        CountOutput.WriteCount(view.Results?.Count ?? 0);
     }
 }
 

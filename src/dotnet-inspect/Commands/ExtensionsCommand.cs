@@ -235,7 +235,7 @@ public class ExtensionsCommand
 
     private static void WriteCount(List<ExtensionMethodResult> results)
     {
-        Console.WriteLine(results.Count);
+        CountOutput.WriteCount(results.Count);
     }
 
     private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results, Verbosity verbosity, RowWindow? rows)

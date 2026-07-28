@@ -339,6 +339,9 @@ public class ProjectCommand
         if (options.Print || options.Bare)
             return PrintSkillDocument(rows, options);
 
+        if (options.Count)
+            ProjectionAudit.MarkHonored();
+
         var output = options.Count
             ? rows.Count.ToString(CultureInfo.InvariantCulture) + Environment.NewLine
             : options.JsonOutput

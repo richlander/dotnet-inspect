@@ -235,12 +235,12 @@ public class DependsCommand
 
     private static void WriteCount(List<TypeDependencyNode> nodes)
     {
-        Console.WriteLine(CountTypeNodes(nodes));
+        CountOutput.WriteCount(CountTypeNodes(nodes));
     }
 
     private static void WriteCount(int count)
     {
-        Console.WriteLine(count);
+        CountOutput.WriteCount(count);
     }
 
     private static int CountTypeNodes(List<TypeDependencyNode> nodes)

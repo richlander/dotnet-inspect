@@ -548,7 +548,7 @@ public class CommandExecutionTests
             }
             try
             {
-                return await result.InvokeAsync();
+                return await CommandLineBuilder.InvokeAsync(result);
             }
             catch (RowWindowValidationException ex)
             {
@@ -3421,6 +3421,58 @@ public class CommandExecutionTests
         Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", rows[0].GetProperty("url").GetString());
         Assert.Equal(2, rows[1].GetProperty("row").GetInt32());
         Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", rows[1].GetProperty("url").GetString());
+    }
+
+    [Theory]
+    [InlineData("--value")]
+    [InlineData("--urls")]
+    [InlineData("--paths")]
+    [InlineData("--print")]
+    public async Task WholeSurfaceListing_DroppedProjection_FailsLoudly(string projectionFlag)
+    {
+        // The whole-surface type listing renders sections but has no projection dispatch, so
+        // before the audit it answered a projection request with the full unprojected listing
+        // and exit 0. The audit turns that silent drop into a reported failure. When this route
+        // gains real column projection, this expectation changes to a projected payload.
+        var (exit, _, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes", projectionFlag);
+
+        Assert.Equal(1, exit);
+        Assert.Contains($"'{projectionFlag}' was accepted but this command path produced unprojected output", error);
+    }
+
+    [Fact]
+    public async Task ProjectionAudit_DoesNotFireForHelp()
+    {
+        // --help short-circuits rendering, so the projection is not dropped; it is moot.
+        var (exit, _, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes", "--value", "--help");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("produced unprojected output", error);
+    }
+
+    [Fact]
+    public async Task ProjectionAudit_DoesNotFireWhenProjectionIsRejected()
+    {
+        // A command that rejects an unsupported projection has already reported the problem;
+        // the audit must not add a second, misleading "this is a bug" line on top of it.
+        var (exit, _, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "Signals", "--urls");
+
+        Assert.Equal(1, exit);
+        Assert.DoesNotContain("produced unprojected output", error);
+    }
+
+    [Fact]
+    public async Task ProjectionAudit_DoesNotFireForHonoredCount()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "References", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("produced unprojected output", error);
+        Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
     }
 
     [Fact]

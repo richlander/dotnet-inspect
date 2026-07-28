@@ -140,7 +140,7 @@ public class ImplementsCommand
 
     private static void WriteCount(List<ImplementerResult> results)
     {
-        Console.WriteLine(results.Count);
+        CountOutput.WriteCount(results.Count);
     }
 
     private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool tabular, bool tsv, bool jsonl, bool noHeader, string[]? columns, string[]? fields, RowWindow? rows)

@@ -46,6 +46,8 @@ public static class ShapeProjectionOutput
 
     public static int Write(IReadOnlyList<ShapeProjectionRow> rows, ShapeProjectionOptions options)
     {
+        ProjectionAudit.MarkHonored();
+
         if (rows.Count == 0)
         {
             Console.Error.WriteLine($"Error: selected section has no {ProjectionName(options.Kind)} values.");

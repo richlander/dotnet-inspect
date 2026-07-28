@@ -45,6 +45,18 @@ public static class CommandLineBuilder
     public static string[] PreprocessArgs(string[] args) => ArgumentPreprocessor.PreprocessArgs(args);
 
     /// <summary>
+    /// Invokes a parsed command under the payload-projection audit. This is the single
+    /// invoke choke point: the product entry point and the test harness both call it, so a
+    /// render path that drops <c>--print</c>/<c>--value</c>/<c>--urls</c>/<c>--paths</c>/
+    /// <c>--count</c> fails loudly in tests rather than shipping unprojected output.
+    /// </summary>
+    public static async Task<int> InvokeAsync(ParseResult parseResult)
+    {
+        ProjectionAudit.BeginRequest(parseResult);
+        return ProjectionAudit.Verify(await parseResult.InvokeAsync());
+    }
+
+    /// <summary>
     /// Creates the root command with all subcommands configured.
     /// </summary>
     public static RootCommand CreateRootCommand()

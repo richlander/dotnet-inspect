@@ -200,6 +200,20 @@ could name a package. The explicit transition to that package artifact remains
 `package Package@version`. Likewise, printing a timeline may use only declared
 payloads on already evaluated rows; it cannot probe missing cells.
 
+### A payload projection is never silently dropped
+
+`--print`, `--value`, `--urls`, `--paths`, and `--count` reshape the payload, so
+a render path that ignores one answers a question the caller did not ask while
+still exiting 0. That failure is invisible to exit-code checks and to tests that
+only cover the unprojected path.
+
+Every accepted payload projection must therefore end in one of two outcomes: the
+payload is projected, or the command reports why it cannot be and exits non-zero.
+Rendering the full unprojected shape is not a third option. The requirement is
+enforced structurally rather than per command — the request is recorded from the
+parse result and the projection writers mark it honored, so a route that drops
+one fails loudly instead of shipping the wrong payload.
+
 ### Presentation modifiers (render the chosen shape)
 
 | Flag | Effect |
