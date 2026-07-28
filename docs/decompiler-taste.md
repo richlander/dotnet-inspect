@@ -629,7 +629,7 @@ show the shape beneath that sugar.
 
 ## Names
 
-Without a PDB, locals are slot names (`V_0`, `S_0`) shared with the Annotated IL view — the two views stay name-aligned by construction. With a PDB, source names are used. Synthesizing readable names (`size`, `array`, `item`) where no PDB exists is an open design question: it is the largest remaining cosmetic gap against source, but it would break view alignment unless opt-in.
+Without a PDB, locals are slot names (`V_0`, `S_0`) shared with the Annotated IL view — the two views stay name-aligned by construction. With a PDB, source names are used. Synthesizing readable names (`text`, `items`, `stringBuilder`) where no PDB source name exists is the largest remaining cosmetic gap against source, so it is exposed as an **opt-in** knob rather than a default: turning it on for every render would break the slot-name alignment the Annotated IL view relies on and churn the corpus. It rests only on evidence already in the IR (a local's type, and whether it is a loop counter) and falls back to `V_index` when no honest name applies (see `docs/design/readable-local-names.md`). Select it per run with `--readable-names` on `member`/`type`, or persistently with `dotnet_inspect_style_readable_local_names = true`. It is byte-preserving (names do not affect IL), so it is not part of the oracle-endorsed [taste](#style-configuration) aggregate and carries its own tool-owned key.
 
 ## Style configuration
 
@@ -670,9 +670,12 @@ dotnet_style_prefer_conditional_expression_over_return = true
 - Recognized keys map to `PrinterOptions`: the four `this`-qualification keys
   above (field, property, method, event — byte-preserving class-3 spellings),
   `dotnet_style_prefer_conditional_expression_over_return` (the oracle-endorsed
-  ternary [style lens](#style-lenses-behavior-faithful-byte-divergent)), and
+  ternary [style lens](#style-lenses-behavior-faithful-byte-divergent)),
   `dotnet_inspect_style_prefer_branchless_boolean` (the non-oracle-endorsed
-  branchless lens, under a tool-owned key). The set grows as more knobs ship.
+  branchless lens, under a tool-owned key), and
+  `dotnet_inspect_style_readable_local_names` (byte-preserving readable-name
+  synthesis for slot locals — see [Names](#names) — under a tool-owned key). The
+  set grows as more knobs ship.
 - `dotnet_inspect_style_full_taste = true` is a tool-owned **aggregate** key: it
   enables the whole oracle-endorsed subset at once (the four `this`-qualifications
   and the ternary lens — everything the runtime `.editorconfig`/IDE oracle

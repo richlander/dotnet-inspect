@@ -51,7 +51,9 @@ public class ApiCommand
             Value = options.Value, Urls = options.Urls, Paths = options.Paths,
             Select = options.Select, Columns = options.Columns, Fields = options.Fields,
             Schema = options.Schema, Count = options.Count, SourceOptions = options.SourceOptions,
-            TipLevel = options.TipLevel, RenderOptions = options.RenderOptions
+            TipLevel = options.TipLevel, RenderOptions = options.RenderOptions,
+            RequestAllTaste = options.RequestAllTaste,
+            RequestReadableLocalNames = options.RequestReadableLocalNames
         })
     };
 
@@ -208,6 +210,11 @@ public class ApiCommand
         var renderOptions = options.RequestAllTaste
             ? ILInspector.Decompiler.Pipeline.StyleOptionCatalog.ApplyFullTaste(renderStyle.Options)
             : renderStyle.Options;
+        // --readable-names is orthogonal to the style axes the config/--taste cover
+        // (it names V_index locals, not a byte-divergent lens), so it applies on top
+        // of whatever those resolved and never has to be re-checked against them.
+        if (options.RequestReadableLocalNames)
+            renderOptions = renderOptions with { ReadableLocalNames = true };
         options = options with
         {
             RenderOptions = renderOptions,
