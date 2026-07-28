@@ -346,57 +346,40 @@ public class SourceLinkResolver
     }
 
     /// <summary>
+    /// Index on <paramref name="line"/> where code resumes, given the state carried into it, or
+    /// <c>-1</c> when the line is comment or literal text throughout. A line that closes a
+    /// multi-line comment or literal and then holds real code must be read as code from that
+    /// point (adversarial review, MAI-Code); asking only whether the line *began* in one
+    /// suppressed the question on exactly that line.
+    /// </summary>
+    private static int IndexWhereCodeResumes(string line, LexState state)
+    {
+        if (!state.InBlockComment && !state.InLiteral)
+            return 0;
+
+        var probe = state.Clone();
+        int depth = 0;
+        int index = Scan(line, probe, ref depth, start: 0, untilLiteralCloses: false, out _, untilCodeResumes: true);
+        return probe.InBlockComment || probe.InLiteral ? -1 : index;
+    }
+
+    /// <summary>
     /// Index just past the attribute list opening at index 0, or <c>-1</c> when it does not
     /// close on this line. Brackets nest — <c>[Foo(new[] { 1 })]</c> — and a string inside the
     /// list may spell a bracket of its own, so neither is counted structurally.
     /// </summary>
     private static int IndexPastAttributeList(string trimmed)
     {
+        var probe = new LexState();
         int depth = 0;
-        for (int i = 0; i < trimmed.Length; i++)
-        {
-            char c = trimmed[i];
+        int index = Scan(trimmed, probe, ref depth, start: 0, untilLiteralCloses: false, out _, untilBracketsClose: true);
 
-            if (c == '"')
-            {
-                int end = EndOfSingleLineLiteral(trimmed, i);
-                if (end < 0)
-                    return -1;
-                i = end - 1;
-                continue;
-            }
+        // The list did not finish on this line: it continues below, or a comment or literal
+        // swallowed the rest of the line.
+        if (probe.BracketDepth != 0 || probe.InBlockComment || probe.InLiteral || probe.Untracked)
+            return -1;
 
-            if (c == '\'')
-            {
-                i++;
-                while (i < trimmed.Length && trimmed[i] != '\'')
-                    i += trimmed[i] == '\\' ? 2 : 1;
-                continue;
-            }
-
-            if (c == '/' && i + 1 < trimmed.Length && trimmed[i + 1] == '/')
-            {
-                // The rest of the line is a comment, so the list does not close on it.
-                return -1;
-            }
-
-            if (c == '/' && i + 1 < trimmed.Length && trimmed[i + 1] == '*')
-            {
-                int close = trimmed.IndexOf("*/", i + 2, StringComparison.Ordinal);
-                if (close < 0)
-                    return -1;
-
-                i = close + 1;
-                continue;
-            }
-
-            if (c == '[')
-                depth++;
-            else if (c == ']' && --depth == 0)
-                return i + 1;
-        }
-
-        return -1;
+        return index;
     }
 
     /// <summary>
@@ -435,13 +418,12 @@ public class SourceLinkResolver
             if (!trimmed.StartsWith(keyword, StringComparison.Ordinal))
                 continue;
 
-            // "get;" and "get =>" are accessors; "getCount" and "setting" are not.
-            int after = keyword.Length;
-            if (after >= trimmed.Length)
-                return true;
+            // "get;", "get =>", "get {", and a bare "get" whose body is below are accessors.
+            // "getCount" and "setting" are not, and neither is an assignment to a local named
+            // "set", which a bare "=" accepted (adversarial review, GPT).
+            var rest = StripLeadingComments(trimmed[keyword.Length..].TrimStart());
 
-            char c = trimmed[after];
-            if (c is ';' or '{' or '=' or ' ' or '\t')
+            if (rest.Length == 0 || rest[0] is ';' or '{' || rest.StartsWith("=>", StringComparison.Ordinal))
                 return true;
         }
 
@@ -508,11 +490,17 @@ public class SourceLinkResolver
         int limit = Math.Min(lines.Length, to + ForwardScanLimit);
         for (int i = to; i < limit; i++)
         {
-            // Asked before the line is scanned, so it must not be asked at all when the carried
-            // state says the line is not code: a "set" inside a multi-line block comment or raw
-            // string literal is text, not a sibling (adversarial review, Gemini).
-            if (slicingAccessor && !state.InBlockComment && !state.InLiteral && OpensSiblingAccessor(lines[i]))
-                return to;
+            // Asked before the line is scanned, so it must be asked of the line's code alone. A
+            // "set" inside a multi-line block comment or raw string literal is text, not a
+            // sibling (adversarial review, Gemini) — but a line that *closes* one and then
+            // declares a real sibling is code from that point (adversarial review, MAI-Code).
+            // A line inside an unclosed bracketed construct is not a declaration either.
+            if (slicingAccessor && state.BracketDepth == 0)
+            {
+                int resume = IndexWhereCodeResumes(lines[i], state);
+                if (resume >= 0 && OpensSiblingAccessor(lines[i][resume..]))
+                    return to;
+            }
 
             ScanLine(lines[i], state, ref depth);
 
@@ -545,6 +533,14 @@ public class SourceLinkResolver
         public bool InBlockComment;
 
         /// <summary>
+        /// Open square brackets carried across lines. An attribute list, like any bracketed
+        /// construct, may span lines; a line inside one is not a declaration, and reading it as
+        /// one truncated an accessor at a "set" that was really an attribute name (adversarial
+        /// review, GPT).
+        /// </summary>
+        public int BracketDepth;
+
+        /// <summary>
         /// Set when a brace could not be placed — an unterminated single-line literal, or a
         /// delimiter run this scanner will not guess at. The depth count is unusable from that
         /// point on, and callers treat it as "do not know" rather than as a depth.
@@ -560,6 +556,17 @@ public class SourceLinkResolver
         public void Pop() => frames.RemoveAt(frames.Count - 1);
 
         public void Replace(Frame frame) => frames[^1] = frame;
+
+        /// <summary>
+        /// A copy that can be advanced without disturbing the scan in progress. Used to ask
+        /// where a line's code resumes without consuming the line.
+        /// </summary>
+        public LexState Clone()
+        {
+            var copy = new LexState { InBlockComment = InBlockComment, Untracked = Untracked, BracketDepth = BracketDepth };
+            copy.frames.AddRange(frames);
+            return copy;
+        }
 
         /// <summary>
         /// True when the state cannot survive a line break: an ordinary or single-quoted
@@ -660,23 +667,6 @@ public class SourceLinkResolver
     }
 
     /// <summary>
-    /// Index just past the literal opening at <paramref name="start"/>, or <c>-1</c> when it
-    /// does not close on that line. Used where the construct examined is known to be
-    /// single-line — an attribute list — so a literal that continues means it did not close.
-    /// <para>
-    /// This runs the same scanner as <see cref="ScanLine"/> rather than a second literal
-    /// parser, so the verbatim, raw, and interpolated forms are read one way everywhere.
-    /// </para>
-    /// </summary>
-    private static int EndOfSingleLineLiteral(string line, int start)
-    {
-        var state = new LexState();
-        int depth = 0;
-        int end = Scan(line, state, ref depth, start, untilLiteralCloses: true, out _);
-        return state.InLiteral ? -1 : end;
-    }
-
-    /// <summary>
     /// Scans <paramref name="line"/> from <paramref name="start"/>, returning the index it
     /// stopped at. With <paramref name="untilLiteralCloses"/> the scan stops as soon as the
     /// literal it opened is closed, which is how a caller consumes a single literal.
@@ -687,11 +677,14 @@ public class SourceLinkResolver
         ref int depth,
         int start,
         bool untilLiteralCloses,
-        out char significant)
+        out char significant,
+        bool untilCodeResumes = false,
+        bool untilBracketsClose = false)
     {
         significant = '\0';
         int i = start;
         bool opened = false;
+        bool bracketOpened = false;
 
         if (!state.InBlockComment && !state.InLiteral && IsDirective(line, out bool conditional))
         {
@@ -701,12 +694,18 @@ public class SourceLinkResolver
             if (conditional)
                 state.Untracked = true;
 
-            return '\0';
+            return line.Length;
         }
 
         while (i < line.Length)
         {
             if (untilLiteralCloses && opened && !state.InLiteral)
+                return i;
+
+            if (untilCodeResumes && !state.InBlockComment && !state.InLiteral)
+                return i;
+
+            if (untilBracketsClose && bracketOpened && state.BracketDepth == 0)
                 return i;
 
             char c = line[i];
@@ -910,6 +909,19 @@ public class SourceLinkResolver
                 {
                     depth++;
                 }
+            }
+            else if (c == '[')
+            {
+                if (!inHole)
+                {
+                    state.BracketDepth++;
+                    bracketOpened = true;
+                }
+            }
+            else if (c == ']')
+            {
+                if (!inHole && state.BracketDepth > 0)
+                    state.BracketDepth--;
             }
             else if (c == '}')
             {
