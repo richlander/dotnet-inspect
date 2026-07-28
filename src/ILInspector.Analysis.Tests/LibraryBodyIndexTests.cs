@@ -387,6 +387,32 @@ public class LibraryBodyIndexTests
         // shared cache, so a body-rooted request after it still answers like a fresh index.
         Assert.Equal(expectedTestAsmCallers, Describe(reusedTests.BuildCallerTree(testAsmToken, maxDepth: 2, maxNodes: 50)));
 
+        // The scope cache keys on the caller's collection, which the caller still owns and may
+        // mutate. Holding that live list would make the key compare equal to itself while the
+        // built maps still describe the old contents, so the scope references are snapshotted.
+        var mutableScopes = new List<LibraryBodyIndex> { scopeA };
+        var mutated = LibraryBodyIndex.Open(analysisPath);
+        mutated.BuildCallerTree(richToken, mutableScopes, maxDepth: 2, maxNodes: 50);
+        mutableScopes[0] = LibraryBodyIndex.Open(analysisPath);
+        var expectedAfterMutation = Describe(LibraryBodyIndex.Open(analysisPath)
+            .BuildCallerTree(richToken, mutableScopes, maxDepth: 2, maxNodes: 50));
+
+        // Swapping the element must actually change the answer, or this proves nothing.
+        Assert.NotEqual(expectedScoped, expectedAfterMutation);
+        Assert.Equal(expectedAfterMutation, Describe(mutated.BuildCallerTree(richToken, mutableScopes, maxDepth: 2, maxNodes: 50)));
+
+        // Releasing the caches is a memory/time trade only: answers after a release must still
+        // match a fresh index, and must not be served from a map that was supposedly dropped.
+        var released = LibraryBodyIndex.Open(analysisPath);
+        released.BuildCallerTree(richToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50);
+        released.BuildCallTree(richToken, maxDepth: 2, maxNodes: 50);
+        released.ReleaseScopeGraph();
+        Assert.Equal(expectedScoped, Describe(released.BuildCallerTree(richToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50)));
+        released.ReleaseCallGraphCaches();
+        Assert.Equal(expectedCallers, Describe(released.BuildCallerTree(richToken, maxDepth: 2, maxNodes: 50)));
+        Assert.Equal(expectedCallees, Describe(released.BuildCallTree(richToken, maxDepth: 2, maxNodes: 50)));
+        Assert.Equal(expectedScoped, Describe(released.BuildCallerTree(richToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50)));
+
         static int PickRichest(LibraryBodyIndex index, out int richest)
         {
             int token = 0;

@@ -36,7 +36,15 @@ public enum LibraryBodyAnalysisFeatures
     All = Default | LeakTriage,
 }
 
-/// <summary>Materialized IL body evidence for one assembly.</summary>
+/// <summary>
+/// Materialized IL body evidence for one assembly.
+/// <para>
+/// Derived call-graph maps are populated lazily on first use and then retained, so an instance is
+/// not safe for concurrent use without external synchronization — the same as the evidence
+/// accessors that already cached this way. Use <see cref="ReleaseScopeGraph"/> or
+/// <see cref="ReleaseCallGraphCaches"/> to hand that memory back.
+/// </para>
+/// </summary>
 public sealed class LibraryBodyIndex
 {
     LibraryBodyIndex(
@@ -127,6 +135,36 @@ public sealed class LibraryBodyIndex
     IReadOnlyDictionary<int, int>? _distinctCallersByCallee;
     IReadOnlyDictionary<int, ImmutableArray<DirectCall>>? _distinctCallerEdgesByCallee;
     ScopeGraph? _scopeGraph;
+
+    /// <summary>
+    /// Drops the cross-assembly maps cached for the last-requested scope set.
+    /// <para>
+    /// These are by far the largest thing this index retains — indexing one root plus 22 scopes
+    /// holds roughly 370 MB — and they are specific to one scope set, so a consumer that has
+    /// finished rendering for a scope (or is moving to a different one) can release them without
+    /// giving up the single-assembly caches. Everything rebuilds on next use; this only trades
+    /// time for memory.
+    /// </para>
+    /// </summary>
+    public void ReleaseScopeGraph() => _scopeGraph = null;
+
+    /// <summary>
+    /// Drops every derived call-graph map this index has cached, including the scope graph.
+    /// <para>
+    /// For a consumer under a hard memory ceiling that is done asking call-graph questions.
+    /// Prefer <see cref="ReleaseScopeGraph"/> between renders that keep visiting members of this
+    /// same assembly: the single-assembly maps are comparatively small and are what make repeated
+    /// requests cheap. Everything rebuilds on next use.
+    /// </para>
+    /// </summary>
+    public void ReleaseCallGraphCaches()
+    {
+        _scopeGraph = null;
+        _methodMap = null;
+        _distinctCallersByCallee = null;
+        _distinctCallerEdgesByCallee = null;
+        _directCallsByCaller = null;
+    }
 
     /// <summary>
     /// Source/IL optimization opportunities, each enriched with the containing method's
@@ -1047,6 +1085,12 @@ public sealed class LibraryBodyIndex
     /// </summary>
     sealed class ScopeGraph(LibraryBodyIndex root, IReadOnlyList<LibraryBodyIndex> scopes)
     {
+        // Snapshot the scope references. The caller owns the list it passed and may mutate or reuse
+        // it, and Participants() is a lazy iterator, so holding the live list would let a later
+        // mutation both invalidate Matches (it would compare the list against itself) and change
+        // which assemblies get indexed after the fact.
+        readonly ImmutableArray<LibraryBodyIndex> _scopes = [.. scopes];
+
         Dictionary<string, List<ForwardCalleeEdge>>? _forward;
         Dictionary<string, HashSet<string>>? _incoming;
         Dictionary<string, (string Assembly, MethodSignals Signals)>? _definitions;
@@ -1055,11 +1099,11 @@ public sealed class LibraryBodyIndex
         /// <summary>True when this cache was built for exactly the same scope instances, in order.</summary>
         public bool Matches(LibraryBodyIndex requestRoot, IReadOnlyList<LibraryBodyIndex> requested)
         {
-            if (!ReferenceEquals(root, requestRoot) || scopes.Count != requested.Count)
+            if (!ReferenceEquals(root, requestRoot) || _scopes.Length != requested.Count)
                 return false;
-            for (int i = 0; i < scopes.Count; i++)
+            for (int i = 0; i < _scopes.Length; i++)
             {
-                if (!ReferenceEquals(scopes[i], requested[i]))
+                if (!ReferenceEquals(_scopes[i], requested[i]))
                     return false;
             }
 
@@ -1140,7 +1184,7 @@ public sealed class LibraryBodyIndex
         IEnumerable<LibraryBodyIndex> Participants()
         {
             yield return root;
-            foreach (var scope in scopes)
+            foreach (var scope in _scopes)
                 yield return scope;
         }
     }
