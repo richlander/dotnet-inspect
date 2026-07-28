@@ -3017,14 +3017,18 @@ const SPOTLIGHT_SCOPES = [
 
 const PLATFORM_PACK_LABEL = { "netcore.app": ".NET", "aspnetcore.app": "ASP.NET Core" };
 
-// The target framework the Platform scope resolves libraries against. Prefer a
-// resident pack's framework, then the focused package's, then net10.0 — always
-// clamped to a TFM the static index actually carries.
+// The target framework the Platform scope resolves libraries against. A resident Platform
+// pack's own framework is authoritative — even a preview TFM (e.g. net11.0) the static index
+// does not carry yet, whose roster is then honestly empty rather than silently another
+// major's libraries. With no resident pack (home Platform scope), prefer the focused
+// package's framework, then net10.0 — always clamped to a TFM the static index carries.
 function platformScopeTfm() {
   const idx = state.platformIndex;
   const known = idx ? idx.tfms() : [];
+  const resident = runtimePackPackage()?.activeFramework;
+  if (resident) return resident;
   const inIndex = tfm => tfm && (!idx || known.includes(tfm));
-  for (const candidate of [runtimePackPackage()?.activeFramework, state.package?.activeFramework, "net10.0"]) {
+  for (const candidate of [state.package?.activeFramework, "net10.0"]) {
     if (inIndex(candidate)) return candidate;
   }
   return known.includes("net10.0") ? "net10.0" : (known[known.length - 1] || "net10.0");
@@ -3378,16 +3382,15 @@ function versionOptionsHtml(pkg) {
 }
 
 // The Platform version selector's options: one entry per in-support .NET major (8+) from the
-// dotnet/core releases index, each labelled with that channel's latest patch release. The
-// option value is the TFM (net8.0 …) so a change reloads the whole Platform at that major.
-// Gated to majors the bundled platform library index actually carries, so every option
-// offers the full library roster (net11 preview is omitted until the index covers it). The
-// active TFM is always present so the control is never empty before the index loads.
+// dotnet/core releases index, each labelled with that channel's latest release — the latest
+// stable patch for stable majors, the latest preview for a preview major (e.g. .NET 11). The
+// option value is the TFM (net8.0 …) so a change reloads the whole Platform at that major. A
+// preview major whose TFM the bundled library index doesn't carry loads (CoreLib browsing)
+// but offers no library roster yet — honest, not hidden. The active TFM is always present so
+// the control is never empty before the index loads.
 function platformVersionOptionsHtml(pkg) {
   const releases = state.dotnetReleases || [];
-  const idxTfms = state.platformIndex ? state.platformIndex.tfms() : null;
-  const rows = releases.filter(r => !idxTfms || idxTfms.includes(r.tfm));
-  const list = rows.length ? rows.map(r => ({ tfm: r.tfm, version: r.version })) : [];
+  const list = releases.map(r => ({ tfm: r.tfm, version: r.version }));
   if (!list.some(r => r.tfm === pkg.activeFramework)) {
     list.unshift({ tfm: pkg.activeFramework, version: pkg.version });
   }
@@ -5851,15 +5854,16 @@ function platformLibrarySelectHtml() {
   const roster = platformLibraryRoster("");
   if (!roster.length) return "";
   const scoped = state.libraryScope && state.libraryScope.size === 1 ? [...state.libraryScope][0] : "";
+  const loadedCount = roster.filter(lib => lib.loaded).length;
   const group = (pack, label) => {
     const rows = roster
       .filter(lib => lib.pack === pack)
-      .map(lib => `<option value="${escapeHtml(lib.assembly)}" data-pack="${escapeHtml(lib.pack)}" ${scoped === lib.assembly ? "selected" : ""}>${escapeHtml(lib.assembly)} · ${lib.publicTypes}${lib.loaded ? "" : " · load"}</option>`)
+      .map(lib => `<option value="${escapeHtml(lib.assembly)}" data-pack="${escapeHtml(lib.pack)}" ${scoped === lib.assembly ? "selected" : ""}>${escapeHtml(lib.assembly)} · ${lib.publicTypes} types${lib.loaded ? "" : " · load"}</option>`)
       .join("");
     return rows ? `<optgroup label="${escapeHtml(label)}">${rows}</optgroup>` : "";
   };
-  return `<select class="scope-select platform-library-select" data-platform-library-select aria-label="Select a platform library">
-      <option value="" ${!scoped ? "selected" : ""}>All loaded libraries</option>
+  return `<select class="scope-select platform-library-select" data-platform-library-select aria-label="Select a platform library" title="Pick a library to scope the type list to it, or one marked ‘load’ to fetch it. ‘All loaded’ shows every library already loaded.">
+      <option value="" ${!scoped ? "selected" : ""}>All loaded libraries · ${loadedCount}</option>
       ${group("netcore.app", ".NET")}
       ${group("aspnetcore.app", "ASP.NET Core")}
     </select>`;
