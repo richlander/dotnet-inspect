@@ -4150,7 +4150,7 @@ function renderHomeView() {
             <div class="home-demo-row">
               <button class="home-demo" data-home-demo="stj"><strong>System.Text.Json</strong><small>Browse a real package API</small></button>
               <button class="home-demo" data-home-demo="callgraph"><strong>Cross-package call graph</strong><small>Trace calls across four packages</small></button>
-              <button class="home-demo" data-home-demo="runtime"><strong>The .NET runtime</strong><small>Inspect platform BCL types</small></button>
+              <button class="home-demo" data-home-demo="runtime"><strong>.NET Platform</strong><small>Inspect platform BCL types</small></button>
             </div>
           </div>
         </div>
@@ -5927,12 +5927,20 @@ function platformLibrarySelectHtml() {
   if (!roster.length) return "";
   const byAssembly = new Map(roster.map(lib => [lib.assembly, lib]));
   const scoped = state.libraryScope && state.libraryScope.size === 1 ? [...state.libraryScope][0] : "";
-  // Recent = libraries you have opened, resolved against the active framework's
-  // roster (so counts are honest and stale entries drop out). Duplicates the
-  // .NET / ASP.NET Core catalog groups by design.
-  const recent = (state.platformRecent || [])
-    .map(entry => byAssembly.get(entry.assembly))
-    .filter(Boolean);
+  // Recent = the loaded/most-recently-accessed libraries: the explicit MRU first
+  // (persisted across sessions), then any other currently-loaded libraries such as
+  // System.Private.CoreLib, which is always resident but never explicitly "opened".
+  // Resolved against the active framework's roster so counts stay honest. Duplicates
+  // the .NET / ASP.NET Core catalog groups by design.
+  const recentKeys = [];
+  const recent = [];
+  const pushRecent = lib => {
+    if (!lib || recentKeys.includes(lib.assembly)) return;
+    recentKeys.push(lib.assembly);
+    recent.push(lib);
+  };
+  for (const entry of state.platformRecent || []) pushRecent(byAssembly.get(entry.assembly));
+  for (const lib of roster) if (lib.loaded) pushRecent(lib);
   // The selector always shows a single "current" library: whatever is scoped,
   // else the most-recent, else the largest library — never a useless reset row.
   const current = scoped || recent[0]?.assembly || roster[0]?.assembly || "";
@@ -5949,7 +5957,7 @@ function platformLibrarySelectHtml() {
     const rows = roster.filter(lib => lib.pack === pack).map(option).join("");
     return rows ? `<optgroup label="${escapeHtml(label)}">${rows}</optgroup>` : "";
   };
-  return `<select class="scope-select platform-library-select" data-platform-library-select aria-label="Select a platform library" title="Pick a library to scope the type list to it. Recent lists libraries you have opened; .NET and ASP.NET Core are the full catalog.">
+  return `<select class="scope-select platform-library-select" data-platform-library-select aria-label="Select a platform library" title="Pick a library to scope the type list to it. Recent lists the libraries currently loaded (most-recently accessed first); .NET and ASP.NET Core are the full catalog.">
       ${recentGroup}
       ${group("netcore.app", ".NET")}
       ${group("aspnetcore.app", "ASP.NET Core")}
