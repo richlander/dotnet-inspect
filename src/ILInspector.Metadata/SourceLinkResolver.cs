@@ -291,10 +291,15 @@ public class SourceLinkResolver
             if (trimmed.Length > 0 && OpensTypeDeclaration(trimmed, out string? name, out bool isNamespace) && !isNamespace)
                 open.Add((i, name, depth + 1, false));
 
-            ScanLine(capturedLines[i], state, ref depth);
+            char significant = ScanLine(capturedLines[i], state, ref depth);
 
             if (state.Untracked)
                 return -1;
+
+            // The target's own line must not retire the type that declares it: "class C { C() { } }"
+            // opens and closes C there, and the constructor is still C's.
+            if (i == target)
+                break;
 
             for (int j = 0; j < open.Count; j++)
             {
@@ -302,11 +307,20 @@ public class SourceLinkResolver
                     open[j] = open[j] with { Entered = true };
             }
 
-            // A type whose block has closed no longer encloses anything below it. One that
-            // never opened a block — "record R(int X);" — is dropped the same way once a
-            // sibling declaration appears at or below its own depth.
-            while (open.Count > 0 && open[^1].Entered && depth < open[^1].BodyDepth)
+            // A type stops enclosing when its body closes, and equally when its declaration
+            // ends without ever opening one. Reading only the depth left at end of line saw
+            // neither bodiless form: "record R(int X);" never reaches its body depth, and
+            // "class Inner { }" is back below it before the line ends. Both stayed open, so a
+            // sibling above the target held the innermost slot and every constructor below it
+            // was reported absent (adversarial review, MAI-Code). A declaration that ended
+            // encloses nothing, and it ends on the ";" or "}" that terminates it.
+            while (open.Count > 0
+                && (open[^1].Entered
+                    ? depth < open[^1].BodyDepth
+                    : depth == open[^1].BodyDepth - 1 && (significant == ';' || significant == '}')))
+            {
                 open.RemoveAt(open.Count - 1);
+            }
         }
 
         if (open.Count == 0)

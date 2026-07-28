@@ -654,6 +654,61 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
+    /// A type only encloses what is inside its body, and a bodiless one encloses nothing.
+    /// Deciding "entered" from the depth left at end of line saw neither bodiless form —
+    /// "record R(int X);" never reaches its body depth, and "class Inner { }" is back below it
+    /// before the line ends — so a sibling type above the constructor stayed open, held the
+    /// innermost slot, and every constructor below it was reported absent (adversarial review,
+    /// MAI-Code). The corpus gate cannot see this: an absent slice is not an invalid one.
+    /// </summary>
+    [Theory]
+    [InlineData("    record R(int X);")]
+    [InlineData("    class Inner { }")]
+    [InlineData("    struct S { }")]
+    [InlineData("    enum E { A, B }")]
+    [InlineData("    delegate void D();")]
+    [InlineData("    interface I { }")]
+    public void ConstructorRecovery_LooksPastASiblingTypeThatEnclosesNothing(string sibling)
+    {
+        var source = string.Join('\n', ["class Outer", "{", sibling, "    Outer()", "    {", "    }", "}"]);
+
+        Assert.Equal("Outer()\n{\n}", SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 5, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// The same, one namespace deeper, because that is where real source lives.
+    /// </summary>
+    [Fact]
+    public void ConstructorRecovery_LooksPastABodilessSiblingTypeInsideANamespace()
+    {
+        var source = "namespace N\n{\n    class Outer\n    {\n        record R(int X);\n        Outer()\n        {\n        }\n    }\n}";
+
+        Assert.Equal("Outer()\n{\n}", SourceLinkResolver.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// Retiring a closed type must not retire the one that declares the target. A type whose
+    /// body opens and closes on the constructor's own line still encloses it.
+    /// </summary>
+    [Fact]
+    public void ConstructorRecovery_KeepsTheTypeThatOpensAndClosesOnTheTargetLine()
+    {
+        Assert.Equal("class C { C() { } }", SourceLinkResolver.ExtractMethodBody("class C { C() { } }", startLine: 1, endLine: 1, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// A declaration may sit several lines above its brace, so a type is not retired merely
+    /// for having no body yet.
+    /// </summary>
+    [Fact]
+    public void ConstructorRecovery_FindsAConstructorUnderAMultiLineTypeHeader()
+    {
+        var source = "class Outer<T>\n    where T : new()\n{\n    Outer()\n    {\n    }\n}";
+
+        Assert.Equal("Outer()\n{\n}", SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 5, methodName: ".ctor"));
+    }
+
+    /// <summary>
     /// A declarator split between the constructor's name and its parameter list is legal and
     /// is not recognized, because the match is made within one line. Pin today's wrong answer
     /// so the gap cannot widen unnoticed and closing it is a visible test change. Splitting
