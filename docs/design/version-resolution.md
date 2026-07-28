@@ -194,6 +194,22 @@ the nuget.org gallery:
   pre-filter build are never read after upgrading — the filter takes effect
   immediately rather than being delayed by up to the cache TTL.
 
+### Revealing unlisted versions
+
+The listing status is available as a typed bit (`PackageVersionInfo.Listed`)
+rather than only a hidden filter, so a surface can *mark* unlisted versions
+instead of silently omitting them. `package --versions --include-unlisted`
+opts into this: it lists every version, including unlisted ones, as a
+`Version`/`Listing` table (each row marked `listed` or `unlisted`) across the
+Markdown, `--tsv`, and `--jsonl` shapes. Hiding remains the default, so the bare
+`--versions` output is unchanged.
+
+Because a pinned `Name@Version` names an explicit coordinate, the `--versions`
+query that verifies a single pinned version also consults the include-unlisted
+listing, so verifying a known unlisted version reports it rather than
+"not found". When listing status is unknown (fail-open, or a non-nuget.org
+feed), versions are reported as listed.
+
 ## Cache locations
 
 | Cache | Location | TTL | Written by |

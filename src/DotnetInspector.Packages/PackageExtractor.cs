@@ -1149,6 +1149,44 @@ public static class PackageExtractor
         return result;
     }
 
+    /// <summary>
+    /// Lists available versions of a package annotated with their NuGet listing status, newest
+    /// first. Unlike <see cref="GetVersionsAsync"/>, which hides unlisted versions, this preserves
+    /// the <see cref="PackageVersionInfo.Listed"/> bit so a surface can <em>mark</em> unlisted
+    /// versions. With <paramref name="includeUnlisted"/> false, the result is the same listed-only
+    /// set as <see cref="GetVersionsAsync"/>.
+    /// </summary>
+    public static async Task<List<PackageVersionInfo>?> GetVersionListingsAsync(
+        HttpClient client, string packageName, bool includePrerelease, bool includeUnlisted,
+        int? limit, Action<string>? log,
+        NuGetSourceOptions? sourceOptions = null)
+    {
+        string normalizedName = packageName.ToLowerInvariant();
+        var sources = NuGetSourceResolver.ResolveSources(sourceOptions);
+
+        var allListings = await GetAllVersionListingsWithCacheAsync(client, normalizedName, sources, log).ConfigureAwait(false);
+        if (allListings == null)
+            return null;
+
+        IEnumerable<PackageVersionInfo> filtered = allListings;
+        if (!includeUnlisted)
+            filtered = filtered.Where(v => v.Listed);
+        if (!includePrerelease)
+            filtered = filtered.Where(v => !v.Version.Contains('-', StringComparison.Ordinal));
+
+        // allListings is ascending (newest last); emit newest first with optional limit.
+        var ordered = filtered.ToList();
+        List<PackageVersionInfo> result = [];
+        for (int i = ordered.Count - 1; i >= 0; i--)
+        {
+            result.Add(ordered[i]);
+            if (limit.HasValue && result.Count >= limit.Value)
+                break;
+        }
+
+        return result;
+    }
+
     private static async Task<(List<string>? Versions, bool Authoritative)> GetAllVersionsWithCacheAsync(
         HttpClient client,
         string normalizedName,
@@ -1225,6 +1263,117 @@ public static class PackageExtractor
 
         parseable.Sort((a, b) => a.Parsed.CompareTo(b.Parsed));
         return ([.. parseable.Select(p => p.Original), .. unparseable], authoritative);
+    }
+
+    private const string ListingsCacheSuffix = "-listings";
+
+    /// <summary>
+    /// Produces the full annotated version list (listed and unlisted) across sources, ascending by
+    /// SemVer. Mirrors <see cref="GetAllVersionsWithCacheAsync"/> but carries the listing bit. Only
+    /// nuget.org's own annotated list is cached (keyed by package name); private feeds are always
+    /// re-queried. A version listed on any source is reported as listed.
+    /// </summary>
+    private static async Task<List<PackageVersionInfo>?> GetAllVersionListingsWithCacheAsync(
+        HttpClient client,
+        string normalizedName,
+        List<NuGetSource> sources,
+        Action<string>? log)
+    {
+        bool canCacheNuGetOrg = sources.Any(s => s.IsNuGetOrg);
+        var merged = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        bool anyFound = false;
+
+        foreach (var source in sources)
+        {
+            List<PackageVersionInfo>? listings = null;
+
+            if (source.IsNuGetOrg && canCacheNuGetOrg)
+            {
+                var cached = CoreCache.TryGet(VersionCacheCategory, $"{normalizedName}{ListingsCacheSuffix}", VersionCacheTtl, extension: "txt");
+                if (cached != null)
+                {
+                    log?.Invoke("Using cached version listings");
+                    listings = DeserializeListings(cached);
+                }
+            }
+
+            listings ??= await FetchVersionListingsFromSourceAsync(client, normalizedName, source, log).ConfigureAwait(false);
+            if (listings == null)
+                continue;
+
+            anyFound = true;
+            foreach (var listing in listings)
+            {
+                // A version listed on any source counts as listed.
+                merged[listing.Version] = merged.TryGetValue(listing.Version, out var existing)
+                    ? existing || listing.Listed
+                    : listing.Listed;
+            }
+
+            if (source.IsNuGetOrg && canCacheNuGetOrg)
+                CoreCache.Set(VersionCacheCategory, $"{normalizedName}{ListingsCacheSuffix}", SerializeListings(listings), extension: "txt");
+        }
+
+        if (!anyFound)
+            return null;
+
+        // Sort ascending by SemVer (newest last); unparseable entries sort last.
+        var parseable = new List<(NuGet.Versioning.NuGetVersion Parsed, PackageVersionInfo Info)>();
+        var unparseable = new List<PackageVersionInfo>();
+        foreach (var (version, listed) in merged)
+        {
+            var info = new PackageVersionInfo(version, listed);
+            if (NuGet.Versioning.NuGetVersion.TryParse(version, out var parsed))
+                parseable.Add((parsed, info));
+            else
+                unparseable.Add(info);
+        }
+
+        parseable.Sort((a, b) => a.Parsed.CompareTo(b.Parsed));
+        return [.. parseable.Select(p => p.Info), .. unparseable];
+    }
+
+    /// <summary>
+    /// Fetches all versions from a single source and annotates each with its listing status.
+    /// nuget.org's status comes from the registration index; other feeds have no listed concept and
+    /// are reported as listed. When the registration index is unavailable, versions fail open to
+    /// listed rather than being dropped or mislabeled unlisted.
+    /// </summary>
+    private static async Task<List<PackageVersionInfo>?> FetchVersionListingsFromSourceAsync(
+        HttpClient client,
+        string packageName,
+        NuGetSource source,
+        Action<string>? log)
+    {
+        var versions = await FetchAllVersionsFromSourceAsync(client, packageName, source, log).ConfigureAwait(false);
+        if (versions == null)
+            return null;
+
+        HashSet<NuGet.Versioning.NuGetVersion>? unlisted = source.IsNuGetOrg
+            ? await FetchUnlistedVersionsFromNuGetOrgAsync(client, packageName, log).ConfigureAwait(false)
+            : null;
+
+        return versions
+            .Select(v => new PackageVersionInfo(v, unlisted == null || !IsUnlisted(v, unlisted)))
+            .ToList();
+    }
+
+    // Cache line format: "<version>" for listed, "<version>\tU" for unlisted.
+    private static string SerializeListings(IEnumerable<PackageVersionInfo> listings) =>
+        string.Join('\n', listings.Select(l => l.Listed ? l.Version : $"{l.Version}\tU"));
+
+    private static List<PackageVersionInfo> DeserializeListings(string cached)
+    {
+        List<PackageVersionInfo> result = [];
+        foreach (var line in cached.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            int tab = line.IndexOf('\t', StringComparison.Ordinal);
+            if (tab < 0)
+                result.Add(new PackageVersionInfo(line, Listed: true));
+            else
+                result.Add(new PackageVersionInfo(line[..tab], Listed: false));
+        }
+        return result;
     }
 
     /// <summary>

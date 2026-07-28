@@ -209,16 +209,21 @@ public class PackageCommand
                     return 0;
                 }
 
-                var knownVersions = await PackageExtractor.GetVersionsAsync(
+                // Include unlisted versions here: a pinned version query verifies a specific,
+                // explicitly named version, and an unlisted version is still a valid coordinate
+                // (NuGet restores known unlisted versions). Discovery hiding must not make an
+                // explicitly requested unlisted version look "not found".
+                var knownVersions = await PackageExtractor.GetVersionListingsAsync(
                     context.HttpClient,
                     normalizedName,
                     includePrerelease: true,
+                    includeUnlisted: true,
                     limit: null,
                     log: logger.Log,
                     sourceOptions: options.SourceOptions);
 
                 if (knownVersions != null
-                    && knownVersions.Any(v => string.Equals(v, versionQueryPinned, StringComparison.OrdinalIgnoreCase)))
+                    && knownVersions.Any(v => string.Equals(v.Version, versionQueryPinned, StringComparison.OrdinalIgnoreCase)))
                 {
                     Console.WriteLine(versionQueryPinned);
                     return 0;
@@ -260,6 +265,21 @@ public class PackageCommand
                 }
 
                 Console.WriteLine(latest);
+                return 0;
+            }
+
+            if (options.IncludeUnlisted)
+            {
+                var listings = await PackageExtractor.GetVersionListingsAsync(
+                    context.HttpClient, normalizedName, options.IncludePrerelease,
+                    includeUnlisted: true, options.Limit, logger.Log, options.SourceOptions);
+                if (listings == null)
+                {
+                    Console.Error.WriteLine($"Error: Package '{packageArgs[0]}' not found on nuget.org");
+                    return 1;
+                }
+
+                OutputFormatter.WriteVersionListings(listings, options.Tsv, options.Jsonl, Console.Out);
                 return 0;
             }
 
