@@ -175,7 +175,7 @@ public class SourceLinkResolver
         // brace depth the end-boundary scan reads: measured from the type header the range
         // still has the type's block open, and the forward scan would then append the type's
         // closing brace to the constructor.
-        int headerIndex = IndexOfTypeDeclaration(lines[from..to], out string? declaredTypeName);
+        int headerIndex = IndexOfTypeDeclaration(lines[from..to], start - 1 - from, out string? declaredTypeName);
         if (headerIndex >= 0)
         {
             int ctorIndex = IndexOfConstructorDeclaration(lines[from..to], headerIndex, start - 1 - from, declaredTypeName);
@@ -259,23 +259,61 @@ public class SourceLinkResolver
     /// escape the check entirely, because the line opens with "[".
     /// </para>
     /// </summary>
-    private static int IndexOfTypeDeclaration(string[] capturedLines, out string? typeName)
+    private static int IndexOfTypeDeclaration(string[] capturedLines, int target, out string? typeName)
     {
         typeName = null;
 
-        for (int i = 0; i < capturedLines.Length; i++)
+        int first = -1;
+        for (int i = 0; i < capturedLines.Length && first < 0; i++)
+        {
+            // A line that is only trivia — blank, a comment, a directive, an attribute on its
+            // own line — carries no declaration, so the declaration is on a later line.
+            if (StripLeadingTrivia(capturedLines[i].TrimStart()).Length > 0)
+                first = i;
+        }
+
+        if (first < 0 || !OpensTypeDeclaration(StripLeadingTrivia(capturedLines[first].TrimStart()), out _, out _))
+            return -1;
+
+        // The capture may run back through several enclosing scopes. The member belongs to the
+        // innermost type still open at the target line, not to the first declaration in the
+        // capture: taking the first reported every constructor inside a namespace or a nested
+        // type as absent, because it searched for the wrong name at the wrong depth
+        // (adversarial review, MAI-Code and GPT). A namespace is never a declaring type.
+        var open = new List<(int Index, string? Name, int BodyDepth, bool Entered)>();
+        var state = new LexState();
+        int depth = 0;
+
+        for (int i = first; i <= target && i < capturedLines.Length; i++)
         {
             var trimmed = StripLeadingTrivia(capturedLines[i].TrimStart());
 
-            // A line that is only trivia — blank, a comment, a directive, an attribute on its
-            // own line — carries no declaration, so the declaration is on a later line.
-            if (trimmed.Length == 0)
-                continue;
+            if (trimmed.Length > 0 && OpensTypeDeclaration(trimmed, out string? name, out bool isNamespace) && !isNamespace)
+                open.Add((i, name, depth + 1, false));
 
-            return OpensTypeDeclaration(trimmed, out typeName) ? i : -1;
+            ScanLine(capturedLines[i], state, ref depth);
+
+            if (state.Untracked)
+                return -1;
+
+            for (int j = 0; j < open.Count; j++)
+            {
+                if (!open[j].Entered && depth >= open[j].BodyDepth)
+                    open[j] = open[j] with { Entered = true };
+            }
+
+            // A type whose block has closed no longer encloses anything below it. One that
+            // never opened a block — "record R(int X);" — is dropped the same way once a
+            // sibling declaration appears at or below its own depth.
+            while (open.Count > 0 && open[^1].Entered && depth < open[^1].BodyDepth)
+                open.RemoveAt(open.Count - 1);
         }
 
-        return -1;
+        if (open.Count == 0)
+            return -1;
+
+        typeName = open[^1].Name;
+        return open[^1].Index;
     }
 
     /// <summary>
@@ -359,13 +397,19 @@ public class SourceLinkResolver
         int start = Math.Max(0, searchFrom);
         int last = Math.Min(searchTo, capturedLines.Length - 1);
 
-        // Depth relative to the type header, which the caller has already identified. The
-        // header's own line is scanned first so that "class C {" and a "{" on the next line
-        // both land at depth 1 for the lines that follow.
-        int depth = 0;
+        // Depth relative to the declaring type's header, which the caller has already
+        // identified. The header's own line is scanned first so that "class C {" and a "{" on
+        // the next line both land at depth 1 for the lines that follow. Lines above the header
+        // are enclosing scopes: they contribute their lexical state, but not their depth, or a
+        // constructor inside a namespace or a nested type would never reach member level.
         var state = new LexState();
+        int enclosing = 0;
         for (int i = 0; i < start && i < capturedLines.Length; i++)
-            ScanLine(capturedLines[i], state, ref depth);
+            ScanLine(capturedLines[i], state, ref enclosing);
+
+        int depth = 0;
+
+        int commentOpenedAt = -1;
 
         for (int i = start; i <= last; i++)
         {
@@ -374,13 +418,66 @@ public class SourceLinkResolver
             if (state.Untracked)
                 return -1;
 
+            bool carriedComment = state.InBlockComment;
+
             if (DeclaresConstructorAtMemberLevel(capturedLines[i], state, depth, typeName))
-                return i;
+                return IndexOfDeclarationStart(capturedLines, start, carriedComment ? commentOpenedAt : i);
 
             ScanLine(capturedLines[i], state, ref depth);
+
+            if (!carriedComment && state.InBlockComment)
+                commentOpenedAt = i;
+            else if (!state.InBlockComment)
+                commentOpenedAt = -1;
         }
 
         return -1;
+    }
+
+    /// <summary>
+    /// The first line of the declaration that <paramref name="declared"/> completes. A
+    /// declaration may begin above the line that spells the constructor's name: a modifier may
+    /// sit on its own line, and an attribute list or block comment may open above it. Starting
+    /// the slice at the name alone dropped those lines, which lost a modifier and — when a
+    /// block comment closed on the name's line — left a stray "*/" that does not parse
+    /// (adversarial review, GPT).
+    /// </summary>
+    private static int IndexOfDeclarationStart(string[] capturedLines, int limit, int declared)
+    {
+        int index = Math.Max(limit, declared);
+
+        while (index > limit && IsDeclarationPrefixOnly(capturedLines[index - 1]))
+            index--;
+
+        return index;
+    }
+
+    /// <summary>
+    /// True when the line carries only the head of a declaration that continues below it —
+    /// attribute lists, comments, and modifiers, with no name and nothing that terminates a
+    /// statement.
+    /// </summary>
+    private static bool IsDeclarationPrefixOnly(string line)
+    {
+        var trimmed = StripLeadingTrivia(line.TrimStart());
+
+        if (trimmed.Length == 0)
+            return false;
+
+        int index = 0;
+        while (index < trimmed.Length)
+        {
+            int end = index;
+            while (end < trimmed.Length && (char.IsLetterOrDigit(trimmed[end]) || trimmed[end] == '_'))
+                end++;
+
+            if (end == index || Array.IndexOf(ConstructorModifiers, trimmed[index..end]) < 0)
+                return false;
+
+            index = SkipTrivia(trimmed, end);
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -434,9 +531,14 @@ public class SourceLinkResolver
     /// </summary>
     private static bool DeclaresConstructorAtMemberLevel(string line, LexState entry, int entryDepth, string typeName)
     {
+        // A line that closes a comment, literal, or bracketed construct carried in from above
+        // and then declares the constructor is a declaration from that point, and no brace or
+        // semicolon precedes it (adversarial review, GPT).
+        int resumes = IndexWhereCodeResumes(line, entry);
+
         for (int i = 0; i <= line.Length; i++)
         {
-            if (i > 0 && line[i - 1] is not ('{' or '}' or ';'))
+            if (i > 0 && i != resumes && line[i - 1] is not ('{' or '}' or ';'))
                 continue;
 
             var probe = entry.Clone();
@@ -493,9 +595,10 @@ public class SourceLinkResolver
         return text.Length;
     }
 
-    private static bool OpensTypeDeclaration(string trimmed, out string? typeName)
+    private static bool OpensTypeDeclaration(string trimmed, out string? typeName, out bool isNamespace)
     {
         typeName = null;
+        isNamespace = false;
         int index = 0;
         while (index < trimmed.Length)
         {
@@ -520,6 +623,7 @@ public class SourceLinkResolver
                         return false;
                 }
 
+                isNamespace = token == "namespace";
                 typeName = NameAfterTypeKeyword(trimmed, end);
                 return true;
             }

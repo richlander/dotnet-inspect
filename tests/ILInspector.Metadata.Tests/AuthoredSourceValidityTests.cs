@@ -617,6 +617,57 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
+    /// A capture may run back through several enclosing scopes, and the constructor belongs to
+    /// the innermost type still open at it — not to the first declaration in the capture.
+    /// Taking the first searched for the wrong name at the wrong depth, so every constructor
+    /// inside a namespace or a nested type was reported absent (adversarial review, MAI-Code
+    /// and GPT). Namespaces are the common case: almost all real source has one.
+    /// </summary>
+    [Theory]
+    [InlineData("namespace N\n{\n    class C\n    {\n        C()\n        {\n        }\n    }\n}", 6, 7)]
+    [InlineData("namespace N;\n\nclass C\n{\n    C()\n    {\n    }\n}", 6, 7)]
+    [InlineData("class Outer\n{\n    class Inner\n    {\n        Inner()\n        {\n        }\n    }\n}", 6, 7)]
+    [InlineData("namespace N\n{\n    class Outer\n    {\n        class Inner\n        {\n            Inner()\n            {\n            }\n        }\n    }\n}", 8, 9)]
+    public void ConstructorRecovery_FindsTheConstructorOfTheInnermostEnclosingType(string source, int startLine, int endLine)
+    {
+        var slice = SourceLinkResolver.ExtractMethodBody(source, startLine, endLine, methodName: ".ctor");
+
+        Assert.NotNull(slice);
+        Assert.StartsWith(slice.Split('\n')[0].Trim(), slice.Trim(), StringComparison.Ordinal);
+        Assert.Contains("()", slice, StringComparison.Ordinal);
+        Assert.DoesNotContain("class", slice, StringComparison.Ordinal);
+        Assert.DoesNotContain("namespace", slice, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The declaration may begin above the line that spells the constructor's name. Slicing
+    /// from the name alone dropped a modifier on its own line, and left a stray "*/" that does
+    /// not parse when a block comment closed on the name's line (adversarial review, GPT).
+    /// </summary>
+    [Theory]
+    [InlineData("public class C\n{\n    /* lead\n    */ C()\n    {\n    }\n}", 5, 6, "/* lead\n*/ C()\n{\n}")]
+    [InlineData("public class C\n{\n    public\n    C()\n    {\n    }\n}", 5, 6, "public\nC()\n{\n}")]
+    [InlineData("public class C\n{\n    public C(\n        int x)\n    {\n    }\n}", 5, 6, "public C(\n    int x)\n{\n}")]
+    public void ConstructorRecovery_StartsAtTheDeclaration_NotAtTheName(string source, int startLine, int endLine, string expected)
+    {
+        Assert.Equal(expected, SourceLinkResolver.ExtractMethodBody(source, startLine, endLine, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// A declarator split between the constructor's name and its parameter list is legal and
+    /// is not recognized, because the match is made within one line. Pin today's wrong answer
+    /// so the gap cannot widen unnoticed and closing it is a visible test change. Splitting
+    /// *inside* the parameter list is the shape that occurs in practice, and it works.
+    /// </summary>
+    [Fact]
+    public void ConstructorNameSplitFromItsParameterList_IsNotRecognized_KnownGap()
+    {
+        var source = "public class C\n{\n    C\n    (\n    )\n    {\n    }\n}";
+
+        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: ".ctor"));
+    }
+
+    /// <summary>
     /// Asking more positions must not accept more shapes. A constructor call in an initializer
     /// and a nested type's constructor both spell the type name followed by a parameter list,
     /// and neither is a constructor declared at this type's member level.
