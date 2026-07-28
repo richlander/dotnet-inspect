@@ -270,10 +270,10 @@ static class AuthoredCorpusBenchmark
 
         var ratchet = Ratchet(census, invalidBreakdown, inputs, baselines);
         if (ratchet is not null)
-            AuthoredCorpusRatchet.Report(ratchet, Console.Out);
+            AuthoredCorpusRatchet.Report(ratchet, output);
 
         var contract = AuthoredCorpusExitContract.ContractFor(integrityOnly, ratchet);
-        ReportContract(contract, census.Invalid, Console.Out);
+        ReportContract(contract, census.Invalid, output);
 
         return ExitCode(census, inputs, ratchet, contract);
     }

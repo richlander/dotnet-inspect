@@ -979,6 +979,209 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
+    /// A mode earlier in the dispatch order preempts the gate; one later does not.
+    ///
+    /// <para>Preemption means the gate does not run <em>at all</em> and the process exits
+    /// 0 having measured nothing — the permanently-green failure of #3245 one level up.
+    /// Both authored-corpus gates now derive their refusal from a single ordered list, so
+    /// the prefix rule is the whole rule and is worth pinning on its own.</para>
+    /// </summary>
+    [Theory]
+    // The selected mode, the gate, and the flag expected to preempt it (null = reached).
+    [InlineData("--history-card", "--benchmark-authored-corpus", "--history-card")]
+    [InlineData("--history-card", "--verify-authored-corpus", "--history-card")]
+    [InlineData("--benchmark-authored-corpus", "--verify-authored-corpus", "--benchmark-authored-corpus")]
+    [InlineData("--verify-authored-corpus", "--benchmark-authored-corpus", null)]
+    [InlineData("--benchmark-authored-corpus", "--benchmark-authored-corpus", null)]
+    [InlineData("--not-my-type", "--benchmark-authored-corpus", "--not-my-type")]
+    public void PreemptingMode_IsTheFirstSelectedModeAheadOfTheGate(
+        string selected, string gate, string? expected)
+    {
+        (string Flag, bool Selected)[] order = DispatchOrder(selected);
+
+        Assert.Equal(expected, AuthoredCorpusExitContract.FindPreemptingMode(order, gate));
+    }
+
+    /// <summary>
+    /// The earliest selected mode wins, not merely some selected mode: the refusal names
+    /// what actually runs, so a caller is not sent to investigate a flag that would never
+    /// have executed.
+    /// </summary>
+    [Fact]
+    public void PreemptingMode_NamesTheEarliestSelectedMode()
+    {
+        (string Flag, bool Selected)[] order =
+        [
+            ("--history-card", true),
+            ("--not-my-type", true),
+            ("--benchmark-authored-corpus", true),
+        ];
+
+        Assert.Equal(
+            "--history-card",
+            AuthoredCorpusExitContract.FindPreemptingMode(order, "--benchmark-authored-corpus"));
+    }
+
+    /// <summary>
+    /// A gate missing from the dispatch order is an error, not "unpreemptable".
+    ///
+    /// <para>Returning <see langword="null"/> for an absent gate would read as "nothing
+    /// runs ahead of it" — a green answer produced by the gate having silently dropped
+    /// out of the list, which is the exact false green this rule exists to prevent.</para>
+    /// </summary>
+    [Fact]
+    public void PreemptingMode_RefusesAGateThatIsNotInTheDispatchOrder()
+    {
+        (string Flag, bool Selected)[] order = [("--history-card", false)];
+
+        Assert.Throws<ArgumentException>(
+            () => AuthoredCorpusExitContract.FindPreemptingMode(order, "--benchmark-authored-corpus"));
+    }
+
+    /// <summary>Both authored-corpus gates sit in the dispatch order, so both are gated.</summary>
+    [Theory]
+    [InlineData("--benchmark-authored-corpus")]
+    [InlineData("--verify-authored-corpus")]
+    public void PreemptingMode_CoversBothAuthoredCorpusGates(string gate)
+    {
+        (string Flag, bool Selected)[] order = DispatchOrder(selected: "--history-card");
+
+        Assert.Equal("--history-card", AuthoredCorpusExitContract.FindPreemptingMode(order, gate));
+    }
+
+    /// <summary>
+    /// The test's copy of the dispatch order is the harness's copy.
+    ///
+    /// <para>Restating a list the product owns is how four flags went missing from the
+    /// refusal in an earlier round, so a copy that can drift is not acceptable even in a
+    /// test. Pinning it against the source means a mode added to the harness fails here
+    /// until the fixture is updated, rather than silently narrowing what these tests
+    /// prove.</para>
+    /// </summary>
+    [Fact]
+    public void DispatchOrder_MatchesTheHarnessDispatchOrder()
+    {
+        string source = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(), "tools", "DecompilerHarness", "Program.cs"));
+
+        int start = source.IndexOf("dispatchOrder =", StringComparison.Ordinal);
+        Assert.True(start >= 0, "Program.cs no longer declares dispatchOrder.");
+        int open = source.IndexOf('[', start);
+        int close = source.IndexOf("];", open, StringComparison.Ordinal);
+
+        string[] declared = [.. source[open..close]
+            .Split('\n')
+            .Select(line => line.Trim())
+            .Where(line => line.StartsWith("(\"", StringComparison.Ordinal))
+            .Select(line => line[2..line.IndexOf('"', 2)])];
+
+        Assert.Equal(DispatchOrder("--history-card").Select(entry => entry.Flag), declared);
+    }
+
+    /// <summary>The harness's dispatch order, with exactly one mode selected.</summary>
+    static (string Flag, bool Selected)[] DispatchOrder(string selected)
+    {
+        string[] flags =
+        [
+            "--fixture-source-inventory",
+            "--history-card",
+            "--generated-fixtures",
+            "--fuzz-signatures",
+            "--return-to-sender-catalog",
+            "--emit-inverse-ledger",
+            "--assertion-scan",
+            "--validity-check",
+            "--validity-predicate-scan",
+            "--fidelity-check",
+            "--return-to-sender",
+            "--return-address",
+            "--not-my-type",
+            "--enumerate-real-methods",
+            "--harvest-authored-corpus",
+            "--harvest-evil-corpus",
+            "--benchmark-authored-corpus",
+            "--verify-authored-corpus",
+        ];
+
+        Assert.Contains(selected, flags);
+        return [.. flags.Select(flag => (flag, string.Equals(flag, selected, StringComparison.Ordinal)))];
+    }
+
+    /// <summary>
+    /// The whole report — including the ratchet outcome and the contract verdict —
+    /// reaches the writer the caller passed.
+    ///
+    /// <para>Threading a <see cref="TextWriter"/> through the benchmark was itself a fix,
+    /// for tests that raced by swapping process-global <c>Console.Out</c> under a
+    /// two-thread runner. It threaded the writer through the top of the report and left
+    /// the last two lines — the ratchet report and the contract verdict — writing to
+    /// <c>Console.Out</c>. Those are the two lines that say what the run <em>concluded</em>,
+    /// so the capture was missing precisely the part worth asserting on, and still
+    /// raced.</para>
+    ///
+    /// <para>Asserting on the verdict line, rather than merely that something was
+    /// written, is what makes this catch that shape: the top of the report was captured
+    /// correctly the whole time.</para>
+    /// </summary>
+    [Fact]
+    public void Benchmark_WritesTheContractVerdictToTheCallersWriter()
+    {
+        using var pool = new TempPool();
+        string original = typeof(AuthoredCorpusRatchetTests).Assembly.Location;
+        string identity = AuthoredSourceHarvest.ReadAssemblyIdentity(original).Name;
+        string assembly = pool.Write("only", "Copy.dll", File.ReadAllBytes(original));
+        string corpus = pool.Write("corpus", "corpus.jsonl", Encoding.UTF8.GetBytes(
+            $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"source":"class T { }"}"""));
+
+        var captured = new StringWriter();
+        AuthoredCorpusBenchmark.Run([assembly], corpus, json: false, integrityOnly: true, output: captured);
+
+        Assert.Contains("[integrity-only]", captured.ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <c>AuthoredCorpusBenchmark</c> names <c>Console.Out</c> exactly once, where it
+    /// defaults the caller's writer.
+    ///
+    /// <para>This is a source pin rather than a behavioural assertion because the defect
+    /// it guards is an <em>omission</em>: a report line added later that writes to the
+    /// global console instead of the injected writer. A behavioural test only catches
+    /// the lines it happens to assert on, which is exactly how two such lines survived
+    /// the round-five fix that introduced the writer. Any new global write fails here
+    /// whether or not anyone thought to assert on it.</para>
+    ///
+    /// <para>If this fails, do not raise the count — route the new write through the
+    /// <c>output</c> parameter. <c>Console.Error</c> is deliberately not pinned: the
+    /// side channel stays on stderr in both modes so <c>--json</c> emits parseable JSON
+    /// on stdout.</para>
+    /// </summary>
+    [Fact]
+    public void Benchmark_WritesToTheGlobalConsoleOnlyWhereItDefaultsTheWriter()
+    {
+        string source = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(), "tools", "DecompilerHarness", "AuthoredCorpusBenchmark.cs"));
+
+        var mentions = source
+            .Split('\n')
+            .Where(line => line.Contains("Console.Out", StringComparison.Ordinal))
+            .Select(line => line.Trim())
+            .ToArray();
+
+        Assert.Equal(["output ??= Console.Out;"], mentions);
+    }
+
+    static string FindRepositoryRoot()
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "dotnet-inspect.slnx")))
+                return directory.FullName;
+        }
+
+        throw new DirectoryNotFoundException("Could not find repository root containing dotnet-inspect.slnx.");
+    }
+
+    /// <summary>
     /// Every combination of <c>--help</c> and the three gate flags, enumerated.
     ///
     /// <para>A gate flag that is silently ignored is a permanently green gate, which is

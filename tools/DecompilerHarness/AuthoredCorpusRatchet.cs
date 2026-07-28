@@ -594,6 +594,45 @@ static class AuthoredCorpusExitContract
     }
 
     /// <summary>
+    /// The first selected mode that dispatches strictly before <paramref name="gate"/>,
+    /// or <see langword="null"/> if the gate is reached.
+    ///
+    /// <para>A mode earlier in the dispatch order does not run the gate second — it does
+    /// not run it at all, and the process exits 0 having measured nothing. That is the
+    /// permanently-green failure of #3245 one level up: a CI lane that grew a second flag
+    /// would stop gating and report success.</para>
+    ///
+    /// <para>Taking the order as data, and each gate's refusal as a prefix of it, is
+    /// deliberate. The first fix for this was a hand-maintained array written next to one
+    /// gate, and review then found the <em>other</em> authored-corpus gate entirely
+    /// unprotected — plus, one round earlier, four flags missing from the array itself.
+    /// A list that both gates read cannot protect one and forget the other, and a mode
+    /// inserted into it is covered without anyone remembering to.</para>
+    ///
+    /// <para>Throws when <paramref name="gate"/> is absent, because a gate that has
+    /// silently dropped out of the dispatch order would otherwise be reported as
+    /// unpreemptable — the exact false green this exists to prevent.</para>
+    /// </summary>
+    internal static string? FindPreemptingMode(
+        IReadOnlyList<(string Flag, bool Selected)> dispatchOrder,
+        string gate)
+    {
+        for (int index = 0; index < dispatchOrder.Count; index++)
+        {
+            if (string.Equals(dispatchOrder[index].Flag, gate, StringComparison.Ordinal))
+                return null;
+            if (dispatchOrder[index].Selected)
+                return dispatchOrder[index].Flag;
+        }
+
+        throw new ArgumentException($"{gate} is not in the dispatch order, so it cannot be gated.", nameof(gate));
+    }
+
+    /// <summary>The refusal a preempted gate reports. Shared so both gates say the same thing.</summary>
+    internal static string PreemptedGateMessage(string preempting, string gate)
+        => $"{preempting} runs instead of {gate}, so the gate would report success without measuring anything. Run them separately.";
+
+    /// <summary>
     /// Whether the run measured the corpus it was asked to measure. A row whose
     /// assembly was not supplied, a row that failed to parse, or an empty run all mean
     /// the denominator is not the one the corpus describes.

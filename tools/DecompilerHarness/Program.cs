@@ -341,7 +341,7 @@ static class Program
         // file cannot be linked into the test project, and an unreachable rule is one
         // nothing notices the deletion of — see JudgeGateFlags.
         var flags = AuthoredCorpusExitContract.JudgeGateFlags(
-            showHelp, benchmarkAuthoredCorpus, ratchetBaselinePath is not null, integrityOnly);
+            showHelp, benchmarkAuthoredCorpus || verifyAuthoredCorpus, ratchetBaselinePath is not null, integrityOnly);
         switch (flags.Disposition)
         {
             case AuthoredCorpusExitContract.FlagDisposition.PrintUsage:
@@ -353,53 +353,56 @@ static class Program
 
         if (returnToSenderMarkout && !returnToSenderCatalog)
             return Fail("--return-to-sender-markout requires --return-to-sender-catalog.");
-        // Every other mode dispatches ahead of the authored-corpus gate, so combining
-        // them does not run the gate second — it does not run it at all. A reviewer
-        // pointed a gate request at a nonexistent corpus, added --history-card, and got
-        // exit 0. That is the same permanently-green failure as the flag nobody passes
-        // (#3245), one level up: a CI lane that grew a second flag would stop gating and
-        // report success. Refusing is the only answer that cannot be misread; silently
-        // preferring either mode would still discard what the caller asked for.
-        // Modes whose dispatch precedes --benchmark-authored-corpus. Two of these are
-        // selected by more than one flag, and the first version of this list spelled the
-        // conditions out a second time — which is how a reviewer got exit 0 out of
-        // `--benchmark-authored-corpus ... --emit-assertion-violations`: the list said
-        // `assertionScan`, the dispatch said `assertionScan || emitAssertionViolations
-        // is not null || diffAssertionViolations is not null`, and the four extra flags
-        // fell through the gap. These booleans are now the *only* spelling; the dispatch
-        // below reads them too, so the refusal cannot drift from what actually runs.
+        // Two of these modes are selected by more than one flag, and the first version
+        // of the refusal below spelled the conditions out a second time — which is how a
+        // reviewer got exit 0 out of `--benchmark-authored-corpus ...
+        // --emit-assertion-violations`: the refusal said `assertionScan`, the dispatch
+        // said `assertionScan || emitAssertionViolations is not null ||
+        // diffAssertionViolations is not null`, and the four extra flags fell through the
+        // gap. These booleans are the *only* spelling; the dispatches below read them
+        // too, so the refusal cannot drift from what actually runs.
         bool assertionScanMode = assertionScan || emitAssertionViolations is not null || diffAssertionViolations is not null;
         bool validityCheckMode = validityCheck || emitValidityDefects is not null || diffValidityDefects is not null;
 
-        if (benchmarkAuthoredCorpus)
-        {
-            // Every other mode dispatches ahead of the gate, so combining them does not
-            // run the gate second — it does not run it at all. A reviewer pointed a gate
-            // request at a nonexistent corpus, added --history-card, and got exit 0. A
-            // CI lane that grew a second flag would stop gating and report success,
-            // which is #3245 one level up.
-            string[] preempting =
-            [
-                fixtureSourceInventory ? "--fixture-source-inventory" : "",
-                historyCard ? "--history-card" : "",
-                generatedFixtures ? "--generated-fixtures" : "",
-                fuzzSignatures ? "--fuzz-signatures" : "",
-                returnToSenderCatalog ? "--return-to-sender-catalog" : "",
-                emitInverseLedger is not null ? "--emit-inverse-ledger" : "",
-                assertionScanMode ? "--assertion-scan" : "",
-                validityCheckMode ? "--validity-check" : "",
-                validityPredicateScan ? "--validity-predicate-scan" : "",
-                fidelityCheck || fidelityMethodDelta is not null ? "--fidelity-check" : "",
-                returnToSender ? "--return-to-sender" : "",
-                returnAddress ? "--return-address" : "",
-                notMyType ? "--not-my-type" : "",
-                enumerateRealMethods ? "--enumerate-real-methods" : "",
-                harvestAuthoredCorpus ? "--harvest-authored-corpus" : "",
-                harvestEvilCorpus ? "--harvest-evil-corpus" : "",
-            ];
-            if (Array.Find(preempting, flag => flag.Length > 0) is { } conflicting)
-                return Fail($"{conflicting} runs instead of --benchmark-authored-corpus, so the gate would report success without measuring anything. Run them separately.");
-        }
+        // The modes below, in the order they dispatch. A gate is preempted by any mode
+        // earlier in this list: combining them does not run the gate second, it does not
+        // run it at all. A reviewer pointed a gate request at a nonexistent corpus, added
+        // --history-card, and got exit 0 — the same permanently-green failure as the flag
+        // nobody passes (#3245), one level up, since a CI lane that grew a second flag
+        // would stop gating and report success. Refusing is the only answer that cannot
+        // be misread; silently preferring either mode would still discard what the caller
+        // asked for.
+        //
+        // Both gates derive their refusal from this one list rather than each carrying
+        // its own copy. The second gate was found unprotected in review precisely because
+        // the first fix was written as a hand-maintained array next to one of them.
+        (string Flag, bool Selected)[] dispatchOrder =
+        [
+            ("--fixture-source-inventory", fixtureSourceInventory),
+            ("--history-card", historyCard),
+            ("--generated-fixtures", generatedFixtures),
+            ("--fuzz-signatures", fuzzSignatures),
+            ("--return-to-sender-catalog", returnToSenderCatalog),
+            ("--emit-inverse-ledger", emitInverseLedger is not null),
+            ("--assertion-scan", assertionScanMode),
+            ("--validity-check", validityCheckMode),
+            ("--validity-predicate-scan", validityPredicateScan),
+            ("--fidelity-check", fidelityCheck || fidelityMethodDelta is not null),
+            ("--return-to-sender", returnToSender),
+            ("--return-address", returnAddress),
+            ("--not-my-type", notMyType),
+            ("--enumerate-real-methods", enumerateRealMethods),
+            ("--harvest-authored-corpus", harvestAuthoredCorpus),
+            ("--harvest-evil-corpus", harvestEvilCorpus),
+            ("--benchmark-authored-corpus", benchmarkAuthoredCorpus),
+            ("--verify-authored-corpus", verifyAuthoredCorpus),
+        ];
+
+        if (AuthoredCorpusExitContract.FindPreemptingMode(dispatchOrder, "--benchmark-authored-corpus") is { } preemptsBenchmark)
+            return Fail(AuthoredCorpusExitContract.PreemptedGateMessage(preemptsBenchmark, "--benchmark-authored-corpus"));
+        if (AuthoredCorpusExitContract.FindPreemptingMode(dispatchOrder, "--verify-authored-corpus") is { } preemptsVerify)
+            return Fail(AuthoredCorpusExitContract.PreemptedGateMessage(preemptsVerify, "--verify-authored-corpus"));
+
         if (cfgStageSpecified && (!cfg || dumpMethod is null))
             return Fail("--cfg-stage requires --dump --cfg.");
         int harnessReportModes = (returnAddress ? 1 : 0)
