@@ -43,6 +43,36 @@ that is what runtime code writes. So "the oracle is silent" always means the
 no dominant form. A shape can be declared-silent yet revealed-endorsed — which is
 exactly the status of the fidelity-neutral formatting/synthesis knobs below.
 
+### Consulting both facets is required
+
+Because the oracle has these two facets, **every taste- or style-oriented raise
+or rendering change must consult both before it lands**, and record what each
+one says. This is a required step, not a courtesy:
+
+1. **Declared facet — `dotnet/runtime`'s `.editorconfig` and enabled analyzers.**
+   Check whether a `dotnet_style_*` / `csharp_style_*` key (or an enabled IDE
+   fixer) speaks to the shape. Quote the key and its value, or state explicitly
+   that the declared oracle is **silent** on it.
+2. **Revealed facet — `dotnet/runtime` source.** Look for the dominant form the
+   runtime's own code actually writes for the shape, with concrete
+   `path/file.cs:line` witnesses. If the corpus shows no dominant form, say so.
+
+A change may only claim oracle endorsement for the facet it actually checked:
+"the runtime writes it this way" is a *revealed* claim and needs source
+witnesses; "the `.editorconfig` prescribes it" is a *declared* claim and needs
+the key. Do not infer one facet from the other, and do not assert "oracle
+approved" without naming which facet and citing it.
+
+Consulting the oracle does not mean the tool must match it. Where we knowingly
+diverge — a compactness knob, or a terminal-oriented wrapping trigger more eager
+than the corpus's habit — the divergence is legitimate **only when the
+consultation happened and the result is recorded**, so a later reader sees a
+deliberate, cited taste choice rather than an unreviewed gap. (Example: the
+`with`/anonymous width-wrap trigger is intentionally more eager than the
+runtime's inline habit for terminal readability, recorded against its issue.)
+An unchecked or uncited taste change is incomplete regardless of how the output
+looks.
+
 ## The three-class rule
 
 Every proposed rendering falls into one of three classes, and the class decides the answer:
