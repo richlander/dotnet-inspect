@@ -92,9 +92,10 @@ public sealed record MetadataRowReference
 /// its table.
 ///
 /// A fifth limit cannot be reported per query, because nothing about a given
-/// query reveals it: the search matches edges spelled as handle columns, so an
-/// edge carried inside a signature blob is never found and never disclosed.
-/// See <see cref="IsComplete"/>.
+/// query reveals it: the search matches edges spelled as handle columns, so a
+/// reference carried inside a blob is never found. It is disclosed all the
+/// same — unconditionally, by the renderer, since there is no per-query signal
+/// to condition it on. See <see cref="IsComplete"/>.
 /// </summary>
 public sealed record MetadataRowReferenceSet
 {
@@ -155,8 +156,8 @@ public sealed record MetadataRowReferenceSet
     /// unread — a table read in part is as unable to rule out an edge as one
     /// never opened.
     ///
-    /// This is the largest blind spot of the three and the only one that fires
-    /// on well-formed metadata, because the search covers the projected tables
+    /// This is the largest of the four detectable blind spots, and the only one
+    /// that fires on well-formed metadata, because the search covers the projected tables
     /// rather than all of ECMA-335 — so an edge in an unmodelled table
     /// (<c>NestedClass</c>, <c>MethodSemantics</c>, <c>InterfaceImpl</c> and
     /// friends on a typical assembly) is invisible to it. A nested type's
@@ -193,7 +194,7 @@ public sealed record MetadataRowReferenceSet
     ///
     /// This describes the scan, not the image. It does not mean nothing points
     /// at <see cref="Target"/>: the search sees only edges that metadata spells
-    /// as handle columns, so an edge carried inside a signature blob is
+    /// as handle columns, so a reference carried inside a blob is
     /// invisible to it whether this is <see langword="true"/> or
     /// <see langword="false"/>.
     /// </summary>
@@ -203,12 +204,17 @@ public sealed record MetadataRowReferenceSet
     /// <see cref="Truncated"/>, <see cref="UnreadableRows"/> and
     /// <see cref="UnscannedTables"/>.
     ///
-    /// A fifth is <b>not</b> disclosed, because no per-query signal can reveal
-    /// it. Signature blobs carry TypeDefOrRef coded tokens, and they sit in
-    /// heap-kind columns of tables the scan reads in full —
-    /// <c>Field.Signature</c>, <c>MethodDef.Signature</c>,
-    /// <c>MemberRef.Signature</c>, <c>TypeSpec.Signature</c>,
-    /// <c>StandAloneSig.Signature</c>, <c>MethodSpec.Instantiation</c>. The
+    /// A fifth is not <i>detectable</i>, because no per-query signal can reveal
+    /// it — it is disclosed unconditionally by the renderer instead. Blobs carry
+    /// references, and they sit in
+    /// heap-kind columns of tables the scan reads in full — among the tables
+    /// the projection models today, that is <c>Field.Signature</c>,
+    /// <c>MethodDef.Signature</c>, <c>MemberRef.Signature</c>,
+    /// <c>TypeSpec.Signature</c>, <c>StandAloneSig.Signature</c> and
+    /// <c>MethodSpec.Instantiation</c>. Signature blobs in unmodelled tables
+    /// (<c>Property.Type</c> and friends) carry the same tokens, but those
+    /// tables are already disclosed by <see cref="UnscannedTables"/>, so
+    /// modelling one later adds a column to this list. The
     /// column is correctly not an edge column, the row is not blind, and the
     /// table is genuinely searched, so nothing fires and the edge is simply not
     /// reported. Decoding those blobs is a separate feature, not a bug fix.

@@ -460,15 +460,28 @@ oversights:
   from the counter alone. `Truncated` is what separates them.
 - **Signature blobs are not searched, and that limit is not detectable.** The
   scan matches `Handle` and `HandleRange` columns. A `TypeDefOrRef` coded token
-  spelled inside a signature blob — `Field.Signature`, `MethodDef.Signature`,
-  `MemberRef.Signature`, `TypeSpec.Signature`, `StandAloneSig.Signature`,
-  `MethodSpec.Instantiation` — lives in a `Heap` column, which is correctly not
-  an edge column, on a row of a table the scan reads in full. So no blind spot
-  fires: the row is read, the table is searched, and the edge is simply not
-  looked for. Decoding blobs is future work (see the reverse-reference tagging
-  note above); until then the limit is disclosed **unconditionally** by the
-  renderer rather than by a per-scan signal, because there is no per-scan signal
-  to give.
+  spelled inside a signature blob lives in a `Heap` column, which is correctly
+  not an edge column, on a row of a table the scan reads in full. So no blind
+  spot fires: the row is read, the table is searched, and the edge is simply not
+  looked for. Among the tables modelled today those columns are
+  `Field.Signature`, `MethodDef.Signature`, `MemberRef.Signature`,
+  `TypeSpec.Signature`, `StandAloneSig.Signature` and
+  `MethodSpec.Instantiation`. Unmodelled tables hold signature blobs too —
+  `Property.Type` is one — but those tables are already disclosed by
+  `UnscannedTables`, so modelling one later moves its signature column into this
+  list rather than out of any disclosure. Decoding blobs is future work (see the
+  reverse-reference tagging note above); until then the limit is disclosed
+  **unconditionally** by the renderer rather than by a per-scan signal, because
+  there is no per-scan signal to give.
+
+  The caveat deliberately covers two unlike things. A signature blob spells a
+  reference as a TypeDefOrRef coded **token**, which is a genuine missed
+  row-to-row edge. A `CustomAttribute.Value` blob spells a `System.Type`
+  argument as a serialized type **name** (ECMA-335 II.23.3) — `[My(typeof(Alpha))]`
+  stores the bytes `0100 05 "Alpha" 0000`, with no token anywhere — so it is not
+  a row-to-row edge at all and is out of scope for a search defined over tokens.
+  A reader asking "what references this type?" is not served by that
+  distinction, though, so the caveat names both rather than resting on it.
 
   The risk runs backwards here, which is why the unconditional caveat is not
   redundant. `IsComplete` is true exactly when every populated table happens to

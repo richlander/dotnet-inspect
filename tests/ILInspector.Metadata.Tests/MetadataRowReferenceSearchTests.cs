@@ -494,6 +494,51 @@ public class MetadataRowReferenceSearchTests
     }
 
     [Fact]
+    public void FindReferences_StoppedOnATableSVeryLastCell_IsStillCountedAsSearched()
+    {
+        // The counterpart to the test above, and the boundary between them. If
+        // the budget trips on the *last column of the last row*, every cell the
+        // table has was examined, so the table really was searched in full even
+        // though the scan ended inside it. Reporting it unscanned would be a
+        // false blind spot: it would claim an unread row could hide an edge when
+        // no row went unread.
+        using var peReader = OpenSelfFromBytes();
+        var reader = peReader.GetMetadataReader();
+
+        int typeDefRows = reader.GetTableRowCount(TableIndex.TypeDef);
+        int lastColumn = FullProjection(peReader)
+            .Tables.Single(t => t.Index == TableIndex.TypeDef)
+            .Columns.Length - 1;
+
+        // TypeDef's last column is its MethodList run, so a method owned by the
+        // last TypeDef row is pointed at from exactly that cell.
+        var lastType = reader.GetTypeDefinition(MetadataTokens.TypeDefinitionHandle(typeDefRows));
+        int methodRid = MetadataTokens.GetRowNumber(lastType.GetMethods().First());
+
+        var full = MetadataTableProjector.FindReferences(peReader, TableIndex.MethodDef, methodRid, int.MaxValue);
+        int budget = -1;
+        for (int i = 0; i < full.References.Length; i++)
+        {
+            var reference = full.References[i];
+            if (reference.Source.Table == TableIndex.TypeDef
+                && reference.Source.RowId == typeDefRows
+                && reference.ColumnIndex == lastColumn)
+            {
+                budget = i;
+                break;
+            }
+        }
+
+        Assert.True(budget >= 0, "Expected the last TypeDef row's final column to point at its own method.");
+
+        var capped = MetadataTableProjector.FindReferences(peReader, TableIndex.MethodDef, methodRid, budget);
+        Assert.True(capped.Truncated, "Expected the budget to stop this scan.");
+
+        // Stopped inside TypeDef, yet TypeDef is fully searched.
+        Assert.DoesNotContain(TableIndex.TypeDef, capped.UnscannedTables);
+    }
+
+    [Fact]
     public void FindReferences_TruncatedScan_ReportsTheTablesItNeverReached()
     {
         using var peReader = OpenSelfFromBytes();

@@ -186,20 +186,23 @@ public static class MetadataTableProjector
     /// <see cref="MetadataProjectionOptions"/> at all, and in particular offers
     /// no equivalent of <see cref="MetadataProjectionOptions.Tables"/>, because
     /// a reverse search narrowed to part of the image could report "nothing
-    /// points here" while a pointer sat in an unsearched table. Three blind
+    /// points here" while a pointer sat in an unsearched table. Four blind
     /// spots are reported instead of hidden:
     /// <see cref="MetadataRowReferenceSet.Truncated"/> when
     /// <paramref name="maxReferences"/> stopped the scan,
     /// <see cref="MetadataRowReferenceSet.UnreadableRows"/> for rows whose edges
-    /// could not be fully determined, and
+    /// could not be fully determined,
     /// <see cref="MetadataRowReferenceSet.UnscannedTables"/> for populated
     /// tables the scan did not read in full — because the projection does not
     /// model the table, or because the scan stopped part-way through it or
-    /// before reaching it.
+    /// before reaching it — and
+    /// <see cref="MetadataRowReferenceSet.TargetExists"/> when the target row id
+    /// is past the end of its table.
     ///
-    /// A fourth limit is real and cannot be reported per query: only edges
-    /// spelled as handle columns are matched, so a TypeDefOrRef token carried
-    /// inside a signature blob is never found. See
+    /// A fifth limit is real and cannot be reported per query: only edges
+    /// spelled as handle columns are matched, so a reference carried inside a
+    /// blob is never found. It is disclosed unconditionally by the renderer
+    /// rather than through this result. See
     /// <see cref="MetadataRowReferenceSet.IsComplete"/>, which does not mean
     /// nothing points at the target.
     ///
@@ -266,6 +269,7 @@ public static class MetadataTableProjector
 
             int rowCount = reader.GetTableRowCount(spec.Index);
             int rid = 1;
+            bool abandonedMidTable = false;
             for (; rid <= rowCount && !truncated; rid++)
             {
                 ImmutableArray<MetadataValue> cells;
@@ -307,6 +311,14 @@ public static class MetadataTableProjector
                     if (references.Count >= maxReferences)
                     {
                         truncated = true;
+
+                        // Whether this table still holds anything unlooked-at:
+                        // the columns after this one on this row, or any row
+                        // after it. Stopping on the very last column of the very
+                        // last row leaves nothing unexamined, so the table was
+                        // genuinely searched in full even though the scan ended
+                        // inside it.
+                        abandonedMidTable = column + 1 < cells.Length || rid < rowCount;
                         break;
                     }
 
@@ -332,14 +344,18 @@ public static class MetadataTableProjector
             //  - The budget check sits inside the *column* loop, so truncation
             //    on a table's final row leaves that row entered but abandoned
             //    part-way through its columns. rid still passes the count, so
-            //    the row loop alone cannot tell. truncated does: the outer loop
-            //    breaks at the top of the next iteration, so reaching here with
-            //    truncated set means the budget stopped inside *this* table.
+            //    the row loop alone cannot tell.
+            //
+            // abandonedMidTable carries that column-level fact. Note it is not
+            // the same as truncated: a scan that stops on the last column of the
+            // last row examined every cell this table has, so reporting it
+            // unscanned would be a false blind spot — claiming an unread row
+            // could hide an edge when no row went unread.
             //
             // The count is re-read from the reader rather than trusting the
             // local, so the claim "we covered this table" is anchored to the
             // metadata instead of to a variable the loop could have narrowed.
-            if (!truncated && rid > reader.GetTableRowCount(spec.Index))
+            if (!abandonedMidTable && rid > reader.GetTableRowCount(spec.Index))
                 visited.Add(spec.Index);
         }
 

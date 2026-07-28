@@ -65,7 +65,7 @@ public class MetadataRowReferenceRendererTests
 
         // ...but the blob limit always applies, and this is the case where the
         // bare sentence above would otherwise read as a guarantee.
-        Assert.Contains("signature blobs", markdown);
+        Assert.Contains("Blob payloads are not searched", markdown);
     }
 
     [Fact]
@@ -164,7 +164,7 @@ public class MetadataRowReferenceRendererTests
     {
         var caveat = Assert.Single(MetadataProjectionRenderer.Caveats(Set()));
 
-        Assert.Contains("signature blobs", caveat);
+        Assert.Contains("Blob payloads are not searched", caveat);
     }
 
     [Fact]

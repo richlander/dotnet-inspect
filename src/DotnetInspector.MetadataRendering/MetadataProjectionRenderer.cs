@@ -99,7 +99,7 @@ public static class MetadataProjectionRenderer
     /// and none may be dropped: a target row that is not there, a budget that
     /// stopped the scan, rows that could not be decoded, populated tables the
     /// scan did not read in full, and — always, since no per-query signal can
-    /// reveal it — edges spelled only inside signature blobs. All are rendered
+    /// reveal it — references spelled only inside blobs. All are rendered
     /// as explicit caveats, so an empty result is never mistaken for a confident
     /// "nothing points here".
     /// </summary>
@@ -192,8 +192,8 @@ public static class MetadataProjectionRenderer
 
     /// <summary>
     /// The limits of a reverse search, as caveats a reader must see. Never
-    /// empty: three limits are reported when they fire, and the signature-blob
-    /// limit always applies, so an empty result is never presented as a bare
+    /// empty: four limits are reported when they fire, and the blob limit
+    /// always applies, so an empty result is never presented as a bare
     /// "nothing points here".
     /// </summary>
     public static IEnumerable<string> Caveats(MetadataRowReferenceSet references)
@@ -223,15 +223,22 @@ public static class MetadataProjectionRenderer
             yield return $"{count} populated {(count == 1 ? "table was" : "tables were")} not searched in full, so an edge in a row the scan never read would have been missed: {names}.";
         }
 
-        // Unconditional, unlike the three above, because no per-query signal can
-        // reveal it. Signature blobs carry TypeDefOrRef tokens in heap-kind
-        // columns of tables the scan reads in full, so the column is correctly
-        // not an edge column, the row is not blind, and the table is genuinely
-        // searched — nothing fires. A caveat printed only alongside the others
-        // would therefore be absent exactly on the small, clean images where
-        // this is the only limit left, which is where "No row points at X" reads
-        // most like a guarantee.
-        yield return "References spelled only inside signature blobs are not searched, so an edge that a signature carries is not reported.";
+        // Unconditional, unlike the four above, because no per-query signal can
+        // reveal it. Blob payloads sit in heap-kind columns of tables the scan
+        // reads in full, so the column is correctly not an edge column, the row
+        // is not blind, and the table is genuinely searched — nothing fires. A
+        // caveat printed only alongside the others would therefore be absent
+        // exactly on the small, clean images where this is the only limit left,
+        // which is where "No row points at X" reads most like a guarantee.
+        //
+        // Two unlike things are covered deliberately. A signature blob spells a
+        // reference as a TypeDefOrRef coded *token*, which is a genuine missed
+        // row-to-row edge. A custom-attribute value spells one as a serialized
+        // type *name*, which is not a token edge at all and so is out of scope
+        // for a search defined over tokens — but a reader asking "what
+        // references this type?" is not served by that distinction, and an
+        // unqualified empty answer would still mislead them.
+        yield return "Blob payloads are not searched, so a reference spelled inside one — as a type token in a signature, or as a type name in a custom-attribute value — is not reported.";
     }
 
     static string Describe(MetadataRowLocation location) => $"{location.Table}[{location.RowId}]";
