@@ -219,6 +219,36 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
+    /// The corpus the sweeps above measure must stay broad enough for their rates to mean
+    /// anything. <c>Assert.NotEmpty</c> alone lets it collapse to a handful of slices while
+    /// every rate test still passes, and a filter change already silently dropped generics once
+    /// (adversarial review, GPT). This pins the breadth those rates are computed over.
+    /// <para>
+    /// The floors are deliberately far below the measured counts — roughly 4,500 slices with
+    /// about 60 generic ones — so ordinary fixture churn does not trip them, but a filter or
+    /// acquisition failure that guts the corpus does.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void SliceCorpus_StaysBroadEnoughToMeasure()
+    {
+        var slices = SliceCorpus();
+
+        Assert.True(
+            slices.Count >= 1000,
+            $"the corpus fell to {slices.Count} slices; the rate ceilings above are measured over it");
+
+        var generic = slices.Where(s => s.Member.Contains('<') || s.Member.Contains('`')).ToList();
+        Assert.True(
+            generic.Count >= 10,
+            $"the corpus holds {generic.Count} generic member(s); generic spelling has been excluded by a filter before");
+
+        Assert.True(
+            slices.Select(s => s.File).Distinct(StringComparer.Ordinal).Count() >= 10,
+            "the corpus should span many files, not one fixture");
+    }
+
+    /// <summary>
     /// Non-vacuity anchor for the corpus sweep above, on a real compiled fixture rather than a
     /// synthetic string. <c>DiffAsmTarget.Api.Ping(LibB::Shared.Token)</c> is the last member of
     /// the last type in its file and has an empty body, so its whole sequence-point range is the
@@ -290,6 +320,17 @@ public class AuthoredSourceValidityTests
     [InlineData("return $\"\"\"{ Value }\"\"\";")]
     // A char literal spelling a brace inside the hole.
     [InlineData("return $\"{Pick('}')}\";")]
+    // Verbatim interpolated, both spellings, with a quoted brace inside the hole. These used to
+    // be handed to the plain verbatim path, which does not know holes (adversarial review, GPT).
+    [InlineData("return $@\"{new Holder { S = \"}\" }.S}\";")]
+    [InlineData("return @$\"{new Holder { S = \"}\" }.S}\";")]
+    // A raw literal nested inside a raw interpolated hole: the inner quote run is not the outer
+    // literal's terminator (adversarial review, GPT).
+    [InlineData("return $$\"\"\"{{ new Holder { S = \"\"\"}\"\"\" }.S }}\"\"\";")]
+    // A comment inside a hole may spell a brace, which belongs to neither the hole nor the
+    // block (adversarial review, GPT).
+    [InlineData("return $\"{Value /* { */}\";")]
+    [InlineData("return $\"{Value /* } */}\";")]
     public void BracesInsideInterpolationHoles_DoNotEndTheDeclaration(string statement)
     {
         string[] lines =
@@ -312,5 +353,57 @@ public class AuthoredSourceValidityTests
         Assert.Equal(
             $"public string M()\n{{\n    {statement}\n}}",
             body);
+    }
+
+    /// <summary>
+    /// A sequence range that ends on a statement above the member's closing brace must still
+    /// recover the whole member. The forward scan used to stop at the first non-empty line
+    /// below the range, so every statement after that one — and the closing brace with them —
+    /// was dropped, and the slice did not parse (adversarial review, MAI-Code).
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(5)]
+    public void RangeEndingAboveTheClosingBrace_RecoversTheWholeMember(int trailingStatements)
+    {
+        var body = Enumerable.Range(1, trailingStatements).Select(n => $"        int v{n} = {n};");
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public void M()",
+            "    {",
+            "        int x = 0;",
+            .. body,
+            "    }",
+            "}",
+        ];
+
+        var text = string.Join("\n", lines);
+
+        // The range stops on the first statement; everything below it belongs to the member.
+        var slice = SourceLinkResolver.ExtractMethodBody(text, startLine: 4, endLine: 5, methodName: "M");
+
+        Assert.NotNull(slice);
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.EndsWith($"int v{trailingStatements} = {trailingStatements};\n}}", slice);
+    }
+
+    /// <summary>
+    /// The boundary the scan above must not cross: a member that terminates its own declaration
+    /// owns no brace below it, so the next one closes the enclosing type (issue #3278).
+    /// </summary>
+    [Theory]
+    [InlineData("public string P => \"{\";", "get_P")]
+    [InlineData("public int P { get; set; }", "get_P")]
+    [InlineData("public string R() => \"\"\";\";", "R")]
+    public void MemberThatClosesItsOwnDeclaration_DoesNotTakeTheTypeBrace(string member, string name)
+    {
+        var text = string.Join("\n", ["public class C", "{", "    " + member, "}"]);
+
+        var slice = SourceLinkResolver.ExtractMethodBody(text, startLine: 3, endLine: 3, methodName: name);
+
+        Assert.Equal(member, slice);
     }
 }
