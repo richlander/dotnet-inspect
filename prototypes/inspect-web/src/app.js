@@ -18,6 +18,7 @@ const state = {
   packages: [],
   package: null,
   home: false,
+  platformIndex: null,
   queryNotice: "",
   requestedPackage: "System.Text.Json",
   requestedVersion: "10.0.0",
@@ -1061,7 +1062,6 @@ function packageHeading() {
     <div class="type-metrics"><span><strong>${pkg.totalTypes}</strong> types</span><span><strong>${pkg.totalMembers.toLocaleString()}</strong> members</span></div>
     <dl class="definition-list">
       <div><dt>Active TFM:</dt><dd>${escapeHtml(pkg.activeFramework)}</dd></div>
-      <div><dt>Assemblies:</dt><dd>${pkg.assemblies?.length ?? 0}</dd></div>
       <div><dt>Frameworks:</dt><dd>${pkg.frameworks.length}</dd></div>
     </dl>
   </header>`;
@@ -1620,20 +1620,51 @@ function renderPackageOverview() {
     .map(framework => `<button class="type-chip ${framework === pkg.activeFramework ? "active" : ""}" data-framework-chip="${escapeHtml(framework)}">${escapeHtml(framework)}</button>`)
     .join("");
 
-  const assemblies = (pkg.assemblies || [])
-    .map(assembly => `<div class="assembly-cell"><span class="assembly-name" title="${escapeHtml(assembly.name)}">${escapeHtml(assembly.name)}</span><span class="assembly-stats"><strong>${assembly.publicTypes}</strong> type${assembly.publicTypes === 1 ? "" : "s"} · <strong>${assembly.publicMembers.toLocaleString()}</strong> member${assembly.publicMembers === 1 ? "" : "s"}</span></div>`)
-    .join("") || '<div class="assembly-cell"><span class="assembly-name">No assemblies</span></div>';
-
-  const kindCounts = new Map();
-  for (const type of pkg.types) {
-    const kind = typeKind(type.kind);
-    kindCounts.set(kind, (kindCounts.get(kind) || 0) + 1);
-  }
   const kindPlural = { class: "classes", struct: "structs", interface: "interfaces", enum: "enums", delegate: "delegates" };
-  const kinds = KIND_ORDER
-    .filter(kind => kindCounts.has(kind))
-    .map(kind => `<button class="count-cell as-button" data-kind-jump="${kind}"><strong>${kindCounts.get(kind)}</strong><span>${kindPlural[kind] || kind}</span></button>`)
+
+  // Per-library breakdown: group the loaded types by their owning assembly, each
+  // with its own types-by-kind. The library is the meaningful unit for
+  // measurement — a merged "classes per package" number is noise.
+  const libStats = new Map();
+  for (const type of pkg.types) {
+    const asm = type.assembly || pkg.assembly || "(unknown)";
+    let stat = libStats.get(asm);
+    if (!stat) libStats.set(asm, (stat = { types: 0, kinds: new Map() }));
+    stat.types++;
+    const kind = typeKind(type.kind);
+    stat.kinds.set(kind, (stat.kinds.get(kind) || 0) + 1);
+  }
+  const memberFor = asm => {
+    const bare = asm.endsWith(".dll") ? asm.slice(0, -4) : asm;
+    const hit = (pkg.assemblies || []).find(a => a.name === asm || a.name === bare || a.name === `${bare}.dll`);
+    return hit ? hit.publicMembers : null;
+  };
+  const libraryRows = [...libStats.entries()]
+    .sort((a, b) => b[1].types - a[1].types)
+    .map(([asm, stat]) => {
+      const name = asm.endsWith(".dll") ? asm.slice(0, -4) : asm;
+      const members = memberFor(asm);
+      const kinds = KIND_ORDER
+        .filter(kind => stat.kinds.has(kind))
+        .map(kind => `<button class="lib-kind as-button" data-kind-jump="${kind}"><strong>${stat.kinds.get(kind)}</strong> ${kindPlural[kind] || kind}</button>`)
+        .join("");
+      return `<div class="library-row">
+        <div class="library-row-head">
+          <span class="library-name" title="${escapeHtml(asm)}">${escapeHtml(name)}</span>
+          <span class="library-metric">${stat.types} type${stat.types === 1 ? "" : "s"}${members != null ? ` · ${members.toLocaleString()} members` : ""}</span>
+        </div>
+        <div class="library-kinds">${kinds}</div>
+      </div>`;
+    })
     .join("");
+
+  // For the runtime pack, the loaded set is one library; the static index knows
+  // the full roster, so surface how many more libraries this framework carries.
+  let librariesSubtitle = `${libStats.size} loaded`;
+  if (pkg.isRuntimePack && state.platformIndex) {
+    const total = state.platformIndex.assembliesFor(pkg.activeFramework).filter(a => a.kind === "impl").length;
+    if (total > 0) librariesSubtitle = `${libStats.size} loaded · ${total} in ${escapeHtml(pkg.activeFramework)}`;
+  }
 
   const nsCounts = new Map();
   for (const type of pkg.types) {
@@ -1653,12 +1684,8 @@ function renderPackageOverview() {
       <div class="type-chip-list">${frameworks}</div>
     </section>
     <section class="document-section">
-      <div class="section-title"><h2>Assemblies</h2><span>${(pkg.assemblies || []).length} in lib/${escapeHtml(pkg.activeFramework)}</span></div>
-      <div class="composition-grid assembly-grid">${assemblies}</div>
-    </section>
-    <section class="document-section">
-      <div class="section-title"><h2>Types by kind</h2><span>${pkg.totalTypes} public types — click to browse</span></div>
-      <div class="composition-grid">${kinds}</div>
+      <div class="section-title"><h2>Libraries</h2><span>${librariesSubtitle}</span></div>
+      <div class="library-list">${libraryRows}</div>
     </section>
     <section class="document-section">
       <div class="section-title"><h2>Namespaces</h2><span>${nsCounts.size} — click to filter</span></div>
@@ -5387,6 +5414,8 @@ window.addEventListener("popstate", () => {
 bootstrap();
 
 // Warm the static platform-assembly/facade index in the background. It is a
-// hint layer (facade badges, library-scope selector) built on top of the app;
-// prefetching keeps it ready without blocking boot. Exposed for verification.
+// hint layer (facade badges, per-library overview roster, library-scope
+// selector) built on top of the app; prefetching keeps it ready without
+// blocking boot. Cached on state once resolved; exposed for verification.
 window.__platformIndex = loadPlatformIndex();
+window.__platformIndex.then(index => { if (index) state.platformIndex = index; });

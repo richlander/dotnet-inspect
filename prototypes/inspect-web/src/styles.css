@@ -727,6 +727,25 @@ kbd {
 .assembly-grid .assembly-name { font: 13px var(--mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .assembly-grid .assembly-stats { font-size: 12px; color: var(--dim); }
 .assembly-grid .assembly-stats strong { font-family: var(--mono); color: var(--text); font-weight: 600; }
+
+/* Per-library breakdown on the package overview: one row per assembly with its
+   own types-by-kind, replacing the cramped/cut-off assembly grid + the merged
+   types-by-kind grid. */
+.library-list { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.library-row { padding: 12px 12px 13px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.library-row-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.library-name { font: 13px var(--mono); color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.library-metric { flex: 0 0 auto; font-size: 12px; color: var(--dim); }
+.library-metric strong { color: var(--text); }
+.library-kinds { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.lib-kind {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px;
+  background: transparent; color: var(--dim); font-size: 11px; cursor: pointer;
+}
+.lib-kind strong { font: 12px var(--mono); color: var(--muted); }
+.lib-kind:hover { border-color: var(--line-strong); background: var(--panel-active); }
+.lib-kind:hover strong { color: var(--accent); }
 .type-chip-list .type-chip .ns-count { display: inline-block; min-width: 18px; margin-right: 6px; padding: 0 5px; border-radius: 999px; background: var(--panel-active); color: var(--dim); font-size: 11px; text-align: center; }
 .type-chip-list .type-chip.active { border-color: var(--accent); color: var(--accent); }
 .type-chip-list .attr-chip .ref-version { color: var(--muted); margin-left: 4px; }
