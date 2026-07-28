@@ -2404,7 +2404,7 @@ public static class ApiSurfaceExtractor
                     || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
 
         return (
-            $"{requiredPrefix}{returnType} {name} {accessorStr}",
+            $"{requiredPrefix}{returnType} {SanitizeIdentifier(name)} {accessorStr}",
             model,
             treeSignature.ReturnType.IsDegraded
                 || treeSignature.ParameterTypes.Any(parameter => parameter.IsDegraded));
