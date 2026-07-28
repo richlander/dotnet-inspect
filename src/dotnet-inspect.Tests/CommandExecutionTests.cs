@@ -3488,6 +3488,34 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public void ProjectionAudit_NestedInvocationDoesNotDiscardOuterRequest()
+    {
+        // Invocations nest: the router invokes the command it rewrites to. An inner invocation
+        // must not consume the outer one's request, or the outer verify finds nothing to check
+        // and a dropped projection escapes.
+        var root = CommandLineBuilder.CreateRootCommand();
+        var outer = root.Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
+        var inner = root.Parse(["library", TestAssemblyPath, "-S", "References"]);
+
+        try
+        {
+            using (ProjectionAudit.BeginRequest(outer))
+            {
+                using (ProjectionAudit.BeginRequest(inner))
+                {
+                    Assert.Equal(0, ProjectionAudit.Verify(0));
+                }
+
+                Assert.Equal(1, ProjectionAudit.Verify(0));
+            }
+        }
+        finally
+        {
+            ProjectionAudit.ResetForTesting();
+        }
+    }
+
+    [Fact]
     public void ProjectionAudit_TracksProjectionDeclaredByAnAncestorCommand()
     {
         // `package --count search <id>` binds --count to the parent command, which the parser

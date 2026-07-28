@@ -93,20 +93,35 @@ public static class ProjectionAudit
     }
 
     /// <summary>
-    /// Records the payload projections requested by this invocation. Later calls replace the
-    /// prior request, so a reused execution context never inherits a stale one.
+    /// Records the payload projections requested by this invocation. Disposing the returned
+    /// scope restores whatever request was in flight before it.
     /// </summary>
-    public static void BeginRequest(ParseResult parseResult)
+    /// <remarks>
+    /// Invocations nest: the bare-mode router invokes the command it rewrites to. Without the
+    /// restore, an inner invocation would discard the outer one's request and the outer verify
+    /// would then find nothing to check. That is unreachable today, because the router captures
+    /// its tokens raw and so records nothing, but it is not a property worth depending on.
+    /// </remarks>
+    public static Scope BeginRequest(ParseResult parseResult)
     {
+        var scope = new Scope(Current.Value);
         Current.Value = null;
 
         // Help short-circuits rendering, so a projection flag alongside --help is not dropped.
         if (IsHelpRequested(parseResult))
-            return;
+            return scope;
 
         var requested = RequestedFlags(parseResult);
         if (requested.Count > 0)
             Current.Value = new Request { Flags = requested };
+
+        return scope;
+    }
+
+    /// <summary>Restores the request that was in flight when it was created.</summary>
+    public readonly struct Scope(object? displaced) : IDisposable
+    {
+        public void Dispose() => Current.Value = displaced as Request;
     }
 
     private static List<string> RequestedFlags(ParseResult parseResult)

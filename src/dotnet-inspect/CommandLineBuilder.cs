@@ -57,7 +57,7 @@ public static class CommandLineBuilder
         if (!ProjectionAudit.ValidateExclusive(parseResult))
             return 1;
 
-        ProjectionAudit.BeginRequest(parseResult);
+        using var scope = ProjectionAudit.BeginRequest(parseResult);
         return ProjectionAudit.Verify(await parseResult.InvokeAsync());
     }
 
