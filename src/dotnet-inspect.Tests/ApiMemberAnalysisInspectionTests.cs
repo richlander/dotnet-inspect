@@ -73,21 +73,21 @@ public class ApiMemberAnalysisInspectionTests
         Assert.Single(scopes);
     }
 
-    // Round-2 review found that the previous "would the unfiltered walk have opened it?" rule was
-    // not decidable: an image whose Assembly/AssemblyRef tables read cleanly (so the prefilter can
-    // rule it out) can still throw when its bodies are indexed. Reproduced with single-byte
-    // mutations of a real assembly — 8 of 3000 produced exactly that. Openability therefore cannot
-    // drive the choice, so a scoped request gets the cross-assembly builder even when nothing in
-    // the scope can be opened at all.
+    // Round-2 review found that "would the unfiltered walk have opened it?" is not decidable in
+    // general: an image whose Assembly/AssemblyRef tables read cleanly can still throw when its
+    // bodies are indexed. Reproduced with single-byte mutations of a real assembly — 8 of 3000
+    // produced exactly that. But the weaker question this routing needs — could ANY scope entry be
+    // opened at all — is decidable, and it is the question the unfiltered walk effectively asked:
+    // it routed on whether its opened list came back empty. A scope whose every entry is
+    // unopenable produced an empty list and took the token-keyed builder, so this must too.
     [Fact]
-    public void CallerScopes_WhenNoScopeAssemblyCanBeOpened_StillSelectsTheCrossAssemblyBuilder()
+    public void CallerScopes_WhenNoScopeEntryIsOpenable_SelectsTheSameAssemblyBuilder()
     {
         string missing = Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.dll");
 
         var scopes = Create(SelfPath, [missing]).CallerScopes(includeAllocations: false);
 
-        Assert.NotNull(scopes);
-        Assert.Empty(scopes);
+        Assert.Null(scopes);
     }
 
     // The two lenses are cached independently and must decide identically.
@@ -106,17 +106,34 @@ public class ApiMemberAnalysisInspectionTests
         Assert.Same(graph, inspection.CallerScopes(includeAllocations: true));
     }
 
-    // A file with no managed metadata must fail open rather than be ruled out: --bin enumerates
-    // every top-level *.dll with no managed-image filter, so ruling it out here would only
-    // duplicate the catch around MethodBodyInspectionSession.Open. Either way the scope yields
-    // nothing, and the request was still scoped.
+    // A scope holding only a native image yields nothing either way, but it must yield nothing the
+    // same way the unfiltered walk did. --bin enumerates every top-level *.dll with no managed-image
+    // filter, so this is an ordinary input, not a corner: pointing --bin at a native runtime
+    // directory hits it. The unfiltered walk failed to open the native image, ended with an empty
+    // opened list, and took the token-keyed builder. Round 7 caught this routing to the structural
+    // builder instead and printing a different tree (62 lines against 60) for the same request.
     [Fact]
-    public void CallerScopes_WhenTheOnlyScopeEntryIsNotManaged_StillSelectsTheCrossAssemblyBuilder()
+    public void CallerScopes_WhenTheOnlyScopeEntryIsNotManaged_SelectsTheSameAssemblyBuilder()
     {
         string? native = FindNativeImage();
         Assert.SkipWhen(native is null, "No native PE image available in the runtime directory.");
 
         var scopes = Create(SelfPath, [native!]).CallerScopes(includeAllocations: false);
+
+        Assert.Null(scopes);
+    }
+
+    // The counterpart to the two above, and the reason routing cannot simply follow the opened
+    // count: here the scope entry IS openable and is merely ruled out by the closure. The
+    // unfiltered walk would have opened it, so the request keeps the cross-assembly builder even
+    // though nothing survived selection.
+    [Fact]
+    public void CallerScopes_WhenAnOpenableScopeEntryIsRuledOut_StillSelectsTheCrossAssemblyBuilder()
+    {
+        string? native = FindNativeImage();
+        Assert.SkipWhen(native is null, "No native PE image available in the runtime directory.");
+
+        var scopes = Create(SelfPath, [native!, AnalysisPath]).CallerScopes(includeAllocations: false);
 
         Assert.NotNull(scopes);
         Assert.Empty(scopes);

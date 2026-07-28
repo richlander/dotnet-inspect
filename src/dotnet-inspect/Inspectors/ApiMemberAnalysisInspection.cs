@@ -27,6 +27,7 @@ internal sealed class ApiMemberAnalysisInspection
     string? _targetAssemblyName;
     bool _targetAssemblyNameResolved;
     IReadOnlyList<string>? _selectedScopePaths;
+    bool _scopeHasOpenableCandidate;
 
     internal ApiMemberAnalysisInspection(
         string assemblyPath,
@@ -121,6 +122,25 @@ internal sealed class ApiMemberAnalysisInspection
 
         var selected = SelectedScopePaths();
 
+        // Builder routing has to reproduce what the unfiltered walk would have chosen, and that
+        // choice was made on whether ANY scope assembly opened successfully — not on whether the
+        // scope list was non-empty. Without the prefilter, a scope holding only native or
+        // unreadable images produced an empty opened list and therefore took the single-assembly
+        // token-keyed builder. Returning an empty list here instead would take the structural
+        // builder and print a different tree for the same input, which round 7 reproduced on a
+        // scope containing one native DLL (62 lines against 60).
+        //
+        // So the distinction is "was anything here openable at all", not "did anything survive
+        // selection". An openable candidate that the closure ruled out still means the unfiltered
+        // walk would have opened something, so that case keeps the structural builder.
+        //
+        // This is decidable from classification alone. The residual gap is an image whose identity
+        // tables read cleanly but whose bodies fail to index — round 2 found those exist — where
+        // the unfiltered walk would have ended with an empty opened list and taken the token
+        // builder. Deciding that would require the body index this prefilter exists to avoid.
+        if (!_scopeHasOpenableCandidate)
+            return cached;
+
         var opened = new List<MethodBodyInspectionSession>();
         foreach (string scopePath in selected)
         {
@@ -154,8 +174,18 @@ internal sealed class ApiMemberAnalysisInspection
             return _selectedScopePaths;
 
         var scopePaths = _callerScopeAssemblies!;
-        var selected = Analysis.CallerScopeFilter.SelectCouldReach(
-            TargetAssemblyName, ScopeIdentities(scopePaths));
+        var identities = ScopeIdentities(scopePaths);
+
+        foreach (var identity in identities)
+        {
+            if (identity.Kind is not Analysis.CallerScopeFilter.CandidateIdentity.Unopenable)
+            {
+                _scopeHasOpenableCandidate = true;
+                break;
+            }
+        }
+
+        var selected = Analysis.CallerScopeFilter.SelectCouldReach(TargetAssemblyName, identities);
 
         var survivors = new List<string>();
         for (int i = 0; i < scopePaths.Count; i++)
@@ -204,16 +234,24 @@ internal sealed class ApiMemberAnalysisInspection
     /// zero-byte <c>*.dll</c> beside a real one would select every other candidate and disable the
     /// prefilter for the whole scope.
     ///
-    /// This classification reads each candidate once, and that read is the tool's sample of a file
-    /// whose contents it does not own. A scope directory being rewritten by a concurrent build has
-    /// no stable answer to sample: reading earlier is not less correct than reading later, only
-    /// earlier. Analysis without the prefilter is timing-dependent on such input too — it simply
-    /// samples each candidate at the point it opens it for body indexing, which is later because
-    /// that work is slower. Measured against a candidate replaced mid-run behind one large scope
-    /// assembly, both answers flip, at different delays: without the prefilter at ~1800ms, with it
-    /// at ~300ms. Prefiltering therefore narrows the window in which a half-written image is seen
-    /// as finished; it does not introduce nondeterminism that a stable scope would not have.
-    /// Callers needing a reproducible answer must present a scope that is not being written.
+    /// This classification reads each candidate once, and body indexing reads the survivors again
+    /// later. Any change to a scope file between those two reads is invisible: selection is
+    /// computed from a generation that may no longer be on disk. This is not limited to
+    /// half-written images — a valid assembly replaced by a different valid assembly behaves the
+    /// same way, because the gap is between the two reads rather than in either one.
+    ///
+    /// The unfiltered walk is timing-dependent on such input too, but it is not equivalent, and
+    /// prefiltering is not merely narrower: it samples earlier and therefore **widens** the window
+    /// in which an assembly that becomes a caller mid-run is missed. Measured against a candidate
+    /// replaced behind one large scope assembly, the unfiltered walk reported it up to a ~1800ms
+    /// delay while prefiltering stopped reporting it past ~300ms, for both the malformed-to-valid
+    /// and valid-to-valid cases.
+    ///
+    /// This is accepted rather than fixed. Treating unreadable images as undecidable would fail
+    /// open on the native DLLs that populate an ordinary <c>--bin</c> directory and disable the
+    /// prefilter outright, and revalidating only transient failures would not cover the
+    /// valid-to-valid case at all. See the tracking issue for the measurements and the options.
+    /// A caller needing a reproducible answer must present a scope that is not being written.
     /// </summary>
     static Analysis.CallerScopeFilter.Candidate ScopeIdentity(string scopePath)
     {
