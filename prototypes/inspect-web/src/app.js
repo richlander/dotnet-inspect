@@ -1743,19 +1743,23 @@ function renderPackageOverview() {
     .map(([asm, stat]) => {
       const name = asm.endsWith(".dll") ? asm.slice(0, -4) : asm;
       const members = memberFor(asm);
+      const multi = libStats.size > 1;
       const kinds = KIND_ORDER
         .filter(kind => stat.kinds.has(kind))
-        .map(kind => `<span class="lib-kind"><strong>${stat.kinds.get(kind)}</strong> ${kindPlural[kind] || kind}</span>`)
+        .map(kind => multi
+          ? `<button class="lib-kind as-button" data-lib-scope="${escapeHtml(name)}" data-lib-kind="${kind}" title="Show ${kindPlural[kind] || kind} in ${escapeHtml(name)}"><strong>${stat.kinds.get(kind)}</strong> ${kindPlural[kind] || kind}</button>`
+          : `<span class="lib-kind"><strong>${stat.kinds.get(kind)}</strong> ${kindPlural[kind] || kind}</span>`)
         .join("");
-      const clickable = libStats.size > 1;
-      const head = `<div class="library-row-head">
-          <span class="library-name" title="${escapeHtml(asm)}">${escapeHtml(name)}</span>
+      const nameCell = multi
+        ? `<button class="library-name as-button" data-lib-scope="${escapeHtml(name)}" title="Show all ${escapeHtml(name)} types">${escapeHtml(name)}</button>`
+        : `<span class="library-name" title="${escapeHtml(asm)}">${escapeHtml(name)}</span>`;
+      return `<div class="library-row">
+        <div class="library-row-head">
+          ${nameCell}
           <span class="library-metric">${stat.types} type${stat.types === 1 ? "" : "s"}${members != null ? ` · ${members.toLocaleString()} members` : ""}</span>
         </div>
-        <div class="library-kinds">${kinds}</div>`;
-      return clickable
-        ? `<button class="library-row as-button" data-library-jump="${escapeHtml(name)}" title="Show ${escapeHtml(name)} types">${head}</button>`
-        : `<div class="library-row">${head}</div>`;
+        <div class="library-kinds">${kinds}</div>
+      </div>`;
     })
     .join("");
 
@@ -2348,11 +2352,11 @@ function bindEvents() {
     if (first) state.selectedTypeId = first.id;
     render();
   }));
-  document.querySelectorAll("[data-library-jump]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll("[data-lib-scope]").forEach(button => button.addEventListener("click", () => {
     state.atPackageRoot = false;
-    state.libraryScope = new Set([button.dataset.libraryJump]);
+    state.libraryScope = new Set([button.dataset.libScope]);
+    state.kindFilter = button.dataset.libKind || "";
     state.namespaceFilter = "";
-    state.kindFilter = "";
     state.typeFilter = "";
     state.selectedMemberKey = "";
     state.typeCursor = 0;
