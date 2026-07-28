@@ -295,7 +295,7 @@ public class MetadataRowReferenceSearchTests
         Assert.NotEmpty(set.UnscannedTables);
         Assert.False(
             set.IsComplete,
-            "A scan that never visited a populated table has not covered the whole image.");
+            "A scan that left a populated table unread, in whole or in part, has not covered the whole image.");
     }
 
     /// <summary>

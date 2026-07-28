@@ -193,8 +193,9 @@ public static class MetadataTableProjector
     /// <see cref="MetadataRowReferenceSet.UnreadableRows"/> for rows whose edges
     /// could not be fully determined, and
     /// <see cref="MetadataRowReferenceSet.UnscannedTables"/> for populated
-    /// tables no row of which was searched — because the projection does not
-    /// model the table, or because the scan stopped before covering it.
+    /// tables the scan did not read in full — because the projection does not
+    /// model the table, or because the scan stopped part-way through it or
+    /// before reaching it.
     ///
     /// A dangling edge is not a reference: a handle whose row lies outside its
     /// target table projects as <see cref="MetadataValue.Malformed"/>, so it
