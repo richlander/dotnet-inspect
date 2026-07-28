@@ -67,7 +67,7 @@ static class AuthoredCorpusDrift
             return 1;
         }
 
-        var records = ReadCorpus(corpusPath, out int malformedRows);
+        var records = AuthoredCorpusBenchmark.ReadCorpus(corpusPath, out int malformedRows);
         if (records.Count == 0)
         {
             Console.Error.WriteLine($"Corpus is empty or unparseable: {corpusPath}");
@@ -203,39 +203,6 @@ static class AuthoredCorpusDrift
 
         return $"stored {storedLines.Length} line(s), acquired {acquiredLines.Length} line(s); "
             + $"first diff at line {firstDiff + 1}";
-    }
-
-    /// <summary>
-    /// Reads the corpus, reporting how many rows could not be read.
-    ///
-    /// <para>The count is the point. Skipping a row used to be a log line and nothing
-    /// else, so a shortened corpus verified cleanly and the gate exited 0 having never
-    /// looked at the rows it dropped.</para>
-    /// </summary>
-    static List<AuthoredSourceHarvest.CorpusRecord> ReadCorpus(string corpusPath, out int malformedRows)
-    {
-        var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-        var records = new List<AuthoredSourceHarvest.CorpusRecord>();
-        malformedRows = 0;
-        foreach (var line in File.ReadLines(corpusPath))
-        {
-            if (string.IsNullOrWhiteSpace(line))
-                continue;
-            try
-            {
-                if (JsonSerializer.Deserialize<AuthoredSourceHarvest.CorpusRecord>(line, options) is { } record)
-                    records.Add(record);
-                else
-                    malformedRows++;
-            }
-            catch (JsonException ex)
-            {
-                malformedRows++;
-                Console.Error.WriteLine($"Skipping malformed corpus row: {ex.Message}");
-            }
-        }
-
-        return records;
     }
 
     static int WriteCard(

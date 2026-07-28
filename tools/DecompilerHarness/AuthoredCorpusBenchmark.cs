@@ -164,7 +164,17 @@ static class AuthoredCorpusBenchmark
     static ReturnToSender.RequestedTarget ToTarget(AuthoredSourceHarvest.CorpusRecord record)
         => new(record.Type, record.Method, record.Overload, record.Signature);
 
-    static List<AuthoredSourceHarvest.CorpusRecord> ReadCorpus(string corpusPath, out int malformedRows)
+    /// <summary>
+    /// Reads a JSONL authored corpus, counting every line that is not a usable row.
+    ///
+    /// <para>Shared with the drift gate. It had its own reader, which counted malformed
+    /// JSON but skipped blank lines uncounted and never checked the declared schema, so
+    /// the same corpus that this gate rejected for an erased row the drift gate verified
+    /// and exited 0 over. Two readers for one format is two answers to "how many rows did
+    /// you actually read", and only one of them was hardened by the reviews that found
+    /// these cases.</para>
+    /// </summary>
+    internal static List<AuthoredSourceHarvest.CorpusRecord> ReadCorpus(string corpusPath, out int malformedRows)
     {
         var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
         var records = new List<AuthoredSourceHarvest.CorpusRecord>();

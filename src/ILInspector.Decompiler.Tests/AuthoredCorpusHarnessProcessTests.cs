@@ -620,6 +620,67 @@ public class AuthoredCorpusHarnessProcessTests
     }
 
     /// <summary>
+    /// Both corpus gates reject the same damaged row, because both read the corpus
+    /// through one reader.
+    ///
+    /// <para>They did not. The drift gate had its own reader that counted malformed JSON
+    /// but skipped a blank line uncounted and never applied the declared schema, so a
+    /// corpus with one row erased to whitespace was rejected by the benchmark and
+    /// <em>verified</em> by drift at exit 0 over a silently shortened denominator. The
+    /// round-thirteen fix that made drift count unreadable rows closed only the case that
+    /// review had demonstrated, and left its twin open.</para>
+    ///
+    /// <para>This asserts the property rather than the plumbing: whatever a corpus row is
+    /// damaged into, neither gate reports success over it. Reintroducing a second reader
+    /// fails here as soon as the two disagree, which is the only way the first divergence
+    /// could have been caught.</para>
+    /// </summary>
+    [Theory]
+    [InlineData("blank", "   ")]
+    [InlineData("not JSON at all", "{not-json}")]
+    [InlineData("JSON that supplies no required field", "{}")]
+    [InlineData("a row missing one required field", "{\"assembly\":\"a.dll\"}")]
+    public void BothCorpusGatesRejectTheSameDamagedRow(string description, string damagedRow)
+    {
+        Assert.NotNull(description);
+        string repositoryRoot = AuthoredCorpusRatchetTests.FindRepositoryRoot();
+        string damaged = Path.Combine(Path.GetTempPath(), $"damaged-corpus-{Guid.NewGuid():N}.jsonl");
+        File.WriteAllText(
+            damaged,
+            File.ReadAllText(Path.Combine(
+                repositoryRoot, "tools", "DecompilerHarness", "corpus", "one-row-authored-corpus.jsonl"))
+            + damagedRow + Environment.NewLine);
+
+        try
+        {
+            var drift = RunHarness([
+                typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location,
+                "--verify-authored-corpus",
+                damaged,
+                "--fail-on-drift",
+            ]);
+            var benchmark = RunHarness([
+                typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location,
+                "--benchmark-authored-corpus",
+                damaged,
+            ]);
+
+            // Asserted before the exit codes so that a run which died on startup, and so
+            // would satisfy any expectation of failure, reads as the harness fault it is
+            // rather than as this gate holding.
+            Assert.Contains("rows unreadable", drift.Output, StringComparison.Ordinal);
+            Assert.Contains("malformed rows", benchmark.Output, StringComparison.Ordinal);
+
+            Assert.Equal(1, drift.ExitCode);
+            Assert.Equal(1, benchmark.ExitCode);
+        }
+        finally
+        {
+            File.Delete(damaged);
+        }
+    }
+
+    /// <summary>
     /// The benchmark's JSON path reports the same exit code as its text path.
     ///
     /// <para>Review round thirteen found that nothing asserted it. Both paths end in the
