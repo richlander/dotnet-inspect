@@ -475,29 +475,30 @@ public sealed class ForeachStatementPass : IIrPass
         // store survives; the enumerator is then referenced only by the condition
         // MoveNext and one `e.Current` read somewhere in the body.
         //
-        // The single read must be evaluated *unconditionally on every iteration*
-        // for the raise to be sound. csc emits a foreach header's `get_Current`
-        // as the first thing in the loop body, leaving the value live across the
-        // rest of the iteration; the live-range inliner then sinks that read to
-        // its one use. Re-hoisting it to a fresh foreach variable at the loop top
-        // is the exact inverse of that sink and re-lowers opcode-identically —
-        // but only because the original read ran every iteration. A hand-written
-        // `while` that reads `e.Current` inside an `if` (so `get_Current` runs
-        // only some iterations — e.g. Enumerable.ElementAt's `if (index == 0)
-        // return e.Current;`) is byte-for-byte identical here after inlining, yet
-        // hoisting it to the loop top would run `get_Current` on every iteration,
-        // changing how often it executes (and, for a throwing/side-effecting
-        // enumerator, observable behavior). IsUnconditionalEveryIteration rejects
-        // any read nested under a branch, nested loop, switch section, handler,
-        // short-circuit, or ternary/`??`/`?.` arm within the body. Also require
-        // the read to sit outside any nested lambda/local function, where a hoist
-        // would change when it runs.
+        // The single read is only a real foreach header when csc emitted its
+        // `get_Current` as the *first operation of the loop body*, leaving the
+        // value live across the rest of the iteration; the live-range inliner
+        // then sinks that read to its one use. Re-hoisting it to a fresh foreach
+        // variable at the loop top is the exact inverse of that sink and
+        // re-lowers opcode-identically — but only because the original read ran
+        // first, every iteration. A hand-written `while` that reads `e.Current`
+        // later in the body — inside an `if` (e.g. Enumerable.ElementAt's
+        // `if (index == 0) return e.Current;`), on the right of `??=`, or after
+        // any preceding side-effecting statement — is byte-for-byte identical
+        // here after inlining, yet hoisting it to the loop top would change how
+        // often `get_Current` runs and reorder it ahead of those operations
+        // (observable if either throws or mutates shared state).
+        // ReadOriginatesAtLoopBodyTop recovers that provenance from source
+        // offsets: the read's subtree must carry the minimum IL offset of every
+        // operation in the loop body's own scope. Also require the read to sit
+        // outside any nested lambda/local function, where a hoist would change
+        // when it runs.
         var currentReads = loop.Body.Descendants.OfType<LoadProperty>()
             .Where(p => IsCurrentOn(p, enumeratorIndex))
             .ToList();
         if (currentReads is [var inlineCurrent]
             && !IsInsideNestedFunction(inlineCurrent, loop.Body)
-            && IsUnconditionalEveryIteration(inlineCurrent, loop.Body)
+            && ReadOriginatesAtLoopBodyTop(inlineCurrent, loop.Body)
             && EnumeratorReferencedOnlyWithinLoopBy(loop, enumeratorIndex, moveNext, inlineCurrent))
         {
             return new EnumeratorMatch(
@@ -556,41 +557,47 @@ public sealed class ForeachStatementPass : IIrPass
     // or any nested loop body/condition. Every other container (blocks,
     // statements, and non-short-circuit expression operands) is straight-line, so
     // reaching it keeps the node unconditional.
-    static bool IsUnconditionalEveryIteration(IrNode node, Block loopBody)
+    // The inline Current read is a genuine foreach header only when csc emitted
+    // its `get_Current` as the first operation of the loop body. We recover that
+    // provenance from source offsets (preserved through the Call→LoadProperty
+    // raise via InheritSourceOffset): the read's subtree must carry the *minimum*
+    // IL offset of every operation in the loop body's own scope — excluding
+    // nested lambdas/local functions, which run at a different time and carry
+    // their own offset space. If any sibling operation was emitted earlier — a
+    // preceding side-effecting statement, an `if`/`??=` guard, or ElementAt's
+    // conditional `return e.Current` — the read is not the minimum and we
+    // decline, because re-hoisting it to the loop top would move `get_Current`
+    // ahead of that operation, changing both how often it runs and its order
+    // (observable if either throws or mutates shared state). Requiring provenance
+    // at the body top preserves execution frequency and ordering at once, and
+    // fails closed when the read carries no offset.
+    static bool ReadOriginatesAtLoopBodyTop(LoadProperty inlineCurrent, Block loopBody)
     {
-        for (var current = node; current is not null; current = current.Parent)
-        {
-            var parent = current.Parent;
-            if (parent is null)
-                return false;
-            if (ReferenceEquals(parent, loopBody))
-                return true;
+        int readMin = MinOffset(inlineCurrent);
+        if (readMin == int.MaxValue)
+            return false;
 
-            switch (parent)
+        int bodyMin = int.MaxValue;
+        foreach (var node in loopBody.Descendants)
+        {
+            if (node.SourceOffset >= 0
+                && node.SourceOffset < bodyMin
+                && !IsInsideNestedFunction(node, loopBody))
             {
-                case IfStatement ifs when !ReferenceEquals(current, ifs.Condition):
-                    return false;
-                case Conditional cond when !ReferenceEquals(current, cond.Condition):
-                    return false;
-                case LogicalBinary logical when ReferenceEquals(current, logical.Right):
-                    return false;
-                case Coalesce coalesce when ReferenceEquals(current, coalesce.Right):
-                    return false;
-                case NullConditional:
-                case WhileLoop:
-                case DoWhileLoop:
-                case ForLoop:
-                case ForeachStatement:
-                case SwitchSection:
-                case TryCatch:
-                case TryFinally:
-                case CatchClause:
-                case Lambda:
-                case LocalFunctionStatement:
-                    return false;
+                bodyMin = node.SourceOffset;
             }
         }
-        return false;
+
+        return readMin == bodyMin;
+
+        static int MinOffset(IrNode node)
+        {
+            int min = node.SourceOffset >= 0 ? node.SourceOffset : int.MaxValue;
+            foreach (var descendant in node.Descendants)
+                if (descendant.SourceOffset >= 0 && descendant.SourceOffset < min)
+                    min = descendant.SourceOffset;
+            return min;
+        }
     }
 
     sealed record PatternMatch(

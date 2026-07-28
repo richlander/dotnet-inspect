@@ -530,13 +530,36 @@ public class ForeachStatementPassTests
         // reached conditionally (here, inside an `if`-then), the shape a
         // hand-written `while` produces when it reads Current only some
         // iterations — e.g. Enumerable.ElementAt's `if (index == 0) return
-        // e.Current;`. Re-hoisting that read to a foreach header would run
+        // e.Current;`. csc emits that read after the branch test, so its source
+        // offset is not the loop body's minimum; ReadOriginatesAtLoopBodyTop
+        // therefore declines it. Re-hoisting it to a foreach header would run
         // get_Current every iteration, changing how often it executes (and, for a
         // throwing/side-effecting enumerator, observable behavior). The
         // enumerator is a hidden slot over a supported IEnumerable<int>, so the
         // symbol/collection gate passes and the decision rests entirely on the
-        // unconditional-read guard.
+        // provenance guard.
         var function = BuildInlineConditionalCurrentEnumeratorLoop();
+
+        new ForeachStatementPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Single(function.Descendants.OfType<UsingStatement>());
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
+    public void InlineCurrentForeach_UnconditionalReadAfterSideEffect_StaysUsingWhile()
+    {
+        // Reorder guard: the single `e.Current` read is unconditional (it sits in
+        // the loop-body `if`-*condition*, evaluated every iteration), so a
+        // frequency-only check would wrongly accept it — but a side-effecting
+        // `SideEffect()` call was emitted before it. Hoisting get_Current to the
+        // foreach header would move it ahead of that call, changing their order
+        // (observable if either throws or mutates shared state). The read's source
+        // offset is not the loop body's minimum (the call's is), so
+        // ReadOriginatesAtLoopBodyTop declines and the loop stays lowered.
+        var function = BuildInlineCurrentReadAfterSideEffectLoop();
 
         new ForeachStatementPass().Run(function, PassContext.None);
         function.CheckInvariant();
@@ -550,9 +573,10 @@ public class ForeachStatementPassTests
     public void InlineCurrentForeach_UnconditionalCurrentReadInsideIfCondition_RaisesToForeach()
     {
         // Positive control for the guard: the same hidden-enumerator loop, but the
-        // single `e.Current` read sits in the loop-body `if`-*condition*, which is
-        // evaluated on every iteration. That is unconditional, so the raise is
-        // sound and the inline matcher recovers the foreach.
+        // single `e.Current` read sits in the loop-body `if`-*condition* as the
+        // first operation, so its source offset is the loop body's minimum — the
+        // provenance of a real foreach header. The inline matcher recovers the
+        // foreach.
         var function = BuildInlineUnconditionalCurrentEnumeratorLoop();
 
         new ForeachStatementPass().Run(function, PassContext.None);
@@ -716,43 +740,89 @@ public class ForeachStatementPassTests
     // <paramref name="conditional"/> is false the read instead sits in the
     // loop-body `if`-condition (evaluated every iteration), the safe shape the
     // matcher raises.
-    static IrFunction BuildInlineCurrentEnumeratorLoop(bool conditional)
+    enum InlineReadPlacement
+    {
+        // e.Current read is the first operation of the loop body (foreach header).
+        BodyTop,
+        // e.Current read sits inside an `if`-then, reached only some iterations.
+        ConditionalThen,
+        // e.Current read is unconditional but a side-effecting statement precedes
+        // it in the body, so hoisting it to the loop top would reorder get_Current
+        // ahead of that statement.
+        AfterSideEffect,
+    }
+
+    static IrFunction BuildInlineCurrentEnumeratorLoop(InlineReadPlacement placement)
     {
         var intType = TypeRef.CoreLib("System", "Int32");
         var boolType = TypeRef.CoreLib("System", "Boolean");
+        var voidType = TypeRef.CoreLib("System", "Void");
         var collectionType = TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1");
         var enumeratorType = TypeRef.CoreLib("System.Collections.Generic", "IEnumerator`1");
+        var ownerType = TypeRef.Definition("Synthetic", "Samples", "Owner");
         var getEnumerator = new MethodRef(collectionType, "GetEnumerator", enumeratorType, [], HasThis: true);
         var moveNext = new MethodRef(enumeratorType, "MoveNext", boolType, [], HasThis: true);
+        var sideEffect = new MethodRef(ownerType, "SideEffect", voidType, [], HasThis: false);
         var current = new MethodRef(enumeratorType, "get_Current", intType, [], HasThis: true)
         {
             IsSpecialName = true,
         };
 
-        IrExpression CurrentRead() => new LoadProperty(current, new LoadLocal(0, enumeratorType), []);
+        // Stamp source offsets in emission order: the guard recovers foreach-header
+        // provenance from them (the read is a real header only when its subtree
+        // carries the minimum IL offset in the loop body).
+        static T Stamp<T>(T node, int offset) where T : IrNode
+        {
+            node.SetSourceOffset(offset);
+            return node;
+        }
+
+        LoadProperty CurrentRead(int receiverOffset)
+            => Stamp(new LoadProperty(current, Stamp(new LoadLocal(0, enumeratorType), receiverOffset), []), receiverOffset + 1);
 
         var loopBody = new Block();
-        if (conditional)
+        switch (placement)
         {
-            // if (probe == 0) return e.Current;  — the read runs only when the
-            // branch is taken.
-            var thenArm = new Block();
-            thenArm.Add(new Return(CurrentRead()));
-            loopBody.Add(new IfStatement(
-                new Comparison(ComparisonKind.Equal, isUnsigned: false, new LoadArgument(1, "probe", intType), new Constant(0, intType)),
-                thenArm,
-                null));
-        }
-        else
-        {
-            // if (e.Current == 0) return true;  — the read is in the condition,
-            // evaluated every iteration.
-            var thenArm = new Block();
-            thenArm.Add(new Return(new Constant(1, boolType)));
-            loopBody.Add(new IfStatement(
-                new Comparison(ComparisonKind.Equal, isUnsigned: false, CurrentRead(), new Constant(0, intType)),
-                thenArm,
-                null));
+            case InlineReadPlacement.BodyTop:
+                // if (e.Current == 0) return true;  — the read is the first thing
+                // in the body (in the `if`-condition), evaluated every iteration.
+                {
+                    var thenArm = new Block();
+                    thenArm.Add(Stamp(new Return(Stamp(new Constant(1, boolType), 4)), 5));
+                    loopBody.Add(Stamp(new IfStatement(
+                        Stamp(new Comparison(ComparisonKind.Equal, isUnsigned: false, CurrentRead(0), Stamp(new Constant(0, intType), 2)), 3),
+                        thenArm,
+                        null), 3));
+                }
+                break;
+
+            case InlineReadPlacement.ConditionalThen:
+                // if (probe == 0) return e.Current;  — the read runs only when the
+                // branch is taken, and is emitted after the probe comparison.
+                {
+                    var thenArm = new Block();
+                    thenArm.Add(Stamp(new Return(CurrentRead(5)), 7));
+                    loopBody.Add(Stamp(new IfStatement(
+                        Stamp(new Comparison(ComparisonKind.Equal, isUnsigned: false, Stamp(new LoadArgument(1, "probe", intType), 0), Stamp(new Constant(0, intType), 1)), 2),
+                        thenArm,
+                        null), 2));
+                }
+                break;
+
+            case InlineReadPlacement.AfterSideEffect:
+                // SideEffect(); if (e.Current == 0) return true;  — the read is
+                // unconditional (in the `if`-condition) but a side-effecting call
+                // was emitted first, so get_Current is not the body's first op.
+                {
+                    loopBody.Add(Stamp(new ExpressionStatement(Stamp(new Call(sideEffect, isVirtual: false, []), 0)), 0));
+                    var thenArm = new Block();
+                    thenArm.Add(Stamp(new Return(Stamp(new Constant(1, boolType), 8)), 9));
+                    loopBody.Add(Stamp(new IfStatement(
+                        Stamp(new Comparison(ComparisonKind.Equal, isUnsigned: false, CurrentRead(5), Stamp(new Constant(0, intType), 7)), 8),
+                        thenArm,
+                        null), 8));
+                }
+                break;
         }
 
         var usingBody = new BlockContainer();
@@ -766,17 +836,20 @@ public class ForeachStatementPassTests
         body.Add(entry);
         return new IrFunction(
             "M",
-            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            ownerType,
             new MethodSignature(boolType, [new Parameter("items", collectionType), new Parameter("probe", intType)], HasThis: false, GenericParameterCount: 0),
             [enumeratorType],
             body);
     }
 
     static IrFunction BuildInlineConditionalCurrentEnumeratorLoop()
-        => BuildInlineCurrentEnumeratorLoop(conditional: true);
+        => BuildInlineCurrentEnumeratorLoop(InlineReadPlacement.ConditionalThen);
 
     static IrFunction BuildInlineUnconditionalCurrentEnumeratorLoop()
-        => BuildInlineCurrentEnumeratorLoop(conditional: false);
+        => BuildInlineCurrentEnumeratorLoop(InlineReadPlacement.BodyTop);
+
+    static IrFunction BuildInlineCurrentReadAfterSideEffectLoop()
+        => BuildInlineCurrentEnumeratorLoop(InlineReadPlacement.AfterSideEffect);
 
     static IrFunction BuildStructCollectionEnumeratorUsingWhile()
     {
