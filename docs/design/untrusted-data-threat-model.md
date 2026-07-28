@@ -254,6 +254,14 @@ only ordinary compiler output.
    attacker-authored content. Require agreement on the full resolved URL prefix
    including the commit, or derive provenance from the mapping the resolver
    actually selects, and report nothing when entries disagree.
+
+   Compare and extract on the *canonical* URL, not the literal mapping text.
+   `System.Uri` applies RFC 3986 dot-segment removal, so a value such as
+   `https://raw.githubusercontent.com/dotnet/runtime/<commit>/../../../owner/repo/<commit>/*`
+   is fetched from `owner/repo` while a regex over the raw string reports
+   `dotnet/runtime`. Canonicalize, or reject dot segments and their
+   percent-encoded equivalents, before both the comparison and the provenance
+   extraction.
 2. Fix GitHub repository provenance. The precondition tests the value for
    `github.com`, which canonical `raw.githubusercontent.com` SourceLink URLs do
    not contain, so GitHub-hosted assemblies report no repository at all. Match
