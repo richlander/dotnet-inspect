@@ -32,21 +32,29 @@ public readonly record struct PrintedRange(IrNode Node, Range Characters);
 /// </para>
 /// <para>
 /// Every recorded range is <em>non-empty</em>: a node the printer visits but
-/// which emits nothing has no entry, because there is no printed text to point
+/// which emits nothing has no range, because there is no printed text to point
 /// at. The implicit parameterless <c>base()</c> chain call is the case that
 /// makes this real — <c>ConstructorChainText</c> gives it no rendered form, so
 /// unlike a chain call with arguments (which is lifted out of the body onto the
 /// signature and never walked) it stays in the body and prints nothing.
-/// Recording it would stamp a zero-width range at whatever position emission
-/// had reached, which reads as "this node printed here" while resolving to the
-/// line of the <em>next</em> statement. Measured over 63,722 ranges from 9,114
-/// printed methods, 890 such degenerate entries arose, every one of them an
-/// implicit chain call. Dropping them is what lets a caller slice or place a
-/// caret on any range in this map without a width guard. The visible
-/// consequence is that IL owned only by such a node — the implicit base call's
-/// own opcodes — no longer buckets onto a C# line in the mixed IL view. That is
-/// the honest outcome: it joins the IL that already has no C# line to sit
-/// beside, rather than being attributed to the statement printed after it.
+/// Recording a range for it would stamp a zero-width range at whatever position
+/// emission had reached, which reads as "this node printed here" while
+/// resolving to the line of the <em>next</em> statement. Measured over 63,722
+/// ranges from 9,114 printed methods, 890 such degenerate entries arose, every
+/// one of them an implicit chain call. Dropping them is what lets a caller
+/// slice or place a caret on any range in this map without a width guard.
+/// </para>
+/// <para>
+/// What such a node does still have is a <em>position</em> — where its text
+/// would have gone — and that is kept separately, as an insertion point. The
+/// two are different questions and are answered by different members on
+/// purpose: <see cref="TryGetRange"/> and <see cref="TryGetLine"/> are about
+/// printed characters and stay silent here, while
+/// <see cref="TryGetInsertionLine"/> is about emission order. Only a consumer
+/// that genuinely needs the second should reach for it. The mixed IL view is
+/// the one that does: the implicit base call's own opcodes have no other owner,
+/// and an insertion point is enough to render them above the statement that
+/// follows them, which is where they run.
 /// </para>
 /// <para>
 /// A <see cref="Range"/> is only meaningful against the exact string it was
@@ -64,6 +72,7 @@ public sealed class PrintedRangeMap : IReadOnlyList<PrintedRange>
 
     readonly List<PrintedRange> _ranges = [];
     readonly Dictionary<IrNode, int> _index = [];
+    readonly Dictionary<IrNode, int> _insertionPoints = [];
     int[]? _lineStarts;
 
     /// <summary>The printed text every <see cref="PrintedRange"/> here indexes.</summary>
@@ -110,14 +119,48 @@ public sealed class PrintedRangeMap : IReadOnlyList<PrintedRange>
     }
 
     /// <summary>
+    /// Where <paramref name="node"/> would have printed had it emitted anything:
+    /// the 0-based output line that the text following it begins on. Defined only
+    /// for a node the printer walked and which emitted nothing; a node with a
+    /// range is not here, and vice versa.
+    /// </summary>
+    /// <remarks>
+    /// This answers "where does this node sit in emission order", which is a
+    /// different question from "which characters did this node print", and it is
+    /// separate precisely because a consumer that wants the second must not be
+    /// silently handed the first. A caret or a slice needs printed text and gets
+    /// nothing here; the mixed IL view needs somewhere to put opcodes whose only
+    /// owner printed nothing, and a position is exactly enough for that. The
+    /// line returned is the one the node's text would have started, so IL placed
+    /// against it belongs <em>above</em> that line — the implicit <c>base()</c>
+    /// runs before the first statement, not after it.
+    /// </remarks>
+    public bool TryGetInsertionLine(IrNode node, out int line)
+    {
+        if (!_insertionPoints.TryGetValue(node, out int position))
+        {
+            line = 0;
+            return false;
+        }
+        line = LineAt(position);
+        return true;
+    }
+
+    /// <summary>
     /// Records what <paramref name="node"/> emitted, between the output lengths
     /// captured either side of its emission. A node that emitted nothing
-    /// (<paramref name="end"/> equal to <paramref name="start"/>) is not
-    /// recorded: it printed no text, so it owns no range and no line.
+    /// (<paramref name="end"/> equal to <paramref name="start"/>) gets no range —
+    /// it printed no text, so it owns no characters and no line — but keeps its
+    /// position as an insertion point, which is the part that stays knowable.
     /// </summary>
     internal void Record(IrNode node, int start, int end)
     {
-        if (end <= start || _index.ContainsKey(node))
+        if (end <= start)
+        {
+            _insertionPoints.TryAdd(node, start);
+            return;
+        }
+        if (_index.ContainsKey(node))
             return;
         _index[node] = _ranges.Count;
         _ranges.Add(new PrintedRange(node, start..end));

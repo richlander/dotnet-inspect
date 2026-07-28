@@ -323,14 +323,26 @@ public static partial class ResearchViews
 
         var factsByOffset = FactsByOffset(annotations);
         var ilByLine = new Dictionary<int, List<(int Offset, string Text)>>();
+        var ilBeforeLine = new Dictionary<int, List<(int Offset, string Text)>>();
         foreach (var instr in annotatedInstrLines)
         {
             if (AnnotationAnchor.Best(spans, instr.Offset) is not { } owner)
                 continue;
-            if (!AnnotationAnchor.TryGetPrintedLine(owner, printedRanges, out int line))
+            // An owner that printed nothing still has a place in emission order,
+            // and its opcodes have nowhere else to go. Taking the insertion point
+            // here and not in TryGetPrintedLine is the point: an annotation whose
+            // owner is silent must stay unplaced rather than claim a line it did
+            // not print, but IL only has to be rendered in the right order.
+            Dictionary<int, List<(int Offset, string Text)>> bucket;
+            int line;
+            if (AnnotationAnchor.TryGetPrintedLine(owner, printedRanges, out line))
+                bucket = ilByLine;
+            else if (printedRanges.TryGetInsertionLine(owner, out line))
+                bucket = ilBeforeLine;
+            else
                 continue;
-            if (!ilByLine.TryGetValue(line, out var list))
-                ilByLine[line] = list = [];
+            if (!bucket.TryGetValue(line, out var list))
+                bucket[line] = list = [];
             list.Add((instr.Offset, AddFactsToAnnotatedLine(instr.Text, factsByOffset.GetValueOrDefault(instr.Offset))));
         }
 
@@ -338,6 +350,10 @@ public static partial class ResearchViews
         var stream = new List<AnnotatedSourceLine>(csLines.Count);
         for (int i = 0; i < csLines.Count; i++)
         {
+            if (ilBeforeLine.TryGetValue(i, out var preamble))
+                foreach (var (offset, text) in preamble)
+                    stream.Add(new AnnotatedSourceLine(text, offset, SourceLineKind.Il));
+
             var csLine = csLines[i];
             var lineAnnotations = annotationsByLine.TryGetValue(i, out var annos)
                 ? (IReadOnlyList<IAnnotation>)annos

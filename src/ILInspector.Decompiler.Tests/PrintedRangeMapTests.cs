@@ -83,6 +83,47 @@ public class PrintedRangeMapTests
         Assert.Equal("this.Name = name;", result.Output![store.Characters].Trim());
     }
 
+    [Fact]
+    public void SuppressedChainCall_KeepsItsInsertionPoint_SoItsIlStillHasSomewhereToGo()
+    {
+        // Printing nothing makes "which characters did this node emit" undefined,
+        // but it leaves "where in emission order does it sit" perfectly defined.
+        // Those are separate questions and get separate members, because the
+        // node's own opcodes have no other owner: without the insertion point the
+        // mixed IL view has no line to render them against and drops them.
+        var function = Import(typeof(PrintedRangeChainFixture), ".ctor");
+        var chainCall = Assert.Single(
+            function.Body.Descendants.OfType<ExpressionStatement>(),
+            statement => statement.Expression is Call { Callee.Name: ".ctor" });
+
+        var result = CSharpPrinter.PrintRaised(function, out var ranges);
+        Assert.NotNull(result.Output);
+
+        Assert.False(ranges.TryGetRange(chainCall, out _));
+        Assert.False(ranges.TryGetLine(chainCall, out _));
+        Assert.True(ranges.TryGetInsertionLine(chainCall, out int line));
+
+        // The implicit base() runs before the first statement, so it inserts at
+        // the line that statement prints on — IL placed against it belongs above.
+        Assert.Equal(0, line);
+        var store = Assert.Single(ranges, range => range.Node is StoreField);
+        Assert.True(ranges.TryGetLine(store.Node, out int storeLine));
+        Assert.Equal(storeLine, line);
+    }
+
+    [Fact]
+    public void PrintedNode_HasNoInsertionPoint_BecauseItHasARange()
+    {
+        // The two channels are disjoint: asking for an insertion point on a node
+        // that printed text is a category error, and answering it would let a
+        // consumer take a position where it should have taken a range.
+        var (_, ranges) = Print(nameof(AllocSampleClass.SumList));
+
+        Assert.NotEmpty(ranges);
+        foreach (var range in ranges)
+            Assert.False(ranges.TryGetInsertionLine(range.Node, out _));
+    }
+
     [Theory]
     [InlineData(nameof(AllocSampleClass.SumList))]
     [InlineData(nameof(AllocSampleClass.SumEnumerable))]
