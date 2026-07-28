@@ -473,17 +473,31 @@ public sealed class ForeachStatementPass : IIrPass
         // ExpressionInliningPass folded its `item = e.Current` store into that use
         // before this pass ran (e.g. JsonElement.DeepEquals, #3164). No hoisted
         // store survives; the enumerator is then referenced only by the condition
-        // MoveNext and one `e.Current` read somewhere in the body. Because the
-        // enumerator is advanced only by the condition, that read is invariant
-        // across the body, so hoisting it back to a fresh foreach variable is the
-        // exact inverse of the inline. Require the single read to sit directly in
-        // the loop body (not inside a nested lambda/local function, where a
-        // hoist would change when it runs).
+        // MoveNext and one `e.Current` read somewhere in the body.
+        //
+        // The single read must be evaluated *unconditionally on every iteration*
+        // for the raise to be sound. csc emits a foreach header's `get_Current`
+        // as the first thing in the loop body, leaving the value live across the
+        // rest of the iteration; the live-range inliner then sinks that read to
+        // its one use. Re-hoisting it to a fresh foreach variable at the loop top
+        // is the exact inverse of that sink and re-lowers opcode-identically —
+        // but only because the original read ran every iteration. A hand-written
+        // `while` that reads `e.Current` inside an `if` (so `get_Current` runs
+        // only some iterations — e.g. Enumerable.ElementAt's `if (index == 0)
+        // return e.Current;`) is byte-for-byte identical here after inlining, yet
+        // hoisting it to the loop top would run `get_Current` on every iteration,
+        // changing how often it executes (and, for a throwing/side-effecting
+        // enumerator, observable behavior). IsUnconditionalEveryIteration rejects
+        // any read nested under a branch, nested loop, switch section, handler,
+        // short-circuit, or ternary/`??`/`?.` arm within the body. Also require
+        // the read to sit outside any nested lambda/local function, where a hoist
+        // would change when it runs.
         var currentReads = loop.Body.Descendants.OfType<LoadProperty>()
             .Where(p => IsCurrentOn(p, enumeratorIndex))
             .ToList();
         if (currentReads is [var inlineCurrent]
             && !IsInsideNestedFunction(inlineCurrent, loop.Body)
+            && IsUnconditionalEveryIteration(inlineCurrent, loop.Body)
             && EnumeratorReferencedOnlyWithinLoopBy(loop, enumeratorIndex, moveNext, inlineCurrent))
         {
             return new EnumeratorMatch(
@@ -529,6 +543,53 @@ public sealed class ForeachStatementPass : IIrPass
         for (var current = node.Parent; current is not null && current != boundary; current = current.Parent)
             if (current is Lambda or LocalFunctionStatement)
                 return true;
+        return false;
+    }
+
+    // True iff <paramref name="node"/> is reached exactly once on every iteration
+    // of the loop whose body is <paramref name="loopBody"/> — i.e. control from
+    // the loop-body entry always flows through it, with no branch, nested loop,
+    // handler, or short-circuit that could skip or repeat it. Walk the ancestor
+    // chain to the body and reject the moment a step enters a conditional slot:
+    // an `if`/ternary arm (only the condition is unconditional), the right side
+    // of `&&`/`||`/`??`, a `?.` continuation, a switch section, a catch/finally,
+    // or any nested loop body/condition. Every other container (blocks,
+    // statements, and non-short-circuit expression operands) is straight-line, so
+    // reaching it keeps the node unconditional.
+    static bool IsUnconditionalEveryIteration(IrNode node, Block loopBody)
+    {
+        for (var current = node; current is not null; current = current.Parent)
+        {
+            var parent = current.Parent;
+            if (parent is null)
+                return false;
+            if (ReferenceEquals(parent, loopBody))
+                return true;
+
+            switch (parent)
+            {
+                case IfStatement ifs when !ReferenceEquals(current, ifs.Condition):
+                    return false;
+                case Conditional cond when !ReferenceEquals(current, cond.Condition):
+                    return false;
+                case LogicalBinary logical when ReferenceEquals(current, logical.Right):
+                    return false;
+                case Coalesce coalesce when ReferenceEquals(current, coalesce.Right):
+                    return false;
+                case NullConditional:
+                case WhileLoop:
+                case DoWhileLoop:
+                case ForLoop:
+                case ForeachStatement:
+                case SwitchSection:
+                case TryCatch:
+                case TryFinally:
+                case CatchClause:
+                case Lambda:
+                case LocalFunctionStatement:
+                    return false;
+            }
+        }
         return false;
     }
 

@@ -524,6 +524,46 @@ public class ForeachStatementPassTests
     }
 
     [Fact]
+    public void InlineCurrentForeach_ConditionalCurrentRead_StaysUsingWhile()
+    {
+        // The inline matcher must decline a loop whose single `e.Current` read is
+        // reached conditionally (here, inside an `if`-then), the shape a
+        // hand-written `while` produces when it reads Current only some
+        // iterations — e.g. Enumerable.ElementAt's `if (index == 0) return
+        // e.Current;`. Re-hoisting that read to a foreach header would run
+        // get_Current every iteration, changing how often it executes (and, for a
+        // throwing/side-effecting enumerator, observable behavior). The
+        // enumerator is a hidden slot over a supported IEnumerable<int>, so the
+        // symbol/collection gate passes and the decision rests entirely on the
+        // unconditional-read guard.
+        var function = BuildInlineConditionalCurrentEnumeratorLoop();
+
+        new ForeachStatementPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Empty(function.Descendants.OfType<ForeachStatement>());
+        Assert.Single(function.Descendants.OfType<UsingStatement>());
+        Assert.Single(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
+    public void InlineCurrentForeach_UnconditionalCurrentReadInsideIfCondition_RaisesToForeach()
+    {
+        // Positive control for the guard: the same hidden-enumerator loop, but the
+        // single `e.Current` read sits in the loop-body `if`-*condition*, which is
+        // evaluated on every iteration. That is unconditional, so the raise is
+        // sound and the inline matcher recovers the foreach.
+        var function = BuildInlineUnconditionalCurrentEnumeratorLoop();
+
+        new ForeachStatementPass().Run(function, PassContext.None);
+        function.CheckInvariant();
+
+        Assert.Single(function.Descendants.OfType<ForeachStatement>());
+        Assert.Empty(function.Descendants.OfType<UsingStatement>());
+        Assert.Empty(function.Descendants.OfType<WhileLoop>());
+    }
+
+    [Fact]
     public void HandWrittenEnumeratorUsingLoop_WithoutSymbols_StaysUsingWhile()
     {
         var function = RaisedWithoutSymbols(nameof(CfgSampleClass.StructUsing));
@@ -668,6 +708,75 @@ public class ForeachStatementPassTests
             [enumeratorType, intType],
             body);
     }
+
+    // A compiler foreach over IEnumerable<int> whose single-use iteration
+    // variable's `e.Current` read was inlined by ExpressionInliningPass — but
+    // into an `if` branch, so the read is reached only some iterations. Models
+    // the Enumerable.ElementAt shape the inline matcher must decline. When
+    // <paramref name="conditional"/> is false the read instead sits in the
+    // loop-body `if`-condition (evaluated every iteration), the safe shape the
+    // matcher raises.
+    static IrFunction BuildInlineCurrentEnumeratorLoop(bool conditional)
+    {
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var collectionType = TypeRef.CoreLib("System.Collections.Generic", "IEnumerable`1");
+        var enumeratorType = TypeRef.CoreLib("System.Collections.Generic", "IEnumerator`1");
+        var getEnumerator = new MethodRef(collectionType, "GetEnumerator", enumeratorType, [], HasThis: true);
+        var moveNext = new MethodRef(enumeratorType, "MoveNext", boolType, [], HasThis: true);
+        var current = new MethodRef(enumeratorType, "get_Current", intType, [], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+
+        IrExpression CurrentRead() => new LoadProperty(current, new LoadLocal(0, enumeratorType), []);
+
+        var loopBody = new Block();
+        if (conditional)
+        {
+            // if (probe == 0) return e.Current;  — the read runs only when the
+            // branch is taken.
+            var thenArm = new Block();
+            thenArm.Add(new Return(CurrentRead()));
+            loopBody.Add(new IfStatement(
+                new Comparison(ComparisonKind.Equal, isUnsigned: false, new LoadArgument(1, "probe", intType), new Constant(0, intType)),
+                thenArm,
+                null));
+        }
+        else
+        {
+            // if (e.Current == 0) return true;  — the read is in the condition,
+            // evaluated every iteration.
+            var thenArm = new Block();
+            thenArm.Add(new Return(new Constant(1, boolType)));
+            loopBody.Add(new IfStatement(
+                new Comparison(ComparisonKind.Equal, isUnsigned: false, CurrentRead(), new Constant(0, intType)),
+                thenArm,
+                null));
+        }
+
+        var usingBody = new BlockContainer();
+        var usingBlock = new Block();
+        usingBlock.Add(new WhileLoop(new Call(moveNext, isVirtual: true, [new LoadLocal(0, enumeratorType)]), loopBody));
+        usingBody.Add(usingBlock);
+
+        var entry = new Block();
+        entry.Add(new UsingStatement(0, enumeratorType, new Call(getEnumerator, isVirtual: true, [new LoadArgument(0, "items", collectionType)]), usingBody));
+        var body = new BlockContainer();
+        body.Add(entry);
+        return new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "Samples", "Owner"),
+            new MethodSignature(boolType, [new Parameter("items", collectionType), new Parameter("probe", intType)], HasThis: false, GenericParameterCount: 0),
+            [enumeratorType],
+            body);
+    }
+
+    static IrFunction BuildInlineConditionalCurrentEnumeratorLoop()
+        => BuildInlineCurrentEnumeratorLoop(conditional: true);
+
+    static IrFunction BuildInlineUnconditionalCurrentEnumeratorLoop()
+        => BuildInlineCurrentEnumeratorLoop(conditional: false);
 
     static IrFunction BuildStructCollectionEnumeratorUsingWhile()
     {
