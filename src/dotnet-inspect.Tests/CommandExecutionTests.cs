@@ -3467,7 +3467,7 @@ public class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("selected section has 2 printable rows; use --row N|first|last to choose one row or --print-all", error);
+        Assert.Contains("selected section has 2 printable rows; use --row N|first|last to choose one row", error);
     }
 
     [Fact]
@@ -3516,42 +3516,22 @@ public class CommandExecutionTests
         Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", document.RootElement.GetProperty("url").GetString());
     }
 
+
     [Fact]
-    public async Task Type_SourceFiles_PrintAllJsonlFetchesAllSources()
+    public async Task Type_SourceFiles_PrintJsonArrayEmitsSelectedRowAsSingleElementArray()
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--print-all", "--jsonl", "--raw", "--tips", "q");
-
-        Assert.Equal(0, exit);
-        Assert.Empty(error);
-        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        Assert.Equal(2, lines.Length);
-        using var first = JsonDocument.Parse(lines[0]);
-        using var second = JsonDocument.Parse(lines[1]);
-        Assert.Equal(1, first.RootElement.GetProperty("row").GetInt32());
-        Assert.Equal(2, second.RootElement.GetProperty("row").GetInt32());
-        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", first.RootElement.GetProperty("url").GetString());
-        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", second.RootElement.GetProperty("url").GetString());
-    }
-
-    [Fact]
-    public async Task Type_SourceFiles_PrintAllJsonArrayFetchesAllSources()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--print-all", "--json-array", "--raw", "--tips", "q");
+            "-S", "Source Files", "--print", "--row", "1", "--json-array", "--raw", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         using var document = JsonDocument.Parse(output);
         var rows = document.RootElement.EnumerateArray().ToArray();
-        Assert.Equal(2, rows.Length);
-        Assert.Equal(1, rows[0].GetProperty("row").GetInt32());
-        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", rows[0].GetProperty("url").GetString());
-        Assert.Contains("JsonReader", rows[0].GetProperty("content").GetString());
-        Assert.Equal(2, rows[1].GetProperty("row").GetInt32());
-        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", rows[1].GetProperty("url").GetString());
+        var single = Assert.Single(rows);
+        Assert.Equal(1, single.GetProperty("row").GetInt32());
+        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", single.GetProperty("url").GetString());
+        Assert.Contains("JsonReader", single.GetProperty("content").GetString());
     }
 
     [Fact]
@@ -3563,7 +3543,7 @@ public class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("--json-array requires --value, --urls, --paths, --print, or --print-all", error);
+        Assert.Contains("--json-array requires --value, --urls, --paths, or --print", error);
     }
 
     [Fact]
@@ -7347,7 +7327,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Source Location", "--print-all", "--json-array", "--tips", "q");
+            "--il-offset", "0x06000001+0x0", "-S", "Source Location", "--print", "--json-array", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -7357,17 +7337,6 @@ public class CommandExecutionTests
         Assert.Contains("CharToHexLookup", output);
     }
 
-    [Fact]
-    public async Task LibraryCommand_IlOffsetPrintAllRejectsRow()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Source Location", "--print-all", "--row", "1", "--tips", "q");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("--print-all cannot be combined with --row", error);
-    }
 
     [Fact]
     public async Task LibraryCommand_IlOffsetCountRejectsPrint()
@@ -10731,7 +10700,7 @@ public class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("selected section has 2 printable rows; use --row N|first|last to choose one row or --print-all", error);
+            Assert.Contains("selected section has 2 printable rows; use --row N|first|last to choose one row", error);
         }
         finally
         {
@@ -10789,7 +10758,7 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_SkillsPrintAll_UsesSeparators()
+    public async Task Project_SkillsPrintAll_IsNoLongerRecognized()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.PrintAll.One", "1.0.0", "README.md", "readme", Skills:
@@ -10802,12 +10771,9 @@ public class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "project", projectPath, "-S", "Skills", "--print-all");
 
-            Assert.Equal(0, exit);
-            Assert.Empty(error);
-            Assert.Contains("--- Test.Project.PrintAll.One skills/one/SKILL.md ---", output);
-            Assert.Contains("--- Test.Project.PrintAll.Two skills/two/SKILL.md ---", output);
-            Assert.Contains("one", output);
-            Assert.Contains("two", output);
+            Assert.NotEqual(0, exit);
+            Assert.DoesNotContain("--- Test.Project.PrintAll.One", output);
+            Assert.Contains("--print-all", error);
         }
         finally
         {

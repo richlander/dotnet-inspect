@@ -116,8 +116,6 @@ public partial record ApiOptions
 
     public bool Print { get; init; }
 
-    public bool PrintAll { get; init; }
-
     public RowSelector? PrintRow { get; init; }
 
     public bool Value { get; init; }
@@ -180,7 +178,7 @@ public partial record ApiOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public virtual bool IsRawOutput => Bare || Print || PrintAll || Value || Urls || Paths || JsonOutput || Tabular || Jsonl || NoHeader || Count;
+    public virtual bool IsRawOutput => Bare || Print || Value || Urls || Paths || JsonOutput || Tabular || Jsonl || NoHeader || Count;
 }
 
 /// <summary>

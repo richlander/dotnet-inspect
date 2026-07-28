@@ -283,7 +283,6 @@ public static class MemberOptionsParser
             RequestAllTaste = parseResult.GetValue(opts.Taste),
             Focus = parseResult.GetValue(opts.Focus),
             Print = parseResult.GetValue(opts.Print),
-            PrintAll = parseResult.GetValue(opts.PrintAll),
             PrintRow = opts.ParsePrintRow(parseResult),
             Value = parseResult.GetValue(opts.Value),
             Urls = parseResult.GetValue(opts.Urls),

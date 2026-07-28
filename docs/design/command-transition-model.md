@@ -218,7 +218,6 @@ package payloads. Once selected, the normal output-shape rules apply:
 | `--count` | Reduce the selected Vector to a Scalar count. | None. Count the bounded, prerelease-filtered addresses already selected. |
 | `--urls` | Project URL-bearing rows to a URL Vector. | None. Valid only if the version-row schema exposes a URL. |
 | `--print` | Resolve a printable payload already referenced by one selected row. | May fetch that declared payload at the same evaluated address; must not add or evaluate another source address. |
-| `--print-all` | Resolve every declared printable row payload in stable row order. | Explicitly authorizes payload fan-out only for already selected/evaluated rows; must not evaluate source addresses. |
 | `--head N` / `--tail N` | Clip rendered output lines after projection. | None. They do not select printable rows or limit payload fetches. |
 
 Shape reducers do not revise operation arity. In particular:
@@ -229,23 +228,23 @@ Shape reducers do not revise operation arity. In particular:
 - `--urls` may expose registry URLs if version rows gain such a field, but it
   must not download package contents to manufacture them;
 - `--print` is exactly-one, not implicit-first: one printable row prints
-  directly, multiple printable rows require `--row N|first|last` or `--print-all`, and zero
-  printable rows reject;
+  directly, multiple printable rows require `--row N|first|last`, and zero
+  printable rows reject. There is no fan-out gesture, so a single `--print`
+  authorizes at most one declared payload fetch;
 - `--head N` and `--tail N` run after print selection and fetching, so
-  `--print --head 1` does not select the first printable row and
-  `--print-all --head 1` still authorizes all declared payload fetches;
+  `--print --head 1` does not select the first printable row;
 - `--rows --head N` and the symmetric `--rows --tail N` are first/last
-  table-row rendering windows and remain incompatible with `--print` and
-  `--print-all`; `--row N|first|last` selects exactly one printable row;
-- a plain version string has no printable document. `--print` and `--print-all`
+  table-row rendering windows and remain incompatible with `--print`;
+  `--row N|first|last` selects exactly one printable row;
+- a plain version string has no printable document. `--print`
   must report that the selected shape is not printable rather than silently
   transition from version-address rows to package artifact inspection. The
   explicit transition remains `package Package@version`.
 
 The same rule applies to `timeline`. `--count` can reduce an already
-assembled Timeline table; it cannot probe additional cells. `--print` and
-`--print-all` can print only payloads already carried or explicitly referenced
-by evaluated rows; they cannot turn unevaluated rows into implicit acquisition.
+assembled Timeline table; it cannot probe additional cells. `--print` can print
+only payloads already carried or explicitly referenced by evaluated rows; it
+cannot turn unevaluated rows into implicit acquisition.
 
 The current package `--versions` path is implemented as a specialized early-exit
 list writer, so some shared reducers and projectors are not yet honored

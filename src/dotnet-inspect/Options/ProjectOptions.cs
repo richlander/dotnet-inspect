@@ -13,8 +13,6 @@ public record ProjectOptions
 
     public bool Print { get; init; }
 
-    public bool PrintAll { get; init; }
-
     public RowSelector? PrintRow { get; init; }
 
     public bool Value { get; init; }

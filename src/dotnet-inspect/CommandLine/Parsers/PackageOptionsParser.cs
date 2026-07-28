@@ -137,7 +137,6 @@ public static class PackageOptionsParser
             IncludePrerelease = parseResult.GetValue(args.PrereleaseOption),
             ShowReadme = parseResult.GetValue(args.ReadmeOption),
             Print = parseResult.GetValue(opts.Print),
-            PrintAll = parseResult.GetValue(opts.PrintAll),
             PrintRow = opts.ParsePrintRow(parseResult),
             Value = parseResult.GetValue(opts.Value),
             Urls = parseResult.GetValue(opts.Urls),
