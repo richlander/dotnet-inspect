@@ -309,12 +309,24 @@ public class CallerScopeFilterTests
     // Copies of one assembly under several subdirectories, or several facades canonicalizing
     // together, all share a canonical name. Every copy must be selected — and the walk must stay
     // linear while doing it. Before the adjacency entry was consumed on first visit, each selected
-    // sharer re-enqueued the shared name and re-traversed the whole group: quadratic in group size,
-    // measured at ~10s for 40k sharers against ~13ms after.
+    // sharer re-enqueued the shared name and re-traversed the whole group: quadratic in group size.
+    //
+    // The group size is chosen for separation under mutation, not for realism. Round 6 measured the
+    // earlier 40k version at ~2080ms against this 2000ms bound — a 4% margin, which faster hardware
+    // would erase, letting the quadratic pass. Because the mutant grows quadratically and the fixed
+    // path linearly, raising the group widens both margins at once (3x the group cost 8.9x the
+    // mutant's time, and almost nothing here):
+    //
+    //   sharers    fixed     reverted to a non-consuming lookup
+    //   40,000     ~13ms     ~2,080ms
+    //   120,000    ~40ms     ~18,509ms
+    //
+    // So the bound now sits ~50x above the linear cost and ~9x below the quadratic one, which
+    // discriminates the two shapes rather than measuring this machine.
     [Fact]
     public void SameNamedCandidatesAreAllSelectedInLinearTime()
     {
-        const int sharers = 40_000;
+        const int sharers = 120_000;
         var candidates = new List<CallerScopeFilter.Candidate>(sharers);
         for (int i = 0; i < sharers; i++)
             candidates.Add(CallerScopeFilter.Candidate.Known("Dup", ["Target"]));
@@ -325,8 +337,8 @@ public class CallerScopeFilterTests
 
         Assert.All(selected, Assert.True);
 
-        // Three orders of magnitude of headroom over the linear cost, and two under the quadratic
-        // one, so this discriminates the shapes without being a wall-clock measurement.
+        // See the margin table above: ~50x of headroom over the linear cost and ~9x under the
+        // quadratic one, so this discriminates the shapes without being a wall-clock measurement.
         Assert.True(
             watch.ElapsedMilliseconds < 2_000,
             $"selection over {sharers} same-named candidates took {watch.ElapsedMilliseconds}ms, "

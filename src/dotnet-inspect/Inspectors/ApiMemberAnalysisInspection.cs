@@ -203,6 +203,17 @@ internal sealed class ApiMemberAnalysisInspection
     /// Treating an unopenable image as undecidable is not merely conservative — one malformed or
     /// zero-byte <c>*.dll</c> beside a real one would select every other candidate and disable the
     /// prefilter for the whole scope.
+    ///
+    /// This classification reads each candidate once, and that read is the tool's sample of a file
+    /// whose contents it does not own. A scope directory being rewritten by a concurrent build has
+    /// no stable answer to sample: reading earlier is not less correct than reading later, only
+    /// earlier. Analysis without the prefilter is timing-dependent on such input too — it simply
+    /// samples each candidate at the point it opens it for body indexing, which is later because
+    /// that work is slower. Measured against a candidate replaced mid-run behind one large scope
+    /// assembly, both answers flip, at different delays: without the prefilter at ~1800ms, with it
+    /// at ~300ms. Prefiltering therefore narrows the window in which a half-written image is seen
+    /// as finished; it does not introduce nondeterminism that a stable scope would not have.
+    /// Callers needing a reproducible answer must present a scope that is not being written.
     /// </summary>
     static Analysis.CallerScopeFilter.Candidate ScopeIdentity(string scopePath)
     {
