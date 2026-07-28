@@ -1,3 +1,4 @@
+using ILInspector.DecompilerHarness;
 using System.Diagnostics;
 
 namespace ILInspector.Decompiler.Tests;
@@ -174,6 +175,221 @@ public class AuthoredCorpusHarnessProcessTests
         Assert.DoesNotContain("does not run a gate", run.Output, StringComparison.Ordinal);
         Assert.DoesNotContain("applies to", run.Output, StringComparison.Ordinal);
         Assert.Contains("Corpus file not found", run.Output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Every mode that dispatches before a gate must refuse rather than run instead of
+    /// it — checked against the binary, once per mode, for both protected gates.
+    ///
+    /// <para>This was one representative mode per gate until review round ten, on the
+    /// reasoning that which modes precede which is <c>AuthoredCorpusRatchetTests</c>'
+    /// business. That reasoning was wrong, and a reviewer showed why: the dispatch-order
+    /// pin over there compares mode <em>names</em>, while the harness pairs each name
+    /// with a <c>Selected</c> expression. Replacing one such expression with
+    /// <c>false</c> left the whole suite green, and
+    /// <c>--fixture-source-inventory --benchmark-authored-corpus &lt;corpus&gt;</c>
+    /// printed an inventory and exited 0 — the requested gate silently discarded, which
+    /// is #3245 exactly. One mode was covered here, so one mode was safe; the other
+    /// sixteen were not.</para>
+    ///
+    /// <para>The corpus path is absent on purpose. A refusal must win over a missing
+    /// file, so "runs instead of" rather than "corpus file not found" is what proves the
+    /// preemption fired.</para>
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(PreemptionCases))]
+    public void Harness_RefusesEveryPreemptingModeAgainstEveryProtectedGate(
+        string gate,
+        string[] mode)
+    {
+        var run = RunHarness([gate, "/does-not-exist.jsonl", .. mode]);
+
+        Assert.Equal(1, run.ExitCode);
+        Assert.Contains(
+            $"{mode[0]} runs instead of {gate}",
+            run.Output,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Every mode that precedes a gate, paired with each gate it precedes.
+    ///
+    /// <para>Derived from the dispatch order rather than hand-listed, so a mode added to
+    /// the harness without a case here fails
+    /// <see cref="Preemption_CoversEveryModeThatPrecedesAGate"/> rather than silently
+    /// going ungated.</para>
+    /// </summary>
+    public static TheoryData<string, string[]> PreemptionCases()
+    {
+        var cases = new TheoryData<string, string[]>();
+        string[] order = AuthoredCorpusRatchetTests.DispatchOrderFlags;
+
+        foreach (string gate in AuthoredCorpusExitContract.ProtectedGates)
+        {
+            int gateIndex = Array.IndexOf(order, gate);
+            Assert.True(gateIndex >= 0, $"{gate} is not in the dispatch order.");
+
+            foreach (string[] mode in PreemptingModeInvocations)
+            {
+                // Only a mode that dispatches *earlier* preempts this gate. The two gates
+                // are themselves in the order, so pairing them the other way round would
+                // assert a refusal naming the wrong flag.
+                if (Array.IndexOf(order, mode[0]) < gateIndex)
+                    cases.Add(gate, mode);
+            }
+        }
+
+        return cases;
+    }
+
+    /// <summary>
+    /// The theory above must exercise every mode the harness dispatches, not a subset
+    /// that happens to be listed here.
+    /// </summary>
+    [Fact]
+    public void Preemption_CoversEveryModeThatPrecedesAGate()
+    {
+        Assert.Equal(
+            AuthoredCorpusRatchetTests.DispatchOrderFlags,
+            PreemptingModeInvocations.Select(mode => mode[0]).Distinct().ToArray());
+    }
+
+    /// <summary>
+    /// How to invoke each dispatch mode, in dispatch order.
+    ///
+    /// <para>Most are bare flags. The ones carrying a value must be spelled with it or
+    /// the flag would swallow the gate that follows it as its own argument, and the test
+    /// would pass while proving nothing — the gate was never requested.
+    /// <c>--fidelity-check</c> appears twice because the harness selects it from a
+    /// two-term disjunction, and one term covered would leave the other unpinned.</para>
+    /// </summary>
+    static readonly string[][] PreemptingModeInvocations =
+    [
+        ["--fixture-source-inventory"],
+        ["--history-card"],
+        ["--generated-fixtures"],
+        ["--fuzz-signatures"],
+        ["--return-to-sender-catalog"],
+        ["--emit-inverse-ledger", UnusedOutputPath],
+        ["--assertion-scan"],
+        ["--validity-check"],
+        ["--validity-predicate-scan"],
+        ["--fidelity-check"],
+        ["--fidelity-check", "--fidelity-method-delta", "SomeType.SomeMethod"],
+        ["--return-to-sender"],
+        ["--return-address"],
+        ["--not-my-type"],
+        ["--enumerate-real-methods"],
+        ["--harvest-authored-corpus", UnusedOutputPath],
+        ["--harvest-evil-corpus", UnusedOutputPath],
+        ["--benchmark-authored-corpus", "/does-not-exist.jsonl"],
+        ["--verify-authored-corpus", "/does-not-exist.jsonl"],
+    ];
+
+    /// <summary>
+    /// A path for flags that demand an output file. Every case using it must refuse
+    /// before dispatch, so nothing is ever written here.
+    /// </summary>
+    const string UnusedOutputPath = "/does-not-exist/unused-output.json";
+
+    /// <summary>
+    /// A requested <c>--ratchet-baseline</c> must reach the benchmark.
+    ///
+    /// <para>Dropping it at the call site left the suite green in review round ten, and
+    /// the harness then ran the benchmark against no baseline at all while the caller
+    /// believed it had ratcheted — a gate reporting success having compared nothing,
+    /// which is #3245 restated.</para>
+    ///
+    /// <para>A missing baseline beside a real corpus file is what makes the forwarding
+    /// observable: the benchmark reads the baseline before it reads the corpus, so
+    /// "ratchet baseline not found" can only be reached if the path arrived. Were the
+    /// argument dropped, the run would proceed to the corpus and complain about that
+    /// instead.</para>
+    /// </summary>
+    [Fact]
+    public void Harness_ForwardsTheRatchetBaselineToTheBenchmark()
+    {
+        string corpus = Path.Combine(Path.GetTempPath(), $"ratchet-forwarding-{Guid.NewGuid():N}.jsonl");
+        File.WriteAllText(corpus, string.Empty);
+
+        try
+        {
+            var run = RunHarness(
+                "--benchmark-authored-corpus", corpus,
+                "--ratchet-baseline", "/does-not-exist/baseline.jsonl");
+
+            Assert.Equal(1, run.ExitCode);
+            Assert.Contains(
+                "Ratchet baseline not found: /does-not-exist/baseline.jsonl",
+                run.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(corpus);
+        }
+    }
+
+    /// <summary>
+    /// A requested <c>--integrity-only</c> must reach the benchmark, and an unrequested
+    /// one must not be invented.
+    ///
+    /// <para>This is the scheduled lane's whole contract. Dropping the argument at the
+    /// call site left the suite green in review round ten; the lane would then have
+    /// selected the historical <c>invalid == 0</c> contract, which its corpus cannot
+    /// satisfy, and gone red every week for a reason no one could read off the exit
+    /// code — the failure #3245 is about, reintroduced by the fix for it.</para>
+    ///
+    /// <para>Both runs are asserted because the flag only changes which contract is
+    /// <em>reported</em>: the exit codes here are identical, so an exit-code check would
+    /// see nothing. The corpus is a single real harvested row, and the claim does not
+    /// depend on how that row decompiles — if the assembly drifts so the row no longer
+    /// resolves, the run still reaches its verdict and still names the contract it
+    /// applied. This asserts the plumbing, not the quality.</para>
+    /// </summary>
+    [Fact]
+    public void Harness_ForwardsIntegrityOnlyToTheBenchmark()
+    {
+        string corpus = Path.Combine(
+            AuthoredCorpusRatchetTests.FindRepositoryRoot(),
+            "tools", "DecompilerHarness", "corpus", "one-row-authored-corpus.jsonl");
+        string assembly = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
+
+        var requested = RunHarness(assembly, "--benchmark-authored-corpus", corpus, "--integrity-only");
+        Assert.Contains("[integrity-only]", requested.Output, StringComparison.Ordinal);
+
+        var notRequested = RunHarness(assembly, "--benchmark-authored-corpus", corpus);
+        Assert.DoesNotContain("[integrity-only]", notRequested.Output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The verify gate must dispatch to the drift check.
+    ///
+    /// <para>Inverting its dispatch condition left the suite green in review round ten:
+    /// the flag was accepted, every refusal rule applied to it correctly, and then
+    /// nothing ran it. Reaching the drift check's own complaint about an unparseable
+    /// corpus is what proves it was entered.</para>
+    /// </summary>
+    [Fact]
+    public void Harness_DispatchesTheStandaloneVerifyGate()
+    {
+        string corpus = Path.Combine(Path.GetTempPath(), $"verify-dispatch-{Guid.NewGuid():N}.jsonl");
+        File.WriteAllText(corpus, string.Empty);
+
+        try
+        {
+            var run = RunHarness("--verify-authored-corpus", corpus);
+
+            Assert.Equal(1, run.ExitCode);
+            Assert.Contains(
+                $"Corpus is empty or unparseable: {corpus}",
+                run.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(corpus);
+        }
     }
 
     sealed record HarnessRun(int ExitCode, string Output);

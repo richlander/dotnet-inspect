@@ -1165,6 +1165,20 @@ public class AuthoredCorpusRatchetTests
     /// <summary>The harness's dispatch order, with exactly one mode selected.</summary>
     static (string Flag, bool Selected)[] DispatchOrder(string selected) => DispatchOrder([selected]);
 
+    /// <summary>
+    /// The harness's dispatch order.
+    ///
+    /// <para>Shared with <see cref="AuthoredCorpusHarnessProcessTests"/>, which runs the
+    /// binary once per mode and so needs to know that it covered every one of them.
+    /// Review round ten found why that matters: this list records the mode <em>names</em>
+    /// only, and the harness pairs each name with a <c>Selected</c> expression that no
+    /// test could see. Marking one mode unselected there stopped it preempting a
+    /// requested gate — the gate was dropped, the mode ran in its place, the binary
+    /// exited 0, and the suite stayed green.</para>
+    /// </summary>
+    internal static string[] DispatchOrderFlags { get; } =
+        [.. DispatchOrder([]).Select(entry => entry.Flag)];
+
     /// <summary>The harness's dispatch order, with the named modes selected.</summary>
     static (string Flag, bool Selected)[] DispatchOrder(string[] selected)
     {
