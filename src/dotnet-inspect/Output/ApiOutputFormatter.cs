@@ -2002,7 +2002,7 @@ public static class ApiOutputFormatter
                     item.Region.FilterStart is { } filterStart && item.Region.FilterEnd is { } filterEnd
                         ? FormatILRange(filterStart, filterEnd)
                         : null,
-                    item.Region.CaughtType))
+                    CSharpIdentifier.ContainRenderedText(item.Region.CaughtType ?? "")))
             .ToList();
 
         if (rows.Count > 0 || explicitSections is not null && explicitSections.Contains(SectionNames.ExceptionRegions))

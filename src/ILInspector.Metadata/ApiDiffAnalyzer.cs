@@ -1,3 +1,4 @@
+using ILInspector.CSharp;
 using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
@@ -130,7 +131,22 @@ public record ApiChange(
     string? OldValue = null,
     string? NewValue = null,
     ApiChangeCategory Category = ApiChangeCategory.Signature,
-    ApiChangeSubject? Subject = null);
+    ApiChangeSubject? Subject = null)
+{
+    /// <summary>
+    /// The human-readable description, which embeds untrusted type and member
+    /// names. Containment happens here rather than at each of the eight sites
+    /// that compose a message, so a ninth cannot reopen the hole. Identity lives
+    /// in <see cref="Subject"/> and stays raw (issue #3319).
+    /// </summary>
+    public string Message { get; init; } = CSharpIdentifierCore.ContainComposedName(Message);
+
+    /// <inheritdoc cref="Message"/>
+    public string? OldValue { get; init; } = OldValue is null ? null : CSharpIdentifierCore.ContainComposedName(OldValue);
+
+    /// <inheritdoc cref="Message"/>
+    public string? NewValue { get; init; } = NewValue is null ? null : CSharpIdentifierCore.ContainComposedName(NewValue);
+}
 
 /// <summary>
 /// Named, explicitly-requested classification exceptions -- mirrors

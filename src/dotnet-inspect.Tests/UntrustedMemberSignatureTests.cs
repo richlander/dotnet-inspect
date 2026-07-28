@@ -252,3 +252,33 @@ public class UntrustedViewContainmentTests
         }
     }
 }
+
+/// <summary>
+/// Gate for the diff channel (issue #3319). `ApiChange` messages embed untrusted
+/// type and member names, and the diff renderer prints them into Markdown
+/// headings, bullet lists, and table cells.
+/// </summary>
+public class UntrustedDiffContainmentTests
+{
+    [Theory]
+    [InlineData("\v")]
+    [InlineData("\n")]
+    [InlineData("\r\n")]
+    [InlineData("\u001b[31m")]
+    [InlineData("\u202e")]
+    public void ApiChangeText_IsContained(string hazard)
+    {
+        var change = new ApiChange(
+            ChangeKind.MemberAdded,
+            ChangeClassification.Additive,
+            $"Member 'M{hazard}INJECTED' was added",
+            OldValue: $"void M{hazard}INJECTED()",
+            NewValue: $"int M{hazard}INJECTED()");
+
+        // Non-vacuity: the name must still be there, contained rather than dropped.
+        Assert.Contains("INJECTED", change.Message, StringComparison.Ordinal);
+
+        foreach (string text in new[] { change.Message, change.OldValue!, change.NewValue! })
+            Assert.DoesNotContain(text, c => c != '\t' && char.IsControl(c));
+    }
+}
