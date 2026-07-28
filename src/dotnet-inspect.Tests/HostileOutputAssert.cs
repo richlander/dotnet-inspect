@@ -63,6 +63,32 @@ internal static class HostileOutputAssert
                 $"'{marker}' never rendered in {channel}, so this gate proves nothing about that channel");
         }
     }
+
+    /// <summary>
+    /// Asserts no marker was pushed onto a line of its own.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="IsForbidden"/> permits LF by construction, so on its own it
+    /// accepts the exact injection this issue is about: containment that
+    /// rewrote a hazard as a newline would pass it. Correct containment leaves
+    /// the marker welded to the text it was embedded in, so the character
+    /// before it is never a line break.
+    /// </remarks>
+    public static void NoLineSplit(string output, params string[] markers)
+    {
+        foreach (var marker in markers)
+        {
+            int at = output.IndexOf(marker, StringComparison.Ordinal);
+            while (at > 0)
+            {
+                char before = output[at - 1];
+                Assert.False(
+                    before is '\n' or '\r' or '\u0085' or '\u2028' or '\u2029',
+                    $"{marker} starts a new line: containment split the text it was embedded in");
+                at = output.IndexOf(marker, at + marker.Length, StringComparison.Ordinal);
+            }
+        }
+    }
 }
 
 /// <summary>

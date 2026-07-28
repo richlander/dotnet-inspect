@@ -732,7 +732,41 @@ public static class AttributeReader
         _ => false,
     };
 
-    private static string? TryGetAttributeDisplayValue(MetadataReader reader, CustomAttribute attr)
+    /// <summary>
+    /// Reads a custom attribute's single leading string argument, or null when
+    /// the blob does not plausibly hold one.
+    /// </summary>
+    /// <remarks>
+    /// The character scan is a <em>decode plausibility</em> test, not a
+    /// containment boundary, and the distinction is load-bearing in both
+    /// directions.
+    /// <para>
+    /// It is not containment: an attribute value that survives this scan is
+    /// still untrusted and is contained where it is rendered, by the C# literal
+    /// escapers and the view-level containment helpers. Nothing here may be
+    /// relied on for safety.
+    /// </para>
+    /// <para>
+    /// It is deliberately narrower than
+    /// <see cref="CSharp.CSharpIdentifierCore.IsRenderingHazard"/>. That
+    /// predicate answers "must this be escaped before rendering?", which is
+    /// true of bidi controls; this one answers "did a blob that is not a string
+    /// just get decoded as one?", which bidi controls are no evidence of, since
+    /// they occur in genuine localized text. Widening this scan to the hazard
+    /// set would silently discard real attribute values that render correctly
+    /// today as escaped text, replacing visible evidence with a bare
+    /// <c>[Obsolete]</c>.
+    /// </para>
+    /// <para>
+    /// The scan is asymmetric in the other direction too: a value carrying a
+    /// vertical tab is dropped whole while one carrying U+202E survives. That
+    /// inconsistency is real but is a fidelity question about which blobs are
+    /// worth showing, not an escaping question, and changing it moves output
+    /// for ordinary assemblies. It is tracked separately rather than folded
+    /// into a containment change.
+    /// </para>
+    /// </remarks>
+    internal static string? TryGetAttributeDisplayValue(MetadataReader reader, CustomAttribute attr)
     {
         try
         {

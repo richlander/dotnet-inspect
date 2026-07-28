@@ -34,6 +34,21 @@ public static class HostileLiterals
     public static void Marked()
     {
     }
+
+    // The members above all carry a control character, which the attribute
+    // decode-plausibility scan in AttributeReader treats as evidence that the
+    // blob is not really a string, so it drops the value whole. These two carry
+    // only characters that scan permits, so their text reaches the member
+    // listing and must be contained there rather than rendered raw.
+    [Obsolete("Obs\u202EINJECTEDOBSOLETEBIDI")]
+    public static void DeprecatedBidiOnly()
+    {
+    }
+
+    [Obsolete("Obs\u2028INJECTEDOBSOLETELSONLY")]
+    public static void DeprecatedSeparatorOnly()
+    {
+    }
 }
 
 /// <summary>

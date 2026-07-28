@@ -555,6 +555,53 @@ public class UntrustedStringLiteralContainmentTests
 }
 
 /// <summary>
+/// Pins the boundary between the attribute decode-plausibility scan and
+/// containment (issue #3319).
+/// </summary>
+/// <remarks>
+/// <c>AttributeReader.TryGetAttributeDisplayValue</c> drops an attribute value
+/// whole when it holds a control character, on the theory that the blob was not
+/// really a string. That scan is narrower than the rendering-hazard set, and a
+/// reviewer reasonably reads the disagreement as a bug and "fixes" it by
+/// widening the scan to <c>IsRenderingHazard</c>.
+///
+/// That would be a regression, and this is the gate that says so. Widening the
+/// scan makes these values vanish from the member listing, so the marker
+/// assertions below fail. Containment, not suppression, is what keeps this
+/// text safe -- and the hazard assertion proves containment is doing that job,
+/// so the drop is not load-bearing for safety.
+/// </remarks>
+[Collection("Console")]
+public class AttributeValueRetentionTests
+{
+    [Theory]
+    [InlineData("INJECTEDOBSOLETEBIDI")]
+    [InlineData("INJECTEDOBSOLETELSONLY")]
+    public async Task ObsoleteMessage_WithHazardButNoControlCharacter_IsRenderedContainedNotDropped(string marker)
+    {
+        string[] args =
+        [
+            "member", "HostileLiterals",
+            "--library", FixtureCatalog.HostileLiterals.AssemblyPath(),
+            "--all", "-v:d",
+        ];
+
+        var (exit, output, _) = await HostileCli.RunAsync(args);
+
+        Assert.Equal(0, exit);
+
+        // Retention: the value must still reach the listing. This fails if the
+        // plausibility scan is widened to the hazard set.
+        Assert.Contains(marker, output, StringComparison.Ordinal);
+
+        // Containment: and it must be safe there, which is why retaining it is
+        // the right call in the first place.
+        HostileOutputAssert.NoRenderingHazard(output, string.Join(' ', args));
+        HostileOutputAssert.NoLineSplit(output, [marker]);
+    }
+}
+
+/// <summary>
 /// Gate for the <c>package</c> channel (issue #3319). A .nupkg is untrusted
 /// input in exactly the way an assembly is: its nuspec text and ZIP entry names
 /// are chosen by whoever built it, and both reach rendered Markdown.
