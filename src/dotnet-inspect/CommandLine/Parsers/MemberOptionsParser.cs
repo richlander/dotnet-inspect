@@ -281,6 +281,7 @@ public static class MemberOptionsParser
             PlainText = parseResult.GetValue(opts.PlainText),
             Bare = parseResult.GetValue(opts.Bare),
             RequestAllTaste = parseResult.GetValue(opts.Taste),
+            RequestReadableLocalNames = parseResult.GetValue(opts.ReadableNames),
             Focus = parseResult.GetValue(opts.Focus),
             Print = parseResult.GetValue(opts.Print),
             PrintRow = opts.ParsePrintRow(parseResult),

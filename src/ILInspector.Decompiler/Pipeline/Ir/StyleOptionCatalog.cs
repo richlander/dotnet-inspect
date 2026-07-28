@@ -276,7 +276,7 @@ public static class StyleOptionCatalog
             tier: StyleOptionTier.Synthesis,
             byteDivergent: false,
             oracleEndorsed: false,
-            configKey: null,
+            configKey: "dotnet_inspect_style_readable_local_names",
             get: static o => o.ReadableLocalNames,
             with: static (o, v) => o with { ReadableLocalNames = v }),
         Boolean(

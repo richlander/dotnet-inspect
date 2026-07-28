@@ -63,6 +63,35 @@ public class CommandLineTests
                 .Any(o => o.Name == "--taste");
     }
 
+    // --readable-names, like --taste, is an api-surface gesture: it only means
+    // something where RenderOptions is consumed to render member source.
+
+    [Theory]
+    [InlineData("member")]
+    [InlineData("type")]
+    public void ApiCommands_AcceptReadableNamesGesture(string command)
+    {
+        var result = CommandLineBuilder.CreateRootCommand().Parse([command, "System.Math", "--readable-names"]);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public void NonApiCommand_DoesNotDeclareReadableNamesGesture()
+    {
+        var root = CommandLineBuilder.CreateRootCommand();
+
+        Assert.True(DeclaresReadableNames(root, "member"));
+        Assert.True(DeclaresReadableNames(root, "type"));
+        Assert.False(DeclaresReadableNames(root, "package"));
+
+        static bool DeclaresReadableNames(Command root, string name) =>
+            root.Subcommands
+                .Single(c => c.Name == name)
+                .Options
+                .Any(o => o.Name == "--readable-names");
+    }
+
     [Fact]
     public void RootCommand_WithInvalidVerbosity_ReportsParseError()
     {
