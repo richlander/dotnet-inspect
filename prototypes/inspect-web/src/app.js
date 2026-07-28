@@ -114,6 +114,7 @@ const state = {
   history: [],
   loading: true,
   loadingMessage: "Starting browser inspection engine…",
+  loadingSubtitle: "",
   error: "",
   errorTitle: "",
   errorDetail: "",
@@ -3836,6 +3837,7 @@ async function openRuntimePackFromHome() {
   state.loading = true;
   state.error = "";
   state.loadingMessage = "Loading the .NET runtime pack…";
+  state.loadingSubtitle = "Microsoft.NETCore.App · net10.0";
   render();
   const pack = await loadRuntimePack("net10.0");
   if (!pack) {
@@ -3874,7 +3876,7 @@ function renderLoading() {
              </div>
              ${state.errorDetail ? `<pre class="load-error-detail" hidden>${escapeHtml(state.errorDetail)}</pre>` : ""}
            </div>`
-        : `<div class="load-progress"><span class="loader"></span><strong>${escapeHtml(state.loadingMessage)}</strong><small>${escapeHtml(state.requestedPackage)}@${escapeHtml(state.requestedVersion)} · ${escapeHtml(state.requestedFramework || "best framework")}</small></div>`}
+        : `<div class="load-progress"><span class="loader"></span><strong>${escapeHtml(state.loadingMessage)}</strong><small>${state.loadingSubtitle ? escapeHtml(state.loadingSubtitle) : `${escapeHtml(state.requestedPackage)}@${escapeHtml(state.requestedVersion)} · ${escapeHtml(state.requestedFramework || "best framework")}`}</small></div>`}
     </div>`;
   document.querySelector("#retry-load")?.addEventListener("click", bootstrap);
   document.querySelector("#error-package-query")?.addEventListener("submit", event => {
@@ -5417,6 +5419,7 @@ async function loadPackage(packageId, version, framework) {
   state.requestedPackage = packageId;
   state.requestedVersion = version;
   state.requestedFramework = framework;
+  state.loadingSubtitle = "";
   state.loadingMessage = `Querying ${packageId}@${version}…`;
   render();
 
@@ -5551,6 +5554,7 @@ async function runCallGraphDemo() {
   state.loading = true;
   state.error = "";
   state.loadingMessage = "Loading cross-package call graph demo…";
+  state.loadingSubtitle = "";
   render();
 
   const targetPackage = await loadPackage(
