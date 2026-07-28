@@ -3549,6 +3549,18 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task ProjectionFlags_ConflictIsMootUnderHelp()
+    {
+        // Help renders no payload, so there is nothing for two projections to fight over.
+        // Rejecting the combination here would turn a working help request into an error.
+        var (exit, output, _) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes", "--count", "--print", "--help");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Usage", output, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Find_Count_ComposesWithJson()
     {
         // Found by the projection audit: --json was resolved before --count, so a count

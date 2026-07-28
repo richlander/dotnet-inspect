@@ -62,6 +62,12 @@ public static class ProjectionAudit
     /// </summary>
     public static bool ValidateExclusive(ParseResult parseResult)
     {
+        // Help short-circuits rendering, so no payload is shaped and the conflict is moot.
+        // This must be checked here as well as in BeginRequest: rejecting the combination
+        // would otherwise turn a legitimate help request into an error.
+        if (IsHelpRequested(parseResult))
+            return true;
+
         var requested = RequestedFlags(parseResult);
         if (requested.Count <= 1)
             return true;
