@@ -400,27 +400,18 @@ public class ApiMember
     public List<string> Attributes { get; set; } = [];
 
     /// <summary>
-    /// Display spelling of the member's type. Composed from untrusted metadata
-    /// names, so it is contained here rather than at each rendering site
-    /// (issue #3319). Identity lives in <see cref="Name"/> and
-    /// <see cref="CanonicalSignature"/> and stays raw. Containment is a no-op on
-    /// clean text.
+    /// Display spelling of the member's type. Deliberately raw: after a JSON
+    /// round-trip <see cref="SignatureModel"/> is absent, and
+    /// <c>ApiMemberIdentity.GetCanonicalSignature</c> falls back to parsing
+    /// <see cref="Signature"/> to rebuild canonical identity — so containing it
+    /// here would make a round-tripped member's identity diverge from the same
+    /// member read live (issue #3319, found in adversarial review). Containment
+    /// for these belongs at the rendering sites, never on the transfer object.
     /// </summary>
-    public string? ReturnType
-    {
-        get => _returnType;
-        set => _returnType = value is null ? null : CSharpIdentifierCore.ContainComposedName(value);
-    }
+    public string? ReturnType { get; set; }
 
     /// <inheritdoc cref="ReturnType"/>
-    public string? Signature
-    {
-        get => _signature;
-        set => _signature = value is null ? null : CSharpIdentifierCore.ContainComposedName(value);
-    }
-
-    private string? _returnType;
-    private string? _signature;
+    public string? Signature { get; set; }
 
     /// <summary>
     /// Durable 10-char digest for this overload — the same value shown in the Markdown

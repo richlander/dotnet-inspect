@@ -1924,7 +1924,12 @@ public static class ApiSurfaceExtractor
         '\t' => "\\t",
         '\v' => "\\v",
         '\u0085' or '\u2028' or '\u2029' => $"\\u{(int)c:x4}",
-        _ when char.IsControl(c) => $"\\u{(int)c:x4}",
+        // Bidi overrides are category Cf, so char.IsControl is false for them and
+        // they would reach the terminal raw (issue #3319). No end-to-end gate
+        // covers this particular escaper — every probe reached the sibling
+        // escaper below instead — so treat it as unverified hardening that keeps
+        // the two spellings consistent, not as a proven-reachable fix.
+        _ when CSharpIdentifierCore.IsRenderingHazard(c) => $"\\u{(int)c:x4}",
         _ => c.ToString()
     };
 
@@ -2001,7 +2006,7 @@ public static class ApiSurfaceExtractor
                 '\r' => "\\r",
                 '\t' => "\\t",
                 '\v' => "\\v",
-                _ when char.IsControl(c) => $"\\u{(int)c:X4}",
+                _ when CSharpIdentifierCore.IsRenderingHazard(c) => $"\\u{(int)c:X4}",
                 _ => c.ToString()
             });
         }

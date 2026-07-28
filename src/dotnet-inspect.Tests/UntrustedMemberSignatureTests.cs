@@ -169,6 +169,26 @@ public class UntrustedViewContainmentTests
                     Kind = "method",
                     ReturnType = $"Ret{Hazard}INJECTED",
                     Signature = $"Ret{Hazard}INJECTED Meth{Hazard}INJECTED(Arg{Hazard}INJECTED a)",
+                    // Adversarial review showed the walk passed vacuously for these
+                    // three: attribute text, the [Obsolete] message, and a parameter
+                    // default value are all attacker-controlled and were unseeded.
+                    Attributes = [$"Attr{Hazard}INJECTED"],
+                    ObsoleteMessage = $"Obs{Hazard}INJECTED",
+                    SignatureModel = new ApiSignature
+                    {
+                        ReturnType = $"Ret{Hazard}INJECTED",
+                        Parameters =
+                        [
+                            new ApiParameter
+                            {
+                                Name = "a",
+                                Type = $"Arg{Hazard}INJECTED",
+                                HasDefault = true,
+                                DefaultValueText = $"\"Def{Hazard}INJECTED\"",
+                                Attributes = [$"PAttr{Hazard}INJECTED"],
+                            },
+                        ],
+                    },
                 },
                 new ApiMember { Name = ".ctor", Kind = "constructor" },
             ]

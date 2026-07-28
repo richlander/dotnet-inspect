@@ -4,6 +4,13 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using DotnetInspector.Commands;
 using DotnetInspector.Options;
+using DotnetInspector.Fixtures;
+using DotnetInspector.CommandLine;
+using CoreFactory = DotnetInspector.Core.HttpClientFactory;
+using DotnetInspector.Models;
+using DotnetInspector.Views;
+using ILInspector.Research;
+using Markout;
 
 namespace DotnetInspector.Tests;
 
@@ -54,6 +61,7 @@ public class UntrustedLibraryViewContainmentTests : IDisposable
         // Non-vacuity: a section that rendered nothing would pass trivially.
         Assert.Contains("INJECTED", output, StringComparison.Ordinal);
         AssertNoHazard(output);
+        AssertNoLineSplit(output);
     }
 
     [Fact]
@@ -75,9 +83,46 @@ public class UntrustedLibraryViewContainmentTests : IDisposable
 
         Assert.Equal(0, exit);
 
-        // Non-vacuity: the hostile names must actually reach the rendered output.
-        Assert.Contains("INJECTED", output, StringComparison.Ordinal);
+        // Per-channel non-vacuity. A single global "INJECTED" check would be
+        // satisfied by the async section alone, letting a regression confined to
+        // attributes or resources pass vacuously (found by adversarial review).
+        foreach (var marker in new[]
+                 {
+                     "INJECTEDASYNC", "INJECTEDPI", "INJECTEDEXT",
+                 })
+        {
+            Assert.Contains(marker, output, StringComparison.Ordinal);
+        }
+
         AssertNoHazard(output);
+        AssertNoLineSplit(output);
+    }
+
+    /// <summary>
+    /// Line-integrity oracle. <see cref="AssertNoHazard"/> deliberately permits
+    /// CR and LF because they are legitimate structure in rendered Markdown, so
+    /// on its own it would accept a regression that rewrote the hazard as a raw
+    /// newline — which is exactly the line injection this issue is about (found
+    /// by adversarial review). Every hostile name here has the shape
+    /// <c>prefix + hazard + INJECTED…</c>, and every correct containment spelling
+    /// keeps the two halves adjacent: sanitization yields <c>prefix_INJECTED…</c>
+    /// and visible escaping yields <c>prefix\u000BINJECTED…</c>. So the character
+    /// immediately before each marker must still be an identifier character.
+    /// </summary>
+    private static void AssertNoLineSplit(string output)
+    {
+        for (int i = output.IndexOf("INJECTED", StringComparison.Ordinal); i >= 0;
+             i = output.IndexOf("INJECTED", i + 1, StringComparison.Ordinal))
+        {
+            char before = i == 0 ? '\0' : output[i - 1];
+            if (!char.IsLetterOrDigit(before) && before != '_')
+            {
+                Assert.Fail(
+                    $"hostile name was split before its marker at index {i} "
+                    + $"(preceding character U+{(int)before:X4}): "
+                    + output.Substring(Math.Max(0, i - 60), Math.Min(120, output.Length - Math.Max(0, i - 60))));
+            }
+        }
     }
 
     private static void AssertNoHazard(string output)
@@ -119,37 +164,37 @@ public class UntrustedLibraryViewContainmentTests : IDisposable
 
         // Async method: hostile method name, declaring type, and namespace.
         var asyncType = module.DefineType(
-            $"Hostile{Hazard}INJECTED.Async{Hazard}INJECTED",
+            $"Hostile{Hazard}INJECTEDASYNC.Async{Hazard}INJECTEDASYNC",
             TypeAttributes.Public | TypeAttributes.Class);
         var asyncMethod = asyncType.DefineMethod(
-            $"DoWork{Hazard}INJECTED", MethodAttributes.Public, typeof(void), Type.EmptyTypes);
+            $"DoWork{Hazard}INJECTEDASYNC", MethodAttributes.Public, typeof(void), Type.EmptyTypes);
         asyncMethod.GetILGenerator().Emit(OpCodes.Ret);
         asyncMethod.SetCustomAttribute(new CustomAttributeBuilder(asyncCtor, [typeof(object)]));
         asyncType.CreateType();
 
         // Extension method: hostile method name and extension class.
         var extensionType = module.DefineType(
-            $"Hostile{Hazard}INJECTED.Extensions{Hazard}INJECTED",
+            $"Hostile{Hazard}INJECTEDEXT.Extensions{Hazard}INJECTEDEXT",
             TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Sealed | TypeAttributes.Abstract);
         extensionType.SetCustomAttribute(new CustomAttributeBuilder(extensionCtor, []));
         var extensionMethod = extensionType.DefineMethod(
-            $"Extend{Hazard}INJECTED",
+            $"Extend{Hazard}INJECTEDEXT",
             MethodAttributes.Public | MethodAttributes.Static,
             typeof(void),
             [typeof(string)]);
-        extensionMethod.DefineParameter(1, ParameterAttributes.None, $"value{Hazard}INJECTED");
+        extensionMethod.DefineParameter(1, ParameterAttributes.None, $"value{Hazard}INJECTEDEXT");
         extensionMethod.GetILGenerator().Emit(OpCodes.Ret);
         extensionMethod.SetCustomAttribute(new CustomAttributeBuilder(extensionCtor, []));
         extensionType.CreateType();
 
         // P/Invoke: hostile method name and module name.
         var nativeType = module.DefineType(
-            $"Hostile{Hazard}INJECTED.Native{Hazard}INJECTED",
+            $"Hostile{Hazard}INJECTEDPI.Native{Hazard}INJECTEDPI",
             TypeAttributes.Public | TypeAttributes.Class);
         var pinvoke = nativeType.DefinePInvokeMethod(
-            $"Call{Hazard}INJECTED",
-            $"module{Hazard}INJECTED.dll",
-            $"entry{Hazard}INJECTED",
+            $"Call{Hazard}INJECTEDPI",
+            $"module{Hazard}INJECTEDPI.dll",
+            $"entry{Hazard}INJECTEDPI",
             MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PinvokeImpl,
             CallingConventions.Standard,
             typeof(int),
@@ -202,6 +247,7 @@ public class UntrustedTypeSpellingContainmentTests : IDisposable
         Assert.Equal(0, exit);
         Assert.Contains("INJECTED", output, StringComparison.Ordinal);
         AssertNoHazard(output);
+        AssertNoLineSplit(output);
     }
 
     [Fact]
@@ -218,6 +264,28 @@ public class UntrustedTypeSpellingContainmentTests : IDisposable
         // Non-vacuity: the suggestion list must actually echo the hostile names.
         Assert.Contains("INJECTED", error, StringComparison.Ordinal);
         AssertNoHazard(error);
+        AssertNoLineSplit(error);
+    }
+
+    /// <summary>
+    /// Line-integrity oracle; see the sibling explanation on
+    /// <see cref="UntrustedLibraryViewContainmentTests"/>. <see cref="AssertNoHazard"/>
+    /// permits CR and LF as legitimate Markdown structure, so it alone would
+    /// accept a regression that rewrote the hazard as a raw newline.
+    /// </summary>
+    private static void AssertNoLineSplit(string output)
+    {
+        for (int i = output.IndexOf("INJECTED", StringComparison.Ordinal); i >= 0;
+             i = output.IndexOf("INJECTED", i + 1, StringComparison.Ordinal))
+        {
+            char before = i == 0 ? '\0' : output[i - 1];
+            if (!char.IsLetterOrDigit(before) && before != '_')
+            {
+                Assert.Fail(
+                    $"hostile name was split before its marker at index {i} "
+                    + $"(preceding character U+{(int)before:X4})");
+            }
+        }
     }
 
     private static void AssertNoHazard(string output)
@@ -276,5 +344,160 @@ public class UntrustedTypeSpellingContainmentTests : IDisposable
         derived.CreateType();
 
         ab.Save(path);
+    }
+}
+
+/// <summary>
+/// Gate for the <c>--il-offset</c> projection sections of the library view
+/// (issue #3319). These sections render assembly-derived text — the caught
+/// exception type, the allocated and churned types, the callee, the member
+/// signature, and the decoded instruction operand — and were the one family of
+/// <c>LibraryInspectionView</c> rows that reached output without containment,
+/// because unlike the performance and resource-triage rows they do not route
+/// through <see cref="DotnetInspector.Output.MarkoutInline"/>.
+///
+/// The projection is a plain settable model, so this gate drives the view
+/// directly rather than through a synthesized assembly: <c>PersistedAssemblyBuilder</c>
+/// cannot emit the IL-offset analysis state these sections consume.
+/// </summary>
+public class UntrustedILOffsetContainmentTests
+{
+    private const string Hazard = "\v";
+
+    [Fact]
+    public void ILOffsetSections_WithHostileMetadataText_RenderNoHazard()
+    {
+        string H(string tag) => $"Hostile{Hazard}INJECTED{tag}";
+
+        var inspection = new LibraryInspection
+        {
+            FileName = "hostile.dll",
+            ILOffset = new ILOffsetProjection
+            {
+                MemberContext = new ILOffsetMemberContext
+                {
+                    Type = H("TYPE"),
+                    Member = H("MEMBER"),
+                    Signature = H("SIG"),
+                },
+                InstructionContext = new ILOffsetInstructionContext
+                {
+                    Operand = H("OPERAND"),
+                },
+                ExceptionContext = [new ILOffsetExceptionContext { Region = 0, CaughtType = H("CAUGHT") }],
+                CallsiteContext = new ILOffsetCallsiteContext { Callee = H("CALLEE") },
+                ReturnAddressContext = new ILOffsetReturnAddressContext { Callee = H("RETCALLEE") },
+                AllocationContext = [new ILOffsetAllocationContext { AllocatedType = H("ALLOC"), ChurnedType = H("CHURN") }],
+                SafetyContext = [new ILOffsetSafetyContext { Operation = H("SAFETY") }],
+                CostContext = [new ILOffsetCostContext { Operation = H("COST") }],
+            },
+        };
+
+        var output = MarkoutSerializer.Serialize(
+            new LibraryInspectionView(inspection), InspectionContext.Default);
+
+        // Per-channel non-vacuity: each section must actually have rendered its
+        // hostile text, or its containment would be asserted vacuously.
+        foreach (var marker in new[]
+                 {
+                     "INJECTEDTYPE", "INJECTEDMEMBER", "INJECTEDSIG", "INJECTEDOPERAND",
+                     "INJECTEDCAUGHT", "INJECTEDCALLEE", "INJECTEDRETCALLEE",
+                     "INJECTEDALLOC", "INJECTEDCHURN", "INJECTEDSAFETY", "INJECTEDCOST",
+                 })
+        {
+            Assert.Contains(marker, output, StringComparison.Ordinal);
+        }
+
+        for (int i = 0; i < output.Length; i++)
+        {
+            char c = output[i];
+            if (c is not '\t' and not '\n' and not '\r'
+                && (char.IsControl(c)
+                    || c is '\u061C' or '\u200E' or '\u200F'
+                        or >= '\u202A' and <= '\u202E'
+                        or >= '\u2066' and <= '\u2069'))
+            {
+                Assert.Fail($"rendered il-offset output carries U+{(int)c:X4} at index {i}");
+            }
+        }
+
+        // Line integrity: the hazard must not have become a raw newline, which
+        // the hazard scan above deliberately permits as Markdown structure.
+        for (int i = output.IndexOf("INJECTED", StringComparison.Ordinal); i >= 0;
+             i = output.IndexOf("INJECTED", i + 1, StringComparison.Ordinal))
+        {
+            char before = i == 0 ? '\0' : output[i - 1];
+            Assert.True(
+                char.IsLetterOrDigit(before) || before == '_',
+                $"hostile text was split before its marker at index {i} (U+{(int)before:X4})");
+        }
+    }
+}
+
+/// <summary>
+/// Gate for the string-literal channels found in the seventh adversarial round
+/// (issue #3319): a parameter default value, an <c>[Obsolete]</c> message, and a
+/// custom attribute argument are all attacker-controlled text rendered inside a
+/// C# string literal.
+///
+/// The escapers guarding them tested <see cref="char.IsControl(char)"/>, which is
+/// <see langword="false"/> for the Unicode bidi overrides (they are category
+/// <c>Cf</c>, not <c>Cc</c>) — so <c>U+202E</c> reached the terminal raw and
+/// produced literal Trojan Source text inside otherwise plausible output.
+///
+/// This gate uses a compiler-produced fixture rather than an emitted one: the
+/// attribute-message blob a <c>PersistedAssemblyBuilder</c> writes does not
+/// decode back, so an emitted assembly renders a bare <c>[Obsolete]</c> and
+/// would gate the channel vacuously.
+/// </summary>
+[Collection("Console")]
+public class UntrustedStringLiteralContainmentTests
+{
+    [Fact]
+    public async Task StringLiteralChannels_WithHostileText_RenderNoHazard()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "type", "HostileLiterals",
+            "--library", FixtureCatalog.HostileLiterals.AssemblyPath(),
+            "-S", "Decompiled Source",
+            "-v:d");
+
+        Assert.Equal(0, exit);
+
+        // Per-channel non-vacuity: each hostile literal must actually have
+        // rendered, or the hazard scan below would pass on output that never
+        // carried it. The default value, the [Obsolete] message, and the custom
+        // attribute argument travel through three different escapers.
+        foreach (var marker in new[] { "INJECTEDDEFAULT", "INJECTEDOBSOLETE", "INJECTEDATTRIBUTE" })
+        {
+            Assert.Contains(marker, output, StringComparison.Ordinal);
+        }
+
+        for (int i = 0; i < output.Length; i++)
+        {
+            char c = output[i];
+            if (c is not '\t' and not '\n' and not '\r'
+                && (char.IsControl(c)
+                    || c is '\u061C' or '\u200E' or '\u200F'
+                        or >= '\u202A' and <= '\u202E'
+                        or >= '\u2066' and <= '\u2069'))
+            {
+                Assert.Fail($"rendered output carries U+{(int)c:X4} at index {i}");
+            }
+        }
+    }
+
+    /// <summary>Mirrors the Program.cs entry point, so this gate exercises the
+    /// same argument path a user drives.</summary>
+    private static async Task<(int exit, string output, string error)> RunAppAsync(params string[] args)
+    {
+        return await ConsoleCapture.RunAsync(async () =>
+        {
+            CoreFactory.Initialize(offline: true);
+            CoreFactory.ResetSharedForTesting();
+            args = CommandLineBuilder.PreprocessArgs(args);
+            var root = CommandLineBuilder.CreateRootCommand();
+            return await root.Parse(args).InvokeAsync();
+        });
     }
 }

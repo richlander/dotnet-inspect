@@ -1194,13 +1194,33 @@ internal static class CSharpDeclarationWriter
             ? "[Obsolete]"
             : $"[Obsolete(\"{EscapeCSharpString(message)}\")]";
 
+    // The Obsolete message is attacker-controlled attribute text rendered inside a
+    // C# string literal. Escaping only the classic C-escapes leaves vertical tabs,
+    // ANSI escapes, and bidi overrides to reach the terminal raw (issue #3319), so
+    // every remaining rendering hazard is spelled as a visible \uXXXX escape.
     static string EscapeCSharpString(string value)
-        => value
+    {
+        var escaped = value
             .Replace("\\", "\\\\", StringComparison.Ordinal)
             .Replace("\"", "\\\"", StringComparison.Ordinal)
             .Replace("\r", "\\r", StringComparison.Ordinal)
             .Replace("\n", "\\n", StringComparison.Ordinal)
             .Replace("\t", "\\t", StringComparison.Ordinal);
+
+        if (!escaped.Any(CSharpIdentifier.IsRenderingHazard))
+            return escaped;
+
+        var builder = new StringBuilder(escaped.Length);
+        foreach (var ch in escaped)
+        {
+            if (CSharpIdentifier.IsRenderingHazard(ch))
+                builder.Append($"\\u{(int)ch:X4}");
+            else
+                builder.Append(ch);
+        }
+
+        return builder.ToString();
+    }
 
     static string FormatOperatorSignature(string signature, string methodName)
     {

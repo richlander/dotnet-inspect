@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Fixture for issue #3319. Carries attacker-controlled text in the three
+    places that reach rendered output inside a C# string literal: a parameter
+    default value, an [Obsolete] message, and a custom attribute argument.
+    Each embeds a Unicode bidi override (U+202E) and a vertical tab (U+000B).
+
+    These shapes must come from a real compiler: the metadata blob a
+    PersistedAssemblyBuilder emits for an attribute message does not decode
+    back, so an emitted fixture renders "[Obsolete]" with no message and gates
+    the channel vacuously. Loaded by path; never referenced for compilation.
+  -->
+  <PropertyGroup>
+    <TargetFramework>$(DefaultTargetFramework)</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <Optimize>true</Optimize>
+    <NoWarn>$(NoWarn);CS0618</NoWarn>
+  </PropertyGroup>
+
+</Project>

@@ -517,7 +517,7 @@ public static class ApiOutputFormatter
                 {
                     return groups
                         .SelectMany(g => g.OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal))
-                        .Select(m => new TreeNode(m.Signature ?? OperatorNames.FormatDisplayName(m.Name)))
+                        .Select(m => new TreeNode(CSharpIdentifier.ContainRenderedText(m.Signature ?? OperatorNames.FormatDisplayName(m.Name))))
                         .ToList();
                 }
 
@@ -528,7 +528,7 @@ public static class ApiOutputFormatter
                             .OrderBy(GetMemberSignatureSortKey, StringComparer.Ordinal)
                             .ToList();
                         if (ordered.Count == 1)
-                            return new TreeNode(ordered[0].Signature ?? OperatorNames.FormatDisplayName(ordered[0].Name));
+                            return new TreeNode(CSharpIdentifier.ContainRenderedText(ordered[0].Signature ?? OperatorNames.FormatDisplayName(ordered[0].Name)));
 
                         var displayName = OperatorNames.FormatDisplayName(g.Key);
                         return new TreeNode($"{displayName} ({ordered.Count} overloads)");
@@ -541,7 +541,7 @@ public static class ApiOutputFormatter
                 .Select(m => new TreeNode(
                     m.IsFinalizer
                         ? ShapeDestructorSpelling(declaringTypeName)
-                        : m.Signature ?? OperatorNames.FormatDisplayName(m.Name)))
+                        : CSharpIdentifier.ContainRenderedText(m.Signature ?? OperatorNames.FormatDisplayName(m.Name))))
                 .ToList();
         }
 
@@ -1083,7 +1083,7 @@ public static class ApiOutputFormatter
                     var rows = byName.Select(e =>
                         new FieldSummaryRow(
                             OperatorNames.FormatDisplayName(e.members[0].Name),
-                            e.members[0].ReturnType ?? "",
+                            CSharpIdentifier.ContainRenderedText(e.members[0].ReturnType ?? ""),
                             SignatureDecodeMarker(e.members))).ToList();
                     view.FieldSummaryRows = rows;
                     break;
@@ -1093,7 +1093,7 @@ public static class ApiOutputFormatter
                     var rows = byName.Select(e =>
                     {
                         var m = e.members[0];
-                        return new EventSummaryRow(m.Name, m.ReturnType ?? m.Signature ?? "");
+                        return new EventSummaryRow(m.Name, CSharpIdentifier.ContainRenderedText(m.ReturnType ?? m.Signature ?? ""));
                     }).ToList();
                     eventsView.SummaryRows = rows;
                     break;
@@ -2536,8 +2536,15 @@ public static class ApiOutputFormatter
     internal static string GetMemberSignatureSortKey(ApiMember member)
         => ApiMemberIdentity.GetMemberSignatureSortKey(member);
 
+    /// <remarks>
+    /// <see cref="ApiMember.Signature"/> and <see cref="ApiMember.ReturnType"/> are
+    /// deliberately stored raw — canonical identity is rebuilt from them after a JSON
+    /// round-trip — so the display helpers that read them contain here, at the
+    /// rendering boundary (issue #3319).
+    /// </remarks>
     internal static string GetMemberDisplaySignature(ApiType type, ApiMember member)
-        => member.Signature ?? $"{FormatGenericFullName(type)}.{OperatorNames.FormatDisplayName(member.Name)}";
+        => CSharpIdentifier.ContainRenderedText(
+            member.Signature ?? $"{FormatGenericFullName(type)}.{OperatorNames.FormatDisplayName(member.Name)}");
 
     private static string GetMemberSelectorName(ApiMember member)
         => ApiMemberIdentity.GetMemberSelectorName(member);
@@ -2622,7 +2629,7 @@ public static class ApiOutputFormatter
             var returnType = e.kind switch
             {
                 "constructor" or "finalizer" => "",
-                "event" => m.ReturnType ?? m.Signature ?? "",
+                "event" => CSharpIdentifier.ContainRenderedText(m.ReturnType ?? m.Signature ?? ""),
                 _ => MemberReturnType(m)
             };
             var detail = e.kind switch
@@ -2639,18 +2646,24 @@ public static class ApiOutputFormatter
         return (new ApiTypeTableView { Rows = rows }, truncated);
     }
 
+    /// <inheritdoc cref="GetMemberDisplaySignature"/>
     private static string MemberReturnType(ApiMember member)
-        => member.SignatureModel?.ReturnType
-           ?? member.ReturnType
-           ?? SignatureParser.ExtractReturnType(member.Signature);
+        => CSharpIdentifier.ContainRenderedText(
+            member.SignatureModel?.ReturnType
+            ?? member.ReturnType
+            ?? SignatureParser.ExtractReturnType(member.Signature));
 
+    /// <inheritdoc cref="GetMemberDisplaySignature"/>
     private static string MemberAccessors(ApiMember member)
-        => member.SignatureModel?.PublicAccessorsSummary
-           ?? SignatureParser.ExtractAccessors(member.Signature);
+        => CSharpIdentifier.ContainRenderedText(
+            member.SignatureModel?.PublicAccessorsSummary
+            ?? SignatureParser.ExtractAccessors(member.Signature));
 
+    /// <inheritdoc cref="GetMemberDisplaySignature"/>
     private static string MemberParameterTypes(ApiMember member)
-        => member.SignatureModel?.ParameterTypesSummary
-           ?? SignatureParser.ExtractParamList(member.Signature);
+        => CSharpIdentifier.ContainRenderedText(
+            member.SignatureModel?.ParameterTypesSummary
+            ?? SignatureParser.ExtractParamList(member.Signature));
 
     /// <summary>
     /// Builds a unified tabular view for a full API surface (all types).

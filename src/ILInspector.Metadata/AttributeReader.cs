@@ -1,3 +1,4 @@
+using ILInspector.CSharp;
 using System.Buffers;
 using System.Reflection;
 using System.Reflection.Metadata;
@@ -633,7 +634,7 @@ public static class AttributeReader
         '\t' => "\\t",
         '\v' => "\\v",
         '\u0085' or '\u2028' or '\u2029' => $"\\u{(int)value:x4}",
-        _ when char.IsControl(value) => $"\\u{(int)value:x4}",
+        _ when CSharpIdentifierCore.IsRenderingHazard(value) => $"\\u{(int)value:x4}",
         _ => value.ToString()
     };
 
@@ -680,7 +681,7 @@ public static class AttributeReader
                     builder.Append($"\\u{(int)c:x4}");
                     break;
                 default:
-                    if (char.IsControl(c))
+                    if (CSharpIdentifierCore.IsRenderingHazard(c))
                         builder.Append($"\\u{(int)c:x4}");
                     else
                         builder.Append(c);

@@ -1137,128 +1137,290 @@ public class ILOffsetSection
 [MarkoutSkipNull]
 public class ILOffsetMemberContextSection
 {
-    public string? Assembly { get; init; }
-    public string? Type { get; init; }
+    private readonly string? _assembly;
+    private readonly string? _type;
+    private readonly string? _typeKind;
+    private readonly string? _member;
+    private readonly string? _signature;
+    private readonly string? _memberKind;
+    private readonly string? _visibility;
+    private readonly string? _static;
+    private readonly string? _async;
+    private readonly string? _metadataToken;
+    private readonly string? _iLOffset;
+
+    public string? Assembly { get => _assembly; init => _assembly = LibraryViewText.Contain(value); }
+    public string? Type { get => _type; init => _type = LibraryViewText.Contain(value); }
     [MarkoutPropertyName("Type Kind")]
-    public string? TypeKind { get; init; }
-    public string? Member { get; init; }
-    public string? Signature { get; init; }
+    public string? TypeKind { get => _typeKind; init => _typeKind = LibraryViewText.Contain(value); }
+    public string? Member { get => _member; init => _member = LibraryViewText.Contain(value); }
+    public string? Signature { get => _signature; init => _signature = LibraryViewText.Contain(value); }
     [MarkoutPropertyName("Member Kind")]
-    public string? MemberKind { get; init; }
-    public string? Visibility { get; init; }
-    public string? Static { get; init; }
-    public string? Async { get; init; }
+    public string? MemberKind { get => _memberKind; init => _memberKind = LibraryViewText.Contain(value); }
+    public string? Visibility { get => _visibility; init => _visibility = LibraryViewText.Contain(value); }
+    public string? Static { get => _static; init => _static = LibraryViewText.Contain(value); }
+    public string? Async { get => _async; init => _async = LibraryViewText.Contain(value); }
     [MarkoutPropertyName("Metadata Token")]
-    public string? MetadataToken { get; init; }
+    public string? MetadataToken { get => _metadataToken; init => _metadataToken = LibraryViewText.Contain(value); }
     [MarkoutPropertyName("IL Offset")]
-    public string? ILOffset { get; init; }
+    public string? ILOffset { get => _iLOffset; init => _iLOffset = LibraryViewText.Contain(value); }
 }
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
 [MarkoutSkipNull]
 public class ILOffsetInstructionContextSection
 {
+    private readonly string? _iLOffset;
+    private readonly string? _boundary;
+    private readonly string? _opcode;
+    private readonly string? _operandKind;
+    private readonly string? _operand;
+    private readonly string? _operandToken;
+    private readonly string? _branchTargets;
+    private readonly string? _nextOffset;
+    private readonly string? _terminatesBlock;
+    private readonly string? _fallsThrough;
+
     [MarkoutPropertyName("IL Offset")]
-    public string? ILOffset { get; init; }
-    public string? Boundary { get; init; }
-    public string? Opcode { get; init; }
+    public string? ILOffset { get => _iLOffset; init => _iLOffset = LibraryViewText.Contain(value); }
+    public string? Boundary { get => _boundary; init => _boundary = LibraryViewText.Contain(value); }
+    public string? Opcode { get => _opcode; init => _opcode = LibraryViewText.Contain(value); }
     [MarkoutPropertyName("Operand Kind")]
-    public string? OperandKind { get; init; }
-    public string? Operand { get; init; }
+    public string? OperandKind { get => _operandKind; init => _operandKind = LibraryViewText.Contain(value); }
+    public string? Operand { get => _operand; init => _operand = LibraryViewText.Contain(value); }
     [MarkoutPropertyName("Operand Token")]
-    public string? OperandToken { get; init; }
+    public string? OperandToken { get => _operandToken; init => _operandToken = LibraryViewText.Contain(value); }
     [MarkoutPropertyName("Branch Targets")]
-    public string? BranchTargets { get; init; }
+    public string? BranchTargets { get => _branchTargets; init => _branchTargets = LibraryViewText.Contain(value); }
     [MarkoutPropertyName("Next Offset")]
-    public string? NextOffset { get; init; }
+    public string? NextOffset { get => _nextOffset; init => _nextOffset = LibraryViewText.Contain(value); }
     public int? Length { get; init; }
     public int? Block { get; init; }
     [MarkoutPropertyName("Terminates Block")]
-    public string? TerminatesBlock { get; init; }
+    public string? TerminatesBlock { get => _terminatesBlock; init => _terminatesBlock = LibraryViewText.Contain(value); }
     [MarkoutPropertyName("Falls Through")]
-    public string? FallsThrough { get; init; }
+    public string? FallsThrough { get => _fallsThrough; init => _fallsThrough = LibraryViewText.Contain(value); }
 }
 
 [MarkoutSerializable]
 public record ILOffsetExceptionContextRow(
     int Region,
-    [property: MarkoutSkipNull] string? Context,
-    [property: MarkoutSkipNull] string? Clause,
-    [property: MarkoutPropertyName("Try Range")]
-    [property: MarkoutSkipNull] string? TryRange,
-    [property: MarkoutPropertyName("Handler Range")]
-    [property: MarkoutSkipNull] string? HandlerRange,
-    [property: MarkoutPropertyName("Filter Range")]
-    [property: MarkoutSkipNull] string? FilterRange,
-    [property: MarkoutPropertyName("Caught Type")]
-    [property: MarkoutSkipNull] string? CaughtType);
+    string? Context,
+    string? Clause,
+    string? TryRange,
+    string? HandlerRange,
+    string? FilterRange,
+    string? CaughtType)
+{
+    public int Region { get; init; } = Region;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutSkipNull]
+    public string? Context { get; init; } = LibraryViewText.Contain(Context);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutSkipNull]
+    public string? Clause { get; init; } = LibraryViewText.Contain(Clause);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Try Range")]
+    [MarkoutSkipNull]
+    public string? TryRange { get; init; } = LibraryViewText.Contain(TryRange);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Handler Range")]
+    [MarkoutSkipNull]
+    public string? HandlerRange { get; init; } = LibraryViewText.Contain(HandlerRange);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Filter Range")]
+    [MarkoutSkipNull]
+    public string? FilterRange { get; init; } = LibraryViewText.Contain(FilterRange);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Caught Type")]
+    [MarkoutSkipNull]
+    public string? CaughtType { get; init; } = LibraryViewText.Contain(CaughtType);
+}
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
 [MarkoutSkipNull]
 public class ILOffsetCallsiteContextSection
 {
+    private readonly string? _callOffset;
+    private readonly string? _opcode;
+    private readonly string? _callKind;
+    private readonly string? _callee;
+    private readonly string? _operandToken;
+    private readonly string? _returnAddress;
+
     [MarkoutPropertyName("Call Offset")]
-    public string? CallOffset { get; init; }
-    public string? Opcode { get; init; }
+    public string? CallOffset { get => _callOffset; init => _callOffset = LibraryViewText.Contain(value); }
+    public string? Opcode { get => _opcode; init => _opcode = LibraryViewText.Contain(value); }
     [MarkoutPropertyName("Call Kind")]
-    public string? CallKind { get; init; }
-    public string? Callee { get; init; }
+    public string? CallKind { get => _callKind; init => _callKind = LibraryViewText.Contain(value); }
+    public string? Callee { get => _callee; init => _callee = LibraryViewText.Contain(value); }
     [MarkoutPropertyName("Operand Token")]
-    public string? OperandToken { get; init; }
+    public string? OperandToken { get => _operandToken; init => _operandToken = LibraryViewText.Contain(value); }
     [MarkoutPropertyName("Return Address")]
-    public string? ReturnAddress { get; init; }
+    public string? ReturnAddress { get => _returnAddress; init => _returnAddress = LibraryViewText.Contain(value); }
 }
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
 [MarkoutSkipNull]
 public class ILOffsetReturnAddressContextSection
 {
+    private readonly string? _ilOffset;
+    private readonly string? _callOffset;
+    private readonly string? _opcode;
+    private readonly string? _callKind;
+    private readonly string? _callee;
+    private readonly string? _operandToken;
+
     [MarkoutPropertyName("IL Offset")]
-    public string? ILOffset { get; init; }
+    public string? ILOffset { get => _ilOffset; init => _ilOffset = LibraryViewText.Contain(value); }
     [MarkoutPropertyName("Call Offset")]
-    public string? CallOffset { get; init; }
-    public string? Opcode { get; init; }
+    public string? CallOffset { get => _callOffset; init => _callOffset = LibraryViewText.Contain(value); }
+    public string? Opcode { get => _opcode; init => _opcode = LibraryViewText.Contain(value); }
     [MarkoutPropertyName("Call Kind")]
-    public string? CallKind { get; init; }
-    public string? Callee { get; init; }
+    public string? CallKind { get => _callKind; init => _callKind = LibraryViewText.Contain(value); }
+    public string? Callee { get => _callee; init => _callee = LibraryViewText.Contain(value); }
     [MarkoutPropertyName("Operand Token")]
-    public string? OperandToken { get; init; }
+    public string? OperandToken { get => _operandToken; init => _operandToken = LibraryViewText.Contain(value); }
 }
 
 [MarkoutSerializable]
 public record ILOffsetAllocationContextRow(
-    [property: MarkoutPropertyName("IL Offset")] string? ILOffset,
-    [property: MarkoutPropertyName("Allocation Kind")] string? AllocationKind,
-    [property: MarkoutPropertyName("Allocated Type")] string? AllocatedType,
-    [property: MarkoutPropertyName("Counted As Heap")] string? CountedAsHeap,
+    string? ILOffset,
+    string? AllocationKind,
+    string? AllocatedType,
+    string? CountedAsHeap,
     string? Frequency,
     string? Escape,
-    [property: MarkoutPropertyName("Escape Kind")][property: MarkoutSkipNull] string? EscapeKind,
-    [property: MarkoutPropertyName("Est Size")] int? EstSize,
+    string? EscapeKind,
+    int? EstSize,
     string? SizeTier,
-    [property: MarkoutPropertyName("In Loop")] string? InLoop,
+    string? InLoop,
     string? Path,
-    [property: MarkoutPropertyName("Path Confidence")] string? PathConfidence,
-    [property: MarkoutPropertyName("Post Dominance")] string? PostDominance,
+    string? PathConfidence,
+    string? PostDominance,
     string? Evidence,
-    [property: MarkoutSkipNull] string? Multiplicity,
-    [property: MarkoutPropertyName("Churned Type")][property: MarkoutSkipNull] string? ChurnedType);
+    string? Multiplicity,
+    string? ChurnedType)
+{
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("IL Offset")]
+    public string? ILOffset { get; init; } = LibraryViewText.Contain(ILOffset);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Allocation Kind")]
+    public string? AllocationKind { get; init; } = LibraryViewText.Contain(AllocationKind);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Allocated Type")]
+    public string? AllocatedType { get; init; } = LibraryViewText.Contain(AllocatedType);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Counted As Heap")]
+    public string? CountedAsHeap { get; init; } = LibraryViewText.Contain(CountedAsHeap);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Frequency { get; init; } = LibraryViewText.Contain(Frequency);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Escape { get; init; } = LibraryViewText.Contain(Escape);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Escape Kind")]
+    [MarkoutSkipNull]
+    public string? EscapeKind { get; init; } = LibraryViewText.Contain(EscapeKind);
+
+    [MarkoutPropertyName("Est Size")]
+    public int? EstSize { get; init; } = EstSize;
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? SizeTier { get; init; } = LibraryViewText.Contain(SizeTier);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("In Loop")]
+    public string? InLoop { get; init; } = LibraryViewText.Contain(InLoop);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Path { get; init; } = LibraryViewText.Contain(Path);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Path Confidence")]
+    public string? PathConfidence { get; init; } = LibraryViewText.Contain(PathConfidence);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Post Dominance")]
+    public string? PostDominance { get; init; } = LibraryViewText.Contain(PostDominance);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Evidence { get; init; } = LibraryViewText.Contain(Evidence);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutSkipNull]
+    public string? Multiplicity { get; init; } = LibraryViewText.Contain(Multiplicity);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Churned Type")]
+    [MarkoutSkipNull]
+    public string? ChurnedType { get; init; } = LibraryViewText.Contain(ChurnedType);
+}
 
 [MarkoutSerializable]
 public record ILOffsetSafetyContextRow(
-    [property: MarkoutPropertyName("IL Offset")] string? ILOffset,
-    [property: MarkoutPropertyName("Safety Kind")] string? SafetyKind,
+    string? ILOffset,
+    string? SafetyKind,
     string? Operation,
     string? Requirement,
-    string? Evidence);
+    string? Evidence)
+{
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("IL Offset")]
+    public string? ILOffset { get; init; } = LibraryViewText.Contain(ILOffset);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Safety Kind")]
+    public string? SafetyKind { get; init; } = LibraryViewText.Contain(SafetyKind);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Operation { get; init; } = LibraryViewText.Contain(Operation);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Requirement { get; init; } = LibraryViewText.Contain(Requirement);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Evidence { get; init; } = LibraryViewText.Contain(Evidence);
+}
 
 [MarkoutSerializable]
 public record ILOffsetCostContextRow(
-    [property: MarkoutPropertyName("IL Offset")] string? ILOffset,
-    [property: MarkoutPropertyName("Cost Kind")] string? CostKind,
+    string? ILOffset,
+    string? CostKind,
     string? Operation,
-    [property: MarkoutPropertyName("In Loop")] string? InLoop,
-    string? Evidence);
+    string? InLoop,
+    string? Evidence)
+{
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("IL Offset")]
+    public string? ILOffset { get; init; } = LibraryViewText.Contain(ILOffset);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("Cost Kind")]
+    public string? CostKind { get; init; } = LibraryViewText.Contain(CostKind);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Operation { get; init; } = LibraryViewText.Contain(Operation);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    [MarkoutPropertyName("In Loop")]
+    public string? InLoop { get; init; } = LibraryViewText.Contain(InLoop);
+
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string? Evidence { get; init; } = LibraryViewText.Contain(Evidence);
+}
 
 [MarkoutSerializable]
 public record ResourceRow(

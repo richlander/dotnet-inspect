@@ -90,11 +90,25 @@ public static class FixtureIds
     public const string DecompilerUnsafeChainC = "decompiler.unsafe.chain-c";
     public const string DecompilerVbFinalizer = "decompiler.vb-finalizer";
 
+    public const string HostileLiterals = "hostile.literals";
+
     public const string RunFasterAllocation = "runfaster.allocation";
 }
 
 public static class FixtureCatalog
 {
+    /// <summary>
+    /// Attacker-controlled text inside C# string literals — a parameter default
+    /// value, an [Obsolete] message, and a custom attribute argument, each
+    /// carrying a bidi override and a vertical tab (issue #3319). Must be
+    /// compiler-produced: an emitted attribute message blob does not decode back.
+    /// </summary>
+    public static readonly FixtureDefinition HostileLiterals = Fixture(
+        FixtureIds.HostileLiterals,
+        "DotnetInspector.HostileNameFixtures",
+        "DotnetInspector.HostileNameFixtures.dll",
+        "presentation", "untrusted-input");
+
     public static readonly FixtureDefinition DiffV1 = Fixture(
         FixtureIds.DiffV1,
         "DiffFixtures.V1",
@@ -368,6 +382,7 @@ public static class FixtureCatalog
 
     public static readonly IReadOnlyList<FixtureDefinition> All =
     [
+        HostileLiterals,
         DiffV1,
         DiffV2,
         DiffAsmCaller,
