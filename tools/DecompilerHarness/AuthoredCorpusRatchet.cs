@@ -729,6 +729,39 @@ static class AuthoredCorpusExitContract
             : null;
 
     /// <summary>
+    /// Whether a drift run measured what it claimed to.
+    ///
+    /// <para>Malformed rows are the reason this exists. <c>ReadCorpus</c> logged and
+    /// discarded them, and nothing counted them, so <c>--fail-on-drift</c> judged the
+    /// surviving rows and exited 0 — a fail-closed gate reporting success over a corpus it
+    /// had silently shortened. Review round thirteen demonstrated it with one valid row
+    /// and one line of invalid JSON: <c>corpusRows: 1, verified: 1, honest: true</c>,
+    /// exit 0. That is #3245 in the other gate, and the benchmark had already learned the
+    /// same lesson — it counts malformed rows into <c>inputsComplete</c>.</para>
+    ///
+    /// <para>A row that cannot be parsed is not a row that verified. It is a row nobody
+    /// looked at, and a gate that cannot say how many of those there were is not
+    /// measuring the corpus it was given.</para>
+    /// </summary>
+    internal static bool DriftMeasurementIsSound(int malformedRows, int unmatchedRows, int evaluatedRows)
+        => malformedRows == 0 && unmatchedRows == 0 && evaluatedRows > 0;
+
+    /// <summary>
+    /// The drift gate's exit code.
+    ///
+    /// <para>Both of the drift reporters computed this themselves, in duplicate — the
+    /// text card and the JSON payload each had their own copy of the same expression. A
+    /// rule spelled twice is a rule that can be fixed once, and every round of this review
+    /// has found some version of that. It is spelled here, once, and both call it.</para>
+    ///
+    /// <para>Unsound measurement fails whether or not <c>--fail-on-drift</c> was passed:
+    /// the report-only mode is a diagnostic about drift, not a licence to misreport how
+    /// much of the corpus was read.</para>
+    /// </summary>
+    internal static int DriftExitCode(bool measurementIsSound, bool failOnDrift, int drifted, int unavailable)
+        => measurementIsSound && !(failOnDrift && (drifted > 0 || unavailable > 0)) ? 0 : 1;
+
+    /// <summary>
     /// Set to <c>1</c> to inject the defect <see cref="GateExitedWithoutRunning"/> exists
     /// to catch: the harness returns 0 after parsing, before any mode dispatches.
     ///

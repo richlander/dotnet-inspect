@@ -1059,6 +1059,63 @@ public class AuthoredCorpusRatchetTests
         Assert.Null(AuthoredCorpusExitContract.PreemptedGateRefusal(order, Gates));
     }
 
+    /// <summary>
+    /// Drift measurement is sound only when nothing went uncounted.
+    ///
+    /// <para>The malformed-row term is the one that was missing, and it is the one worth
+    /// stating plainly: a row that could not be parsed is not a row that verified, it is a
+    /// row nobody looked at. The other two terms guard the same property from the other
+    /// side — an assembly that was never supplied, and a run that evaluated nothing at
+    /// all.</para>
+    /// </summary>
+    [Theory]
+    [Trait("Area", "Corpus")]
+    // malformed, unmatched, evaluated, sound
+    [InlineData(0, 0, 1, true)]
+    [InlineData(1, 0, 1, false)]
+    [InlineData(0, 1, 1, false)]
+    [InlineData(0, 0, 0, false)]
+    public void DriftMeasurementIsSound_RequiresEveryRowAccountedFor(
+        int malformed,
+        int unmatched,
+        int evaluated,
+        bool sound)
+    {
+        Assert.Equal(
+            sound,
+            AuthoredCorpusExitContract.DriftMeasurementIsSound(malformed, unmatched, evaluated));
+    }
+
+    /// <summary>
+    /// Unsound measurement fails whether or not the run was asked to be fail-closed.
+    ///
+    /// <para>Report-only mode is a diagnostic about drift, not a licence to misreport how
+    /// much of the corpus was read. Drift and unavailability, by contrast, only fail when
+    /// <c>--fail-on-drift</c> asked them to.</para>
+    /// </summary>
+    [Theory]
+    [Trait("Area", "Corpus")]
+    // sound, failOnDrift, drifted, unavailable, exit
+    [InlineData(true, false, 0, 0, 0)]
+    [InlineData(true, true, 0, 0, 0)]
+    [InlineData(false, false, 0, 0, 1)]
+    [InlineData(false, true, 0, 0, 1)]
+    [InlineData(true, false, 1, 0, 0)]
+    [InlineData(true, true, 1, 0, 1)]
+    [InlineData(true, false, 0, 1, 0)]
+    [InlineData(true, true, 0, 1, 1)]
+    public void DriftExitCode_FailsUnsoundMeasurementRegardlessOfMode(
+        bool sound,
+        bool failOnDrift,
+        int drifted,
+        int unavailable,
+        int expected)
+    {
+        Assert.Equal(
+            expected,
+            AuthoredCorpusExitContract.DriftExitCode(sound, failOnDrift, drifted, unavailable));
+    }
+
     /// <summary>The gates the harness protects, in the order it names them.</summary>
     static readonly string[] Gates = ["--benchmark-authored-corpus", "--verify-authored-corpus"];
 

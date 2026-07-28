@@ -410,15 +410,24 @@ public class AuthoredCorpusHarnessProcessTests
     /// assertion existed the suite stayed green while it did. A guard against a silent
     /// success is worth little if it can start rejecting the successes that are real.</para>
     /// </summary>
-    static void AssertTheBenchmarkActuallyRan(HarnessRun run)
+    static void AssertTheBenchmarkActuallyRan(HarnessRun run, int expectedExitCode = 0)
+    {
+        AssertTheBenchmarkDidNotDieEarly(run);
+        Assert.Contains("targets evaluated", run.Output, StringComparison.Ordinal);
+        Assert.Equal(expectedExitCode, run.ExitCode);
+    }
+
+    /// <summary>
+    /// The shared half of the check above, for the JSON path, which reports a document
+    /// rather than a card and so has no "targets evaluated" line to look for.
+    /// </summary>
+    static void AssertTheBenchmarkDidNotDieEarly(HarnessRun run)
     {
         Assert.DoesNotContain("measured nothing", run.Output, StringComparison.Ordinal);
-        Assert.Contains("targets evaluated", run.Output, StringComparison.Ordinal);
         Assert.DoesNotContain(
             "A protected gate was requested but never ran",
             run.Output,
             StringComparison.Ordinal);
-        Assert.Equal(0, run.ExitCode);
     }
 
     /// <summary>
@@ -557,6 +566,97 @@ public class AuthoredCorpusHarnessProcessTests
         finally
         {
             File.Delete(empty);
+        }
+    }
+
+    /// <summary>
+    /// A corpus row that cannot be read fails the drift gate rather than being dropped.
+    ///
+    /// <para>Review round thirteen demonstrated the opposite: <c>ReadCorpus</c> logged
+    /// malformed rows and discarded them uncounted, so one valid row beside one line of
+    /// invalid JSON reported <c>corpusRows: 1, verified: 1, honest: true</c> and exited 0.
+    /// A fail-closed gate reported success over a corpus it had silently shortened, which
+    /// is #3245 in the gate nobody was looking at.</para>
+    ///
+    /// <para>Both reporters are checked. They each computed the exit code themselves, in
+    /// duplicate, so fixing one and not the other was available and would have looked
+    /// fixed. Report-only is checked too: dropping rows misreports how much was read
+    /// whether or not the caller asked for a fail-closed run.</para>
+    /// </summary>
+    [Theory]
+    [Trait("Area", "Corpus")]
+    [InlineData("rows unreadable    : 1", new[] { "--fail-on-drift" })]
+    [InlineData("\"malformedRows\": 1", new[] { "--fail-on-drift", "--json" })]
+    [InlineData("rows unreadable    : 1", new string[0])]
+    public void Drift_FailsWhenACorpusRowCouldNotBeRead(string reported, string[] modifiers)
+    {
+        string repositoryRoot = AuthoredCorpusRatchetTests.FindRepositoryRoot();
+        string mixed = Path.Combine(Path.GetTempPath(), $"mixed-corpus-{Guid.NewGuid():N}.jsonl");
+        File.WriteAllText(
+            mixed,
+            File.ReadAllText(Path.Combine(
+                repositoryRoot, "tools", "DecompilerHarness", "corpus", "one-row-authored-corpus.jsonl"))
+            + "{not-json}" + Environment.NewLine);
+
+        try
+        {
+            var run = RunHarness([
+                typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location,
+                "--verify-authored-corpus",
+                mixed,
+                .. modifiers,
+            ]);
+
+            // Both markers are printed by the reporters, which only run after the corpus
+            // has been read and every matched row evaluated. Reaching one is what
+            // distinguishes this from a run that fell over before reading anything.
+            Assert.Contains(reported, run.Output, StringComparison.Ordinal);
+            Assert.Equal(1, run.ExitCode);
+        }
+        finally
+        {
+            File.Delete(mixed);
+        }
+    }
+
+    /// <summary>
+    /// The benchmark's JSON path reports the same exit code as its text path.
+    ///
+    /// <para>Review round thirteen found that nothing asserted it. Both paths end in the
+    /// same <c>ExitCode</c> call, but the only process run using <c>--json</c> stopped at
+    /// "corpus file not found" and never reached the JSON writer, and the in-process JSON
+    /// tests discard the return value. Replacing that final return with <c>return 0</c>
+    /// left every JSON assertion intact and the suite green — while making the scheduled
+    /// lane, which runs with <c>--json</c>, pass runs with failed integrity.</para>
+    /// </summary>
+    [Fact]
+    [Trait("Area", "Corpus")]
+    public void Benchmark_ReportsFailedIntegrityThroughTheJsonPath()
+    {
+        string repositoryRoot = AuthoredCorpusRatchetTests.FindRepositoryRoot();
+        string mixed = Path.Combine(Path.GetTempPath(), $"mixed-corpus-{Guid.NewGuid():N}.jsonl");
+        File.WriteAllText(
+            mixed,
+            File.ReadAllText(Path.Combine(
+                repositoryRoot, "tools", "DecompilerHarness", "corpus", "one-row-authored-corpus.jsonl"))
+            + "{not-json}" + Environment.NewLine);
+
+        try
+        {
+            var run = RunHarness(
+                typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location,
+                "--benchmark-authored-corpus",
+                mixed,
+                "--json");
+
+            AssertTheBenchmarkDidNotDieEarly(run);
+            Assert.Contains("\"malformedRows\": 1", run.Output, StringComparison.Ordinal);
+            Assert.Contains("\"inputsComplete\": false", run.Output, StringComparison.Ordinal);
+            Assert.Equal(1, run.ExitCode);
+        }
+        finally
+        {
+            File.Delete(mixed);
         }
     }
 
