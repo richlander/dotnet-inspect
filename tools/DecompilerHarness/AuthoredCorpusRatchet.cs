@@ -33,11 +33,11 @@ static class AuthoredCorpusRatchet
         int Evaluated,
         int PoolMatched,
         int PoolTotal,
-        string? SweepManifestSha256,
+        string? PoolSha256,
         string? CorpusSha256)
     {
         public static RunKey From(HistoryRun run)
-            => new(run.Evaluated, run.PoolMatched, run.PoolTotal, run.SweepManifestSha256, run.CorpusSha256);
+            => new(run.Evaluated, run.PoolMatched, run.PoolTotal, run.PoolSha256, run.CorpusSha256);
 
         /// <summary>
         /// True when both runs measured the same corpus over the same pool.
@@ -71,10 +71,10 @@ static class AuthoredCorpusRatchet
                 return Fail($"evaluated {other.Evaluated} vs {Evaluated}", out mismatch);
             if (PoolMatched != other.PoolMatched || PoolTotal != other.PoolTotal)
                 return Fail($"pool {other.PoolMatched}/{other.PoolTotal} vs {PoolMatched}/{PoolTotal}", out mismatch);
-            if (!string.Equals(SweepManifestSha256, other.SweepManifestSha256, StringComparison.Ordinal))
+            if (!string.Equals(PoolSha256, other.PoolSha256, StringComparison.Ordinal))
             {
                 return Fail(
-                    $"sweepManifestSha256 {Show(other.SweepManifestSha256)} vs {Show(SweepManifestSha256)}",
+                    $"poolSha256 {Show(other.PoolSha256)} vs {Show(PoolSha256)}",
                     out mismatch);
             }
 
@@ -178,11 +178,27 @@ static class AuthoredCorpusRatchet
         ArgumentNullException.ThrowIfNull(run);
         return AuthoredCorpusExitContract.MeasurementIsSound(
             run.InputsComplete,
-            run.TopLevelIsComplete,
+            PartitionCloses(run),
             run.Drift,
             run.Unsupported,
             run.UnknownOutcome ?? -1);
     }
+
+    /// <summary>
+    /// Whether a row's buckets actually account for every evaluated target, at both
+    /// levels.
+    ///
+    /// <para>Recording a bucket is not the same as the buckets adding up, and the
+    /// difference is the whole point: a row claiming 100 evaluated whose buckets sum to
+    /// 99 has lost a target, and a lost target is a row that reports a lower
+    /// <c>invalid</c> for having measured less. A reviewer landed exactly that baseline
+    /// past the earlier presence-only check and got <c>RATCHET OK</c> with exit 0, so
+    /// this compares the sums rather than trusting that the fields exist.</para>
+    /// </summary>
+    static bool PartitionCloses(HistoryRun run)
+        => run.TopLevelSum == run.Evaluated
+            && run.ValidDifferent is { } validDifferent
+            && validDifferent.SubBucketSum == validDifferent.Total;
 
     /// <summary>
     /// Compares <paramref name="current"/> against the newest row in
@@ -207,13 +223,20 @@ static class AuthoredCorpusRatchet
                 continue;
             }
 
-            if (currentKey.IsComparableTo(RunKey.From(candidate), out string mismatch))
+            if (!currentKey.IsComparableTo(RunKey.From(candidate), out string mismatch))
             {
-                baseline = candidate;
-                break;
+                newestMismatch ??= $"{candidate.Date ?? "(undated)"}: {mismatch}";
+                continue;
             }
 
-            newestMismatch ??= $"{candidate.Date ?? "(undated)"}: {mismatch}";
+            if (!StatesEveryMetric(current, RunMetrics.From(candidate), out string missing))
+            {
+                newestMismatch ??= $"{candidate.Date ?? "(undated)"}: does not record {missing}, so that metric could not ratchet";
+                continue;
+            }
+
+            baseline = candidate;
+            break;
         }
 
         if (baseline is null)
@@ -248,6 +271,37 @@ static class AuthoredCorpusRatchet
         return Compare(RunKey.From(newest), RunMetrics.From(newest), runs.Take(runs.Count - 1).ToArray());
     }
 
+    /// <summary>
+    /// Whether a candidate baseline can state every metric the current run states.
+    ///
+    /// <para><see cref="Build"/> only emits a metric when both sides have a number for
+    /// it, so a baseline missing one produces a comparison that ratchets fewer metrics
+    /// than the run has — and reports <c>RATCHET OK</c> either way. A reviewer landed a
+    /// row with <c>invalidBreakdown: null</c> and got a clean three-metric pass while
+    /// the product signal went unchecked. Dropping a metric is only legitimate when a
+    /// methodology bump redefined it, which is why that one case is excluded here
+    /// rather than silently tolerated everywhere.</para>
+    /// </summary>
+    static bool StatesEveryMetric(RunMetrics current, RunMetrics candidate, out string missing)
+    {
+        if (current.Valid is not null && candidate.Valid is null)
+        {
+            missing = "validDifferent";
+            return false;
+        }
+
+        if (current.ProductBodyDefect is not null
+            && candidate.ProductBodyDefect is null
+            && candidate.Methodology == current.Methodology)
+        {
+            missing = "invalidBreakdown";
+            return false;
+        }
+
+        missing = "";
+        return true;
+    }
+
     static IReadOnlyList<Metric> Build(RunMetrics baseline, RunMetrics current)
     {
         var metrics = new List<Metric>
@@ -276,52 +330,36 @@ static class AuthoredCorpusRatchet
     }
 
     /// <summary>
-    /// A pool's identity: the sorted resolved package/version/TFM triples the sweep
-    /// produced, hashed. Deliberately <em>not</em> a hash of the manifest file — that
-    /// file carries <c>generatedAtUtc</c>, plus per-package <c>fromCache</c> and
-    /// cleanup detail, so two sweeps of an identical pool hash differently. A digest
-    /// that never repeats cannot identify anything: it would make the ratchet skip on
-    /// every run, and a permanently red gate is as uninformative as the permanently
-    /// green one this replaces.
+    /// A pool's identity: the assemblies the run actually measured, each named and
+    /// content-hashed, sorted and digested.
     ///
-    /// <para>What the pool <em>is</em>, for this purpose, is the set of assemblies
-    /// measured. Rank, download counts, and failed entries do not change the code under
-    /// test and are excluded.</para>
+    /// <para>Earlier revisions derived this from the sweep manifest, and a reviewer
+    /// showed that could not identify the pool. The manifest describes only the sweep
+    /// half — <c>eng/prepare-evil-corpus.sh</c> measures the <em>union</em> of the
+    /// sweep and a fixed set of real-world assemblies — so changing the real-world half
+    /// left the identity unchanged. It also listed packages that resolved but produced
+    /// no assembly, so a pool where a package failed hashed the same as one where it
+    /// succeeded.</para>
+    ///
+    /// <para>Taking the identity from the inputs themselves removes all of that: it is
+    /// the bytes that were decompiled, so it cannot describe a different pool than the
+    /// one measured, and it needs no flag. That last point is not cosmetic — an
+    /// identity that depends on the caller remembering an argument is the same shape as
+    /// the gate nobody invoked (#3245). File content, not path, because the pool is
+    /// staged to a different directory on every run.</para>
     /// </summary>
-    internal static string PoolManifestDigest(string manifestPath)
+    internal static string PoolDigest(IReadOnlyList<string> assemblyPaths)
     {
-        using var document = JsonDocument.Parse(File.ReadAllBytes(manifestPath));
-        var identities = new List<string>();
-        if (Property(document.RootElement, "packages") is { ValueKind: JsonValueKind.Array } packages)
-        {
-            foreach (var package in packages.EnumerateArray())
-            {
-                if (Text(package, "resolvedPackage") is not { } id)
-                    continue;
+        ArgumentNullException.ThrowIfNull(assemblyPaths);
 
-                identities.Add($"{id}@{Text(package, "resolvedVersion") ?? "?"}/{Text(package, "tfm") ?? "?"}");
-            }
-        }
+        var identities = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var path in assemblyPaths)
+            identities.Add($"{Path.GetFileName(path)}:{Digest(File.ReadAllBytes(path))}");
 
         if (identities.Count == 0)
-            throw new InvalidOperationException($"{manifestPath} resolved no packages, so it identifies no pool.");
+            throw new InvalidOperationException("The run measured no assemblies, so it identifies no pool.");
 
-        identities.Sort(StringComparer.Ordinal);
         return Digest(Encoding.UTF8.GetBytes(string.Join("\n", identities)));
-
-        static JsonElement? Property(JsonElement element, string name)
-        {
-            foreach (var property in element.EnumerateObject())
-            {
-                if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
-                    return property.Value;
-            }
-
-            return null;
-        }
-
-        static string? Text(JsonElement element, string name)
-            => Property(element, name) is { ValueKind: JsonValueKind.String } value ? value.GetString() : null;
     }
 
     /// <summary>
@@ -411,16 +449,64 @@ static class AuthoredCorpusExitContract
         => inputsComplete && partitionClosed && drift == 0 && unsupported == 0 && unknownOutcome == 0;
 
     /// <summary>
-    /// Whether quality held. Without a baseline this is the historical contract —
-    /// success requires zero invalid rows, which the trend store's append procedure
-    /// documents as exiting 1 by design. With a baseline, quality is judged by movement
-    /// against it. A skip has no quality opinion at all; that case is
-    /// <see cref="RatchetReachedAVerdict"/>'s, not this one's.
+    /// Which quality claim a run's exit code makes.
+    ///
+    /// <para>All three are named because they produce identical-looking exit codes and
+    /// a caller can otherwise select one by accident. That is not hypothetical: the
+    /// weekly lane was first wired with no baseline in order to get an integrity-only
+    /// gate, and silently got <see cref="Perfection"/> instead — a contract the corpus
+    /// cannot satisfy, so the job would have failed every week forever and filed an
+    /// issue each time. Permanently red reports exactly as much as permanently green.
+    /// Making the choice explicit is what stops the next caller repeating it.</para>
     /// </summary>
-    internal static bool QualityHeld(int invalid, AuthoredCorpusRatchet.Comparison? ratchet)
-        => ratchet is null
-            ? invalid == 0
-            : ratchet.Regressions.Count == 0;
+    internal enum QualityContract
+    {
+        /// <summary>
+        /// No baseline was offered: success requires zero invalid rows. This is the
+        /// historical contract, which the trend store's append procedure documents as
+        /// exiting 1 by design — it is how a run records a row without claiming to have
+        /// passed a gate.
+        /// </summary>
+        Perfection,
+
+        /// <summary>
+        /// A baseline was offered: quality is judged by movement against it.
+        /// </summary>
+        Ratchet,
+
+        /// <summary>
+        /// The caller asked for measurement integrity only, so the exit code makes no
+        /// quality claim whatsoever. Legitimate for a lane that cannot yet ratchet
+        /// (see the weekly caller and #3353), and reported in the run output and JSON
+        /// so a green result cannot be misread as a quality pass.
+        /// </summary>
+        NotJudged,
+    }
+
+    /// <summary>
+    /// The one place a contract is selected, so the flags and the exit code cannot
+    /// disagree about which claim is being made.
+    /// </summary>
+    internal static QualityContract ContractFor(bool integrityOnly, AuthoredCorpusRatchet.Comparison? ratchet)
+        => integrityOnly ? QualityContract.NotJudged
+            : ratchet is null ? QualityContract.Perfection
+            : QualityContract.Ratchet;
+
+    /// <summary>
+    /// Whether quality held, under whichever contract the caller selected. A skip has
+    /// no quality opinion at all; that case is <see cref="RatchetReachedAVerdict"/>'s,
+    /// not this one's.
+    /// </summary>
+    internal static bool QualityHeld(int invalid, AuthoredCorpusRatchet.Comparison? ratchet, QualityContract contract)
+        => contract switch
+        {
+            QualityContract.NotJudged => true,
+            QualityContract.Perfection => invalid == 0,
+            QualityContract.Ratchet => ratchet is { } comparison
+                ? comparison.Regressions.Count == 0
+                : throw new ArgumentException("The ratchet contract requires a comparison.", nameof(ratchet)),
+            _ => throw new ArgumentOutOfRangeException(nameof(contract)),
+        };
 
     /// <summary>
     /// Whether the gate the caller asked for actually ran.
@@ -443,6 +529,10 @@ static class AuthoredCorpusExitContract
     internal static bool RatchetReachedAVerdict(AuthoredCorpusRatchet.Comparison? ratchet)
         => ratchet is null || !ratchet.Skipped;
 
-    internal static int ExitCode(bool measurementIsSound, int invalid, AuthoredCorpusRatchet.Comparison? ratchet)
-        => measurementIsSound && RatchetReachedAVerdict(ratchet) && QualityHeld(invalid, ratchet) ? 0 : 1;
+    internal static int ExitCode(
+        bool measurementIsSound,
+        int invalid,
+        AuthoredCorpusRatchet.Comparison? ratchet,
+        QualityContract contract)
+        => measurementIsSound && RatchetReachedAVerdict(ratchet) && QualityHeld(invalid, ratchet, contract) ? 0 : 1;
 }

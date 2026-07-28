@@ -502,8 +502,14 @@ jobs:
     # records no versions, so the sweep resolves *latest* and a fresh pool can never
     # match a recorded baseline's pool identity — the ratchet would skip, and a skip
     # fails, so the job would be red by construction. Pinning the pool is tracked
-    # separately; until then this lane is the integrity gate and the artifact source,
-    # and the ratchet's caller is AuthoredCorpusRatchetTests on every PR.
+    # separately (#3353); until then this lane is the integrity gate and the artifact
+    # source, and the ratchet's caller is AuthoredCorpusRatchetTests on every PR.
+    #
+    # It passes --integrity-only to say that in the exit code. Merely omitting
+    # --ratchet-baseline is NOT enough: that selects the historical perfection
+    # contract (invalid == 0), which this ~5,200-invalid corpus cannot satisfy, so the
+    # job would fail every week and file a scheduled-failure issue every time.
+    # Permanently red reports exactly as much as permanently green.
     #
     # What it still catches: unmatched rows, malformed corpus rows, a non-closing
     # partition, drift, unsupported targets, and unrecognized outcomes — all of which
@@ -549,6 +555,7 @@ jobs:
           mapfile -t assemblies < evil-pool/assemblies.txt
           dotnet run --project tools/DecompilerHarness -c Release -- \
             --benchmark-authored-corpus external/authored-source-corpus/evil/corpus.jsonl \
+            --integrity-only \
             --json "${assemblies[@]}" \
             > artifacts/deep-inspect/authored-corpus-run.json
 

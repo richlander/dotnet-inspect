@@ -272,7 +272,15 @@ internal sealed record HistoryRun(
     /// </summary>
     [property: JsonPropertyName("corpusSha256")] string? CorpusSha256 = null,
     int? NotFull = null,
-    int? UnknownOutcome = null)
+    int? UnknownOutcome = null,
+    /// <summary>
+    /// Identity of the assembly pool this run measured: the named, content-hashed
+    /// assemblies themselves. Distinct from the older <c>sweepManifestSha256</c>, which
+    /// hashed the sweep manifest and so described only half the pool; rows carrying
+    /// only that field record no pool identity under the current scheme, and absence is
+    /// compared as a distinct value rather than waved through.
+    /// </summary>
+    [property: JsonPropertyName("poolSha256")] string? PoolSha256 = null)
 {
     // Rows predating the span-attribution change carry no methodologyVersion;
     // treat them as v1 (substitution lower bound).

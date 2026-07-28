@@ -32,7 +32,7 @@ static class AuthoredCorpusBenchmark
         string corpusPath,
         bool json,
         string? ratchetBaselinePath = null,
-        string? poolManifestPath = null)
+        bool integrityOnly = false)
     {
         if (!File.Exists(corpusPath))
         {
@@ -63,19 +63,11 @@ static class AuthoredCorpusBenchmark
             }
         }
 
-        // Same rule: a pool manifest that was asked for but cannot be read is an error,
-        // not a silently unidentified pool.
-        string? poolManifestSha256 = null;
-        if (poolManifestPath is not null)
-        {
-            if (!File.Exists(poolManifestPath))
-            {
-                Console.Error.WriteLine($"Pool manifest not found: {poolManifestPath}");
-                return 1;
-            }
-
-            poolManifestSha256 = AuthoredCorpusRatchet.PoolManifestDigest(poolManifestPath);
-        }
+        // The pool identifies itself: the digest is taken over the assemblies this run
+        // was handed, so it always describes exactly what was measured and needs no
+        // flag to be present. Assemblies that do not exist are reported as unmatched
+        // rows below, which fails measurement integrity on its own.
+        string? poolSha256 = AuthoredCorpusRatchet.PoolDigest(assemblies.Where(File.Exists).ToArray());
 
         var records = ReadCorpus(corpusPath, out int malformedRows);
         if (records.Count == 0)
@@ -119,13 +111,13 @@ static class AuthoredCorpusBenchmark
             byAssembly.Count,
             unmatchedRows,
             malformedRows,
-            poolManifestSha256,
+            poolSha256,
             corpusSha256);
 
         if (json)
-            return WriteJson(results, records.Count, inputs, baselines);
+            return WriteJson(results, records.Count, inputs, baselines, integrityOnly);
 
-        return WriteCard(results, records.Count, inputs, baselines);
+        return WriteCard(results, records.Count, inputs, baselines, integrityOnly);
     }
 
     /// <summary>
@@ -137,7 +129,7 @@ static class AuthoredCorpusBenchmark
         int CorpusAssemblies,
         int UnmatchedRows,
         int MalformedRows,
-        string? PoolManifestSha256,
+        string? PoolSha256,
         string? CorpusSha256);
 
     static ReturnToSenderSourceMember ToSourceMember(AuthoredSourceHarvest.CorpusRecord record)
@@ -183,7 +175,8 @@ static class AuthoredCorpusBenchmark
         IReadOnlyList<ReturnToSenderSourceProbeResult> results,
         int corpusRows,
         RunInputs inputs,
-        IReadOnlyList<HistoryRun>? baselines)
+        IReadOnlyList<HistoryRun>? baselines,
+        bool integrityOnly)
     {
         var census = Census(results);
         int match = census.Correct;
@@ -248,7 +241,10 @@ static class AuthoredCorpusBenchmark
         if (ratchet is not null)
             AuthoredCorpusRatchet.Report(ratchet, Console.Out);
 
-        return ExitCode(census, inputs, ratchet);
+        var contract = AuthoredCorpusExitContract.ContractFor(integrityOnly, ratchet);
+        ReportContract(contract, census.Invalid, Console.Out);
+
+        return ExitCode(census, inputs, ratchet, contract);
     }
 
     /// <summary>
@@ -345,14 +341,15 @@ static class AuthoredCorpusBenchmark
         if (baselines is null)
             return null;
 
-        // A run identifies its pool only when --ratchet-pool-manifest was supplied.
-        // When it cannot, and the baseline row can, RunKey.IsComparableTo refuses the
-        // comparison rather than assuming the inputs matched.
+        // A live run always identifies its pool, because the identity is taken from the
+        // assemblies it measured. A recorded row that predates that scheme carries no
+        // pool identity, and RunKey.IsComparableTo refuses the comparison rather than
+        // assuming the inputs matched.
         var key = new AuthoredCorpusRatchet.RunKey(
             census.Evaluated,
             inputs.MatchedAssemblies,
             inputs.CorpusAssemblies,
-            inputs.PoolManifestSha256,
+            inputs.PoolSha256,
             inputs.CorpusSha256);
 
         var metrics = new AuthoredCorpusRatchet.RunMetrics(
@@ -375,7 +372,11 @@ static class AuthoredCorpusBenchmark
     /// Not-Full is a surfaced decompiler limitation, not a corpus problem, so it does
     /// not fail the run on its own.
     /// </summary>
-    internal static int ExitCode(BucketCensus census, RunInputs inputs, AuthoredCorpusRatchet.Comparison? ratchet)
+    internal static int ExitCode(
+        BucketCensus census,
+        RunInputs inputs,
+        AuthoredCorpusRatchet.Comparison? ratchet,
+        AuthoredCorpusExitContract.QualityContract contract)
     {
         bool measurementIsSound = AuthoredCorpusExitContract.MeasurementIsSound(
             InputsComplete(census, inputs),
@@ -384,7 +385,18 @@ static class AuthoredCorpusBenchmark
             census.Unsupported,
             census.UnknownOutcome);
 
-        return AuthoredCorpusExitContract.ExitCode(measurementIsSound, census.Invalid, ratchet);
+        return AuthoredCorpusExitContract.ExitCode(measurementIsSound, census.Invalid, ratchet, contract);
+    }
+
+    /// <summary>
+    /// Says out loud which quality claim the exit code is about to make, so that a
+    /// green integrity-only run cannot be read as a quality pass by anyone looking at
+    /// the log or the exit code alone.
+    /// </summary>
+    static void ReportContract(AuthoredCorpusExitContract.QualityContract contract, int invalid, TextWriter writer)
+    {
+        if (contract is AuthoredCorpusExitContract.QualityContract.NotJudged)
+            writer.WriteLine($"[integrity-only] Quality was not judged: {invalid} invalid rows stand unreviewed. This exit code reports measurement integrity only.");
     }
 
     enum TasteBucket
@@ -512,7 +524,8 @@ static class AuthoredCorpusBenchmark
         IReadOnlyList<ReturnToSenderSourceProbeResult> results,
         int corpusRows,
         RunInputs inputs,
-        IReadOnlyList<HistoryRun>? baselines)
+        IReadOnlyList<HistoryRun>? baselines,
+        bool integrityOnly)
     {
         var census = Census(results);
         var invalidBreakdown = InvalidBreakdown(results);
@@ -524,6 +537,7 @@ static class AuthoredCorpusBenchmark
         // both of which are unmeasured rather than clean).
         bool inputsComplete = InputsComplete(census, inputs);
         var ratchet = Ratchet(census, invalidBreakdown, inputs, baselines);
+        var contract = AuthoredCorpusExitContract.ContractFor(integrityOnly, ratchet);
 
         var validBreakdown = new
         {
@@ -541,11 +555,15 @@ static class AuthoredCorpusBenchmark
             corpusAssemblies = inputs.CorpusAssemblies,
             unmatchedRows = inputs.UnmatchedRows,
             malformedRows = inputs.MalformedRows,
-            sweepManifestSha256 = inputs.PoolManifestSha256,
+            poolSha256 = inputs.PoolSha256,
             corpusSha256 = inputs.CorpusSha256,
             targetsEvaluated = census.Evaluated,
             methodologyVersion = MethodologyVersion,
             inputsComplete,
+            // Which quality claim this run's exit code makes. A consumer that sees
+            // exit 0 must read this before treating the run as a quality pass:
+            // "NotJudged" means no quality claim was made at all.
+            qualityContract = contract.ToString(),
             correct = census.Correct,
             validDifferent = census.ValidDifferent,
             validBreakdown,
@@ -604,6 +622,8 @@ static class AuthoredCorpusBenchmark
         if (ratchet is not null)
             AuthoredCorpusRatchet.Report(ratchet, Console.Error);
 
-        return ExitCode(census, inputs, ratchet);
+        ReportContract(contract, census.Invalid, Console.Error);
+
+        return ExitCode(census, inputs, ratchet, contract);
     }
 }

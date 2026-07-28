@@ -76,7 +76,7 @@ static class Program
         bool benchmarkAuthoredCorpus = false;
         string? benchmarkCorpusPath = null;
         string? ratchetBaselinePath = null;
-        string? ratchetPoolManifestPath = null;
+        bool integrityOnly = false;
         bool showHelp = false;
         bool historyCard = false;
         string? historyCardPath = null;
@@ -216,7 +216,7 @@ static class Program
                         benchmarkCorpusPath = NextArg(args, ref i, flag);
                         break;
                     case "--ratchet-baseline": ratchetBaselinePath = NextArg(args, ref i, flag); break;
-                    case "--ratchet-pool-manifest": ratchetPoolManifestPath = NextArg(args, ref i, flag); break;
+                    case "--integrity-only": integrityOnly = true; break;
                     case "--history-card": historyCard = true; break;
                     case "--history-path": historyCardPath = NextArg(args, ref i, flag); break;
                     case "--history-window": historyCardWindow = NextIntArg(args, ref i, flag); break;
@@ -338,7 +338,7 @@ static class Program
         // --help is answered after flag validation, not during parsing. Returning 0
         // from the parse loop let "--ratchet-baseline <path> --help" silently ignore the
         // gate flag, which is the one thing these checks exist to prevent.
-        if (showHelp && ratchetBaselinePath is null && ratchetPoolManifestPath is null)
+        if (showHelp && ratchetBaselinePath is null && !integrityOnly)
         {
             PrintUsage();
             return 0;
@@ -355,8 +355,13 @@ static class Program
             return Fail("--ratchet-baseline applies to --benchmark-authored-corpus; it has no effect on its own.");
         if (showHelp)
             return Fail("--help does not run a gate; drop the ratchet flags to read usage.");
-        if (ratchetPoolManifestPath is not null && ratchetBaselinePath is null)
-            return Fail("--ratchet-pool-manifest identifies the pool for --ratchet-baseline; it has no effect on its own.");
+        if (integrityOnly && !benchmarkAuthoredCorpus)
+            return Fail("--integrity-only applies to --benchmark-authored-corpus; it has no effect on its own.");
+        // Asking for a quality verdict and declining to judge quality are contradictory
+        // demands, and silently honouring one of them would make the exit code mean
+        // something the caller did not ask for.
+        if (integrityOnly && ratchetBaselinePath is not null)
+            return Fail("--integrity-only and --ratchet-baseline are contradictory: one declines to judge quality, the other demands a verdict on it.");
         if (cfgStageSpecified && (!cfg || dumpMethod is null))
             return Fail("--cfg-stage requires --dump --cfg.");
         int harnessReportModes = (returnAddress ? 1 : 0)
@@ -507,7 +512,7 @@ static class Program
             return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget, evil: true, repositoryPaths: sourceRepositories);
 
         if (benchmarkAuthoredCorpus)
-            return AuthoredCorpusBenchmark.Run(assemblies, benchmarkCorpusPath!, json, ratchetBaselinePath, ratchetPoolManifestPath);
+            return AuthoredCorpusBenchmark.Run(assemblies, benchmarkCorpusPath!, json, ratchetBaselinePath, integrityOnly);
 
         if (verifyAuthoredCorpus)
             return AuthoredCorpusDrift.Run(assemblies, verifyCorpusPath!, json, failOnDrift, sourceRepositories);
@@ -2091,13 +2096,16 @@ static class Program
                                 missing or unparseable is a hard error; a baseline
                                 that parses but holds no comparable row is a loud
                                 skip, never a silent pass.
-          --ratchet-pool-manifest <sweep-manifest.json>
-                                with --ratchet-baseline: identify the assembly pool
-                                this run measured, so it can be checked against the
-                                baseline row's recorded pool. Without it, a run cannot
-                                be compared to any row that records a pool hash — a
-                                loud skip, because equal row and assembly counts do
-                                not establish that the inputs were the same code.
+          --integrity-only      with --benchmark-authored-corpus: report measurement
+                                integrity only, making no quality claim at all. For a
+                                lane that cannot yet ratchet because its pool is not
+                                pinned. Without it and without --ratchet-baseline the
+                                exit code still demands invalid == 0, so such a lane
+                                would be red by construction. Contradicts
+                                --ratchet-baseline and is refused alongside it; the
+                                run output and the JSON both record which contract
+                                applied, so a green run cannot be misread as a
+                                quality pass.
           --history-card         render a Markout progress card over the committed
                                 EVIL run-history trend store: every run as a trend
                                 table plus a pivoted movement table over the last N

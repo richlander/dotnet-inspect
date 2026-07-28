@@ -58,11 +58,15 @@ Each row contains these fields:
   which overclaimed exactly that distinction.)
 - `corpusSha256`: identity of the corpus measured, copied from the run JSON.
   Absent on rows recorded before the ratchet.
-- `sweepManifestSha256`: identity of the pool. On rows from 2026-07 this is a
-  hand-recorded SHA-256 of the manifest *file*; runs now report a canonical
-  digest over the resolved package identities instead, so the two do not
-  interoperate. Or `null` when the
-  manifest is unknown.
+- `poolSha256`: identity of the assembly pool measured, copied from the run
+  JSON. Runs derive it from the assemblies themselves (each named and
+  content-hashed), so it always describes exactly what was decompiled.
+- `sweepManifestSha256`: the superseded pool identity on rows from 2026-07, a
+  hand-recorded SHA-256 of the sweep manifest *file*. It could not identify the
+  pool — the pool is the **union** of the sweep and a fixed set of real-world
+  assemblies, and the manifest described only the sweep half — so it does not
+  interoperate with `poolSha256` and rows carrying only it record no pool
+  identity under the current scheme.
 - `methodologyVersion`: how `invalidBreakdown.productBodyDefect` was computed.
   **Every version is a lower bound on decompiler-caused body defects**; a later
   version tightens the bound rather than measuring the true count. Copy this
@@ -124,13 +128,12 @@ Each row contains these fields:
    ```bash
    dotnet run --project tools/DecompilerHarness -c Release --no-build -- \
      --benchmark-authored-corpus external/authored-source-corpus/evil/corpus.jsonl \
-     --ratchet-pool-manifest /tmp/evil-pool/sweep-manifest.json \
      --json $(cat /tmp/evil-pool/assemblies.txt) > evil-run-YYYYMMDD-SHA.json
    ```
 
-   `--ratchet-pool-manifest` here does not ratchet anything — it makes the run
-   report the `sweepManifestSha256` the recorded row needs. Without it the row
-   cannot identify its pool and is unusable as a future baseline.
+   The run reports the `poolSha256` the recorded row needs without being asked:
+   the identity is derived from the assemblies passed in, so an appended row can
+   never fail to identify its pool.
 
    Exit code 1 is expected while `invalid`, `drift`, or `unsupported` is
    non-zero; the JSON is still authoritative. That contract is unchanged, and
@@ -139,7 +142,7 @@ Each row contains these fields:
    perfection, see [The regression ratchet](#the-regression-ratchet).
 
 4. Archive the full JSON and `/tmp/evil-pool/sweep-manifest.json` out-of-tree.
-5. Record the UTC date and short SHA, and copy `sweepManifestSha256` and
+5. Record the UTC date and short SHA, and copy `poolSha256` and
    `corpusSha256` from the run JSON. Do not compute these by hand: both are
    defined by the tool (see [Comparability](#comparability-and-the-difference-between-a-skip-and-a-pass)),
    and a hand-derived value that disagrees makes the row uncomparable.
@@ -179,7 +182,6 @@ store** instead of by perfection:
 dotnet run --project tools/DecompilerHarness -c Release --no-build -- \
   --benchmark-authored-corpus external/authored-source-corpus/evil/corpus.jsonl \
   --ratchet-baseline tools/DecompilerHarness/corpus/evil-runs/history.jsonl \
-  --ratchet-pool-manifest /tmp/evil-pool/sweep-manifest.json \
   --json $(cat /tmp/evil-pool/assemblies.txt)
 ```
 
@@ -221,8 +223,8 @@ for them the metric is omitted rather than inferred from the percentage.
 ### Comparability, and the difference between a skip and a pass
 
 A baseline row is comparable only when it shares the run's `evaluated`,
-`poolMatched`, `poolTotal`, and `sweepManifestSha256`. The newest comparable row
-wins — not the newest row outright, so a resized corpus or a repooled sweep
+`poolMatched`, `poolTotal`, `poolSha256`, and `corpusSha256`, **and** can state
+every metric the run states. The newest comparable row wins — not the newest row outright, so a resized corpus or a repooled sweep
 cannot silently retarget the ratchet at an incomparable baseline.
 
 `methodologyVersion` is deliberately **not** part of that key. It defines how
@@ -249,13 +251,23 @@ unsound:
 
 Symmetry is the only rule with no fallthrough.
 
-`--ratchet-pool-manifest <sweep-manifest.json>` is how a live run identifies its
-pool. The digest is taken over the **sorted resolved `package@version/tfm`
-triples**, not over the manifest file: the file carries `generatedAtUtc` and
-per-package `fromCache`, so two sweeps of an identical pool hash differently. A
-digest that never repeats cannot identify anything — it would make the ratchet
-skip on every run, and a permanently red gate is as uninformative as the
-permanently green one this replaces.
+`poolSha256` is derived from the run's own inputs: every assembly it measured,
+named and content-hashed, sorted and digested. Two earlier schemes failed here.
+Hashing the manifest *file* was unreproducible — it carries `generatedAtUtc` and
+per-package `fromCache`, so two sweeps of an identical pool hashed differently,
+and a digest that never repeats makes the gate permanently red, which is as
+uninformative as permanently green. Hashing the *resolved package identities*
+was reproducible but still not the pool: `eng/prepare-evil-corpus.sh` measures
+the union of the sweep and a fixed set of real-world assemblies, so changing the
+real-world half left the identity unchanged, and packages that resolved without
+producing an assembly counted anyway.
+
+Taking the identity from the inputs themselves removes all of that. It is the
+bytes that were decompiled, so it cannot describe a pool other than the one
+measured, and it needs no flag — an identity that depends on the caller
+remembering an argument has the same shape as the gate nobody invoked (#3245).
+Identity is file name plus content, never path, because the pool is staged to a
+different directory on every run.
 
 `corpusSha256` identifies the corpus itself, because the counts do not. Swapping
 in a different 12,000 rows — or editing a single row's authored body — preserves
@@ -263,9 +275,9 @@ in a different 12,000 rows — or editing a single row's authored body — prese
 clean.
 
 > Rows recorded before this change carry a hand-recorded `sweepManifestSha256`
-> taken over the manifest *file*, and no `corpusSha256` at all. They are not
-> comparable to a run that identifies itself under the current scheme. That is
-> the intended direction: a loud skip, never a false pass.
+> and no `corpusSha256` at all. They are not comparable to a run that identifies
+> itself under the current scheme. That is the intended direction: a loud skip,
+> never a false pass.
 
 ### A row is a baseline only if its own measurement was sound
 
@@ -279,6 +291,21 @@ of the comparison. `unknownOutcome` must be recorded and zero rather than merely
 absent — absent means the run did not report it, and an unconfirmable row is not
 a baseline. The 2026-07-20 row is the only tracked row that fails this, pinned as
 set equality by `TrackedHistory_OnlyTheUnconfirmableRowIsNotTrustworthy`.
+
+Soundness is checked by **summing the buckets**, not by confirming they were
+recorded. A row claiming 12,000 evaluated whose buckets total 11,999 has lost a
+target, and a lost target reads as a lower `invalid` — the same "looks like
+progress, is actually absence" shape. Both levels are checked: the top-level
+buckets must account for `evaluated`, and the `validDifferent` sub-buckets must
+account for their own total.
+
+A baseline must also be able to **state every metric the run states**. A metric
+is only emitted when both sides have a number for it, so a row missing one
+yields a comparison that ratchets fewer metrics than the run has while still
+reporting `RATCHET OK`. A row recording the current `methodologyVersion` but no
+`invalidBreakdown` is malformed rather than historical, and is refused. The one
+legitimate omission is a methodology bump, which redefines what
+`productBodyDefect` counts; there the other three metrics keep ratcheting.
 
 Three outcomes, deliberately distinct:
 
@@ -299,9 +326,19 @@ corpus refresh or a corrected baseline, never a product change. A run with no
 baseline to compare against simply does not pass the flag.
 
 For the same reason a typo'd path is a hard error rather than "nothing to
-compare", and `--ratchet-baseline` without `--benchmark-authored-corpus` (or
-`--ratchet-pool-manifest` without `--ratchet-baseline`) is refused rather than
-ignored.
+compare", and `--ratchet-baseline` without `--benchmark-authored-corpus` is
+refused rather than ignored.
+
+`--integrity-only` is the third contract: it reports measurement integrity and
+makes **no quality claim at all**, for a lane that cannot yet ratchet. It is
+refused alongside `--ratchet-baseline`, since declining to judge quality and
+demanding a verdict on it are contradictory. Selecting a contract by *omission*
+is what this flag exists to prevent: the weekly lane was first wired by simply
+dropping `--ratchet-baseline`, which silently selected the historical
+`invalid == 0` contract that this corpus cannot satisfy, so the job would have
+failed every week forever. Both the run output and the JSON's `qualityContract`
+record which contract applied, so a green run cannot be misread as a quality
+pass.
 
 A **malformed corpus row** is an integrity failure, not a logged curiosity, for
 the same reason. Dropping one silently shrinks `evaluated`, which makes the run
@@ -324,15 +361,19 @@ its movement is a floor, not a census.
 - **Weekly**: the `authored-corpus-ratchet` lane in `deep-inspect.yml` restores
   the vendored corpus, prepares the EVIL pool, and runs the benchmark. It is a
   *periodic* job — the corpus and the 100-package sweep are far too expensive for
-  the PR lane. It deliberately does **not** pass `--ratchet-baseline`: the pool is
-  the measurement-integrity gate and the source of the run JSON that an append
-  starts from.
+  the PR lane. It deliberately passes `--integrity-only` rather than
+  `--ratchet-baseline`: this lane is the measurement-integrity gate and the
+  source of the run JSON that an append starts from.
 
   The reason it cannot ratchet is that `docs/data/nuget-top-packages.json`
   records no versions, so the sweep resolves *latest* and a fresh pool can never
   match a recorded baseline's identity. The ratchet would skip, and a skip fails,
-  so the job would be red by construction. Pinning the pool — which would let this
-  lane ratchet for real — is tracked separately. Note this limitation is not new:
+  so the job would be red by construction. Merely omitting `--ratchet-baseline`
+  is not enough either: that selects the historical `invalid == 0` contract,
+  which this corpus cannot satisfy, so the job would still fail every week and
+  file a scheduled-failure issue each time. `--integrity-only` is how the lane
+  says what it actually claims. Pinning the pool — which would let this lane
+  ratchet for real — is tracked separately. Note this limitation is not new:
   the first comparability key was loose enough to compare across a drifted pool,
   which is a false green, and identifying the pool is what turned that silent
   wrong answer into a visible refusal.

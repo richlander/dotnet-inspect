@@ -44,7 +44,7 @@ public class AuthoredCorpusRatchetTests
             Evaluated: evaluated,
             ValidPct: 0,
             Correct: correct,
-            ValidDifferent: new HistoryRunValidDifferent(validDifferent, 0, 0, 0, 0, 0),
+            ValidDifferent: new HistoryRunValidDifferent(validDifferent, validDifferent, 0, 0, 0, 0),
             Invalid: invalid,
             InvalidBreakdown: productBodyDefect is { } defects
                 ? new HistoryRunInvalidBreakdown(defects, 0, 0)
@@ -52,7 +52,8 @@ public class AuthoredCorpusRatchetTests
             Unsupported: 0,
             Drift: 0,
             InputsComplete: true,
-            SweepManifestSha256: sha,
+            SweepManifestSha256: null,
+            PoolSha256: sha,
             MethodologyVersion: methodology,
             NotFull: 0,
             UnknownOutcome: 0,
@@ -65,6 +66,13 @@ public class AuthoredCorpusRatchetTests
         int? productBodyDefect = 326,
         int methodology = 2)
         => new(valid, correct, invalid, productBodyDefect, methodology);
+
+    /// <summary>
+    /// The contract an ordinary caller gets: whatever the presence of a baseline
+    /// selects. Tests that mean <c>--integrity-only</c> name it explicitly instead.
+    /// </summary>
+    static AuthoredCorpusExitContract.QualityContract Contract(AuthoredCorpusRatchet.Comparison? ratchet)
+        => AuthoredCorpusExitContract.ContractFor(integrityOnly: false, ratchet);
 
     /// <summary>
     /// The headline case. These are the exact numbers a reviewer appended to the
@@ -198,7 +206,8 @@ public class AuthoredCorpusRatchetTests
     /// package resolving to a newer version with the same method identities matches
     /// cleanly, drifts nothing, and would otherwise be ratcheted against numbers
     /// measured on different code. Refusing is the safe direction: a loud skip, not a
-    /// silent pass. This is why the CLI has <c>--ratchet-pool-manifest</c>.
+    /// silent pass. A live run always states its pool, so absence means a recorded
+    /// row that predates pool identity.
     /// </summary>
     [Fact]
     public void Ratchet_RunThatCannotIdentifyItsPoolWillNotBorrowABaselineThatCan()
@@ -257,62 +266,156 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
-    /// The pool digest must be reproducible, or the ratchet skips on every run and the
-    /// gate is permanently red — as uninformative as the permanently green one it
-    /// replaces. The sweep manifest carries <c>generatedAtUtc</c> and per-package
-    /// <c>fromCache</c>, so hashing the file cannot deliver that; the digest is taken
-    /// over the resolved package identities instead.
+    /// The same rule for the corpus hash, which a reviewer found had no symmetry test
+    /// of its own: relaxing <c>CorpusSha256</c> to "compare only when both sides state
+    /// one" passed the entire suite, and let a row recording no corpus identity be
+    /// compared against a run that had one. Absence is a value here too, in both
+    /// directions.
     /// </summary>
-    [Fact]
-    public void PoolManifestDigest_IgnoresEverythingButTheAssembliesMeasured()
+    [Theory]
+    [InlineData(null, "5f2b1c9d0e3a4b68")]
+    [InlineData("5f2b1c9d0e3a4b68", null)]
+    public void Ratchet_UnknownCorpusNeverEqualsAKnownOne(string? runCorpusSha, string? baselineCorpusSha)
     {
-        string monday = WriteManifest("2026-07-26T00:00:00Z", fromCache: false);
-        string tuesday = WriteManifest("2026-07-27T09:31:12Z", fromCache: true);
-        string repooled = WriteManifest("2026-07-26T00:00:00Z", fromCache: false, version: "8.0.1");
-        try
-        {
-            Assert.Equal(
-                AuthoredCorpusRatchet.PoolManifestDigest(monday),
-                AuthoredCorpusRatchet.PoolManifestDigest(tuesday));
-            Assert.NotEqual(
-                AuthoredCorpusRatchet.PoolManifestDigest(monday),
-                AuthoredCorpusRatchet.PoolManifestDigest(repooled));
-            Assert.Equal(16, AuthoredCorpusRatchet.PoolManifestDigest(monday).Length);
-        }
-        finally
-        {
-            File.Delete(monday);
-            File.Delete(tuesday);
-            File.Delete(repooled);
-        }
+        var comparison = AuthoredCorpusRatchet.Compare(
+            Key(corpusSha: runCorpusSha),
+            Metrics(),
+            [Row(corpusSha: baselineCorpusSha)]);
 
-        static string WriteManifest(string generatedAtUtc, bool fromCache, string version = "8.0.0")
-        {
-            string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-            File.WriteAllText(
-                path,
-                "{\"schemaVersion\":1,\"generatedAtUtc\":\"" + generatedAtUtc
-                + "\",\"packages\":[{\"rank\":1,\"resolvedPackage\":\"Newtonsoft.Json\","
-                + "\"resolvedVersion\":\"" + version + "\",\"tfm\":\"net8.0\",\"fromCache\":"
-                + (fromCache ? "true" : "false") + "}]}");
-            return path;
-        }
+        Assert.True(comparison.Skipped);
+        Assert.Contains("corpusSha256", comparison.SkipReason!, StringComparison.Ordinal);
     }
 
-    /// <summary>A manifest that resolved nothing identifies no pool, and says so.</summary>
+    /// <summary>
+    /// Recording a bucket is not the same as the buckets adding up. A reviewer supplied
+    /// a baseline claiming 100 evaluated whose buckets summed to 99 — a lost target,
+    /// which reports a lower <c>invalid</c> for having measured less — and the
+    /// presence-only check accepted it, returning <c>RATCHET OK</c> and exit 0.
+    /// </summary>
     [Fact]
-    public void PoolManifestDigest_RefusesAManifestThatResolvedNoPackages()
+    public void Ratchet_BaselineWhoseBucketsDoNotSumToEvaluatedIsNotTrustworthy()
     {
-        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-        File.WriteAllText(path, "{\"schemaVersion\":1,\"packages\":[]}");
-        try
+        var shortByOne = Row() with { Evaluated = 12001 };
+
+        Assert.False(AuthoredCorpusRatchet.IsTrustworthy(shortByOne));
+        Assert.True(AuthoredCorpusRatchet.IsTrustworthy(Row()));
+
+        var comparison = AuthoredCorpusRatchet.Compare(Key(evaluated: 12001), Metrics(), [shortByOne]);
+        Assert.True(comparison.Skipped);
+    }
+
+    /// <summary>
+    /// The same rule one level down: the valid sub-buckets must account for the
+    /// valid-different total, or the row has lost rows inside a bucket that still adds
+    /// up at the top level.
+    /// </summary>
+    [Fact]
+    public void Ratchet_BaselineWhoseValidSubBucketsDoNotSumIsNotTrustworthy()
+    {
+        var row = Row();
+        var skewed = row with
         {
-            Assert.Throws<InvalidOperationException>(() => AuthoredCorpusRatchet.PoolManifestDigest(path));
-        }
-        finally
+            ValidDifferent = new HistoryRunValidDifferent(row.ValidDifferent!.Total, 1, 0, 0, 0, 0),
+        };
+
+        Assert.False(AuthoredCorpusRatchet.IsTrustworthy(skewed));
+    }
+
+    /// <summary>
+    /// A baseline that cannot state a metric the run states must not be compared at
+    /// all. <see cref="AuthoredCorpusRatchet"/> only emits a metric when both sides have
+    /// a number, so a reviewer's row with <c>invalidBreakdown: null</c> produced a clean
+    /// three-metric <c>RATCHET OK</c> while the product signal went unchecked — a pass
+    /// that had quietly stopped ratcheting the metric the trend store exists to track.
+    /// </summary>
+    [Fact]
+    public void Ratchet_BaselineMissingAMetricTheRunHasIsNotComparable()
+    {
+        var comparison = AuthoredCorpusRatchet.Compare(Key(), Metrics(), [Row(productBodyDefect: null)]);
+
+        Assert.True(comparison.Skipped);
+        Assert.Contains("invalidBreakdown", comparison.SkipReason!, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The one legitimate reason a metric drops out is a methodology bump, which
+    /// redefines what <c>productBodyDefect</c> counts. That case still compares, on the
+    /// three methodology-independent metrics.
+    /// </summary>
+    [Fact]
+    public void Ratchet_MethodologyBumpDropsOnlyTheMetricItRedefines()
+    {
+        var comparison = AuthoredCorpusRatchet.Compare(
+            Key(), Metrics(methodology: 3), [Row(productBodyDefect: null, methodology: 1)]);
+
+        Assert.False(comparison.Skipped);
+        Assert.Equal(["valid", "correct", "invalid"], comparison.Metrics.Select(metric => metric.Name).ToArray());
+    }
+
+    /// <summary>
+    /// The pool digest must be reproducible, or the ratchet skips on every run and the
+    /// gate is permanently red — as uninformative as the permanently green one it
+    /// replaces. Staging the same assemblies to a different directory is the normal
+    /// case (every CI run does it), so identity is content plus file name, never path.
+    /// </summary>
+    [Fact]
+    public void PoolDigest_IdentifiesContent_NotWhereItWasStaged()
+    {
+        using var pool = new TempPool();
+        string monday = pool.Write("first", "A.dll", [1, 2, 3]);
+        string restaged = pool.Write("second", "A.dll", [1, 2, 3]);
+        string rebuilt = pool.Write("third", "A.dll", [1, 2, 4]);
+
+        Assert.Equal(AuthoredCorpusRatchet.PoolDigest([monday]), AuthoredCorpusRatchet.PoolDigest([restaged]));
+        Assert.NotEqual(AuthoredCorpusRatchet.PoolDigest([monday]), AuthoredCorpusRatchet.PoolDigest([rebuilt]));
+        Assert.Equal(16, AuthoredCorpusRatchet.PoolDigest([monday]).Length);
+    }
+
+    /// <summary>
+    /// The identity covers the whole pool, in any order. A reviewer showed the previous
+    /// manifest-derived digest could not do this: <c>eng/prepare-evil-corpus.sh</c>
+    /// measures the union of the package sweep and a fixed set of real-world
+    /// assemblies, but the manifest described only the sweep, so changing the other
+    /// half left the identity unchanged.
+    /// </summary>
+    [Fact]
+    public void PoolDigest_CoversEveryAssemblyAndIgnoresOrder()
+    {
+        using var pool = new TempPool();
+        string sweep = pool.Write("sweep", "Sweep.dll", [1, 1, 1]);
+        string realWorld = pool.Write("real", "RealWorld.dll", [2, 2, 2]);
+        string changed = pool.Write("real2", "RealWorld.dll", [3, 3, 3]);
+
+        Assert.Equal(
+            AuthoredCorpusRatchet.PoolDigest([sweep, realWorld]),
+            AuthoredCorpusRatchet.PoolDigest([realWorld, sweep]));
+        Assert.NotEqual(
+            AuthoredCorpusRatchet.PoolDigest([sweep, realWorld]),
+            AuthoredCorpusRatchet.PoolDigest([sweep, changed]));
+        Assert.NotEqual(
+            AuthoredCorpusRatchet.PoolDigest([sweep, realWorld]),
+            AuthoredCorpusRatchet.PoolDigest([sweep]));
+    }
+
+    /// <summary>A run that measured nothing identifies no pool, and says so.</summary>
+    [Fact]
+    public void PoolDigest_RefusesARunThatMeasuredNoAssemblies()
+        => Assert.Throws<InvalidOperationException>(() => AuthoredCorpusRatchet.PoolDigest([]));
+
+    sealed class TempPool : IDisposable
+    {
+        readonly string root = Directory.CreateTempSubdirectory("ratchet-pool").FullName;
+
+        public string Write(string folder, string name, byte[] content)
         {
-            File.Delete(path);
+            string directory = Path.Combine(root, folder);
+            Directory.CreateDirectory(directory);
+            string path = Path.Combine(directory, name);
+            File.WriteAllBytes(path, content);
+            return path;
         }
+
+        public void Dispose() => Directory.Delete(root, recursive: true);
     }
 
     /// <summary>
@@ -338,9 +441,12 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
-    /// productBodyDefect is absent on rows predating the invalid breakdown. Absent
-    /// means not measured, so it drops out of the comparison rather than reading as
-    /// zero — which would report every later run as a massive regression.
+    /// productBodyDefect is absent on rows predating the invalid breakdown, which are
+    /// also the rows predating the methodology stamp. Absent means not measured, so it
+    /// drops out rather than reading as zero — which would report every later run as a
+    /// massive regression. A row that claims the *current* methodology and still omits
+    /// the breakdown is malformed, not historical, and is refused instead
+    /// (see <see cref="Ratchet_BaselineMissingAMetricTheRunHasIsNotComparable"/>).
     /// </summary>
     [Fact]
     public void Ratchet_UnrecordedProductDefectsAreOmittedNotTreatedAsZero()
@@ -348,7 +454,7 @@ public class AuthoredCorpusRatchetTests
         var comparison = AuthoredCorpusRatchet.Compare(
             Key(),
             Metrics(productBodyDefect: 326),
-            [Row(productBodyDefect: null)]);
+            [Row(productBodyDefect: null, methodology: null)]);
 
         Assert.False(comparison.Skipped);
         Assert.DoesNotContain(comparison.Metrics, metric => metric.Name == "productBodyDefect");
@@ -365,7 +471,10 @@ public class AuthoredCorpusRatchetTests
         var comparison = AuthoredCorpusRatchet.Compare(
             Key(evaluated: 11000),
             Metrics(valid: 6802, correct: 1600),
-            [Row(date: "2026-07-24", evaluated: 11000, correct: 1539), Row(date: "2026-07-26")]);
+            [
+                Row(date: "2026-07-24", evaluated: 11000, validDifferent: 4226, correct: 1539, invalid: 5235),
+                Row(date: "2026-07-26"),
+            ]);
 
         Assert.False(comparison.Skipped);
         Assert.Equal("2026-07-24", comparison.Baseline!.Date);
@@ -438,7 +547,7 @@ public class AuthoredCorpusRatchetTests
 
         Assert.False(sound);
         Assert.Empty(clean.Regressions);
-        Assert.Equal(1, AuthoredCorpusExitContract.ExitCode(sound, invalid: 0, clean));
+        Assert.Equal(1, AuthoredCorpusExitContract.ExitCode(sound, invalid: 0, clean, Contract(clean)));
     }
 
     [Fact]
@@ -485,9 +594,9 @@ public class AuthoredCorpusRatchetTests
             unknownOutcome: 0);
 
         Assert.True(skipped.Skipped);
-        Assert.True(AuthoredCorpusExitContract.QualityHeld(invalid: 5198, skipped));
+        Assert.True(AuthoredCorpusExitContract.QualityHeld(invalid: 5198, skipped, Contract(skipped)));
         Assert.False(sound);
-        Assert.Equal(1, AuthoredCorpusExitContract.ExitCode(sound, invalid: 5198, skipped));
+        Assert.Equal(1, AuthoredCorpusExitContract.ExitCode(sound, invalid: 5198, skipped, Contract(skipped)));
     }
 
     /// <summary>
@@ -505,10 +614,10 @@ public class AuthoredCorpusRatchetTests
     {
         var skipped = AuthoredCorpusRatchet.Comparison.Skip("no comparable row");
 
-        Assert.True(AuthoredCorpusExitContract.QualityHeld(invalid: 5198, skipped));
+        Assert.True(AuthoredCorpusExitContract.QualityHeld(invalid: 5198, skipped, Contract(skipped)));
         Assert.False(AuthoredCorpusExitContract.RatchetReachedAVerdict(skipped));
-        Assert.Equal(1, AuthoredCorpusExitContract.ExitCode(measurementIsSound: true, invalid: 5198, skipped));
-        Assert.Equal(1, AuthoredCorpusExitContract.ExitCode(measurementIsSound: false, invalid: 0, skipped));
+        Assert.Equal(1, AuthoredCorpusExitContract.ExitCode(measurementIsSound: true, invalid: 5198, skipped, Contract(skipped)));
+        Assert.Equal(1, AuthoredCorpusExitContract.ExitCode(measurementIsSound: false, invalid: 0, skipped, Contract(skipped)));
     }
 
     /// <summary>
@@ -523,7 +632,7 @@ public class AuthoredCorpusRatchetTests
 
         Assert.True(AuthoredCorpusExitContract.RatchetReachedAVerdict(held));
         Assert.True(AuthoredCorpusExitContract.RatchetReachedAVerdict(null));
-        Assert.Equal(0, AuthoredCorpusExitContract.ExitCode(measurementIsSound: true, invalid: 5198, held));
+        Assert.Equal(0, AuthoredCorpusExitContract.ExitCode(measurementIsSound: true, invalid: 5198, held, Contract(held)));
     }
 
     /// <summary>
@@ -537,7 +646,7 @@ public class AuthoredCorpusRatchetTests
     {
         var held = AuthoredCorpusRatchet.Compare(Key(), Metrics(), [Row()]);
 
-        Assert.Equal(0, AuthoredCorpusExitContract.ExitCode(measurementIsSound: true, invalid: 5198, held));
+        Assert.Equal(0, AuthoredCorpusExitContract.ExitCode(measurementIsSound: true, invalid: 5198, held, Contract(held)));
     }
 
     [Fact]
@@ -546,7 +655,7 @@ public class AuthoredCorpusRatchetTests
         var regressed = AuthoredCorpusRatchet.Compare(Key(), Metrics(correct: 800), [Row()]);
 
         Assert.NotEmpty(regressed.Regressions);
-        Assert.Equal(1, AuthoredCorpusExitContract.ExitCode(measurementIsSound: true, invalid: 5198, regressed));
+        Assert.Equal(1, AuthoredCorpusExitContract.ExitCode(measurementIsSound: true, invalid: 5198, regressed, Contract(regressed)));
     }
 
     /// <summary>
@@ -559,7 +668,74 @@ public class AuthoredCorpusRatchetTests
     [InlineData(5198, 1)]
     public void ExitContract_WithoutABaselineTheHistoricalPerfectionContractStands(int invalid, int expected)
     {
-        Assert.Equal(expected, AuthoredCorpusExitContract.ExitCode(measurementIsSound: true, invalid, ratchet: null));
+        Assert.Equal(expected, AuthoredCorpusExitContract.ExitCode(measurementIsSound: true, invalid, ratchet: null, Contract(null)));
+    }
+
+    /// <summary>
+    /// The three quality contracts are selected in one place, and "no baseline" is not
+    /// a way to spell "do not judge quality". A reviewer found the weekly lane had been
+    /// wired by simply dropping <c>--ratchet-baseline</c>, which silently selected
+    /// <see cref="AuthoredCorpusExitContract.QualityContract.Perfection"/> — a contract
+    /// this ~5,200-invalid corpus cannot meet — so the job would have failed every week
+    /// forever and filed a scheduled-failure issue each time.
+    /// </summary>
+    [Fact]
+    public void ExitContract_OmittingABaselineSelectsPerfection_NotSilence()
+    {
+        var held = AuthoredCorpusRatchet.Compare(Key(), Metrics(), [Row()]);
+
+        Assert.Equal(
+            AuthoredCorpusExitContract.QualityContract.Perfection,
+            AuthoredCorpusExitContract.ContractFor(integrityOnly: false, ratchet: null));
+        Assert.Equal(
+            AuthoredCorpusExitContract.QualityContract.Ratchet,
+            AuthoredCorpusExitContract.ContractFor(integrityOnly: false, held));
+        Assert.Equal(
+            AuthoredCorpusExitContract.QualityContract.NotJudged,
+            AuthoredCorpusExitContract.ContractFor(integrityOnly: true, ratchet: null));
+    }
+
+    /// <summary>
+    /// What the weekly lane actually asks for: a sound measurement of a corpus with
+    /// thousands of invalid rows exits 0, because the lane makes no quality claim at
+    /// all. This is the case that is red by construction under every other contract.
+    /// </summary>
+    [Fact]
+    public void ExitContract_IntegrityOnlyPassesOnASoundRunOfAnImperfectCorpus()
+    {
+        Assert.Equal(1, AuthoredCorpusExitContract.ExitCode(
+            measurementIsSound: true, invalid: 5198, ratchet: null,
+            AuthoredCorpusExitContract.QualityContract.Perfection));
+
+        Assert.Equal(0, AuthoredCorpusExitContract.ExitCode(
+            measurementIsSound: true, invalid: 5198, ratchet: null,
+            AuthoredCorpusExitContract.QualityContract.NotJudged));
+    }
+
+    /// <summary>
+    /// Declining to judge quality is not a way to launder an untrustworthy run. The
+    /// integrity half is the whole of what an integrity-only lane claims, so it must
+    /// still be able to fail — otherwise the lane is the permanently green gate this
+    /// PR exists to remove, one level down.
+    /// </summary>
+    [Fact]
+    public void ExitContract_IntegrityOnlyStillFailsAnUnsoundRun()
+    {
+        Assert.Equal(1, AuthoredCorpusExitContract.ExitCode(
+            measurementIsSound: false, invalid: 0, ratchet: null,
+            AuthoredCorpusExitContract.QualityContract.NotJudged));
+    }
+
+    /// <summary>
+    /// The ratchet contract cannot be selected without a comparison to judge with.
+    /// Silently treating that as a pass is how a mis-wired caller would get a green
+    /// gate it never earned, so it throws instead.
+    /// </summary>
+    [Fact]
+    public void ExitContract_RatchetContractWithoutAComparisonIsARefusal()
+    {
+        Assert.Throws<ArgumentException>(() => AuthoredCorpusExitContract.QualityHeld(
+            invalid: 0, ratchet: null, AuthoredCorpusExitContract.QualityContract.Ratchet));
     }
 
     /// <summary>
@@ -666,11 +842,18 @@ public class AuthoredCorpusRatchetTests
     {
         var runs = AuthoredCorpusHistoryCardTests.TrackedHistory().ToList();
         var newest = runs[^1];
+        // The rows the regression sheds move into invalid, so the partition still
+        // closes: this must fail for being *worse*, not for having measured less.
         runs.Add(newest with
         {
             Date = "2026-07-31",
-            ValidDifferent = newest.ValidDifferent! with { Total = newest.ValidDifferent!.Total - 100 },
+            ValidDifferent = newest.ValidDifferent! with
+            {
+                Total = newest.ValidDifferent!.Total - 100,
+                FrontierIlExact = newest.ValidDifferent!.FrontierIlExact - 100,
+            },
             Correct = 800,
+            Invalid = newest.Invalid + 100 + (newest.Correct - 800),
             InvalidBreakdown = new HistoryRunInvalidBreakdown(2328, 0, 0),
         });
 
@@ -679,7 +862,7 @@ public class AuthoredCorpusRatchetTests
         Assert.False(comparison.Skipped);
         Assert.Equal(newest.Date, comparison.Baseline!.Date);
         Assert.Equal(
-            ["valid", "correct", "productBodyDefect"],
+            ["valid", "correct", "invalid", "productBodyDefect"],
             comparison.Regressions.Select(metric => metric.Name));
     }
 }
