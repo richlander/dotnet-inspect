@@ -321,10 +321,18 @@ public class CallerScopeTypeFilterTests
     /// produces. Only the metadata blob is built, because <see cref="CallerScopeTypeFilter"/>
     /// decides from a <see cref="MetadataReader"/> and never needs the surrounding PE.
     ///
-    /// The assertions below pin the two properties that make this stand in for a compiled
-    /// netmodule, so the fixture cannot quietly stop being one: the reader is not an assembly, and
-    /// the decoder gives its definitions the empty assembly name. Both were confirmed against an
-    /// actual <c>csc -target:module</c> output before this test was written.
+    /// The corelib reference and <c>System.Object</c> base type are not decoration: a real
+    /// <c>csc -target:module</c> output carries exactly them, and a fixture without them would let
+    /// a negative test "rule out" <c>System.Object</c>, which no real module would allow. Verified
+    /// against an actual netmodule, whose entire TypeRef table is:
+    /// <code>
+    /// System.Runtime.CompilerServices.RefSafetyRulesAttribute -> asmref:System.Private.CoreLib
+    /// System.Object                                           -> asmref:System.Private.CoreLib
+    /// </code>
+    ///
+    /// The assertions in the tests below pin the two properties that make this stand in for a
+    /// compiled netmodule, so the fixture cannot quietly stop being one: the reader is not an
+    /// assembly, and the decoder gives its definitions the empty assembly name.
     /// </summary>
     static MetadataReaderProvider BuildModuleMetadata(string ns, string typeName)
     {
@@ -335,6 +343,18 @@ public class CallerScopeTypeFilterTests
             builder.GetOrAddGuid(Guid.NewGuid()),
             default,
             default);
+
+        var corelib = builder.AddAssemblyReference(
+            builder.GetOrAddString("System.Private.CoreLib"),
+            new Version(9, 0, 0, 0),
+            culture: default,
+            publicKeyOrToken: default,
+            flags: default,
+            hashValue: default);
+        var objectRef = builder.AddTypeReference(
+            corelib,
+            builder.GetOrAddString("System"),
+            builder.GetOrAddString("Object"));
 
         // Row 1 is always <Module>; the real type follows it, exactly as a compiler emits.
         builder.AddTypeDefinition(
@@ -348,7 +368,7 @@ public class CallerScopeTypeFilterTests
             TypeAttributes.Public,
             builder.GetOrAddString(ns),
             builder.GetOrAddString(typeName),
-            baseType: default,
+            baseType: objectRef,
             fieldList: MetadataTokens.FieldDefinitionHandle(1),
             methodList: MetadataTokens.MethodDefinitionHandle(1));
 
@@ -391,6 +411,12 @@ public class CallerScopeTypeFilterTests
     /// <summary>
     /// The same module must still be ruled out for a type it does not declare, or the test above
     /// would be satisfied by a filter that simply kept every module.
+    ///
+    /// The foreign type has to be one a real module would genuinely not name. <c>System.Object</c>
+    /// is the wrong choice and was the original mistake here: every compiled module references it
+    /// as a base type, so ruling it out would have been a claim no real netmodule could satisfy —
+    /// the assertion only held because the fixture was less faithful than the thing it stood for.
+    /// It is now asserted in the other direction, as a positive control.
     /// </summary>
     [Fact]
     public void ModuleWithoutAnAssemblyManifestIsStillRuledOutForAForeignType()
@@ -400,6 +426,14 @@ public class CallerScopeTypeFilterTests
 
         Assert.Equal(
             CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            CallerScopeTypeFilter.Classify(
+                reader,
+                TypeRef.Definition("System.Net.Sockets", "System.Net.Sockets", "Socket")));
+
+        // Positive control: the type the module really does reference is found through the
+        // TypeRef table, so the negative above is a property of this type and not of modules.
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.Names,
             CallerScopeTypeFilter.Classify(reader, TypeRef.CoreLib("System", "Object")));
     }
 
