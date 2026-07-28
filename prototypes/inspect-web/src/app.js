@@ -93,6 +93,8 @@ const state = {
   spotlightPkgHits: [],
   spotlightPkgLoading: false,
   spotlightPkgQuery: "",
+  packageVersions: {},
+  packageVersionsLoading: {},
   runtimePackLoading: false,
   runtimePackError: "",
   graphSourceOpen: false,
@@ -982,6 +984,12 @@ function render() {
           <strong>${escapeHtml(state.package.id)}</strong>
           <span>${escapeHtml(state.package.version)}</span>
         </div>
+        <label class="version-select">
+          <span>version</span>
+          <select id="package-version"${state.package.isRuntimePack ? " disabled" : ""}>
+            ${versionOptionsHtml(state.package)}
+          </select>
+        </label>
         <label class="framework-select">
           <span>framework</span>
           <select id="framework">
@@ -2603,6 +2611,10 @@ function bindEvents() {
   document.querySelector("#framework").addEventListener("change", event => {
     loadPackage(state.package.id, state.package.version, event.target.value);
   });
+  document.querySelector("#package-version")?.addEventListener("change", event => {
+    switchPackageVersion(event.target.value);
+  });
+  ensurePackageVersions(state.package);
   const filter = document.querySelector("#type-filter");
   filter?.addEventListener("input", event => {
     state.typeFilter = event.target.value;
@@ -3234,6 +3246,90 @@ async function fetchSpotlightPackages(query) {
     }
   }
 }
+
+// Compare two NuGet SemVer-ish versions descending (newest first). Falls back to string
+// comparison for non-numeric pre-release tails so the list stays deterministic.
+function compareVersionsDesc(a, b) {
+  const parse = v => String(v).split(/[.\-+]/).map(part => (/^\d+$/.test(part) ? Number(part) : part));
+  const pa = parse(a);
+  const pb = parse(b);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i];
+    const y = pb[i];
+    if (x === y) continue;
+    if (x === undefined) return 1;   // shorter (release) sorts before its prerelease
+    if (y === undefined) return -1;
+    if (typeof x === "number" && typeof y === "number") return y - x;
+    return String(y).localeCompare(String(x));
+  }
+  return 0;
+}
+
+// Build the <option> list for the version selector. Always includes the currently loaded
+// version (even before the flatcontainer index has been fetched) so the control is never empty.
+function versionOptionsHtml(pkg) {
+  const idLower = pkg.id.toLowerCase();
+  const fetched = state.packageVersions[idLower] ?? [];
+  const versions = fetched.length ? fetched.slice() : [pkg.version];
+  if (!versions.some(v => v.toLowerCase() === pkg.version.toLowerCase())) {
+    versions.unshift(pkg.version);
+    versions.sort(compareVersionsDesc);
+  }
+  return versions
+    .map(v => `<option value="${escapeHtml(v)}" ${v.toLowerCase() === pkg.version.toLowerCase() ? "selected" : ""}>${escapeHtml(v)}</option>`)
+    .join("");
+}
+
+// Lazily fetch the full published-version list for a package straight from the NuGet
+// flatcontainer index (CORS-enabled), cache it, and repaint the version selector in place.
+async function ensurePackageVersions(pkg) {
+  if (!pkg || pkg.isRuntimePack) return;
+  const idLower = pkg.id.toLowerCase();
+  if (state.packageVersions[idLower] || state.packageVersionsLoading[idLower]) return;
+  state.packageVersionsLoading[idLower] = true;
+  try {
+    const url = `https://api.nuget.org/v3-flatcontainer/${encodeURIComponent(idLower)}/index.json`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.json();
+    const versions = (payload.versions || []).slice().sort(compareVersionsDesc);
+    state.packageVersions[idLower] = versions;
+    updateVersionSelect(idLower);
+  } catch {
+    // Leave the selector on the single current-version option; a transient index failure
+    // must not break the workbench.
+  } finally {
+    state.packageVersionsLoading[idLower] = false;
+  }
+}
+
+// Repaint just the version <select> options without a full re-render, so an async index
+// fetch never disturbs focus, scroll, or the rest of the workbench.
+function updateVersionSelect(idLower) {
+  if (!state.package || state.package.id.toLowerCase() !== idLower) return;
+  const select = document.querySelector("#package-version");
+  if (select) select.innerHTML = versionOptionsHtml(state.package);
+}
+
+// Switch the current package to a different published version. Replaces the current tab in
+// place (drops the previous version's entry) so the selector mutates this package rather than
+// spawning a second tab, mirroring a browser's version picker.
+async function switchPackageVersion(newVersion) {
+  const pkg = state.package;
+  if (!pkg || pkg.isRuntimePack) return;
+  const id = pkg.id;
+  const oldVersion = pkg.version;
+  if (!newVersion || newVersion.toLowerCase() === oldVersion.toLowerCase()) return;
+  const framework = pkg.activeFramework;
+  const loaded = await loadPackage(id, newVersion, framework);
+  if (loaded && loaded.version.toLowerCase() !== oldVersion.toLowerCase()) {
+    const before = state.packages.length;
+    state.packages = state.packages.filter(item =>
+      !(item.id.toLowerCase() === id.toLowerCase() && item.version.toLowerCase() === oldVersion.toLowerCase()));
+    if (state.packages.length !== before) render();
+  }
+}
+
 
 function openSpotlight(seed = "") {
   state.spotlightOpen = true;

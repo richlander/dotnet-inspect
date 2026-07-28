@@ -225,14 +225,14 @@ body {
 .package-title { display: flex; gap: 9px; align-items: baseline; min-width: 305px; }
 .package-title strong { font-size: 14px; }
 .package-title > span:last-child { color: var(--muted); font: 11px var(--mono); }
-.scope-kicker, .framework-select > span {
+.scope-kicker, .framework-select > span, .version-select > span {
   color: var(--dim);
   font: 10px var(--mono);
   letter-spacing: .1em;
   text-transform: uppercase;
 }
-.framework-select { display: flex; align-items: center; gap: 7px; }
-.framework-select select {
+.framework-select, .version-select { display: flex; align-items: center; gap: 7px; }
+.framework-select select, .version-select select {
   height: 26px;
   padding: 0 25px 0 8px;
   border: 1px solid var(--line);
@@ -240,6 +240,7 @@ body {
   background: var(--panel-raised);
   font: 11px var(--mono);
 }
+.version-select select:disabled { opacity: .55; cursor: default; }
 .asset-path {
   flex: 1;
   min-width: 120px;
