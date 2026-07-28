@@ -1374,7 +1374,8 @@ public static class ApiOutputFormatter
             FidelityCauses: requestedSections.Contains(SectionNames.FidelityCauses),
             AppliedTaste: requestedSections.Contains(SectionNames.AppliedTaste),
             ProjectAssetsPath: options?.ProjectAssetsPath,
-            TargetFramework: options?.Tfm);
+            TargetFramework: options?.Tfm,
+            CaretFocus: options?.Focus);
 
         // An index-backed section that is explicitly selected (via -S or a category like
         // @Audit) renders an empty-state note instead of vanishing when it yields no rows.
@@ -1479,30 +1480,24 @@ public static class ApiOutputFormatter
         if (request.CallGraph && singleMethodList is [{ MetadataToken: { } graphToken } graphMethod])
         {
             RequestTelemetry.Breadcrumb("il-analysis.call-graph", graphMethod.Name);
-            var root = ToCallGraphNode(
-                analysisInspection.BuildCallTree(graphToken),
-                GetRequestedCallGraphFields(options));
-            if (root.Children is { Count: > 0 })
+            // One bidirectional graph: inbound callers and outbound callees around the selected
+            // member. The projection collapses the two trees onto shared node identity, so a member
+            // that is both a caller and a callee is one node rather than two unrelated subtrees.
+            var projection = ILInspector.CallGraph.CallGraphProjection.Create(
+                analysisInspection.BuildCallerTree(graphToken),
+                analysisInspection.BuildCallTree(graphToken));
+            // A lone focus node with no edges is the empty state, not a graph.
+            if (projection.Edges.Length > 0)
             {
-                memberCode.CallGraphNodes = [root];
+                memberCode.CallGraph = CallGraphSectionAdapter.ToGraph(
+                    projection,
+                    FormatCallee,
+                    GetRequestedCallGraphFields(options));
                 hasCode = true;
             }
             else if (ExplicitlySelected(SectionNames.CallGraph))
             {
-                // No outbound calls: render the empty-state note instead of a lone root node.
-                memberCode.CallGraphNodes = [];
-                hasCode = true;
-            }
-        }
-
-        if (requestedSections.Contains(SectionNames.CallerGraph) && singleMethodList is [{ MetadataToken: { } callerGraphToken } callerGraphMethod])
-        {
-            RequestTelemetry.Breadcrumb("il-analysis.caller-graph", callerGraphMethod.Name);
-            var callerTree = analysisInspection.BuildCallerTree(callerGraphToken);
-            var root = ToCallGraphNode(callerTree, GetRequestedCallGraphFields(options));
-            if (root.Children is { Count: > 0 } || ExplicitlySelected(SectionNames.CallerGraph))
-            {
-                memberCode.CallerGraphNodes = [root];
+                memberCode.CallGraph = new Markout.Graph([], []);
                 hasCode = true;
             }
         }
@@ -1989,134 +1984,12 @@ public static class ApiOutputFormatter
         return FormatMember(member.DeclaringType, member.Name, member.ParameterTypes, member.TypeArguments);
     }
 
-    static TreeNode ToCallGraphNode(Analysis.CallTreeNode node, IReadOnlyList<string>? requestedFields = null)
-    {
-        var children = node.Children.Select(child => ToCallGraphNode(child, requestedFields)).ToList();
-        if (node.Status == Analysis.CallTreeStatus.Truncated)
-            children.Add(new TreeNode("… (truncated)"));
-        return new TreeNode(FormatCallGraphLabel(node, requestedFields))
-        {
-            Children = children.Count > 0 ? children : null,
-        };
-    }
-
     static IReadOnlyList<string> GetRequestedCallGraphFields(ApiOptions? options)
         => options?.Fields is { Length: > 0 } fields
             ? fields
             : options?.Columns is { Length: > 0 } columns
                 ? columns
                 : [];
-
-    static string FormatCallGraphLabel(Analysis.CallTreeNode node, IReadOnlyList<string>? requestedFields = null)
-    {
-        string member = FormatCallee(node.Member);
-        var suffixes = new List<string>();
-
-        switch (node.Status)
-        {
-            case Analysis.CallTreeStatus.External:
-                suffixes.Add("external");
-                break;
-            case Analysis.CallTreeStatus.AlreadyShown:
-                suffixes.Add("shown above");
-                break;
-            case Analysis.CallTreeStatus.DepthLimited:
-                suffixes.Add("…");
-                break;
-        }
-
-        if (requestedFields is { Count: > 0 })
-        {
-            foreach (var field in requestedFields)
-            {
-                if (FormatCallGraphAnnotation(node, field) is { } annotation)
-                    suffixes.Add(annotation);
-            }
-        }
-        else if (node.Perf is { } perf)
-        {
-            if (perf.Fanout > 0)
-                suffixes.Add($"fanout {perf.Fanout}");
-            if (perf.Fanin > 0)
-                suffixes.Add($"fanin {perf.Fanin}");
-            if (perf.MaxDepth > 1)
-                suffixes.Add($"depth {perf.MaxDepth}");
-            else if (perf.Fanout == 0 && perf.Fanin == 0 && suffixes.Count == 0)
-                suffixes.Add("depth 1");
-            if (perf.InLoop)
-                suffixes.Add(perf.LoopHint ?? "loop");
-            if (!string.IsNullOrEmpty(perf.RootKind))
-                suffixes.Add(perf.RootKind);
-            if (!string.IsNullOrEmpty(perf.Source))
-                suffixes.Add($"from {perf.Source}");
-        }
-
-        return suffixes.Count > 0 ? $"{member} ({string.Join(", ", suffixes)})" : member;
-    }
-
-    static string? FormatRootAnnotation(Analysis.CallTreePerf perf)
-    {
-        // The Root field combines the reverse-graph classification (target/entrypoint) with
-        // the source assembly for callers pulled in from the --bin/--project/--caller-package
-        // scope, so reach evidence can name the caller library when requested.
-        var parts = new List<string>(2);
-        if (!string.IsNullOrEmpty(perf.RootKind))
-            parts.Add(perf.RootKind);
-        if (!string.IsNullOrEmpty(perf.Source))
-            parts.Add($"from {perf.Source}");
-        return parts.Count > 0 ? string.Join(" ", parts) : null;
-    }
-
-    static string? FormatCallGraphAnnotation(Analysis.CallTreeNode node, string fieldName)
-    {
-        if (node.Perf is not { } perf)
-            return null;
-
-        var normalized = NormalizeCallGraphField(fieldName);
-        var signals = perf.SignalsOrNone;
-        return normalized switch
-        {
-            "fanin" or "fanincount" => $"fanin {perf.Fanin}",
-            "fanout" or "fanoutcount" => $"fanout {perf.Fanout}",
-            "depth" or "maxdepth" => $"depth {perf.MaxDepth}",
-            "loop" or "inloop" or "looping" => perf.InLoop ? (perf.LoopHint ?? "loop") : null,
-            "root" or "rootkind" or "classification" => FormatRootAnnotation(perf),
-            "source" or "assembly" => perf.Source is { } source ? $"from {source}" : null,
-            "alloc" or "allocs" or "allocations" => signals.Allocations > 0 ? $"alloc {signals.Allocations}" : null,
-            "copy" or "copies" => signals.Copies > 0 ? $"copy {signals.Copies}" : null,
-            "unsafe" => signals.Unsafe ? "unsafe" : null,
-            "reflection" or "reflect" => signals.Reflection > 0 ? $"reflection {signals.Reflection}" : null,
-            "throw" or "throws" or "throwsites" => signals.Throws > 0 ? $"throw {signals.Throws}" : null,
-            "catch" or "catches" => signals.Catches > 0 ? $"catch {signals.Catches}" : null,
-            "finally" or "finallys" => signals.Finallys > 0 ? $"finally {signals.Finallys}" : null,
-            "exceptions" or "exceptiontypes" or "constructedexceptions" => signals.ExceptionTypes.Length > 0
-                ? "exceptions " + string.Join(",", signals.ExceptionTypes)
-                : null,
-            "evidenceil" or "evidence" or "il" => FormatEvidenceIL(signals),
-            _ => null,
-        };
-    }
-
-    // Compact IL receipts for the projected signals: the offsets of the
-    // signal-bearing instructions (newobj/newarr/throw/ldftn/reflection calls).
-    static string? FormatEvidenceIL(Analysis.MethodSignals signals)
-    {
-        var offsets = signals.Evidence;
-        if (offsets.Length == 0)
-            return null;
-        return "il " + string.Join(",", offsets.Select(offset => $"IL_{offset:X4}"));
-    }
-
-    static string NormalizeCallGraphField(string fieldName)
-    {
-        var builder = new StringBuilder();
-        foreach (var ch in fieldName)
-        {
-            if (char.IsLetterOrDigit(ch))
-                builder.Append(char.ToLowerInvariant(ch));
-        }
-        return builder.ToString();
-    }
 
     internal static void PopulateUnsafeMembers(TypeView view, ApiType type, Analysis.LibraryBodyIndex index)
     {
@@ -2579,13 +2452,13 @@ public static class ApiOutputFormatter
         if (string.IsNullOrWhiteSpace(declaration))
         {
             return declarationTrailingComment is { Length: > 0 } bareComment
-                ? $"// {bareComment}{Environment.NewLine}{body}"
-                : body;
+                ? $"// {bareComment}{Environment.NewLine}{Decompiler.Annotations.AnnotationCaret.Flatten(body)}"
+                : Decompiler.Annotations.AnnotationCaret.Flatten(body);
         }
 
         bool hasLeadingComments = leadingBodyComments is { Count: > 0 };
         if (!hasLeadingComments && preferExpressionBodied && CSharpExpressionBody.FromSingleStatement(body) is { } expressionBody)
-            return Annotate($"{declaration} => {expressionBody};");
+            return Annotate($"{declaration} => {Decompiler.Annotations.AnnotationCaret.Flatten(expressionBody)};");
 
         // A multi-line single-statement expression body renders expression-bodied
         // too (a raised switch return, issue #3088; a wrapped fluent chain in
@@ -2599,11 +2472,12 @@ public static class ApiOutputFormatter
             && CSharpExpressionBody.MultilineExpressionBodyLines(body) is { Count: > 0 } multilineExpression)
         {
             var expression = new StringBuilder();
-            expression.Append(declaration).Append(" => ").Append(multilineExpression[0]);
+            expression.Append(declaration).Append(" => ")
+                .Append(Decompiler.Annotations.AnnotationCaret.Flatten(multilineExpression[0]));
             for (int i = 1; i < multilineExpression.Count; i++)
             {
                 expression.Append(Environment.NewLine);
-                expression.Append(multilineExpression[i]);
+                expression.Append(Decompiler.Annotations.AnnotationCaret.Flatten(multilineExpression[i]));
                 if (i == multilineExpression.Count - 1)
                     expression.Append(';');
             }
@@ -2614,9 +2488,18 @@ public static class ApiOutputFormatter
         var lines = hasLeadingComments
             ? leadingBodyComments!.Concat(formattedBodyLines)
             : formattedBodyLines;
+
+        // A caret line is pre-positioned at this declaration's column, so it is
+        // the one body line that must not be indented. The indent width is the
+        // caret renderer's constant rather than a literal: the two have to agree
+        // or the carets shear away from the code they point at.
+        string bodyIndent = new(' ', Decompiler.Annotations.AnnotationCaret.BodyIndentWidth);
         var indentedBody = string.Join(
             Environment.NewLine,
-            lines.Select(line => line.Length == 0 ? "" : $"    {line}"));
+            lines.Select(line =>
+                line.Length == 0 ? ""
+                : Decompiler.Annotations.AnnotationCaret.TryHoist(line, out var hoisted) ? hoisted
+                : bodyIndent + line));
 
         return $"{Annotate(declaration)}{Environment.NewLine}{{{Environment.NewLine}{indentedBody}{Environment.NewLine}}}";
     }

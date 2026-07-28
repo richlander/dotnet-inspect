@@ -69,9 +69,9 @@ public class ProjectCommand
             var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
             if (!ShapeProjectionOutput.ValidateSingleSection(selectResult.Sections, optionName))
                 return 1;
-            if (options.Count || options.Print || options.PrintAll)
+            if (options.Count || options.Print)
             {
-                Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count, --print, or --print-all.");
+                Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count or --print.");
                 return 1;
             }
             if (options.Rows is not null)
@@ -81,9 +81,9 @@ public class ProjectCommand
             }
         }
 
-        if (options.JsonArray && shapeCount == 0 && !options.Print && !options.PrintAll)
+        if (options.JsonArray && shapeCount == 0 && !options.Print)
         {
-            Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, --print, or --print-all.");
+            Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, or --print.");
             return 1;
         }
 
@@ -100,7 +100,7 @@ public class ProjectCommand
             return 1;
         }
 
-        if ((options.Print || options.PrintAll) && !ValidateProjectPrintSelection(selectResult.Sections))
+        if (options.Print && !ValidateProjectPrintSelection(selectResult.Sections))
             return 1;
 
         if (options.Schema && options.Discover == null)
@@ -168,21 +168,15 @@ public class ProjectCommand
             return false;
         }
 
-        if ((options.Print || options.PrintAll) && options.ReadmePackageId != null)
+        if (options.Print && options.ReadmePackageId != null)
         {
-            Console.Error.WriteLine("Error: --print/--print-all cannot be combined with --readme.");
+            Console.Error.WriteLine("Error: --print cannot be combined with --readme.");
             return false;
         }
 
-        if ((options.Print || options.PrintAll) && options.AgentsIndex)
+        if (options.Print && options.AgentsIndex)
         {
-            Console.Error.WriteLine("Error: --print/--print-all cannot be combined with --agents-index.");
-            return false;
-        }
-
-        if (options.Print && options.PrintAll)
-        {
-            Console.Error.WriteLine("Error: --print cannot be combined with --print-all.");
+            Console.Error.WriteLine("Error: --print cannot be combined with --agents-index.");
             return false;
         }
 
@@ -196,15 +190,14 @@ public class ProjectCommand
             return false;
         }
 
-        if ((options.Print || options.PrintAll) && options.Rows is not null)
+        if (options.Print && options.Rows is not null)
         {
-            Console.Error.WriteLine("Error: --rows cannot be combined with --print or --print-all; use --row N|first|last to choose a printed row.");
+            Console.Error.WriteLine("Error: --rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
             return false;
         }
 
         if ((options.FrontmatterRequested || options.BodyRequested)
             && !options.Print
-            && !options.PrintAll
             && options.ReadmePackageId == null
             && !options.AgentsIndex)
         {
@@ -343,8 +336,11 @@ public class ProjectCommand
         if (options.Value || options.Urls || options.Paths)
             return WriteSkillShapeProjection(rows, options);
 
-        if (options.Print || options.PrintAll || options.Bare)
+        if (options.Print || options.Bare)
             return PrintSkillDocument(rows, options);
+
+        if (options.Count)
+            ProjectionAudit.MarkHonored(ProjectionAudit.Count);
 
         var output = options.Count
             ? rows.Count.ToString(CultureInfo.InvariantCulture) + Environment.NewLine
@@ -450,8 +446,7 @@ public class ProjectCommand
         return PrintProjectionOutput.Write(
             documents,
             new PrintProjectionOptions(
-                options.PrintAll,
-                options.Bare && !options.Print && !options.PrintAll ? RowSelector.FromIndex(1) : options.PrintRow,
+                options.Bare && !options.Print ? RowSelector.FromIndex(1) : options.PrintRow,
                 options.JsonOutput,
                 options.Jsonl,
                 options.JsonArray,

@@ -318,6 +318,8 @@ public static class MemberCommand
                 effectiveOptions = effectiveOptions with
                 {
                     MethodSource = resolved.Source,
+                    MemberHasNoBody = resolved.MemberHasNoBody,
+                    MemberHasNoAuthoredDeclaration = resolved.MemberHasNoAuthoredDeclaration,
                     PdbPath = resolved.PdbPath
                 };
             }
@@ -524,7 +526,6 @@ public static class MemberCommand
         SectionNames.CostFacts,
         SectionNames.Callers,
         SectionNames.CallGraph,
-        SectionNames.CallerGraph,
         SectionNames.UnsafeOperations,
         SectionNames.TopLeverage,
         SectionNames.PerformanceTriage,

@@ -316,6 +316,246 @@ public class LibraryBodyIndexTests
             child.Member.Name == nameof(BodilessRootFixtures.InvokesThroughInterface));
     }
 
+    /// <summary>
+    /// Derives this type's mutable cache fields by reflection and pins each one to a side of the
+    /// release boundary, so the two release methods are gated on the property they exist for
+    /// rather than only on staying correct. Both directions fail: a cache the doc claims to drop
+    /// but doesn't, and a cache dropped that the doc says survives. A newly added cache field
+    /// belongs to neither list and fails until someone decides which side it is on.
+    /// <para>
+    /// Known boundary: this compares populated-ness, so it would not see a future release method
+    /// that empties a readonly collection in place instead of nulling a field.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ReleaseMethods_DropExactlyTheCachesTheyDocument()
+    {
+        // Dropped by ReleaseCallGraphCaches(); _scopeGraph is also dropped by ReleaseScopeGraph().
+        string[] callGraphCaches =
+        [
+            "_directCallsByCaller",
+            "_distinctCallerEdgesByCallee",
+            "_distinctCallersByCallee",
+            "_methodMap",
+            "_scopeGraph",
+        ];
+
+        // Evidence-domain caches the release methods deliberately retain.
+        string[] retainedCaches =
+        [
+            "_allocationFanoutOpportunities",
+            "_directCallerLoops",
+            "_generatedFrameworkTypes",
+            "_opportunities",
+            "_rootReachByToken",
+            "_signals",
+            "_unsafeEvidenceByMember",
+        ];
+
+        Assert.Equal(
+            callGraphCaches.Concat(retainedCaches).OrderBy(name => name, StringComparer.Ordinal),
+            MutableCacheFields().Select(field => field.Name).OrderBy(name => name, StringComparer.Ordinal));
+
+        string analysisPath = typeof(LibraryBodyIndex).Assembly.Location;
+        string testPath = typeof(LibraryBodyIndexTests).Assembly.Location;
+        var scope = LibraryBodyIndex.Open(testPath);
+
+        var index = Exercised(analysisPath, scope);
+        var before = PopulatedCaches(index);
+
+        // The gate is only meaningful if the caches under test were populated to begin with.
+        // Both halves need this: an unpopulated cache is absent from `before` and from `after`,
+        // so the set comparison would hold no matter what the release methods did to it.
+        foreach (var name in callGraphCaches.Concat(retainedCaches))
+            Assert.Contains(name, before);
+
+        index.ReleaseCallGraphCaches();
+        Assert.Equal(before.Where(name => !callGraphCaches.Contains(name)), PopulatedCaches(index));
+
+        // ReleaseScopeGraph drops the scope graph and nothing else — that is the whole point of
+        // having it separately, since the single-assembly maps are the cheap, high-value half.
+        var scopeOnly = Exercised(analysisPath, scope);
+        var beforeScopeRelease = PopulatedCaches(scopeOnly);
+        Assert.Contains("_scopeGraph", beforeScopeRelease);
+
+        scopeOnly.ReleaseScopeGraph();
+        Assert.Equal(beforeScopeRelease.Where(name => name != "_scopeGraph"), PopulatedCaches(scopeOnly));
+
+        static LibraryBodyIndex Exercised(string path, LibraryBodyIndex scope)
+        {
+            var index = LibraryBodyIndex.Open(path);
+            int token = index.Methods.First().MetadataToken;
+            index.BuildCallerTree(token, maxDepth: 2, maxNodes: 50);
+            index.BuildCallTree(token, maxDepth: 2, maxNodes: 50);
+            index.BuildCallerTree(token, new[] { scope }, maxDepth: 2, maxNodes: 50);
+
+            // The retained half of the contract is only gated on caches this workload actually
+            // populates, and the call-tree builders alone reach just one of the seven. Touch the
+            // evidence-domain producers too; OptimizationOpportunities is what pulls in
+            // _directCallerLoops and _rootReachByToken, which have no direct test access.
+            _ = index.OptimizationOpportunities;
+            _ = index.AllocationFanoutOpportunities;
+            _ = index.GetUnsafeEvidenceByMember();
+            _ = index.GeneratedFrameworkTypeNames;
+            return index;
+        }
+
+        // Every non-readonly instance field on this type is a lazy cache, so the filter is just
+        // "mutable state" rather than a type-shaped guess. An earlier version excluded value types
+        // and so silently missed the two ImmutableArray caches, which is the same blind spot this
+        // test exists to catch.
+        static IEnumerable<FieldInfo> MutableCacheFields()
+            => typeof(LibraryBodyIndex)
+                .GetFields(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance)
+                .Where(field => field.Name.StartsWith('_') && !field.IsInitOnly);
+
+        static List<string> PopulatedCaches(LibraryBodyIndex index)
+            => MutableCacheFields()
+                .Where(field => IsPopulated(field.GetValue(index)))
+                .Select(field => field.Name)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToList();
+
+        // ImmutableArray caches signal "not yet computed" with IsDefault, not with null.
+        static bool IsPopulated(object? value)
+        {
+            if (value is null)
+                return false;
+
+            var isDefault = value.GetType().GetProperty("IsDefault");
+            return isDefault is null || !(bool)isDefault.GetValue(value)!;
+        }
+    }
+
+    // #3342: the whole-graph maps behind the call-tree builders (definition map, distinct-caller
+    // counts, reverse edges, and the cross-assembly scope maps) are cached per index so a
+    // consumer that asks many questions of one index pays for them once. That is only sound if
+    // none of them depends on which member was selected or on a previously requested scope set.
+    // This walks one index through a sequence designed to poison a root- or scope-dependent
+    // cache, and requires every answer to match a fresh index that was asked nothing else.
+    //
+    // Scope note: this pins cache *independence*, not the bodiless-root contract itself. Serving
+    // a bodiless root from the shared grouping is a correctness fault that a fresh index would
+    // reproduce identically, so no independence test can see it;
+    // BuildCallerTree_ResolvesCallers_WhenSelectedRootIsBodilessInterfaceMethod owns that, and
+    // was confirmed to fail when the guard is removed.
+    [Fact]
+    public void CallTreeBuilders_AreUnaffectedByEarlierRequestsOnTheSameIndex()
+    {
+        string analysisPath = typeof(LibraryBodyIndex).Assembly.Location;
+        string testPath = typeof(LibraryBodyIndexTests).Assembly.Location;
+
+        // Pick a root with a genuinely branching caller tree. Comparing trees is only evidence
+        // if the trees can differ: a root with no in-assembly callers renders one leaf line, and
+        // every comparison below would hold no matter how badly a cache leaked.
+        var probe = LibraryBodyIndex.Open(analysisPath);
+        int richToken = PickRichest(probe, out int richest);
+
+        Assert.True(richest >= 4, $"expected a branching caller tree to compare; richest had {richest} nodes");
+        int otherToken = probe.Methods.First(method => method.MetadataToken != richToken).MetadataToken;
+        // A bodiless root is the one case whose caller grouping genuinely depends on the root,
+        // so it must not be served from (or poison) the shared per-index cache.
+        int bodilessToken = typeof(ICallerGraphTarget).GetMethod(nameof(ICallerGraphTarget.Target))!.MetadataToken;
+
+        // Each expectation comes from an index that has answered nothing else.
+        var expectedCallers = Describe(LibraryBodyIndex.Open(analysisPath).BuildCallerTree(richToken, maxDepth: 2, maxNodes: 50));
+        var expectedCallees = Describe(LibraryBodyIndex.Open(analysisPath).BuildCallTree(richToken, maxDepth: 2, maxNodes: 50));
+        var expectedScoped = Describe(LibraryBodyIndex.Open(analysisPath)
+            .BuildCallerTree(richToken, new[] { LibraryBodyIndex.Open(testPath) }, maxDepth: 2, maxNodes: 50));
+        var expectedUnscoped = Describe(LibraryBodyIndex.Open(analysisPath)
+            .BuildCallerTree(richToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 2, maxNodes: 50));
+        var expectedBodiless = Describe(LibraryBodyIndex.Open(testPath).BuildCallerTree(bodilessToken, maxDepth: 2, maxNodes: 50));
+
+        // Scoping must actually change the answer, or the scope-set comparisons prove nothing.
+        Assert.NotEqual(expectedScoped, expectedUnscoped);
+
+        // Now ask one index everything, in an order that would expose a leaked root or scope.
+        var reused = LibraryBodyIndex.Open(analysisPath);
+        var scopeA = LibraryBodyIndex.Open(testPath);
+        reused.BuildCallerTree(otherToken, maxDepth: 2, maxNodes: 50);
+        reused.BuildCallTree(otherToken, maxDepth: 2, maxNodes: 50);
+        reused.BuildCallerTree(otherToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50);
+        reused.BuildCallerTree(otherToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 2, maxNodes: 50);
+
+        Assert.Equal(expectedCallers, Describe(reused.BuildCallerTree(richToken, maxDepth: 2, maxNodes: 50)));
+        Assert.Equal(expectedCallees, Describe(reused.BuildCallTree(richToken, maxDepth: 2, maxNodes: 50)));
+
+        // Alternating scope sets on one index: the empty set must not be answered from the
+        // populated set's map, nor the reverse, however many times they interleave.
+        Assert.Equal(expectedScoped, Describe(reused.BuildCallerTree(richToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50)));
+        Assert.Equal(expectedUnscoped, Describe(reused.BuildCallerTree(richToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 2, maxNodes: 50)));
+        Assert.Equal(expectedScoped, Describe(reused.BuildCallerTree(richToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50)));
+
+        // A bodiless root asked after body-rooted requests have populated the cache.
+        var reusedTests = LibraryBodyIndex.Open(testPath);
+        int testAsmToken = PickRichest(reusedTests, out int testRichest);
+        Assert.True(testRichest >= 2, $"expected a non-leaf caller tree in the test assembly; richest had {testRichest} nodes");
+        var expectedTestAsmCallers = Describe(LibraryBodyIndex.Open(testPath).BuildCallerTree(testAsmToken, maxDepth: 2, maxNodes: 50));
+        reusedTests.BuildCallerTree(testAsmToken, maxDepth: 2, maxNodes: 50);
+        Assert.Equal(expectedBodiless, Describe(reusedTests.BuildCallerTree(bodilessToken, maxDepth: 2, maxNodes: 50)));
+
+        // ...and the bodiless request must not have written its root-dependent grouping into the
+        // shared cache, so a body-rooted request after it still answers like a fresh index.
+        Assert.Equal(expectedTestAsmCallers, Describe(reusedTests.BuildCallerTree(testAsmToken, maxDepth: 2, maxNodes: 50)));
+
+        // The scope cache keys on the caller's collection, which the caller still owns and may
+        // mutate. Holding that live list would make the key compare equal to itself while the
+        // built maps still describe the old contents, so the scope references are snapshotted.
+        var mutableScopes = new List<LibraryBodyIndex> { scopeA };
+        var mutated = LibraryBodyIndex.Open(analysisPath);
+        mutated.BuildCallerTree(richToken, mutableScopes, maxDepth: 2, maxNodes: 50);
+        mutableScopes[0] = LibraryBodyIndex.Open(analysisPath);
+        var expectedAfterMutation = Describe(LibraryBodyIndex.Open(analysisPath)
+            .BuildCallerTree(richToken, mutableScopes, maxDepth: 2, maxNodes: 50));
+
+        // Swapping the element must actually change the answer, or this proves nothing.
+        Assert.NotEqual(expectedScoped, expectedAfterMutation);
+        Assert.Equal(expectedAfterMutation, Describe(mutated.BuildCallerTree(richToken, mutableScopes, maxDepth: 2, maxNodes: 50)));
+
+        // Releasing the caches is a memory/time trade only: answers after a release must still
+        // match a fresh index, and must not be served from a map that was supposedly dropped.
+        var released = LibraryBodyIndex.Open(analysisPath);
+        released.BuildCallerTree(richToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50);
+        released.BuildCallTree(richToken, maxDepth: 2, maxNodes: 50);
+        released.ReleaseScopeGraph();
+        Assert.Equal(expectedScoped, Describe(released.BuildCallerTree(richToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50)));
+        released.ReleaseCallGraphCaches();
+        Assert.Equal(expectedCallers, Describe(released.BuildCallerTree(richToken, maxDepth: 2, maxNodes: 50)));
+        Assert.Equal(expectedCallees, Describe(released.BuildCallTree(richToken, maxDepth: 2, maxNodes: 50)));
+        Assert.Equal(expectedScoped, Describe(released.BuildCallerTree(richToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50)));
+
+        static int PickRichest(LibraryBodyIndex index, out int richest)
+        {
+            int token = 0;
+            richest = 0;
+            foreach (var method in index.Methods.Take(150))
+            {
+                int size = Describe(index.BuildCallerTree(method.MetadataToken, maxDepth: 2, maxNodes: 50)).Count;
+                if (size > richest)
+                {
+                    richest = size;
+                    token = method.MetadataToken;
+                }
+            }
+
+            return token;
+        }
+
+        static List<string> Describe(CallTreeNode root)
+        {
+            var lines = new List<string>();
+            void Walk(CallTreeNode node, int depth)
+            {
+                lines.Add($"{depth}|{node.Member.DeclaringType.Name}.{node.Member.Name}|{node.Status}|" +
+                    $"{node.Perf?.Source ?? ""}|fanout={node.Perf?.Fanout ?? -1}|fanin={node.Perf?.Fanin ?? -1}");
+                foreach (var child in node.Children)
+                    Walk(child, depth + 1);
+            }
+            Walk(root, 0);
+            return lines;
+        }
+    }
+
     [Fact]
     public void BuildCallerTree_WithScope_IncorporatesAndTagsExternalCallers()
     {
@@ -341,6 +581,72 @@ public class LibraryBodyIndexTests
 
         static bool HasSource(CallTreeNode node, string source)
             => node.Perf?.Source == source || node.Children.Any(child => HasSource(child, source));
+    }
+
+    // #3331: the scoped and unscoped builders key the reverse graph differently (structural member
+    // identity vs assembly-local tokens) and do not produce the same tree. Prefiltering scope
+    // assemblies on assembly identity therefore must not be allowed to decide which builder runs,
+    // or narrowing a scope to nothing would silently change the answer instead of just costing
+    // less. An empty-but-supplied scope list means "cross-assembly walk requested, nothing
+    // survived"; only a null list means "no scope requested".
+    //
+    // The scan is deliberately self-locating rather than pinned to one method: it asserts the
+    // correctness claim on every method it visits, and separately requires that at least one of
+    // them distinguishes the two builders, so the test cannot quietly become vacuous if the call
+    // structure of this assembly changes.
+    [Fact]
+    public void BuildCallerTree_PrefilteringScopeAssembliesNeverChangesTheTree()
+    {
+        var index = LibraryBodyIndex.Open(typeof(LibraryBodyIndex).Assembly.Location);
+
+        // A fixture that does not reference the analysis assembly, so it can never contribute a
+        // caller. Opening it and prefiltering it away must be indistinguishable.
+        var nonContributing = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath());
+
+        int discriminating = 0;
+        int visited = 0;
+        foreach (var method in index.Methods.Take(60))
+        {
+            var noScopeRequested = FlattenCallTree(index.BuildCallerTree(method.MetadataToken, callerScopes: null, maxDepth: 2, maxNodes: 50));
+            var scopeOpened = FlattenCallTree(index.BuildCallerTree(method.MetadataToken, new[] { nonContributing }, maxDepth: 2, maxNodes: 50));
+            var scopePrefilteredAway = FlattenCallTree(index.BuildCallerTree(method.MetadataToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 2, maxNodes: 50));
+
+            Assert.Equal(scopeOpened, scopePrefilteredAway);
+
+            visited++;
+            if (!noScopeRequested.SequenceEqual(scopePrefilteredAway))
+                discriminating++;
+        }
+
+        Assert.True(visited > 0, "expected to visit methods");
+        Assert.True(
+            discriminating > 0,
+            "no method distinguished the scoped builder from the unscoped one, so this test proves nothing; "
+                + "if the two builders have genuinely converged, the null/empty scope distinction can be removed");
+    }
+
+    // #3331: the same claim against the cross-assembly fixtures the matcher tests use — an assembly
+    // that cannot reference the target contributes no edges, so skipping it before opening it must
+    // produce an identical tree.
+    [Fact]
+    public void BuildCallerTree_SkippingANonContributingScopeAssemblyDoesNotChangeTheTree()
+    {
+        var targetIndex = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath());
+        var caller = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath());
+        var lookalike = LibraryBodyIndex.Open(FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath());
+        var ping = targetIndex.Methods.First(method => method.Name == "Ping");
+
+        var unfiltered = targetIndex.BuildCallerTree(ping.MetadataToken, new[] { caller, lookalike }, maxDepth: 2, maxNodes: 50);
+        var prefiltered = targetIndex.BuildCallerTree(ping.MetadataToken, new[] { caller }, maxDepth: 2, maxNodes: 50);
+
+        Assert.Equal(FlattenCallTree(unfiltered), FlattenCallTree(prefiltered));
+
+        // And when the prefilter removes every scope assembly, the result must still match the walk
+        // that opened them all and found nothing.
+        var onlyNonContributing = targetIndex.BuildCallerTree(ping.MetadataToken, new[] { lookalike }, maxDepth: 2, maxNodes: 50);
+        var allFilteredOut = targetIndex.BuildCallerTree(ping.MetadataToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 2, maxNodes: 50);
+
+        Assert.Equal(FlattenCallTree(onlyNonContributing), FlattenCallTree(allFilteredOut));
     }
 
     [Fact]
@@ -3549,6 +3855,64 @@ public class LibraryBodyIndexTests
         Assert.Equal(2, pointerExtern.DirectCallerCount);
         Assert.Equal(CallerUnsafeMode.Implicit, pointerExtern.Mode);
         Assert.DoesNotContain(top, e => e.Method.Name == nameof(UnsafeEvidenceFixtures.CallsUnsafeAs));
+    }
+
+    [Fact]
+    public void CallTreeFanInCountsDistinctCallersNotCallSites()
+    {
+        var (path, directory) = BuildRepeatedCallSiteFixture();
+        try
+        {
+            var index = LibraryBodyIndex.Open(path);
+            var target = index.Methods.First(method => method.Name == "Target");
+            var caller = index.Methods.First(method => method.Name == "CallsTargetTwice");
+
+            var tree = index.BuildCallTree(caller.MetadataToken, maxDepth: 2, maxNodes: 50);
+            var targetNode = tree.Children.First(child => child.Member.Name == "Target");
+
+            // Three call sites reach Target, but only two distinct methods do. Fan-in is a
+            // leverage cue and the reverse graph draws one edge per distinct caller, so the
+            // number has to agree with the edges rather than count repeated sites.
+            Assert.Equal(3, index.DirectCalls.Count(call => call.Callee.Name == "Target"));
+            Assert.Equal(2, targetNode.Perf?.Fanin);
+            Assert.NotNull(target);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    static (string Path, string Directory) BuildRepeatedCallSiteFixture()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "dotnet-inspect-repeated-call-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "RepeatedCallSiteFixture.dll");
+
+        var assemblyName = new AssemblyName("RepeatedCallSiteFixture");
+        var assembly = new PersistedAssemblyBuilder(assemblyName, typeof(object).Assembly);
+        var module = assembly.DefineDynamicModule(assemblyName.Name!);
+        var type = module.DefineType("RepeatedCallSiteFixture", TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
+
+        var target = type.DefineMethod("Target", MethodAttributes.Public | MethodAttributes.Static, typeof(void), Type.EmptyTypes);
+        target.GetILGenerator().Emit(OpCodes.Ret);
+
+        // Two call sites from one caller.
+        var twice = type.DefineMethod("CallsTargetTwice", MethodAttributes.Public | MethodAttributes.Static, typeof(void), Type.EmptyTypes);
+        var twiceIl = twice.GetILGenerator();
+        twiceIl.Emit(OpCodes.Call, target);
+        twiceIl.Emit(OpCodes.Call, target);
+        twiceIl.Emit(OpCodes.Ret);
+
+        // One call site from a second caller.
+        var once = type.DefineMethod("CallsTargetOnce", MethodAttributes.Public | MethodAttributes.Static, typeof(void), Type.EmptyTypes);
+        var onceIl = once.GetILGenerator();
+        onceIl.Emit(OpCodes.Call, target);
+        onceIl.Emit(OpCodes.Ret);
+
+        type.CreateType();
+        assembly.Save(path);
+        return (path, directory);
     }
 }
 

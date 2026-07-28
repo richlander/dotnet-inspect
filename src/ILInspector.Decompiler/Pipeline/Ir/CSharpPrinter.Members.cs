@@ -890,7 +890,92 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
-    /// A rectangular (multi-dimensional) array element/creation pseudo-member.
+    /// Renders a brace-bodied expression — an object/collection initializer, a
+    /// record <c>with</c> expression, or an anonymous object — as a wrapped Allman
+    /// block: <paramref name="head"/> on the first line, <c>{</c> and <c>}</c> on
+    /// their own lines at the statement indent, and one entry per line one
+    /// continuation level deeper. Returns null (render inline) when the body has
+    /// fewer than <see cref="FluentChainMinSegments"/> entries or its single-line
+    /// form fits within <see cref="FluentChainWrapWidth"/>. The wrapped form reuses
+    /// the same <paramref name="head"/> and <paramref name="entryTexts"/> the inline
+    /// renderer emits and carries no trailing comma, so it is token-identical to the
+    /// inline form: only whitespace differs and the IL is unchanged. A defensive
+    /// re-match against the inline <paramref name="flat"/> text keeps the statement
+    /// inline if the reconstruction diverges rather than reshaping a token.
+    /// </summary>
+    string? BraceBodyLines(string head, IReadOnlyList<string> entryTexts, string flat, string prefix, string suffix, int indent)
+    {
+        if (entryTexts.Count < FluentChainMinSegments)
+            return null;
+
+        if (indent * 4 + prefix.Length + flat.Length + suffix.Length <= FluentChainWrapWidth)
+            return null;
+
+        // The wrapped form must be a pure whitespace variant of the inline text.
+        // Reconstruct the inline body from the same head and entry texts and bail if
+        // it does not match exactly, so a renderer quirk keeps the statement inline
+        // rather than reshaping a token.
+        if ($"{head} {{ {string.Join(", ", entryTexts)} }}" != flat)
+            return null;
+
+        string pad = new(' ', indent * 4);
+        string continuation = pad + "    ";
+        var sb = new System.Text.StringBuilder();
+        sb.Append(pad).Append(prefix).Append(head);
+        sb.Append('\n').Append(pad).Append('{');
+        for (int i = 0; i < entryTexts.Count; i++)
+        {
+            sb.Append('\n').Append(continuation).Append(entryTexts[i]);
+            if (i < entryTexts.Count - 1)
+                sb.Append(',');
+        }
+        sb.Append('\n').Append(pad).Append('}');
+        sb.Append(suffix);
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Wraps an object/collection initializer (<c>new T(...) { ... }</c>) through
+    /// <see cref="BraceBodyLines"/>, reusing the same head and entry texts the inline
+    /// <see cref="ObjectInitializerText"/> renders.
+    /// </summary>
+    string? ObjectInitializerLines(ObjectInitializerExpression initializer, string prefix, string suffix, int indent)
+    {
+        var creation = initializer.Creation;
+        string arguments = creation.Arguments.Count == 0
+            ? string.Empty
+            : $"({Arguments(creation.Arguments, creation.Constructor.ParameterTypes, creation.Constructor.ParameterRefKinds)})";
+        string head = $"new {TypeText(creation.Constructor.DeclaringType)}{arguments}";
+        var entryTexts = initializer.Entries
+            .Select(entry => InitializerEntryText(initializer.IsCollection, entry))
+            .ToList();
+        return BraceBodyLines(head, entryTexts, ObjectInitializerText(initializer), prefix, suffix, indent);
+    }
+
+    /// <summary>
+    /// Wraps a record <c>with</c> expression (<c>receiver with { ... }</c>) through
+    /// <see cref="BraceBodyLines"/>, reusing the same head and entry texts the inline
+    /// <see cref="WithExpressionText"/> renders.
+    /// </summary>
+    string? WithExpressionLines(WithExpression node, string prefix, string suffix, int indent)
+    {
+        string head = $"{Operand(node.Receiver)} with";
+        var entryTexts = node.Entries.Select(WithExpressionEntryText).ToList();
+        return BraceBodyLines(head, entryTexts, WithExpressionText(node), prefix, suffix, indent);
+    }
+
+    /// <summary>
+    /// Wraps an anonymous object (<c>new { ... }</c>) through
+    /// <see cref="BraceBodyLines"/>, reusing the same projection parts the inline
+    /// <see cref="AnonymousObjectText"/> renders.
+    /// </summary>
+    string? AnonymousObjectLines(AnonymousObject node, string prefix, string suffix, int indent)
+    {
+        if (node.Values.Count == 0)
+            return null;
+        return BraceBodyLines("new", AnonymousObjectParts(node), AnonymousObjectText(node), prefix, suffix, indent);
+    }
+
     /// The CLR models <c>int[,]</c> element get/set/address and construction as
     /// calls to runtime-generated members named <c>Get</c>/<c>Set</c>/<c>Address</c>
     /// and a rank-shaped <c>.ctor</c> — none of which are spellable C#. The

@@ -27,8 +27,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// as <c>TwoObjects</c> used by string.Format's params lowering are a distinct
 /// shape and left untouched), default-initialized once, written by exactly N
 /// element stores covering slots 0..N-1, and used by exactly one
-/// AsReadOnlySpan — nothing else references the local. Anything outside this is
-/// left flat. The whole shape is proven before any node is detached.</para>
+/// AsReadOnlySpan — nothing else references the local. Each element store is
+/// either a direct indirect store or, when the element value carries a branch,
+/// an element-ref address spilled to a single-use evaluation-stack slot and
+/// stored through; anything outside this is left flat. The whole shape is proven
+/// before any node is detached.</para>
 /// </summary>
 public sealed class InlineArrayCollectionPass : IIrPass
 {
@@ -73,16 +76,40 @@ public sealed class InlineArrayCollectionPass : IIrPass
             if (stores is null)
                 continue;
 
-            // Shape proven. Detach each element value (discarding the
-            // ElementRef address subtree), build the collection expression, and
-            // replace the span source; then drop the init and the stores.
-            var elements = stores.Select(s => (IrExpression)s.DetachChildren()[1]).ToList();
+            // The collection expression materializes at the AsSpan call site and
+            // evaluates its elements there in ascending slot order, so the raise is
+            // only order-preserving when the init and element stores are a
+            // contiguous run of statements in the AsSpan's own block, in ascending
+            // slot order, immediately before the statement that consumes the span.
+            // csc always emits exactly that; arbitrary IL can interleave a statement
+            // between the stores or emit them out of slot order, which would
+            // silently re-sequence element side effects — leave those flat.
+            if (!ElementStoresPreserveOrder(init, stores, span))
+                continue;
+
+            // Shape proven. Detach each element value from its store, build the
+            // collection expression, replace the span source, then drop the init
+            // and every consumed store/spill statement.
+            var elements = new List<IrExpression>(stores.Count);
+            foreach (var store in stores)
+            {
+                store.Value.Detach();
+                elements.Add(store.Value);
+            }
+
             var collection = new CollectionExpression(element, spanType, elements);
             context.Stepper.StepOver("raise inline-array lowering to collection expression", span);
             span.ReplaceWith(collection);
             init.Detach();
             foreach (var store in stores)
-                store.Detach();
+                foreach (var statement in store.Consumed)
+                    statement.Detach();
+            // Every reference to the buffer local (init, the N element stores, the
+            // one span use) was just detached, so the slot is now dead. Retain it
+            // in Locals for index stability but mark it eliminated so its
+            // unspellable synthesized type does not degrade fidelity for output it
+            // no longer appears in (#3221).
+            function.MarkLocalEliminated(local);
         }
 
         RaisePlaceConversions(function, context);
@@ -730,32 +757,366 @@ public sealed class InlineArrayCollectionPass : IIrPass
     }
 
     /// <summary>
-    /// The N element stores for the inline-array local, ordered by slot index, or
-    /// null when they do not cover exactly slots 0..N-1 through
-    /// <c>InlineArrayElementRef(ref local, i)</c> — each a statement directly in a
-    /// block (its own slot, so it can be detached).
+    /// A single inline-array element store, resolved to the stored value
+    /// expression and the block statements that must be removed when the store is
+    /// folded into the collection expression. A direct store consumes one
+    /// statement; a spilled store consumes its address spill, its indirect store,
+    /// and (when the value is itself spilled) its value spill.
     /// </summary>
-    static List<StoreIndirect>? CollectElementStores(IrFunction function, int local, int count)
+    sealed record InlineArrayElementStore(int Slot, IrExpression Value, IReadOnlyList<IrNode> Consumed);
+
+    /// <summary>
+    /// The N element stores for the inline-array local, ordered by slot index, or
+    /// null when they do not cover exactly slots 0..N-1.
+    ///
+    /// <para>Two store shapes are recognized. The common shape is a direct
+    /// <c>*(InlineArrayElementRef(ref local, i)) = value</c> statement. When an
+    /// element's value contains a branch (a ternary or short-circuit), csc must
+    /// evaluate the element-ref address before that branch and so spills the
+    /// <c>ref</c> to an evaluation-stack slot: <c>slot_a =
+    /// InlineArrayElementRef(ref local, i); [slot_v = value;] *slot_a =
+    /// slot_v-or-value;</c>. That spilled shape is recognized too, but only when
+    /// every spill slot is written once and read once — so the address computation
+    /// (which has no observable effect once the collection expression drops it) and
+    /// the value can be recovered and re-sequenced into slot order safely. Anything
+    /// else (a multi-use spill slot, a volatile store, an unrecovered stack-slot
+    /// value) returns null and the whole shape is left flat.</para>
+    /// </summary>
+    static List<InlineArrayElementStore>? CollectElementStores(IrFunction function, int local, int count)
     {
-        var byIndex = new SortedDictionary<int, StoreIndirect>();
-        foreach (var store in function.Descendants.OfType<StoreIndirect>())
+        var elementRefs = function.Descendants.OfType<Call>()
+            .Where(c => IsPrivateImpl(c.Callee, "InlineArrayElementRef")
+                && c.Arguments is [LoadLocalAddress { Index: var refLocal }, Constant { Value: int }]
+                && refLocal == local)
+            .ToList();
+        if (elementRefs.Count != count)
+            return null;
+
+        var byIndex = new SortedDictionary<int, InlineArrayElementStore>();
+        foreach (var elementRef in elementRefs)
         {
-            // A volatile. stind has no faithful spelling inside a collection
-            // expression; leave it flat so fidelity caps (issue #1434).
-            if (store.IsVolatile)
-                continue;
-            if (store.Address is not Call elementRef || !IsPrivateImpl(elementRef.Callee, "InlineArrayElementRef"))
-                continue;
-            if (elementRef.Arguments is not [LoadLocalAddress { Index: var refLocal }, Constant { Value: int slot }] || refLocal != local)
-                continue;
-            if (store.Parent is not Block)
+            if (elementRef.Arguments is not [_, Constant { Value: int slot }])
                 return null;
             if (slot < 0 || slot >= count || byIndex.ContainsKey(slot))
                 return null;
-            byIndex[slot] = store;
+            if (ResolveElementStore(function, elementRef, slot) is not { } resolved)
+                return null;
+            byIndex[slot] = resolved;
         }
-        if (byIndex.Count != count)
-            return null;
-        return byIndex.Values.ToList();
+
+        return byIndex.Count == count ? byIndex.Values.ToList() : null;
     }
+
+    /// <summary>
+    /// Verifies that the collection's <paramref name="init"/> and element
+    /// <paramref name="stores"/> can be lifted to the <paramref name="span"/> call
+    /// site without re-sequencing any observable side effect.
+    ///
+    /// <para>The raise removes the init and store statements and evaluates the
+    /// element values, in ascending slot order, at the position of the span call.
+    /// That preserves program order only when those statements form a contiguous
+    /// run in the span-consuming statement's own block, in ascending slot order,
+    /// immediately before that statement — the exact shape csc emits (default the
+    /// buffer, fill slots 0..N-1 in order, then read the span). Arbitrary IL
+    /// (ilasm, obfuscators, other front ends) can interleave an unrelated statement
+    /// within the fill or between the fill and the span, or store the slots out of
+    /// order; lifting either would move element side effects across a statement or
+    /// invert their evaluation order, silently emitting wrong C#. It can also
+    /// evaluate an effectful expression inside the consumer before the span itself;
+    /// lifting the elements to the span's position would then move them past that
+    /// effect. It can also place the span in a conditionally evaluated position (a
+    /// ternary arm, a short-circuit or coalesce right operand, a switch arm), which
+    /// would drop the element side effects on the paths that skip it. Anything but
+    /// the canonical run with a side-effect-free, unconditionally evaluated consumer
+    /// prefix returns false so the shape is left flat.</para>
+    /// </summary>
+    static bool ElementStoresPreserveOrder(IrNode init, List<InlineArrayElementStore> stores, Call span)
+    {
+        // The span-consuming statement: the innermost ancestor of the span call
+        // that is a direct child of a block.
+        IrNode consumer = span;
+        while (consumer.Parent is { } parent and not Block)
+            consumer = parent;
+        if (consumer.Parent is not Block block)
+            return false;
+        int consumerIndex = consumer.ChildIndex;
+
+        // Every consumed statement (the init and each store's statements) keyed to
+        // its owning slot; the init sorts first with a sentinel slot.
+        var run = new List<(int Index, int Slot)>(1 + stores.Sum(s => s.Consumed.Count));
+        if (init.Parent != block || init.ChildIndex >= consumerIndex)
+            return false;
+        run.Add((init.ChildIndex, -1));
+        foreach (var store in stores)
+            foreach (var statement in store.Consumed)
+            {
+                if (statement.Parent != block || statement.ChildIndex >= consumerIndex)
+                    return false;
+                run.Add((statement.ChildIndex, store.Slot));
+            }
+
+        run.Sort((a, b) => a.Index.CompareTo(b.Index));
+
+        // Contiguous run of distinct statements ending immediately before the
+        // consuming statement: no unrelated statement sits within the fill or
+        // between the fill and the span.
+        if (run[^1].Index != consumerIndex - 1)
+            return false;
+        for (int i = 1; i < run.Count; i++)
+            if (run[i].Index != run[i - 1].Index + 1)
+                return false;
+
+        // Slots non-decreasing across the run (init's sentinel sorts first): the
+        // block order of the element writes matches ascending slot = source order.
+        for (int i = 1; i < run.Count; i++)
+            if (run[i].Slot < run[i - 1].Slot)
+                return false;
+
+        // Block-level order is not sufficient on its own: the element values are
+        // lifted to the span's position *inside* the consuming statement, so
+        // anything the consumer evaluates before the span would move ahead of
+        // those element side effects. csc never puts an effect there — a prefix
+        // argument or receiver evaluated before the collection is spilled to a
+        // stack slot (a side-effect-free load) ahead of the fill, so at the span
+        // position only such loads precede it. Arbitrary IL (ilasm, obfuscators)
+        // can instead evaluate an effectful expression inline before the span
+        // (e.g. `Consume(PrefixEffect(), span)`); lifting the elements past it
+        // would invert their order, so leave that flat. Likewise the span must be
+        // evaluated exactly once, on every path through the consumer: lifting the
+        // unconditional element stores into a conditionally evaluated position (a
+        // ternary/switch arm, a short-circuit or coalesce or `??=` right operand, a
+        // null-conditional member, a lambda body) would drop their side effects on
+        // the skipped paths, and into a repeatedly evaluated position (a loop
+        // condition) would run them more than once. Both are rejected by the
+        // sound-by-default allow list in SpanUnconditionallyEvaluated.
+        return NothingEffectfulBefore(consumer, span)
+            && SpanUnconditionallyEvaluated(consumer, span);
+    }
+
+    /// <summary>
+    /// Whether every expression the <paramref name="consumer"/> statement evaluates
+    /// before <paramref name="span"/> is side-effect free, walking the parent chain
+    /// from the span up to (but excluding) the consumer and checking each earlier
+    /// sibling. Mirrors the same-named guard in <see cref="RangeFromGetSubArrayPass"/>.
+    /// </summary>
+    static bool NothingEffectfulBefore(IrNode consumer, IrNode span)
+    {
+        for (IrNode node = span; node != consumer; node = node.Parent!)
+        {
+            if (node.Parent is not { } parent)
+                return false;
+            for (int i = 0; i < node.ChildIndex; i++)
+                if (parent.Children[i] is not IrExpression sibling || !IsSideEffectFree(sibling))
+                    return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="span"/> is evaluated on every path through the
+    /// <paramref name="consumer"/> statement: every edge on the parent chain from
+    /// the span up to the consumer must be an unconditionally evaluated one per the
+    /// sound-by-default allow list in <see cref="EvaluatesChildUnconditionally"/>.
+    /// The element values are unconditional statements before the consumer, so
+    /// lifting them into a conditionally evaluated position (a ternary arm, a
+    /// short-circuit <c>&amp;&amp;</c>/<c>||</c> or <c>??</c> right operand, a
+    /// switch-expression arm, a null-conditional member, a <c>??=</c> right operand,
+    /// or a lambda body) would drop their side effects on the paths that skip the
+    /// span. csc never emits the span in such a position; arbitrary IL can, so leave
+    /// those flat.
+    /// </summary>
+    static bool SpanUnconditionallyEvaluated(IrNode consumer, IrNode span)
+    {
+        for (IrNode node = span; node != consumer; node = node.Parent!)
+        {
+            if (node.Parent is not { } parent)
+                return false;
+            if (!EvaluatesChildUnconditionally(parent, node))
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="parent"/> evaluates <paramref name="child"/> exactly
+    /// once, unconditionally, on every path <paramref name="parent"/> is itself
+    /// evaluated on.
+    ///
+    /// <para>Sound by default: this is an <b>allow list</b> of the container nodes that
+    /// evaluate a given child exactly once, unconditionally, mirroring the allow-list
+    /// walk in <see cref="StackAllocSpanPass"/>. A deny list of the known
+    /// short-circuiting / repeating nodes would be unsound: any conditional or
+    /// repeatedly evaluated node not enumerated — and any such node added to the IR
+    /// later — would silently fall through as "unconditional" and let the element
+    /// side effects be lifted into a branch that may not run, or a loop condition
+    /// that runs them many times. Because an unrecognized shape only costs fidelity
+    /// (the collection is left flat) while a missed conditional/repeated shape emits
+    /// confidently-wrong C#, the default is <c>false</c>.</para>
+    ///
+    /// <para>Two families are allow-listed. First, the container / operator nodes that
+    /// evaluate every child exactly once, left to right: the statement and store
+    /// wrappers, call/constructor argument lists (C# never short-circuits an argument
+    /// list), pass-through conversions, and the non-short-circuiting operator
+    /// expressions — the bitwise/arithmetic <see cref="Binary"/>,
+    /// <see cref="Comparison"/>, <see cref="Unary"/>, <see cref="LogicalNot"/>, tuple
+    /// construction/comparison, <see cref="Throw"/>, and <see cref="YieldReturn"/>.
+    /// Second, the run-once governing edge of a selection statement or expression
+    /// evaluated exactly once before any conditional arm/section is chosen: the
+    /// forward <c>if</c>/<c>switch</c> statement condition, the ternary
+    /// (<see cref="Conditional"/>) condition, and the scrutinee of a
+    /// <see cref="SwitchExpression"/>/<see cref="UnionSwitchExpression"/>/
+    /// <see cref="PatternSwitchExpression"/> (or any governing component of a
+    /// <see cref="TupleSwitchExpression"/>). Third, the single run-once
+    /// sub-expression a statement evaluates on entry: the <c>foreach</c> source
+    /// enumerable (<see cref="ForeachStatement.Collection"/>), the <c>for</c>
+    /// initializer (<see cref="ForLoop.Initializer"/>), the <c>using</c> resource
+    /// (<see cref="UsingStatement.Resource"/>), and the <c>lock</c> object
+    /// (<see cref="Lock.LockObject"/>). In every case only that one edge qualifies;
+    /// the conditional/repeated siblings — arms/sections, ternary arms, the loop
+    /// condition/increment/body, and statement bodies — are rejected by the per-edge
+    /// <see cref="object.ReferenceEquals(object?,object?)"/> check.</para>
+    ///
+    /// <para>Loops are deliberately excluded. This pass runs after loop structuring
+    /// (<c>DoWhileLoopPass</c>/<c>ForLoopPass</c>/<c>StructuringPass</c>/
+    /// <c>ForeachStatementPass</c>), so back edges are already
+    /// <see cref="WhileLoop"/>/<see cref="ForLoop"/>/etc. A loop node evaluates its
+    /// condition many times per single evaluation of the node while the element
+    /// stores — earlier siblings of the loop in the same block — run once; lifting
+    /// them into a loop condition would call each element function once per iteration.
+    /// A <see cref="ForLoop"/> is allow-listed only on its <see cref="ForLoop.Initializer"/>
+    /// edge (run once on entry); its condition, increment, and body re-run and stay
+    /// rejected. The low-level <see cref="ConditionalBranch"/>/<see cref="SwitchBranch"/> are
+    /// also excluded: a residual back edge would only be safe under a single-entry
+    /// basic-block invariant this guard does not assert, and the real csc <c>if</c>/
+    /// <c>switch</c> span consumers are already the structured
+    /// <see cref="IfStatement"/>/<see cref="Switch"/> after loop structuring.
+    /// Short-circuit, coalesce, switch-expression/ternary <em>arms</em>,
+    /// null-conditional member, <c>??=</c> right operand, <c>with</c> initializer, and
+    /// lambda bodies are likewise not allow-listed.</para>
+    /// </summary>
+    static bool EvaluatesChildUnconditionally(IrNode parent, IrNode child) => parent switch
+    {
+        // The statement / store that consumes the span evaluates its operand(s)
+        // unconditionally.
+        ExpressionStatement or Return or StoreLocal or StoreField or StoreArgument
+            or StoreIndirect or StoreElement or StoreProperty => true,
+        // Call/constructor arguments and the receiver are all evaluated
+        // unconditionally, left to right — C# has no short-circuiting in an
+        // argument list; short-circuiting lives only in the dedicated expression
+        // nodes, none of which are allow-listed here.
+        Call or CallIndirect or NewObject => true,
+        // A conversion / box wrapping the span passes it through unconditionally.
+        Convert or Coerce or CastClass or Box or Unbox or UnboxAny
+            or InlineArraySpanConversion => true,
+        // Non-short-circuiting operator expressions evaluate every operand exactly
+        // once. These are the bitwise/arithmetic forms — the short-circuiting
+        // LogicalBinary (&&/||), Coalesce (??), Conditional (?:) and NullConditional
+        // (?.) are NOT here and are left flat by the default.
+        Binary or Comparison or Unary or LogicalNot or TupleExpression
+            or TupleBinaryExpression or Throw or YieldReturn => true,
+        // Forward selection statements evaluate their scrutinee exactly once each
+        // time they are reached; only the condition edge qualifies (the arms /
+        // sections are conditional). Loops re-evaluate their condition per iteration
+        // and are excluded by falling through to the default.
+        IfStatement ifStatement => ReferenceEquals(child, ifStatement.Condition),
+        Switch @switch => ReferenceEquals(child, @switch.Value),
+        // Selection expressions evaluate their governing scrutinee/condition exactly
+        // once, unconditionally, before any arm is chosen; only that edge qualifies
+        // (the arms are the conditional parts). A tuple switch has several governing
+        // components, each read once left to right, so any component edge qualifies.
+        Conditional conditional => ReferenceEquals(child, conditional.Condition),
+        SwitchExpression switchExpression => ReferenceEquals(child, switchExpression.Value),
+        UnionSwitchExpression unionSwitch => ReferenceEquals(child, unionSwitch.Value),
+        PatternSwitchExpression patternSwitch => ReferenceEquals(child, patternSwitch.Value),
+        TupleSwitchExpression tupleSwitch => tupleSwitch.Components.Any(component => ReferenceEquals(component, child)),
+        // Statements with a single run-once sub-expression evaluated exactly once on
+        // entry — the foreach source enumerable, the for-loop initializer, the using
+        // resource, and the lock object. Only that edge qualifies; the repeated /
+        // conditional siblings (loop condition/increment/body, statement bodies) are
+        // rejected by the per-edge check and the default.
+        ForeachStatement foreachStatement => ReferenceEquals(child, foreachStatement.Collection),
+        ForLoop forLoop => ReferenceEquals(child, forLoop.Initializer),
+        UsingStatement usingStatement => ReferenceEquals(child, usingStatement.Resource),
+        Lock @lock => ReferenceEquals(child, @lock.LockObject),
+        _ => false,
+    };
+
+    /// <summary>
+    /// Allow-list of non-observable expressions, mirroring the same-named helpers
+    /// in <see cref="RangeFromGetSubArrayPass"/> and <see cref="StackAllocSpanPass"/>:
+    /// anything outside the proven-safe set is treated as possibly effectful.
+    /// </summary>
+    static bool IsSideEffectFree(IrExpression expression) => expression switch
+    {
+        Constant or LoadLocal or LoadArgument or LoadStackSlot
+            or LoadLocalAddress or LoadArgumentAddress or SizeOf => true,
+        Unary unary => IsSideEffectFree(unary.Operand),
+        Binary { Kind: BinaryKind.Divide or BinaryKind.Remainder } => false,
+        Binary { IsChecked: true } => false,
+        Binary binary => IsSideEffectFree(binary.Left) && IsSideEffectFree(binary.Right),
+        Convert { IsChecked: true } => false,
+        Convert convert => IsSideEffectFree(convert.Operand),
+        _ => false,
+    };
+
+    /// <summary>
+    /// Resolves the store that writes <paramref name="elementRef"/>'s slot: a
+    /// direct indirect store, or an address spilled to a single-use evaluation-stack
+    /// slot and stored through — recovering a single-use value spill so the element
+    /// is the real expression, never a dangling stack-slot load. Null for any other
+    /// shape.
+    /// </summary>
+    static InlineArrayElementStore? ResolveElementStore(IrFunction function, Call elementRef, int slot)
+    {
+        switch (elementRef.Parent)
+        {
+            // Direct: *(InlineArrayElementRef(ref local, slot)) = value.
+            case StoreIndirect { IsVolatile: false, Parent: Block } direct when direct.Address == elementRef:
+                return new InlineArrayElementStore(slot, direct.Value, [direct]);
+
+            // Address spilled: slot_a = InlineArrayElementRef(ref local, slot); the
+            // stored value flows through slot_a exactly once.
+            case StoreStackSlot { Parent: Block, Slot: var addressSlot } addressSpill when addressSpill.Value == elementRef:
+            {
+                if (StackSlotStoreCount(function, addressSlot) != 1 || StackSlotLoadCount(function, addressSlot) != 1)
+                    return null;
+                var addressLoad = function.Descendants.OfType<LoadStackSlot>().Single(l => l.Slot == addressSlot);
+                if (addressLoad.Parent is not StoreIndirect { IsVolatile: false, Parent: Block } indirect
+                    || indirect.Address != addressLoad)
+                {
+                    return null;
+                }
+
+                var value = indirect.Value;
+                List<IrNode> consumed = [addressSpill, indirect];
+
+                // A stack-slot load cannot be a collection element on its own; when
+                // the value was itself spilled, recover it — but only from a clean
+                // single-def/single-use spill, else leave the whole shape flat.
+                if (value is LoadStackSlot { Slot: var valueSlot })
+                {
+                    if (StackSlotStoreCount(function, valueSlot) != 1 || StackSlotLoadCount(function, valueSlot) != 1)
+                        return null;
+                    var valueSpill = function.Descendants.OfType<StoreStackSlot>().Single(s => s.Slot == valueSlot);
+                    if (valueSpill.Parent is not Block)
+                        return null;
+                    value = valueSpill.Value;
+                    consumed = [addressSpill, valueSpill, indirect];
+                }
+
+                return new InlineArrayElementStore(slot, value, consumed);
+            }
+
+            default:
+                return null;
+        }
+    }
+
+    static int StackSlotStoreCount(IrFunction function, int slot)
+        => function.Descendants.OfType<StoreStackSlot>().Count(s => s.Slot == slot);
+
+    static int StackSlotLoadCount(IrFunction function, int slot)
+        => function.Descendants.OfType<LoadStackSlot>().Count(l => l.Slot == slot);
 }

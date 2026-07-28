@@ -81,9 +81,9 @@ public class PackageCommand
                 var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
                 if (!ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
                     return 1;
-                if (options.Count || options.Print || options.PrintAll)
+                if (options.Count || options.Print)
                 {
-                    Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count, --print, or --print-all.");
+                    Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count or --print.");
                     return 1;
                 }
                 if (options.Rows is not null)
@@ -93,9 +93,9 @@ public class PackageCommand
                 }
             }
 
-            if (options.JsonArray && shapeCount == 0 && !options.Print && !options.PrintAll)
+            if (options.JsonArray && shapeCount == 0 && !options.Print)
             {
-                Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, --print, or --print-all.");
+                Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, or --print.");
                 return 1;
             }
 
@@ -105,7 +105,7 @@ public class PackageCommand
                 return 1;
             }
 
-            if ((options.Print || options.PrintAll) && !ValidatePackagePrintSelection(options.IncludeSections))
+            if (options.Print && !ValidatePackagePrintSelection(options.IncludeSections))
                 return 1;
 
             if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, options.IncludeSections))
@@ -377,7 +377,7 @@ public class PackageCommand
             }
 
             // Handle --readme/--print mode: print the selected grounding document and exit early
-            if (options.ShowReadme || options.Print || options.PrintAll)
+            if (options.ShowReadme || options.Print)
             {
                 var packageId = nuspec?.PackageName ?? packageName;
                 var packageVersion = nuspec?.Version ?? version;
@@ -458,6 +458,7 @@ public class PackageCommand
 
             if (options.Count)
             {
+                ProjectionAudit.MarkHonored(ProjectionAudit.Count);
                 Console.WriteLine(OutputFormatter.FormatResult(result, options, pipeline));
                 return 0;
             }
@@ -653,7 +654,7 @@ public class PackageCommand
 
         if (options.Count)
         {
-            Console.WriteLine(CountMultiPackageRows(results, rowSection, options).ToString(CultureInfo.InvariantCulture));
+            CountOutput.WriteCount(CountMultiPackageRows(results, rowSection, options));
             return 0;
         }
 
@@ -802,7 +803,6 @@ public class PackageCommand
         var multiReadmeFrontmatter = options.ShowReadme && options.ContentScope == PackageFileContentScope.Frontmatter;
         if (options.ShowReadme && !multiReadmeFrontmatter) conflicts.Add("--readme");
         if (options.Print) conflicts.Add("--print");
-        if (options.PrintAll) conflicts.Add("--print-all");
         if (multiReadmeFrontmatter && options.JsonOutput) conflicts.Add("--json");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (options.PackageLibrary != null) conflicts.Add("--library");
@@ -839,15 +839,9 @@ public class PackageCommand
             return false;
         }
 
-        if ((options.Print || options.PrintAll) && options.ShowContent)
+        if (options.Print && options.ShowContent)
         {
-            Console.Error.WriteLine("Error: --print/--print-all cannot be combined with --content.");
-            return false;
-        }
-
-        if (options.Print && options.PrintAll)
-        {
-            Console.Error.WriteLine("Error: --print cannot be combined with --print-all.");
+            Console.Error.WriteLine("Error: --print cannot be combined with --content.");
             return false;
         }
 
@@ -861,9 +855,9 @@ public class PackageCommand
             return false;
         }
 
-        if ((options.Print || options.PrintAll) && options.Rows is not null)
+        if (options.Print && options.Rows is not null)
         {
-            Console.Error.WriteLine("Error: --rows cannot be combined with --print or --print-all; use --row N|first|last to choose a printed row.");
+            Console.Error.WriteLine("Error: --rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
             return false;
         }
 
@@ -873,9 +867,9 @@ public class PackageCommand
             return false;
         }
 
-        if (scopedContent && !options.ShowReadme && !options.Print && !options.PrintAll && !options.ShowContent)
+        if (scopedContent && !options.ShowReadme && !options.Print && !options.ShowContent)
         {
-            Console.Error.WriteLine("Error: --frontmatter/--yaml-header and --body require --readme, --print, --print-all, or --content.");
+            Console.Error.WriteLine("Error: --frontmatter/--yaml-header and --body require --readme, --print, or --content.");
             return false;
         }
 
@@ -1779,7 +1773,6 @@ public class PackageCommand
         if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
         if (options.ShowReadme) conflicts.Add("--readme");
         if (options.Print) conflicts.Add("--print");
-        if (options.PrintAll) conflicts.Add("--print-all");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase)) conflicts.Add("--tfm all");
 
@@ -1800,7 +1793,6 @@ public class PackageCommand
         if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
         if (options.ShowReadme) conflicts.Add("--readme");
         if (options.Print) conflicts.Add("--print");
-        if (options.PrintAll) conflicts.Add("--print-all");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (options.Discover != null) conflicts.Add("-D/--discover");
         if (options.Columns != null) conflicts.Add("--columns");
@@ -2677,12 +2669,11 @@ public class PackageCommand
 
         var file = result.Files[0];
         InfoTracker.SetDetail("readme", $"{file.Path} ({file.Size.ToString(CultureInfo.InvariantCulture)} B)");
-        if (options.Print || options.PrintAll)
+        if (options.Print)
         {
             return PrintProjectionOutput.Write(
                 [new PrintableDocument(1, PackageSections.PackageReadme, file.Path, file.Path, null, file.Content)],
                 new PrintProjectionOptions(
-                    options.PrintAll,
                     options.PrintRow,
                     options.JsonOutput,
                     options.Jsonl,

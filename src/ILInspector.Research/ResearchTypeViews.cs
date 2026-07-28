@@ -94,7 +94,7 @@ public static partial class ResearchViews
     /// <summary>
     /// A structured type-relationship graph (nodes carry identity + role, edges carry relation
     /// kind) so each host projects its own view. Deliberately NOT a baked Mermaid string — see
-    /// docs/design/call-graph-mermaid-projection.md for the neutral-model &#8594; Mermaid pattern.
+    /// docs/design/call-graph-projection.md for the neutral-model &#8594; host-owned rendering pattern.
     /// </summary>
     public sealed record TypeRelationshipGraph(
         IReadOnlyList<TypeRelationshipNode> Nodes,

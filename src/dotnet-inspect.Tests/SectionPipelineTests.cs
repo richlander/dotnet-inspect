@@ -493,7 +493,6 @@ public class SectionPipelineTests
         SectionNames.ExceptionRegions,
         SectionNames.Callers,
         SectionNames.CallGraph,
-        SectionNames.CallerGraph,
         SectionNames.UnsafeOperations,
         SectionNames.TopLeverage,
         SectionNames.PerformanceTriage,
@@ -2111,7 +2110,7 @@ public class SectionPipelineTests
         Assert.Contains("Methods", pipeline.InfoSectionNames);
         Assert.DoesNotContain("Method Groups", pipeline.InfoSectionNames);
         Assert.Contains("Call Graph", pipeline.AllSectionNames);
-        Assert.Contains("Caller Graph", pipeline.AllSectionNames);
+        Assert.DoesNotContain("Caller Graph", pipeline.AllSectionNames);
         Assert.Contains("Unsafe Operations", pipeline.AllSectionNames);
     }
 

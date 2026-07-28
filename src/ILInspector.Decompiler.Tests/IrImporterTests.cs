@@ -508,6 +508,79 @@ public class IrImporterTests
     }
 
     [Fact]
+    public void InlineArrayObjectConditionalElementSpan_RaisesSpilledStore()
+    {
+        // The address-spilled dual of InlineArraySpan: an element VALUE that
+        // carries a branch and a call (`s is not null ? s.ToUpper() : "null"`) in
+        // a params ReadOnlySpan<object> context cannot be evaluated in one push,
+        // so csc computes the element-ref address first and spills it to an
+        // evaluation-stack temp, spills the conditional's value to a second temp,
+        // then stores through the spilled address. Left flat, both the angle-
+        // bracketed buffer name and the raw stack temps never parse.
+        // InlineArrayCollectionPass recovers the spilled address+value and raises
+        // the whole thing back to `[a, s is not null ? s.ToUpper() : "null"]`.
+        // This is the shape EncLocalInfo's params string.Format hits in the wild
+        // (issue #3129, S4).
+        var function = ImportFixture(nameof(CfgSampleClass.InlineArrayObjectConditionalElementSpan));
+        IrPasses.Run(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<CollectionExpression>());
+        Assert.Contains("[a, s is not null ? s.ToUpper() : \"null\"]", output);
+        Assert.DoesNotContain("InlineArray", output);
+        Assert.DoesNotContain("PrivateImplementationDetails", output);
+    }
+
+
+    [Fact]
+    public void InlineArraySpanTernaryConditionValue_RaisesRunOnceConditionEdge()
+    {
+        // A params ReadOnlySpan<object> collection whose span is the CONDITION of a
+        // value-position ternary is evaluated exactly once, unconditionally, before
+        // either arm. Left flat the `<>y__InlineArray2<object>` buffer name never
+        // parses and caps fidelity at Partial; InlineArrayCollectionPass now allow-
+        // lists the ternary condition as a run-once governing edge (issue #3129, S4
+        // follow-up #3281) and raises it to `[a, b]`, restoring Full. Real compiled
+        // witness for the synthetic ConditionalConditionSpan case in
+        // InlineArraySpilledElementTests.
+        AssertRunOnceEdgeSpanRaises(nameof(CfgSampleClass.InlineArraySpanTernaryConditionValue));
+    }
+
+    [Fact]
+    public void InlineArraySpanSwitchExpressionValue_RaisesRunOnceScrutineeEdge()
+    {
+        // Span on the scrutinee of a switch expression — a run-once governing edge
+        // (#3281). Left flat it caps fidelity at Partial; the pass raises it to
+        // `[a, b]`, restoring Full.
+        AssertRunOnceEdgeSpanRaises(nameof(CfgSampleClass.InlineArraySpanSwitchExpressionValue));
+    }
+
+    [Fact]
+    public void InlineArraySpanUsingResource_RaisesRunOnceResourceEdge()
+    {
+        // Span on the resource of a using statement; the body is a separate block,
+        // so the using statement itself is the span consumer and the element stores
+        // are its contiguous earlier siblings — a run-once governing edge (#3281).
+        // Left flat it caps fidelity at Partial; the pass raises it to `[a, b]`,
+        // restoring Full.
+        AssertRunOnceEdgeSpanRaises(nameof(CfgSampleClass.InlineArraySpanUsingResource));
+    }
+
+    static void AssertRunOnceEdgeSpanRaises(string methodName)
+    {
+        var function = ImportFixture(methodName);
+        IrPasses.Run(function);
+        string output = CSharpPrinter.PrintRaised(function).Output!;
+
+        Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
+        Assert.Single(function.Descendants.OfType<CollectionExpression>());
+        Assert.Contains("[a, b]", output);
+        Assert.DoesNotContain("InlineArray", output);
+        Assert.DoesNotContain("PrivateImplementationDetails", output);
+    }
+
+    [Fact]
     public void InlineArrayFieldAsSpan_RaisesToCast()
     {
         // A real [InlineArray(4)] field viewed as a Span<int>: csc lowers the
@@ -2843,7 +2916,7 @@ public class RaisingPassTests
         block.Add(new StoreLocal(0, boolType, new Constant(0, TypeRef.CoreLib("System", "Int32"))));
         block.Add(new Return(new LoadLocal(0, boolType)));
         var signature = new MethodSignature(boolType, [], HasThis: false, GenericParameterCount: 0);
-        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [boolType], container);
 
         Assert.Equal("return false;", CSharpPrinter.PrintRaised(function).Output!.Trim());
     }
@@ -4411,7 +4484,7 @@ public class RaisingPassTests
 
         var signature = new MethodSignature(intType,
             [new Parameter("a", intType), new Parameter("b", intType)], HasThis: false, GenericParameterCount: 0);
-        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [intType], container);
 
         IrPasses.Run(function);
         string output = CSharpPrinter.Print(function).Output!.ReplaceLineEndings("\n").TrimEnd();
@@ -4703,7 +4776,7 @@ public class RaisingPassTests
 
         var signature = new MethodSignature(boolType,
             [new Parameter("ch", intType)], HasThis: false, GenericParameterCount: 0);
-        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [], container);
+        var function = new IrFunction("M", TypeRef.CoreLib("Synthetic", "T"), signature, [boolType], container);
 
         IrPasses.Run(function);
         string output = CSharpPrinter.Print(function).Output!;

@@ -2106,6 +2106,30 @@ public class CfgSampleClass
         return sum;
     }
 
+    // Compiler foreach whose iteration variable is used exactly once, next to a
+    // second enumerator advanced manually in the loop body. csc hoists `x =
+    // e.Current` to the loop top, but because `x` is single-use and (in the
+    // absence of a source name) inlinable, ExpressionInliningPass can fold that
+    // store into its one use before ForeachStatementPass runs — leaving the
+    // hidden enumerator referenced only by MoveNext and one inline `e.Current`.
+    // This is the shape System.Text.Json.JsonElement.DeepEquals exhibits on its
+    // Array arm (#3164): the pass must still recover the foreach by rebinding the
+    // inline Current to a fresh iteration variable.
+    public static bool ForeachSingleUseWithParallelEnumerator(
+        System.Collections.Generic.List<int> a, System.Collections.Generic.List<int> b)
+    {
+        System.Collections.Generic.List<int>.Enumerator other = b.GetEnumerator();
+        foreach (int x in a)
+        {
+            other.MoveNext();
+            if (x != other.Current)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public ref struct RefStructResource
     {
         public RefStructResource(int value) => Value = value;
@@ -2941,6 +2965,8 @@ public class CfgSampleClass
 
     static void SideEffect() { }
 
+    static int StaticTag { get; set; }
+
     // #3272 regression: the object initializer is the SECOND constructor argument,
     // so the first argument is evaluated first and stays live on the stack beneath
     // the dup chain. The stackifier cannot keep two values on the stack across the
@@ -2970,6 +2996,15 @@ public class CfgSampleClass
         t.X = a;
         return t;
     }
+
+    // #3272 provenance robustness: the leading constructor argument is a STATIC
+    // PROPERTY read (`get_StaticTag`). PropertySugarPass rewrites the getter Call
+    // into a zero-child LoadProperty; if that rewrite drops the Call's SourceOffset,
+    // the object-initializer skip guard cannot prove the spill ran before the
+    // `newobj` and declines the fold. The getter runs before the `newobj`, so this
+    // must fold to `new InitConsumer(StaticTag, new InitTarget { X = a })`.
+    public static InitConsumer MakeConsumerWithStaticPropertyArg(int a)
+        => new InitConsumer(StaticTag, new InitTarget { X = a });
 
     public static InitContainer MakeNestedObject(int a, int b)
         => new InitContainer { Inner = { X = a, Y = b } };
@@ -4947,6 +4982,99 @@ public class CfgSampleClass
                 return -1;
         }
     }
+
+    static int UseObjectSpan(System.ReadOnlySpan<object> s) => s.Length;
+
+    // A collection expression whose element VALUE carries a branch AND a call:
+    // `s is not null ? s.ToUpper() : "null"` in a params ReadOnlySpan<object>
+    // context. csc cannot evaluate that element in one push, so it computes the
+    // element-ref ADDRESS first and spills it to an evaluation-stack temp, then
+    // spills the conditional's value to a second temp, and finally stores through
+    // the spilled address — `ref object A = ref InlineArrayElementRef(ref buffer,
+    // 1); object V = s is not null ? s.ToUpper() : "null"; A = V;`. The `object`
+    // element type (boxing) and the method call keep that double spill alive all
+    // the way to InlineArrayCollectionPass, unlike a scalar `flag ? 1 : 2` whose
+    // spill an earlier ternary fold collapses to a direct store. This is the shape
+    // EncLocalInfo's params `string.Format` hits in the wild (issue #3129, S4):
+    // the pass recovers the spilled address+value and raises the whole thing back
+    // to `[a, s is not null ? s.ToUpper() : "null"]`, re-sequencing into slot
+    // (= source) order. Placed last in the class so its two extra methods do not
+    // shift any pre-existing method's compiler-generated ordinal (the fidelity
+    // docket keys on `<>9__N`/`<>c__DisplayClassN` names — see issue #3129, S4).
+    public static int InlineArrayObjectConditionalElementSpan(int a, string? s)
+        => UseObjectSpan([a, s is not null ? s.ToUpper() : "null"]);
+
+    static bool AnyObjectSpan(params System.ReadOnlySpan<object> s) => s.Length > 0;
+    static int CountObjectSpan(params System.ReadOnlySpan<object> s) => s.Length;
+    static System.IDisposable DisposableFromObjectSpan(params System.ReadOnlySpan<object> s)
+        => new SpanScope(s.Length);
+
+    sealed class SpanScope : System.IDisposable
+    {
+        public SpanScope(int _) { }
+        public void Dispose() { }
+    }
+
+    // Compiled witnesses for the run-once governing edges added to
+    // InlineArrayCollectionPass's allow list (issue #3129, S4 follow-up #3281).
+    // Each fills a `<>y__InlineArray2<object>` buffer with the two boxed args and
+    // reads the params ReadOnlySpan into a governing edge that is evaluated
+    // exactly once, unconditionally. Left flat the angle-bracketed buffer name
+    // never parses and caps fidelity at Partial; the pass raises each back to
+    // `[a, b]`, restoring Full. These are the real compiled witnesses for the
+    // synthetic ConditionalConditionSpan / SwitchExpressionValueSpan /
+    // UsingResourceSpan cases in InlineArraySpilledElementTests. Placed last (with
+    // their helpers, none of which capture) so they do not shift any pre-existing
+    // method's compiler-generated ordinal (the fidelity docket keys on
+    // `<>9__N`/`<>c__DisplayClassN` names — see issue #3129, S4).
+
+    // Span on the CONDITION of a ternary that stays a value expression (its result
+    // feeds a `+`), so structuring keeps a `Conditional` node — exercises
+    // `Conditional.Condition`.
+    public static long InlineArraySpanTernaryConditionValue(object a, object b)
+        => (AnyObjectSpan([a, b]) ? 10L : 20L) + System.Environment.TickCount64;
+
+    // Span on the scrutinee of a switch expression — exercises the switch
+    // expression `.Value` edge.
+    public static int InlineArraySpanSwitchExpressionValue(object a, object b)
+        => CountObjectSpan([a, b]) switch { 0 => -1, 1 => -2, _ => 99 };
+
+    // Span on the resource of a using statement (the body is a separate block, so
+    // the using statement itself is the span consumer) — exercises
+    // `UsingStatement.Resource`.
+    public static int InlineArraySpanUsingResource(object a, object b)
+    {
+        int n = 0;
+        using (DisposableFromObjectSpan([a, b])) { n = 1; }
+        return n;
+    }
+
+    // #3336 stage 1: a struct-typed member assigned `default` in an object
+    // initializer. Roslyn spills `default(InitFlag)` to a local via `initobj`
+    // (a struct has no `ldnull` default), then reads it back as the member value
+    // AFTER the `newobj` — a single-use member-value spill interleaved in the dup
+    // chain. #3272's skip guard only tolerates spills computed BEFORE the newobj,
+    // so without folding the spill the trailing member (and thus the whole
+    // initializer) stays lowered. This must fold to
+    // `new InitTargetWithFlag { X = a, Y = b, Flag = default(InitFlag) }`.
+    // Placed last (with its non-capturing helper types) so it shifts no
+    // pre-existing method's compiler-generated ordinal — the fidelity docket keys
+    // on `<>9__N`/`<>c__DisplayClassN` names (see #3129 S4, #3281).
+    public static InitTargetWithFlag MakeTargetWithDefaultStructMember(int a, int b)
+        => new InitTargetWithFlag { X = a, Y = b, Flag = default };
+
+    public struct InitFlag
+    {
+        public int First;
+        public int Second;
+    }
+
+    public sealed class InitTargetWithFlag
+    {
+        public int X { get; set; }
+        public int Y { get; set; }
+        public InitFlag Flag { get; set; }
+    }
 }
 
 internal static class AwaitOrderingHelpers
@@ -6031,4 +6159,39 @@ public static class FlagsEnumAccumulatorSamples
             | FlagCaps64.MultiResults;
         return (int)caps;
     }
+}
+
+// #3371 follow-up witnesses: a record `with` expression and an anonymous object
+// wide enough that the printer's brace-body width wrapper breaks them Allman-style
+// (one entry per line). New top-level types appended at end of file so they cannot
+// shift any existing CfgSampleClass generated-code ordinals.
+public sealed record MeasuredRecord(
+    int FirstMeasuredValue,
+    int SecondMeasuredValue,
+    int ThirdMeasuredValue,
+    int FourthMeasuredValue);
+
+public static class BraceBodyWrappingSamples
+{
+    // `source with { A = .., B = .., C = .., D = .. }` — flat form exceeds 120 cols.
+    public static MeasuredRecord WidenMeasuredRecord(MeasuredRecord source, int first, int second, int third, int fourth)
+        => source with
+        {
+            FirstMeasuredValue = first,
+            SecondMeasuredValue = second,
+            ThirdMeasuredValue = third,
+            FourthMeasuredValue = fourth,
+        };
+
+    // Anonymous types are reference types, so returning one as `object` needs no
+    // box/cast; the anonymous object stays the bare return value. Explicit
+    // `Name = value` form (value names differ from property names), flat > 120 cols.
+    public static object ProjectMeasuredValues(int first, int second, int third, int fourth)
+        => new
+        {
+            FirstMeasuredProjection = first,
+            SecondMeasuredProjection = second,
+            ThirdMeasuredProjection = third,
+            FourthMeasuredProjection = fourth,
+        };
 }

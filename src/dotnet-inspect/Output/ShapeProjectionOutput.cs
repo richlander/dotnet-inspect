@@ -46,6 +46,13 @@ public static class ShapeProjectionOutput
 
     public static int Write(IReadOnlyList<ShapeProjectionRow> rows, ShapeProjectionOptions options)
     {
+        ProjectionAudit.MarkHonored(options.Kind switch
+        {
+            ShapeProjectionKind.Value => ProjectionAudit.Value,
+            ShapeProjectionKind.Urls => ProjectionAudit.Urls,
+            _ => ProjectionAudit.Paths
+        });
+
         if (rows.Count == 0)
         {
             Console.Error.WriteLine($"Error: selected section has no {ProjectionName(options.Kind)} values.");

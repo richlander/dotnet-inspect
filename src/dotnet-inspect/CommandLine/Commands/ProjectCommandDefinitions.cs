@@ -75,7 +75,6 @@ public static class ProjectCommandDefinitions
                 AgentsIndex = parseResult.GetValue(agentsIndexOption),
                 ReadmePackageId = parseResult.GetValue(readmeOption),
                 Print = parseResult.GetValue(opts.Print),
-                PrintAll = parseResult.GetValue(opts.PrintAll),
                 PrintRow = opts.ParsePrintRow(parseResult),
                 Value = parseResult.GetValue(opts.Value),
                 Urls = parseResult.GetValue(opts.Urls),

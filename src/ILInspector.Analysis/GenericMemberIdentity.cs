@@ -5,7 +5,7 @@ namespace ILInspector.Analysis;
 
 /// <summary>
 /// Canonicalizes generic member identity for <em>cross-assembly</em> structural
-/// matching (the <c>Callers</c> table and the cross-assembly <c>Caller Graph</c>).
+/// matching (the <c>Callers</c> table and the cross-assembly caller half of <c>Call Graph</c>).
 ///
 /// Same-assembly matching resolves through metadata tokens
 /// (<see cref="DirectCall.CalleeDefinitionToken"/>), so it sees a constructed call

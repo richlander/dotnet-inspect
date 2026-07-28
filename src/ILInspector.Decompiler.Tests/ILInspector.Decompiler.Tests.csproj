@@ -55,6 +55,11 @@
     <ProjectReference Include="..\..\tests\DotnetInspector.Fixtures\DotnetInspector.Fixtures.csproj" />
     <ProjectReference Include="..\..\tools\HarnessReportProtocol\HarnessReportProtocol.csproj" />
     <ProjectReference Include="..\..\tools\RoundTripCompilation\RoundTripCompilation.csproj" />
+    <!-- Built, not referenced: AuthoredCorpusHarnessProcessTests runs the harness
+         binary, and its sources are linked below, so referencing the output assembly
+         would duplicate every type. Without this the tests could run against a stale
+         binary and pass, which is the false green they exist to catch. -->
+    <ProjectReference Include="..\..\tools\DecompilerHarness\DecompilerHarness.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <!--
@@ -76,6 +81,8 @@
              Link="CorpusMetadata.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\CorpusMethodIdentity.cs"
              Link="CorpusMethodIdentity.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\PassBugDiagnostic.cs"
+             Link="PassBugDiagnostic.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\CorpusMethodDelta.cs"
              Link="CorpusMethodDelta.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\CorpusSensor.cs"
@@ -156,6 +163,16 @@
              Link="TypeBindCheck.cs" />
     <Compile Include="..\..\tools\DecompilerHarness\AuthoredCorpusHistoryCard.cs"
              Link="AuthoredCorpusHistoryCard.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\IlDifficultyScorer.cs"
+             Link="IlDifficultyScorer.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\RealMethodTargetEnumerator.cs"
+             Link="RealMethodTargetEnumerator.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\AuthoredSourceHarvest.cs"
+             Link="AuthoredSourceHarvest.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\AuthoredCorpusBenchmark.cs"
+             Link="AuthoredCorpusBenchmark.cs" />
+    <Compile Include="..\..\tools\DecompilerHarness\AuthoredCorpusRatchet.cs"
+             Link="AuthoredCorpusRatchet.cs" />
   </ItemGroup>
 
 </Project>

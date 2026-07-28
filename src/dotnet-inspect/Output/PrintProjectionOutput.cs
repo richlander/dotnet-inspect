@@ -12,7 +12,6 @@ public sealed record PrintableDocument(
     string Content);
 
 public sealed record PrintProjectionOptions(
-    bool PrintAll,
     RowSelector? Row,
     bool JsonOutput,
     bool Jsonl,
@@ -24,30 +23,16 @@ public static class PrintProjectionOutput
 {
     public static int Write(IReadOnlyList<PrintableDocument> documents, PrintProjectionOptions options)
     {
+        ProjectionAudit.MarkHonored(ProjectionAudit.Print);
+
         if (documents.Count == 0)
         {
             Console.Error.WriteLine("Error: selected section has no printable rows.");
             return 1;
         }
 
-        if (options.PrintAll && options.Row is not null)
-        {
-            Console.Error.WriteLine("Error: --print-all cannot be combined with --row.");
-            return 1;
-        }
-
-        IReadOnlyList<PrintableDocument> selected;
-        if (options.PrintAll)
-        {
-            if (options.Bare && !options.JsonOutput && !options.Jsonl)
-            {
-                Console.Error.WriteLine("Error: --bare cannot be combined with --print-all because multiple documents need separators.");
-                return 1;
-            }
-
-            selected = documents;
-        }
-        else if (options.Row is { } selector)
+        PrintableDocument selected;
+        if (options.Row is { } selector)
         {
             var row = selector.Resolve(documents.Count);
             if (row < 1 || row > documents.Count)
@@ -56,52 +41,40 @@ public static class PrintProjectionOutput
                 return 1;
             }
 
-            selected = [documents[row - 1]];
+            selected = documents[row - 1];
         }
         else
         {
             if (documents.Count != 1)
             {
-                Console.Error.WriteLine($"Error: selected section has {documents.Count} printable rows; use --row N|first|last to choose one row or --print-all.");
+                Console.Error.WriteLine($"Error: selected section has {documents.Count} printable rows; use --row N|first|last to choose one row.");
                 return 1;
             }
 
-            selected = [documents[0]];
+            selected = documents[0];
         }
 
         if (options.Jsonl)
         {
-            var lines = selected
-                .Select(item => JsonSerializer.Serialize(item, PrintProjectionJsonContext.Default.PrintableDocument));
-            WriteOutput(string.Join(Environment.NewLine, lines) + Environment.NewLine, options.OutputPath);
+            WriteOutput(
+                JsonSerializer.Serialize(selected, PrintProjectionJsonContext.Default.PrintableDocument) + Environment.NewLine,
+                options.OutputPath);
             return 0;
         }
 
         if (options.JsonArray)
         {
-            WriteOutput(JsonSerializer.Serialize(selected.ToArray(), PrintProjectionJsonContext.Default.PrintableDocumentArray), options.OutputPath);
+            WriteOutput(JsonSerializer.Serialize(new[] { selected }, PrintProjectionJsonContext.Default.PrintableDocumentArray), options.OutputPath);
             return 0;
         }
 
         if (options.JsonOutput)
         {
-            var json = selected.Count == 1
-                ? JsonSerializer.Serialize(selected[0], PrintProjectionJsonContext.Default.PrintableDocument)
-                : JsonSerializer.Serialize(selected.ToArray(), PrintProjectionJsonContext.Default.PrintableDocumentArray);
-            WriteOutput(json, options.OutputPath);
+            WriteOutput(JsonSerializer.Serialize(selected, PrintProjectionJsonContext.Default.PrintableDocument), options.OutputPath);
             return 0;
         }
 
-        if (selected.Count == 1)
-        {
-            WriteOutput(selected[0].Content, options.OutputPath);
-            return 0;
-        }
-
-        var rendered = string.Join(
-            Environment.NewLine + Environment.NewLine,
-            selected.Select(item => $"--- {item.Label} ---{Environment.NewLine}{item.Content.TrimEnd()}"));
-        WriteOutput(rendered + Environment.NewLine, options.OutputPath);
+        WriteOutput(selected.Content, options.OutputPath);
         return 0;
     }
 

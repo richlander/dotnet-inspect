@@ -132,6 +132,15 @@ public sealed class StackSlotCopyPropagationPass : IIrPass
         // the same contract DefiniteAssignment uses. This turns the previously
         // accidental exclusion of leave edges (a side effect of guard
         // interaction) into an explicit, pinned invariant.
+        //
+        // The ExternalTargets clause also closes a soundness hole, not just a
+        // missed optimization: the old private Successors silently dropped an
+        // unresolvable branch target (offset lookup → -1 → no edge emitted).
+        // That missing edge flowed into Predecessors, and the region-domination
+        // check reasons over predecessors, so a block with a dropped incoming
+        // edge could look dominated by the copy when it is not — propagating a
+        // value along a path that does not actually carry it. Bailing on any
+        // external target makes that unsound case unreachable by construction.
         var edges = Cfg.Build(blocks);
         if (edges.Any(edge => edge.LeavesRegion || edge.ExternalTargets.Count > 0))
             return null;

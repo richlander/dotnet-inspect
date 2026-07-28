@@ -37,7 +37,6 @@ public class IndexBuildInvariantTests
             [
                 SectionNames.Calls,
                 SectionNames.CallGraph,
-                SectionNames.CallerGraph,
                 SectionNames.UnsafeOperations,
                 SectionNames.AllocationFacts,
                 SectionNames.SafetyFacts,

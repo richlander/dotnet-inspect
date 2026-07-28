@@ -67,7 +67,7 @@ static class AuthoredCorpusDrift
             return 1;
         }
 
-        var records = ReadCorpus(corpusPath);
+        var records = AuthoredCorpusBenchmark.ReadCorpus(corpusPath, out int malformedRows);
         if (records.Count == 0)
         {
             Console.Error.WriteLine($"Corpus is empty or unparseable: {corpusPath}");
@@ -129,8 +129,8 @@ static class AuthoredCorpusDrift
             .Sum(entry => entry.Value.Count);
 
         return json
-            ? WriteJson(results, records.Count, matchedGroups.Count, byAssembly.Count, unmatchedRows, failOnDrift)
-            : WriteCard(results, records.Count, matchedGroups.Count, byAssembly.Count, unmatchedRows, failOnDrift);
+            ? WriteJson(results, records.Count, matchedGroups.Count, byAssembly.Count, unmatchedRows, malformedRows, failOnDrift)
+            : WriteCard(results, records.Count, matchedGroups.Count, byAssembly.Count, unmatchedRows, malformedRows, failOnDrift);
     }
 
     static async Task<RowResult> EvaluateRowAsync(
@@ -205,34 +205,13 @@ static class AuthoredCorpusDrift
             + $"first diff at line {firstDiff + 1}";
     }
 
-    static List<AuthoredSourceHarvest.CorpusRecord> ReadCorpus(string corpusPath)
-    {
-        var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-        var records = new List<AuthoredSourceHarvest.CorpusRecord>();
-        foreach (var line in File.ReadLines(corpusPath))
-        {
-            if (string.IsNullOrWhiteSpace(line))
-                continue;
-            try
-            {
-                if (JsonSerializer.Deserialize<AuthoredSourceHarvest.CorpusRecord>(line, options) is { } record)
-                    records.Add(record);
-            }
-            catch (JsonException ex)
-            {
-                Console.Error.WriteLine($"Skipping malformed corpus row: {ex.Message}");
-            }
-        }
-
-        return records;
-    }
-
     static int WriteCard(
         IReadOnlyList<RowResult> results,
         int corpusRows,
         int matchedAssemblies,
         int corpusAssemblies,
         int unmatchedRows,
+        int malformedRows,
         bool failOnDrift)
     {
         int verified = results.Count(result => result.Outcome == Outcome.Verified);
@@ -244,6 +223,8 @@ static class AuthoredCorpusDrift
         Console.WriteLine();
         Console.WriteLine($"  corpus rows        : {corpusRows}");
         Console.WriteLine($"  assemblies matched : {matchedAssemblies} / {corpusAssemblies}");
+        if (malformedRows > 0)
+            Console.WriteLine($"  rows unreadable    : {malformedRows} (BLOCKER: corpus row could not be parsed)");
         if (unmatchedRows > 0)
             Console.WriteLine($"  rows without asm   : {unmatchedRows} (BLOCKER: no local assembly supplied)");
         Console.WriteLine($"  rows evaluated     : {evaluated}");
@@ -257,16 +238,9 @@ static class AuthoredCorpusDrift
         WriteRows("Drifted rows", results, Outcome.Drifted);
         WriteRows("Unavailable rows", results, Outcome.Unavailable);
 
-        // Honest-exit contract: a run only counts if every corpus assembly was
-        // supplied (unmatchedRows == 0) and at least one row was evaluated.
-        // --fail-on-drift turns this into a fail-closed gate: every evaluated row
-        // must be Verified, so any Drifted (source changed) OR Unavailable (could
-        // not re-acquire) row fails — a gate that passes while verifying nothing
-        // (an outage, a missing PDB, a bad --repo) establishes no correspondence.
-        // Report-only runs (no --fail-on-drift) stay a pure diagnostic and exit 0
-        // regardless of Unavailable rows.
-        bool honest = unmatchedRows == 0 && evaluated > 0;
-        return honest && !(failOnDrift && (drifted > 0 || unavailable > 0)) ? 0 : 1;
+        bool honest = AuthoredCorpusExitContract.DriftMeasurementIsSound(
+            malformedRows, unmatchedRows, evaluated);
+        return AuthoredCorpusExitContract.DriftExitCode(honest, failOnDrift, drifted, unavailable);
     }
 
     static void WriteRows(string title, IReadOnlyList<RowResult> results, Outcome outcome)
@@ -294,13 +268,15 @@ static class AuthoredCorpusDrift
         int matchedAssemblies,
         int corpusAssemblies,
         int unmatchedRows,
+        int malformedRows,
         bool failOnDrift)
     {
         int verified = results.Count(result => result.Outcome == Outcome.Verified);
         int drifted = results.Count(result => result.Outcome == Outcome.Drifted);
         int unavailable = results.Count(result => result.Outcome == Outcome.Unavailable);
         int evaluated = results.Count;
-        bool honest = unmatchedRows == 0 && evaluated > 0;
+        bool honest = AuthoredCorpusExitContract.DriftMeasurementIsSound(
+            malformedRows, unmatchedRows, evaluated);
 
         var payload = new
         {
@@ -308,6 +284,7 @@ static class AuthoredCorpusDrift
             matchedAssemblies,
             corpusAssemblies,
             unmatchedRows,
+            malformedRows,
             rowsEvaluated = evaluated,
             verified,
             drifted,
@@ -327,6 +304,6 @@ static class AuthoredCorpusDrift
         };
 
         Console.WriteLine(JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
-        return honest && !(failOnDrift && (drifted > 0 || unavailable > 0)) ? 0 : 1;
+        return AuthoredCorpusExitContract.DriftExitCode(honest, failOnDrift, drifted, unavailable);
     }
 }

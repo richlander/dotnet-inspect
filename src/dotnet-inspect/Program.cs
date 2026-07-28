@@ -152,7 +152,7 @@ if (result.Errors.Count > 0)
 int exitCode;
 try
 {
-    exitCode = await result.InvokeAsync();
+    exitCode = await CommandLineBuilder.InvokeAsync(result);
 }
 catch (RowWindowValidationException ex)
 {

@@ -37,6 +37,23 @@ dnx dotnet-inspect -y -- type JsonSerializer --platform System.Text.Json -S "Dec
 dnx dotnet-inspect -y -- member Command --project ./src/App Add:1 -S @Source
 ```
 
+### Focusing annotations
+
+By default every hidden fact renders as a trailing `//` comment. A fact with a
+long detail can push that comment far off the right edge. `--focus` promotes
+matching facts to a `^^^^` underline beneath the statement, wrapped into a
+readable block:
+
+```bash
+dnx dotnet-inspect -y -- member Cache --project ./src/App Pump:1 -S "Annotated Source" --focus allocation
+```
+
+The value matches an annotation category, an exact id, or a dotted-id prefix on
+a segment boundary (`alloc` selects `alloc.box`, not `allocator.x`). It
+**promotes, it never filters** — facts that do not match keep the trailing form,
+so `--focus` narrows attention without hiding anything. A focus that matches
+nothing says so and names the families the member does have.
+
 ## Fidelity model
 
 The decompiler degrades honestly: IL with no faithful C# spelling renders as a

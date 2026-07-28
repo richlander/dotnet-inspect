@@ -150,6 +150,15 @@ public class LoweredFidelityGateTests
         "DayNumber",
         "DoubleViaLocalFunction",
         "StaticLocalFunctionCalledTwice",
+        // MakeConsumerWithTwoLeadingArgs (#3272): the trailing object initializer
+        // with TWO preceding constructor arguments folds correctly (Valid + Correct)
+        // to `new InitConsumer3(Identity(tag), Identity(a), new InitTarget { ... })`,
+        // but ExpressionInliningPass only removes one of the two single-use spill
+        // temps, leaving an extra stloc/ldloc pair on compile-back. Honest OpcodeDiff
+        // from a separate inliner limitation, not an object-initializer regression
+        // (the pre-raise version-copy expansion was also non-exact). The single-arg
+        // corpus case (OpenAI GetRealtimeClient) stays byte-exact.
+        "MakeConsumerWithTwoLeadingArgs",
     };
 
     /// <summary>

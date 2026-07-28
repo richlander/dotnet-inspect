@@ -187,6 +187,29 @@ public sealed class ObjectInitializerPass : IIrPass
                 continue;
             }
 
+            // A single-use member-value spill feeding the immediately-following
+            // member store: `default(T) V = default; ref.M = V`, where the compiler
+            // spills a `default(T)` (a struct-typed `initobj` into its own local)
+            // and reads it straight back as the member value. Fold both into
+            // `M = default` inlined at the member's position. Sound because the
+            // member value stays in member order at the fold site — unlike a
+            // pre-entry skip, it is never reordered across the `newobj` or other
+            // members; and `default(T)` is a pure zero-init with no side effect.
+            if (i + 1 < statements.Count
+                && !TouchesAnySlot(statement, aliasSlots)
+                && TryDefaultValueSpill(function, statement, statements[i + 1], aliasSlots) is { } spilled)
+            {
+                if (isCollection == true)
+                    break;
+                FlushPending();
+                isCollection = false;
+                entries.Add(spilled);
+                consumed.Add(statement);
+                consumed.Add(statements[i + 1]);
+                i++;   // the member store is consumed together with its spill
+                continue;
+            }
+
             // A statement interleaved before the first initializer entry that neither
             // reads nor writes the threaded reference — e.g. `t = new(); a = Other();
             // t.X = ...` where `a` is a preceding constructor argument the stackifier
@@ -529,6 +552,53 @@ public sealed class ObjectInitializerPass : IIrPass
         _ => null,
     };
 
+    /// <summary>
+    /// Matches a <c>default(T)</c> member-value spill and its consuming member store:
+    /// <c>InitObject L</c> (a struct-typed <c>initobj</c> that zero-inits its own
+    /// local <c>L</c>) immediately followed by <c>ref.M = LoadLocal L</c> on a
+    /// threaded slot, where <c>L</c> is single-assignment, addressed only by this
+    /// <c>initobj</c>, and read exactly once — as that member value. Returns the
+    /// member entry with <see cref="DefaultValue"/> inlined in place of the temp so
+    /// the spill statement can be dropped. The compiler emits this shape for a
+    /// struct-typed <c>default</c> assigned to an initializer member; recovering it
+    /// lets the whole chain fold instead of leaving the trailing member lowered.
+    /// </summary>
+    static EntryPlan? TryDefaultValueSpill(IrFunction function, IrNode spill, IrNode memberStatement, HashSet<int> aliasSlots)
+    {
+        // The spill: `initobj L` writing the zero value through a local's address.
+        if (spill is not InitObject { Address: LoadLocalAddress { Index: var localIndex } } init)
+            return null;
+
+        // The consuming member store: `ref.M = LoadLocal L` on a threaded slot, with
+        // no index arguments (the value is the whole right-hand side).
+        var (member, method, fieldRef) = memberStatement switch
+        {
+            StoreProperty { HasInstance: true, Instance: LoadStackSlot slot, Value: LoadLocal use } property
+                when aliasSlots.Contains(slot.Slot) && use.Index == localIndex
+                    && property.IndexArguments.Count == 0 && IsInitializerSpellable(property)
+                => (property.PropertyName, (MethodRef?)property.Accessor, (FieldRef?)null),
+            StoreField { HasInstance: true, Instance: LoadStackSlot slot, Value: LoadLocal use } field
+                when aliasSlots.Contains(slot.Slot) && use.Index == localIndex
+                => (field.Field.Name, null, field.Field),
+            _ => ((string?)null, null, null),
+        };
+        if (member is null)
+            return null;
+
+        // The temp must belong solely to this spill/use pair: referenced or bound
+        // nowhere else, never re-stored, and addressed only by this `initobj`. That
+        // makes dropping its definition and inlining `default(T)` semantics-preserving.
+        if (!ReferenceOwnership.LocalReferencedOrBoundOnlyWithin(function, localIndex, [spill, memberStatement]))
+            return null;
+        if (function.Descendants.OfType<StoreLocal>().Any(store => store.Index == localIndex))
+            return null;
+        if (function.Descendants.OfType<LoadLocalAddress>()
+                .Any(address => address.Index == localIndex && !ReferenceEquals(address, init.Address)))
+            return null;
+
+        return new EntryPlan(member, [new DefaultValue(init.Type)], null, ConsumedMethod: method, ConsumedField: fieldRef);
+    }
+
     static EntryPlan? TryMemberStore(IrNode statement, int localIndex) => statement switch
     {
         StoreProperty { HasInstance: true, Instance: LoadLocal local } property
@@ -707,7 +777,8 @@ public sealed class ObjectInitializerPass : IIrPass
         }
 
         foreach (var leaf in LeafArguments(plan.Entries))
-            leaf.Detach();
+            if (leaf.Parent is not null)
+                leaf.Detach();   // a synthesized leaf (e.g. an inlined default) is already free
 
         var entries = plan.Entries.Select(BuildEntry).ToList();
         switch (plan.Target)

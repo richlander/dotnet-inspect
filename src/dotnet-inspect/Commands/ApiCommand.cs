@@ -47,11 +47,13 @@ public class ApiCommand
             NoHeader = options.NoHeader, Limit = options.Limit, MemberFilter = options.MemberFilter,
             KindFilter = options.KindFilter, UnsafeOnly = options.UnsafeOnly,
             IncludeSections = options.IncludeSections,
-            Print = options.Print, PrintAll = options.PrintAll, PrintRow = options.PrintRow,
+            Print = options.Print, PrintRow = options.PrintRow,
             Value = options.Value, Urls = options.Urls, Paths = options.Paths,
             Select = options.Select, Columns = options.Columns, Fields = options.Fields,
             Schema = options.Schema, Count = options.Count, SourceOptions = options.SourceOptions,
-            TipLevel = options.TipLevel, RenderOptions = options.RenderOptions
+            TipLevel = options.TipLevel, RenderOptions = options.RenderOptions,
+            RequestAllTaste = options.RequestAllTaste,
+            RequestReadableLocalNames = options.RequestReadableLocalNames
         })
     };
 
@@ -127,9 +129,9 @@ public class ApiCommand
             var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
             if (!ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
                 return (null!, 1);
-            if (options.Count || options.Print || options.PrintAll)
+            if (options.Count || options.Print)
             {
-                Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count, --print, or --print-all.");
+                Console.Error.WriteLine($"Error: {optionName} cannot be combined with --count or --print.");
                 return (null!, 1);
             }
             if (options.Rows is not null)
@@ -139,9 +141,9 @@ public class ApiCommand
             }
         }
 
-        if (options.JsonArray && shapeCount == 0 && !options.Print && !options.PrintAll)
+        if (options.JsonArray && shapeCount == 0 && !options.Print)
         {
-            Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, --print, or --print-all.");
+            Console.Error.WriteLine("Error: --json-array requires --value, --urls, --paths, or --print.");
             return (null!, 1);
         }
 
@@ -151,24 +153,18 @@ public class ApiCommand
             return (null!, 1);
         }
 
-        if ((options.Print || options.PrintAll) && !ValidateApiPrintSelection(options.IncludeSections))
+        if (options.Print && !ValidateApiPrintSelection(options.IncludeSections))
             return (null!, 1);
 
-        if ((options.Print || options.PrintAll) && options.Rows is not null)
+        if (options.Print && options.Rows is not null)
         {
-            Console.Error.WriteLine("Error: --rows cannot be combined with --print or --print-all; use --row N|first|last to choose a printed row.");
+            Console.Error.WriteLine("Error: --rows cannot be combined with --print; use --row N|first|last to choose a printed row.");
             return (null!, 1);
         }
 
         if (options.PrintRow is not null && !options.Print && shapeCount == 0)
         {
             Console.Error.WriteLine("Error: --row requires --print, --value, --urls, or --paths.");
-            return (null!, 1);
-        }
-
-        if (options.Print && options.PrintAll)
-        {
-            Console.Error.WriteLine("Error: --print cannot be combined with --print-all.");
             return (null!, 1);
         }
 
@@ -214,6 +210,11 @@ public class ApiCommand
         var renderOptions = options.RequestAllTaste
             ? ILInspector.Decompiler.Pipeline.StyleOptionCatalog.ApplyFullTaste(renderStyle.Options)
             : renderStyle.Options;
+        // --readable-names is orthogonal to the style axes the config/--taste cover
+        // (it names V_index locals, not a byte-divergent lens), so it applies on top
+        // of whatever those resolved and never has to be re-checked against them.
+        if (options.RequestReadableLocalNames)
+            renderOptions = renderOptions with { ReadableLocalNames = true };
         options = options with
         {
             RenderOptions = renderOptions,
@@ -242,7 +243,7 @@ public class ApiCommand
         if (includeSections is { Count: 1 })
             return true;
 
-        Console.Error.WriteLine("Error: --print/--print-all requires -S/--select to match exactly one printable section.");
+        Console.Error.WriteLine("Error: --print requires -S/--select to match exactly one printable section.");
         return false;
     }
 
@@ -375,21 +376,10 @@ public class ApiCommand
             detailSchema.Add(SectionNames.Callers, "column", "Caller", "IL Offset", "Opcode", "Call Kind", "Operand Token", "Return Address");
         if (detailSchema.GetSection(SectionNames.UnsafeOperations) == null)
             detailSchema.Add(SectionNames.UnsafeOperations, "column", "Reason", "Detail", "Kind", "IL", "Token");
+        // One bidirectional section, so one field list: the union of what the outbound and inbound
+        // halves each used to declare separately.
         detailSchema.Add(SectionNames.CallGraph, "field",
             "Fanout", "FanoutCount",
-            "Fanin", "FaninCount",
-            "Depth", "MaxDepth",
-            "Loop", "InLoop", "Looping",
-            "Alloc", "Allocations",
-            "Copy", "Copies",
-            "Unsafe",
-            "Reflection",
-            "Throw", "Throws", "ThrowSites",
-            "Exceptions", "ExceptionTypes", "ConstructedExceptions",
-            "Catch", "Catches",
-            "Finally", "Finallys",
-            "EvidenceIL", "Evidence", "IL");
-        detailSchema.Add(SectionNames.CallerGraph, "field",
             "Fanin", "FaninCount",
             "Depth", "MaxDepth",
             "Loop", "InLoop", "Looping",
@@ -554,7 +544,21 @@ public class ApiCommand
 
     // ===== Method Source Resolution =====
 
-    internal sealed record ResolvedMethodSource(MethodSourceContext? Source, string? PdbPath);
+    /// <param name="Source">Resolved source, or null when none could be resolved.</param>
+    /// <param name="PdbPath">The acquired portable PDB path, when one was acquired.</param>
+    /// <param name="MemberHasNoBody">
+    /// True when the member carries no IL body, so <paramref name="Source"/> is absent because
+    /// there is nothing to show rather than because resolution failed (issue #3299).
+    /// </param>
+    /// <param name="MemberHasNoAuthoredDeclaration">
+    /// True when the member has a body but no authored declaration of its own, so its source
+    /// range is the declaring type's header and there is nothing to isolate.
+    /// </param>
+    internal sealed record ResolvedMethodSource(
+        MethodSourceContext? Source,
+        string? PdbPath,
+        bool MemberHasNoBody = false,
+        bool MemberHasNoAuthoredDeclaration = false);
 
     internal static async Task<ResolvedMethodSource> ResolveMethodSourceAsync(
         string dllPath, string typeName, string methodName, int overloadIndex,
@@ -582,12 +586,18 @@ public class ApiCommand
             // names even when SourceLink/source resolution below fails (PDB available, source not).
             string? pdbPath = context.PortablePdbPath;
 
+            // A member with no IL body has no authored source to resolve, whatever the PDB and
+            // SourceLink situation is. Ask metadata for that fact before the resolution attempt,
+            // so an empty result can say why instead of looking like a silent failure
+            // (issue #3299). Only a definite "no" counts; an unreadable token stays unknown.
+            bool memberHasNoBody = metadataToken != 0 && context.MethodHasBody(metadataToken) == false;
+
             if (!fetchSource || !service.HasPdb || !service.HasSourceLink)
-                return new ResolvedMethodSource(null, pdbPath);
+                return new ResolvedMethodSource(null, pdbPath, memberHasNoBody);
 
             var methodInfo = service.ResolveMethodSource(typeName, methodName, overloadIndex, publicOnly, metadataToken);
             if (methodInfo == null)
-                return new ResolvedMethodSource(null, pdbPath);
+                return new ResolvedMethodSource(null, pdbPath, memberHasNoBody);
 
             // Honor the source the portable PDB records when it is present locally: a non-reproducible
             // (local dev) build keeps a real local path whose exact compiled bytes may exist only here,
@@ -620,11 +630,17 @@ public class ApiCommand
             }
 
             if (content == null)
-                return new ResolvedMethodSource(null, pdbPath);
+                return new ResolvedMethodSource(null, pdbPath, memberHasNoBody);
 
             var sourceCode = SourceLinkResolver.ExtractMethodBody(
                 content, methodInfo.StartLine, methodInfo.EndLine, methodName, isDestructor,
                 isDestructor ? typeName : null);
+
+            // No authored declaration of its own (positional record accessor, primary
+            // constructor, field-initializer constructor): report no source rather than the
+            // enclosing type's header.
+            if (sourceCode is null)
+                return new ResolvedMethodSource(null, pdbPath, MemberHasNoAuthoredDeclaration: true);
 
             return new ResolvedMethodSource(
                 new MethodSourceContext(sourceCode, methodInfo.SourceUrl ?? methodInfo.FilePath), pdbPath);
@@ -638,6 +654,12 @@ public class ApiCommand
 
     // ===== Single Type Rendering =====
 
+    // --json selects an output format; --print/--value/--urls/--paths select an
+    // output shape. They compose, so the plain type-surface serializer must not
+    // claim a request that a projection owns.
+    private static bool IsProjectionRequested(ApiOptions options)
+        => options.Print || options.Value || options.Urls || options.Paths;
+
     internal static async Task<int> WriteTypeOutputAsync(ApiType type, string? foundIn, string? packageName, string? packageVersion, string? apiSource, string? selectedTfm, ApiOptions options, TextWriter? output = null)
     {
         var sink = output ?? Console.Out;
@@ -648,7 +670,7 @@ public class ApiCommand
             return 0;
         }
 
-        if (options.JsonOutput && !options.Count)
+        if (options.JsonOutput && !options.Count && !IsProjectionRequested(options))
         {
             WriteJsonTypeOutput(type, options);
             return 0;
@@ -795,11 +817,26 @@ public class ApiCommand
             }
 
             // Source code (already resolved in command layer)
-            if (options is MemberOptions { MethodSource: not null } mo5
+            if (options is MemberOptions mo5
                 && GetRequestedMemberSections(type, mo5).Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
             {
-                view.MemberCode ??= new MemberCodeView();
-                view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", mo5.MethodSource.SourceCode);
+                if (mo5.MethodSource is { } resolvedSource)
+                {
+                    view.MemberCode ??= new MemberCodeView();
+                    view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", resolvedSource.SourceCode);
+                }
+                else if (mo5.MemberHasNoBody)
+                {
+                    view.MemberCode ??= new MemberCodeView();
+                    view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", BodylessMemberNote);
+                    view.MemberCode.OriginalSourceUnavailable = true;
+                }
+                else if (mo5.MemberHasNoAuthoredDeclaration)
+                {
+                    view.MemberCode ??= new MemberCodeView();
+                    view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", NoAuthoredDeclarationNote);
+                    view.MemberCode.OriginalSourceUnavailable = true;
+                }
             }
 
             PopulateSourceDiff(view, GetRequestedMemberSections(type, options));
@@ -832,7 +869,7 @@ public class ApiCommand
             }
         }
 
-        if (options.Print || options.PrintAll)
+        if (options.Print)
             return await PrintApiProjectionAsync(view, options);
 
         if (options.Value || options.Urls || options.Paths)
@@ -966,7 +1003,6 @@ public class ApiCommand
         return PrintProjectionOutput.Write(
             documents,
             new PrintProjectionOptions(
-                options.PrintAll,
                 options.PrintRow,
                 options.JsonOutput,
                 options.Jsonl,
@@ -1089,50 +1125,45 @@ public class ApiCommand
             .Where(row => !string.IsNullOrWhiteSpace(row.Url))
             .ToList();
         if (printableRows.Count == 0)
-            return PrintProjectionOutput.Write(
-                [],
-                new PrintProjectionOptions(options.PrintAll, null, options.JsonOutput, options.Jsonl, options.JsonArray, options.Bare, OutputPath: null));
-
-        if (!options.PrintAll)
         {
-            if (options.PrintRow is null && printableRows.Count != 1)
-            {
-                Console.Error.WriteLine($"Error: selected section has {printableRows.Count} printable rows; use --row N|first|last to choose one row or --print-all.");
-                return 1;
-            }
-
-            var targetIndex = options.PrintRow?.Resolve(printableRows.Count) ?? 1;
-            if (targetIndex < 1 || targetIndex > printableRows.Count)
-            {
-                Console.Error.WriteLine($"Error: printable row {targetIndex} is out of range. Use 1 through {printableRows.Count}, first, or last.");
-                return 1;
-            }
-
-            printableRows = [printableRows[targetIndex - 1]];
+            Console.Error.WriteLine("Error: selected section has no printable rows.");
+            return 1;
         }
 
+        if (options.PrintRow is null && printableRows.Count != 1)
+        {
+            Console.Error.WriteLine($"Error: selected section has {printableRows.Count} printable rows; use --row N|first|last to choose one row.");
+            return 1;
+        }
+
+        var targetIndex = options.PrintRow?.Resolve(printableRows.Count) ?? 1;
+        if (targetIndex < 1 || targetIndex > printableRows.Count)
+        {
+            Console.Error.WriteLine($"Error: printable row {targetIndex} is out of range. Use 1 through {printableRows.Count}, first, or last.");
+            return 1;
+        }
+
+        var selectedRow = printableRows[targetIndex - 1];
+        var rawUrl = GitHubUrlResolver.ConvertBlobToRawUrl(selectedRow.Url!);
         var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
-        List<PrintableDocument> documents = [];
-        foreach (var row in printableRows)
+        var content = await fetcher.FetchSourceAsync(rawUrl);
+        if (content == null)
         {
-            var rawUrl = GitHubUrlResolver.ConvertBlobToRawUrl(row.Url!);
-            var content = await fetcher.FetchSourceAsync(rawUrl);
-            if (content == null)
-                continue;
-
-            documents.Add(new PrintableDocument(
-                row.Row,
-                section,
-                string.IsNullOrWhiteSpace(row.Label) ? rawUrl : row.Label!,
-                null,
-                rawUrl,
-                content));
+            Console.Error.WriteLine($"Error: failed to fetch the document for printable row {targetIndex} from {rawUrl}.");
+            return 1;
         }
+
+        var document = new PrintableDocument(
+            selectedRow.Row,
+            section,
+            string.IsNullOrWhiteSpace(selectedRow.Label) ? rawUrl : selectedRow.Label!,
+            null,
+            rawUrl,
+            content);
 
         return PrintProjectionOutput.Write(
-            documents,
+            [document],
             new PrintProjectionOptions(
-                options.PrintAll,
                 Row: null,
                 options.JsonOutput,
                 options.Jsonl,
@@ -1422,10 +1453,25 @@ public class ApiCommand
                         memberOptions.IncludeSections, memberOptions);
                 }
 
-                if (memberOptions.MethodSource != null && requestedSections.Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
+                if (requestedSections.Overlaps([SectionNames.OriginalSource, SectionNames.SourceDiff]))
                 {
-                    view.MemberCode ??= new MemberCodeView();
-                    view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", memberOptions.MethodSource.SourceCode);
+                    if (memberOptions.MethodSource is { } resolvedSource)
+                    {
+                        view.MemberCode ??= new MemberCodeView();
+                        view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", resolvedSource.SourceCode);
+                    }
+                    else if (memberOptions.MemberHasNoBody)
+                    {
+                        view.MemberCode ??= new MemberCodeView();
+                        view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", BodylessMemberNote);
+                        view.MemberCode.OriginalSourceUnavailable = true;
+                    }
+                    else if (memberOptions.MemberHasNoAuthoredDeclaration)
+                    {
+                        view.MemberCode ??= new MemberCodeView();
+                        view.MemberCode.OriginalSourceCode = new Markout.CodeSection("csharp", NoAuthoredDeclarationNote);
+                        view.MemberCode.OriginalSourceUnavailable = true;
+                    }
                 }
                 PopulateSourceDiff(view, requestedSections);
             }
@@ -1517,6 +1563,25 @@ public class ApiCommand
                 writer);
     }
 
+    /// <summary>
+    /// Stands in for Original Source when the selected member carries no IL body. A C# comment
+    /// so it reads naturally inside the section's <c>csharp</c> fence, mirroring how
+    /// <see cref="SourceTextDiffRenderer"/> reports an unavailable diff input (issue #3299).
+    /// </summary>
+    internal const string BodylessMemberNote =
+        "// This member has no IL body, so it has no authored source to show.";
+
+    /// <summary>
+    /// Stands in for Original Source when the selected member has an IL body but no authored
+    /// declaration of its own — a positional record's property accessor, a primary constructor,
+    /// or a constructor synthesized from field initializers. Its sequence points map to the
+    /// declaring type's header, which is not this member's source, so saying so beats rendering
+    /// a truncated type declaration (issue #3299's principle, applied to a second cause).
+    /// </summary>
+    internal const string NoAuthoredDeclarationNote =
+        "// This member is declared by its type's header (positional record, primary constructor,\n"
+        + "// or field initializers), so it has no authored declaration of its own to show.";
+
     private static void PopulateSourceDiff(TypeView view, IReadOnlySet<string> requestedSections)
     {
         if (!requestedSections.Contains(SectionNames.SourceDiff))
@@ -1526,7 +1591,9 @@ public class ApiCommand
         view.MemberCode.SourceDiffCode = new Markout.CodeSection(
             "diff",
             SourceTextDiffRenderer.CreateUnifiedDiff(
-                view.MemberCode.OriginalSourceCode.Content,
+                // The bodyless note is an explanation, not source text: leave the diff's
+                // "before" side unavailable so it reports that rather than diffing the note.
+                view.MemberCode.OriginalSourceUnavailable ? null : view.MemberCode.OriginalSourceCode.Content,
                 view.MemberCode.DecompiledSourceCode.Content,
                 "Original Source",
                 "Decompiled Source"));

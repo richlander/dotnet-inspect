@@ -179,6 +179,27 @@ public sealed record PrinterOptions
     /// </summary>
     public bool PreferBranchlessBoolean { get; init; }
 
+    /// <summary>
+    /// When set, a <c>long</c> constant the IL spells <c>ldc.i4(.s) N; conv.i8</c> —
+    /// the widening the printer sees as <c>Convert(→Int64, Int32 Constant)</c>, and
+    /// the shape csc emits for every small <c>long</c> literal — renders as the
+    /// idiomatic <c>NL</c> literal (<c>10L</c>) instead of the <c>(long)N</c> cast
+    /// the default view spells (#3347). A raise-completeness gap, not a fidelity
+    /// gap: the cast is already opcode-faithful, it is simply not fully raised.
+    ///
+    /// <para>Like the guarded-return lenses this is a <b>byte-divergent</b> opt-in
+    /// <b>style lens</b>, and for a specific reason: the fold is opcode-neutral for
+    /// <em>csc</em> output (<c>10L</c> and <c>(long)10</c> compile to the same
+    /// <c>ldc.i4.s 10; conv.i8</c>), but a hand-authored or non-csc assembly may
+    /// encode the same value as <c>ldc.i8 &lt;small&gt;</c> — a distinct opcode —
+    /// and a blanket default fold would put the two shapes on one spelling. The
+    /// printer keeps them apart structurally: a genuine <c>ldc.i8</c> arrives as a
+    /// bare <c>Int64</c> <c>Constant</c> with no <c>Convert</c> over it, so it can
+    /// never match the fold and renders exactly as today with the lens on or off.
+    /// Off by default; the default view stays byte-faithful.</para>
+    /// </summary>
+    public bool PreferLongLiteralSuffix { get; init; }
+
     /// <summary>The shipped defaults — every knob off.</summary>
     public static PrinterOptions Default { get; } = new();
 }

@@ -107,6 +107,60 @@ public class CommandExecutionTests
         File.WriteAllBytes(path, image.ToArray());
     }
 
+    private static void WriteHostileIlOperandAssembly(string path)
+    {
+        var assemblyName = new AssemblyName("HostileIlOperand");
+        var assemblyBuilder = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            assemblyName, typeof(object).Assembly);
+        var moduleBuilder = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+        var typeBuilder = moduleBuilder.DefineType(
+            "Hostile.Target",
+            TypeAttributes.Public | TypeAttributes.Class);
+        var field = typeBuilder.DefineField(
+            "field\n    public int Injected() => 42; //",
+            typeof(int),
+            FieldAttributes.Public);
+        var method = typeBuilder.DefineMethod(
+            "GetCount",
+            MethodAttributes.Public,
+            typeof(int),
+            Type.EmptyTypes);
+        var il = method.GetILGenerator();
+        il.Emit(System.Reflection.Emit.OpCodes.Ldarg_0);
+        il.Emit(System.Reflection.Emit.OpCodes.Ldfld, field);
+        il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        typeBuilder.CreateType();
+        assemblyBuilder.Save(path);
+    }
+
+    private static void WriteHostileFactDetailAssembly(string path)
+    {
+        var assemblyName = new AssemblyName("HostileFactDetail");
+        var assemblyBuilder = new System.Reflection.Emit.PersistedAssemblyBuilder(
+            assemblyName, typeof(object).Assembly);
+        var moduleBuilder = assemblyBuilder.DefineDynamicModule(assemblyName.Name!);
+
+        // The allocated type's name becomes the alloc.new fact's detail.
+        var allocated = moduleBuilder.DefineType(
+            "Evil\n    public int Injected() => 42; //",
+            TypeAttributes.Public | TypeAttributes.Class);
+        var allocatedCtor = allocated.DefineDefaultConstructor(MethodAttributes.Public);
+        var typeBuilder = moduleBuilder.DefineType(
+            "Hostile.Target",
+            TypeAttributes.Public | TypeAttributes.Class);
+        var method = typeBuilder.DefineMethod(
+            "Make",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(object),
+            Type.EmptyTypes);
+        var il = method.GetILGenerator();
+        il.Emit(System.Reflection.Emit.OpCodes.Newobj, allocatedCtor);
+        il.Emit(System.Reflection.Emit.OpCodes.Ret);
+        allocated.CreateType();
+        typeBuilder.CreateType();
+        assemblyBuilder.Save(path);
+    }
+
     private static void WriteResourceAssembly(
         string path,
         params (string Name, byte[] Content)[] resources)
@@ -494,7 +548,7 @@ public class CommandExecutionTests
             }
             try
             {
-                return await result.InvokeAsync();
+                return await CommandLineBuilder.InvokeAsync(result);
             }
             catch (RowWindowValidationException ex)
             {
@@ -503,6 +557,28 @@ public class CommandExecutionTests
                 return 1;
             }
         });
+    }
+
+    private static IEnumerable<string> JsonStrings(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.String)
+        {
+            yield return element.GetString()!;
+            yield break;
+        }
+
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in element.EnumerateArray())
+                foreach (var value in JsonStrings(item))
+                    yield return value;
+            yield break;
+        }
+
+        if (element.ValueKind == JsonValueKind.Object)
+            foreach (var property in element.EnumerateObject())
+                foreach (var value in JsonStrings(property.Value))
+                    yield return value;
     }
 
     [Theory]
@@ -3194,6 +3270,63 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_OriginalSource_BodylessMember_ExplainsWhyThereIsNoSource()
+    {
+        // An abstract method has no IL body, so it has no authored source to resolve. That is a
+        // complete answer, not a failure: say so and keep exit 0 rather than rendering nothing
+        // and leaving the caller unable to tell success from silent failure (#3299).
+        var (abstractExit, abstractOutput, abstractError) = await RunAppAsync(
+            "member", "JsonConverter<T>", "--platform", "System.Text.Json",
+            "Read", "-S", "Original Source", "--tips", "q");
+
+        Assert.Equal(0, abstractExit);
+        Assert.Empty(abstractError);
+        Assert.Contains("## Original Source", abstractOutput);
+        Assert.Contains("has no IL body", abstractOutput);
+
+        // An interface method is bodyless for a different metadata reason and gets the same answer.
+        var (interfaceExit, interfaceOutput, interfaceError) = await RunAppAsync(
+            "member", "IJsonOnDeserialized", "--platform", "System.Text.Json",
+            "OnDeserialized", "-S", "Original Source", "--tips", "q");
+
+        Assert.Equal(0, interfaceExit);
+        Assert.Empty(interfaceError);
+        Assert.Contains("## Original Source", interfaceOutput);
+        Assert.Contains("has no IL body", interfaceOutput);
+    }
+
+    [Fact]
+    public async Task Member_OriginalSource_MemberWithBody_DoesNotClaimTheMemberIsBodyless()
+    {
+        // Close negative: a member that does have a body still renders its authored source, so
+        // the bodyless explanation never displaces real source (#3299).
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonSerializerOptions", "--platform", "System.Text.Json",
+            "MaxDepth:1", "-S", "Original Source", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("get => _maxDepth;", output);
+        Assert.DoesNotContain("has no IL body", output);
+    }
+
+    [Fact]
+    public async Task Member_SourceDiff_BodylessMember_ReportsOriginalSourceUnavailable()
+    {
+        // The bodyless explanation is prose about the member, not source text, so the diff must
+        // report its "before" side unavailable rather than diffing the explanation (#3299).
+        var (exit, output, error) = await RunAppAsync(
+            "member", "JsonConverter<T>", "--platform", "System.Text.Json",
+            "Read", "-S", "Source Diff", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains("## Source Diff", output);
+        Assert.Contains("Original Source unavailable", output);
+        Assert.DoesNotContain("has no IL body", output);
+    }
+
+    [Fact]
     public async Task Member_SourceDiff_PropertyAccessor_ComparesAuthoredSourceToAccessorBody()
     {
         var (exit, output, error) = await RunAppAsync(
@@ -3293,6 +3426,258 @@ public class CommandExecutionTests
         Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", rows[1].GetProperty("url").GetString());
     }
 
+    [Theory]
+    [InlineData("--value")]
+    [InlineData("--urls")]
+    [InlineData("--paths")]
+    [InlineData("--print")]
+    public async Task WholeSurfaceListing_DroppedProjection_FailsLoudly(string projectionFlag)
+    {
+        // The whole-surface type listing renders sections but has no projection dispatch, so
+        // before the audit it answered a projection request with the full unprojected listing
+        // and exit 0. The audit turns that silent drop into a reported failure. When this route
+        // gains real column projection, this expectation changes to a projected payload.
+        var (exit, _, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes", projectionFlag);
+
+        Assert.Equal(1, exit);
+        Assert.Contains($"'{projectionFlag}' was accepted but this command path produced unprojected output", error);
+    }
+
+    [Fact]
+    public async Task ProjectionAudit_DoesNotFireForHelp()
+    {
+        // --help short-circuits rendering, so the projection is not dropped; it is moot.
+        var (exit, _, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes", "--value", "--help");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("produced unprojected output", error);
+    }
+
+    [Fact]
+    public async Task ProjectionAudit_DoesNotFireWhenProjectionIsRejected()
+    {
+        // A command that rejects an unsupported projection has already reported the problem;
+        // the audit must not add a second, misleading "this is a bug" line on top of it.
+        var (exit, _, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "Signals", "--urls");
+
+        Assert.Equal(1, exit);
+        Assert.DoesNotContain("produced unprojected output", error);
+    }
+
+    [Fact]
+    public async Task ProjectionAudit_DoesNotFireForHonoredCount()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "References", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("produced unprojected output", error);
+        Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
+    }
+
+    [Fact]
+    public async Task Router_RewrittenCommand_IsAudited()
+    {
+        // The router captures projection flags as raw tokens, so the outer invocation records
+        // nothing. It used to invoke the rewritten parse directly, bypassing the audit, which
+        // left every bare-mode invocation unguarded. It now goes through the choke point.
+        var (exit, _, error) = await RunAppAsync("Regex", "--count", "--print", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("--count cannot be combined with --print", error);
+    }
+
+    [Fact]
+    public void ProjectionAudit_NestedInvocationDoesNotDiscardOuterRequest()
+    {
+        // Invocations nest: the router invokes the command it rewrites to. An inner invocation
+        // must not consume the outer one's request, or the outer verify finds nothing to check
+        // and a dropped projection escapes.
+        var root = CommandLineBuilder.CreateRootCommand();
+        var outer = root.Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
+        var inner = root.Parse(["library", TestAssemblyPath, "-S", "References"]);
+
+        try
+        {
+            using (ProjectionAudit.BeginRequest(outer))
+            {
+                using (ProjectionAudit.BeginRequest(inner))
+                {
+                    Assert.Equal(0, ProjectionAudit.Verify(0));
+                }
+
+                Assert.Equal(1, ProjectionAudit.Verify(0));
+            }
+        }
+        finally
+        {
+            ProjectionAudit.ResetForTesting();
+        }
+    }
+
+    [Fact]
+    public void ProjectionAudit_TracksProjectionDeclaredByAnAncestorCommand()
+    {
+        // `package --count search <id>` binds --count to the parent command, which the parser
+        // accepts. Inspecting only the executing command missed it, so the subcommand rendered
+        // its full payload and exited 0 with the projection silently discarded.
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(["package", "--count", "search", "Newtonsoft.Json"]);
+
+        try
+        {
+            ProjectionAudit.BeginRequest(result);
+
+            Assert.Equal(1, ProjectionAudit.Verify(0));
+        }
+        finally
+        {
+            ProjectionAudit.ResetForTesting();
+        }
+    }
+
+    [Fact]
+    public void ProjectionAudit_RejectsConflictDeclaredByAnAncestorCommand()
+    {
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(["package", "--count", "--print", "search", "Newtonsoft.Json"]);
+
+        Assert.False(ProjectionAudit.ValidateExclusive(result));
+    }
+
+    [Fact]
+    public void ProjectionAudit_WrongFlagDoesNotSatisfyRequest()
+    {
+        // The print writer also serves --bare, so an untyped "honored" signal would let it
+        // satisfy an unrelated recorded --count and let that drop escape.
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
+
+        try
+        {
+            ProjectionAudit.BeginRequest(result);
+            ProjectionAudit.MarkHonored(ProjectionAudit.Print);
+
+            Assert.Equal(1, ProjectionAudit.Verify(0));
+        }
+        finally
+        {
+            ProjectionAudit.ResetForTesting();
+        }
+    }
+
+    [Fact]
+    public void ProjectionAudit_MatchingFlagSatisfiesRequest()
+    {
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
+
+        try
+        {
+            ProjectionAudit.BeginRequest(result);
+            ProjectionAudit.MarkHonored(ProjectionAudit.Count);
+
+            Assert.Equal(0, ProjectionAudit.Verify(0));
+        }
+        finally
+        {
+            ProjectionAudit.ResetForTesting();
+        }
+    }
+
+    [Fact]
+    public void ProjectionAudit_HelpTokenAsOptionValueDoesNotDisableAudit()
+    {
+        // '/h' here is the value of --type, not a help request. Matching raw token text
+        // rather than option tokens would silently disable the audit for the invocation.
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(["type", "--library", TestAssemblyPath, "-S", "Classes", "--value", "--type", "/h"]);
+
+        try
+        {
+            ProjectionAudit.BeginRequest(result);
+
+            Assert.Equal(1, ProjectionAudit.Verify(0));
+        }
+        finally
+        {
+            ProjectionAudit.ResetForTesting();
+        }
+    }
+
+    [Fact]
+    public async Task ProjectionFlags_AreMutuallyExclusive()
+    {
+        // Two projections cannot both shape one payload, so honoring either one would
+        // discard the other.
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes", "--count", "--print");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--count cannot be combined with --print", error);
+    }
+
+    [Fact]
+    public async Task ProjectionFlags_ConflictIsMootUnderHelp()
+    {
+        // Help renders no payload, so there is nothing for two projections to fight over.
+        // Rejecting the combination here would turn a working help request into an error.
+        var (exit, output, _) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes", "--count", "--print", "--help");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Usage", output, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Find_Count_ComposesWithJson()
+    {
+        // Found by the projection audit: --json was resolved before --count, so a count
+        // request was answered with the full unprojected result set and exit 0.
+        var (exit, output, _) = await RunAppAsync(
+            "find", "Cache", "--library", TestAssemblyPath, "--count", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
+    }
+
+    [Fact]
+    public async Task Implements_Count_ComposesWithJson()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "implements", "IDisposable", "--library", TestAssemblyPath, "--count", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
+    }
+
+    [Fact]
+    public async Task Extensions_Count_ComposesWithJson()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "extensions", "String", "--library", TestAssemblyPath, "--count", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
+    }
+
+    [Fact]
+    public async Task Depends_Count_ComposesWithJson()
+    {
+        // The type with dependencies matters: a type with none short-circuits before the
+        // JSON branch, which is why an earlier probe using such a type saw no defect.
+        var (exit, output, _) = await RunAppAsync(
+            "depends", "SampleGenericClass`1", "--library", TestAssemblyPath, "--count", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out var count), $"expected a bare count, got: {output}");
+        Assert.True(count > 0, "fixture must have dependencies for this to be a meaningful regression test");
+    }
+
     [Fact]
     public async Task Type_SourceFiles_Value_RowSelectsUrl()
     {
@@ -3337,7 +3722,7 @@ public class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("selected section has 2 printable rows; use --row N|first|last to choose one row or --print-all", error);
+        Assert.Contains("selected section has 2 printable rows; use --row N|first|last to choose one row", error);
     }
 
     [Fact]
@@ -3386,42 +3771,167 @@ public class CommandExecutionTests
         Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", document.RootElement.GetProperty("url").GetString());
     }
 
+
     [Fact]
-    public async Task Type_SourceFiles_PrintAllJsonlFetchesAllSources()
+    public async Task Type_SourceFiles_PrintJsonArrayEmitsSelectedRowAsSingleElementArray()
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--print-all", "--jsonl", "--raw", "--tips", "q");
+            "-S", "Source Files", "--print", "--row", "1", "--json-array", "--raw", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        Assert.Equal(2, lines.Length);
-        using var first = JsonDocument.Parse(lines[0]);
-        using var second = JsonDocument.Parse(lines[1]);
-        Assert.Equal(1, first.RootElement.GetProperty("row").GetInt32());
-        Assert.Equal(2, second.RootElement.GetProperty("row").GetInt32());
-        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", first.RootElement.GetProperty("url").GetString());
-        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", second.RootElement.GetProperty("url").GetString());
+        using var document = JsonDocument.Parse(output);
+        var rows = document.RootElement.EnumerateArray().ToArray();
+        var single = Assert.Single(rows);
+        Assert.Equal(1, single.GetProperty("row").GetInt32());
+        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", single.GetProperty("url").GetString());
+        Assert.Contains("JsonReader", single.GetProperty("content").GetString());
     }
 
+    /// <summary>
+    /// <c>--json</c> selects an output format and <c>--print</c> selects an output shape,
+    /// so they compose: the projection owns the request and the plain type surface must not
+    /// claim it. Regression for #3379, where the type-surface early return preceded the
+    /// projection dispatch and silently discarded <c>--print</c> with exit 0.
+    /// </summary>
     [Fact]
-    public async Task Type_SourceFiles_PrintAllJsonArrayFetchesAllSources()
+    public async Task Type_SourceFiles_PrintJson_EmitsSelectedDocumentNotTypeSurface()
     {
         var (exit, output, error) = await RunAppAsync(
             "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
-            "-S", "Source Files", "--print-all", "--json-array", "--raw", "--tips", "q");
+            "-S", "Source Files", "--print", "--row", "1", "--json", "--raw", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(1, document.RootElement.GetProperty("row").GetInt32());
+        Assert.Equal("Source Files", document.RootElement.GetProperty("section").GetString());
+        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", document.RootElement.GetProperty("url").GetString());
+        Assert.Contains("JsonReader", document.RootElement.GetProperty("content").GetString());
+        Assert.False(document.RootElement.TryGetProperty("metadata_name", out _));
+    }
+
+    /// <summary>
+    /// Cardinality validation belongs to the projection, so it must run under <c>--json</c> too.
+    /// </summary>
+    [Fact]
+    public async Task Type_SourceFiles_PrintJson_RequiresRowWhenMultipleUrls()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--print", "--json", "--raw", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("selected section has 2 printable rows; use --row N|first|last to choose one row", error);
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_UrlsJson_EmitsProjectedRowsNotTypeSurface()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--urls", "--json", "--raw", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         using var document = JsonDocument.Parse(output);
         var rows = document.RootElement.EnumerateArray().ToArray();
         Assert.Equal(2, rows.Length);
-        Assert.Equal(1, rows[0].GetProperty("row").GetInt32());
         Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", rows[0].GetProperty("url").GetString());
-        Assert.Contains("JsonReader", rows[0].GetProperty("content").GetString());
-        Assert.Equal(2, rows[1].GetProperty("row").GetInt32());
         Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", rows[1].GetProperty("url").GetString());
+    }
+
+    [Fact]
+    public async Task Type_SourceFiles_ValueJson_EmitsSelectedRowNotTypeSurface()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+            "-S", "Source Files", "--value", "--row", "2", "--json", "--raw", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        using var document = JsonDocument.Parse(output);
+        Assert.Equal(2, document.RootElement.GetProperty("row").GetInt32());
+        Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", document.RootElement.GetProperty("value").GetString());
+    }
+
+    /// <summary>
+    /// A failed acquisition of the selected row must stay visible rather than degrade into
+    /// success-shaped output. Only the transport is substituted, so the real SourceFetcher
+    /// still applies scheme restriction, caching, and status handling.
+    /// </summary>
+    [Fact]
+    public async Task Type_SourceFiles_PrintRow_FetchFailureIsHardError()
+    {
+        using var client = new HttpClient(new NotFoundHandler());
+        string cacheDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-fetch-failure-{Guid.NewGuid():N}");
+        try
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+            NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
+            var (exit, output, error) = await RunAppAsync(
+                "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+                "-S", "Source Files", "--print", "--row", "2", "--raw", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("failed to fetch the document for printable row 2 from", error);
+            Assert.Contains("/Src/Newtonsoft.Json/JsonReader.Async.cs", error);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The acquisition guarantee must hold under <c>--json</c> as well; before #3379 this
+    /// combination exited 0 with the type surface and never attempted the fetch.
+    /// </summary>
+    [Fact]
+    public async Task Type_SourceFiles_PrintRowJson_FetchFailureIsHardError()
+    {
+        using var client = new HttpClient(new NotFoundHandler());
+        string cacheDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-fetch-failure-json-{Guid.NewGuid():N}");
+        try
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(client);
+            NuGetCache.Initialize("dotnet-inspect", basePath: cacheDir);
+            var (exit, output, error) = await RunAppAsync(
+                "type", "JsonReader", "--package", "Newtonsoft.Json@13.0.3",
+                "-S", "Source Files", "--print", "--row", "2", "--json", "--raw", "--tips", "q");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("failed to fetch the document for printable row 2 from", error);
+        }
+        finally
+        {
+            DotnetInspector.Core.HttpClientFactory.SetUntrustedFetchForTesting(null);
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(cacheDir))
+                Directory.Delete(cacheDir, recursive: true);
+        }
+    }
+
+    private sealed class NotFoundHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.NotFound)
+            {
+                RequestMessage = request,
+            });
     }
 
     [Fact]
@@ -3433,7 +3943,7 @@ public class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("--json-array requires --value, --urls, --paths, --print, or --print-all", error);
+        Assert.Contains("--json-array requires --value, --urls, --paths, or --print", error);
     }
 
     [Fact]
@@ -3796,17 +4306,17 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Member_BareNameCallerGraph_AutoSelectsSingleOverload()
+    public async Task Member_BareNameCallGraph_AutoSelectsSingleOverload()
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(MemberCallGraphFixture.Inner), "-S", "Caller Graph", "--tips", "q");
+            nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Caller Graph", output);
+        Assert.Contains("## Call Graph", output);
         Assert.Contains(nameof(MemberCallGraphFixture.RootCall), output);
-        Assert.DoesNotContain("Select value 'Caller Graph' not found", error);
+        Assert.DoesNotContain("Select value 'Call Graph' not found", error);
     }
 
     [Fact]
@@ -3951,6 +4461,233 @@ public class CommandExecutionTests
         Assert.Contains("## Annotated Source", output);
         Assert.Contains("```csharp", output);
         Assert.Matches(@"// IL_[0-9A-Fa-f]{4}: ", output);
+    }
+
+    [Fact]
+    public async Task Member_HostileIlOperand_StaysInsideMarkdownAndJsonCodeSections()
+    {
+        const string injected = "public int Injected() => 42; //";
+        const string unsafeOperand = "field\n    public int Injected() => 42; //";
+        const string safeOperand = "field     public int Injected() => 42; //";
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-hostile-il-command-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var dllPath = Path.Combine(tempDir, "HostileIlOperand.dll");
+            WriteHostileIlOperandAssembly(dllPath);
+
+            var (markdownExit, markdown, markdownError) = await RunAppAsync(
+                "member", "Hostile.Target", "--library", dllPath,
+                "GetCount:1", "-S", "Annotated Source,IL", "--tips", "q");
+
+            Assert.Equal(0, markdownExit);
+            Assert.Empty(markdownError);
+            Assert.DoesNotContain(unsafeOperand, markdown, StringComparison.Ordinal);
+            Assert.Equal(2, markdown.Split(safeOperand, StringSplitOptions.None).Length - 1);
+            Assert.DoesNotContain(
+                markdown.ReplaceLineEndings("\n").Split('\n'),
+                line => line.TrimStart().StartsWith(injected, StringComparison.Ordinal));
+
+            foreach (string section in new[] { "Annotated Source", "IL" })
+            {
+                var (jsonExit, json, jsonError) = await RunAppAsync(
+                    "member", "Hostile.Target", "--library", dllPath,
+                    "GetCount:1", "-S", section, "--print", "--json-array", "--tips", "q");
+
+                Assert.Equal(0, jsonExit);
+                Assert.Empty(jsonError);
+                using var document = JsonDocument.Parse(json);
+                var stringValues = string.Join("\n", JsonStrings(document.RootElement));
+                Assert.DoesNotContain(unsafeOperand, stringValues, StringComparison.Ordinal);
+                Assert.Contains(safeOperand, stringValues, StringComparison.Ordinal);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The <c>--focus</c> caret gesture is a fact renderer, so it inherits the
+    /// fold in <c>AnnotationText.Format</c> — including across the line wrapping
+    /// it applies, where each wrapped chunk gets its own <c>//</c> gutter. This
+    /// pins the interaction between the caret gesture and the fact fold, which
+    /// arrived on separate branches and first met here.
+    /// </summary>
+    [Fact]
+    public async Task Member_HostileFactDetail_StaysInsideCommentsUnderFocus()
+    {
+        const string injected = "public int Injected() => 42; //";
+        var tempDir = Path.Combine(
+            Path.GetTempPath(),
+            $"dotnet-inspect-hostile-fact-command-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var dllPath = Path.Combine(tempDir, "HostileFactDetail.dll");
+            WriteHostileFactDetailAssembly(dllPath);
+
+            var (exit, output, error) = await RunAppAsync(
+                "member", "Hostile.Target", "--library", dllPath,
+                "Make", "-S", "Annotated Source", "--focus", "allocation", "--tips", "q");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+
+            // Non-vacuity: the caret gesture and the fact must both render, or
+            // there would be no untrusted text on the surface under test.
+            Assert.Contains("^^^^", output);
+            Assert.Contains("alloc.new(", output);
+
+            foreach (string line in output.ReplaceLineEndings("\n").Split('\n'))
+            {
+                int payload = line.IndexOf(injected, StringComparison.Ordinal);
+                if (payload < 0)
+                    continue;
+                int comment = line.IndexOf("//", StringComparison.Ordinal);
+                Assert.InRange(comment, 0, payload);
+            }
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSource_WithoutFocus_UsesNoCaretGesture()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", "Annotated Source", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## Annotated Source", output);
+        Assert.DoesNotContain("^^^^", output);
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSource_UnknownFocus_SaysSoAndNamesTheAvailableFamilies()
+    {
+        // Promotion never hides a fact, so an unmatched focus renders exactly
+        // like no focus at all. Without the note a typo is indistinguishable
+        // from an honest absence.
+        var (exit, output, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", "Annotated Source", "--focus", "alocation", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("^^^^", output);
+        Assert.Contains("--focus 'alocation' matched no facts here", error);
+        Assert.Contains("allocation", error);
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSource_MatchedFocus_SaysNothing()
+    {
+        var (exit, _, error) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", "Annotated Source", "--focus", "allocation", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("matched no facts", error);
+    }
+
+    /// <summary>
+    /// Every projection that can carry a caret block, each through a different
+    /// formatting call. Two properties per case: the caret actually renders (so
+    /// the case is not vacuous), and the hoist marker — an in-band control
+    /// character — never survives into output.
+    /// </summary>
+    [Theory]
+    [InlineData("CommandCaretGestureFixture", "Pump:1", "Annotated Source", "allocation")]
+    [InlineData("CommandCaretGestureFixture", "Pump:1", "Annotated Source", "alloc")]
+    [InlineData("CommandCaretGestureFixture", "Make:1", "Annotated Source", "allocation")]
+    [InlineData("CostOverlayFixture", "Caller", "Cost Overlay", "cost")]
+    [InlineData("CostOverlayFixture", "CallsExceptionOnly", "Semantics Overlay", "semantics")]
+    public async Task Member_Focus_RendersCaretsAndNeverLeaksTheHoistMarker(
+        string fixture, string selector, string section, string focus)
+    {
+        string typeName = fixture == "CostOverlayFixture"
+            ? typeof(CostOverlayFixture).FullName!
+            : typeof(CommandCaretGestureFixture).FullName!;
+
+        var (exit, output, _) = await RunAppAsync(
+            "member", typeName, "--library", TestAssemblyPath,
+            selector, "--index", "1", "--all", "-S", section, "--focus", focus, "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("^^^^", output);
+        Assert.DoesNotContain(ILInspector.Decompiler.Annotations.AnnotationCaret.HoistMarker, output);
+
+        var lines = output.ReplaceLineEndings("\n").Split('\n');
+        foreach (int i in Enumerable.Range(0, lines.Length)
+            .Where(i => lines[i].Contains("^^^^", StringComparison.Ordinal)))
+        {
+            string statement = lines[i - 1];
+            Assert.StartsWith("//", lines[i], StringComparison.Ordinal);
+            Assert.Equal(
+                statement.Length - statement.AsSpan().TrimStart().Length,
+                lines[i].IndexOf('^'));
+        }
+    }
+
+    [Fact]
+    public async Task Type_DoesNotOfferFocus()
+    {
+        // The caret gesture only renders into member sections (Annotated
+        // Source, Cost Overlay, Semantics Overlay). Offering --focus on `type`
+        // would be a switch that cannot change any output there.
+        var (exit, _, error) = await RunAppAsync(
+            "type", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "--focus", "allocation", "--tips", "q");
+
+        Assert.NotEqual(0, exit);
+        Assert.Contains("--focus", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Member_AnnotatedSource_FocusPromotesFactsToAlignedCaretComments()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "member", typeof(CommandCaretGestureFixture).FullName!, "--library", TestAssemblyPath,
+            "Pump:1", "-S", "Annotated Source", "--focus", "allocation", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        var lines = output.ReplaceLineEndings("\n").Split('\n');
+        var caretIndexes = Enumerable.Range(0, lines.Length)
+            .Where(i => lines[i].Contains("^^^^", StringComparison.Ordinal))
+            .ToList();
+
+        // The fixture allocates at the body's base column and again inside a
+        // loop, so both depths are exercised.
+        Assert.True(caretIndexes.Count >= 2, $"expected carets at two depths, got {caretIndexes.Count}");
+        Assert.True(
+            caretIndexes.Select(i => lines[i].IndexOf('^')).Distinct().Count() >= 2,
+            "the two carets must sit at different columns");
+
+        foreach (int i in caretIndexes)
+        {
+            string line = lines[i];
+
+            // The block is spliced into a ```csharp fence, so it must stay
+            // comments, and it sits on the member declaration column.
+            Assert.StartsWith("//", line, StringComparison.Ordinal);
+
+            // Carets point at the statement on the preceding line, exactly.
+            string statement = lines[i - 1];
+            Assert.Equal(
+                statement.Length - statement.AsSpan().TrimStart().Length,
+                line.IndexOf('^'));
+            Assert.Equal(statement.Trim().Length, line.Count(c => c == '^'));
+        }
+
+        // The hoist marker is an internal layout signal; it must never survive
+        // into rendered output, where it would print as a control character.
+        Assert.DoesNotContain(ILInspector.Decompiler.Annotations.AnnotationCaret.HoistMarker, output);
     }
 
     [Fact]
@@ -6381,7 +7118,6 @@ public class CommandExecutionTests
         "Calls",
         "Callers",
         "Call Graph",
-        "Caller Graph",
         "Unsafe Operations",
         "Top Leverage",
         "Performance Triage",
@@ -7064,7 +7800,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Source Location", "--print-all", "--json-array", "--tips", "q");
+            "--il-offset", "0x06000001+0x0", "-S", "Source Location", "--print", "--json-array", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -7074,17 +7810,6 @@ public class CommandExecutionTests
         Assert.Contains("CharToHexLookup", output);
     }
 
-    [Fact]
-    public async Task LibraryCommand_IlOffsetPrintAllRejectsRow()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Source Location", "--print-all", "--row", "1", "--tips", "q");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("--print-all cannot be combined with --row", error);
-    }
 
     [Fact]
     public async Task LibraryCommand_IlOffsetCountRejectsPrint()
@@ -10442,7 +11167,7 @@ public class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("selected section has 2 printable rows; use --row N|first|last to choose one row or --print-all", error);
+            Assert.Contains("selected section has 2 printable rows; use --row N|first|last to choose one row", error);
         }
         finally
         {
@@ -10500,7 +11225,7 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Project_SkillsPrintAll_UsesSeparators()
+    public async Task Project_SkillsPrintAll_IsNoLongerRecognized()
     {
         var (projectPath, tempDir) = CreateProjectWithPackageDocs(
             new ProjectDocPackage("Test.Project.PrintAll.One", "1.0.0", "README.md", "readme", Skills:
@@ -10513,12 +11238,9 @@ public class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync(
                 "project", projectPath, "-S", "Skills", "--print-all");
 
-            Assert.Equal(0, exit);
-            Assert.Empty(error);
-            Assert.Contains("--- Test.Project.PrintAll.One skills/one/SKILL.md ---", output);
-            Assert.Contains("--- Test.Project.PrintAll.Two skills/two/SKILL.md ---", output);
-            Assert.Contains("one", output);
-            Assert.Contains("two", output);
+            Assert.NotEqual(0, exit);
+            Assert.DoesNotContain("--- Test.Project.PrintAll.One", output);
+            Assert.Contains("--print-all", error);
         }
         finally
         {
@@ -10891,6 +11613,26 @@ public sealed class CommandExecutionSourceDiffFixture
     {
         return value + 1;
     }
+}
+
+/// <summary>
+/// Two allocations at different depths: one on the body's own base column and
+/// one nested inside a loop. The caret gesture must point exactly at both, which
+/// is only possible because the caret block is hoisted out of the body indent.
+/// </summary>
+public sealed class CommandCaretGestureFixture
+{
+    public string Pump(int n)
+    {
+        var sink = new List<object>();
+        for (int i = 0; i < n; i++)
+        {
+            sink.Add(new object());
+        }
+        return sink.Count.ToString();
+    }
+
+    public string Make() => new object().ToString() ?? "";
 }
 
 public sealed class CommandInitializerOnlyFixture

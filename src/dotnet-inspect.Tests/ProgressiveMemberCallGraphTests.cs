@@ -167,18 +167,18 @@ public class ProgressiveMemberCallGraphTests
             graph.Tiers().Select(view => view.Tier));
     }
 
-    // The seam yields presentation-free roots that project through the shared Mermaid document.
+    // The seam yields presentation-free roots that project through the shared graph projection.
     [Fact]
-    public void Roots_RoundTripThroughCallGraphMermaid()
+    public void Roots_RoundTripThroughCallGraphProjection()
     {
         int run = MemberToken(CallerPath, "Entry", "Run");
         var graph = ProgressiveMemberCallGraph.Open(CallerPath, run, NullResolver, [TargetPath]);
 
         var view = graph.CrossLibrary();
-        var mermaid = CallGraphMermaid.Render(view.CallerRoot, view.CalleeRoot);
+        var projection = CallGraphProjection.Create(view.CallerRoot, view.CalleeRoot);
 
-        Assert.Contains("flowchart", mermaid);
-        Assert.Contains("Run", mermaid);
+        Assert.NotEmpty(projection.Nodes);
+        Assert.Contains(projection.Nodes, n => n.Member.Name == "Run");
     }
 
     // The push driver raises LayerReady for each layer in order, then Completed once.

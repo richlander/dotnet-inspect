@@ -7,10 +7,18 @@ namespace ILInspector.Decompiler.Tests;
 public class AuthoredCorpusHistoryCardTests
 {
     const string SampleHistory = """
-        {"date":"2026-07-20","commit":null,"poolMatched":26,"poolTotal":26,"evaluated":12000,"validPct":56.6,"correct":1501,"validDifferent":{"total":5290,"frontierIlExact":3097,"frontierIlDiff":2181},"invalid":5209,"invalidBreakdown":null,"unsupported":0,"drift":0,"honest":true,"sweepManifestSha256":null}
-        {"date":"2026-07-24","commit":"16c0687f","poolMatched":26,"poolTotal":26,"evaluated":12000,"validPct":56.2,"correct":1539,"validDifferent":{"total":5202,"frontierIlExact":3055,"frontierIlDiff":2137},"invalid":5259,"invalidBreakdown":{"productBodyDefect":306,"harnessShellReconstruction":4826,"unclassified":127},"unsupported":0,"drift":0,"honest":true,"sweepManifestSha256":"0a7eded85c3e1410"}
-        {"date":"2026-07-30","commit":"deadbeef","poolMatched":26,"poolTotal":26,"evaluated":12000,"validPct":57.4,"correct":1600,"validDifferent":{"total":5100,"frontierIlExact":3000,"frontierIlDiff":2100},"invalid":5180,"invalidBreakdown":{"productBodyDefect":250,"harnessShellReconstruction":4810,"unclassified":120},"unsupported":0,"drift":0,"honest":true,"sweepManifestSha256":"abc123"}
+        {"date":"2026-07-20","commit":null,"poolMatched":26,"poolTotal":26,"evaluated":12000,"validPct":56.6,"correct":1501,"validDifferent":{"total":5290,"frontierIlExact":3097,"frontierIlDiff":2181},"invalid":5209,"invalidBreakdown":null,"unsupported":0,"drift":0,"inputsComplete":true,"sweepManifestSha256":null}
+        {"date":"2026-07-24","commit":"16c0687f","poolMatched":26,"poolTotal":26,"evaluated":12000,"validPct":56.2,"correct":1539,"validDifferent":{"total":5202,"frontierIlExact":3055,"frontierIlDiff":2137,"lowering":6,"knownTaste":4,"frontierIlNoVerdict":0},"invalid":5259,"invalidBreakdown":{"productBodyDefect":306,"harnessShellReconstruction":4826,"unclassified":127},"unsupported":0,"drift":0,"inputsComplete":true,"sweepManifestSha256":"0a7eded85c3e1410","notFull":0,"unknownOutcome":0}
+        {"date":"2026-07-30","commit":"deadbeef","poolMatched":26,"poolTotal":26,"evaluated":12000,"validPct":57.4,"correct":1600,"validDifferent":{"total":5100,"frontierIlExact":3000,"frontierIlDiff":2100,"lowering":0,"knownTaste":0,"frontierIlNoVerdict":0},"invalid":5180,"invalidBreakdown":{"productBodyDefect":250,"harnessShellReconstruction":4810,"unclassified":120},"unsupported":0,"drift":0,"inputsComplete":true,"sweepManifestSha256":"abc123","notFull":0,"unknownOutcome":0}
         """;
+
+    /// <summary>
+    /// Rows recorded before the run JSON carried the full partition, whose missing
+    /// sub-buckets are not recoverable from any retained artifact. Every other row
+    /// must serialize the complete partition. Keyed by date because these rows
+    /// predate the commit field.
+    /// </summary>
+    static readonly string[] GrandfatheredIncompleteRows = ["2026-07-20"];
 
     static IReadOnlyList<HistoryRun> Parse()
         => AuthoredCorpusHistoryCard.ParseHistory(SampleHistory.Split('\n'));
@@ -193,5 +201,89 @@ public class AuthoredCorpusHistoryCardTests
         Assert.DoesNotContain("| Product defects \u2193 |", card, StringComparison.Ordinal);
         Assert.DoesNotContain("471 \u2713", card, StringComparison.Ordinal);
         Assert.DoesNotContain("471 \u2717", card, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ParseHistory_ReadsTheFullValidDifferentPartition()
+    {
+        var runs = Parse();
+
+        // The first row predates the added sub-buckets: they must read as null
+        // (not recorded), never as a fabricated zero.
+        Assert.False(runs[0].ValidDifferent!.IsComplete);
+        Assert.Null(runs[0].ValidDifferent!.Lowering);
+        Assert.Null(runs[0].ValidDifferent!.SubBucketSum);
+        Assert.False(runs[0].TopLevelIsComplete);
+
+        Assert.True(runs[1].ValidDifferent!.IsComplete);
+        Assert.Equal(6, runs[1].ValidDifferent!.Lowering);
+        Assert.Equal(4, runs[1].ValidDifferent!.KnownTaste);
+        Assert.Equal(0, runs[1].ValidDifferent!.FrontierIlNoVerdict);
+        Assert.Equal(runs[1].ValidDifferent!.Total, runs[1].ValidDifferent!.SubBucketSum);
+        Assert.Equal(runs[1].Evaluated, runs[1].TopLevelSum);
+    }
+
+    /// <summary>
+    /// The gate for the partition claim in <see cref="HistoryRunValidDifferent"/>:
+    /// every complete row's sub-buckets sum to its total and its top-level buckets
+    /// sum to <c>evaluated</c>. This runs against the tracked store, so a hand-appended
+    /// row that drops a bucket fails here rather than silently shrinking the partition.
+    /// </summary>
+    [Fact]
+    public void TrackedHistory_CompleteRows_PartitionExactly()
+    {
+        var runs = TrackedHistory();
+
+        foreach (var run in runs.Where(run => run.ValidDifferent is { IsComplete: true }))
+        {
+            Assert.Equal(run.ValidDifferent!.Total, run.ValidDifferent!.SubBucketSum);
+        }
+
+        foreach (var run in runs.Where(run => run.TopLevelIsComplete))
+        {
+            Assert.Equal(run.Evaluated, run.TopLevelSum);
+        }
+    }
+
+    /// <summary>
+    /// Pins the set of rows allowed to omit the partition. Asserting set equality
+    /// (not just membership) means a newly appended incomplete row fails, and a
+    /// grandfathered entry that is later backfilled or removed also fails, so the
+    /// list cannot go stale.
+    /// </summary>
+    [Fact]
+    public void TrackedHistory_OnlyGrandfatheredRowsOmitThePartition()
+    {
+        var incomplete = TrackedHistory()
+            .Where(run => run.ValidDifferent is not { IsComplete: true } || !run.TopLevelIsComplete)
+            .Select(run => run.Date!)
+            .ToArray();
+
+        Assert.Equal(
+            GrandfatheredIncompleteRows.OrderBy(date => date, StringComparer.Ordinal),
+            incomplete.OrderBy(date => date, StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// The tracked trend store, parsed. Internal so the ratchet gate
+    /// (<see cref="AuthoredCorpusRatchetTests"/>) reads the same store through the
+    /// same parser rather than locating and parsing it a second way.
+    /// </summary>
+    internal static IReadOnlyList<HistoryRun> TrackedHistory()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null
+            && !File.Exists(Path.Combine(directory.FullName, "dotnet-inspect.slnx")))
+        {
+            directory = directory.Parent;
+        }
+
+        Assert.NotNull(directory);
+        string path = Path.Combine(directory.FullName, AuthoredCorpusHistoryCard.DefaultHistoryRelativePath);
+        Assert.True(File.Exists(path), $"tracked history store not found at {path}");
+
+        var runs = AuthoredCorpusHistoryCard.ParseHistory(File.ReadAllLines(path));
+        Assert.NotEmpty(runs);
+        return runs;
     }
 }

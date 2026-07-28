@@ -1,0 +1,1946 @@
+using System.Text.RegularExpressions;
+
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+
+namespace ILInspector.Metadata.Tests;
+
+/// <summary>
+/// Parse-validity gate for the authored-source slicer
+/// (<see cref="SourceLinkResolver.ExtractMethodBody"/>).
+/// <para>
+/// The slicer reconstructs a member's authored text from a sequence-point line range, so it
+/// has two independent boundaries: a backward scan that recovers the signature and a forward
+/// scan that recovers the closing brace. Neither boundary is observable from the extracted
+/// text's *signature*, which is why a member-identity round trip cannot see an end-boundary
+/// defect: swallowing the enclosing type's "}" leaves the signature line untouched.
+/// </para>
+/// <para>
+/// Roslyn is the independent oracle here. The claim is deliberately narrow — the extracted
+/// text must parse as a well-formed member declaration — but it is sensitive to both
+/// boundaries at once and needs no per-member expected output, so it scales over a corpus.
+/// Roslyn is legitimate in a test for this: product paths stay Roslyn-free, and a hand-rolled
+/// checker would only be a second copy of the heuristic under test.
+/// </para>
+/// <para>
+/// The corpus is every PDB-bearing assembly beside the test binary whose documents resolve to
+/// files on disk. Those are all built from this repository, so the sequence points are real
+/// compiler output over real authored C# rather than synthesized ranges.
+/// </para>
+/// </summary>
+public class AuthoredSourceValidityTests
+{
+    /// <summary>
+    /// Extraction outcome for one member, classified by how the text fails to parse. The
+    /// classification is diagnostic only; the assertions below name the categories they gate.
+    /// </summary>
+    private enum SliceOutcome
+    {
+        /// <summary>Parses as a well-formed member declaration.</summary>
+        WellFormed,
+
+        /// <summary>Parses once a single trailing "}" is removed — the range ran past the member.</summary>
+        OverCapture,
+
+        /// <summary>Parses once a "}" is appended — the range stopped before the member closed.</summary>
+        UnderCapture,
+
+        /// <summary>
+        /// Captured an enclosing type declaration. A positional record property, a primary
+        /// constructor, and a field-initializer constructor have no authored member
+        /// declaration of their own, so their sequence points legitimately land on the type
+        /// header. The slicer reports these as absent, so this outcome must not occur; it
+        /// exists so that a regression names itself.
+        /// </summary>
+        TypeHeader,
+
+        /// <summary>
+        /// The slicer reported no authored declaration to isolate. This is the correct answer
+        /// for the type-header shapes above, not a failure.
+        /// </summary>
+        NotSliceable,
+
+        /// <summary>Anything else, including a backward scan that started mid-body.</summary>
+        Malformed,
+    }
+
+    private sealed record Slice(string Member, string File, int StartLine, int EndLine, string Text, SliceOutcome Outcome);
+
+    // A positional record's property getter, a primary constructor, and a constructor
+    // synthesized from field initializers all map to the type header. Recognizing that shape
+    // keeps them out of the boundary counts; it does not make them correct output. See
+    // TypeHeaderShapes_AreNotSliceable_KnownGap.
+    private static readonly Regex TypeDeclaration = new(
+        @"^(public|internal|private|protected|sealed|abstract|static|partial|file|\[)?.*\b(record|class|struct|interface|enum)\b",
+        RegexOptions.Compiled);
+
+    private static bool ParsesAsMember(string text)
+    {
+        // Wrapping in a shell type is what makes a *member* declaration parseable on its own.
+        var tree = CSharpSyntaxTree.ParseText(
+            $"class __Shell {{\n{text}\n}}",
+            new CSharpParseOptions(LanguageVersion.Preview));
+        return !tree.GetDiagnostics().Any(d => d.Severity == DiagnosticSeverity.Error);
+    }
+
+    private static SliceOutcome Classify(string text)
+    {
+        if (ParsesAsMember(text))
+            return SliceOutcome.WellFormed;
+
+        var trimmed = text.TrimEnd();
+        if (trimmed.EndsWith('}') && ParsesAsMember(trimmed[..^1].TrimEnd()))
+            return SliceOutcome.OverCapture;
+
+        if (ParsesAsMember(text + "\n}"))
+            return SliceOutcome.UnderCapture;
+
+        var firstLine = text.TrimStart().Split('\n')[0].Trim();
+        return TypeDeclaration.IsMatch(firstLine) ? SliceOutcome.TypeHeader : SliceOutcome.Malformed;
+    }
+
+    /// <summary>
+    /// True when <paramref name="name"/> carries a compiler-generated segment. The compiler
+    /// spells such names with a leading '&lt;' on the segment it owns — "&lt;M&gt;d__0" for an
+    /// iterator, "&lt;&gt;c" for a lambda holder — which no C# identifier can spell. A generic
+    /// name such as "Walk&lt;THandle&gt;" or "RelationshipChain&lt;T&gt;" also contains '&lt;',
+    /// but never at the start of a segment, so it stays in the corpus.
+    /// </summary>
+    private static bool IsCompilerGenerated(string name)
+    {
+        foreach (var segment in name.Split('.', '+'))
+        {
+            if (segment.StartsWith('<'))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Drives the product path end to end: <see cref="PdbContext.EnumerateMemberSources"/>
+    /// supplies the same anchor, line range, and finalizer flag that
+    /// <c>AuthoredSourceAcquisition</c> passes to the slicer, so nothing here reconstructs a
+    /// range the product would compute differently.
+    /// </summary>
+    private static List<Slice> SliceCorpus()
+    {
+        var slices = new List<Slice>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var assemblyPath in Directory.GetFiles(AppContext.BaseDirectory, "*.dll").OrderBy(p => p, StringComparer.Ordinal))
+        {
+            PdbContext context;
+            try
+            {
+                context = PdbContext.Open(assemblyPath);
+            }
+            catch (Exception ex) when (ex is IOException or BadImageFormatException or UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            using (context)
+            {
+                List<MemberSourceInfo> members;
+                try
+                {
+                    members = context.EnumerateMemberSources().ToList();
+                }
+                catch (BadImageFormatException)
+                {
+                    continue;
+                }
+
+                foreach (var member in members)
+                {
+                    // The slicer only ever runs for a member the caller selected from the API
+                    // surface. Compiler-generated shapes (state machines, display classes,
+                    // lambdas) spell a name segment that opens with '<' — "<M>d__0", "<>c".
+                    // A generic member spells '<' too, in "Walk<THandle>", and that one is
+                    // ordinary API surface the gate must keep.
+                    if (IsCompilerGenerated(member.Anchor.MemberName)
+                        || IsCompilerGenerated(member.Anchor.TypeFullName))
+                        continue;
+                    if (!File.Exists(member.FilePath))
+                        continue;
+                    if (!seen.Add($"{member.FilePath}|{member.StartLine}|{member.EndLine}|{member.Anchor.MemberName}"))
+                        continue;
+
+                    string sourceText;
+                    try
+                    {
+                        sourceText = File.ReadAllText(member.FilePath);
+                    }
+                    catch (IOException)
+                    {
+                        continue;
+                    }
+
+                    var text = SourceLinkResolver.ExtractMethodBody(
+                        sourceText,
+                        member.StartLine,
+                        member.EndLine,
+                        member.Anchor.MemberName,
+                        member.IsFinalizer,
+                        member.IsFinalizer ? member.Anchor.TypeFullName : null);
+
+                    slices.Add(new Slice(
+                        member.Anchor.MemberName,
+                        member.FilePath,
+                        member.StartLine,
+                        member.EndLine,
+                        text ?? "",
+                        text is null ? SliceOutcome.NotSliceable : Classify(text)));
+                }
+            }
+        }
+
+        return slices;
+    }
+
+    private static string Report(IEnumerable<Slice> offenders) =>
+        string.Join("\n\n", offenders
+            .OrderBy(s => s.File, StringComparer.Ordinal)
+            .ThenBy(s => s.StartLine)
+            .Take(10)
+            .Select(s => $"{s.Member}  {Path.GetFileName(s.File)}:{s.StartLine}-{s.EndLine}\n{s.Text}"));
+
+    /// <summary>
+    /// The end boundary must not run past the member. A member that is the last one in its
+    /// type has the enclosing type's "}" on the line below it, and a forward scan that runs
+    /// unconditionally appends it — producing text that still carries the right signature (so
+    /// an identity round trip stays green) but no longer parses.
+    /// </summary>
+    [Fact]
+    public void SlicedMembers_DoNotCaptureTheEnclosingTypesClosingBrace()
+    {
+        var slices = SliceCorpus();
+        Assert.NotEmpty(slices);
+
+        var offenders = slices.Where(s => s.Outcome == SliceOutcome.OverCapture).ToList();
+
+        Assert.True(
+            offenders.Count == 0,
+            $"{offenders.Count} member(s) captured a trailing brace they do not own:\n\n{Report(offenders)}");
+    }
+
+    /// <summary>
+    /// The corpus the sweeps above measure must stay broad enough for their rates to mean
+    /// anything. <c>Assert.NotEmpty</c> alone lets it collapse to a handful of slices while
+    /// every rate test still passes, and a filter change already silently dropped generics once
+    /// (adversarial review, GPT). This pins the breadth those rates are computed over.
+    /// <para>
+    /// The floors are deliberately far below the measured counts — roughly 4,500 slices with
+    /// about 60 generic ones — so ordinary fixture churn does not trip them, but a filter or
+    /// acquisition failure that guts the corpus does.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void SliceCorpus_StaysBroadEnoughToMeasure()
+    {
+        var slices = SliceCorpus();
+
+        Assert.True(
+            slices.Count >= 1000,
+            $"the corpus fell to {slices.Count} slices; the rate ceilings above are measured over it");
+
+        var generic = slices.Where(s => s.Member.Contains('<') || s.Member.Contains('`')).ToList();
+        Assert.True(
+            generic.Count >= 10,
+            $"the corpus holds {generic.Count} generic member(s); generic spelling has been excluded by a filter before");
+
+        Assert.True(
+            slices.Select(s => s.File).Distinct(StringComparer.Ordinal).Count() >= 10,
+            "the corpus should span many files, not one fixture");
+    }
+
+    /// <summary>
+    /// Non-vacuity anchor for the corpus sweep above, on a real compiled fixture rather than a
+    /// synthetic string. <c>DiffAsmTarget.Api.Ping(LibB::Shared.Token)</c> is the last member of
+    /// the last type in its file and has an empty body, so its whole sequence-point range is the
+    /// closing brace — the exact shape the forward scan used to over-run. If the slicer's end
+    /// boundary regresses, this fails on its own.
+    /// </summary>
+    [Fact]
+    public void LastMemberOfAType_ExtractsThroughItsOwnClosingBraceOnly()
+    {
+        var slices = SliceCorpus()
+            .Where(s => s.Member == "Ping" && Path.GetFileName(s.File) == "Api.cs")
+            .ToList();
+
+        Assert.Equal(2, slices.Count);
+
+        var last = slices.MaxBy(s => s.StartLine)!;
+        Assert.Equal(
+            "public static void Ping(LibB::Shared.Token value)\n{\n}",
+            last.Text);
+    }
+
+    /// <summary>
+    /// A member whose sequence points map to its declaring type's header has no authored
+    /// declaration to slice: a positional record's property accessor, a primary constructor,
+    /// and a constructor synthesized from field initializers all land there. Rendering the
+    /// header would present a truncated type declaration as the member's source — wrong output
+    /// wearing the shape of success — so the slicer reports absence instead.
+    /// <para>
+    /// Both halves are asserted. No slice may still carry a type header, and the absent
+    /// population must be non-empty, so the assertion cannot pass by the corpus simply never
+    /// reaching this path.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void MembersWithNoAuthoredDeclaration_ReportAbsentSource_NotATruncatedTypeHeader()
+    {
+        var slices = SliceCorpus();
+        Assert.NotEmpty(slices);
+
+        var leaked = slices.Where(s => s.Outcome == SliceOutcome.TypeHeader).ToList();
+        Assert.True(
+            leaked.Count == 0,
+            $"{leaked.Count} slice(s) rendered a type header as member source:\n\n{Report(leaked)}");
+
+        Assert.NotEmpty(slices.Where(s => s.Outcome == SliceOutcome.NotSliceable));
+    }
+
+    /// <summary>
+    /// Characterizes the defect populations that remain so they stay visible and cannot grow
+    /// silently. These are not passing behavior — an under-captured property getter still
+    /// renders a partial accessor under an "Original Source" heading. The ceilings are
+    /// deliberately loose, because the corpus is this repository's own assemblies and exact
+    /// counts move with unrelated edits, but they fail if a change makes either category
+    /// materially worse.
+    /// </summary>
+    [Fact]
+    public void RemainingBoundaryDefects_StayWithinTheirCharacterizedCeilings()
+    {
+        var slices = SliceCorpus();
+        Assert.NotEmpty(slices);
+
+        var counts = slices.GroupBy(s => s.Outcome).ToDictionary(g => g.Key, g => g.Count());
+        int Count(SliceOutcome outcome) => counts.GetValueOrDefault(outcome);
+        double Rate(SliceOutcome outcome) => 100.0 * Count(outcome) / slices.Count;
+
+        var summary = string.Join(
+            "\n",
+            counts.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Value,6}  {100.0 * kv.Value / slices.Count,5:F2}%  {kv.Key}"));
+
+        // Measured at 1.67% and 0.30% over this corpus.
+        Assert.True(Rate(SliceOutcome.UnderCapture) < 3.0, $"under-capture grew:\n{summary}\n\n{Report(slices.Where(s => s.Outcome == SliceOutcome.UnderCapture))}");
+        Assert.True(Rate(SliceOutcome.Malformed) < 1.5, $"malformed slices grew:\n{summary}\n\n{Report(slices.Where(s => s.Outcome == SliceOutcome.Malformed))}");
+    }
+
+    /// <summary>
+    /// Close negative cases for the type-declaration discriminator. Each of these members
+    /// spells a type keyword inside an identifier — "RecordBatch", "Classify", "Structure",
+    /// "Interfaces", "Enumerate", "NewClient" — so a substring test would misread every one of
+    /// them as a type header and report absent source for a member that has real source.
+    /// </summary>
+    [Theory]
+    [InlineData("public void Process(RecordBatch batch)")]
+    [InlineData("public int Classify()")]
+    [InlineData("private static string Structure()")]
+    [InlineData("internal bool Interfaces()")]
+    [InlineData("public static void Enumerate()")]
+    [InlineData("protected NewClient Build()")]
+    [InlineData("public sealed override int Recorded()")]
+    public void MembersSpellingTypeKeywordsInsideIdentifiers_AreStillSliced(string signature)
+    {
+        var source = string.Join('\n', [
+            "class C",                  // 1
+            "{",                        // 2
+            $"    {signature}",         // 3
+            "    {",                    // 4  <- StartLine
+            "        Use();",           // 5
+            "    }",                    // 6  <- EndLine
+            "}",                        // 7
+        ]);
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: "M");
+
+        Assert.NotNull(body);
+        Assert.Equal($"{signature}\n{{\n    Use();\n}}", body);
+    }
+
+    /// <summary>
+    /// Positive cases. A range that lands on a type header has no member declaration to
+    /// isolate, whatever modifiers lead it, so the slicer reports absence.
+    /// <para>
+    /// The declaration is the first line of the source deliberately. An earlier version put
+    /// "namespace N;" above it, which masked the check: "namespace" is itself a type-declaration
+    /// keyword, so the first line answered for every case and the declaration under test was
+    /// never read. Adversarial review (Gemini Pro) caught that, and the same-line attribute
+    /// cases below fail without the trivia-stripping fix.
+    /// </para>
+    /// </summary>
+    [Theory]
+    [InlineData("public record ForwarderSummaryRow(")]
+    [InlineData("public class TypeView")]
+    [InlineData("internal readonly ref struct Slice")]
+    [InlineData("public sealed partial record struct Point(")]
+    [InlineData("file static class Helpers")]
+    // A declaration may share its line with the attributes and comments that lead it.
+    [InlineData("[System.Obsolete] public record R(int X)")]
+    [InlineData("[A][B] public record struct R(int X)")]
+    [InlineData("[Foo(new[] { 1 })] public record R(int X)")]
+    [InlineData("[Foo(\"]\")] public record R(int X)")]
+    [InlineData("/* leading */ public record R(int X)")]
+    [InlineData("/* a */ [B] /* c */ public class R")]
+    public void RangesLandingOnATypeHeader_ReportAbsence(string declaration)
+    {
+        var source = string.Join('\n', [
+            declaration,                // 1  <- StartLine
+            "    int X = 1;",           // 2  <- EndLine
+        ]);
+
+        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 1, endLine: 2, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// A function-pointer return type spells <c>delegate*</c>, which leads a member's return
+    /// type rather than a delegate declaration. Reading it as a type header discarded the
+    /// authored source of a member that has it — a false absence, which is the failure mode
+    /// that costs a user real output. Found by adversarial review (GPT).
+    /// </summary>
+    [Fact]
+    public void FunctionPointerReturnType_IsNotATypeDeclaration()
+    {
+        var source = string.Join('\n', [
+            "class C",                                      // 1
+            "{",                                            // 2
+            "    public unsafe delegate*<int, int> Ret()",   // 3
+            "    {",                                        // 4  <- StartLine
+            "        return null;",                         // 5
+            "    }",                                        // 6  <- EndLine
+            "}",                                            // 7
+        ]);
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: "Ret");
+
+        Assert.Equal(
+            "public unsafe delegate*<int, int> Ret()\n{\n    return null;\n}",
+            body);
+    }
+
+    /// <summary>
+    /// A constructor that leads with no accessibility modifier is invisible to the backward
+    /// scan, because ".ctor" is not how source spells it, so the scan walks up to the enclosing
+    /// type header. That header is real, but the constructor below it is real too: the member
+    /// has authored source and must not be reported absent. Found by adversarial review (GPT).
+    /// <para>
+    /// The relocated start must also be the start the end boundary is measured from. Measured
+    /// from the type header the range still has the type's block open, so the forward scan
+    /// would append the type's closing brace — which is what the assertion below pins.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ConstructorWithoutAccessibilityModifier_KeepsItsAuthoredSource()
+    {
+        var source = string.Join('\n', [
+            "namespace N;",                                 // 1
+            "readonly struct Result",                       // 2
+            "{",                                            // 3
+            "    Result(string name)",                      // 4
+            "    {",                                        // 5  <- StartLine
+            "        Name = name;",                         // 6
+            "    }",                                        // 7  <- EndLine
+            "}",                                            // 8
+        ]);
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 7, methodName: ".ctor");
+
+        Assert.Equal(
+            "Result(string name)\n{\n    Name = name;\n}",
+            body);
+    }
+
+    /// <summary>
+    /// The counterpart to the case above: a primary constructor's parameters sit on the type
+    /// header itself, so there is no constructor declaration below it and absence is correct.
+    /// This is what keeps the constructor recovery from re-opening the bug it sits next to.
+    /// </summary>
+    [Theory]
+    [InlineData("public class C(int x)")]
+    [InlineData("public record R(int X)")]
+    [InlineData("public readonly record struct P(int X)")]
+    public void PrimaryConstructor_StillReportsAbsence(string declaration)
+    {
+        var source = string.Join('\n', [
+            declaration,                // 1  <- StartLine
+            "{",                        // 2
+            "    int F = x;",           // 3  <- EndLine
+            "}",                        // 4
+        ]);
+
+        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 1, endLine: 3, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// Constructor recovery matches a declaration, not a spelling. A statement inside a method
+    /// body can spell the type's own name followed by "(" — <c>new R(1);</c>, a bare
+    /// <c>R(1);</c> call — and treating one as the member's declaration would relocate the
+    /// slice into the body and present a fragment of a statement as authored source.
+    /// <para>
+    /// This is the gate named by <c>IndexOfConstructorDeclaration</c>: a candidate counts only
+    /// at member level, directly inside the type's own block, and "new" is not a constructor
+    /// modifier. Found by adversarial review (MAI-Code).
+    /// </para>
+    /// </summary>
+    [Theory]
+    [InlineData("new R(1);")]
+    [InlineData("R(1);")]
+    [InlineData("var a = new R(1);")]
+    [InlineData("string R(int x) => x.ToString();")]
+    [InlineData("R(int x) => x.ToString();")]
+    public void ConstructorRecovery_IgnoresStatementsThatSpellTheTypeName(string statement)
+    {
+        var source = string.Join('\n', [
+            "public record R(int X)",   // 1  <- StartLine
+            "{",                        // 2
+            "    void M()",             // 3
+            "    {",                    // 4
+            "        " + statement,     // 5  <- EndLine
+            "    }",                    // 6
+            "}",                        // 7
+        ]);
+
+        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 1, endLine: 5, methodName: "get_X"));
+    }
+
+    /// <summary>
+    /// A positional record's primary constructor has no authored declaration, and its sequence
+    /// range can span the whole type body — a secondary constructor and the property
+    /// initializers below it included. Searching that whole range found the secondary
+    /// constructor and presented one member's source as another's (adversarial review, GPT).
+    /// A declaration the backward scan walked past sits at or above the member's own first
+    /// sequence point, so nothing below that point is a candidate.
+    /// </summary>
+    [Fact]
+    public void ConstructorRecovery_IgnoresConstructorsBelowTheFirstSequencePoint()
+    {
+        var source = string.Join('\n', [
+            "public sealed record Present(",                     //  1  <- StartLine
+            "    int Old,",                                      //  2
+            "    int New,",                                      //  3
+            "    string? Detail = null) : I",                    //  4
+            "{",                                                 //  5
+            "    public Present(",                               //  6
+            "        int Old,",                                  //  7
+            "        int New)",                                  //  8
+            "        : this(Old, New, Detail: null)",            //  9
+            "    {",                                             // 10
+            "    }",                                             // 11
+            "",                                                  // 12
+            "    public int Old { get; } = Old;",                // 13
+            "}",                                                 // 14
+        ]);
+
+        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 1, endLine: 13, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// A function-pointer return type leads a method, not a delegate declaration, and C# allows
+    /// trivia between <c>delegate</c> and <c>*</c>. Requiring them to be adjacent made the
+    /// spaced spelling read as a delegate type and the method vanish (adversarial review, GPT).
+    /// </summary>
+    [Theory]
+    [InlineData("delegate*<int, int>")]
+    [InlineData("delegate *<int, int>")]
+    [InlineData("delegate  *<int, int>")]
+    [InlineData("delegate\t*<int, int>")]
+    public void FunctionPointerReturnType_IsNotADelegateDeclaration(string returnType)
+    {
+        var source = string.Join('\n', [
+            "unsafe class C",                       // 1
+            "{",                                    // 2
+            $"    public static {returnType} Ret()",// 3
+            "    {",                                // 4  <- StartLine
+            "        return null;",                 // 5
+            "    }",                                // 6  <- EndLine
+            "}",                                    // 7
+        ]);
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: "Ret");
+
+        Assert.Equal($"public static {returnType} Ret()\n{{\n    return null;\n}}", body);
+    }
+
+    /// <summary>
+    /// An attribute list's brackets are counted structurally, and a comment inside the list may
+    /// spell one of its own. Reading the comment as code closed the list early, which left a
+    /// positional record's header looking like an ordinary declaration and returned the
+    /// truncated header as the member's source (adversarial review, MAI-Code).
+    /// </summary>
+    [Theory]
+    [InlineData("[Foo(/* ] */)] public record R(int X);")]
+    [InlineData("[Foo(/* [ */)] public record R(int X);")]
+    public void CommentsInsideAnAttributeList_DoNotCloseIt(string header)
+    {
+        var source = string.Join('\n', [
+            header,                       // 1  <- StartLine
+        ]);
+
+        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 1, endLine: 1, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// A constructor may share its line with anything that can precede it. Asking only about
+    /// the start of the line, and then only about the text after the line's first brace,
+    /// reported such constructors absent (adversarial review, MAI-Code and Gemini): a brace
+    /// inside a comment or a literal was taken for the type's, and an earlier member on the
+    /// line was never stepped over. A member begins at the start of the line or just past a
+    /// brace or semicolon, and every such position is now asked.
+    /// </summary>
+    [Theory]
+    [InlineData("public class C { C() { } }")]
+    [InlineData("public class C /* { */ { C() { } }")]
+    [InlineData("public class C { C(string s = \"{\") { } }")]
+    [InlineData("public class C { C(char c = '{') { } }")]
+    [InlineData("public class C { int X; C() { } }")]
+    [InlineData("class C { string s = \"{\"; C() { } }")]
+    [InlineData("public class C { void M() { } C() { } }")]
+    public void ConstructorRecovery_FindsAConstructorSharingItsLine(string header)
+    {
+        Assert.Equal(header, SourceLinkResolver.ExtractMethodBody(header, startLine: 1, endLine: 1, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// The type's block may open on a line below its header, and a constructor may follow it
+    /// on that same line.
+    /// </summary>
+    [Fact]
+    public void ConstructorRecovery_FindsAConstructorAfterAnOpeningBraceBelowTheHeader()
+    {
+        Assert.Equal(
+            "{ C() { } }",
+            SourceLinkResolver.ExtractMethodBody("class C\n{ C() { } }", startLine: 2, endLine: 2, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// A capture may run back through several enclosing scopes, and the constructor belongs to
+    /// the innermost type still open at it — not to the first declaration in the capture.
+    /// Taking the first searched for the wrong name at the wrong depth, so every constructor
+    /// inside a namespace or a nested type was reported absent (adversarial review, MAI-Code
+    /// and GPT). Namespaces are the common case: almost all real source has one.
+    /// </summary>
+    [Theory]
+    [InlineData("namespace N\n{\n    class C\n    {\n        C()\n        {\n        }\n    }\n}", 6, 7)]
+    [InlineData("namespace N;\n\nclass C\n{\n    C()\n    {\n    }\n}", 6, 7)]
+    [InlineData("class Outer\n{\n    class Inner\n    {\n        Inner()\n        {\n        }\n    }\n}", 6, 7)]
+    [InlineData("namespace N\n{\n    class Outer\n    {\n        class Inner\n        {\n            Inner()\n            {\n            }\n        }\n    }\n}", 8, 9)]
+    public void ConstructorRecovery_FindsTheConstructorOfTheInnermostEnclosingType(string source, int startLine, int endLine)
+    {
+        var slice = SourceLinkResolver.ExtractMethodBody(source, startLine, endLine, methodName: ".ctor");
+
+        Assert.NotNull(slice);
+        Assert.StartsWith(slice.Split('\n')[0].Trim(), slice.Trim(), StringComparison.Ordinal);
+        Assert.Contains("()", slice, StringComparison.Ordinal);
+        Assert.DoesNotContain("class", slice, StringComparison.Ordinal);
+        Assert.DoesNotContain("namespace", slice, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The declaration may begin above the line that spells the constructor's name. Slicing
+    /// from the name alone dropped a modifier on its own line, and left a stray "*/" that does
+    /// not parse when a block comment closed on the name's line (adversarial review, GPT).
+    /// </summary>
+    [Theory]
+    [InlineData("public class C\n{\n    /* lead\n    */ C()\n    {\n    }\n}", 5, 6, "/* lead\n*/ C()\n{\n}")]
+    [InlineData("public class C\n{\n    public\n    C()\n    {\n    }\n}", 5, 6, "public\nC()\n{\n}")]
+    [InlineData("public class C\n{\n    public C(\n        int x)\n    {\n    }\n}", 5, 6, "public C(\n    int x)\n{\n}")]
+    public void ConstructorRecovery_StartsAtTheDeclaration_NotAtTheName(string source, int startLine, int endLine, string expected)
+    {
+        Assert.Equal(expected, SourceLinkResolver.ExtractMethodBody(source, startLine, endLine, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// A type only encloses what is inside its body, and a bodiless one encloses nothing.
+    /// Deciding "entered" from the depth left at end of line saw neither bodiless form —
+    /// "record R(int X);" never reaches its body depth, and "class Inner { }" is back below it
+    /// before the line ends — so a sibling type above the constructor stayed open, held the
+    /// innermost slot, and every constructor below it was reported absent (adversarial review,
+    /// MAI-Code). The corpus gate cannot see this: an absent slice is not an invalid one.
+    /// </summary>
+    [Theory]
+    [InlineData("    record R(int X);")]
+    [InlineData("    class Inner { }")]
+    [InlineData("    struct S { }")]
+    [InlineData("    enum E { A, B }")]
+    [InlineData("    delegate void D();")]
+    [InlineData("    interface I { }")]
+    public void ConstructorRecovery_LooksPastASiblingTypeThatEnclosesNothing(string sibling)
+    {
+        var source = string.Join('\n', ["class Outer", "{", sibling, "    Outer()", "    {", "    }", "}"]);
+
+        Assert.Equal("Outer()\n{\n}", SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 5, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// The same, one namespace deeper, because that is where real source lives.
+    /// </summary>
+    [Fact]
+    public void ConstructorRecovery_LooksPastABodilessSiblingTypeInsideANamespace()
+    {
+        var source = "namespace N\n{\n    class Outer\n    {\n        record R(int X);\n        Outer()\n        {\n        }\n    }\n}";
+
+        Assert.Equal("Outer()\n{\n}", SourceLinkResolver.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// Retiring a closed type must not retire the one that declares the target. A type whose
+    /// body opens and closes on the constructor's own line still encloses it.
+    /// </summary>
+    [Fact]
+    public void ConstructorRecovery_KeepsTheTypeThatOpensAndClosesOnTheTargetLine()
+    {
+        Assert.Equal("class C { C() { } }", SourceLinkResolver.ExtractMethodBody("class C { C() { } }", startLine: 1, endLine: 1, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// A declaration may sit several lines above its brace, so a type is not retired merely
+    /// for having no body yet.
+    /// </summary>
+    [Fact]
+    public void ConstructorRecovery_FindsAConstructorUnderAMultiLineTypeHeader()
+    {
+        var source = "class Outer<T>\n    where T : new()\n{\n    Outer()\n    {\n    }\n}";
+
+        Assert.Equal("Outer()\n{\n}", SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 5, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// A type declaration is recognized only at the head of a line, so a second declaration
+    /// sharing the target's line is never entered and never retired. Whichever one was seen
+    /// first holds the innermost slot, and a constructor belonging to the other is reported
+    /// absent. Found by GPT (a second type) and Gemini (a bodiless type ahead of the
+    /// constructor). Pin today's wrong answer so the gap cannot widen unnoticed and closing it
+    /// is a visible test change.
+    /// <para>
+    /// Neither is a regression from the bodiless-type retirement: both are <c>null</c> at
+    /// fa1af2b6 as well. Retirement cannot simply be applied on the target's own line, because
+    /// that is exactly what would retire <c>C</c> in <c>class C { C() { } }</c> and reopen the
+    /// round-4 defect; telling the two apart needs intra-line declaration positions, which
+    /// this scanner does not track. Real source declares one type per line, and the one-line
+    /// form that does occur is covered by
+    /// <see cref="ConstructorRecovery_KeepsTheTypeThatOpensAndClosesOnTheTargetLine"/>.
+    /// </para>
+    /// </summary>
+    [Theory]
+    [InlineData("class A { } class B { B() { } }", 1, 1)]
+    [InlineData("public class C {\n    public record R(int X); C() { }\n}", 2, 2)]
+    public void ASecondDeclarationOnTheTargetLine_IsNotRecognized_KnownGap(string source, int startLine, int endLine)
+    {
+        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine, endLine, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// A type whose body closes on the constructor's own line is not retired, so the enclosing
+    /// type is never reached and the constructor is reported absent (adversarial review,
+    /// MAI-Code). Pinned rather than fixed, because retiring it is not the improvement it
+    /// looks like.
+    /// <para>
+    /// Scoping the target-line exemption to the type declared on that line — which is all the
+    /// exemption's own justification asks for — was implemented and measured. It restores the
+    /// enclosing type and finds the constructor, and the slice it then produces is
+    /// <c>"} Outer() { }"</c>: CS8803, CS1002, CS1022. A declaration is located by line, so a
+    /// slice cannot begin mid-line, and every shape this scoping reaches has a brace ahead of
+    /// the constructor on that line by construction. The change therefore converts an absent
+    /// answer into a malformed one, which is the wrong direction for the gate this branch
+    /// exists to satisfy. It is also what the code did before round 8, so the current answer
+    /// is the improvement.
+    /// </para>
+    /// </summary>
+    /// <summary>
+    /// Round 9 guarded the *unentered* branch of the retirement rule on bracket depth but left
+    /// the entered branch unguarded, so a brace inside an attribute's array initializer both
+    /// enters a type and then retires it (adversarial review, Gemini). With the declaring type
+    /// gone, constructor recovery is skipped and the slice starts at the type's opening brace.
+    /// <para>
+    /// This is not a regression: it fails at 7e1a5702 and fa1af2b6 alike. The reported repro
+    /// used <c>new int[] { 1 }</c> as a default parameter value, which is CS1736; the shape
+    /// pinned here is a type-parameter attribute, which compiles.
+    /// </para>
+    /// <para>
+    /// The real defect is that braces inside brackets move the block-depth counter at all.
+    /// The scanner already knows better in the analogous case — a brace inside an interpolation
+    /// hole is counted against the hole, not the block — and extending that to brackets is the
+    /// fix. It is deliberately not made here: block depth feeds every consumer in this file,
+    /// and the same change is subsumed by locating declarations over a token stream.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ABraceInAMultiLineAttributeInitializer_RetiresTheDeclaringType_KnownGap()
+    {
+        var source = string.Join('\n',
+        [
+            "public class C<",
+            "    [Attr(new int[] {",
+            "        1",
+            "    })] T>",
+            "{",
+            "    public",
+            "    C()",
+            "    {",
+            "    }",
+            "}",
+        ]);
+
+        var slice = SourceLinkResolver.ExtractMethodBody(source, startLine: 8, endLine: 9, methodName: ".ctor");
+
+        Assert.Equal("{\n    public\n    C()\n    {\n    }\n}", slice);
+    }
+
+    /// <summary>
+    /// A declaration ends on the ";" or "}" that terminates it, but only at declaration level.
+    /// An attribute on a type parameter may hold an array initializer whose closing brace ends
+    /// nothing while the attribute's bracket is still open; reading it as the terminator
+    /// retired the declaring type and returned the whole type instead of the constructor
+    /// (adversarial review, GPT). This is the carried-bracket blindness the sibling question
+    /// had to learn in round 6, in the retirement rule round 8 added.
+    /// </summary>
+    [Fact]
+    public void ABraceInsideATypeParameterAttribute_DoesNotEndTheDeclaration()
+    {
+        var source = string.Join('\n',
+        [
+            "public class C<",
+            "    [Attr(new int[] { 1 }",
+            "    )] T>",
+            "{",
+            "    public",
+            "    C()",
+            "    {",
+            "    }",
+            "}",
+        ]);
+
+        var slice = SourceLinkResolver.ExtractMethodBody(source, startLine: 7, endLine: 8, methodName: ".ctor");
+
+        Assert.Equal("public\nC()\n{\n}", slice);
+    }
+
+    [Fact]
+    public void ATypeClosingOnTheConstructorsLine_ReportsAbsent_KnownGap()
+    {
+        Assert.Null(SourceLinkResolver.ExtractMethodBody("class Outer\n{\n    class Inner\n    {\n    } Outer() { }\n}", startLine: 5, endLine: 5, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// Member level is read as brace depth 1, and an expression body or lambda adds no brace,
+    /// so a call spelled like the type's name on a continuation line of a field initializer is
+    /// accepted as the declaration (adversarial review, Gemini). Reaching the shape needs a
+    /// base type exposing a member named for the derived type, because CS0542 forbids
+    /// declaring one directly.
+    /// <para>
+    /// A guard was designed and rejected: restricting a line-initial candidate to one whose
+    /// preceding code ended at <c>;</c>, <c>{</c>, or <c>}</c> also rejects a constructor
+    /// following a multi-line attribute list, a modifier on its own line, and a doc comment,
+    /// each needing its own exception. That is a fifth narrow suppression on the pile that
+    /// rounds 4 through 8 each had to unwind. Pinned instead, with the real fix being
+    /// intra-line declaration positions.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ACallNamedForTheTypeInsideALambda_IsTakenForTheDeclaration_KnownGap()
+    {
+        var source = string.Join('\n',
+        [
+            "public class Base { public static C C() => null!; }",
+            "public class C : Base {",
+            "    System.Action A = () =>",
+            "        C();",
+            "",
+            "    C() { }",
+            "}",
+        ]);
+
+        Assert.Equal("    C();\n\nC() { }", SourceLinkResolver.ExtractMethodBody(source, startLine: 6, endLine: 6, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// A declarator split between the constructor's name and its parameter list is legal and
+    /// is not recognized, because the match is made within one line. Pin today's wrong answer
+    /// so the gap cannot widen unnoticed and closing it is a visible test change. Splitting
+    /// *inside* the parameter list is the shape that occurs in practice, and it works.
+    /// </summary>
+    [Fact]
+    public void ConstructorNameSplitFromItsParameterList_IsNotRecognized_KnownGap()
+    {
+        var source = "public class C\n{\n    C\n    (\n    )\n    {\n    }\n}";
+
+        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// Asking more positions must not accept more shapes. A constructor call in an initializer
+    /// and a nested type's constructor both spell the type name followed by a parameter list,
+    /// and neither is a constructor declared at this type's member level.
+    /// </summary>
+    [Theory]
+    [InlineData("public class C { static C I = new C(); }")]
+    [InlineData("public class C { class D { D() { } } }")]
+    [InlineData("public record R(string s = \"{ R()\") ;")]
+    public void ConstructorRecovery_IgnoresNamesThatAreNotMemberLevelDeclarations(string source)
+    {
+        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 1, endLine: 1, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// The same shape for a positional record still has no authored constructor, so the header
+    /// line must not be read as one.
+    /// </summary>
+    [Theory]
+    [InlineData("public record R(int X) { }")]
+    [InlineData("public record R(int X);")]
+    public void ConstructorRecovery_DoesNotReadARecordHeaderAsAConstructor(string header)
+    {
+        Assert.Null(SourceLinkResolver.ExtractMethodBody(header, startLine: 1, endLine: 1, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// C# allows whitespace and comments between any two tokens, so a tab-separated modifier,
+    /// a comment between <c>delegate</c> and <c>*</c>, and a comment between a constructor's
+    /// name and its parameter list all spell the same declarations (adversarial review, GPT).
+    /// Matching only literal spaces made each of them read as something else.
+    /// </summary>
+    [Fact]
+    public void TriviaBetweenTokens_DoesNotChangeWhatIsDeclared()
+    {
+        // A tab-separated type header is still a type header, so a field-initializer
+        // constructor above it is still absent rather than the whole type.
+        Assert.Null(SourceLinkResolver.ExtractMethodBody(
+            "public\tclass C\n{\n    int X = Get();\n    static int Get() => 0;\n}",
+            startLine: 1, endLine: 3, methodName: ".ctor"));
+
+        // A commented gap does not turn a function-pointer return type into a delegate.
+        Assert.Equal(
+            "public static delegate /* gap */ *<int, int> Ret()\n{\n    return default;\n}",
+            SourceLinkResolver.ExtractMethodBody(
+                "unsafe class C\n{\n    public static delegate /* gap */ *<int, int> Ret()\n    {\n        return default;\n    }\n}",
+                startLine: 4, endLine: 6, methodName: "Ret"));
+
+        // A commented gap does not hide a constructor's parameter list.
+        Assert.Equal(
+            "C /* gap */ ()\n{\n}",
+            SourceLinkResolver.ExtractMethodBody(
+                "class C\n{\n    C /* gap */ ()\n    {\n    }\n}",
+                startLine: 4, endLine: 5, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// Known gap, pinned rather than fixed. An attribute list is read one line at a time, so a
+    /// declaration that follows the *closing* line of a multi-line attribute is not recognized
+    /// and the header is returned instead of absence (adversarial review, GPT). This is not a
+    /// regression — the base behaves identically — and closing it needs attribute-bracket state
+    /// carried across lines, which is a change to the shared scanner rather than to this
+    /// discriminator. The assertion records today's wrong answer so that fixing it is visible.
+    /// </summary>
+    [Fact]
+    public void DeclarationOnAMultiLineAttributesClosingLine_IsNotRecognized_KnownGap()
+    {
+        var source = "[System.Obsolete( // comment with ]\n    \"why\")] public record R(int X);";
+
+        var slice = SourceLinkResolver.ExtractMethodBody(source, startLine: 2, endLine: 2, methodName: ".ctor");
+
+        // The right answer is null. Pin the wrong one so the gap cannot widen unnoticed.
+        Assert.Equal("\"why\")] public record R(int X);", slice);
+    }
+
+    /// <summary>
+    /// The positive half of the same discriminator: a constructor that really is declared at
+    /// member level is still recovered, whichever accepted modifier leads it or none at all.
+    /// </summary>
+    [Theory]
+    [InlineData("Result")]
+    [InlineData("public Result")]
+    [InlineData("internal Result")]
+    [InlineData("protected Result")]
+    public void ConstructorRecovery_AcceptsMemberLevelDeclarations(string declaration)
+    {
+        var source = string.Join('\n', [
+            "public sealed record Result",          // 1
+            "{",                                    // 2
+            $"    {declaration}(string name)",      // 3
+            "    {",                                // 4  <- StartLine
+            "        Name = name;",                 // 5
+            "    }",                                // 6  <- EndLine
+            "}",                                    // 7
+        ]);
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: ".ctor");
+
+        Assert.Equal(
+            $"{declaration}(string name)\n{{\n    Name = name;\n}}",
+            body);
+    }
+
+    /// <summary>
+    /// A brace inside an interpolation hole belongs to the hole, not to the enclosing block.
+    /// The end-boundary decision reads brace depth to tell a range that closes its own block
+    /// from one that does not, so a hole whose nested string quotes a brace must not move that
+    /// count. When it did, the depth reached zero early, the range looked closed, the forward
+    /// scan was suppressed, and the member lost its own closing brace.
+    /// <para>
+    /// Each case pairs an interpolated line with a plain-string line of the same shape: the
+    /// literal must not change the slice, so both must extract identically.
+    /// </para>
+    /// </summary>
+    [Theory]
+    // A nested string containing a closing brace, inside an object initializer in the hole.
+    [InlineData("return $\"{new Holder { S = \"}\" }.S}\";")]
+    // Escaped braces in the literal text.
+    [InlineData("return $\"{{ {Value} }}\";")]
+    // A nested interpolated string inside the hole.
+    [InlineData("return $\"{$\"{Value}\"}\";")]
+    // A raw interpolated string whose content spells braces.
+    [InlineData("return $\"\"\"{ Value }\"\"\";")]
+    // A char literal spelling a brace inside the hole.
+    [InlineData("return $\"{Pick('}')}\";")]
+    // Verbatim interpolated, both spellings, with a quoted brace inside the hole. These used to
+    // be handed to the plain verbatim path, which does not know holes (adversarial review, GPT).
+    [InlineData("return $@\"{new Holder { S = \"}\" }.S}\";")]
+    [InlineData("return @$\"{new Holder { S = \"}\" }.S}\";")]
+    // A raw literal nested inside a raw interpolated hole: the inner quote run is not the outer
+    // literal's terminator (adversarial review, GPT).
+    [InlineData("return $$\"\"\"{{ new Holder { S = \"\"\"}\"\"\" }.S }}\"\"\";")]
+    // A comment inside a hole may spell a brace, which belongs to neither the hole nor the
+    // block (adversarial review, GPT).
+    [InlineData("return $\"{Value /* { */}\";")]
+    [InlineData("return $\"{Value /* } */}\";")]
+    public void BracesInsideInterpolationHoles_DoNotEndTheDeclaration(string statement)
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public string M()",
+            "    {",
+            "        " + statement,
+            "    }",
+            "}",
+        ];
+
+        // The range ends on the statement, as a sequence-point range does; the member's own
+        // closing brace is recovered by the forward scan.
+        var body = SourceLinkResolver.ExtractMethodBody(
+            string.Join("\n", lines), startLine: 5, endLine: 5, methodName: "M");
+
+        Assert.NotNull(body);
+        Assert.Equal(
+            $"public string M()\n{{\n    {statement}\n}}",
+            body);
+    }
+
+    /// <summary>
+    /// The forward scan yields to a sibling accessor, and only to one. Asking whether any line
+    /// "opens a declaration" read a <c>static</c> local function — and any other statement
+    /// leading with a declaration modifier — as a sibling, and truncated the enclosing method
+    /// at it (adversarial review, Gemini). Only a property or event block can hold a sibling
+    /// accessor, so the question is asked only when the member being sliced is an accessor.
+    /// </summary>
+    [Theory]
+    [InlineData("static void L() { }")]
+    [InlineData("static int F() => 1;")]
+    [InlineData("async Task T() => await U();")]
+    [InlineData("var f = async () => await U();")]
+    [InlineData("int[] a = [1, 2, 3];")]
+    [InlineData("const int q = 1;")]
+    public void StatementsThatLeadWithADeclarationModifier_DoNotTruncateTheMember(string statement)
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public void M()",
+            "    {",
+            "        int x = 1;",
+            "        " + statement,
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 4, 5, "M");
+
+        Assert.NotNull(slice);
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.Contains(statement, slice);
+    }
+
+    /// <summary>
+    /// The other half: an accessor's slice must still stop at its sibling, including when the
+    /// sibling shares its line with a comment or carries its own modifier or attribute
+    /// (adversarial review, Gemini).
+    /// </summary>
+    [Theory]
+    [InlineData("set => _ = value;")]
+    [InlineData("/* c */ set => _ = value;")]
+    [InlineData("private set => _ = value;")]
+    [InlineData("[Foo] set => _ = value;")]
+    [InlineData("/* a */ private set => _ = value;")]
+    [InlineData("init => _ = value;")]
+    public void AccessorSlice_StopsAtItsSibling(string sibling)
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public int P",
+            "    {",
+            "        get => 1;",
+            "        " + sibling,
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
+
+        Assert.Equal("public int P\n{\n    get => 1;", slice);
+    }
+
+    /// <summary>
+    /// Since C# 11 an interpolation hole may span lines even in a single-quoted literal. Treating
+    /// every non-verbatim, non-raw literal as bound to one line marked valid source untracked and
+    /// truncated the member (adversarial review, Gemini).
+    /// </summary>
+    [Fact]
+    public void InterpolationHoleSpanningLines_DoesNotAbandonTheScan()
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public void M()",
+            "    {",
+            "        var s = $\"{",
+            "            1",
+            "        }\";",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 4, 5, "M");
+
+        Assert.NotNull(slice);
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.EndsWith("}\";\n}", slice);
+    }
+
+    /// <summary>
+    /// The counterpart to the case above: a literal's own text really is bound to its line, so an
+    /// unterminated one must still leave the depth unknown rather than be read across the break.
+    /// </summary>
+    [Fact]
+    public void UnterminatedLiteralText_StillLeavesTheDepthUnknown()
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public void M()",
+            "    {",
+            "        var s = \"oops",
+            "        int y = 2;",
+            "    }",
+            "}",
+        ];
+
+        // The scan must not claim to have found the member's closing brace by reading through
+        // a literal it lost its place in.
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 4, 5, "M");
+
+        Assert.DoesNotContain("int y = 2;", slice);
+    }
+
+    /// <summary>
+    /// A verbatim literal is never raw. Reading any run of three or more quotes as a raw
+    /// delimiter left <c>@""""</c> — a verbatim string holding one quote — open, and the member's
+    /// closing brace was lost with it (adversarial review, GPT).
+    /// </summary>
+    [Theory]
+    [InlineData("return @\"\"\"\";")]
+    [InlineData("return @\"a\"\"b\";")]
+    [InlineData("return $@\"\"\"\";")]
+    [InlineData("return @$\"\"\"\";")]
+    [InlineData("return \"\"\"raw\"\"\";")]
+    public void VerbatimQuoteRuns_AreNotReadAsRawDelimiters(string statement)
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public string M()",
+            "    {",
+            "        " + statement,
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 4, 5, "M");
+
+        Assert.NotNull(slice);
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+    }
+
+    /// <summary>
+    /// Conditional-compilation directives put braces in branches the compiler may discard, so the
+    /// structural depth below one is unknowable. Counting them made a discarded <c>{</c> consume
+    /// the member's own closing brace and take the enclosing type's instead (adversarial review,
+    /// GPT). The slice must fall back to the range rather than reach past it on a bad count.
+    /// </summary>
+    [Fact]
+    public void ConditionalDirective_SuppressesDepthBasedRecovery()
+    {
+        string[] lines =
+        [
+            "class C",
+            "{",
+            "    public void M()",
+            "    {",
+            "#if UNUSED",
+            "        {",
+            "#endif",
+            "        System.Console.WriteLine();",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 4, 8, "M");
+
+        Assert.NotNull(slice);
+        Assert.DoesNotContain("class C", slice);
+        Assert.EndsWith("System.Console.WriteLine();", slice.TrimEnd());
+    }
+
+    /// <summary>
+    /// Non-conditional directives do not move braces between branches, so they must not cost the
+    /// member its recovery.
+    /// </summary>
+    [Theory]
+    [InlineData("#line default")]
+    [InlineData("#nullable enable")]
+    [InlineData("#pragma warning disable CS0168")]
+    public void NonConditionalDirective_LeavesRecoveryIntact(string directive)
+    {
+        string[] lines =
+        [
+            "class C",
+            "{",
+            "    public void M()",
+            "    {",
+            directive,
+            "        System.Console.WriteLine();",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 4, 6, "M");
+
+        Assert.NotNull(slice);
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.EndsWith("}", slice.TrimEnd());
+    }
+
+    /// <summary>
+    /// A region pair is the directive most likely to appear inside a member. It moves no braces,
+    /// so it must not cost the member its recovery either.
+    /// </summary>
+    [Fact]
+    public void RegionDirective_LeavesRecoveryIntact()
+    {
+        string[] lines =
+        [
+            "class C",
+            "{",
+            "    public void M()",
+            "    {",
+            "#region R",
+            "        System.Console.WriteLine();",
+            "#endregion",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 4, 6, "M");
+
+        Assert.NotNull(slice);
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.EndsWith("}", slice.TrimEnd());
+    }
+
+    /// <summary>
+    /// An attribute list is not itself an accessor. Reading any line that opens with "[" as a
+    /// sibling truncated an accessor at an attributed local function in its own body
+    /// (adversarial review, MAI-Code). The list is skipped and the question asked of what
+    /// follows it.
+    /// </summary>
+    [Theory]
+    [InlineData("[System.Obsolete]", "void Local() { }")]
+    [InlineData("[System.Obsolete]", "static void Local() { }")]
+    [InlineData("[System.Obsolete(\"]\")]", "void Local() { }")]
+    public void AttributedLocalFunction_DoesNotEndAnAccessor(string attribute, string declaration)
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public int P",
+            "    {",
+            "        get",
+            "        {",
+            "            int x = 1;",
+            "            " + attribute,
+            "            " + declaration,
+            "            return x;",
+            "        }",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 7, 7, "get_P");
+
+        Assert.NotNull(slice);
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.Contains(declaration, slice);
+    }
+
+    /// <summary>
+    /// The other half: an attribute that really does precede a sibling accessor still stops the
+    /// slice, whether it shares the accessor's line or sits above it.
+    /// </summary>
+    [Theory]
+    [InlineData("[System.Obsolete] set => _ = value;")]
+    [InlineData("[System.Obsolete(\"]\")] set => _ = value;")]
+    [InlineData("[System.Obsolete]\n        set => _ = value;")]
+    public void AttributedSiblingAccessor_StillEndsTheSlice(string sibling)
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public int P",
+            "    {",
+            "        get => 1;",
+            "        " + sibling,
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
+
+        Assert.Equal("public int P\n{\n    get => 1;", slice);
+    }
+
+    /// <summary>
+    /// The sibling-accessor question is asked before the line is scanned, so it must not be
+    /// asked at all when the carried lexical state says the line is not code. An accessor
+    /// keyword inside a multi-line block comment or raw string literal is text, and reading it
+    /// as a sibling truncated the accessor (adversarial review, Gemini).
+    /// </summary>
+    [Theory]
+    [InlineData("/*", "set", "*/")]
+    [InlineData("/*", "get => 1;", "*/")]
+    [InlineData("_ = \"\"\"", "set", "\"\"\";")]
+    [InlineData("_ = \"\"\"", "[Foo] init", "\"\"\";")]
+    public void AccessorKeywordInsideCommentOrLiteral_IsNotASibling(string open, string body, string close)
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public int Property",
+            "    {",
+            "        get",
+            "        {",
+            "            return 1;",
+            "            " + open,
+            "            " + body,
+            "            " + close,
+            "        }",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 7, 7, "get_Property");
+
+        Assert.NotNull(slice);
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.Contains(body, slice);
+    }
+
+    /// <summary>
+    /// An accessor keyword is only an accessor when the token after it says so. Accepting a
+    /// bare "=" read an assignment to a local named <c>set</c> as a sibling and truncated the
+    /// getter around it (adversarial review, GPT).
+    /// </summary>
+    [Theory]
+    [InlineData("set = 1;")]
+    [InlineData("set += 1;")]
+    [InlineData("get = set;")]
+    public void AssignmentToALocalNamedForAnAccessor_IsNotASibling(string statement)
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public int P",
+            "    {",
+            "        get",
+            "        {",
+            "            int set = 0, get = 0;",
+            "            " + statement,
+            "            return set;",
+            "        }",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
+
+        Assert.Contains(statement, slice);
+        Assert.Contains("return set;", slice);
+    }
+
+    /// <summary>
+    /// Yielding to a sibling must not discard what the scan already recovered. Returning the
+    /// range unchanged threw away the accessor's own closing brace and the statements above it,
+    /// truncating the member (adversarial review, Gemini). The sibling's own attributes and
+    /// comments close nothing, so they must not be kept as if they were the member's end.
+    /// </summary>
+    [Theory]
+    [InlineData(8)]
+    [InlineData(9)]
+    [InlineData(10)]
+    public void SiblingAfterTheAccessorsClosingBrace_KeepsTheBrace(int endLine)
+    {
+        string[] lines =
+        [
+            "",
+            "public class C",
+            "{",
+            "    public int Prop",
+            "    {",
+            "        get",
+            "        {",
+            "            var s = 1;",
+            "            return 1;",
+            "        }",
+            "        set { }",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 6, endLine, "get_Prop");
+
+        Assert.Equal("public int Prop\n{\n    get\n    {\n        var s = 1;\n        return 1;\n    }", slice);
+    }
+
+    /// <summary>
+    /// And what it recovers must not be a brace nested inside the body. Answering with the
+    /// last structural close truncated an expression-bodied accessor at the "}" of a lambda
+    /// inside it, cutting the expression in half — found independently by MAI-Code and Gemini.
+    /// A member with no block of its own has no brace to find, so brace depth cannot answer
+    /// where it ends; the sibling's position can, whatever either member's body shape.
+    /// </summary>
+    [Theory]
+    [InlineData(5)]
+    [InlineData(10)]
+    public void ABraceNestedInsideAnAccessorBody_IsNotItsEnd(int endLine)
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public int P",
+            "    {",
+            "        get => (",
+            "            () =>",
+            "            {",
+            "                return 1;",
+            "            })()",
+            "            + 1;",
+            "        set => _ = value;",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, endLine, "get_P");
+
+        Assert.Equal(
+            "public int P\n{\n    get => (\n        () =>\n        {\n            return 1;\n        })()\n        + 1;",
+            slice);
+    }
+
+    /// <summary>
+    /// The same defect in a conditional expression, where the tail after the nested block
+    /// carries no brace at all to re-synchronize on (adversarial review, Gemini).
+    /// </summary>
+    [Theory]
+    [InlineData(6)]
+    [InlineData(8)]
+    public void AnExpressionBodiedAccessorKeepsTheTailAfterANestedBlock(int endLine)
+    {
+        string[] lines =
+        [
+            "",
+            "public class C {",
+            "    public int Prop {",
+            "        get => true ?",
+            "            new System.Func<int>(() => {",
+            "                return 1;",
+            "            })() :",
+            "            2;",
+            "        set { }",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, endLine, "get_Prop");
+
+        Assert.NotNull(slice);
+        Assert.EndsWith("2;", slice, StringComparison.Ordinal);
+        Assert.DoesNotContain("set", slice, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// And that trivia must be recognized by the line's code, not its text. Asked of the text
+    /// alone, only trivia that opened and closed on one line was seen, so a multi-line
+    /// attribute list or block comment leading the sibling was kept as the member's source and
+    /// did not parse (adversarial review, GPT, which reported the attribute form; the comment
+    /// form was found while reproducing it). This is the same lesson the sibling question
+    /// itself took three rounds to learn.
+    /// </summary>
+    [Theory]
+    [InlineData("        [\n            System.Obsolete\n        ]")]
+    [InlineData("        /* the\n           setter */")]
+    [InlineData("        /// <summary>\n        /// doc\n        /// </summary>")]
+    public void TheSiblingsMultiLineLeadingTrivia_IsNotPartOfTheMember(string trivia)
+    {
+        var source = string.Join('\n',
+        [
+            "public class C",
+            "{",
+            "    public int P",
+            "    {",
+            "        get",
+            "        {",
+            "            return 1;",
+            "        }",
+            trivia,
+            "        set { }",
+            "    }",
+            "}",
+        ]);
+
+        var slice = SourceLinkResolver.ExtractMethodBody(source, 5, 7, "get_P");
+
+        Assert.Equal("public int P\n{\n    get\n    {\n        return 1;\n    }", slice);
+    }
+
+    /// <summary>
+    /// The mirror of that, found independently by MAI-Code: a line opening with "[" may be a
+    /// collection expression rather than an attribute list, and dropping it as trivia eats the
+    /// member's own body. Both directions are one question — what does the line's code say —
+    /// so one answer settles them.
+    /// </summary>
+    [Theory]
+    [InlineData("            [1, 2];", "        [1, 2];")]
+    [InlineData("        [\n            1,\n            2,\n        ];", "    [\n        1,\n        2,\n    ];")]
+    public void ACollectionExpressionLine_IsTheMembersCode_NotAnAttributeList(string body, string expectedTail)
+    {
+        var source = string.Join('\n',
+        [
+            "public class C",
+            "{",
+            "    public int[] Tfm",
+            "    {",
+            "        get =>",
+            body,
+            "        set { }",
+            "    }",
+            "}",
+        ]);
+
+        var slice = SourceLinkResolver.ExtractMethodBody(source, 5, 5, "get_Tfm");
+
+        Assert.Equal("public int[] Tfm\n{\n    get =>\n" + expectedTail, slice);
+    }
+
+    /// <summary>
+    /// A construct carried into a line belongs to whichever side opened it, and an open trivia
+    /// run is what says which. A raw string inside the sibling's own attribute is the
+    /// sibling's, so it must not end the run — reading the literal alone ended it, and the
+    /// attribute was left in the slice (adversarial review, Gemini).
+    /// </summary>
+    [Theory]
+    [InlineData("        [System.Obsolete(\n            \"\"\"\n            msg\n            \"\"\"\n        )]")]
+    [InlineData("        [System.Obsolete(\n            @\"a\n            b\")]")]
+    public void ALiteralInsideTheSiblingsAttribute_DoesNotEndTheTriviaRun(string attribute)
+    {
+        var source = string.Join('\n',
+        [
+            "public class C",
+            "{",
+            "    public int Prop",
+            "    {",
+            "        get",
+            "        {",
+            "            return 1;",
+            "        }",
+            "",
+            attribute,
+            "        set { }",
+            "    }",
+            "}",
+        ]);
+
+        var slice = SourceLinkResolver.ExtractMethodBody(source, 6, 8, "get_Prop");
+
+        Assert.Equal("public int Prop\n{\n    get\n    {\n        return 1;\n    }", slice);
+    }
+
+    /// <summary>
+    /// Three shapes in which the sibling-accessor question is asked of something that is not a
+    /// sibling. All three fail at the merge base with main as well, so they are latent defects
+    /// in the line-based scanner rather than anything this branch introduced, and all three
+    /// stop being expressible once declarations are located over a token stream instead of
+    /// re-derived from each line's text:
+    /// <list type="bullet">
+    /// <item>An inactive <c>#if</c> region is read as live code, so a "set" the compiler
+    /// discards ends the slice (adversarial review, GPT).</item>
+    /// <item>A block comment opened by the member's own trailing code starts a sibling trivia
+    /// run on its continuation, so the slice keeps the opener and drops the rest (adversarial
+    /// review, GPT). Round 9 excluded <c>InBlockComment</c> from the ownership rule on the
+    /// grounds that a line inside a comment is trivia whoever opened it; that reasoning was
+    /// wrong for a comment the member opened.</item>
+    /// <item>A constant pattern spelled "set" at the head of a switch arm is read as the
+    /// sibling accessor (adversarial review, Gemini).</item>
+    /// </list>
+    /// Pinned at today's answer so none can widen unnoticed and closing them is a visible test
+    /// change. Constructor recovery changes one of the three answers for the better; the row
+    /// records which.
+    /// </summary>
+    [Theory]
+    [InlineData(
+        "public class C\n{\n    public int P\n    {\n        get\n        {\n            return 1;\n        #if false\n        }\n        set { }\n        #endif\n        }\n        set { }\n    }\n}",
+        5, 7, "get_P",
+        "public int P\n{\n    get\n    {\n        return 1;")]
+    [InlineData(
+        "public class C\n{\n    public int P\n    {\n        get\n        {\n            return 1;\n        } /* setter comment\n           continued\n        */\n        set { }\n    }\n}",
+        5, 7, "get_P",
+        "public int P\n{\n    get\n    {\n        return 1;\n    } /* setter comment")]
+    [InlineData(
+        "class C {\n    const int set = 0;\n    int Prop {\n        get {\n            int x = 0;\n            return x switch {\n                // comment\n                set => 2,\n                _ => 1\n            };\n        }\n    }\n}\n",
+        4, 6, "get_Prop",
+        // On this branch the switch-arm case improves: the capture starts with a type header
+        // and no member declaration is found inside it, so it reports absent rather than
+        // returning a truncated type header. The other two rows are unchanged, because their
+        // captures begin at the property, not the type.
+        null)]
+    public void TheSiblingQuestionAskedOfSomethingThatIsNotASibling_TruncatesTheSlice_KnownGap(
+        string source, int startLine, int endLine, string methodName, string? truncated)
+    {
+        Assert.Equal(truncated, SourceLinkResolver.ExtractMethodBody(source, startLine, endLine, methodName));
+    }
+
+    /// <summary>
+    /// A preprocessor directive ahead of the sibling is the sibling's trivia, not the member's
+    /// code. It must be the first token on its line, so it is recognized once the carried
+    /// constructs are accounted for (adversarial review, MAI-Code).
+    /// </summary>
+    [Theory]
+    [InlineData("        #region Preview")]
+    [InlineData("#if DEBUG")]
+    [InlineData("        #pragma warning disable CS0618")]
+    public void ADirectiveAheadOfTheSibling_IsTrivia_NotTheMembersCode(string directive)
+    {
+        var source = string.Join('\n',
+        [
+            "public class C",
+            "{",
+            "    public int P",
+            "    {",
+            "        get",
+            "        {",
+            "            return 1;",
+            "        }",
+            directive,
+            "        set { }",
+            "    }",
+            "}",
+        ]);
+
+        var slice = SourceLinkResolver.ExtractMethodBody(source, 5, 8, "get_P");
+
+        Assert.Equal("public int P\n{\n    get\n    {\n        return 1;\n    }", slice);
+    }
+
+    /// <summary>
+    /// A line inside a carried *literal* is the member's own code, so it is the one carried
+    /// construct that is not the sibling's trivia. A raw string spelling "set" would otherwise
+    /// be read as the sibling itself.
+    /// </summary>
+    [Fact]
+    public void ALineInsideARawStringLiteral_IsTheMembersCode_NotTrivia()
+    {
+        var source = string.Join('\n',
+        [
+            "public class C",
+            "{",
+            "    public string P",
+            "    {",
+            "        get",
+            "        {",
+            "            return \"\"\"",
+            "                set",
+            "                \"\"\";",
+            "        }",
+            "        set { }",
+            "    }",
+            "}",
+        ]);
+
+        var slice = SourceLinkResolver.ExtractMethodBody(source, 5, 7, "get_P");
+
+        Assert.Equal(
+            "public string P\n{\n    get\n    {\n        return \"\"\"\n            set\n            \"\"\";\n    }",
+            slice);
+    }
+
+    /// <summary>
+    /// Running to the sibling must still stop short of what belongs to the sibling. Its own
+    /// blank lines, comments, and attribute lists are not the member's source.
+    /// </summary>
+    [Fact]
+    public void TheSiblingsOwnLeadingTrivia_IsNotPartOfTheMember()
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public int P",
+            "    {",
+            "        get",
+            "        {",
+            "            return 1;",
+            "        }",
+            "",
+            "        // the setter",
+            "        [System.Obsolete]",
+            "        set { }",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, 7, "get_P");
+
+        Assert.Equal("public int P\n{\n    get\n    {\n        return 1;\n    }", slice);
+    }
+
+    /// <summary>
+    /// A range that stops inside a nested block still recovers the accessor's brace, not the
+    /// nested one: later closes overwrite earlier ones, so the outermost wins.
+    /// </summary>
+    [Fact]
+    public void ARangeEndingInsideANestedBlock_StillRecoversTheAccessorsBrace()
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public int Prop",
+            "    {",
+            "        get",
+            "        {",
+            "            if (true)",
+            "            {",
+            "                return 1;",
+            "            }",
+            "            return 2;",
+            "        }",
+            "        set { }",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, 9, "get_Prop");
+
+        Assert.Equal(
+            "public int Prop\n{\n    get\n    {\n        if (true)\n        {\n            return 1;\n        }\n        return 2;\n    }",
+            slice);
+    }
+
+    /// <summary>
+    /// And the mirror of that, for the same reason the comment and literal cases needed one:
+    /// the line that *closes* a multi-line attribute list can carry the sibling itself, and
+    /// suppressing the question for the whole line swallowed it (adversarial review, GPT).
+    /// This is over-capture, which still parses, so the validity gate cannot see it.
+    /// </summary>
+    [Fact]
+    public void SiblingAccessorOnAMultiLineAttributesClosingLine_StillEndsTheSlice()
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    private int _;",
+            "    public int P",
+            "    {",
+            "        get => 1;",
+            "        [System.Obsolete(",
+            "            \"reason\")] set => _ = value;",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 6, 6, "get_P");
+
+        Assert.Equal("public int P\n{\n    get => 1;", slice);
+    }
+
+    /// <summary>
+    /// A bracketed construct may span lines, and a line inside one is not a declaration. With
+    /// no bracket state carried across lines, an attribute named for an accessor truncated the
+    /// member it was attached to (adversarial review, GPT).
+    /// </summary>
+    [Fact]
+    public void AccessorKeywordInsideAMultiLineAttributeList_IsNotASibling()
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public int P",
+            "    {",
+            "        get",
+            "        {",
+            "            int x = 1;",
+            "            [",
+            "            set",
+            "            ]",
+            "            void Local() { }",
+            "            return x;",
+            "        }",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
+
+        Assert.Contains("void Local() { }", slice);
+        Assert.Contains("return x;", slice);
+    }
+
+    /// <summary>
+    /// The attribute list is now measured by the shared scanner rather than by a second,
+    /// simpler one that started reading a literal at its quote. That copy took <c>@"x""</c>
+    /// for a closed string and then read a <c>]</c> in its text as the list's terminator,
+    /// hiding the sibling that followed (adversarial review, GPT).
+    /// </summary>
+    [Theory]
+    [InlineData("[Foo(@\"x\"\" ] y\")] set => _ = value;")]
+    [InlineData("[Foo(\"\"\" ] \"\"\")] set => _ = value;")]
+    [InlineData("[Foo(\"a ] b\")] set => _ = value;")]
+    [InlineData("[Foo(']')] set => _ = value;")]
+    public void LiteralsInsideAnAttributeList_DoNotTerminateIt(string sibling)
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public int P",
+            "    {",
+            "        get => 1;",
+            "        " + sibling,
+            "    }",
+            "    private int _;",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
+
+        Assert.Equal("public int P\n{\n    get => 1;", slice);
+    }
+
+    /// <summary>
+    /// The mirror of the case above. A line that *closes* a multi-line comment or literal and
+    /// then declares a real sibling accessor is code from that point, so suppressing the
+    /// question whenever the line merely began inside one over-captured past the sibling
+    /// (adversarial review, MAI-Code). The question is asked of the line's code, not of whether
+    /// the line started as code.
+    /// </summary>
+    [Theory]
+    [InlineData("/*", "         */ set => _ = value;")]
+    [InlineData("/* multi", "line */ set => _ = value;")]
+    [InlineData("/*", "         */ [Foo] set => _ = value;")]
+    public void SiblingAccessorAfterAClosingComment_StillEndsTheSlice(string open, string close)
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public int P",
+            "    {",
+            "        get => 1;",
+            "        " + open,
+            "        " + close,
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
+
+        Assert.Equal("public int P\n{\n    get => 1;", slice);
+    }
+
+    /// <summary>
+    /// A sequence range that ends on a statement above the member's closing brace must still
+    /// recover the whole member. The forward scan used to stop at the first non-empty line
+    /// below the range, so every statement after that one — and the closing brace with them —
+    /// was dropped, and the slice did not parse (adversarial review, MAI-Code).
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(5)]
+    public void RangeEndingAboveTheClosingBrace_RecoversTheWholeMember(int trailingStatements)
+    {
+        var body = Enumerable.Range(1, trailingStatements).Select(n => $"        int v{n} = {n};");
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public void M()",
+            "    {",
+            "        int x = 0;",
+            .. body,
+            "    }",
+            "}",
+        ];
+
+        var text = string.Join("\n", lines);
+
+        // The range stops on the first statement; everything below it belongs to the member.
+        var slice = SourceLinkResolver.ExtractMethodBody(text, startLine: 4, endLine: 5, methodName: "M");
+
+        Assert.NotNull(slice);
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.EndsWith($"int v{trailingStatements} = {trailingStatements};\n}}", slice);
+    }
+
+    /// <summary>
+    /// The boundary the scan above must not cross: a member that terminates its own declaration
+    /// owns no brace below it, so the next one closes the enclosing type (issue #3278).
+    /// </summary>
+    [Theory]
+    [InlineData("public string P => \"{\";", "get_P")]
+    [InlineData("public int P { get; set; }", "get_P")]
+    [InlineData("public string R() => \"\"\";\";", "R")]
+    public void MemberThatClosesItsOwnDeclaration_DoesNotTakeTheTypeBrace(string member, string name)
+    {
+        var text = string.Join("\n", ["public class C", "{", "    " + member, "}"]);
+
+        var slice = SourceLinkResolver.ExtractMethodBody(text, startLine: 3, endLine: 3, methodName: name);
+
+        Assert.Equal(member, slice);
+    }
+}

@@ -220,12 +220,58 @@ static class AuthoredCorpusHistoryCard
     static string FormatPct(double value) => value.ToString("F1", CultureInfo.InvariantCulture) + "%";
 }
 
-internal sealed record HistoryRunValidDifferent(int Total, int FrontierIlExact, int FrontierIlDiff);
+/// <summary>
+/// The valid-different partition for one run. <see cref="Total"/> must equal the sum
+/// of the five sub-buckets; the three added after the store's first rows are nullable
+/// so that a row predating them reads as <em>not recorded</em> rather than as zero.
+/// <see cref="AuthoredCorpusHistoryCardTests"/> enforces both the sum and the rule
+/// that only grandfathered rows may omit them.
+/// </summary>
+internal sealed record HistoryRunValidDifferent(
+    int Total,
+    int FrontierIlExact,
+    int FrontierIlDiff,
+    int? Lowering = null,
+    int? KnownTaste = null,
+    int? FrontierIlNoVerdict = null)
+{
+    /// <summary>True when every sub-bucket was recorded, so the partition is checkable.</summary>
+    public bool IsComplete => Lowering is not null && KnownTaste is not null && FrontierIlNoVerdict is not null;
+
+    /// <summary>
+    /// Sum of the recorded sub-buckets, or null when the partition is incomplete.
+    ///
+    /// <para>Widened to <see cref="long"/> so the addition cannot wrap. A recorded row
+    /// can be caller-supplied via <c>--ratchet-baseline</c>, and sub-buckets of
+    /// <c>int.MaxValue, int.MaxValue, 51</c> summed as <see cref="int"/> to exactly 49 —
+    /// a partition that "closed" only because it overflowed.</para>
+    /// </summary>
+    public long? SubBucketSum => IsComplete
+        ? (long)Lowering!.Value + KnownTaste!.Value + FrontierIlExact + FrontierIlDiff + FrontierIlNoVerdict!.Value
+        : null;
+
+    /// <summary>True when no recorded sub-bucket is a negative count.</summary>
+    public bool CountsAreNonNegative
+        => Total >= 0
+            && FrontierIlExact >= 0
+            && FrontierIlDiff >= 0
+            && Lowering is not < 0
+            && KnownTaste is not < 0
+            && FrontierIlNoVerdict is not < 0;
+}
 
 internal sealed record HistoryRunInvalidBreakdown(
     [property: JsonRequired] int ProductBodyDefect,
     [property: JsonRequired] int HarnessShellReconstruction,
-    [property: JsonRequired] int Unclassified);
+    [property: JsonRequired] int Unclassified)
+{
+    /// <summary>Sum of the recorded reason buckets, to compare against <c>invalid</c>.</summary>
+    public long Sum => (long)ProductBodyDefect + HarnessShellReconstruction + Unclassified;
+
+    /// <summary>True when no recorded reason bucket is a negative count.</summary>
+    public bool CountsAreNonNegative
+        => ProductBodyDefect >= 0 && HarnessShellReconstruction >= 0 && Unclassified >= 0;
+}
 
 internal sealed record HistoryRun(
     [property: JsonRequired] string? Date,
@@ -240,13 +286,67 @@ internal sealed record HistoryRun(
     HistoryRunInvalidBreakdown? InvalidBreakdown,
     int Unsupported,
     int Drift,
-    bool Honest,
+    [property: JsonPropertyName("inputsComplete")] bool InputsComplete,
     [property: JsonPropertyName("sweepManifestSha256")] string? SweepManifestSha256,
-    int? MethodologyVersion = null)
+    int? MethodologyVersion = null,
+    /// <summary>
+    /// Identity of the corpus this run measured. Absent on every row recorded before
+    /// the ratchet, which is why absence is compared as a distinct value rather than
+    /// waved through: an unidentified corpus is not the same as a matching one.
+    /// </summary>
+    [property: JsonPropertyName("corpusSha256")] string? CorpusSha256 = null,
+    int? NotFull = null,
+    int? UnknownOutcome = null,
+    /// <summary>
+    /// Identity of the assembly pool this run measured: the named, content-hashed
+    /// assemblies themselves. Distinct from the older <c>sweepManifestSha256</c>, which
+    /// hashed the sweep manifest and so described only half the pool; rows carrying
+    /// only that field record no pool identity under the current scheme, and absence is
+    /// compared as a distinct value rather than waved through.
+    /// </summary>
+    [property: JsonPropertyName("poolSha256")] string? PoolSha256 = null)
 {
     // Rows predating the span-attribution change carry no methodologyVersion;
     // treat them as v1 (substitution lower bound).
     public int Methodology => MethodologyVersion ?? 1;
+
+    /// <summary>
+    /// True when every top-level bucket was recorded, so
+    /// <see cref="TopLevelSum"/> can be compared against <see cref="Evaluated"/>.
+    /// </summary>
+    public bool TopLevelIsComplete => ValidDifferent is not null && NotFull is not null && UnknownOutcome is not null;
+
+    /// <summary>
+    /// Sum of the recorded top-level buckets, or null when any is unrecorded. Widened
+    /// to <see cref="long"/> for the same reason as <see cref="HistoryRunValidDifferent.SubBucketSum"/>:
+    /// a sum that can wrap is not a partition check.
+    /// </summary>
+    public long? TopLevelSum => TopLevelIsComplete
+        ? (long)Correct + ValidDifferent!.Total + Invalid + NotFull!.Value + Drift + Unsupported + UnknownOutcome!.Value
+        : null;
+
+    /// <summary>
+    /// True when no recorded count on the row, at any level, is negative.
+    ///
+    /// <para>A sum that closes is not by itself evidence that the row is arithmetically
+    /// real: a negative bucket lets any other bucket be arbitrarily large while the
+    /// total still lands on <c>evaluated</c>. That is not hypothetical — it is how a
+    /// reviewer forged a row reporting <c>invalid: 0</c> alongside
+    /// <c>productBodyDefect: 100</c>. Non-negativity is what makes closure mean every
+    /// bucket is bounded by the run's own size.</para>
+    /// </summary>
+    public bool CountsAreNonNegative
+        => Evaluated >= 0
+            && PoolMatched >= 0
+            && PoolTotal >= 0
+            && Correct >= 0
+            && Invalid >= 0
+            && Unsupported >= 0
+            && Drift >= 0
+            && NotFull is not < 0
+            && UnknownOutcome is not < 0
+            && ValidDifferent is not { CountsAreNonNegative: false }
+            && InvalidBreakdown is not { CountsAreNonNegative: false };
 }
 
 [MarkoutSerializable(TitleProperty = nameof(Title), DescriptionProperty = nameof(WindowNote), AutoFields = false)]

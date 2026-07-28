@@ -187,11 +187,11 @@ public static class SectionNames
     /// <summary>Section for objective cost facts.</summary>
     public const string CostFacts = "Cost Facts";
 
-    /// <summary>Section for the bounded outbound call tree (callees) rooted at the selected member.</summary>
+    /// <summary>
+    /// Section for the bidirectional call graph centred on the selected member: bounded inbound
+    /// callers and bounded outbound callees in one shape.
+    /// </summary>
     public const string CallGraph = "Call Graph";
-
-    /// <summary>Section for the bounded reverse call tree (callers) rooted at the selected member.</summary>
-    public const string CallerGraph = "Caller Graph";
 
     /// <summary>Section for unsafe-relevant members in a type.</summary>
     public const string UnsafeMembers = "Unsafe Members";
