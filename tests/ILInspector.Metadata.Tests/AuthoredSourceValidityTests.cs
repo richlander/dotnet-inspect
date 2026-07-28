@@ -1474,6 +1474,71 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
+    /// A construct carried into a line belongs to whichever side opened it, and an open trivia
+    /// run is what says which. A raw string inside the sibling's own attribute is the
+    /// sibling's, so it must not end the run — reading the literal alone ended it, and the
+    /// attribute was left in the slice (adversarial review, Gemini).
+    /// </summary>
+    [Theory]
+    [InlineData("        [System.Obsolete(\n            \"\"\"\n            msg\n            \"\"\"\n        )]")]
+    [InlineData("        [System.Obsolete(\n            @\"a\n            b\")]")]
+    public void ALiteralInsideTheSiblingsAttribute_DoesNotEndTheTriviaRun(string attribute)
+    {
+        var source = string.Join('\n',
+        [
+            "public class C",
+            "{",
+            "    public int Prop",
+            "    {",
+            "        get",
+            "        {",
+            "            return 1;",
+            "        }",
+            "",
+            attribute,
+            "        set { }",
+            "    }",
+            "}",
+        ]);
+
+        var slice = SourceLinkResolver.ExtractMethodBody(source, 6, 8, "get_Prop");
+
+        Assert.Equal("public int Prop\n{\n    get\n    {\n        return 1;\n    }", slice);
+    }
+
+    /// <summary>
+    /// A preprocessor directive ahead of the sibling is the sibling's trivia, not the member's
+    /// code. It must be the first token on its line, so it is recognized once the carried
+    /// constructs are accounted for (adversarial review, MAI-Code).
+    /// </summary>
+    [Theory]
+    [InlineData("        #region Preview")]
+    [InlineData("#if DEBUG")]
+    [InlineData("        #pragma warning disable CS0618")]
+    public void ADirectiveAheadOfTheSibling_IsTrivia_NotTheMembersCode(string directive)
+    {
+        var source = string.Join('\n',
+        [
+            "public class C",
+            "{",
+            "    public int P",
+            "    {",
+            "        get",
+            "        {",
+            "            return 1;",
+            "        }",
+            directive,
+            "        set { }",
+            "    }",
+            "}",
+        ]);
+
+        var slice = SourceLinkResolver.ExtractMethodBody(source, 5, 8, "get_P");
+
+        Assert.Equal("public int P\n{\n    get\n    {\n        return 1;\n    }", slice);
+    }
+
+    /// <summary>
     /// A line inside a carried *literal* is the member's own code, so it is the one carried
     /// construct that is not the sibling's trivia. A raw string spelling "set" would otherwise
     /// be read as the sibling itself.

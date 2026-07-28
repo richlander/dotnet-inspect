@@ -1002,7 +1002,7 @@ public class SourceLinkResolver
                 if (resume >= 0 && OpensSiblingAccessor(lines[i][resume..]))
                     return triviaRunStart >= 0 ? triviaRunStart : i;
 
-                triviaRunStart = HoldsOnlyTrivia(lines[i], state)
+                triviaRunStart = HoldsOnlyTrivia(lines[i], state, triviaRunStart >= 0)
                     ? (triviaRunStart >= 0 ? triviaRunStart : i)
                     : -1;
             }
@@ -1030,17 +1030,30 @@ public class SourceLinkResolver
     /// predicate must be asked of the line's code, not its text.
     /// </para>
     /// <para>
-    /// A line still inside a carried literal is the member's code, not the sibling's trivia,
-    /// so it is the one carried construct that answers no.
+    /// A carried literal or attribute list belongs to whichever side opened it, and the run
+    /// answers that: every line since it began held only trivia, so a construct still open is
+    /// the sibling's. With no run open there is nothing above but the member, so the construct
+    /// is the member's code. Reading the literal alone got the first half wrong — a raw string
+    /// inside the sibling's own attribute broke the run and left the attribute in the slice
+    /// (adversarial review, Gemini) — and reading neither got the second half wrong, which is
+    /// how a collection expression came to be discarded as an attribute list in round 8.
+    /// </para>
+    /// <para>
+    /// A preprocessor directive is trivia too. It must be the first token on its line, so it
+    /// is recognized once the carried constructs are accounted for (adversarial review,
+    /// MAI-Code).
     /// </para>
     /// </summary>
-    private static bool HoldsOnlyTrivia(string line, LexState state)
+    private static bool HoldsOnlyTrivia(string line, LexState state, bool runOpen)
     {
-        if (state.InLiteral)
+        if (!runOpen && (state.InLiteral || state.BracketDepth > 0))
             return false;
 
         int resume = IndexWhereCodeResumes(line, state);
         if (resume < 0)
+            return true;
+
+        if (!state.InBlockComment && !state.InLiteral && line.AsSpan().TrimStart().StartsWith("#"))
             return true;
 
         var rest = StripLeadingComments(line[resume..].TrimStart());
