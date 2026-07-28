@@ -154,8 +154,9 @@ public sealed class LibraryBodyIndex
     /// <para>
     /// For a consumer under a hard memory ceiling that is done asking call-graph questions. This
     /// deliberately does <em>not</em> drop the evidence-domain caches — method signals, caller-loop
-    /// evidence, root-reach roll-ups, unsafe-evidence grouping — which serve other producers and
-    /// together retain well under a megabyte. Prefer <see cref="ReleaseScopeGraph"/> between
+    /// evidence, root-reach roll-ups, unsafe-evidence grouping, generated-framework type sets, and
+    /// the optimization-opportunity arrays — which serve other producers and together retain well
+    /// under a megabyte. Prefer <see cref="ReleaseScopeGraph"/> between
     /// renders that keep visiting members of this same assembly: the single-assembly maps are
     /// comparatively small and are what make repeated requests cheap. Everything rebuilds on next
     /// use, so this only trades time for memory.

@@ -339,8 +339,10 @@ public class LibraryBodyIndexTests
         // Evidence-domain caches the release methods deliberately retain.
         string[] retainedCaches =
         [
+            "_allocationFanoutOpportunities",
             "_directCallerLoops",
             "_generatedFrameworkTypes",
+            "_opportunities",
             "_rootReachByToken",
             "_signals",
             "_unsafeEvidenceByMember",
@@ -383,17 +385,31 @@ public class LibraryBodyIndexTests
             return index;
         }
 
+        // Every non-readonly instance field on this type is a lazy cache, so the filter is just
+        // "mutable state" rather than a type-shaped guess. An earlier version excluded value types
+        // and so silently missed the two ImmutableArray caches, which is the same blind spot this
+        // test exists to catch.
         static IEnumerable<FieldInfo> MutableCacheFields()
             => typeof(LibraryBodyIndex)
-                .GetFields(BindingFlags.NonPublic | BindingFlags.Instance)
-                .Where(field => field.Name.StartsWith('_') && !field.IsInitOnly && !field.FieldType.IsValueType);
+                .GetFields(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance)
+                .Where(field => field.Name.StartsWith('_') && !field.IsInitOnly);
 
         static List<string> PopulatedCaches(LibraryBodyIndex index)
             => MutableCacheFields()
-                .Where(field => field.GetValue(index) is not null)
+                .Where(field => IsPopulated(field.GetValue(index)))
                 .Select(field => field.Name)
                 .OrderBy(name => name, StringComparer.Ordinal)
                 .ToList();
+
+        // ImmutableArray caches signal "not yet computed" with IsDefault, not with null.
+        static bool IsPopulated(object? value)
+        {
+            if (value is null)
+                return false;
+
+            var isDefault = value.GetType().GetProperty("IsDefault");
+            return isDefault is null || !(bool)isDefault.GetValue(value)!;
+        }
     }
 
     // #3342: the whole-graph maps behind the call-tree builders (definition map, distinct-caller
