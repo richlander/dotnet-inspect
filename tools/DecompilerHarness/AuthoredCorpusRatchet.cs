@@ -115,7 +115,8 @@ static class AuthoredCorpusRatchet
         int Invalid,
         int? ProductBodyDefect,
         int Methodology,
-        bool MethodologyStated = true)
+        bool MethodologyStated = true,
+        bool Identified = true)
     {
         public static RunMetrics From(HistoryRun run)
             => new(
@@ -124,7 +125,8 @@ static class AuthoredCorpusRatchet
                 run.Invalid,
                 run.InvalidBreakdown?.ProductBodyDefect,
                 run.Methodology,
-                run.MethodologyVersion is not null);
+                run.MethodologyVersion is not null,
+                run.PoolSha256 is not null || run.CorpusSha256 is not null);
     }
 
     /// <summary>
@@ -311,13 +313,7 @@ static class AuthoredCorpusRatchet
         // product metric silently unratcheted. Build only emits a metric both sides can
         // state, so an omission anywhere shrinks the comparison while it still prints
         // RATCHET OK.
-        if (candidate.MethodologyStated && candidate.ProductBodyDefect is null)
-        {
-            missing = "invalidBreakdown";
-            return false;
-        }
-
-        if (current.MethodologyStated && current.ProductBodyDefect is null)
+        if (MustStateTheProductMetric(candidate) || MustStateTheProductMetric(current))
         {
             missing = "invalidBreakdown";
             return false;
@@ -326,6 +322,25 @@ static class AuthoredCorpusRatchet
         missing = "";
         return true;
     }
+
+    /// <summary>
+    /// Whether a row is required to state <c>productBodyDefect</c>.
+    ///
+    /// <para>Only rows recorded before the metric existed may omit it, and trusting the
+    /// absent methodology stamp alone to prove that was not enough: a reviewer shed the
+    /// metric from a freshly fabricated baseline simply by deleting <em>both</em> fields
+    /// rather than claiming a version. Absence is not evidence of age when the author
+    /// chooses what to write.</para>
+    ///
+    /// <para>The rows that predate the metric also predate run identity, so a row that
+    /// identifies itself is demonstrably not one of them. That is checkable rather than
+    /// asserted, and it costs nothing: a live run always records both digests, so a
+    /// baseline comparable to one must record them too (<see cref="RunKey.IsComparableTo"/>
+    /// compares their presence symmetrically). A fabricated baseline therefore cannot
+    /// be both comparable and grandfathered.</para>
+    /// </summary>
+    static bool MustStateTheProductMetric(RunMetrics row)
+        => row.ProductBodyDefect is null && (row.MethodologyStated || row.Identified);
 
     static IReadOnlyList<Metric> Build(RunMetrics baseline, RunMetrics current)
     {

@@ -337,8 +337,11 @@ static class Program
 
         // --help is answered after flag validation, not during parsing. Returning 0
         // from the parse loop let "--ratchet-baseline <path> --help" silently ignore the
-        // gate flag, which is the one thing these checks exist to prevent.
-        if (showHelp && ratchetBaselinePath is null && !integrityOnly)
+        // gate flag, which is the one thing these checks exist to prevent. The gate flag
+        // itself has to be in this condition too: guarding only the two ratchet options
+        // left "--benchmark-authored-corpus <missing> --help" printing usage and exiting
+        // 0, which is the same silently-ignored gate one flag over.
+        if (showHelp && !benchmarkAuthoredCorpus && ratchetBaselinePath is null && !integrityOnly)
         {
             PrintUsage();
             return 0;

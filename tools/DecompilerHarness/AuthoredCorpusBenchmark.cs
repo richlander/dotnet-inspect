@@ -27,13 +27,21 @@ static class AuthoredCorpusBenchmark
     /// </summary>
     internal const int MethodologyVersion = SpanAttribution.MethodologyVersion;
 
+    /// <param name="output">
+    /// Where the report is written. Defaults to standard output; tests pass their own
+    /// writer so that capturing a run does not mutate process-global console state,
+    /// which raced other test classes under xunit's parallel runner.
+    /// </param>
     public static int Run(
         IReadOnlyList<string> assemblies,
         string corpusPath,
         bool json,
         string? ratchetBaselinePath = null,
-        bool integrityOnly = false)
+        bool integrityOnly = false,
+        TextWriter? output = null)
     {
+        output ??= Console.Out;
+
         if (!File.Exists(corpusPath))
         {
             Console.Error.WriteLine($"Corpus file not found: {corpusPath}");
@@ -127,9 +135,9 @@ static class AuthoredCorpusBenchmark
             corpusSha256);
 
         if (json)
-            return WriteJson(results, records.Count, inputs, baselines, integrityOnly);
+            return WriteJson(results, records.Count, inputs, baselines, integrityOnly, output);
 
-        return WriteCard(results, records.Count, inputs, baselines, integrityOnly);
+        return WriteCard(results, records.Count, inputs, baselines, integrityOnly, output);
     }
 
     /// <summary>
@@ -163,8 +171,18 @@ static class AuthoredCorpusBenchmark
         int malformed = 0;
         foreach (var line in File.ReadLines(corpusPath))
         {
+            // Counted, not skipped. A reviewer replaced one corpus row with whitespace
+            // and the run reported 99 rows, 0 malformed, inputsComplete true — the
+            // denominator quietly shortened, which is the shape of defect this gate
+            // exists to catch. Blank lines are not a legitimate part of a JSONL corpus,
+            // and File.ReadLines does not manufacture one for the trailing newline.
             if (string.IsNullOrWhiteSpace(line))
+            {
+                malformed++;
+                Console.Error.WriteLine("Skipping malformed corpus row: the line is empty, so a row was erased rather than absent.");
                 continue;
+            }
+
             try
             {
                 if (JsonSerializer.Deserialize<AuthoredSourceHarvest.CorpusRecord>(line, options) is { } record)
@@ -188,7 +206,8 @@ static class AuthoredCorpusBenchmark
         int corpusRows,
         RunInputs inputs,
         IReadOnlyList<HistoryRun>? baselines,
-        bool integrityOnly)
+        bool integrityOnly,
+        TextWriter output)
     {
         var census = Census(results);
         int match = census.Correct;
@@ -198,51 +217,51 @@ static class AuthoredCorpusBenchmark
         int valid = match + different;
         var invalidBreakdown = InvalidBreakdown(results);
 
-        Console.WriteLine($"AUTHORED-SOURCE CORPUS BENCHMARK");
-        Console.WriteLine();
-        Console.WriteLine($"  corpus rows        : {corpusRows}");
-        Console.WriteLine($"  assemblies matched : {inputs.MatchedAssemblies} / {inputs.CorpusAssemblies}");
+        output.WriteLine($"AUTHORED-SOURCE CORPUS BENCHMARK");
+        output.WriteLine();
+        output.WriteLine($"  corpus rows        : {corpusRows}");
+        output.WriteLine($"  assemblies matched : {inputs.MatchedAssemblies} / {inputs.CorpusAssemblies}");
         if (inputs.UnmatchedRows > 0)
-            Console.WriteLine($"  rows without asm   : {inputs.UnmatchedRows} (BLOCKER: no local assembly supplied)");
+            output.WriteLine($"  rows without asm   : {inputs.UnmatchedRows} (BLOCKER: no local assembly supplied)");
         if (inputs.MalformedRows > 0)
-            Console.WriteLine($"  malformed rows     : {inputs.MalformedRows} (BLOCKER: corpus row dropped, denominator is short)");
-        Console.WriteLine($"  targets evaluated  : {evaluated}");
+            output.WriteLine($"  malformed rows     : {inputs.MalformedRows} (BLOCKER: corpus row dropped, denominator is short)");
+        output.WriteLine($"  targets evaluated  : {evaluated}");
         if (evaluated == 0)
-            Console.WriteLine($"  (BLOCKER: no targets evaluated — nothing was checked)");
+            output.WriteLine($"  (BLOCKER: no targets evaluated — nothing was checked)");
 
-        Console.WriteLine();
-        Console.WriteLine($"  Correct  (valid, matches authored)  : {match}");
-        Console.WriteLine($"  Valid    (valid, differs)           : {different}");
-        Console.WriteLine($"    lowering (inherent, unrecoverable): {census.Lowering}");
-        Console.WriteLine($"    known taste (documented decision) : {census.KnownTaste}");
-        Console.WriteLine($"    frontier, IL-exact (cosmetic)     : {census.FrontierIlExact}");
-        Console.WriteLine($"    frontier, IL-diff (semantic)      : {census.FrontierIlDiff}");
-        Console.WriteLine($"    UNMEASURED (oracle no verdict)    : {census.FrontierIlNoVerdict}");
-        Console.WriteLine($"  Invalid  (does not round-trip)      : {invalid}");
-        Console.WriteLine($"    product body defects              : {invalidBreakdown.ProductBodyDefect}");
-        Console.WriteLine($"    harness shell reconstruction      : {invalidBreakdown.HarnessShellReconstruction}");
-        Console.WriteLine($"    unclassified invalid              : {invalidBreakdown.Unclassified}");
-        Console.WriteLine($"  Not-Full (uncheckable at Full)      : {census.NotFull}");
-        Console.WriteLine($"  Drift    (corpus source unresolved) : {census.Drift}");
-        Console.WriteLine($"  Unsupported (rts-target)            : {census.Unsupported}");
-        Console.WriteLine($"  Unknown outcome (unclassified)      : {census.UnknownOutcome}");
-        Console.WriteLine();
+        output.WriteLine();
+        output.WriteLine($"  Correct  (valid, matches authored)  : {match}");
+        output.WriteLine($"  Valid    (valid, differs)           : {different}");
+        output.WriteLine($"    lowering (inherent, unrecoverable): {census.Lowering}");
+        output.WriteLine($"    known taste (documented decision) : {census.KnownTaste}");
+        output.WriteLine($"    frontier, IL-exact (cosmetic)     : {census.FrontierIlExact}");
+        output.WriteLine($"    frontier, IL-diff (semantic)      : {census.FrontierIlDiff}");
+        output.WriteLine($"    UNMEASURED (oracle no verdict)    : {census.FrontierIlNoVerdict}");
+        output.WriteLine($"  Invalid  (does not round-trip)      : {invalid}");
+        output.WriteLine($"    product body defects              : {invalidBreakdown.ProductBodyDefect}");
+        output.WriteLine($"    harness shell reconstruction      : {invalidBreakdown.HarnessShellReconstruction}");
+        output.WriteLine($"    unclassified invalid              : {invalidBreakdown.Unclassified}");
+        output.WriteLine($"  Not-Full (uncheckable at Full)      : {census.NotFull}");
+        output.WriteLine($"  Drift    (corpus source unresolved) : {census.Drift}");
+        output.WriteLine($"  Unsupported (rts-target)            : {census.Unsupported}");
+        output.WriteLine($"  Unknown outcome (unclassified)      : {census.UnknownOutcome}");
+        output.WriteLine();
         if (valid + invalid > 0)
         {
             double correctPct = valid == 0 ? 0 : 100.0 * match / valid;
             double validPct = evaluated == 0 ? 0 : 100.0 * valid / evaluated;
-            Console.WriteLine($"  Valid rate         : {valid}/{evaluated} ({validPct:F1}%)");
-            Console.WriteLine($"  Correct rate       : {match}/{valid} of valid ({correctPct:F1}%)");
+            output.WriteLine($"  Valid rate         : {valid}/{evaluated} ({validPct:F1}%)");
+            output.WriteLine($"  Correct rate       : {match}/{valid} of valid ({correctPct:F1}%)");
         }
 
-        WriteReasonBuckets("Frontier, IL-diff (semantic) reasons", results, result => ClassifyTaste(result) == TasteBucket.FrontierIlDiff);
-        WriteReasonBuckets("Frontier, IL-exact (cosmetic) reasons", results, result => ClassifyTaste(result) == TasteBucket.FrontierIlExact);
-        WriteReasonBuckets("Lowering (inherent) reasons", results, result => ClassifyTaste(result) == TasteBucket.Lowering);
-        WriteReasonBuckets("Known-taste reasons", results, result => ClassifyTaste(result) == TasteBucket.KnownTaste);
-        WriteReasonBuckets("Invalid reasons", results, result => ClassifyTaste(result) == TasteBucket.Invalid);
-        WriteReasonBuckets("Not-Full reasons", results, result => ClassifyTaste(result) == TasteBucket.NotFull);
-        WriteReasonBuckets("Drift reasons", results, result => ClassifyTaste(result) == TasteBucket.Drift);
-        WriteReasonBuckets("Unsupported reasons", results, result => ClassifyTaste(result) == TasteBucket.Unsupported);
+        WriteReasonBuckets("Frontier, IL-diff (semantic) reasons", results, result => ClassifyTaste(result) == TasteBucket.FrontierIlDiff, output);
+        WriteReasonBuckets("Frontier, IL-exact (cosmetic) reasons", results, result => ClassifyTaste(result) == TasteBucket.FrontierIlExact, output);
+        WriteReasonBuckets("Lowering (inherent) reasons", results, result => ClassifyTaste(result) == TasteBucket.Lowering, output);
+        WriteReasonBuckets("Known-taste reasons", results, result => ClassifyTaste(result) == TasteBucket.KnownTaste, output);
+        WriteReasonBuckets("Invalid reasons", results, result => ClassifyTaste(result) == TasteBucket.Invalid, output);
+        WriteReasonBuckets("Not-Full reasons", results, result => ClassifyTaste(result) == TasteBucket.NotFull, output);
+        WriteReasonBuckets("Drift reasons", results, result => ClassifyTaste(result) == TasteBucket.Drift, output);
+        WriteReasonBuckets("Unsupported reasons", results, result => ClassifyTaste(result) == TasteBucket.Unsupported, output);
 
         // Both output modes share one exit contract and one partition check, so a
         // malformed run cannot pass in text mode and fail in --json mode.
@@ -515,7 +534,8 @@ static class AuthoredCorpusBenchmark
     static void WriteReasonBuckets(
         string title,
         IReadOnlyList<ReturnToSenderSourceProbeResult> results,
-        Func<ReturnToSenderSourceProbeResult, bool> predicate)
+        Func<ReturnToSenderSourceProbeResult, bool> predicate,
+        TextWriter output)
     {
         var buckets = results
             .Where(predicate)
@@ -526,10 +546,10 @@ static class AuthoredCorpusBenchmark
         if (buckets.Length == 0)
             return;
 
-        Console.WriteLine();
-        Console.WriteLine($"  {title}:");
+        output.WriteLine();
+        output.WriteLine($"  {title}:");
         foreach (var bucket in buckets)
-            Console.WriteLine($"    {bucket.Count(),5}  {bucket.Key}");
+            output.WriteLine($"    {bucket.Count(),5}  {bucket.Key}");
     }
 
     static int WriteJson(
@@ -537,7 +557,8 @@ static class AuthoredCorpusBenchmark
         int corpusRows,
         RunInputs inputs,
         IReadOnlyList<HistoryRun>? baselines,
-        bool integrityOnly)
+        bool integrityOnly,
+        TextWriter output)
     {
         var census = Census(results);
         var invalidBreakdown = InvalidBreakdown(results);
@@ -630,7 +651,7 @@ static class AuthoredCorpusBenchmark
             }),
         };
 
-        Console.WriteLine(JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
+        output.WriteLine(JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true }));
 
         // Same partition check and exit contract as the text-report path. The ratchet
         // verdict goes to stderr here so it stays visible without corrupting the JSON

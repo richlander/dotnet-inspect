@@ -67,8 +67,9 @@ public class AuthoredCorpusRatchetTests
         int correct = 1576,
         int invalid = 5198,
         int? productBodyDefect = 326,
-        int methodology = 2)
-        => new(valid, correct, invalid, productBodyDefect, methodology);
+        int methodology = 2,
+        bool identified = true)
+        => new(valid, correct, invalid, productBodyDefect, methodology, MethodologyStated: true, Identified: identified);
 
     /// <summary>
     /// The contract an ordinary caller gets: whatever the presence of a baseline
@@ -519,6 +520,61 @@ public class AuthoredCorpusRatchetTests
         Assert.NotEqual(firstOrder, secondOrder);
     }
 
+    /// <summary>
+    /// An erased row is a dropped row, not an absent one. A reviewer replaced one corpus
+    /// row with whitespace and the run reported one fewer row, zero malformed, and
+    /// <c>inputsComplete: true</c> — the denominator quietly shortened, which is exactly
+    /// the shape of defect the integrity half of the exit contract exists to catch.
+    ///
+    /// <para>This runs the real benchmark rather than <c>ReadCorpus</c> alone, because
+    /// the reviewer's other point was that the wiring was ungated: they changed
+    /// <c>InputsComplete</c> to ignore <c>malformedRows</c> and the whole suite still
+    /// passed.</para>
+    /// </summary>
+    [Fact]
+    public void Benchmark_CountsAnErasedCorpusRowAsMalformed()
+    {
+        using var pool = new TempPool();
+        string original = typeof(AuthoredCorpusRatchetTests).Assembly.Location;
+        string identity = AuthoredSourceHarvest.ReadAssemblyIdentity(original).Name;
+        string assembly = pool.Write("only", "Copy.dll", File.ReadAllBytes(original));
+
+        string row = $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"source":"class T { }"}""";
+        string intact = pool.Write("intact", "corpus.jsonl", Encoding.UTF8.GetBytes($"{row}\n{row}\n"));
+        string erased = pool.Write("erased", "corpus.jsonl", Encoding.UTF8.GetBytes($"{row}\n   \n"));
+
+        using var sound = JsonDocument.Parse(RunForJson([assembly], intact));
+        using var shortened = JsonDocument.Parse(RunForJson([assembly], erased));
+
+        Assert.Equal(0, sound.RootElement.GetProperty("malformedRows").GetInt32());
+        Assert.True(sound.RootElement.GetProperty("inputsComplete").GetBoolean());
+
+        Assert.Equal(1, shortened.RootElement.GetProperty("malformedRows").GetInt32());
+        Assert.False(shortened.RootElement.GetProperty("inputsComplete").GetBoolean());
+    }
+
+    /// <summary>
+    /// The exit code, end to end, on the same erased corpus. A shortened denominator has
+    /// to fail even under <c>--integrity-only</c>, which declines to judge quality but
+    /// never declines to judge whether the measurement happened.
+    /// </summary>
+    [Fact]
+    public void Benchmark_FailsIntegrityOnAnErasedCorpusRow()
+    {
+        using var pool = new TempPool();
+        string original = typeof(AuthoredCorpusRatchetTests).Assembly.Location;
+        string identity = AuthoredSourceHarvest.ReadAssemblyIdentity(original).Name;
+        string assembly = pool.Write("only", "Copy.dll", File.ReadAllBytes(original));
+
+        string row = $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"source":"class T { }"}""";
+        string erased = pool.Write("erased", "corpus.jsonl", Encoding.UTF8.GetBytes($"{row}\n\n"));
+
+        int exit = AuthoredCorpusBenchmark.Run(
+            [assembly], erased, json: false, integrityOnly: true, output: new StringWriter());
+
+        Assert.Equal(1, exit);
+    }
+
     /// <summary>Runs the benchmark for its JSON and reports the pool it identified.</summary>
     static string PoolIdentityOf(string[] assemblies, string corpusPath)
     {
@@ -526,21 +582,17 @@ public class AuthoredCorpusRatchetTests
         return report.RootElement.GetProperty("poolSha256").GetString()!;
     }
 
-    /// <summary>Runs the real benchmark and returns the JSON report it wrote.</summary>
+    /// <summary>
+    /// Runs the real benchmark and returns the JSON report it wrote. The writer is
+    /// passed in rather than swapped onto <see cref="Console"/>: process-global console
+    /// state is shared with every other test class, and under xunit's parallel runner
+    /// (two threads here) capturing it made these assertions intermittently read another
+    /// class's output.
+    /// </summary>
     static string RunForJson(string[] assemblies, string corpusPath)
     {
         var captured = new StringWriter();
-        var restore = Console.Out;
-        try
-        {
-            Console.SetOut(captured);
-            AuthoredCorpusBenchmark.Run(assemblies, corpusPath, json: true, integrityOnly: true);
-        }
-        finally
-        {
-            Console.SetOut(restore);
-        }
-
+        AuthoredCorpusBenchmark.Run(assemblies, corpusPath, json: true, integrityOnly: true, output: captured);
         return captured.ToString();
     }
 
@@ -594,11 +646,11 @@ public class AuthoredCorpusRatchetTests
     public void Ratchet_UnrecordedProductDefectsAreOmittedNotTreatedAsZero()
     {
         var comparison = AuthoredCorpusRatchet.Compare(
-            Key(),
-            Metrics(productBodyDefect: 326),
-            [Row(productBodyDefect: null, methodology: null)]);
+            Key(sha: null, corpusSha: null),
+            Metrics(productBodyDefect: 326, identified: false),
+            [Row(productBodyDefect: null, methodology: null, sha: null, corpusSha: null)]);
 
-        Assert.False(comparison.Skipped);
+        Assert.False(comparison.Skipped, comparison.SkipReason);
         Assert.DoesNotContain(comparison.Metrics, metric => metric.Name == "productBodyDefect");
         Assert.Empty(comparison.Regressions);
     }
@@ -1039,11 +1091,27 @@ public class AuthoredCorpusRatchetTests
     [Fact]
     public void Ratchet_ARowPredatingTheMetricStillRatchetsTheRest()
     {
-        var unstamped = Row(productBodyDefect: null, methodology: null);
-        var comparison = AuthoredCorpusRatchet.Compare(Key(), Metrics(methodology: 2), [unstamped]);
+        // Grandfathered on both counts: no methodology stamp and no run identity. Such
+        // a row is only ever comparable to another row from the same era, because a run
+        // that identifies itself is not comparable to one that does not — which is why
+        // the run key here is hashless too.
+        var unstamped = Row(productBodyDefect: null, methodology: null, sha: null, corpusSha: null);
+        var comparison = AuthoredCorpusRatchet.Compare(
+            Key(sha: null, corpusSha: null),
+            Metrics(methodology: 2, identified: false),
+            [unstamped]);
 
         Assert.False(comparison.Skipped, comparison.SkipReason);
         Assert.Equal(["valid", "correct", "invalid"], comparison.Metrics.Select(metric => metric.Name));
+
+        // And a row that identifies itself cannot claim the same grandfathering: an
+        // author who deletes both the stamp and the breakdown from a fresh baseline is
+        // shedding the metric, not recording history.
+        var fabricated = AuthoredCorpusRatchet.Compare(
+            Key(), Metrics(methodology: 2), [Row(productBodyDefect: null, methodology: null)]);
+
+        Assert.True(fabricated.Skipped);
+        Assert.Contains("invalidBreakdown", fabricated.SkipReason!, StringComparison.Ordinal);
     }
 
     /// <summary>
