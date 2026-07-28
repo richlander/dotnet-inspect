@@ -343,9 +343,17 @@ public class AuthoredCorpusHarnessProcessTests
     /// <para>Both runs are asserted because the flag only changes which contract is
     /// <em>reported</em>: the exit codes here are identical, so an exit-code check would
     /// see nothing. The corpus is a single real harvested row, and the claim does not
-    /// depend on how that row decompiles — if the assembly drifts so the row no longer
-    /// resolves, the run still reaches its verdict and still names the contract it
-    /// applied. This asserts the plumbing, not the quality.</para>
+    /// depend on how that row decompiles — corrupting its token, method, type, or
+    /// checksum still reaches the verdict and still names the contract applied, so
+    /// ordinary drift in <c>ILInspector.CSharp</c> cannot rot this into a false green.
+    /// This asserts the plumbing, not the quality.</para>
+    ///
+    /// <para>One drift does end the run early: renaming the assembly the row was
+    /// harvested from, after which nothing in the pool matches it and the harness
+    /// measures nothing. That is asserted separately rather than left to surface as an
+    /// unexplained absence of <c>[integrity-only]</c>, because the negative assertion
+    /// below would otherwise be satisfied by a run that never got started — this PR's
+    /// characteristic defect, in its own test.</para>
     /// </summary>
     [Fact]
     public void Harness_ForwardsIntegrityOnlyToTheBenchmark()
@@ -356,10 +364,22 @@ public class AuthoredCorpusHarnessProcessTests
         string assembly = typeof(ILInspector.CSharp.CSharpFormatter).Assembly.Location;
 
         var requested = RunHarness(assembly, "--benchmark-authored-corpus", corpus, "--integrity-only");
+        AssertTheBenchmarkActuallyRan(requested);
         Assert.Contains("[integrity-only]", requested.Output, StringComparison.Ordinal);
 
         var notRequested = RunHarness(assembly, "--benchmark-authored-corpus", corpus);
+        AssertTheBenchmarkActuallyRan(notRequested);
         Assert.DoesNotContain("[integrity-only]", notRequested.Output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The run reached a verdict, so an assertion about which contract it reported is
+    /// about the contract and not about the run having died first.
+    /// </summary>
+    static void AssertTheBenchmarkActuallyRan(HarnessRun run)
+    {
+        Assert.DoesNotContain("measured nothing", run.Output, StringComparison.Ordinal);
+        Assert.Contains("targets evaluated", run.Output, StringComparison.Ordinal);
     }
 
     /// <summary>
