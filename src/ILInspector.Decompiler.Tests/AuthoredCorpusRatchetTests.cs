@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
@@ -368,7 +369,7 @@ public class AuthoredCorpusRatchetTests
 
         Assert.Equal(AuthoredCorpusRatchet.PoolDigest([monday]), AuthoredCorpusRatchet.PoolDigest([restaged]));
         Assert.NotEqual(AuthoredCorpusRatchet.PoolDigest([monday]), AuthoredCorpusRatchet.PoolDigest([rebuilt]));
-        Assert.Equal(16, AuthoredCorpusRatchet.PoolDigest([monday]).Length);
+        Assert.Equal(64, AuthoredCorpusRatchet.PoolDigest([monday]).Length);
     }
 
     /// <summary>
@@ -395,6 +396,52 @@ public class AuthoredCorpusRatchetTests
         Assert.NotEqual(
             AuthoredCorpusRatchet.PoolDigest([sweep, realWorld]),
             AuthoredCorpusRatchet.PoolDigest([sweep]));
+    }
+
+    /// <summary>
+    /// A one-file pool cannot forge a two-file pool's identity. The composition is
+    /// built from fixed-width digests precisely so that it cannot be ambiguous: a Linux
+    /// file name may contain both the field separator (<c>:</c>) and the record
+    /// separator (<c>\n</c>), so interpolating the name raw would let a single
+    /// adversarially-named file produce the identity string of a pool it is not.
+    ///
+    /// <para>The forged name below spells out a complete second record. Under raw
+    /// interpolation the two pools hash the same; under the digested composition they
+    /// cannot, because the whole forged name collapses into one fixed-width field.</para>
+    /// </summary>
+    [Fact]
+    public void PoolDigest_CannotBeForgedByAFileNameThatSpellsASeparator()
+    {
+        using var pool = new TempPool();
+        string honest = pool.Write("honest-a", "A.dll", [1, 1, 1]);
+        string second = pool.Write("honest-b", "B.dll", [2, 2, 2]);
+
+        // "A.dll:<sha of A's bytes>\nB.dll" — a name that closes A's record and opens B's.
+        string forgedName = $"A.dll:{Convert.ToHexStringLower(SHA256.HashData(new byte[] { 1, 1, 1 }))}\nB.dll";
+        string forged = pool.Write("forge", forgedName, [2, 2, 2]);
+
+        Assert.NotEqual(
+            AuthoredCorpusRatchet.PoolDigest([honest, second]),
+            AuthoredCorpusRatchet.PoolDigest([forged]));
+    }
+
+    /// <summary>
+    /// The digests are an integrity gate, so they are full SHA-256 and not truncated.
+    /// An earlier revision kept the first eight bytes; a reviewer pointed out that a
+    /// 64-bit identity falls to a birthday attack in roughly 2^32 operations, which
+    /// would let a pool or corpus be swapped underneath a recorded baseline while its
+    /// recorded identity still matched.
+    /// </summary>
+    [Fact]
+    public void Digests_AreFullSha256_NotTruncated()
+    {
+        using var pool = new TempPool();
+        string assembly = pool.Write("full", "A.dll", [7, 7, 7]);
+
+        Assert.Equal(64, AuthoredCorpusRatchet.PoolDigest([assembly]).Length);
+        Assert.Equal(
+            Convert.ToHexStringLower(SHA256.HashData(new byte[] { 7, 7, 7 })),
+            AuthoredCorpusRatchet.CorpusDigest(assembly));
     }
 
     /// <summary>A run that measured nothing identifies no pool, and says so.</summary>
@@ -755,11 +802,67 @@ public class AuthoredCorpusRatchetTests
     [Fact]
     public void TrackedHistory_NewestRowDoesNotRegressAgainstItsBaseline()
     {
-        var comparison = AuthoredCorpusRatchet.CompareNewestRow(AuthoredCorpusHistoryCardTests.TrackedHistory());
+        var tracked = AuthoredCorpusHistoryCardTests.TrackedHistory();
+        var comparison = AuthoredCorpusRatchet.CompareNewestRow(tracked);
+        var newest = tracked[^1];
+        var baseline = tracked[^2];
 
         Assert.False(comparison.Skipped, comparison.SkipReason);
-        Assert.NotEmpty(comparison.Metrics);
         Assert.Empty(comparison.Regressions);
+
+        // Naming the metrics, rather than asserting the list is merely non-empty, is
+        // what keeps this gate honest: a metric is compared only when both rows state
+        // it, so one that quietly drops out leaves a green comparison that ratchets
+        // less than it appears to — which is how a reviewer shed a productBodyDefect
+        // regression by bumping methodologyVersion. A methodology change is the one
+        // legitimate reason for the drop (the metric's meaning changed), so pin that
+        // reason: any other cause fails here.
+        string[] expected = newest.Methodology == baseline.Methodology
+            ? ["valid", "correct", "invalid", "productBodyDefect"]
+            : ["valid", "correct", "invalid"];
+
+        // Today the store's baseline predates methodology stamping, so this takes the
+        // second branch and productBodyDefect is not yet ratcheted — a real gap, and a
+        // self-healing one: the next append compares against a stamped row. Nothing can
+        // re-open it, because TrackedHistory_NewestRowStatesTheMethodologyTheCodeProduces
+        // refuses an unstamped newest row.
+        Assert.Equal(expected, comparison.Metrics.Select(metric => metric.Name));
+    }
+
+    /// <summary>
+    /// The tracked store's rows are copied verbatim from a run, and a run stamps the
+    /// methodology constant the code was built with (<c>AuthoredCorpusBenchmark</c>'s
+    /// constant is an alias for <see cref="SpanAttribution.MethodologyVersion"/>, which
+    /// owns the rule) — so a row may not claim a methodology the code never produced,
+    /// and may not go unstamped.
+    ///
+    /// <para>Without this, the ratchet's one legitimate reason to drop a metric becomes
+    /// an escape hatch: a reviewer regressed <c>productBodyDefect</c> by 1,000 and hid
+    /// it simply by writing a higher <c>methodologyVersion</c> into the appended row.
+    /// The comparison then read that as a methodology bump, shed the metric, and
+    /// reported no regressions.</para>
+    /// </summary>
+    [Fact]
+    public void TrackedHistory_NewestRowStatesTheMethodologyTheCodeProduces()
+    {
+        var newest = AuthoredCorpusHistoryCardTests.TrackedHistory()[^1];
+
+        Assert.Equal(SpanAttribution.MethodologyVersion, newest.Methodology);
+    }
+
+    /// <summary>
+    /// The same escape hatch, closed from the product side for live runs: a baseline
+    /// claiming a methodology at or beyond the running code's cannot shed the metric it
+    /// defines. A row from the future is malformed, not historical.
+    /// </summary>
+    [Fact]
+    public void Ratchet_BaselineCannotShedAMetricByClaimingANewerMethodology()
+    {
+        var comparison = AuthoredCorpusRatchet.Compare(
+            Key(), Metrics(methodology: 2), [Row(productBodyDefect: null, methodology: 3)]);
+
+        Assert.True(comparison.Skipped);
+        Assert.Contains("invalidBreakdown", comparison.SkipReason!, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -865,4 +968,5 @@ public class AuthoredCorpusRatchetTests
             ["valid", "correct", "invalid", "productBodyDefect"],
             comparison.Regressions.Select(metric => metric.Name));
     }
+
 }

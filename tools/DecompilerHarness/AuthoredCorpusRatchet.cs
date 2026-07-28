@@ -292,7 +292,7 @@ static class AuthoredCorpusRatchet
 
         if (current.ProductBodyDefect is not null
             && candidate.ProductBodyDefect is null
-            && candidate.Methodology == current.Methodology)
+            && candidate.Methodology >= current.Methodology)
         {
             missing = "invalidBreakdown";
             return false;
@@ -352,9 +352,16 @@ static class AuthoredCorpusRatchet
     {
         ArgumentNullException.ThrowIfNull(assemblyPaths);
 
+        // Both halves are fixed-width digests, so the composition cannot be ambiguous.
+        // Interpolating the file name raw would not be safe: a Linux file name may
+        // contain ':' and '\n', so a single file named to embed a separator could forge
+        // the identity string of a two-file pool.
         var identities = new SortedSet<string>(StringComparer.Ordinal);
         foreach (var path in assemblyPaths)
-            identities.Add($"{Path.GetFileName(path)}:{Digest(File.ReadAllBytes(path))}");
+        {
+            string name = Digest(Encoding.UTF8.GetBytes(Path.GetFileName(path)));
+            identities.Add($"{name}:{Digest(File.ReadAllBytes(path))}");
+        }
 
         if (identities.Count == 0)
             throw new InvalidOperationException("The run measured no assemblies, so it identifies no pool.");
@@ -369,9 +376,15 @@ static class AuthoredCorpusRatchet
     /// </summary>
     internal static string CorpusDigest(string corpusPath) => Digest(File.ReadAllBytes(corpusPath));
 
-    /// <summary>First 8 bytes of SHA-256, lowercase hex, matching the store's 16-character form.</summary>
+    /// <summary>
+    /// Full SHA-256, lowercase hex. Deliberately untruncated: these digests are an
+    /// integrity gate, and a 64-bit identity falls to a birthday attack in about 2^32
+    /// operations — minutes of commodity GPU time — which would let a pool or corpus be
+    /// swapped underneath a recorded baseline while the identity still matched. The
+    /// only cost of the full value is column width in a store nothing reads by hand.
+    /// </summary>
     static string Digest(ReadOnlySpan<byte> content)
-        => Convert.ToHexStringLower(SHA256.HashData(content).AsSpan(0, 8));
+        => Convert.ToHexStringLower(SHA256.HashData(content));
 
     /// <summary>
     /// Renders the ratchet verdict. A skip is printed as loudly as a failure, because

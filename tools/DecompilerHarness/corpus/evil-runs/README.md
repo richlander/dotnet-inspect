@@ -269,6 +269,14 @@ remembering an argument has the same shape as the gate nobody invoked (#3245).
 Identity is file name plus content, never path, because the pool is staged to a
 different directory on every run.
 
+Both digests are full SHA-256, and the per-assembly records compose two
+fixed-width digests rather than interpolating the file name raw. Neither is
+incidental: a truncated 64-bit identity falls to a birthday attack in about
+2^32 operations, which would let a pool be swapped underneath a recorded
+baseline while its identity still matched; and a Linux file name may contain
+both separators, so a raw name could spell a second record and let one file
+forge a two-file pool's identity.
+
 `corpusSha256` identifies the corpus itself, because the counts do not. Swapping
 in a different 12,000 rows — or editing a single row's authored body — preserves
 `evaluated` and the pool, so without it a wholly different measurement compared
