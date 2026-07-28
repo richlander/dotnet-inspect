@@ -86,6 +86,12 @@ public class SourceLinkResolver
     /// <see cref="IndexOutOfRangeException"/>, which callers already handle by treating the source
     /// as unavailable.
     /// <para>
+    /// Returns <see langword="null"/> when the range carries no authored member declaration to
+    /// isolate — a positional record's property accessor, a primary constructor, and a
+    /// constructor synthesized from field initializers all map to the enclosing type's header.
+    /// Callers must report that as absent source rather than rendering the captured text.
+    /// </para>
+    /// <para>
     /// <paramref name="isDestructor"/> must be set by the caller from the resolved member's
     /// identity (its kind/metadata name), not inferred from source text. A C# destructor's source
     /// line is "~Type(...)", which carries no accessibility keyword and whose metadata name
@@ -105,7 +111,7 @@ public class SourceLinkResolver
     /// grammar on one line.
     /// </para>
     /// </summary>
-    public static string ExtractMethodBody(string sourceText, int startLine, int endLine, string methodName, bool isDestructor = false, string? destructorTypeName = null)
+    public static string? ExtractMethodBody(string sourceText, int startLine, int endLine, string methodName, bool isDestructor = false, string? destructorTypeName = null)
     {
         var lines = sourceText.Split('\n');
         int start = startLine;
@@ -188,6 +194,15 @@ public class SourceLinkResolver
 
         var methodLines = lines[from..to];
 
+        // A positional record's property accessor, a primary constructor, and a constructor
+        // synthesized from field initializers have no authored member declaration of their own,
+        // so their sequence points legitimately land on the enclosing type's header. There is
+        // nothing to slice: returning the header would present a truncated type declaration as
+        // the member's source, which is wrong output rather than absent output. Report absence
+        // and let the caller say so.
+        if (DeclaresEnclosingType(methodLines))
+            return null;
+
         int minIndent = methodLines
             .Where(l => l.TrimStart().Length > 0)
             .Select(l => l.Length - l.TrimStart().Length)
@@ -196,6 +211,77 @@ public class SourceLinkResolver
 
         var dedented = methodLines.Select(l => l.Length >= minIndent ? l[minIndent..] : l);
         return string.Join('\n', dedented).TrimEnd();
+    }
+
+    /// <summary>
+    /// Keywords that make a declaration a type or namespace rather than a member.
+    /// <c>record</c> covers <c>record class</c> and <c>record struct</c>, whose second keyword
+    /// this never reaches. <c>namespace</c> belongs here because a range that opens on one has
+    /// walked clear past every member; none of these is a legal identifier, so no member
+    /// declaration can begin with one.
+    /// </summary>
+    private static readonly string[] TypeDeclarationKeywords =
+        ["class", "struct", "interface", "enum", "record", "delegate", "namespace"];
+
+    /// <summary>
+    /// Modifiers that may precede a type keyword. This is deliberately a superset of
+    /// <see cref="DeclarationModifiers"/> — <c>ref</c>, <c>file</c>, and <c>new</c> lead a type
+    /// declaration but not a member whose body carries sequence points.
+    /// </summary>
+    private static readonly string[] TypeDeclarationModifiers =
+        ["public", "private", "protected", "internal", "static", "abstract",
+         "sealed", "partial", "readonly", "ref", "file", "unsafe", "new"];
+
+    /// <summary>
+    /// True when the captured range opens a type declaration instead of a member declaration,
+    /// meaning the slice never found a member to isolate.
+    /// <para>
+    /// The match is token-based, walking leading modifiers until it reaches a type keyword or a
+    /// token that is neither. That distinction matters: a member such as
+    /// <c>public void Process(RecordBatch batch)</c> spells "Record" inside an identifier, and
+    /// <c>public int Classify()</c> spells "Class", so a substring test would misfire on both.
+    /// </para>
+    /// </summary>
+    private static bool DeclaresEnclosingType(string[] capturedLines)
+    {
+        foreach (var line in capturedLines)
+        {
+            var trimmed = line.TrimStart();
+            // Attributes, doc comments, comments, and directives may precede the declaration.
+            if (trimmed.Length == 0 || trimmed.StartsWith('[') || trimmed.StartsWith("//")
+                || trimmed.StartsWith('#'))
+                continue;
+
+            return OpensTypeDeclaration(trimmed);
+        }
+
+        return false;
+    }
+
+    private static bool OpensTypeDeclaration(string trimmed)
+    {
+        int index = 0;
+        while (index < trimmed.Length)
+        {
+            int end = index;
+            while (end < trimmed.Length && (char.IsLetterOrDigit(trimmed[end]) || trimmed[end] == '_'))
+                end++;
+
+            if (end == index)
+                return false;
+
+            var token = trimmed[index..end];
+            if (Array.IndexOf(TypeDeclarationKeywords, token) >= 0)
+                return true;
+            if (Array.IndexOf(TypeDeclarationModifiers, token) < 0)
+                return false;
+
+            index = end;
+            while (index < trimmed.Length && trimmed[index] == ' ')
+                index++;
+        }
+
+        return false;
     }
 
     /// <summary>

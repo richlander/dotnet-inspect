@@ -49,9 +49,16 @@ public class AuthoredSourceValidityTests
         /// Captured an enclosing type declaration. A positional record property, a primary
         /// constructor, and a field-initializer constructor have no authored member
         /// declaration of their own, so their sequence points legitimately land on the type
-        /// header and there is nothing for the slicer to slice.
+        /// header. The slicer reports these as absent, so this outcome must not occur; it
+        /// exists so that a regression names itself.
         /// </summary>
         TypeHeader,
+
+        /// <summary>
+        /// The slicer reported no authored declaration to isolate. This is the correct answer
+        /// for the type-header shapes above, not a failure.
+        /// </summary>
+        NotSliceable,
 
         /// <summary>Anything else, including a backward scan that started mid-body.</summary>
         Malformed,
@@ -162,8 +169,8 @@ public class AuthoredSourceValidityTests
                         member.FilePath,
                         member.StartLine,
                         member.EndLine,
-                        text,
-                        Classify(text)));
+                        text ?? "",
+                        text is null ? SliceOutcome.NotSliceable : Classify(text)));
                 }
             }
         }
@@ -217,15 +224,41 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
-    /// Characterizes the dominant remaining defect population so it stays visible and cannot
-    /// grow silently. These are *not* passing behavior: a positional record property currently
-    /// renders a truncated type header under an "Original Source" heading, which is wrong
-    /// output rather than absent output. The ceilings are deliberately loose — the corpus is
-    /// this repository's own assemblies, so exact counts move with unrelated edits — but they
-    /// fail if a change makes any category materially worse.
+    /// A member whose sequence points map to its declaring type's header has no authored
+    /// declaration to slice: a positional record's property accessor, a primary constructor,
+    /// and a constructor synthesized from field initializers all land there. Rendering the
+    /// header would present a truncated type declaration as the member's source — wrong output
+    /// wearing the shape of success — so the slicer reports absence instead.
+    /// <para>
+    /// Both halves are asserted. No slice may still carry a type header, and the absent
+    /// population must be non-empty, so the assertion cannot pass by the corpus simply never
+    /// reaching this path.
+    /// </para>
     /// </summary>
     [Fact]
-    public void TypeHeaderShapes_AreNotSliceable_KnownGap()
+    public void MembersWithNoAuthoredDeclaration_ReportAbsentSource_NotATruncatedTypeHeader()
+    {
+        var slices = SliceCorpus();
+        Assert.NotEmpty(slices);
+
+        var leaked = slices.Where(s => s.Outcome == SliceOutcome.TypeHeader).ToList();
+        Assert.True(
+            leaked.Count == 0,
+            $"{leaked.Count} slice(s) rendered a type header as member source:\n\n{Report(leaked)}");
+
+        Assert.NotEmpty(slices.Where(s => s.Outcome == SliceOutcome.NotSliceable));
+    }
+
+    /// <summary>
+    /// Characterizes the defect populations that remain so they stay visible and cannot grow
+    /// silently. These are not passing behavior — an under-captured property getter still
+    /// renders a partial accessor under an "Original Source" heading. The ceilings are
+    /// deliberately loose, because the corpus is this repository's own assemblies and exact
+    /// counts move with unrelated edits, but they fail if a change makes either category
+    /// materially worse.
+    /// </summary>
+    [Fact]
+    public void RemainingBoundaryDefects_StayWithinTheirCharacterizedCeilings()
     {
         var slices = SliceCorpus();
         Assert.NotEmpty(slices);
@@ -238,9 +271,61 @@ public class AuthoredSourceValidityTests
             "\n",
             counts.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Value,6}  {100.0 * kv.Value / slices.Count,5:F2}%  {kv.Key}"));
 
-        // Measured at 18.21%, 1.67%, and 0.30% over this corpus.
-        Assert.True(Rate(SliceOutcome.TypeHeader) < 22.0, $"type-header shapes grew:\n{summary}");
+        // Measured at 1.67% and 0.30% over this corpus.
         Assert.True(Rate(SliceOutcome.UnderCapture) < 3.0, $"under-capture grew:\n{summary}\n\n{Report(slices.Where(s => s.Outcome == SliceOutcome.UnderCapture))}");
         Assert.True(Rate(SliceOutcome.Malformed) < 1.5, $"malformed slices grew:\n{summary}\n\n{Report(slices.Where(s => s.Outcome == SliceOutcome.Malformed))}");
+    }
+
+    /// <summary>
+    /// Close negative cases for the type-declaration discriminator. Each of these members
+    /// spells a type keyword inside an identifier — "RecordBatch", "Classify", "Structure",
+    /// "Interfaces", "Enumerate", "NewClient" — so a substring test would misread every one of
+    /// them as a type header and report absent source for a member that has real source.
+    /// </summary>
+    [Theory]
+    [InlineData("public void Process(RecordBatch batch)")]
+    [InlineData("public int Classify()")]
+    [InlineData("private static string Structure()")]
+    [InlineData("internal bool Interfaces()")]
+    [InlineData("public static void Enumerate()")]
+    [InlineData("protected NewClient Build()")]
+    [InlineData("public sealed override int Recorded()")]
+    public void MembersSpellingTypeKeywordsInsideIdentifiers_AreStillSliced(string signature)
+    {
+        var source = string.Join('\n', [
+            "class C",                  // 1
+            "{",                        // 2
+            $"    {signature}",         // 3
+            "    {",                    // 4  <- StartLine
+            "        Use();",           // 5
+            "    }",                    // 6  <- EndLine
+            "}",                        // 7
+        ]);
+
+        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: "M");
+
+        Assert.NotNull(body);
+        Assert.Equal($"{signature}\n{{\n    Use();\n}}", body);
+    }
+
+    /// <summary>
+    /// Positive cases. A range that lands on a type header has no member declaration to
+    /// isolate, whatever modifiers lead it, so the slicer reports absence.
+    /// </summary>
+    [Theory]
+    [InlineData("public record ForwarderSummaryRow(")]
+    [InlineData("public class TypeView")]
+    [InlineData("internal readonly ref struct Slice")]
+    [InlineData("public sealed partial record struct Point(")]
+    [InlineData("file static class Helpers")]
+    public void RangesLandingOnATypeHeader_ReportAbsence(string declaration)
+    {
+        var source = string.Join('\n', [
+            "namespace N;",             // 1
+            declaration,                // 2  <- StartLine
+            "    int X = 1;",           // 3  <- EndLine
+        ]);
+
+        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 2, endLine: 3, methodName: ".ctor"));
     }
 }

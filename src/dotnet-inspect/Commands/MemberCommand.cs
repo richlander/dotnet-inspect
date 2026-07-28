@@ -319,6 +319,7 @@ public static class MemberCommand
                 {
                     MethodSource = resolved.Source,
                     MemberHasNoBody = resolved.MemberHasNoBody,
+                    MemberHasNoAuthoredDeclaration = resolved.MemberHasNoAuthoredDeclaration,
                     PdbPath = resolved.PdbPath
                 };
             }
