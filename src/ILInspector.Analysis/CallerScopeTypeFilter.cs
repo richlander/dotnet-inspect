@@ -36,9 +36,17 @@ namespace ILInspector.Analysis;
 /// are not re-derived here and cannot drift from it.</para>
 ///
 /// <para><b>Types the candidate defines itself.</b> A callee declared by a <c>TypeDef</c> is
-/// decoded against the defining assembly's own name and appears in no <c>TypeRef</c> row, so an
-/// assembly whose own identity canonicalizes to the target's is kept without scanning. This is the
-/// scope-contains-a-copy-of-the-target case.</para>
+/// decoded against the defining image's own name and appears in no <c>TypeRef</c> row, so an image
+/// whose own identity equals the target's is kept without scanning. This is the
+/// scope-contains-a-copy-of-the-target case.
+///
+/// That identity is asked of <see cref="TypeRefDecoder"/> rather than recomputed here, for the
+/// same reason the row scan reuses it. Deriving it by hand got it wrong: an image with no assembly
+/// manifest gives its definitions the <em>empty</em> assembly name, which
+/// <see cref="MemberPattern.MatchesCrossAssembly"/> compares like any other, so a
+/// <c>reader.IsAssembly</c> guard skipped the check entirely and ruled such a module out even for
+/// a type it declares itself. Every definition in an image carries the same assembly identity, so
+/// one row answers for all of them.</para>
 ///
 /// <para><b>Undecidable is kept.</b> A row that cannot be read, or a target that is not a plain
 /// type definition, yields <see cref="TypeReferenceState.Undecidable"/> and the candidate stays in
