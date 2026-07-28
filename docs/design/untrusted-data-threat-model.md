@@ -242,26 +242,48 @@ only ordinary compiler output.
 
 ## Open work
 
-1. Unify SourceLink provenance with source resolution. `AssemblyInspector`
+1. Unify SourceLink provenance with source resolution. Today `AssemblyInspector`
    reports the repository from the first `documents` entry while
    `SourceDocumentPathResolver` selects by longest matching pattern, so a
-   well-formed map with distinct keys can resolve source from one origin while
-   provenance names another. Requiring entries to agree on the *repository* is
-   not sufficient: the reader derives `owner/repo` and discards the commit, and
-   `raw.githubusercontent.com` serves any commit reachable in a repository,
-   including the head of an unmerged pull request. Two entries naming the same
-   repository at different commits would therefore "agree" while resolving
-   attacker-authored content. Require agreement on the full resolved URL prefix
-   including the commit, or derive provenance from the mapping the resolver
-   actually selects, and report nothing when entries disagree.
+   well-formed map can resolve source from one origin while provenance names
+   another.
 
-   Compare and extract on the *canonical* URL, not the literal mapping text.
-   `System.Uri` applies RFC 3986 dot-segment removal, so a value such as
-   `https://raw.githubusercontent.com/dotnet/runtime/<commit>/../../../owner/repo/<commit>/*`
-   is fetched from `owner/repo` while a regex over the raw string reports
-   `dotnet/runtime`. Canonicalize, or reject dot segments and their
-   percent-encoded equivalents, before both the comparison and the provenance
-   extraction.
+   State the fix as an invariant rather than a list of blocked tricks, because
+   each enumerated mitigation has proven incomplete under review:
+
+   > Reported provenance must describe the origin that source content is
+   > actually fetched from, for every document the assembly resolves. When that
+   > cannot be established for all of them, report no repository.
+
+   Establish it on the **final resolved URL, after wildcard substitution and
+   canonicalization** — not on the mapping text, and not on the mapping prefix
+   alone. Four concrete ways the weaker forms fail, all reproduced:
+
+   - Agreement on `owner/repo` ignores the commit, and
+     `raw.githubusercontent.com` serves any commit reachable in a repository,
+     including the head of an unmerged pull request. Two entries on one
+     repository at different commits "agree" while serving different code.
+   - `System.Uri` applies RFC 3986 dot-segment removal, so a mapping value
+     containing `../` is fetched from the traversed-to path while a regex over
+     the raw string reports the literal one.
+   - Even a clean mapping is not enough. The wildcard suffix comes from the PDB
+     document path, which is equally attacker-controlled, and
+     `EscapeSourceLinkPath` leaves `..` intact. A benign
+     `.../dotnet/runtime/<commit>/*` resolves
+     `/_/../../../attacker/evil/main/Program.cs` to a URL that canonicalizes
+     into `attacker/evil`.
+   - `System.Uri` preserves percent-encoded separators verbatim: `..%2f` and
+     `..%5c` survive canonicalization, so a "canonicalize, then prefix-check"
+     step passes while a server that percent-decodes before resolving dot
+     segments still traverses out. Reject encoded separators and encoded dot
+     segments rather than assuming canonicalization removed them.
+
+   Checking that the canonicalized resolved URL still lies beneath the
+   canonicalized mapping prefix addresses all four, but do not take that as
+   sufficient on its own: whatever check is implemented must ship with tests
+   covering at least these cases, since each was found only by attacking a
+   previous formulation of this item.
+
 2. Fix GitHub repository provenance. The precondition tests the value for
    `github.com`, which canonical `raw.githubusercontent.com` SourceLink URLs do
    not contain, so GitHub-hosted assemblies report no repository at all. Match
