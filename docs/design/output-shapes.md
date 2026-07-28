@@ -120,10 +120,11 @@ Numeric `--row N` is one-based and counts printable rows, not every row in the
 selected table. `first` and `last` are stable aliases for the endpoints of that
 printable-row sequence.
 
-Because `--print` is exactly-one, a payload that is declared but cannot be
-acquired is an error, not an omission. Failing to fetch the selected row's
-document reports that failure and exits non-zero; it never renders as an empty
-or short success.
+Because `--print` is exactly-one, failing to acquire the selected row's payload
+is an error, not an omission: it reports the failure and exits non-zero rather
+than rendering an empty or short success. This covers acquisition for the
+selected row; whether a section producer declares a row at all is that
+producer's concern.
 
 `-n N` / `--head N` and `--tail N` are rendered-line windows applied after
 printable-row cardinality is resolved and the payload is fetched. They do not
