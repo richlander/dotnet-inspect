@@ -64,9 +64,12 @@ carries `PrinterOptions.ReadableLocalNames` (default off) and consumes it in
 `ApiCommand` on top of the resolved `.dotnet-inspectconfig`/`--taste` render
 options — it is orthogonal to those style axes (a name synthesis, not a
 byte-divergent lens), so it never has to be reconciled against them and leaves
-the Annotated view's interleaved IL intact. The mode has no config key and is
-not oracle-endorsed, so a checked-in config and `--taste` never turn it on;
-only the explicit flag does. Default output stays byte-identical `V_index`.
+the Annotated view's interleaved IL intact. For a persistent form the catalog
+entry also carries the tool-owned config key
+`dotnet_inspect_style_readable_local_names`. Because the mode is byte-preserving
+(names do not affect IL) it is **not** oracle-endorsed, so the `--taste` /
+`dotnet_inspect_style_full_taste` aggregate never turns it on; only the explicit
+flag or its own key does. Default output stays byte-identical `V_index`.
 
 ## Open fork (historical — resolved above)
 
