@@ -725,6 +725,34 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
+    /// And the mirror of that, for the same reason the comment and literal cases needed one:
+    /// the line that *closes* a multi-line attribute list can carry the sibling itself, and
+    /// suppressing the question for the whole line swallowed it (adversarial review, GPT).
+    /// This is over-capture, which still parses, so the validity gate cannot see it.
+    /// </summary>
+    [Fact]
+    public void SiblingAccessorOnAMultiLineAttributesClosingLine_StillEndsTheSlice()
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    private int _;",
+            "    public int P",
+            "    {",
+            "        get => 1;",
+            "        [System.Obsolete(",
+            "            \"reason\")] set => _ = value;",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 6, 6, "get_P");
+
+        Assert.Equal("public int P\n{\n    get => 1;", slice);
+    }
+
+    /// <summary>
     /// A bracketed construct may span lines, and a line inside one is not a declaration. With
     /// no bracket state carried across lines, an attribute named for an accessor truncated the
     /// member it was attached to (adversarial review, GPT).
