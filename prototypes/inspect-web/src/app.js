@@ -6404,17 +6404,39 @@ window.addEventListener("popstate", () => {
   state.atPackageRoot = loc.atPackageRoot || false;
   state.packageLens = loc.packageLens || "overview";
   const samePackage = loc.package
-    && loc.package.toLowerCase() === state.package.id.toLowerCase()
-    && (!loc.version || loc.version.toLowerCase() === state.package.version.toLowerCase());
+    && (isRuntimePackId(loc.package)
+      ? isRuntimePackId(state.package.id)
+      : (loc.package.toLowerCase() === state.package.id.toLowerCase()
+        && (!loc.version || loc.version.toLowerCase() === state.package.version.toLowerCase())));
   if (samePackage || !loc.package) {
     applyDeepLink(loc);
     render();
     loadSelectionData();
+  } else if (isRuntimePackId(loc.package)) {
+    // The runtime pack has no nupkg; rebuild it from its TFM instead of 404-ing
+    // on a NuGet fetch when back/forward lands on a platform state.
+    pendingDeepLink = { type: loc.type, member: loc.member, overload: loc.overload, section: loc.section };
+    restoreRuntimePackFromHistory(loc);
   } else {
     pendingDeepLink = { type: loc.type, member: loc.member, overload: loc.overload, section: loc.section };
     loadPackage(loc.package, loc.version || "latest", loc.framework || "");
   }
 });
+
+// History (back/forward) landed on a .NET Platform state. Its resident pseudo-package
+// has no nupkg, so restore it via loadRuntimePack (usually already resident, so instant)
+// and re-apply the deep link, mirroring restoreInitialWorkspace's runtime-pack path.
+async function restoreRuntimePackFromHistory(loc) {
+  const pack = await loadRuntimePack(loc.framework || "");
+  const deep = pendingDeepLink;
+  pendingDeepLink = null;
+  if (pack) {
+    state.package = pack;
+    applyDeepLink(deep || loc);
+  }
+  render();
+  loadSelectionData();
+}
 
 bootstrap();
 
