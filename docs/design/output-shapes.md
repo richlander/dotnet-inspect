@@ -56,10 +56,16 @@ of the ladder families contributes in one of three ways:
 
 A fourth kind of flag does not walk the ladder at all: it *supplies an input the
 command has no other way to express*, and in doing so changes which sections
-exist to be selected. `--il-offset` is the family's one implemented member;
-`--heap` (see
+exist to be selected. The IL coordinate is the family's one implemented
+currency; `--heap` (see
 [metadata-table-projection.md](metadata-table-projection.md)) is designed to be
 the second.
+
+The family is counted in currencies, not flags, because one currency can have
+more than one spelling. The IL coordinate has two: `--il-offset` takes a single
+coordinate, and `--il-offsets` takes a file of them for batch reporting. They
+are mutually exclusive (`--il-offset cannot be combined with --il-offsets`) and
+carry the same currency, so they are one member of this family rather than two.
 
 A coordinate carrier is the right shape for a flag only when the input is a
 genuinely new currency — a value that is not a section name, a column name, or a
@@ -416,9 +422,10 @@ The stable vocabulary is:
   GitHub links, not the shape of the payload itself.
 - `--plaintext` remains distinct from `--bare`; if it stays in the product, it is
   a whole-document plain-text rendering mode rather than a bare-payload mode.
-- `--il-offset` is a coordinate carrier: it supplies an input that has no other
-  expression and gates the sections it makes meaningful. It does not narrow a
-  shape, and a flag qualifies for this family only if its input is a new
-  currency. `--heap` is the designed second member.
+- `--il-offset` / `--il-offsets` are coordinate carriers: they supply an input
+  that has no other expression and gate the sections it makes meaningful. They
+  do not narrow a shape, and a flag qualifies for this family only if its input
+  is a new currency. Both spell the same currency, so they are one member;
+  `--heap` is the designed second.
 
 New flags should fit one of those buckets rather than blending concepts.
