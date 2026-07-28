@@ -10,6 +10,7 @@ using CoreFactory = DotnetInspector.Core.HttpClientFactory;
 using DotnetInspector.Models;
 using DotnetInspector.Views;
 using ILInspector.Research;
+using DotnetInspector.Output;
 using Markout;
 
 namespace DotnetInspector.Tests;
@@ -883,6 +884,54 @@ public class UntrustedRelationshipContainmentTests : IDisposable
     }
 
     /// <summary>
+    /// The subject a command echoes back is its own channel.
+    /// </summary>
+    /// <remarks>
+    /// Every case here renders the caller's subject into a heading, a column,
+    /// or a diagnostic rather than into a result row. Round 12 contained the
+    /// rows and left all of these raw, which is why they are gated separately:
+    /// a green row assertion says nothing about the heading above it.
+    ///
+    /// The subject is untrusted despite arriving on the command line. The
+    /// threat model is an agent that reads a type or package name out of
+    /// inspected metadata and feeds it straight back into the next command, so
+    /// a hostile name reaches these channels without a human ever typing it.
+    /// </remarks>
+    public static TheoryData<string, string[], string> SubjectEchoChannels() => new()
+    {
+        // The subject must resolve wherever the channel only renders on a hit,
+        // or the case proves nothing: `implements` prints no heading when the
+        // interface is missing, and `find` renders no Pattern column when
+        // nothing matches. Both were caught doing exactly that.
+        { "extensions", ["extensions", "Derived" + Hazard + "INJECTEDDERIVED"], "INJECTEDDERIVED" },
+        { "implements", ["implements", "RelNs.IFace" + Hazard + "INJECTEDSUBJECT"], "INJECTEDSUBJECT" },
+        // A single pattern renders the subject in the heading; only a
+        // multi-pattern search renders the Pattern column. They are different
+        // owners, so both are exercised.
+        { "find-title", ["find", "Derived" + Hazard + "INJECTEDDERIVED"], "INJECTEDDERIVED" },
+        { "find-pattern", ["find", "Derived" + Hazard + "INJECTEDDERIVED,*"], "INJECTEDDERIVED" },
+        { "depends", ["depends", "Missing" + Hazard + "INJECTEDMISSING"], "INJECTEDMISSING" },
+    };
+
+    [Theory]
+    [MemberData(nameof(SubjectEchoChannels))]
+    public async Task EchoedSubject_WithHostileName_RendersNoHazard(string channel, string[] command, string marker)
+    {
+        // -v:d so columns that only appear in the detailed table -- notably
+        // find's Pattern column -- are actually rendered.
+        var (_, output, error) = await RunAppAsync([.. command, "--library", _path, "-v:d"]);
+
+        var combined = output + "\n" + error;
+
+        // Non-vacuity: the subject must actually have been echoed somewhere, or
+        // the hazard scan below is running over output that never carried it.
+        HostileOutputAssert.MarkersRendered(combined, channel, marker);
+
+        HostileOutputAssert.NoRenderingHazard(combined, channel);
+        HostileOutputAssert.NoLineSplit(combined, [marker]);
+    }
+
+    /// <summary>
     /// The IL view is a separate escaper from the C# literal escapers and from
     /// the decompiled-source printer, so a green result on either says nothing
     /// about it. The literal here is compiler-produced: an emitted one does not
@@ -945,9 +994,57 @@ public class UntrustedRelationshipContainmentTests : IDisposable
         takesHostile.GetILGenerator().Emit(OpCodes.Ret);
         derived.CreateType();
 
+        // `implements` only renders its heading when the interface resolves, so
+        // a hostile interface that nothing implements would leave that channel
+        // unexercised.
+        var hostileInterface = module.DefineType(
+            $"RelNs.IFace{Hazard}INJECTEDSUBJECT",
+            TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
+        var builtInterface = hostileInterface.CreateType();
+
+        // The implementer is hostile too: its row columns are a separate owner
+        // from the heading, and a benign implementer would leave them ungated.
+        var implementer = module.DefineType(
+            $"RelNs.Implementer{Hazard}INJECTEDIMPLEMENTER",
+            TypeAttributes.Public | TypeAttributes.Class);
+        implementer.AddInterfaceImplementation(builtInterface);
+        implementer.CreateType();
+
         ab.Save(path);
     }
 
     private static Task<(int exit, string output, string error)> RunAppAsync(params string[] args)
         => HostileCli.RunAsync(args);
+}
+
+/// <summary>
+/// Gates the <c>implements</c> row columns whose upstream is raw. The
+/// end-to-end relationship gate cannot reach <c>Library</c>: that column is the
+/// inspected assembly's file stem, and a hostile file name is not something a
+/// test can put on a real filesystem. This exercises the row's own owner
+/// instead, which is where issue #3319 placed containment.
+/// </summary>
+public class ImplementerRowContainmentTests
+{
+    [Fact]
+    public void ImplementerRow_WithHostileLibrary_ContainsHazard()
+    {
+        var view = ImplementsOutputFormatter.BuildView(
+            "IFace",
+            [
+                new ImplementerResult
+                {
+                    TypeName = "Ty\u202EINJECTEDTYPE",
+                    Kind = "class",
+                    Relationship = "implements",
+                    Assembly = "Lib\u202EINJECTEDLIBRARY"
+                }
+            ]);
+
+        var row = Assert.Single(view.Rows!);
+        HostileOutputAssert.NoRenderingHazard(row.Library, "Library");
+        HostileOutputAssert.NoRenderingHazard(row.Type, "Type");
+        Assert.Contains("INJECTEDLIBRARY", row.Library, StringComparison.Ordinal);
+        Assert.Contains("INJECTEDTYPE", row.Type, StringComparison.Ordinal);
+    }
 }

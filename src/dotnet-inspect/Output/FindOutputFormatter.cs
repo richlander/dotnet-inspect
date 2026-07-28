@@ -20,11 +20,11 @@ public static class FindOutputFormatter
 
         return new FindResultView
         {
-            Title = title ?? "Find Results",
+            Title = CSharpIdentifier.ContainRenderedText(title ?? "Find Results"),
             Matches = matchCount,
             Description = matchCount == 0 ? "No types found matching the pattern." : null,
             Results = matchCount == 0 ? null : results.Select(r => new FindRow(
-                r.Pattern,
+                CSharpIdentifier.ContainRenderedText(r.Pattern),
                 r.Match == MatchKind.NotFound ? "-" : CSharpIdentifier.ContainRenderedText(r.Type),
                 r.Match == MatchKind.NotFound ? "-" : CSharpIdentifier.ContainRenderedText(r.Namespace ?? ""),
                 r.Match == MatchKind.NotFound ? "-" : r.Kind,
@@ -46,11 +46,11 @@ public static class FindOutputFormatter
     {
         return new FindMembersResultView
         {
-            Title = title ?? "Find Members",
+            Title = CSharpIdentifier.ContainRenderedText(title ?? "Find Members"),
             Matches = results.Count,
             Description = results.Count == 0 ? "No members found matching the pattern." : null,
             Results = results.Count == 0 ? null : results.Select(r => new FindMemberRow(
-                r.Pattern,
+                CSharpIdentifier.ContainRenderedText(r.Pattern),
                 CSharpIdentifier.ContainRenderedText(r.Member),
                 r.Kind,
                 CSharpIdentifier.ContainRenderedText(r.DeclaringType),

@@ -1,3 +1,4 @@
+using ILInspector.CSharp;
 using DotnetInspector.Models;
 using DotnetInspector.Core;
 using ILInspector.Metadata;
@@ -2674,7 +2675,7 @@ public class PackageCommand
 
         var view = new PackageDependenciesView
         {
-            Title = $"{result.PackageName} {result.Version}",
+            Title = CSharpIdentifier.ContainRenderedText($"{result.PackageName} {result.Version}"),
             Dependencies = ToTreeNodes(depNodes)
         };
 
@@ -2682,13 +2683,24 @@ public class PackageCommand
         return 0;
     }
 
+    /// <summary>
+    /// Builds the dependency tree's labels.
+    /// </summary>
+    /// <remarks>
+    /// Every part of a label -- id, version, and author -- is nuspec text
+    /// chosen by whoever built the package, and a tree label sits in a gutter
+    /// where a line terminator forges a sibling node. Containment happens on
+    /// the composed label, after the parts are joined, so the separators cannot
+    /// be split apart either (issue #3319).
+    /// </remarks>
     private static List<TreeNode> ToTreeNodes(List<DependencyNode> nodes)
     {
         return nodes.Select(n =>
         {
-            var label = !string.IsNullOrEmpty(n.Author)
-                ? $"{n.PackageId} {n.Version} [{n.Author}]"
-                : $"{n.PackageId} {n.Version}";
+            var label = CSharpIdentifier.ContainRenderedText(
+                !string.IsNullOrEmpty(n.Author)
+                    ? $"{n.PackageId} {n.Version} [{n.Author}]"
+                    : $"{n.PackageId} {n.Version}");
             return n.Children.Count > 0
                 ? new TreeNode(label) { Children = ToTreeNodes(n.Children) }
                 : new TreeNode(label);

@@ -1,4 +1,5 @@
 using DotnetInspector.CommandLine;
+using DotnetInspector.Packages;
 using CoreFactory = DotnetInspector.Core.HttpClientFactory;
 using Xunit;
 
@@ -114,6 +115,16 @@ internal static class HostileCli
             {
                 CoreFactory.Initialize(offline: true);
                 CoreFactory.ResetSharedForTesting();
+
+                // Program.cs initializes the cache before dispatching, and the
+                // resolution paths that produce "not found" diagnostics go
+                // through it. Without this a gate on those diagnostics gets
+                // "CoreCache.Initialize must be called" instead of the message
+                // it means to inspect, and silently proves nothing. The
+                // production app name is used so this does not repoint the
+                // shared cache for later tests.
+                NuGetCache.Initialize("dotnet-inspect");
+
                 args = CommandLineBuilder.PreprocessArgs(args);
                 var root = CommandLineBuilder.CreateRootCommand();
                 return await root.Parse(args).InvokeAsync();
