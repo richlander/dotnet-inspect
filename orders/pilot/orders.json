@@ -24,6 +24,7 @@
       "paths": [
         "src/ILInspector.Decompiler/Pipeline/Ir/CSharpPrinter.Numerics.cs",
         "src/ILInspector.Decompiler/Pipeline/Ir/StyleOptionCatalog.cs",
+        "src/ILInspector.Decompiler/Pipeline/Ir/PrinterOptions.cs",
         "src/ILInspector.Decompiler.Tests/LongLiteralFoldTests.cs",
         "src/ILInspector.Decompiler.Tests/LongLiteralFoldFixture.cs"
       ],
