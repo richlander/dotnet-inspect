@@ -493,6 +493,11 @@ public class SourceLinkResolver
 
         int limit = Math.Min(lines.Length, to + ForwardScanLimit);
 
+        // Where the run of lines leading up to the current one stopped holding code, or -1
+        // when the current line does. A sibling's attributes and comments are the sibling's,
+        // so the member ends where that run began.
+        int triviaRunStart = -1;
+
         for (int i = to; i < limit; i++)
         {
             // Asked before the line is scanned, so it must be asked of the line's code alone. A
@@ -503,7 +508,11 @@ public class SourceLinkResolver
             {
                 int resume = IndexWhereCodeResumes(lines[i], state);
                 if (resume >= 0 && OpensSiblingAccessor(lines[i][resume..]))
-                    return IndexPastTrailingTrivia(lines, to, i);
+                    return triviaRunStart >= 0 ? triviaRunStart : i;
+
+                triviaRunStart = HoldsOnlyTrivia(lines[i], state)
+                    ? (triviaRunStart >= 0 ? triviaRunStart : i)
+                    : -1;
             }
 
             ScanLine(lines[i], state, ref depth);
@@ -519,40 +528,43 @@ public class SourceLinkResolver
     }
 
     /// <summary>
-    /// The end of a member that yielded to the sibling declaration on <paramref name="sibling"/>.
+    /// True when <paramref name="line"/> carries nothing but blank space, comments, or
+    /// attribute lists, given the state carried into it.
     /// <para>
-    /// Everything above that sibling is the member's, so the range runs to it. Returning the
-    /// original range instead discarded the accessor's own closing brace and the statements
-    /// above it (adversarial review, Gemini). Answering with the last brace that closed put
-    /// the end inside a lambda nested in an expression-bodied accessor, truncating the
-    /// expression (adversarial review, MAI-Code and Gemini, independently): a member with no
-    /// block of its own has no brace to find, so brace depth cannot answer this. The sibling's
-    /// own position can, and it does not care how either member is bodied.
+    /// Asking this of the line's text alone answered only for trivia that both opens and
+    /// closes on one line: a multi-line attribute list or block comment leading the sibling
+    /// was kept as the member's source, which does not parse (adversarial review, GPT). It is
+    /// the same lesson the sibling question itself took three rounds to learn — a line-level
+    /// predicate must be asked of the line's code, not its text.
     /// </para>
     /// <para>
-    /// Only the sibling's own leading trivia is given back. A line holding code is kept, so a
-    /// line that merely looks like trivia mid-construct costs nothing.
+    /// A line still inside a carried literal is the member's code, not the sibling's trivia,
+    /// so it is the one carried construct that answers no.
     /// </para>
     /// </summary>
-    private static int IndexPastTrailingTrivia(string[] lines, int from, int sibling)
+    private static bool HoldsOnlyTrivia(string line, LexState state)
     {
-        int end = sibling;
+        if (state.InLiteral)
+            return false;
 
-        while (end > from && HoldsOnlyTrivia(lines[end - 1]))
-            end--;
+        int resume = IndexWhereCodeResumes(line, state);
+        if (resume < 0)
+            return true;
 
-        return end;
-    }
+        var rest = StripLeadingComments(line[resume..].TrimStart());
 
-    /// <summary>
-    /// True when the line carries nothing but blank space, a comment, or an attribute list.
-    /// </summary>
-    private static bool HoldsOnlyTrivia(string line)
-    {
-        var trimmed = line.TrimStart();
-        return trimmed.Length == 0
-            || trimmed.StartsWith('[')
-            || StripLeadingComments(trimmed).Length == 0;
+        while (rest.StartsWith('['))
+        {
+            int close = IndexPastAttributeList(rest);
+
+            // The list runs past this line, so nothing else can be on it.
+            if (close < 0)
+                return true;
+
+            rest = StripLeadingComments(rest[close..].TrimStart());
+        }
+
+        return rest.Length == 0;
     }
 
     /// <summary>
