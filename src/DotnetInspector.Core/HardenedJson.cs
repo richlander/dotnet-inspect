@@ -24,11 +24,7 @@ namespace DotnetInspector.Core;
 /// </remarks>
 public static class HardenedJson
 {
-    /// <summary>
-    /// Document options that reject duplicate property names. Use this only for parses that cannot
-    /// go through <see cref="Parse(string)"/>, such as a <see cref="Utf8JsonReader"/> loop.
-    /// </summary>
-    public static JsonDocumentOptions DocumentOptions => new() { AllowDuplicateProperties = false };
+    private static JsonDocumentOptions DocumentOptions => new() { AllowDuplicateProperties = false };
 
     /// <summary>Parses a <see cref="JsonDocument"/>, rejecting duplicate property names.</summary>
     /// <exception cref="JsonException">The input is malformed or contains a duplicate property name.</exception>

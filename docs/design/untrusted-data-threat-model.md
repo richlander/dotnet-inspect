@@ -100,11 +100,14 @@ counterpart, kept separate because Metadata sits below the Core infrastructure l
 `AllowDuplicateProperties = false`, so such a payload fails visibly instead of binding one of
 several possible readings.
 
-This is not hypothetical for SourceLink. `SourceDocumentPathResolver` orders mappings by
-descending pattern length and takes the first match, while the repository-URL reader in
-`AssemblyInspector` takes the first value naming a known host. Given a repeated key under
-`documents`, those rules select different entries, so a hostile PDB could resolve source from one
-origin while the tool reported provenance from another. Rejecting the map closes that gap.
+This is generic hardening, not a fix for a known divergence. It does **not** close the SourceLink
+provenance gap. The repository-URL reader in `AssemblyInspector` stops at the first `documents`
+entry, while `SourceDocumentPathResolver` orders mappings by descending pattern length and takes
+the first match. A duplicated key keeps document order under a stable sort, so both readers land on
+the same entry and duplication alone cannot make them disagree. They diverge on **distinct** keys,
+which are well-formed and still accepted: a map whose first entry names a trusted host and whose
+longer-matching entry names another origin reports the trusted repository while resolving source
+from the other. That gap is open work below.
 
 Feed responses, package contents, `project.assets.json`, `.deps.json`, and product cache entries
 parse through the same guard. Callers that already treated malformed JSON as "no data" now treat
@@ -232,24 +235,34 @@ only ordinary compiler output.
 | Resource extraction | Traversal and rooted names rejected before writes; valid nested and empty resources retained; malformed ranges rejected; separator/case aliases collide; existing file preserved; device/control names rejected |
 | Archive extraction | Zip-slip fixture; expanded-size and entry-count policy tests once budgets exist |
 | Metadata and signatures | Malformed table/blob fixtures, depth/size limits, no process crash |
-| SourceLink | Private/loopback/redirect targets rejected; allowed public target and checksum path retained; duplicate `documents` entries rejected rather than resolved |
+| SourceLink | Private/loopback/redirect targets rejected; allowed public target and checksum path retained; a duplicate `documents` key fails the parse rather than binding one of its values |
 | Untrusted JSON | Duplicate properties rejected at top level, nested, and from UTF-8 bytes; case-distinct and sibling-repeated names still parse |
 | Cache paths | Traversal/separator components rejected; content-addressed keys deterministic |
 | Structured output | Untrusted delimiters/control characters cannot escape the selected format |
 
 ## Open work
 
-1. Extend duplicate-property rejection to `runfaster` trace parsing.
-2. Define package, symbol, source-download, and decompressed-archive byte and
+1. Unify SourceLink provenance with source resolution. `AssemblyInspector`
+   reports the repository from the first `documents` entry while
+   `SourceDocumentPathResolver` selects by longest matching pattern, so a
+   well-formed map with distinct keys can resolve source from one origin while
+   provenance names another. Report no repository when entries disagree on
+   origin.
+2. Fix GitHub repository provenance. The precondition tests the value for
+   `github.com`, which canonical `raw.githubusercontent.com` SourceLink URLs do
+   not contain, so GitHub-hosted assemblies report no repository at all. Match
+   the URI host instead of a substring.
+3. Extend duplicate-property rejection to `runfaster` trace parsing.
+4. Define package, symbol, source-download, and decompressed-archive byte and
    entry-count budgets.
-3. Audit every product write against the derived-path rules, including symbol
+5. Audit every product write against the derived-path rules, including symbol
    server cache path construction.
-4. Audit Markdown, plain-text, and stderr rendering for terminal control
+6. Audit Markdown, plain-text, and stderr rendering for terminal control
    characters and structure injection.
-5. Implement the [bounded metadata traversal](bounded-metadata-traversal.md)
+7. Implement the [bounded metadata traversal](bounded-metadata-traversal.md)
    migration and expand malformed PE/PDB product-entry-point coverage around
    graph depth, row count, and allocation limits.
-6. Migrate legacy metadata scanners that collapse malformed reads into empty or
+8. Migrate legacy metadata scanners that collapse malformed reads into empty or
    zero-valued results onto explicit failure-bearing outcomes.
-7. Revisit filesystem containment if .NET exposes a portable atomic
+9. Revisit filesystem containment if .NET exposes a portable atomic
    no-follow/open-beneath primitive.

@@ -14,13 +14,15 @@ namespace ILInspector.Metadata;
 /// into the SRM layer and invert the ownership documented in <c>docs/overview.md</c>.
 /// </para>
 /// <para>
-/// The duplicate-key hazard is concrete here. <see cref="SourceDocumentPathResolver"/> and the
-/// SourceLink readers in <see cref="AssemblyInspector"/> parse the same attacker-controlled map,
-/// and they select differently over a duplicated <c>documents</c> entry: the resolver orders
-/// mappings by descending pattern length and takes the first match, while the repository-URL
-/// reader takes the first entry whose value mentions a known host. Given two entries under one
-/// key, those rules pick different values, so a hostile PDB can resolve source from one origin
-/// while the tool reports provenance from another.
+/// This is generic fail-visible hardening for an attacker-controlled map, not a fix for a known
+/// divergence. It deliberately does <em>not</em> close the SourceLink provenance gap: the
+/// repository-URL reader in <see cref="AssemblyInspector"/> stops at the first <c>documents</c>
+/// entry, while <see cref="SourceDocumentPathResolver"/> orders mappings by descending pattern
+/// length and takes the first match. Because a duplicated key keeps document order under a stable
+/// sort, both readers land on the same first entry, so duplication alone cannot make them
+/// disagree. They diverge on maps with <em>distinct</em> keys, which are well-formed and remain
+/// accepted. That gap is tracked separately; see the SourceLink entry in
+/// <c>docs/design/untrusted-data-threat-model.md</c>.
 /// </para>
 /// </remarks>
 internal static class SourceLinkJson

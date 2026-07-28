@@ -1,16 +1,22 @@
+using System.Text.Json;
 using ILInspector.Metadata;
 
 namespace ILInspector.Metadata.Tests;
 
 /// <summary>
-/// SourceLink maps are recovered from portable PDBs, which are untrusted artifact content. A map
-/// that repeats a key under <c>documents</c> is read by more than one product reader, and those
-/// readers select differently over the duplicate set: <see cref="SourceDocumentPathResolver"/>
-/// orders by descending pattern length and takes the first match, while the repository-URL reader
-/// in <c>AssemblyInspector</c> takes the first value mentioning a known host. Under permissive
-/// parsing those rules can land on different origins, which is the spoofed-provenance case in
-/// <c>docs/design/untrusted-data-threat-model.md</c>.
+/// SourceLink maps are recovered from portable PDBs, which are untrusted artifact content. JSON
+/// leaves duplicate object keys undefined, so a map that repeats a key under <c>documents</c> has
+/// more than one valid reading. These tests pin that such a map fails the parse rather than
+/// binding one of its readings.
 /// </summary>
+/// <remarks>
+/// This is fail-visible hardening, not a fix for a reader divergence. Both product readers happen
+/// to select the first entry for a duplicated key — <c>AssemblyInspector</c> stops at the first
+/// <c>documents</c> entry, and <see cref="SourceDocumentPathResolver"/>'s descending pattern-length
+/// sort is stable, so equal-length duplicates keep document order. They diverge only on maps with
+/// <em>distinct</em> keys, which stay well-formed and accepted; see the SourceLink open-work entry
+/// in <c>docs/design/untrusted-data-threat-model.md</c>.
+/// </remarks>
 public class SourceLinkDuplicateDocumentTests
 {
     private const string DuplicateEntryMap = """
@@ -83,5 +89,36 @@ public class SourceLinkDuplicateDocumentTests
 
         Assert.False(resolution.IsMapped);
         Assert.Equal("src/Program.cs", resolution.CanonicalPath);
+    }
+
+    /// <summary>
+    /// The source-generated cache reader is a separate parse path from <c>SourceLinkJson</c>, so it
+    /// needs its own duplicate rejection. This gates the "product cache entries parse through the
+    /// same guard" claim in <c>docs/design/untrusted-data-threat-model.md</c>; without
+    /// <c>AllowDuplicateProperties = false</c> on the context the last value would silently win.
+    /// </summary>
+    [Fact]
+    public void TypeFileIndexCache_RejectsDuplicateKeys()
+    {
+        const string cached = """
+            {"A.B":["first.cs"],"A.B":["second.cs"]}
+            """;
+
+        Assert.Throws<JsonException>(
+            () => JsonSerializer.Deserialize(cached, SourceLinkJsonContext.Default.DictionaryStringStringArray));
+    }
+
+    [Fact]
+    public void TypeFileIndexCache_StillReadsDistinctKeys()
+    {
+        const string cached = """
+            {"A.B":["first.cs"],"A.C":["second.cs"]}
+            """;
+
+        var index = JsonSerializer.Deserialize(cached, SourceLinkJsonContext.Default.DictionaryStringStringArray);
+
+        Assert.NotNull(index);
+        Assert.Equal(["first.cs"], index["A.B"]);
+        Assert.Equal(["second.cs"], index["A.C"]);
     }
 }

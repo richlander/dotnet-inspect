@@ -93,7 +93,20 @@ public class JsonWireNameGateTests
     /// change that discovered it. <see cref="KnownPascalCaseDeviations_StillDeviate"/> fails if it
     /// is fixed, forcing this entry to be removed with the fix.
     /// </summary>
-    private static readonly string[] KnownPascalCaseContexts = ["TimelineJsonContext"];
+    /// <remarks>
+    /// The value pins the exact wire names that deviate, not merely that some name deviates, so a
+    /// partial correction fails this gate instead of passing while the context is left in a mixed
+    /// state.
+    /// </remarks>
+    private static readonly Dictionary<string, string[]> KnownPascalCaseContexts = new()
+    {
+        ["TimelineJsonContext"] =
+        [
+            "Address", "Detail", "Evaluations", "Finding", "Findings", "From", "Member", "Range",
+            "Recommendation", "Span", "State", "Target", "Title", "To", "Transition", "Transitions",
+            "Type", "Version",
+        ],
+    };
 
     /// <summary>
     /// Every wire name must match the shape its context declares. A context that omits
@@ -107,7 +120,7 @@ public class JsonWireNameGateTests
         foreach (var context in Contexts)
         {
             var contextType = context.GetType();
-            if (KnownPascalCaseContexts.Contains(contextType.Name))
+            if (KnownPascalCaseContexts.ContainsKey(contextType.Name))
             {
                 continue;
             }
@@ -137,17 +150,24 @@ public class JsonWireNameGateTests
     [Fact]
     public void KnownPascalCaseDeviations_StillDeviate()
     {
-        foreach (string contextName in KnownPascalCaseContexts)
+        foreach (var (contextName, expectedDeviations) in KnownPascalCaseContexts)
         {
             var context = Assert.Single(Contexts, c => c.GetType().Name == contextName);
 
-            bool deviates = WireNamesByType(context)
+            string[] deviating = WireNamesByType(context)
                 .SelectMany(static shape => shape.Names)
-                .Any(static name => !MatchesPolicy(name, JsonKnownNamingPolicy.Unspecified));
+                .Where(static name => !MatchesPolicy(name, JsonKnownNamingPolicy.Unspecified))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(static name => name, StringComparer.Ordinal)
+                .ToArray();
 
             Assert.True(
-                deviates,
+                deviating.Length > 0,
                 $"{contextName} now matches the snake_case contract. Remove it from {nameof(KnownPascalCaseContexts)}.");
+
+            Assert.Equal(
+                expectedDeviations.OrderBy(static name => name, StringComparer.Ordinal).ToArray(),
+                deviating);
         }
     }
 

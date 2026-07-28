@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 namespace ILInspector.Metadata;
 
 [JsonSerializable(typeof(Dictionary<string, string[]>))]
+[JsonSourceGenerationOptions(AllowDuplicateProperties = false)]
 internal partial class SourceLinkJsonContext : JsonSerializerContext;
 
 /// <summary>
