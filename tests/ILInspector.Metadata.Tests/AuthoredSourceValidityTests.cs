@@ -584,6 +584,81 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
+    /// The type header may open its block and declare a constructor on one line. Beginning the
+    /// search below the header reported such a constructor absent (adversarial review,
+    /// MAI-Code). There is no column to slice on, so the whole line is the answer — which is
+    /// what the base returned before this change.
+    /// </summary>
+    [Fact]
+    public void ConstructorRecovery_FindsAConstructorOnTheHeaderLine()
+    {
+        Assert.Equal(
+            "public class C { C() { } }",
+            SourceLinkResolver.ExtractMethodBody("public class C { C() { } }", startLine: 1, endLine: 1, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// The same shape for a positional record still has no authored constructor, so the header
+    /// line must not be read as one.
+    /// </summary>
+    [Theory]
+    [InlineData("public record R(int X) { }")]
+    [InlineData("public record R(int X);")]
+    public void ConstructorRecovery_DoesNotReadARecordHeaderAsAConstructor(string header)
+    {
+        Assert.Null(SourceLinkResolver.ExtractMethodBody(header, startLine: 1, endLine: 1, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// C# allows whitespace and comments between any two tokens, so a tab-separated modifier,
+    /// a comment between <c>delegate</c> and <c>*</c>, and a comment between a constructor's
+    /// name and its parameter list all spell the same declarations (adversarial review, GPT).
+    /// Matching only literal spaces made each of them read as something else.
+    /// </summary>
+    [Fact]
+    public void TriviaBetweenTokens_DoesNotChangeWhatIsDeclared()
+    {
+        // A tab-separated type header is still a type header, so a field-initializer
+        // constructor above it is still absent rather than the whole type.
+        Assert.Null(SourceLinkResolver.ExtractMethodBody(
+            "public\tclass C\n{\n    int X = Get();\n    static int Get() => 0;\n}",
+            startLine: 1, endLine: 3, methodName: ".ctor"));
+
+        // A commented gap does not turn a function-pointer return type into a delegate.
+        Assert.Equal(
+            "public static delegate /* gap */ *<int, int> Ret()\n{\n    return default;\n}",
+            SourceLinkResolver.ExtractMethodBody(
+                "unsafe class C\n{\n    public static delegate /* gap */ *<int, int> Ret()\n    {\n        return default;\n    }\n}",
+                startLine: 4, endLine: 6, methodName: "Ret"));
+
+        // A commented gap does not hide a constructor's parameter list.
+        Assert.Equal(
+            "C /* gap */ ()\n{\n}",
+            SourceLinkResolver.ExtractMethodBody(
+                "class C\n{\n    C /* gap */ ()\n    {\n    }\n}",
+                startLine: 4, endLine: 5, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// Known gap, pinned rather than fixed. An attribute list is read one line at a time, so a
+    /// declaration that follows the *closing* line of a multi-line attribute is not recognized
+    /// and the header is returned instead of absence (adversarial review, GPT). This is not a
+    /// regression — the base behaves identically — and closing it needs attribute-bracket state
+    /// carried across lines, which is a change to the shared scanner rather than to this
+    /// discriminator. The assertion records today's wrong answer so that fixing it is visible.
+    /// </summary>
+    [Fact]
+    public void DeclarationOnAMultiLineAttributesClosingLine_IsNotRecognized_KnownGap()
+    {
+        var source = "[System.Obsolete( // comment with ]\n    \"why\")] public record R(int X);";
+
+        var slice = SourceLinkResolver.ExtractMethodBody(source, startLine: 2, endLine: 2, methodName: ".ctor");
+
+        // The right answer is null. Pin the wrong one so the gap cannot widen unnoticed.
+        Assert.Equal("\"why\")] public record R(int X);", slice);
+    }
+
+    /// <summary>
     /// The positive half of the same discriminator: a constructor that really is declared at
     /// member level is still recovered, whichever accepted modifier leads it or none at all.
     /// </summary>

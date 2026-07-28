@@ -178,7 +178,7 @@ public class SourceLinkResolver
         int headerIndex = IndexOfTypeDeclaration(lines[from..to], out string? declaredTypeName);
         if (headerIndex >= 0)
         {
-            int ctorIndex = IndexOfConstructorDeclaration(lines[from..to], headerIndex + 1, start - 1 - from, declaredTypeName);
+            int ctorIndex = IndexOfConstructorDeclaration(lines[from..to], headerIndex, start - 1 - from, declaredTypeName);
             if (ctorIndex < 0)
                 return null;
 
@@ -316,60 +316,6 @@ public class SourceLinkResolver
     }
 
     /// <summary>
-    /// Index just past the attribute list opening at index 0, or <c>-1</c> when it does not
-    /// close on this line. Brackets nest — <c>[Foo(new[] { 1 })]</c> — and a string inside the
-    /// list may spell a bracket of its own, so neither is counted structurally.
-    /// </summary>
-    private static int IndexPastAttributeList(string trimmed)
-    {
-        int depth = 0;
-        for (int i = 0; i < trimmed.Length; i++)
-        {
-            char c = trimmed[i];
-
-            if (c == '"')
-            {
-                int end = EndOfSingleLineLiteral(trimmed, i);
-                if (end < 0)
-                    return -1;
-                i = end - 1;
-                continue;
-            }
-
-            if (c == '\'')
-            {
-                i++;
-                while (i < trimmed.Length && trimmed[i] != '\'')
-                    i += trimmed[i] == '\\' ? 2 : 1;
-                continue;
-            }
-
-            if (c == '/' && i + 1 < trimmed.Length && trimmed[i + 1] == '/')
-            {
-                // The rest of the line is a comment, so the list does not close on it.
-                return -1;
-            }
-
-            if (c == '/' && i + 1 < trimmed.Length && trimmed[i + 1] == '*')
-            {
-                int close = trimmed.IndexOf("*/", i + 2, StringComparison.Ordinal);
-                if (close < 0)
-                    return -1;
-
-                i = close + 1;
-                continue;
-            }
-
-            if (c == '[')
-                depth++;
-            else if (c == ']' && --depth == 0)
-                return i + 1;
-        }
-
-        return -1;
-    }
-
-    /// <summary>
     /// Modifiers a constructor declaration may carry. Deliberately narrower than
     /// <see cref="TypeDeclarationModifiers"/>: "new", "ref", "sealed", "abstract", "readonly",
     /// and "file" cannot lead a constructor, and admitting "new" would let the statement
@@ -433,33 +379,100 @@ public class SourceLinkResolver
 
             ScanLine(capturedLines[i], state, ref depth);
 
-            if (!atMemberLevel || trimmed.Length == 0)
+            if (trimmed.Length == 0)
                 continue;
 
-            int index = 0;
-            while (index < trimmed.Length)
+            if (atMemberLevel)
             {
-                int end = index;
-                while (end < trimmed.Length && (char.IsLetterOrDigit(trimmed[end]) || trimmed[end] == '_'))
-                    end++;
-
-                if (end == index)
-                    break;
-
-                var token = trimmed[index..end];
-                if (token == typeName && end < trimmed.Length && trimmed[end] == '(')
+                if (DeclaresConstructor(trimmed, typeName))
                     return i;
 
-                if (Array.IndexOf(ConstructorModifiers, token) < 0)
-                    break;
+                continue;
+            }
 
-                index = end;
-                while (index < trimmed.Length && trimmed[index] == ' ')
-                    index++;
+            // The header line is not itself at member level, but it may open the type's block
+            // and declare a constructor after it: "class C { C() { } }". Requiring the search to
+            // begin below the header reported such a constructor absent (adversarial review,
+            // MAI-Code). There is no column to slice on, so the whole line is the answer, which
+            // is what this returns and what the base behavior was.
+            if (i == start)
+            {
+                int brace = trimmed.IndexOf('{');
+                if (brace >= 0 && DeclaresConstructor(StripLeadingTrivia(trimmed[(brace + 1)..].TrimStart()), typeName))
+                    return i;
             }
         }
 
         return -1;
+    }
+
+    /// <summary>
+    /// True when <paramref name="text"/> opens a constructor declaration for
+    /// <paramref name="typeName"/>: the type's own name, under any modifiers a constructor may
+    /// carry, followed by its parameter list.
+    /// </summary>
+    private static bool DeclaresConstructor(string text, string typeName)
+    {
+        int index = SkipTrivia(text, 0);
+        while (index < text.Length)
+        {
+            int end = index;
+            while (end < text.Length && (char.IsLetterOrDigit(text[end]) || text[end] == '_'))
+                end++;
+
+            if (end == index)
+                return false;
+
+            var token = text[index..end];
+            int next = SkipTrivia(text, end);
+            if (token == typeName)
+                return next < text.Length && text[next] == '(';
+
+            if (Array.IndexOf(ConstructorModifiers, token) < 0)
+                return false;
+
+            index = next;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Index of the next significant character at or after <paramref name="index"/>, skipping
+    /// whitespace and comments. C# allows either between any two tokens, so a tab-separated
+    /// modifier and an interposed <c>/* */</c> spell the same declaration (adversarial review,
+    /// GPT). A line comment runs to the end, so nothing significant follows it.
+    /// </summary>
+    private static int SkipTrivia(string text, int index)
+    {
+        while (index < text.Length)
+        {
+            if (char.IsWhiteSpace(text[index]))
+            {
+                index++;
+                continue;
+            }
+
+            if (text[index] == '/' && index + 1 < text.Length)
+            {
+                if (text[index + 1] == '/')
+                    return text.Length;
+
+                if (text[index + 1] == '*')
+                {
+                    int close = text.IndexOf("*/", index + 2, StringComparison.Ordinal);
+                    if (close < 0)
+                        return text.Length;
+
+                    index = close + 2;
+                    continue;
+                }
+            }
+
+            return index;
+        }
+
+        return text.Length;
     }
 
     private static bool OpensTypeDeclaration(string trimmed, out string? typeName)
@@ -484,10 +497,7 @@ public class SourceLinkResolver
                 // GPT).
                 if (token == "delegate")
                 {
-                    int star = end;
-                    while (star < trimmed.Length && char.IsWhiteSpace(trimmed[star]))
-                        star++;
-
+                    int star = SkipTrivia(trimmed, end);
                     if (star < trimmed.Length && trimmed[star] == '*')
                         return false;
                 }
@@ -499,9 +509,7 @@ public class SourceLinkResolver
             if (Array.IndexOf(TypeDeclarationModifiers, token) < 0)
                 return false;
 
-            index = end;
-            while (index < trimmed.Length && trimmed[index] == ' ')
-                index++;
+            index = SkipTrivia(trimmed, end);
         }
 
         return false;
@@ -515,8 +523,7 @@ public class SourceLinkResolver
     {
         for (int pass = 0; pass < 2; pass++)
         {
-            while (index < trimmed.Length && trimmed[index] == ' ')
-                index++;
+            index = SkipTrivia(trimmed, index);
 
             int end = index;
             while (end < trimmed.Length && (char.IsLetterOrDigit(trimmed[end]) || trimmed[end] == '_'))
