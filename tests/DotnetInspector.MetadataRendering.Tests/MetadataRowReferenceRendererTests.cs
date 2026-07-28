@@ -24,7 +24,8 @@ public class MetadataRowReferenceRendererTests
         ImmutableArray<MetadataRowReference>? references = null,
         ImmutableArray<MetadataRowLocation>? unreadable = null,
         ImmutableArray<TableIndex>? unscanned = null,
-        bool truncated = false)
+        bool truncated = false,
+        bool targetExists = true)
         => new(
             new MetadataRowLocation(TableIndex.TypeDef, 5),
             references ?? ImmutableArray.Create(
@@ -35,7 +36,8 @@ public class MetadataRowReferenceRendererTests
                     MetadataRowReferenceKind.Handle)),
             unreadable ?? [],
             unscanned ?? [],
-            truncated);
+            truncated,
+            targetExists);
 
     [Fact]
     public void Markdown_NamesTargetAndCountInHeading()
@@ -49,15 +51,21 @@ public class MetadataRowReferenceRendererTests
     }
 
     [Fact]
-    public void Markdown_EmptyAndComplete_SaysNothingPointsHere()
+    public void Markdown_EmptyAndClean_QualifiesNothingPointsHere()
     {
         var markdown = Render(Set(references: []));
 
         Assert.Contains("No row points at TypeDef[5].", markdown);
-        // Nothing was hidden, so no caveat may appear.
+
+        // No detectable blind spot fired, so none of their caveats may appear...
         Assert.DoesNotContain("budget", markdown);
         Assert.DoesNotContain("could not be read", markdown);
-        Assert.DoesNotContain("not searched", markdown);
+        Assert.DoesNotContain("not searched in full", markdown);
+        Assert.DoesNotContain("past the end of its table", markdown);
+
+        // ...but the blob limit always applies, and this is the case where the
+        // bare sentence above would otherwise read as a guarantee.
+        Assert.Contains("signature blobs", markdown);
     }
 
     [Fact]
@@ -145,9 +153,19 @@ public class MetadataRowReferenceRendererTests
         Assert.True(first >= 0 && first < second && second < third);
     }
 
+    /// <summary>
+    /// The signature-blob limit is unconditional, so a search that hits no
+    /// detectable blind spot still carries exactly one caveat. A reader acting
+    /// on "No row points at X" must see it precisely in this case, because this
+    /// is when that sentence reads most like a guarantee.
+    /// </summary>
     [Fact]
-    public void Caveats_AreEmptyForACompleteSearch()
-        => Assert.Empty(MetadataProjectionRenderer.Caveats(Set()));
+    public void Caveats_ForACleanSearch_AreTheBlobLimitAlone()
+    {
+        var caveat = Assert.Single(MetadataProjectionRenderer.Caveats(Set()));
+
+        Assert.Contains("signature blobs", caveat);
+    }
 
     [Fact]
     public void Caveats_ReportEachBlindSpotIndependently()
@@ -155,9 +173,22 @@ public class MetadataRowReferenceRendererTests
         var all = Set(
             unreadable: ImmutableArray.Create(new MetadataRowLocation(TableIndex.MethodDef, 7)),
             unscanned: ImmutableArray.Create(TableIndex.NestedClass),
-            truncated: true);
+            truncated: true,
+            targetExists: false);
 
-        Assert.Equal(3, MetadataProjectionRenderer.Caveats(all).Count());
+        // Four detectable blind spots, plus the unconditional blob limit.
+        Assert.Equal(5, MetadataProjectionRenderer.Caveats(all).Count());
+    }
+
+    [Fact]
+    public void Caveats_MissingTargetRow_IsReportedNotRenderedAsAnEmptyAnswer()
+    {
+        // A row id past the end of its table is usually a typo. Answering it
+        // with a clean "nothing points here" makes the typo indistinguishable
+        // from a real row nothing points at.
+        var caveats = MetadataProjectionRenderer.Caveats(Set(references: [], targetExists: false));
+
+        Assert.Contains(caveats, c => c.Contains("past the end of its table", StringComparison.Ordinal));
     }
 
     [Fact]

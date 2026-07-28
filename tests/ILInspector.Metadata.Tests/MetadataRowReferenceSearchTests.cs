@@ -184,18 +184,63 @@ public class MetadataRowReferenceSearchTests
         }
     }
 
+    /// <summary>
+    /// A row that exists and that genuinely nothing points at. The row id is
+    /// derived rather than hardcoded, because which rows are unreferenced is an
+    /// artifact of how this assembly happens to be compiled.
+    ///
+    /// Deliberately not a row id past the end of the table: that is a different
+    /// answer wearing the same clothes, and conflating the two is what
+    /// <see cref="MetadataRowReferenceSet.TargetExists"/> exists to stop.
+    /// </summary>
     [Fact]
     public void FindReferences_ForARowNothingPointsAt_ReportsAnEmptyResultFromACleanScan()
     {
         using var peReader = OpenSelfFromBytes();
         var typeDef = FullProjection(peReader).Tables.Single(t => t.Index == TableIndex.TypeDef);
 
-        // A row id past the end of the table cannot be referenced: a handle that
-        // far out already projects as Malformed rather than a resolvable edge.
-        var set = MetadataTableProjector.FindReferences(peReader, TableIndex.TypeDef, typeDef.RowCount + 1_000, int.MaxValue);
+        int unreferenced = Enumerable
+            .Range(1, typeDef.RowCount)
+            .First(rid => MetadataTableProjector
+                .FindReferences(peReader, TableIndex.TypeDef, rid, int.MaxValue)
+                .References.IsEmpty);
+
+        var set = MetadataTableProjector.FindReferences(peReader, TableIndex.TypeDef, unreferenced, int.MaxValue);
 
         Assert.Empty(set.References);
+        Assert.True(set.TargetExists, "The row must exist, or this is not the case under test.");
         AssertScanRanClean(set);
+    }
+
+    [Fact]
+    public void FindReferences_ForARowPastTheEndOfItsTable_SaysTheRowIsNotThere()
+    {
+        using var peReader = OpenSelfFromBytes();
+        var typeDef = FullProjection(peReader).Tables.Single(t => t.Index == TableIndex.TypeDef);
+
+        var set = MetadataTableProjector.FindReferences(
+            peReader, TableIndex.TypeDef, typeDef.RowCount + 1_000, int.MaxValue);
+
+        // Empty for a reason the caller must be able to tell apart from "this
+        // row exists and nothing points at it". Without TargetExists the two
+        // render identically, so a typo'd row id reads as a real answer.
+        Assert.Empty(set.References);
+        Assert.False(set.TargetExists);
+        Assert.False(set.IsComplete);
+    }
+
+    [Fact]
+    public void FindReferences_ForTheLastRowOfATable_SaysTheRowIsThere()
+    {
+        using var peReader = OpenSelfFromBytes();
+        var typeDef = FullProjection(peReader).Tables.Single(t => t.Index == TableIndex.TypeDef);
+
+        // The boundary the off-by-one would land on: row ids are 1-based, so the
+        // last valid row is RowCount itself, not RowCount - 1.
+        var set = MetadataTableProjector.FindReferences(
+            peReader, TableIndex.TypeDef, typeDef.RowCount, int.MaxValue);
+
+        Assert.True(set.TargetExists);
     }
 
     /// <summary>
@@ -400,6 +445,55 @@ public class MetadataRowReferenceSearchTests
     }
 
     [Fact]
+    public void FindReferences_StoppedOnATableSLastRow_IsStillNotCountedAsSearched()
+    {
+        // The budget is checked inside the column loop, so a scan can enter the
+        // final row of a table and abandon it part way through its columns. The
+        // row counter still reaches RowCount + 1 on the way out, which looks
+        // exactly like an ordinary completed table. Truncation is the only thing
+        // that separates the two.
+        using var peReader = OpenSelfFromBytes();
+        var reader = peReader.GetMetadataReader();
+        int popular = MostReferencedTypeRef(FullProjection(peReader));
+
+        var full = MetadataTableProjector.FindReferences(peReader, TableIndex.TypeRef, popular, int.MaxValue);
+        Assert.False(full.Truncated);
+
+        // Find a match that sits on the last row of a multi-row table. Budgeting
+        // the scan to the matches before it makes that row the one the budget
+        // trips on, so the scan stops inside the table's final row.
+        int budget = -1;
+        TableIndex stoppedIn = default;
+        for (int i = 0; i < full.References.Length; i++)
+        {
+            var source = full.References[i].Source;
+            int rowCount = reader.GetTableRowCount(source.Table);
+            if (source.RowId == rowCount && rowCount > 1)
+            {
+                budget = i;
+                stoppedIn = source.Table;
+                break;
+            }
+        }
+
+        Assert.True(budget >= 0, "No match sat on the last row of a multi-row table.");
+
+        var capped = MetadataTableProjector.FindReferences(peReader, TableIndex.TypeRef, popular, budget);
+        Assert.True(capped.Truncated, "Expected the budget to stop this scan.");
+        Assert.Equal(budget, capped.References.Length);
+
+        // The last row was entered but never finished, so its columns after the
+        // stop were never compared against the target.
+        Assert.Contains(stoppedIn, ModelledTables);
+        Assert.Contains(stoppedIn, capped.UnscannedTables);
+
+        // Nothing stops the full scan, so the same table is searched there. That
+        // is what makes the blind spot evidence of the stop rather than a gap in
+        // what the projection models.
+        Assert.DoesNotContain(stoppedIn, full.UnscannedTables);
+    }
+
+    [Fact]
     public void FindReferences_TruncatedScan_ReportsTheTablesItNeverReached()
     {
         using var peReader = OpenSelfFromBytes();
@@ -556,6 +650,88 @@ public class MetadataRowReferenceSearchTests
         using var session = AssemblyInspectionSession.Open(SelfPath);
 
         Assert.Null(session.MetadataTableRow(TableIndex.TypeDef, int.MaxValue));
+    }
+
+    /// <summary>
+    /// A synthetic image every one of whose populated tables the projection
+    /// models, with no malformed cell anywhere.
+    ///
+    /// This is what makes it useful: on a real assembly a scan is incomplete for
+    /// several reasons at once, so an <c>IsComplete == false</c> assertion there
+    /// passes no matter which reason produced it. Here a clean scan is genuinely
+    /// available, so target existence can be isolated as the only thing left
+    /// that can take it away.
+    /// </summary>
+    static byte[] BuildMinimalCleanImage()
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString("Clean.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString("Clean"),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+
+        // The <Module> pseudo-type must be row 1.
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString("Solo"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var rootBuilder = new MetadataRootBuilder(metadata, suppressValidation: true);
+        var peBuilder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            rootBuilder,
+            ilStream: new BlobBuilder());
+        var image = new BlobBuilder();
+        peBuilder.Serialize(image);
+        return image.ToArray();
+    }
+
+    [Fact]
+    public void FindReferences_MissingTargetRow_IsTheOnlyThingWrongWithAnOtherwiseCleanScan()
+    {
+        using var peReader = new PEReader(new MemoryStream(BuildMinimalCleanImage()));
+        var reader = peReader.GetMetadataReader();
+        int rowCount = reader.GetTableRowCount(TableIndex.TypeDef);
+
+        // A row that is there. Every other completeness condition holds on this
+        // image, so the scan is complete — which is what licenses the comparison
+        // below to attribute the difference to target existence alone.
+        var present = MetadataTableProjector.FindReferences(peReader, TableIndex.TypeDef, rowCount);
+        Assert.True(
+            present.IsComplete,
+            "This fixture exists to offer a genuinely complete scan; without one the test below proves nothing.");
+
+        // The same image, the same scan, one row further on.
+        var absent = MetadataTableProjector.FindReferences(peReader, TableIndex.TypeDef, rowCount + 1);
+        Assert.False(absent.Truncated);
+        Assert.Empty(absent.UnreadableRows);
+        Assert.Empty(absent.UnscannedTables);
+        Assert.False(absent.TargetExists);
+
+        // So an empty result here cannot be reported as a trustworthy "nothing
+        // points at this row": there is no row for anything to point at.
+        Assert.Empty(absent.References);
+        Assert.False(absent.IsComplete);
     }
 
     /// <summary>

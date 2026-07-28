@@ -186,7 +186,7 @@ public static class MetadataTableProjector
     /// <see cref="MetadataProjectionOptions"/> at all, and in particular offers
     /// no equivalent of <see cref="MetadataProjectionOptions.Tables"/>, because
     /// a reverse search narrowed to part of the image could report "nothing
-    /// points here" while a pointer sat in an unsearched table. Its three blind
+    /// points here" while a pointer sat in an unsearched table. Three blind
     /// spots are reported instead of hidden:
     /// <see cref="MetadataRowReferenceSet.Truncated"/> when
     /// <paramref name="maxReferences"/> stopped the scan,
@@ -197,6 +197,12 @@ public static class MetadataTableProjector
     /// model the table, or because the scan stopped part-way through it or
     /// before reaching it.
     ///
+    /// A fourth limit is real and cannot be reported per query: only edges
+    /// spelled as handle columns are matched, so a TypeDefOrRef token carried
+    /// inside a signature blob is never found. See
+    /// <see cref="MetadataRowReferenceSet.IsComplete"/>, which does not mean
+    /// nothing points at the target.
+    ///
     /// A dangling edge is not a reference: a handle whose row lies outside its
     /// target table projects as <see cref="MetadataValue.Malformed"/>, so it
     /// cannot match. It does, however, make its row an
@@ -204,6 +210,12 @@ public static class MetadataTableProjector
     /// edge column the projection could not resolve is an edge this search
     /// cannot account for.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="targetRowId"/> is less than 1. A row id past the *end* of
+    /// the table is reported through
+    /// <see cref="MetadataRowReferenceSet.TargetExists"/> rather than rejected,
+    /// because a dangling edge points at exactly such rows.
+    /// </exception>
     public static MetadataRowReferenceSet FindReferences(
         PEReader peReader,
         TableIndex targetTable,
@@ -220,9 +232,18 @@ public static class MetadataTableProjector
 
         if (!peReader.HasMetadata)
             return new MetadataRowReferenceSet(
-                target, references.ToImmutable(), unreadable.ToImmutable(), [], Truncated: false);
+                target, references.ToImmutable(), unreadable.ToImmutable(), [],
+                Truncated: false, TargetExists: false);
 
         var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
+
+        // Reported rather than rejected. A row id past the end of the table is
+        // usually a typo, and answering it with a clean empty result makes that
+        // typo indistinguishable from a real row nothing points at. But it is
+        // not simply invalid input either: a dangling edge points exactly at
+        // rows that do not exist, so "what points at TypeRef[1]?" stays a
+        // legitimate question in an image whose TypeRef table is empty.
+        bool targetExists = targetRowId <= reader.GetTableRowCount(targetTable);
 
         // The scan needs edges, not text. Handle and range cells carry their
         // target table and row id independently of these budgets, so trimming the
@@ -303,14 +324,22 @@ public static class MetadataTableProjector
             }
 
             // Recorded after the row loop and only when every row the image says
-            // exists was examined. "Entered" is not the same as "searched": a
-            // loop that stopped short — the budget, or any future early exit —
-            // leaves rows unread, and an edge onto the target could sit in any
-            // of them. The check re-reads the count from the reader rather than
-            // trusting the local, so the claim "we covered this table" is
-            // anchored to the metadata instead of to a variable the loop could
-            // have narrowed.
-            if (rid > reader.GetTableRowCount(spec.Index))
+            // exists was examined in full. "Entered" is not the same as
+            // "searched", at either granularity:
+            //
+            //  - A row loop that stopped short leaves whole rows unread, so rid
+            //    never passes the count and the table is not recorded.
+            //  - The budget check sits inside the *column* loop, so truncation
+            //    on a table's final row leaves that row entered but abandoned
+            //    part-way through its columns. rid still passes the count, so
+            //    the row loop alone cannot tell. truncated does: the outer loop
+            //    breaks at the top of the next iteration, so reaching here with
+            //    truncated set means the budget stopped inside *this* table.
+            //
+            // The count is re-read from the reader rather than trusting the
+            // local, so the claim "we covered this table" is anchored to the
+            // metadata instead of to a variable the loop could have narrowed.
+            if (!truncated && rid > reader.GetTableRowCount(spec.Index))
                 visited.Add(spec.Index);
         }
 
@@ -319,7 +348,8 @@ public static class MetadataTableProjector
             references.ToImmutable(),
             unreadable.ToImmutable(),
             CollectUnscannedTables(reader, visited),
-            truncated);
+            truncated,
+            targetExists);
     }
 
     /// <summary>

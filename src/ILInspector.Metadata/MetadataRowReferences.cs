@@ -82,12 +82,19 @@ public sealed record MetadataRowReference
 /// <see cref="Target"/>, plus the honest limits of that search.
 ///
 /// A reverse search must never answer "nothing points here" when it simply
-/// stopped early, could not read part of the metadata, or never looked at part
-/// of it, so all three blind spots are reported rather than folded into an empty
-/// result: <see cref="Truncated"/> when the result budget stopped the scan,
-/// <see cref="UnreadableRows"/> for rows the scan could not decode and therefore
-/// could not inspect, and <see cref="UnscannedTables"/> for populated tables the
-/// scan did not read in full.
+/// stopped early, could not read part of the metadata, never looked at part of
+/// it, or was handed a row that is not there, so those four blind spots are
+/// reported rather than folded into an empty result: <see cref="Truncated"/>
+/// when the result budget stopped the scan, <see cref="UnreadableRows"/> for
+/// rows the scan could not decode and therefore could not inspect,
+/// <see cref="UnscannedTables"/> for populated tables the scan did not read in
+/// full, and <see cref="TargetExists"/> when the target row is past the end of
+/// its table.
+///
+/// A fifth limit cannot be reported per query, because nothing about a given
+/// query reveals it: the search matches edges spelled as handle columns, so an
+/// edge carried inside a signature blob is never found and never disclosed.
+/// See <see cref="IsComplete"/>.
 /// </summary>
 public sealed record MetadataRowReferenceSet
 {
@@ -99,7 +106,8 @@ public sealed record MetadataRowReferenceSet
         ImmutableArray<MetadataRowReference> References,
         ImmutableArray<MetadataRowLocation> UnreadableRows,
         ImmutableArray<TableIndex> UnscannedTables,
-        bool Truncated)
+        bool Truncated,
+        bool TargetExists)
     {
         ArgumentNullException.ThrowIfNull(Target);
         if (References.IsDefault)
@@ -114,6 +122,7 @@ public sealed record MetadataRowReferenceSet
         this.UnreadableRows = UnreadableRows;
         this.UnscannedTables = UnscannedTables;
         this.Truncated = Truncated;
+        this.TargetExists = TargetExists;
     }
 
     /// <summary>The row the search was run for.</summary>
@@ -165,19 +174,53 @@ public sealed record MetadataRowReferenceSet
     public bool Truncated { get; }
 
     /// <summary>
-    /// Whether the search covered the whole image: it ran to completion, every
-    /// row was readable, and no populated table went unscanned, so an empty
-    /// <see cref="References"/> genuinely means nothing points at
-    /// <see cref="Target"/>.
+    /// Whether <see cref="Target"/> names a row the image actually has.
+    ///
+    /// Reported rather than rejected. A row id past the end of its table is
+    /// usually a typo, and answering one with a clean empty result would make
+    /// that typo indistinguishable from a real row nothing points at. But it is
+    /// not merely invalid input: a dangling edge points at exactly the rows that
+    /// do not exist, so asking what points at an absent row is a legitimate
+    /// question, and one this search can answer with
+    /// <see cref="UnreadableRows"/>.
+    /// </summary>
+    public bool TargetExists { get; }
+
+    /// <summary>
+    /// Whether the search hit none of the blind spots it can detect: the target
+    /// row exists, the scan ran to completion, every row it read was readable,
+    /// and every populated table was read in full.
+    ///
+    /// This describes the scan, not the image. It does not mean nothing points
+    /// at <see cref="Target"/>: the search sees only edges that metadata spells
+    /// as handle columns, so an edge carried inside a signature blob is
+    /// invisible to it whether this is <see langword="true"/> or
+    /// <see langword="false"/>.
     /// </summary>
     /// <remarks>
-    /// This is <see langword="false"/> for essentially every real assembly,
-    /// because the projection models a subset of ECMA-335's tables and typical
-    /// metadata populates tables outside it. That is the honest answer rather
-    /// than a defect in the caller's input: until the projection covers every
-    /// table, the search cannot claim to have covered the whole image. Callers
-    /// that only want to know whether the scan itself finished should read
-    /// <see cref="Truncated"/>.
+    /// Four limits are disclosed per query, and this property is exactly the
+    /// four of them being clear: <see cref="TargetExists"/>,
+    /// <see cref="Truncated"/>, <see cref="UnreadableRows"/> and
+    /// <see cref="UnscannedTables"/>.
+    ///
+    /// A fifth is <b>not</b> disclosed, because no per-query signal can reveal
+    /// it. Signature blobs carry TypeDefOrRef coded tokens, and they sit in
+    /// heap-kind columns of tables the scan reads in full —
+    /// <c>Field.Signature</c>, <c>MethodDef.Signature</c>,
+    /// <c>MemberRef.Signature</c>, <c>TypeSpec.Signature</c>,
+    /// <c>StandAloneSig.Signature</c>, <c>MethodSpec.Instantiation</c>. The
+    /// column is correctly not an edge column, the row is not blind, and the
+    /// table is genuinely searched, so nothing fires and the edge is simply not
+    /// reported. Decoding those blobs is a separate feature, not a bug fix.
+    ///
+    /// That inverts the risk, which is why this property must not be read as
+    /// "nothing points here". It is <see langword="false"/> for essentially
+    /// every real assembly, because typical metadata populates tables the
+    /// projection does not model — so it is <see langword="true"/> mainly on
+    /// small, simple images, which is exactly where a blob edge is the only
+    /// limit left to hide one. Callers that only want to know whether the scan
+    /// itself finished should read <see cref="Truncated"/>.
     /// </remarks>
-    public bool IsComplete => !Truncated && UnreadableRows.IsEmpty && UnscannedTables.IsEmpty;
+    public bool IsComplete =>
+        TargetExists && !Truncated && UnreadableRows.IsEmpty && UnscannedTables.IsEmpty;
 }

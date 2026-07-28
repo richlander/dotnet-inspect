@@ -452,18 +452,50 @@ oversights:
   rows unread, and an edge onto the target could sit in any of them. That also
   makes the budget interaction fall out for free — a scan the budget stops
   leaves both the table it stopped inside and every table after it unsearched,
-  and all of them are reported.
+  and all of them are reported. Note that reaching the end of the row loop is
+  *also* not enough, because the budget is checked inside the **column** loop:
+  truncation on a table's final row leaves that row entered and abandoned
+  part-way through its columns while the row counter still passes the row count,
+  so a completed scan and a scan stopped on the last row are indistinguishable
+  from the counter alone. `Truncated` is what separates them.
+- **Signature blobs are not searched, and that limit is not detectable.** The
+  scan matches `Handle` and `HandleRange` columns. A `TypeDefOrRef` coded token
+  spelled inside a signature blob — `Field.Signature`, `MethodDef.Signature`,
+  `MemberRef.Signature`, `TypeSpec.Signature`, `StandAloneSig.Signature`,
+  `MethodSpec.Instantiation` — lives in a `Heap` column, which is correctly not
+  an edge column, on a row of a table the scan reads in full. So no blind spot
+  fires: the row is read, the table is searched, and the edge is simply not
+  looked for. Decoding blobs is future work (see the reverse-reference tagging
+  note above); until then the limit is disclosed **unconditionally** by the
+  renderer rather than by a per-scan signal, because there is no per-scan signal
+  to give.
+
+  The risk runs backwards here, which is why the unconditional caveat is not
+  redundant. `IsComplete` is true exactly when every populated table happens to
+  be modelled — that is, on small, simple assemblies, which are precisely the
+  images where a blob edge is the *only* remaining way to miss a reference. A
+  caveat conditioned on incompleteness would therefore go quiet exactly where it
+  is most needed.
 - **Blind spots are reported, not folded in.** `Truncated` marks a scan the
   result budget stopped, `UnreadableRows` lists rows whose edges could not be
-  fully determined, and `UnscannedTables` lists the populated tables the scan
-  did not read in full. `IsComplete` is true only when none of the three happened,
-  which is what would make an empty result trustworthy — and today that means it
-  is **false for essentially every real assembly**, because the third blind spot
-  always fires. That is the honest reading: until the projection covers every
-  table, the search has not covered the whole image. Callers that only want to
-  know whether the scan itself finished should read `Truncated`. Unlike
-  `MetadataTableTruncation`, `Truncated` carries no total: a stopped scan never
-  learns how many references it did not reach.
+  fully determined, `UnscannedTables` lists the populated tables the scan did not
+  read in full, and `TargetExists` marks a target row id past the end of its
+  table. `IsComplete` is true only when the scan hit none of the blind spots it
+  can detect — and today that means it is **false for essentially every real
+  assembly**, because the table-coverage blind spot always fires. That is the
+  honest reading: until the projection covers every table, the search has not
+  covered the whole image. `IsComplete` describes the scan, not the image: it
+  cannot account for the signature-blob limit above, which no scan can detect.
+  Callers that only want to know whether the scan itself finished should read
+  `Truncated`. Unlike `MetadataTableTruncation`, `Truncated` carries no total: a
+  stopped scan never learns how many references it did not reach.
+- **A row id past the end of its table is answered, not rejected.** Asking what
+  points at a row that does not exist is a well-formed question — a dangling
+  edge points at exactly the rows that are not there, so the search must stay
+  askable. What it must not do is answer "nothing points at this row", which
+  claims the image was searched and came back clean. `TargetExists` records the
+  distinction and takes `IsComplete` down with it, so an absent row reads as a
+  question that could not be answered rather than as an answer.
 
 `UnreadableRows` is subtler than "the row failed to read". The cell readers
 **contain** a decode failure as a `Malformed` cell rather than throwing, so a

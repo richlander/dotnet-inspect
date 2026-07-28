@@ -296,8 +296,13 @@ public class MdiCommandTests
     }
 
     [Fact]
-    public void ExecuteReferences_NonexistentRow_IsAnEmptyAnswerNotAnError()
+    public void ExecuteReferences_NonexistentRow_QualifiesTheEmptyAnswer()
     {
+        // A row id past the end of its table is a well-formed question about a
+        // row that is not there, so it stays an answer rather than an error. It
+        // must not read as "nothing points at this row" though: no such row
+        // exists to be pointed at, and an unqualified empty answer would say the
+        // image was searched and came back clean.
         var output = new StringWriter();
         var error = new StringWriter();
         int code = MdiCommand.ExecuteReferences(
@@ -310,7 +315,7 @@ public class MdiCommandTests
             error);
 
         Assert.Equal(0, code);
-        Assert.Contains("No row points at", output.ToString());
+        Assert.Contains("past the end of its table", output.ToString());
     }
 
     [Theory]

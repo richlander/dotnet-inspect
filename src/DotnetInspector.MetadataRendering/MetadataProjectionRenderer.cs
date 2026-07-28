@@ -95,11 +95,13 @@ public static class MetadataProjectionRenderer
     /// Renders a reverse-reference search — the rows pointing at one row — to
     /// <paramref name="output"/>.
     ///
-    /// A reverse search has three blind spots the table renderer has no
-    /// equivalent of, and none may be dropped: a budget that stopped the scan,
-    /// rows that could not be decoded, and populated tables the scan did not
-    /// read in full. All are rendered as explicit caveats, so an empty result is
-    /// never mistaken for a confident "nothing points here".
+    /// A reverse search has blind spots the table renderer has no equivalent of,
+    /// and none may be dropped: a target row that is not there, a budget that
+    /// stopped the scan, rows that could not be decoded, populated tables the
+    /// scan did not read in full, and — always, since no per-query signal can
+    /// reveal it — edges spelled only inside signature blobs. All are rendered
+    /// as explicit caveats, so an empty result is never mistaken for a confident
+    /// "nothing points here".
     /// </summary>
     public static void Render(
         MetadataRowReferenceSet references,
@@ -189,12 +191,16 @@ public static class MetadataProjectionRenderer
     }
 
     /// <summary>
-    /// The limits of a reverse search, as caveats a reader must see. Empty when
-    /// the search covered the whole image, which is what makes an empty result
-    /// trustworthy.
+    /// The limits of a reverse search, as caveats a reader must see. Never
+    /// empty: three limits are reported when they fire, and the signature-blob
+    /// limit always applies, so an empty result is never presented as a bare
+    /// "nothing points here".
     /// </summary>
     public static IEnumerable<string> Caveats(MetadataRowReferenceSet references)
     {
+        if (!references.TargetExists)
+            yield return $"{Describe(references.Target)} is past the end of its table, so no row exists to point at — a row id this large is usually a typo.";
+
         if (references.Truncated)
             yield return "The result budget stopped this scan before it finished, so more references may exist.";
 
@@ -216,6 +222,16 @@ public static class MetadataProjectionRenderer
             // none of its rows was read would be false.
             yield return $"{count} populated {(count == 1 ? "table was" : "tables were")} not searched in full, so an edge in a row the scan never read would have been missed: {names}.";
         }
+
+        // Unconditional, unlike the three above, because no per-query signal can
+        // reveal it. Signature blobs carry TypeDefOrRef tokens in heap-kind
+        // columns of tables the scan reads in full, so the column is correctly
+        // not an edge column, the row is not blind, and the table is genuinely
+        // searched — nothing fires. A caveat printed only alongside the others
+        // would therefore be absent exactly on the small, clean images where
+        // this is the only limit left, which is where "No row points at X" reads
+        // most like a guarantee.
+        yield return "References spelled only inside signature blobs are not searched, so an edge that a signature carries is not reported.";
     }
 
     static string Describe(MetadataRowLocation location) => $"{location.Table}[{location.RowId}]";
