@@ -51,7 +51,9 @@ public class ApiCommand
             Value = options.Value, Urls = options.Urls, Paths = options.Paths,
             Select = options.Select, Columns = options.Columns, Fields = options.Fields,
             Schema = options.Schema, Count = options.Count, SourceOptions = options.SourceOptions,
-            TipLevel = options.TipLevel, RenderOptions = options.RenderOptions
+            TipLevel = options.TipLevel, RenderOptions = options.RenderOptions,
+            RequestAllTaste = options.RequestAllTaste,
+            RequestReadableLocalNames = options.RequestReadableLocalNames
         })
     };
 
