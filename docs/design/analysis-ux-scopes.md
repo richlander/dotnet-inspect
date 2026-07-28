@@ -27,11 +27,11 @@ reference examples for future semantic analysis work.
 Offset view:
 
 ```bash
-dotnet-inspect library My.dll --il-offset 0x06000042+0x2A -S "Source Location"
+dotnet-inspect library My.dll --il-offset 0x06000042+0x2A -S "Context: Source Location"
 ```
 
 ```md
-## Source Location
+## Context: Source Location
 
 | Field | Value |
 | ----- | ----- |
@@ -52,11 +52,11 @@ Member/type analogs already exist as `Source Locations`, `Original Source`, and
 Offset view:
 
 ```bash
-dotnet-inspect library My.dll --il-offset 0x06000042+0x2A -S "Member Context"
+dotnet-inspect library My.dll --il-offset 0x06000042+0x2A -S "Context: Member"
 ```
 
 ```md
-## Member Context
+## Context: Member
 
 | Field | Value |
 | ----- | ----- |
@@ -81,11 +81,11 @@ Wider scopes already expose this through type/member identity and
 Offset view:
 
 ```bash
-dotnet-inspect library My.dll --il-offset 0x06000042+0x2A -S "Instruction Context"
+dotnet-inspect library My.dll --il-offset 0x06000042+0x2A -S "Context: Instruction"
 ```
 
 ```md
-## Instruction Context
+## Context: Instruction
 
 | Field | Value |
 | ----- | ----- |
@@ -110,11 +110,11 @@ row view, not a separate offset-only concept.
 Offset view means "I am inside an exception region":
 
 ```bash
-dotnet-inspect library My.dll --il-offset 0x06000042+0x1 -S "Exception Context"
+dotnet-inspect library My.dll --il-offset 0x06000042+0x1 -S "Context: Exception"
 ```
 
 ```md
-## Exception Context
+## Context: Exception
 
 | Region | Context | Clause | Try Range | Handler Range | Caught Type |
 | ------ | ------- | ------ | --------- | ------------- | ----------- |
@@ -144,11 +144,11 @@ member asks **what does this member contain?**
 Offset callsite view:
 
 ```bash
-dotnet-inspect library My.dll --il-offset 0x06000042+0x2A -S "Callsite Context"
+dotnet-inspect library My.dll --il-offset 0x06000042+0x2A -S "Context: Callsite"
 ```
 
 ```md
-## Callsite Context
+## Context: Callsite
 
 | Field | Value |
 | ----- | ----- |
@@ -163,11 +163,11 @@ dotnet-inspect library My.dll --il-offset 0x06000042+0x2A -S "Callsite Context"
 Offset return-address view:
 
 ```bash
-dotnet-inspect library My.dll --il-offset 0x06000042+0x2F -S "Return Address Context"
+dotnet-inspect library My.dll --il-offset 0x06000042+0x2F -S "Context: Return Address"
 ```
 
 ```md
-## Return Address Context
+## Context: Return Address
 
 | Field | Value |
 | ----- | ----- |
@@ -199,12 +199,12 @@ Future semantic sections should use the same facts and nouns across scopes.
 
 | Concept | Offset | Member | Type | Library |
 | --- | --- | --- | --- | --- |
-| Exception | `Exception Context` | `Exception Regions` | `Exception Regions` with member column | optional `Exception Triage` |
-| Callsite | `Callsite Context` / `Return Address Context` | `Calls` | `Calls` with member column | `Top Leverage` / call graph summaries |
-| Allocation | `Allocation Context` | `Allocation Facts` | `Allocation Facts` with member column | `@Performance` kind sections |
+| Exception | `Context: Exception` | `Exception Regions` | `Exception Regions` with member column | optional `Exception Triage` |
+| Callsite | `Context: Callsite` / `Context: Return Address` | `Calls` | `Calls` with member column | `Top Leverage` / call graph summaries |
+| Allocation | `Context: Allocation` | `Allocation Facts` | `Allocation Facts` with member column | `@Performance` kind sections |
 | Resource lifecycle | optional `Resource Context` | optional `Resource Facts` | resource rows with member column | `Resource Triage` |
-| Safety | `Safety Context` | `Safety Facts` | `Safety Facts` with member column | `Safety Triage` or `Correctness Triage` |
-| Cost | `Cost Context` | `Cost Facts` / `Cost Overlay` | cost rows with member column | `@Performance` kind sections |
+| Safety | `Context: Safety` | `Safety Facts` | `Safety Facts` with member column | `Safety Triage` or `Correctness Triage` |
+| Cost | `Context: Cost` | `Cost Facts` / `Cost Overlay` | cost rows with member column | `@Performance` kind sections |
 
 Rules:
 
@@ -236,7 +236,7 @@ keeps that name.
 
 ## Next semantic additions
 
-Before adding `Safety Context`, `Allocation Context`, or `Cost Context`, define
+Before adding `Context: Safety`, `Context: Allocation`, or `Context: Cost`, define
 the shared fact/pivot model that each wider scope will use. That model should
 reuse the existing Analysis/Research substrate rather than creating offset-only
 semantic logic in the CLI.

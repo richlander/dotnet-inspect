@@ -304,19 +304,19 @@ public class SectionPipelineTests
         Assert.Contains("Integration: ASP.NET Core", pipeline.AllSectionNames);
         Assert.Contains("Integration: Aspire", pipeline.AllSectionNames);
         Assert.Contains("Integration: Authentication", pipeline.AllSectionNames);
-        Assert.Contains("Callsite Context", pipeline.AllSectionNames);
-        Assert.Contains("Allocation Context", pipeline.AllSectionNames);
-        Assert.Contains("Safety Context", pipeline.AllSectionNames);
-        Assert.Contains("Cost Context", pipeline.AllSectionNames);
+        Assert.Contains("Context: Callsite", pipeline.AllSectionNames);
+        Assert.Contains("Context: Allocation", pipeline.AllSectionNames);
+        Assert.Contains("Context: Safety", pipeline.AllSectionNames);
+        Assert.Contains("Context: Cost", pipeline.AllSectionNames);
         Assert.Contains("Integration: Configuration", pipeline.AllSectionNames);
         Assert.Contains("Integration: Dependency Injection", pipeline.AllSectionNames);
-        Assert.Contains("Exception Context", pipeline.AllSectionNames);
+        Assert.Contains("Context: Exception", pipeline.AllSectionNames);
         Assert.Contains("Integration: Health Checks", pipeline.AllSectionNames);
         Assert.Contains("Integration: Hosting", pipeline.AllSectionNames);
         Assert.Contains("Integration: HTTP Client", pipeline.AllSectionNames);
-        Assert.Contains("Instruction Context", pipeline.AllSectionNames);
-        Assert.Contains("Source Location", pipeline.AllSectionNames);
-        Assert.Contains("Member Context", pipeline.AllSectionNames);
+        Assert.Contains("Context: Instruction", pipeline.AllSectionNames);
+        Assert.Contains("Context: Source Location", pipeline.AllSectionNames);
+        Assert.Contains("Context: Member", pipeline.AllSectionNames);
         Assert.Contains("Integration: Opportunities", pipeline.AllSectionNames);
         Assert.Contains("Integration: Logging", pipeline.AllSectionNames);
         Assert.Contains("Integration: OpenAPI", pipeline.AllSectionNames);
@@ -338,7 +338,7 @@ public class SectionPipelineTests
         Assert.Contains("Performance: Other", pipeline.AllSectionNames);
         Assert.DoesNotContain("Performance Triage", pipeline.AllSectionNames);
         Assert.Contains("Escape: Array Pool", pipeline.AllSectionNames);
-        Assert.Contains("Return Address Context", pipeline.AllSectionNames);
+        Assert.Contains("Context: Return Address", pipeline.AllSectionNames);
         Assert.Contains("Union Types", pipeline.AllSectionNames);
     }
 
@@ -379,7 +379,7 @@ public class SectionPipelineTests
                  {
                      "Top Leverage", "Unsafe Members", "Source Link: Integrity",
                      "Source Link: Files", "Source Link: Availability", "Source Link: Missing Files",
-                     "Member Context"
+                     "Context: Member"
                  })
         {
             Assert.Contains(footgun, hidden);
@@ -400,7 +400,7 @@ public class SectionPipelineTests
         IReadOnlyCollection<string> discoverable)
     {
         var expected = command == "library"
-            ? registered.Except(["Source Location", "Inspection Failures", "Member Context", "Instruction Context", "Exception Context", "Callsite Context", "Return Address Context", "Allocation Context", "Safety Context", "Cost Context"], StringComparer.OrdinalIgnoreCase)
+            ? registered.Except(["Context: Source Location", "Inspection Failures", "Context: Member", "Context: Instruction", "Context: Exception", "Context: Callsite", "Context: Return Address", "Context: Allocation", "Context: Safety", "Context: Cost"], StringComparer.OrdinalIgnoreCase)
             : registered;
         var missing = expected
             .Where(name => !discoverable.Contains(name, StringComparer.OrdinalIgnoreCase))
@@ -703,18 +703,18 @@ public class SectionPipelineTests
         var applicable = pipeline.GetApplicableSections(model);
         var renderable = pipeline.GetAvailableSections(model);
 
-        Assert.DoesNotContain("Source Location", applicable);
-        Assert.DoesNotContain("Member Context", applicable);
-        Assert.DoesNotContain("Instruction Context", applicable);
-        Assert.DoesNotContain("Exception Context", applicable);
-        Assert.DoesNotContain("Callsite Context", applicable);
-        Assert.DoesNotContain("Return Address Context", applicable);
-        Assert.DoesNotContain("Source Location", renderable);
-        Assert.DoesNotContain("Member Context", renderable);
-        Assert.DoesNotContain("Instruction Context", renderable);
-        Assert.DoesNotContain("Exception Context", renderable);
-        Assert.DoesNotContain("Callsite Context", renderable);
-        Assert.DoesNotContain("Return Address Context", renderable);
+        Assert.DoesNotContain("Context: Source Location", applicable);
+        Assert.DoesNotContain("Context: Member", applicable);
+        Assert.DoesNotContain("Context: Instruction", applicable);
+        Assert.DoesNotContain("Context: Exception", applicable);
+        Assert.DoesNotContain("Context: Callsite", applicable);
+        Assert.DoesNotContain("Context: Return Address", applicable);
+        Assert.DoesNotContain("Context: Source Location", renderable);
+        Assert.DoesNotContain("Context: Member", renderable);
+        Assert.DoesNotContain("Context: Instruction", renderable);
+        Assert.DoesNotContain("Context: Exception", renderable);
+        Assert.DoesNotContain("Context: Callsite", renderable);
+        Assert.DoesNotContain("Context: Return Address", renderable);
 
         model.ILOffset = new ILOffsetProjection
         {
@@ -728,18 +728,18 @@ public class SectionPipelineTests
         applicable = pipeline.GetApplicableSections(model);
         renderable = pipeline.GetAvailableSections(model);
 
-        Assert.Contains("Source Location", applicable);
-        Assert.Contains("Member Context", applicable);
-        Assert.Contains("Instruction Context", applicable);
-        Assert.Contains("Exception Context", applicable);
-        Assert.Contains("Callsite Context", applicable);
-        Assert.Contains("Return Address Context", applicable);
-        Assert.Contains("Source Location", renderable);
-        Assert.Contains("Member Context", renderable);
-        Assert.Contains("Instruction Context", renderable);
-        Assert.Contains("Exception Context", renderable);
-        Assert.Contains("Callsite Context", renderable);
-        Assert.Contains("Return Address Context", renderable);
+        Assert.Contains("Context: Source Location", applicable);
+        Assert.Contains("Context: Member", applicable);
+        Assert.Contains("Context: Instruction", applicable);
+        Assert.Contains("Context: Exception", applicable);
+        Assert.Contains("Context: Callsite", applicable);
+        Assert.Contains("Context: Return Address", applicable);
+        Assert.Contains("Context: Source Location", renderable);
+        Assert.Contains("Context: Member", renderable);
+        Assert.Contains("Context: Instruction", renderable);
+        Assert.Contains("Context: Exception", renderable);
+        Assert.Contains("Context: Callsite", renderable);
+        Assert.Contains("Context: Return Address", renderable);
     }
 
     [Fact]

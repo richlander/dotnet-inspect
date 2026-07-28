@@ -133,34 +133,34 @@ public static class SectionNames
     public const string IL = "IL";
 
     /// <summary>Section for resolving a MethodDef token + IL offset to source.</summary>
-    public const string ILOffset = "Source Location";
+    public const string ILOffset = "Context: Source Location";
 
     /// <summary>Section for resolving a MethodDef token + IL offset to its owning member/type.</summary>
-    public const string MemberContext = "Member Context";
+    public const string MemberContext = "Context: Member";
 
     /// <summary>Section for resolving a MethodDef token + IL offset to its exact IL instruction.</summary>
-    public const string InstructionContext = "Instruction Context";
+    public const string InstructionContext = "Context: Instruction";
 
     /// <summary>Section for resolving a MethodDef token + IL offset to containing exception regions.</summary>
-    public const string ExceptionContext = "Exception Context";
+    public const string ExceptionContext = "Context: Exception";
 
     /// <summary>Section for exception regions contained by a selected member body.</summary>
     public const string ExceptionRegions = "Exception Regions";
 
     /// <summary>Section for resolving a MethodDef token + IL offset to a call-like instruction.</summary>
-    public const string CallsiteContext = "Callsite Context";
+    public const string CallsiteContext = "Context: Callsite";
 
     /// <summary>Section for resolving a MethodDef token + IL offset to the preceding call instruction.</summary>
-    public const string ReturnAddressContext = "Return Address Context";
+    public const string ReturnAddressContext = "Context: Return Address";
 
     /// <summary>Section for allocation facts at an exact IL coordinate.</summary>
-    public const string AllocationContext = "Allocation Context";
+    public const string AllocationContext = "Context: Allocation";
 
     /// <summary>Section for safety facts at an exact IL coordinate.</summary>
-    public const string SafetyContext = "Safety Context";
+    public const string SafetyContext = "Context: Safety";
 
     /// <summary>Section for objective cost facts at an exact IL coordinate.</summary>
-    public const string CostContext = "Cost Context";
+    public const string CostContext = "Context: Cost";
 
     /// <summary>
     /// Section for the structured hidden-fact table: the same annotations the

@@ -294,7 +294,7 @@ dotnet-inspect library My.dll --il-offset 0x06000002+0x1
 ```
 
 ```md
-## Source Location
+## Context: Source Location
 
 | Field | Value |
 | ----- | ----- |
@@ -305,7 +305,7 @@ dotnet-inspect library My.dll --il-offset 0x06000002+0x1
 | Line | 42 |
 | Url | https://raw.githubusercontent.com/org/repo/sha/src/Foo.cs#L42 |
 
-## Member Context
+## Context: Member
 
 | Field | Value |
 | ----- | ----- |
@@ -321,7 +321,7 @@ dotnet-inspect library My.dll --il-offset 0x06000002+0x1
 | Metadata Token | 0x6000002 |
 | IL Offset | 0x1 |
 
-## Instruction Context
+## Context: Instruction
 
 | Field | Value |
 | ----- | ----- |
@@ -337,13 +337,13 @@ dotnet-inspect library My.dll --il-offset 0x06000002+0x1
 | Terminates Block | No |
 | Falls Through | Yes |
 
-## Exception Context
+## Context: Exception
 
 | Region | Context | Clause | Try Range | Handler Range | Caught Type |
 | ------ | ------- | ------ | --------- | ------------- | ----------- |
 | 1 | try | catch | IL_0010..IL_0045 | IL_0045..IL_0070 | System.TimeoutException |
 
-## Callsite Context
+## Context: Callsite
 
 | Field | Value |
 | ----- | ----- |
@@ -359,7 +359,7 @@ If the coordinate is the return address after the call, the applicable section
 changes:
 
 ```md
-## Return Address Context
+## Context: Return Address
 
 | Field | Value |
 | ----- | ----- |
@@ -376,16 +376,16 @@ present:
 
 ```bash
 dotnet-inspect library My.dll -D
-# Source Location, Member Context, Instruction Context, Exception Context,
-# Callsite Context, and Return Address Context are omitted.
+# Context: Source Location, Context: Member, Context: Instruction, Context: Exception,
+# Context: Callsite, and Context: Return Address are omitted.
 
 dotnet-inspect library My.dll --il-offset 0x06000002+0x1 -D
-# Source Location
-# Member Context
-# Instruction Context
-# Exception Context (only when applicable)
-# Callsite Context (only when applicable)
-# Return Address Context (only when applicable)
+# Context: Source Location
+# Context: Member
+# Context: Instruction
+# Context: Exception (only when applicable)
+# Context: Callsite (only when applicable)
+# Context: Return Address (only when applicable)
 ```
 
 The source-location section then projects cleanly:
@@ -393,35 +393,35 @@ The source-location section then projects cleanly:
 ```bash
 # Scalar
 dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
-  -S "Source Location" --fields Line --value
+  -S "Context: Source Location" --fields Line --value
 # 42
 
 # URL vector (one row)
 dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
-  -S "Source Location" --urls
+  -S "Context: Source Location" --urls
 # https://raw.githubusercontent.com/org/repo/sha/src/Foo.cs#L42
 
 # Path vector (one row)
 dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
-  -S "Source Location" --paths
+  -S "Context: Source Location" --paths
 # /_/src/Foo.cs
 
 # Printable payload: the raw resolved source line
 dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
-  -S "Source Location" --print
+  -S "Context: Source Location" --print
 #         return JsonSerializer.Serialize(value, options);
 
 # Singleton count
 dotnet-inspect library My.dll --il-offset 0x06000002+0x1 \
-  -S "Source Location" --count
+  -S "Context: Source Location" --count
 # 1
 ```
 
 This keeps the concerns separate: the default fact section shows all
-symbolication evidence, `Member Context` shows the owning metadata context,
-`Instruction Context` shows the exact IL operation, `Exception Context` shows
-active exception-handling regions, `Callsite Context` shows the call-like
-operation at the coordinate, `Return Address Context` points back to the prior
+symbolication evidence, `Context: Member` shows the owning metadata context,
+`Context: Instruction` shows the exact IL operation, `Context: Exception` shows
+active exception-handling regions, `Context: Callsite` shows the call-like
+operation at the coordinate, `Context: Return Address` points back to the prior
 call, `--urls` returns the anchored source location, `--paths` returns the PDB
 document path, and `--print` returns the raw payload at the location rather than
 a decorated snippet.

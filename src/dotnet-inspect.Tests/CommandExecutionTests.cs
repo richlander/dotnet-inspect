@@ -7048,7 +7048,7 @@ public class CommandExecutionTests
     private static string[] BuildDiscoverySelectionArgs(string[] command, string section)
     {
         List<string> args = [.. command];
-        if (command is ["library", ..] && section == "Source Location")
+        if (command is ["library", ..] && section == "Context: Source Location")
             args.AddRange(["--il-offset", "0x06000041+0x0"]);
         args.AddRange(["-S", section, "--table", "--tips", "q", "-n", "40"]);
         return [.. args];
@@ -7216,7 +7216,7 @@ public class CommandExecutionTests
                      "Async Methods", "Custom Attributes", "Extension Methods", "Type Forwarders",
                      "Union Types", "P/Invoke Methods", "Non-normalized Paths", "Top Leverage",
                      "Unsafe Members", "Source Link: Files", "Source Link: Availability",
-                     "Source Link: Missing Files", "Source Link: Integrity", "Member Context",
+                     "Source Link: Missing Files", "Source Link: Integrity", "Context: Member",
                      "Integration: Opportunities"
                  })
         {
@@ -7361,14 +7361,14 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Source Location", output);
+        Assert.Contains("## Context: Source Location", output);
         Assert.Contains("| Field | Value |", output);
         Assert.Contains("| Method | System.HexConverter.FromChar |", output);
         Assert.Contains("| Token | 0x6000001 |", output);
         Assert.Contains("| IL Offset | 0x0 |", output);
         Assert.Contains("HexConverter.cs", output);
-        Assert.Contains("## Member Context", output);
-        Assert.Contains("## Instruction Context", output);
+        Assert.Contains("## Context: Member", output);
+        Assert.Contains("## Context: Instruction", output);
     }
 
     [Fact]
@@ -7461,11 +7461,11 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Source Location", "--tips", "q");
+            "--il-offset", "0x06000001+0x0", "-S", "Context: Source Location", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Source Location", output);
+        Assert.Contains("## Context: Source Location", output);
         Assert.Contains("| Field | Value |", output);
         Assert.Contains("| Method | System.HexConverter.FromChar |", output);
         Assert.Contains("| Token | 0x6000001 |", output);
@@ -7482,7 +7482,7 @@ public class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Source Location", output);
+        Assert.Contains("## Context: Source Location", output);
         Assert.DoesNotContain("## IL Offset", output);
     }
 
@@ -7511,15 +7511,15 @@ public class CommandExecutionTests
         Assert.Equal(0, withExit);
         Assert.Empty(withoutError);
         Assert.Empty(withError);
-        Assert.DoesNotContain("Source Location", withoutOutput);
-        Assert.DoesNotContain("Member Context", withoutOutput);
-        Assert.DoesNotContain("Instruction Context", withoutOutput);
-        Assert.DoesNotContain("Exception Context", withoutOutput);
-        Assert.DoesNotContain("Callsite Context", withoutOutput);
-        Assert.DoesNotContain("Return Address Context", withoutOutput);
-        Assert.Contains("Source Location", withOutput);
-        Assert.Contains("Member Context", withOutput);
-        Assert.Contains("Instruction Context", withOutput);
+        Assert.DoesNotContain("Context: Source Location", withoutOutput);
+        Assert.DoesNotContain("Context: Member", withoutOutput);
+        Assert.DoesNotContain("Context: Instruction", withoutOutput);
+        Assert.DoesNotContain("Context: Exception", withoutOutput);
+        Assert.DoesNotContain("Context: Callsite", withoutOutput);
+        Assert.DoesNotContain("Context: Return Address", withoutOutput);
+        Assert.Contains("Context: Source Location", withOutput);
+        Assert.Contains("Context: Member", withOutput);
+        Assert.Contains("Context: Instruction", withOutput);
     }
 
     [Fact]
@@ -7527,11 +7527,11 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Member Context", "--tips", "q");
+            "--il-offset", "0x06000001+0x0", "-S", "Context: Member", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Member Context", output);
+        Assert.Contains("## Context: Member", output);
         Assert.Contains("| Type | System.HexConverter |", output);
         Assert.Contains("| Type Kind | class |", output);
         Assert.Contains("| Member | System.HexConverter.FromChar |", output);
@@ -7545,7 +7545,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Member Context", "--fields", "Type", "--value", "--tips", "q");
+            "--il-offset", "0x06000001+0x0", "-S", "Context: Member", "--fields", "Type", "--value", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -7558,7 +7558,7 @@ public class CommandExecutionTests
         var token = typeof(ILOffsetAsyncFixture).GetMethod(nameof(ILOffsetAsyncFixture.StateMachineAsync))!.MetadataToken;
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath,
-            "--il-offset", $"0x{token:X}+0x0", "-S", "Member Context", "--tips", "q");
+            "--il-offset", $"0x{token:X}+0x0", "-S", "Context: Member", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -7571,11 +7571,11 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Instruction Context", "--tips", "q");
+            "--il-offset", "0x06000001+0x0", "-S", "Context: Instruction", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Instruction Context", output);
+        Assert.Contains("## Context: Instruction", output);
         Assert.Contains("| IL Offset | 0x0 |", output);
         Assert.Contains("| Boundary | Exact |", output);
         Assert.Contains("| Opcode | ldarg.0 |", output);
@@ -7588,7 +7588,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Instruction Context", "--fields", "Opcode", "--value", "--tips", "q");
+            "--il-offset", "0x06000001+0x0", "-S", "Context: Instruction", "--fields", "Opcode", "--value", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -7600,7 +7600,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x2", "-S", "Instruction Context", "--tips", "q");
+            "--il-offset", "0x06000001+0x2", "-S", "Context: Instruction", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -7624,13 +7624,13 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x2", "-S", "Member Context", "--tips", "q");
+            "--il-offset", "0x06000001+0x2", "-S", "Context: Member", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Member Context", output);
+        Assert.Contains("## Context: Member", output);
         Assert.Contains("| Member | System.HexConverter.FromChar |", output);
-        Assert.DoesNotContain("## Instruction Context", output);
+        Assert.DoesNotContain("## Context: Instruction", output);
     }
 
     [Fact]
@@ -7639,7 +7639,7 @@ public class CommandExecutionTests
         var token = typeof(ILOffsetFloatFixture).GetMethod(nameof(ILOffsetFloatFixture.FloatConstant))!.MetadataToken;
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath,
-            "--il-offset", $"0x{token:X}+0x0", "-S", "Instruction Context", "--fields", "Operand", "--value", "--tips", "q");
+            "--il-offset", $"0x{token:X}+0x0", "-S", "Context: Instruction", "--fields", "Operand", "--value", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -7652,11 +7652,11 @@ public class CommandExecutionTests
         var token = typeof(ILOffsetExceptionFixture).GetMethod(nameof(ILOffsetExceptionFixture.TryCatch))!.MetadataToken;
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath,
-            "--il-offset", $"0x{token:X}+0x1", "-S", "Exception Context", "--tips", "q");
+            "--il-offset", $"0x{token:X}+0x1", "-S", "Context: Exception", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Exception Context", output);
+        Assert.Contains("## Context: Exception", output);
         Assert.Contains("| Region | Context | Clause | Try Range | Handler Range |", output);
         Assert.Contains("| 1 | try | catch |", output);
         Assert.Contains("System.DivideByZeroException", output);
@@ -7668,7 +7668,7 @@ public class CommandExecutionTests
         var token = typeof(ILOffsetExceptionFixture).GetMethod(nameof(ILOffsetExceptionFixture.TryCatch))!.MetadataToken;
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath,
-            "--il-offset", $"0x{token:X}+0x1", "-S", "Exception Context", "--fields", "Clause", "--value", "--tips", "q");
+            "--il-offset", $"0x{token:X}+0x1", "-S", "Context: Exception", "--fields", "Clause", "--value", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -7680,11 +7680,11 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x1", "-S", "Callsite Context", "--tips", "q");
+            "--il-offset", "0x06000001+0x1", "-S", "Context: Callsite", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Callsite Context", output);
+        Assert.Contains("## Context: Callsite", output);
         Assert.Contains("| Call Offset | IL_0001 |", output);
         Assert.Contains("| Opcode | call |", output);
         Assert.Contains("| Call Kind | direct |", output);
@@ -7697,7 +7697,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x1", "-S", "Callsite Context", "--fields", "Callee", "--value", "--tips", "q");
+            "--il-offset", "0x06000001+0x1", "-S", "Context: Callsite", "--fields", "Callee", "--value", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -7709,11 +7709,11 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x6", "-S", "Return Address Context", "--tips", "q");
+            "--il-offset", "0x06000001+0x6", "-S", "Context: Return Address", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.Contains("## Return Address Context", output);
+        Assert.Contains("## Context: Return Address", output);
         Assert.Contains("| IL Offset | IL_0006 |", output);
         Assert.Contains("| Call Offset | IL_0001 |", output);
         Assert.Contains("| Opcode | call |", output);
@@ -7725,7 +7725,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x6", "-S", "Return Address Context", "--fields", "Call Offset", "--value", "--tips", "q");
+            "--il-offset", "0x06000001+0x6", "-S", "Context: Return Address", "--fields", "Call Offset", "--value", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -7737,7 +7737,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x2", "-S", "Return Address Context", "--tips", "q");
+            "--il-offset", "0x06000001+0x2", "-S", "Context: Return Address", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -7750,11 +7750,11 @@ public class CommandExecutionTests
         var token = typeof(ILOffsetFunctionPointerFixture).GetMethod(nameof(ILOffsetFunctionPointerFixture.CreateDelegate))!.MetadataToken;
         var (exit, output, error) = await RunAppAsync(
             "library", TestAssemblyPath,
-            "--il-offset", $"0x{token:X}+0x10", "-S", "Return Address Context", "--tips", "q");
+            "--il-offset", $"0x{token:X}+0x10", "-S", "Context: Return Address", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Contains("# dotnet-inspect.Tests.dll", output);
-        Assert.DoesNotContain("## Return Address Context", output);
+        Assert.DoesNotContain("## Context: Return Address", output);
         Assert.Contains("matched section has no data", error);
     }
 
@@ -7763,7 +7763,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Source Location", "--count", "--tips", "q");
+            "--il-offset", "0x06000001+0x0", "-S", "Context: Source Location", "--count", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -7775,7 +7775,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Source Location", "--fields", "Line", "--value", "--tips", "q");
+            "--il-offset", "0x06000001+0x0", "-S", "Context: Source Location", "--fields", "Line", "--value", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -7787,11 +7787,11 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Source Location", "--print", "--tips", "q");
+            "--il-offset", "0x06000001+0x0", "-S", "Context: Source Location", "--print", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        Assert.DoesNotContain("## Source Location", output);
+        Assert.DoesNotContain("## Context: Source Location", output);
         Assert.Contains("CharToHexLookup", output);
     }
 
@@ -7800,12 +7800,12 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Source Location", "--print", "--json-array", "--tips", "q");
+            "--il-offset", "0x06000001+0x0", "-S", "Context: Source Location", "--print", "--json-array", "--tips", "q");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
         Assert.StartsWith("[", output.Trim());
-        Assert.Contains("\"section\":\"Source Location\"", output);
+        Assert.Contains("\"section\":\"Context: Source Location\"", output);
         Assert.Contains("\"label\":\"System.HexConverter.FromChar\"", output);
         Assert.Contains("CharToHexLookup", output);
     }
@@ -7816,7 +7816,7 @@ public class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "--il-offset", "0x06000001+0x0", "-S", "Source Location", "--count", "--print", "--tips", "q");
+            "--il-offset", "0x06000001+0x0", "-S", "Context: Source Location", "--count", "--print", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
@@ -7854,7 +7854,7 @@ public class CommandExecutionTests
     {
         var (exit, _, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "-S", "Source Location", "--tips", "q");
+            "-S", "Context: Source Location", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Contains("IL coordinate sections require --il-offset", error);
@@ -7865,7 +7865,7 @@ public class CommandExecutionTests
     {
         var (exit, _, error) = await RunAppAsync(
             "library", "--platform", "System.Text.Json",
-            "-S", "Source Location:0x06000001+0x0", "--tips", "q");
+            "-S", "Context: Source Location:0x06000001+0x0", "--tips", "q");
 
         Assert.Equal(1, exit);
         Assert.Contains("IL offset parameters belong in --il-offset", error);

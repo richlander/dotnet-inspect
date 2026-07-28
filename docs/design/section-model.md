@@ -212,9 +212,18 @@ standalone set, `@Hidden` is its complement, and neither is a user-facing door
   regardless of registration or view-model declaration order. The same sections
   sort the same way in every library view and selection — the default ladder,
   `@Category` doors, and `@All`. Because sections share a `Group: Leaf` prefix
-  (`Performance:`, `Source Link:`), a group's members still cluster together
-  while sorting alphabetically within the cluster; no group carries a curated
-  non-alphabetical display order at render time.
+  (`Performance:`, `Source Link:`, `Integration:`, `Escape:`, `Context:`), a
+  group's members still cluster together while sorting alphabetically within the
+  cluster; no group carries a curated non-alphabetical display order at render
+  time.
+- **A section family is named by prefix, not by suffix.** A shared `Group: Leaf`
+  prefix makes a family's membership legible from the name alone and clusters it
+  under alphabetical order, which is what makes a family discoverable without
+  consulting `-D`. A shared *suffix* does neither: the coordinate sections were
+  once `Member Context` / `Safety Context` / `Cost Context`, an obvious family
+  that scattered across `M`, `S`, and `C` and read as unrelated. They are now
+  `Context: Member`, `Context: Safety`, `Context: Cost`. Sections outside any
+  family (`Library Info`, `Signals`, `Symbols`, `References`) stay unprefixed.
 
 ### How the dimensions map
 

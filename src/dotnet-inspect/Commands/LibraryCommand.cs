@@ -123,7 +123,7 @@ public class LibraryCommand
             && options.IncludeSections is { Count: > 0 }
             && !options.IncludeSections.Overlaps(ILCoordinateSections))
         {
-            Console.Error.WriteLine("Error: --il-offset requires an IL coordinate section. Omit -S or include -S \"Source Location\", -S \"Member Context\", -S \"Instruction Context\", -S \"Exception Context\", -S \"Callsite Context\", or -S \"Return Address Context\".");
+            Console.Error.WriteLine($"Error: --il-offset requires an IL coordinate section. Omit -S or include -S \"{SectionNames.ILOffset}\", -S \"{SectionNames.MemberContext}\", -S \"{SectionNames.InstructionContext}\", -S \"{SectionNames.ExceptionContext}\", -S \"{SectionNames.CallsiteContext}\", or -S \"{SectionNames.ReturnAddressContext}\".");
             return 1;
         }
 
@@ -672,12 +672,21 @@ public class LibraryCommand
         string? ilOffset = options.ILOffsetParameter;
         bool hasExplicitSelect = select.Count > 0;
 
+        // Reject "<coordinate section>:<offset>" selectors. The legacy spellings ("IL Offset",
+        // "Source Location") stay listed because they still resolve as aliases, and the current
+        // name itself contains a colon, so the guard must match name + ':' rather than any colon.
+        string[] parameterizedPrefixes =
+        [
+            "IL Offset:",
+            "Source Location:",
+            SectionNames.ILOffset + ":",
+        ];
+
         for (var i = 0; i < select.Count; i++)
         {
             var value = select[i].Trim();
-            if (value.StartsWith("IL Offset:", StringComparison.OrdinalIgnoreCase)
-                || value.StartsWith("Source Location:", StringComparison.OrdinalIgnoreCase))
-                return (options, "Error: IL offset parameters belong in --il-offset, not in -S. Use --il-offset 0x06000001+0x5 -S \"Source Location\".");
+            if (parameterizedPrefixes.Any(prefix => value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+                return (options, $"Error: IL offset parameters belong in --il-offset, not in -S. Use --il-offset 0x06000001+0x5 -S \"{SectionNames.ILOffset}\".");
         }
 
         if (!string.IsNullOrWhiteSpace(ilOffset)
@@ -1049,14 +1058,14 @@ public class LibraryCommand
         var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
         if (string.IsNullOrWhiteSpace(field))
         {
-            Console.Error.WriteLine("Error: --value for Member Context requires --fields <name>.");
+            Console.Error.WriteLine($"Error: --value for {SectionNames.MemberContext} requires --fields <name>.");
             return [];
         }
 
         var value = SelectMemberContextValue(context, field);
         if (string.IsNullOrWhiteSpace(value))
         {
-            Console.Error.WriteLine($"Error: field '{field}' has no value in Member Context.");
+            Console.Error.WriteLine($"Error: field '{field}' has no value in {SectionNames.MemberContext}.");
             return [];
         }
 
@@ -1092,14 +1101,14 @@ public class LibraryCommand
         var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
         if (string.IsNullOrWhiteSpace(field))
         {
-            Console.Error.WriteLine("Error: --value for Instruction Context requires --fields <name>.");
+            Console.Error.WriteLine($"Error: --value for {SectionNames.InstructionContext} requires --fields <name>.");
             return [];
         }
 
         var value = SelectInstructionContextValue(context, field);
         if (string.IsNullOrWhiteSpace(value))
         {
-            Console.Error.WriteLine($"Error: field '{field}' has no value in Instruction Context.");
+            Console.Error.WriteLine($"Error: field '{field}' has no value in {SectionNames.InstructionContext}.");
             return [];
         }
 
@@ -1136,7 +1145,7 @@ public class LibraryCommand
         var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
         if (string.IsNullOrWhiteSpace(field))
         {
-            Console.Error.WriteLine("Error: --value for Exception Context requires --fields <name>.");
+            Console.Error.WriteLine($"Error: --value for {SectionNames.ExceptionContext} requires --fields <name>.");
             return [];
         }
 
@@ -1149,7 +1158,7 @@ public class LibraryCommand
         }
 
         if (projected.Count == 0)
-            Console.Error.WriteLine($"Error: field '{field}' has no value in Exception Context.");
+            Console.Error.WriteLine($"Error: field '{field}' has no value in {SectionNames.ExceptionContext}.");
 
         return projected;
     }
@@ -1179,14 +1188,14 @@ public class LibraryCommand
         var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
         if (string.IsNullOrWhiteSpace(field))
         {
-            Console.Error.WriteLine("Error: --value for Callsite Context requires --fields <name>.");
+            Console.Error.WriteLine($"Error: --value for {SectionNames.CallsiteContext} requires --fields <name>.");
             return [];
         }
 
         var value = SelectCallsiteContextValue(context, field);
         if (string.IsNullOrWhiteSpace(value))
         {
-            Console.Error.WriteLine($"Error: field '{field}' has no value in Callsite Context.");
+            Console.Error.WriteLine($"Error: field '{field}' has no value in {SectionNames.CallsiteContext}.");
             return [];
         }
 
@@ -1217,14 +1226,14 @@ public class LibraryCommand
         var field = options.Fields?.SingleOrDefault() ?? options.Columns?.SingleOrDefault();
         if (string.IsNullOrWhiteSpace(field))
         {
-            Console.Error.WriteLine("Error: --value for Return Address Context requires --fields <name>.");
+            Console.Error.WriteLine($"Error: --value for {SectionNames.ReturnAddressContext} requires --fields <name>.");
             return [];
         }
 
         var value = SelectReturnAddressContextValue(context, field);
         if (string.IsNullOrWhiteSpace(value))
         {
-            Console.Error.WriteLine($"Error: field '{field}' has no value in Return Address Context.");
+            Console.Error.WriteLine($"Error: field '{field}' has no value in {SectionNames.ReturnAddressContext}.");
             return [];
         }
 

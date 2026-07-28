@@ -73,7 +73,7 @@ public class SemanticFactsSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Allocation Context", result.Output);
+        Assert.Contains("## Context: Allocation", result.Output);
         Assert.Contains("| IL Offset | Allocation Kind |", result.Output);
         Assert.DoesNotContain("Performance Triage", result.Output);
     }
@@ -131,7 +131,7 @@ public class SemanticFactsSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("## Safety Context", result.Output);
+        Assert.Contains("## Context: Safety", result.Output);
         Assert.Contains("Unsafe call", result.Output);
         Assert.Contains("Unsafe.As", result.Output);
         Assert.Contains("requires unsafe", result.Output);
@@ -158,7 +158,7 @@ public class SemanticFactsSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.DoesNotContain("## Safety Context", result.Output);
+        Assert.DoesNotContain("## Context: Safety", result.Output);
     }
 
     [Fact]
@@ -182,7 +182,7 @@ public class SemanticFactsSectionTests
         }));
 
         Assert.Equal(0, result.ExitCode);
-        Assert.DoesNotContain("## Safety Context", result.Output);
+        Assert.DoesNotContain("## Context: Safety", result.Output);
     }
 
 
