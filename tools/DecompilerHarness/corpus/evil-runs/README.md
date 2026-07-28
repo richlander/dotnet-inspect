@@ -369,6 +369,30 @@ quietly losing rows would have *disarmed* the gate instead of tripping it.
 decompiler-caused body defects the oracle could adjudicate (~5.9% coverage), so
 its movement is a floor, not a census.
 
+### The next append cannot ratchet, and that is expected
+
+No row in this store records `poolSha256` or `corpusSha256` — every one predates
+run identity. A live run always records both, and comparability compares both
+symmetrically, so **the first identified row you append is not comparable to the
+row it lands on**: the comparison skips, and a skip fails the gate. Expect the
+PR that adds it to be red.
+
+Land it together with a **second** identified run over the same pool and corpus.
+Those two rows are the first ratchetable pair, and every append after that
+ratchets normally — including `productBodyDefect`, which no pair in the store can
+compare today.
+
+The historical rows cannot be back-filled: their pools and corpora were archived
+out-of-tree and the artifacts are gone. The cheaper alternative — let a baseline
+that records no identity compare against anything — is unsound, because
+`--ratchet-baseline` reads a caller-supplied file and that rule would let any
+baseline opt out of identity and then compare clean against a run over a wholly
+different corpus.
+
+`TrackedHistory_RecordsNoRunIdentity_SoTheNextAppendCannotRatchet` pins this, so
+the warning arrives from a test rather than from a red merge lane. Delete that
+test in the same change that crosses the bootstrap. Tracked as #3362.
+
 ### Who runs it
 
 - **Every PR**: `AuthoredCorpusRatchetTests` ratchets the newest row of this
