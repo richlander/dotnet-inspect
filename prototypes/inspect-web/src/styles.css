@@ -330,10 +330,14 @@ kbd {
   white-space: nowrap;
 }
 .namespace-chips button.active { color: var(--text); border-color: var(--line-strong); background: var(--panel-active); }
+.library-chips { flex-wrap: wrap; }
+.library-chips button { max-width: 160px; }
+.library-chips .ns-count { margin-right: 5px; color: var(--muted); }
+.library-chips button.active .ns-count { color: var(--accent); }
 
 /* Namespace picker dropdown (replaces the old overflow chip strip). Also the
    shared look for the scopebar Library selector. */
-.namespace-picker { padding: 7px 9px; border-bottom: 1px solid var(--line); }
+.namespace-picker, .library-picker { padding: 7px 9px; border-bottom: 1px solid var(--line); }
 .scope-select {
   width: 100%;
   height: 26px;
@@ -733,19 +737,20 @@ kbd {
    types-by-kind grid. */
 .library-list { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
 .library-row { padding: 12px 12px 13px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.library-row.as-button { display: block; width: 100%; border-left: 0; border-right: 0; border-top: 0; text-align: left; font: inherit; cursor: pointer; }
+.library-row.as-button:hover { background: var(--panel-active); }
+.library-row.as-button:hover .library-name { color: var(--accent); }
 .library-row-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .library-name { font: 13px var(--mono); color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .library-metric { flex: 0 0 auto; font-size: 12px; color: var(--dim); }
 .library-metric strong { color: var(--text); }
 .library-kinds { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
 .lib-kind {
-  display: inline-flex; align-items: baseline; gap: 5px;
-  padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px;
-  background: transparent; color: var(--dim); font-size: 11px; cursor: pointer;
+  display: inline-flex; align-items: baseline; gap: 4px;
+  padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px;
+  font-size: 12px; color: var(--dim); background: var(--panel-raised);
 }
 .lib-kind strong { font: 12px var(--mono); color: var(--muted); }
-.lib-kind:hover { border-color: var(--line-strong); background: var(--panel-active); }
-.lib-kind:hover strong { color: var(--accent); }
 .type-chip-list .type-chip .ns-count { display: inline-block; min-width: 18px; margin-right: 6px; padding: 0 5px; border-radius: 999px; background: var(--panel-active); color: var(--dim); font-size: 11px; text-align: center; }
 .type-chip-list .type-chip.active { border-color: var(--accent); color: var(--accent); }
 .type-chip-list .attr-chip .ref-version { color: var(--muted); margin-left: 4px; }

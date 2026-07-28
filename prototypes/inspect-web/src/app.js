@@ -79,6 +79,7 @@ const state = {
   typeFilter: "",
   namespaceFilter: "",
   kindFilter: "",
+  libraryScope: null,
   command: "",
   completionIndex: 0,
   promptOpen: false,
@@ -417,8 +418,100 @@ function filteredTypes() {
     const matchesText = !needle || `${item.name} ${item.namespace} ${item.kind}`.toLowerCase().includes(needle);
     return matchesText
       && (!state.namespaceFilter || item.namespace === state.namespaceFilter)
-      && (!state.kindFilter || typeKind(item.kind) === state.kindFilter);
+      && (!state.kindFilter || typeKind(item.kind) === state.kindFilter)
+      && (!state.libraryScope || state.libraryScope.has(libraryKey(item)));
   });
+}
+
+// Owning-library key for a type: the assembly file name without a .dll suffix,
+// falling back to the package's primary assembly. Used to scope the type list to
+// one or more libraries within a multi-assembly package.
+function libraryKey(item) {
+  const asm = (item && item.assembly) || (state.package && state.package.assembly) || "";
+  return asm.replace(/\.dll$/i, "");
+}
+
+// Libraries present among the loaded types, each with its type count, sorted by
+// size then name. The unit the Library selector and per-library overview use.
+function packageLibraries() {
+  if (!state.package) return [];
+  const counts = new Map();
+  for (const item of state.package.types) {
+    const key = libraryKey(item);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
+
+const LIBRARY_CHIP_MAX = 6;
+
+// How the Library selector presents itself: hidden for a single-library package,
+// multi-select chips (all on by default) for a handful, single-select dropdown
+// once there are too many to fit as chips.
+function libraryMode() {
+  const count = packageLibraries().length;
+  if (count <= 1) return "none";
+  return count <= LIBRARY_CHIP_MAX ? "chips" : "dropdown";
+}
+
+// Effective set of in-scope library keys (a null scope means every library).
+function activeLibrarySet() {
+  if (state.libraryScope) return state.libraryScope;
+  return new Set(packageLibraries().map(lib => lib.name));
+}
+
+// Multi-select chip toggle. "" resets to all libraries (null scope). Toggling a
+// single chip flips it in the active set; a set that ends up full or empty
+// collapses back to the "all libraries" default.
+function toggleLibraryChip(name) {
+  if (!name) { state.libraryScope = null; return; }
+  const next = new Set(activeLibrarySet());
+  if (next.has(name)) next.delete(name); else next.add(name);
+  const all = packageLibraries();
+  if (next.size === 0 || next.size === all.length) state.libraryScope = null;
+  else state.libraryScope = next;
+}
+
+// Reset the type cursor/selection to the first in-scope type after the library
+// scope changes, keeping the current namespace/kind filters.
+function afterLibraryScopeChange() {
+  state.typeCursor = 0;
+  const first = filteredTypes()[0];
+  if (first) state.selectedTypeId = first.id;
+  state.selectedMemberKey = "";
+  render();
+}
+
+// The Library selector for the type nav pane. Mirrors the framework controls:
+// chips (multi-select, all on by default — the inverse of the single-select
+// framework chips) for a handful of libraries, a single-select dropdown once a
+// package (e.g. the runtime pack) carries too many.
+function libraryControl() {
+  const mode = libraryMode();
+  if (mode === "none") return "";
+  const libs = packageLibraries();
+  if (mode === "dropdown") {
+    const only = state.libraryScope && state.libraryScope.size === 1
+      ? [...state.libraryScope][0] : "";
+    const total = libs.reduce((sum, lib) => sum + lib.count, 0);
+    return `<div class="library-picker">
+      <select id="library-jump" class="scope-select" aria-label="Scope to a library">
+        <option value="" ${!only ? "selected" : ""}>All libraries · ${total}</option>
+        ${libs.map(lib => `<option value="${escapeHtml(lib.name)}" ${only === lib.name ? "selected" : ""}>${escapeHtml(lib.name)} · ${lib.count}</option>`).join("")}
+      </select>
+    </div>`;
+  }
+  const active = activeLibrarySet();
+  const allOn = !state.libraryScope;
+  const chips = libs
+    .map(lib => `<button class="${active.has(lib.name) ? "active" : ""}" data-library-chip="${escapeHtml(lib.name)}" title="${escapeHtml(lib.name)}"><span class="ns-count">${lib.count}</span>${escapeHtml(lib.name)}</button>`)
+    .join("");
+  return `<div class="namespace-chips library-chips" aria-label="Library filters">
+    <button class="${allOn ? "active" : ""}" data-library-chip="">all libraries</button>
+    ${chips}
+  </div>`;
 }
 
 function namespaces() {
@@ -433,8 +526,10 @@ function namespaces() {
 function namespaceOptions() {
   if (!state.package) return "";
   const counts = new Map();
-  for (const item of state.package.types)
+  for (const item of state.package.types) {
+    if (state.libraryScope && !state.libraryScope.has(libraryKey(item))) continue;
     counts.set(item.namespace, (counts.get(item.namespace) || 0) + 1);
+  }
   return [...counts.keys()]
     .sort((a, b) => a.localeCompare(b))
     .map(ns => `<option value="${escapeHtml(ns)}" ${state.namespaceFilter === ns ? "selected" : ""}>${escapeHtml(ns || "(global namespace)")} · ${counts.get(ns)}</option>`)
@@ -460,6 +555,7 @@ function typeKinds() {
   if (!state.package) return [];
   const present = new Set(state.package.types
     .filter(item => !state.namespaceFilter || item.namespace === state.namespaceFilter)
+    .filter(item => !state.libraryScope || state.libraryScope.has(libraryKey(item)))
     .map(item => typeKind(item.kind)));
   return KIND_ORDER.filter(kind => present.has(kind));
 }
@@ -985,9 +1081,12 @@ function renderTypeNav(current, visible) {
           ${namespaceOptions()}
         </select>
       </div>
-      <div class="namespace-chips kind-chips" aria-label="Type kind filters">
-        <button class="${!state.kindFilter ? "active" : ""}" data-kind-filter="">all kinds</button>
-        ${typeKinds().map(kind => `<button class="${state.kindFilter === kind ? "active" : ""}" data-kind-filter="${kind}">${kind}</button>`).join("")}
+      <div class="chip-stack">
+        <div class="namespace-chips kind-chips" aria-label="Type kind filters">
+          <button class="${!state.kindFilter ? "active" : ""}" data-kind-filter="">all kinds</button>
+          ${typeKinds().map(kind => `<button class="${state.kindFilter === kind ? "active" : ""}" data-kind-filter="${kind}">${kind}</button>`).join("")}
+        </div>
+        ${libraryControl()}
       </div>
       <div class="type-list" role="listbox" tabindex="0" id="type-list">
         ${[...typeGroups()].map(([namespace, types]) => `
@@ -1646,15 +1745,17 @@ function renderPackageOverview() {
       const members = memberFor(asm);
       const kinds = KIND_ORDER
         .filter(kind => stat.kinds.has(kind))
-        .map(kind => `<button class="lib-kind as-button" data-kind-jump="${kind}"><strong>${stat.kinds.get(kind)}</strong> ${kindPlural[kind] || kind}</button>`)
+        .map(kind => `<span class="lib-kind"><strong>${stat.kinds.get(kind)}</strong> ${kindPlural[kind] || kind}</span>`)
         .join("");
-      return `<div class="library-row">
-        <div class="library-row-head">
+      const clickable = libStats.size > 1;
+      const head = `<div class="library-row-head">
           <span class="library-name" title="${escapeHtml(asm)}">${escapeHtml(name)}</span>
           <span class="library-metric">${stat.types} type${stat.types === 1 ? "" : "s"}${members != null ? ` · ${members.toLocaleString()} members` : ""}</span>
         </div>
-        <div class="library-kinds">${kinds}</div>
-      </div>`;
+        <div class="library-kinds">${kinds}</div>`;
+      return clickable
+        ? `<button class="library-row as-button" data-library-jump="${escapeHtml(name)}" title="Show ${escapeHtml(name)} types">${head}</button>`
+        : `<div class="library-row">${head}</div>`;
     })
     .join("");
 
@@ -2247,6 +2348,18 @@ function bindEvents() {
     if (first) state.selectedTypeId = first.id;
     render();
   }));
+  document.querySelectorAll("[data-library-jump]").forEach(button => button.addEventListener("click", () => {
+    state.atPackageRoot = false;
+    state.libraryScope = new Set([button.dataset.libraryJump]);
+    state.namespaceFilter = "";
+    state.kindFilter = "";
+    state.typeFilter = "";
+    state.selectedMemberKey = "";
+    state.typeCursor = 0;
+    const first = filteredTypes()[0];
+    if (first) state.selectedTypeId = first.id;
+    render();
+  }));
   document.querySelectorAll("[data-lens]").forEach(button => button.addEventListener("click", () => {
     state.lens = button.dataset.lens;
     state.selectedMemberKey = "";
@@ -2366,6 +2479,15 @@ function bindEvents() {
     state.selectedMemberKey = "";
     render();
   }));
+  document.querySelectorAll("[data-library-chip]").forEach(button => button.addEventListener("click", () => {
+    toggleLibraryChip(button.dataset.libraryChip);
+    afterLibraryScopeChange();
+  }));
+  const libraryJump = document.getElementById("library-jump");
+  if (libraryJump) libraryJump.addEventListener("change", () => {
+    state.libraryScope = libraryJump.value ? new Set([libraryJump.value]) : null;
+    afterLibraryScopeChange();
+  });
   bindCommandCompletionClicks(document);
 
   document.querySelector("#framework").addEventListener("change", event => {
@@ -2426,6 +2548,7 @@ function bindEvents() {
     state.typeFilter = "";
     state.namespaceFilter = "";
     state.kindFilter = "";
+    state.libraryScope = null;
     render();
     focusFilter();
   });
@@ -5047,6 +5170,7 @@ async function loadPackage(packageId, version, framework) {
     state.typeFilter = "";
     state.namespaceFilter = "";
     state.kindFilter = "";
+    state.libraryScope = null;
     state.dependenciesFramework = "";
     const deep = pendingDeepLink;
     pendingDeepLink = null;
