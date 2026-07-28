@@ -615,6 +615,88 @@ lists only tables that carry rows; the number omitted and any unmodelled table
 with rows are reported as caveats — inline in Markdown, on stderr for the
 machine formats.
 
+## Measured: allocation shape
+
+Issue #3341 lists eager row materialization as the memory axis to watch and
+explicitly gates any change on a real measurement. The measurement now exists,
+and it closes the gap **without** an allocation redesign.
+
+`eng/measure-metadata-projection-allocation.cs` is a file-based app that reports
+two different quantities, because they answer different questions: *allocated*
+is total churn while projecting (a throughput and GC-pressure signal), while
+*retained* is the live set still reachable from the finished projection after a
+forced collection — the number that decides whether a browser tab can hold the
+result.
+
+Pinned input `Microsoft.NETCore.App/10.0.9/System.Private.CoreLib.dll`
+(16,017,232 bytes), workstation GC, .NET 11.0.0. Reproduce with:
+
+```bash
+dotnet run eng/measure-metadata-projection-allocation.cs
+```
+
+| Scenario | Allocated | Retained | Rows | Cells |
+| --- | --- | --- | --- | --- |
+| control: `PEReader` only, no rows | 0.0 MB | 0.0 MB | — | — |
+| full (`MaxRowsPerTable = int.MaxValue`) | 222.8 MB | 74.7 MB | 182,719 | 670,982 |
+| default (`MaxRowsPerTable = 4096`) | 82.3 MB | 19.8 MB | 45,501 | 145,332 |
+| window 1000 | 17.6 MB | 5.0 MB | 12,002 | 38,014 |
+| window 100 | 1.8 MB | 0.5 MB | 1,202 | 3,814 |
+| window 100 @ row 40000 | 0.1 MB | 0.1 MB | 200 | 900 |
+| window 100, `MethodDef` only | 0.1 MB | 0.1 MB | 100 | 600 |
+
+Runs are byte-identical across repetitions. Every row is measured with the
+`PEReader` still live, so the control row matters: an open reader over an
+already-allocated image retains essentially nothing, which is what licenses
+attributing the remaining bytes to the projection rather than to SRM.
+
+### What the numbers say
+
+A full projection retains **74.7 MB for a 15.3 MB image — 4.9x the input**, at
+117 bytes per cell. #3333 measured 1.6 GB as already fatal in a browser tab, so
+a full projection of a large assembly is not something an explorer can hold.
+
+But an explorer never does that. The row window landed for exactly this reason,
+and it is **150x cheaper**: paging 100 rows across all tables retains 0.5 MB, and
+the realistic explorer interaction — one table, one window — retains **0.1 MB**.
+Windowing is what makes the projection deliverable to a browser, and it already
+exists. Nothing about the per-cell representation needs to change to serve the
+consumer this work is for.
+
+### Negative results worth keeping
+
+**`ReadOnlySpan<T>` is the wrong tool for this problem.** It is worth stating
+plainly because it was the intuitive candidate. A span is a `ref struct`: it
+cannot be stored in a field, cannot live in an `ImmutableArray`, and cannot
+outlive the stack frame that produced it. The projection is a *retained object
+graph handed to a caller that holds it* — precisely the shape a span cannot
+express. Spans help transient decode paths that borrow and discard; they do not
+reduce the retained set, which is the number that matters here. Adopting one
+would mean abandoning the retained model rather than optimizing it.
+
+**Eager display text is the largest component, and still not worth changing.**
+Attribution of the 74.7 MB retained by the full projection:
+
+| Component | Strings | Chars | Approx. |
+| --- | --- | --- | --- |
+| `Handle.Display` | 91,919 | 5,455,583 | 12.3 MB |
+| `Flags.Decoded` | 170,032 | 2,107,819 | 7.6 MB |
+| `HeapReference.Preview` | — | 3,347,232 | 6.4 MB |
+| `Scalar.Display` | 118,790 | 519,424 | 3.5 MB |
+| `HeapReference.Text` | — | 1,550,412 | 3.0 MB |
+
+Roughly a third of the retained graph is display text formatted eagerly for
+every cell. Two cheap wins are visible and were deliberately **not** taken:
+`Scalar`/`Flags` display strings repeat **7.2x** (288,822 strings, 40,357
+distinct), and the 14,217 `Nil` cells are stateless and identical so could be a
+singleton. Both were left alone because they only pay off in the full-projection
+case that no consumer performs; in the windowed case they are a rounding error
+on 0.1 MB. Optimizing them would add caching state and lifetime questions to the
+projector to improve a scenario nobody runs.
+
+If a future consumer genuinely needs a full projection in a constrained host,
+this table says where to start and the probe says how to prove it moved.
+
 ## Layer placement
 
 The projection lives in the **Metadata layer** (`ILInspector.Metadata`), beside
