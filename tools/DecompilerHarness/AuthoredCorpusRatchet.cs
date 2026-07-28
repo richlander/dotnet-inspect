@@ -194,8 +194,8 @@ static class AuthoredCorpusRatchet
     }
 
     /// <summary>
-    /// Whether a row's buckets actually account for every evaluated target, at both
-    /// levels.
+    /// Whether a row's buckets actually account for every evaluated target, at every
+    /// level, with counts that could describe a real run.
     ///
     /// <para>Recording a bucket is not the same as the buckets adding up, and the
     /// difference is the whole point: a row claiming 100 evaluated whose buckets sum to
@@ -203,11 +203,36 @@ static class AuthoredCorpusRatchet
     /// <c>invalid</c> for having measured less. A reviewer landed exactly that baseline
     /// past the earlier presence-only check and got <c>RATCHET OK</c> with exit 0, so
     /// this compares the sums rather than trusting that the fields exist.</para>
+    ///
+    /// <para>The <c>invalidBreakdown</c> partition is checked on the same terms as the
+    /// other two. It is optional, because rows predate it — but a row that states it
+    /// and does not close it is not grandfathered, it is wrong. A later reviewer forged
+    /// a row pairing <c>invalid: 0</c> with <c>productBodyDefect: 100</c>; it closed
+    /// both partitions this once checked, became comparable, and set a
+    /// <c>productBodyDefect</c> threshold of 100 that a real regression could hide
+    /// under. A row that omits the breakdown entirely cannot launder anything, because
+    /// <see cref="StatesEveryMetric"/> refuses an identified baseline that is silent on
+    /// the product metric.</para>
+    ///
+    /// <para>Closure and non-negativity are each load-bearing and neither implies the
+    /// other. Forging the threshold above <em>requires</em> a negative bucket once
+    /// closure is enforced — pushing <c>productBodyDefect</c> to 1000 on a 100-target
+    /// run forces some other top-level bucket to -900 for the total to land — so
+    /// dropping either check reopens the hole.</para>
     /// </summary>
     static bool PartitionCloses(HistoryRun run)
-        => run.TopLevelSum == run.Evaluated
-            && run.ValidDifferent is { } validDifferent
-            && validDifferent.SubBucketSum == validDifferent.Total;
+    {
+        if (!run.CountsAreNonNegative)
+            return false;
+
+        if (run.TopLevelSum != run.Evaluated)
+            return false;
+
+        if (run.ValidDifferent is not { } validDifferent || validDifferent.SubBucketSum != validDifferent.Total)
+            return false;
+
+        return run.InvalidBreakdown is not { } breakdown || breakdown.Sum == run.Invalid;
+    }
 
     /// <summary>
     /// Compares <paramref name="current"/> against the newest row in
@@ -598,6 +623,23 @@ static class AuthoredCorpusExitContract
 
         static FlagVerdict Refuse(string message) => new(FlagDisposition.Refuse, message);
     }
+
+    /// <summary>
+    /// The gates <see cref="PreemptedGateRefusal"/> protects: every mode whose whole
+    /// purpose is to measure something and report a verdict on it.
+    ///
+    /// <para>This is a declaration rather than a literal at the call site because review
+    /// deleted <c>--verify-authored-corpus</c> from that literal and the suite stayed
+    /// green while the real binary went back to exiting 0 having verified nothing. Every
+    /// other piece of this rule had already been moved here for the same reason; the
+    /// argument naming <em>what</em> to protect was the last piece still out of reach.
+    /// <c>ProtectedGates_AreTheAuthoredCorpusGates</c> pins the contents and
+    /// <c>ProtectedGates_AreWhatTheHarnessActuallyPasses</c> pins that the harness passes
+    /// this list and not a fresh literal, so dropping a gate fails in one place and
+    /// routing around the list fails in the other.</para>
+    /// </summary>
+    internal static readonly string[] ProtectedGates =
+        ["--benchmark-authored-corpus", "--verify-authored-corpus"];
 
     /// <summary>
     /// The refusal owed by the flag combination, or <see langword="null"/> if none.

@@ -185,10 +185,27 @@ static class AuthoredCorpusBenchmark
 
             try
             {
-                if (JsonSerializer.Deserialize<AuthoredSourceHarvest.CorpusRecord>(line, options) is { } record)
-                    records.Add(record);
-                else
+                if (JsonSerializer.Deserialize<AuthoredSourceHarvest.CorpusRecord>(line, options) is not { } record)
+                {
                     malformed++;
+                }
+                else if (MissingRequiredField(record) is { } field)
+                {
+                    // Valid JSON is not a valid corpus row. Every string field below is
+                    // declared non-nullable on CorpusRecord, but System.Text.Json will
+                    // happily leave them null when the property is absent, and the run
+                    // then died on a null grouping key with an unhandled
+                    // ArgumentNullException and exit 134 — a crash where the contract
+                    // promises a reported integrity failure. Enforcing the declared
+                    // schema here keeps the row counted, not fatal.
+                    malformed++;
+                    Console.Error.WriteLine(
+                        $"Skipping malformed corpus row: required field '{field}' is missing or empty.");
+                }
+                else
+                {
+                    records.Add(record);
+                }
             }
             catch (JsonException ex)
             {
@@ -199,6 +216,34 @@ static class AuthoredCorpusBenchmark
 
         malformedRows = malformed;
         return records;
+    }
+
+    /// <summary>
+    /// The name of the first required field this row does not supply, or null when the
+    /// row satisfies the schema <see cref="AuthoredSourceHarvest.CorpusRecord"/>
+    /// declares.
+    ///
+    /// <para>The set below is exactly the record's non-nullable string properties.
+    /// <c>CorpusRecordSchemaTests</c> derives that set by reflection and asserts this
+    /// validator rejects each one, so adding a required field without listing it here
+    /// fails rather than silently going unchecked.</para>
+    /// </summary>
+    internal static string? MissingRequiredField(AuthoredSourceHarvest.CorpusRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        if (string.IsNullOrEmpty(record.Assembly))
+            return nameof(record.Assembly);
+        if (string.IsNullOrEmpty(record.AssemblyVersion))
+            return nameof(record.AssemblyVersion);
+        if (string.IsNullOrEmpty(record.Tfm))
+            return nameof(record.Tfm);
+        if (string.IsNullOrEmpty(record.Type))
+            return nameof(record.Type);
+        if (string.IsNullOrEmpty(record.Method))
+            return nameof(record.Method);
+        if (string.IsNullOrEmpty(record.AuthoredBody))
+            return nameof(record.AuthoredBody);
+        return null;
     }
 
     static int WriteCard(

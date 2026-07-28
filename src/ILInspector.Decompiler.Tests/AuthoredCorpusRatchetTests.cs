@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -50,7 +51,7 @@ public class AuthoredCorpusRatchetTests
             ValidDifferent: new HistoryRunValidDifferent(validDifferent, validDifferent, 0, 0, 0, 0),
             Invalid: invalid,
             InvalidBreakdown: productBodyDefect is { } defects
-                ? new HistoryRunInvalidBreakdown(defects, 0, 0)
+                ? new HistoryRunInvalidBreakdown(defects, invalid - defects, 0)
                 : null,
             Unsupported: 0,
             Drift: 0,
@@ -510,7 +511,7 @@ public class AuthoredCorpusRatchetTests
         string first = pool.Write("first", "Copy.dll", bytes);
         string second = pool.Write("second", "Copy.dll", [.. bytes, 0, 0, 0, 0]);
         string corpus = pool.Write("corpus", "corpus.jsonl", Encoding.UTF8.GetBytes(
-            $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"source":"class T { }"}"""));
+            $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"authoredBody":"class T { }"}"""));
 
         string firstOrder = PoolIdentityOf([first, second], corpus);
         string secondOrder = PoolIdentityOf([second, first], corpus);
@@ -539,7 +540,7 @@ public class AuthoredCorpusRatchetTests
         string identity = AuthoredSourceHarvest.ReadAssemblyIdentity(original).Name;
         string assembly = pool.Write("only", "Copy.dll", File.ReadAllBytes(original));
 
-        string row = $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"source":"class T { }"}""";
+        string row = $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"authoredBody":"class T { }"}""";
         string intact = pool.Write("intact", "corpus.jsonl", Encoding.UTF8.GetBytes($"{row}\n{row}\n"));
         string erased = pool.Write("erased", "corpus.jsonl", Encoding.UTF8.GetBytes($"{row}\n   \n"));
 
@@ -566,7 +567,7 @@ public class AuthoredCorpusRatchetTests
         string identity = AuthoredSourceHarvest.ReadAssemblyIdentity(original).Name;
         string assembly = pool.Write("only", "Copy.dll", File.ReadAllBytes(original));
 
-        string row = $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"source":"class T { }"}""";
+        string row = $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"authoredBody":"class T { }"}""";
         string erased = pool.Write("erased", "corpus.jsonl", Encoding.UTF8.GetBytes($"{row}\n\n"));
 
         int exit = AuthoredCorpusBenchmark.Run(
@@ -1219,7 +1220,7 @@ public class AuthoredCorpusRatchetTests
         string identity = AuthoredSourceHarvest.ReadAssemblyIdentity(original).Name;
         string assembly = pool.Write("only", "Copy.dll", File.ReadAllBytes(original));
         string corpus = pool.Write("corpus", "corpus.jsonl", Encoding.UTF8.GetBytes(
-            $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"source":"class T { }"}"""));
+            $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"authoredBody":"class T { }"}"""));
 
         var captured = new StringWriter();
         AuthoredCorpusBenchmark.Run([assembly], corpus, json: false, integrityOnly: true, output: captured);
@@ -1516,7 +1517,7 @@ public class AuthoredCorpusRatchetTests
         string identity = AuthoredSourceHarvest.ReadAssemblyIdentity(original).Name;
         string assembly = pool.Write("only", "Copy.dll", File.ReadAllBytes(original));
         string corpus = pool.Write("corpus", "corpus.jsonl", Encoding.UTF8.GetBytes(
-            $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"source":"class T { }"}"""));
+            $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"authoredBody":"class T { }"}"""));
 
         using var report = JsonDocument.Parse(RunForJson([assembly], corpus));
         var breakdown = report.RootElement.GetProperty("validBreakdown");
@@ -1677,7 +1678,11 @@ public class AuthoredCorpusRatchetTests
         var runs = AuthoredCorpusHistoryCardTests.TrackedHistory().ToList();
         var newest = runs[^1];
         // The rows the regression sheds move into invalid, so the partition still
-        // closes: this must fail for being *worse*, not for having measured less.
+        // closes at every level: this must fail for being *worse*, not for having
+        // measured less. The breakdown is completed against the new invalid total for
+        // the same reason — a row whose reasons do not add up to its own invalid count
+        // is not a worse run, it is an unreal one, and IsTrustworthy refuses it.
+        int invalid = newest.Invalid + 100 + (newest.Correct - 800);
         runs.Add(newest with
         {
             Date = "2026-07-31",
@@ -1687,8 +1692,8 @@ public class AuthoredCorpusRatchetTests
                 FrontierIlExact = newest.ValidDifferent!.FrontierIlExact - 100,
             },
             Correct = 800,
-            Invalid = newest.Invalid + 100 + (newest.Correct - 800),
-            InvalidBreakdown = new HistoryRunInvalidBreakdown(2328, 0, 0),
+            Invalid = invalid,
+            InvalidBreakdown = new HistoryRunInvalidBreakdown(2328, invalid - 2328, 0),
         });
 
         var comparison = AuthoredCorpusRatchet.CompareNewestRow(runs);
@@ -1700,4 +1705,197 @@ public class AuthoredCorpusRatchetTests
             comparison.Regressions.Select(metric => metric.Name));
     }
 
+    /// <summary>
+    /// A baseline whose invalid reasons do not add up to its own invalid count is not a
+    /// baseline.
+    ///
+    /// <para>Review forged a row pairing <c>invalid: 0</c> with
+    /// <c>productBodyDefect: 100</c>. It closed the two partitions the trust check used
+    /// to look at, became comparable, and set a <c>productBodyDefect</c> ceiling of 100
+    /// that a real regression of up to 100 defects could pass under with
+    /// <c>RATCHET OK</c> and exit 0 — a laundered threshold, taken from a run that
+    /// cannot exist. The same row with a closing breakdown is accepted, so what is
+    /// refused here is the arithmetic and not the shape.</para>
+    /// </summary>
+    [Fact]
+    public void Ratchet_ABaselineWhoseReasonsDoNotAddUpToItsInvalidCountIsNotABaseline()
+    {
+        var forged = Row(correct: 6774, invalid: 0, productBodyDefect: 0) with
+        {
+            InvalidBreakdown = new HistoryRunInvalidBreakdown(100, 0, 0),
+        };
+
+        var comparison = AuthoredCorpusRatchet.Compare(Key(), Metrics(), [forged]);
+
+        Assert.True(comparison.Skipped);
+        Assert.Contains("measurement not sound", comparison.SkipReason!, StringComparison.Ordinal);
+
+        // Non-vacuity: the identical row whose reasons close is a usable baseline, so
+        // the refusal above is the sum and not some other property of the row.
+        var honest = forged with { InvalidBreakdown = new HistoryRunInvalidBreakdown(0, 0, 0) };
+        Assert.False(AuthoredCorpusRatchet.Compare(Key(), Metrics(), [honest]).Skipped);
+    }
+
+    /// <summary>
+    /// A negative top-level bucket is not a measurement, even when the buckets sum.
+    ///
+    /// <para>Closure and non-negativity are separately load-bearing: with closure alone,
+    /// pushing one bucket above the run's own size is still expressible by driving
+    /// another negative. The row below sums to <c>evaluated</c> exactly and its only
+    /// defect is the negative count.</para>
+    /// </summary>
+    [Fact]
+    public void Ratchet_ANegativeTopLevelBucketIsNotAMeasurement()
+    {
+        var row = Row(correct: -100, invalid: 6874);
+
+        Assert.Equal(12000, row.TopLevelSum);
+        Assert.True(AuthoredCorpusRatchet.Compare(Key(), Metrics(), [row]).Skipped);
+    }
+
+    /// <summary>The same rule one level down, inside <c>validDifferent</c>.</summary>
+    [Fact]
+    public void Ratchet_ANegativeValidDifferentSubBucketIsNotAMeasurement()
+    {
+        var row = Row() with
+        {
+            ValidDifferent = new HistoryRunValidDifferent(5226, 5326, 0, -100, 0, 0),
+        };
+
+        Assert.Equal(row.ValidDifferent!.Total, row.ValidDifferent!.SubBucketSum);
+        Assert.True(AuthoredCorpusRatchet.Compare(Key(), Metrics(), [row]).Skipped);
+    }
+
+    /// <summary>The same rule one level down, inside <c>invalidBreakdown</c>.</summary>
+    [Fact]
+    public void Ratchet_ANegativeInvalidReasonBucketIsNotAMeasurement()
+    {
+        var row = Row() with
+        {
+            InvalidBreakdown = new HistoryRunInvalidBreakdown(5298, -100, 0),
+        };
+
+        Assert.Equal(row.Invalid, row.InvalidBreakdown!.Sum);
+        Assert.True(AuthoredCorpusRatchet.Compare(Key(), Metrics(), [row]).Skipped);
+    }
+
+    /// <summary>
+    /// The gates the harness protects are both authored-corpus gates.
+    ///
+    /// <para>Review deleted <c>--verify-authored-corpus</c> from the list the harness
+    /// passed and the whole suite stayed green, while the real binary went back to
+    /// running <c>--history-card</c> instead of the gate and exiting 0 having verified
+    /// nothing. Every other term of the preemption rule had already been moved somewhere
+    /// a test could see it; the argument naming <em>which</em> gates to protect was the
+    /// last piece that was not.</para>
+    /// </summary>
+    [Fact]
+    public void ProtectedGates_AreTheAuthoredCorpusGates()
+        => Assert.Equal(Gates, AuthoredCorpusExitContract.ProtectedGates);
+
+    /// <summary>
+    /// The harness passes that declaration, rather than a literal of its own.
+    ///
+    /// <para>Pinning the contents is only half the rule: a call site free to write its
+    /// own array can drop a gate without touching the declaration. This is the same
+    /// source-text pin <see cref="DispatchOrder_MatchesTheHarnessDispatchOrder"/> applies
+    /// to the other argument of the same call.</para>
+    /// </summary>
+    [Fact]
+    public void ProtectedGates_AreWhatTheHarnessActuallyPasses()
+    {
+        string source = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(), "tools", "DecompilerHarness", "Program.cs"));
+
+        int start = source.IndexOf("PreemptedGateRefusal(", StringComparison.Ordinal);
+        Assert.True(start >= 0, "Program.cs no longer calls PreemptedGateRefusal.");
+        int close = source.IndexOf(") is { } preempted", start, StringComparison.Ordinal);
+        Assert.True(close > start, "The PreemptedGateRefusal call no longer has the expected shape.");
+
+        string[] arguments = [.. source[(source.IndexOf('(', start) + 1)..close]
+            .Split(',')
+            .Select(argument => argument.Trim())];
+
+        Assert.Equal(
+            ["dispatchOrder", "AuthoredCorpusExitContract.ProtectedGates"],
+            arguments);
+    }
+
+    /// <summary>
+    /// The required-field check covers exactly the fields the corpus schema declares
+    /// non-nullable.
+    ///
+    /// <para>The set is derived from <c>CorpusRecord</c> by reflection rather than
+    /// restated, so a new required field that the validator does not check fails here
+    /// instead of going unenforced. That matters because the validator is what keeps a
+    /// schema-wrong row a counted integrity failure: without it the run dereferenced a
+    /// null grouping key and died with an unhandled exception and exit 134, where the
+    /// contract promises a reported failure.</para>
+    /// </summary>
+    [Fact]
+    public void CorpusRecord_RequiredFieldsAreExactlyItsNonNullableStrings()
+    {
+        var constructor = typeof(AuthoredSourceHarvest.CorpusRecord).GetConstructors().Single();
+        var parameters = constructor.GetParameters();
+        var nullability = new NullabilityInfoContext();
+
+        object?[] Complete() =>
+        [
+            .. parameters.Select(parameter => parameter.ParameterType == typeof(string)
+                ? "x"
+                : parameter.ParameterType == typeof(int) ? (object?)1 : null),
+        ];
+
+        var populated = (AuthoredSourceHarvest.CorpusRecord)constructor.Invoke(Complete());
+        Assert.Null(AuthoredCorpusBenchmark.MissingRequiredField(populated));
+
+        string[] declaredRequired = [.. parameters
+            .Where(parameter => parameter.ParameterType == typeof(string)
+                && nullability.Create(parameter).WriteState == NullabilityState.NotNull)
+            .Select(parameter => parameter.Name!)];
+
+        Assert.NotEmpty(declaredRequired);
+        foreach (string required in declaredRequired)
+        {
+            object?[] arguments = Complete();
+            arguments[Array.FindIndex(parameters, parameter => parameter.Name == required)] = null;
+            var row = (AuthoredSourceHarvest.CorpusRecord)constructor.Invoke(arguments);
+
+            Assert.Equal(required, AuthoredCorpusBenchmark.MissingRequiredField(row));
+        }
+    }
+
+    /// <summary>
+    /// A corpus row that is valid JSON but not a corpus row is counted and reported, not
+    /// fatal.
+    ///
+    /// <para>Review pointed the gate at a file of well-formed JSON objects of the wrong
+    /// shape and the process aborted with <c>System.ArgumentNullException</c> on a null
+    /// grouping key and exit 134. A crash is not the documented integrity failure: it
+    /// produces no report and no JSON, so a caller cannot tell an unmeasurable corpus
+    /// from a broken tool. The good row still counts, so the run reports a shortened
+    /// denominator rather than discarding the file.</para>
+    /// </summary>
+    [Fact]
+    public void Benchmark_ReportsASchemaMalformedCorpusRowRatherThanCrashing()
+    {
+        using var pool = new TempPool();
+        string original = typeof(AuthoredCorpusRatchetTests).Assembly.Location;
+        string identity = AuthoredSourceHarvest.ReadAssemblyIdentity(original).Name;
+        string assembly = pool.Write("only", "Copy.dll", File.ReadAllBytes(original));
+
+        string row = $$"""{"assembly":"{{identity}}","assemblyVersion":"1.0.0.0","tfm":"release","type":"T","method":"M","overload":0,"signature":"`0()","metadataToken":1,"parameterNames":[],"authoredBody":"class T { }"}""";
+        string wrongShape = """{"date":"2026-07-26","validPct":56.7,"correct":1576}""";
+        string corpus = pool.Write("mixed", "corpus.jsonl", Encoding.UTF8.GetBytes($"{row}\n{wrongShape}\n"));
+
+        using var report = JsonDocument.Parse(RunForJson([assembly], corpus));
+
+        Assert.Equal(1, report.RootElement.GetProperty("malformedRows").GetInt32());
+        Assert.False(report.RootElement.GetProperty("inputsComplete").GetBoolean());
+
+        Assert.Equal(
+            1,
+            AuthoredCorpusBenchmark.Run(
+                [assembly], corpus, json: false, integrityOnly: true, output: new StringWriter()));
+    }
 }

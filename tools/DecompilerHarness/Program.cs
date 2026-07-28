@@ -400,7 +400,7 @@ static class Program
 
         if (AuthoredCorpusExitContract.PreemptedGateRefusal(
                 dispatchOrder,
-                ["--benchmark-authored-corpus", "--verify-authored-corpus"]) is { } preempted)
+                AuthoredCorpusExitContract.ProtectedGates) is { } preempted)
         {
             return Fail(preempted);
         }

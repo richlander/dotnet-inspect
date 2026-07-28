@@ -242,12 +242,29 @@ internal sealed record HistoryRunValidDifferent(
     public int? SubBucketSum => IsComplete
         ? Lowering!.Value + KnownTaste!.Value + FrontierIlExact + FrontierIlDiff + FrontierIlNoVerdict!.Value
         : null;
+
+    /// <summary>True when no recorded sub-bucket is a negative count.</summary>
+    public bool CountsAreNonNegative
+        => Total >= 0
+            && FrontierIlExact >= 0
+            && FrontierIlDiff >= 0
+            && Lowering is not < 0
+            && KnownTaste is not < 0
+            && FrontierIlNoVerdict is not < 0;
 }
 
 internal sealed record HistoryRunInvalidBreakdown(
     [property: JsonRequired] int ProductBodyDefect,
     [property: JsonRequired] int HarnessShellReconstruction,
-    [property: JsonRequired] int Unclassified);
+    [property: JsonRequired] int Unclassified)
+{
+    /// <summary>Sum of the recorded reason buckets, to compare against <c>invalid</c>.</summary>
+    public int Sum => ProductBodyDefect + HarnessShellReconstruction + Unclassified;
+
+    /// <summary>True when no recorded reason bucket is a negative count.</summary>
+    public bool CountsAreNonNegative
+        => ProductBodyDefect >= 0 && HarnessShellReconstruction >= 0 && Unclassified >= 0;
+}
 
 internal sealed record HistoryRun(
     [property: JsonRequired] string? Date,
@@ -296,6 +313,29 @@ internal sealed record HistoryRun(
     public int? TopLevelSum => TopLevelIsComplete
         ? Correct + ValidDifferent!.Total + Invalid + NotFull!.Value + Drift + Unsupported + UnknownOutcome!.Value
         : null;
+
+    /// <summary>
+    /// True when no recorded count on the row, at any level, is negative.
+    ///
+    /// <para>A sum that closes is not by itself evidence that the row is arithmetically
+    /// real: a negative bucket lets any other bucket be arbitrarily large while the
+    /// total still lands on <c>evaluated</c>. That is not hypothetical — it is how a
+    /// reviewer forged a row reporting <c>invalid: 0</c> alongside
+    /// <c>productBodyDefect: 100</c>. Non-negativity is what makes closure mean every
+    /// bucket is bounded by the run's own size.</para>
+    /// </summary>
+    public bool CountsAreNonNegative
+        => Evaluated >= 0
+            && PoolMatched >= 0
+            && PoolTotal >= 0
+            && Correct >= 0
+            && Invalid >= 0
+            && Unsupported >= 0
+            && Drift >= 0
+            && NotFull is not < 0
+            && UnknownOutcome is not < 0
+            && ValidDifferent is not { CountsAreNonNegative: false }
+            && InvalidBreakdown is not { CountsAreNonNegative: false };
 }
 
 [MarkoutSerializable(TitleProperty = nameof(Title), DescriptionProperty = nameof(WindowNote), AutoFields = false)]
