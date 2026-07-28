@@ -28,6 +28,14 @@
     <!-- Doc comments must reach the companion XML file: the doc-text
          channel is only observable when the .xml is emitted. -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- A SourceLink map is JSON, not XML, so it *can* carry U+000B and
+         U+202E - as JSON escapes. This is the only channel in this fixture
+         whose hostile text is chosen by the build rather than by source. -->
+    <SourceLink>$(MSBuildProjectDirectory)/sourcelink.json</SourceLink>
+    <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
+    <EnableSourceLink>false</EnableSourceLink>
+    <DeterministicSourcePaths>false</DeterministicSourcePaths>
+    <DebugType>portable</DebugType>
   </PropertyGroup>
 
 </Project>

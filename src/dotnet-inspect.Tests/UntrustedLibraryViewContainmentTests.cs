@@ -734,3 +734,200 @@ public class UntrustedSymbolsSectionContainmentTests
         }
     }
 }
+
+/// <summary>
+/// SourceLink URLs and document paths are chosen by whoever built the inspected
+/// assembly, so they are untrusted text on exactly the same footing as a
+/// metadata name (issue #3319). They reach three separate row records —
+/// <c>SourceFileRow</c>, <c>TypeSourceFileRow</c>, and
+/// <c>MemberSourceLocationRow</c> — through three different commands, and each
+/// was uncontained until this gate existed.
+/// </summary>
+/// <remarks>
+/// The hostile map is a real SourceLink blob emitted by the compiler into the
+/// fixture's portable PDB. It is JSON rather than XML, which is why it can
+/// carry U+000B at all: the fixture's other hostile text has to be spelled in
+/// C# because XML 1.0 cannot encode a vertical tab even as a character
+/// reference.
+/// </remarks>
+[Collection("Console")]
+public class UntrustedSourceLinkContainmentTests
+{
+    public static TheoryData<string[]> SourceLinkChannels() => new()
+    {
+        // SourceFileRow.
+        new[] { "library", FixtureCatalog.HostileLiterals.AssemblyPath(), "-S", "Source Files" },
+        // TypeSourceFileRow.
+        new[]
+        {
+            "type", "HostileLiterals", "--library", FixtureCatalog.HostileLiterals.AssemblyPath(),
+            "-S", "Source Files",
+        },
+        // MemberSourceLocationRow, which also carries the document path in File.
+        new[]
+        {
+            "member", "HostileLiterals", "Marked:1", "--library", FixtureCatalog.HostileLiterals.AssemblyPath(),
+            "-S", "Source Locations",
+        },
+    };
+
+    [Theory]
+    [MemberData(nameof(SourceLinkChannels))]
+    public async Task SourceLinkChannels_WithHostileMap_RenderNoHazard(string[] args)
+    {
+        var (exit, output, _) = await RunAppAsync(args);
+
+        Assert.Equal(0, exit);
+
+        // Non-vacuity: the hostile URL must actually have rendered. Without
+        // this the hazard scan below passes on a "no SourceLink data" message.
+        HostileOutputAssert.MarkersRendered(output, string.Join(' ', args), "INJECTEDSOURCELINK");
+        HostileOutputAssert.NoRenderingHazard(output, string.Join(' ', args));
+    }
+
+    private static async Task<(int exit, string output, string error)> RunAppAsync(params string[] args)
+    {
+        return await ConsoleCapture.RunAsync(async () =>
+        {
+            CoreFactory.Initialize(offline: true);
+            CoreFactory.ResetSharedForTesting();
+            args = CommandLineBuilder.PreprocessArgs(args);
+            var root = CommandLineBuilder.CreateRootCommand();
+            return await root.Parse(args).InvokeAsync();
+        });
+    }
+}
+
+/// <summary>
+/// Gate for the relationship and search commands found in the twelfth
+/// adversarial round (issue #3319): <c>extensions</c> rows, <c>find --members</c>
+/// rows, <c>depends</c> tree labels, and the IL <c>ldstr</c> operand.
+/// </summary>
+/// <remarks>
+/// These four are grouped because they are the channels that no view-shaped
+/// gate could have reached: two build their rows in an output formatter rather
+/// than a view, one writes labels straight into a terminal tree gutter, and one
+/// lives in a metadata escaper that had restated the hazard set instead of
+/// sharing it.
+/// </remarks>
+[Collection("Console")]
+public class UntrustedRelationshipContainmentTests : IDisposable
+{
+    private const string Hazard = "\u202E";
+
+    private readonly string _path = Path.Combine(
+        Path.GetTempPath(), $"HostileRel_{Guid.NewGuid():N}.dll");
+
+    public UntrustedRelationshipContainmentTests() => WriteHostileAssembly(_path);
+
+    public void Dispose()
+    {
+        try { File.Delete(_path); } catch { /* best effort */ }
+        GC.SuppressFinalize(this);
+    }
+
+    public static TheoryData<string, string[]> Channels() => new()
+    {
+        { "extensions", ["INJECTEDEXTCLASS", "INJECTEDEXTMETHOD"] },
+        // INJECTEDPARAM only ever appears inside the composed Signature column,
+        // so it fails independently of the Member and Type columns.
+        { "find", ["INJECTEDEXTMETHOD", "INJECTEDEXTCLASS", "INJECTEDPARAM"] },
+        { "depends", ["INJECTEDBASE"] },
+    };
+
+    [Theory]
+    [MemberData(nameof(Channels))]
+    public async Task RelationshipChannels_WithHostileNames_RenderNoHazard(string channel, string[] markers)
+    {
+        string[] args = channel switch
+        {
+            "extensions" => ["extensions", "String", "--library", _path],
+            "find" => ["find", "*", "--members", "--library", _path],
+            _ => ["depends", $"Derived{Hazard}INJECTEDDERIVED", "--library", _path],
+        };
+
+        var (exit, output, _) = await RunAppAsync(args);
+
+        Assert.Equal(0, exit);
+        HostileOutputAssert.MarkersRendered(output, channel, markers);
+        HostileOutputAssert.NoRenderingHazard(output, channel);
+    }
+
+    /// <summary>
+    /// The IL view is a separate escaper from the C# literal escapers and from
+    /// the decompiled-source printer, so a green result on either says nothing
+    /// about it. The literal here is compiler-produced: an emitted one does not
+    /// decode back.
+    /// </summary>
+    [Fact]
+    public async Task IlStringOperand_WithHostileLiteral_RendersNoHazard()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "member",
+            "HostileBodyLiterals",
+            "Literal:1",
+            "--library",
+            FixtureCatalog.HostileLiterals.AssemblyPath(),
+            "-S",
+            "IL");
+
+        Assert.Equal(0, exit);
+        HostileOutputAssert.MarkersRendered(output, "IL", "ldstr", "INJECTEDBODYLITERAL");
+        HostileOutputAssert.NoRenderingHazard(output, "IL");
+    }
+
+    private static void WriteHostileAssembly(string path)
+    {
+        var name = new AssemblyName("HostileRel") { Version = new Version(1, 0, 0, 0) };
+        var ab = new PersistedAssemblyBuilder(name, typeof(object).Assembly);
+        var module = ab.DefineDynamicModule("HostileRel");
+        var extensionCtor = typeof(ExtensionAttribute).GetConstructor(Type.EmptyTypes)!;
+
+        var extensionType = module.DefineType(
+            $"RelNs.Ext{Hazard}INJECTEDEXTCLASS",
+            TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Sealed | TypeAttributes.Abstract);
+        extensionType.SetCustomAttribute(new CustomAttributeBuilder(extensionCtor, []));
+        var extensionMethod = extensionType.DefineMethod(
+            $"Extend{Hazard}INJECTEDEXTMETHOD",
+            MethodAttributes.Public | MethodAttributes.Static,
+            typeof(void),
+            [typeof(string)]);
+        extensionMethod.DefineParameter(1, ParameterAttributes.None, "value");
+        extensionMethod.GetILGenerator().Emit(OpCodes.Ret);
+        extensionMethod.SetCustomAttribute(new CustomAttributeBuilder(extensionCtor, []));
+        extensionType.CreateType();
+
+        var baseType = module.DefineType(
+            $"RelNs.Base{Hazard}INJECTEDBASE",
+            TypeAttributes.Public | TypeAttributes.Class);
+        var built = baseType.CreateType();
+
+        var paramType = module.DefineType(
+            $"RelNs.Param{Hazard}INJECTEDPARAM",
+            TypeAttributes.Public | TypeAttributes.Class);
+        var builtParam = paramType.CreateType();
+
+        var derived = module.DefineType(
+            $"Derived{Hazard}INJECTEDDERIVED",
+            TypeAttributes.Public | TypeAttributes.Class,
+            built);
+        var takesHostile = derived.DefineMethod(
+            "TakesHostile", MethodAttributes.Public, typeof(void), [builtParam]);
+        takesHostile.GetILGenerator().Emit(OpCodes.Ret);
+        derived.CreateType();
+
+        ab.Save(path);
+    }
+
+    private static async Task<(int exit, string output, string error)> RunAppAsync(params string[] args)
+    {
+        return await ConsoleCapture.RunAsync(async () =>
+        {
+            CoreFactory.Initialize(offline: true);
+            CoreFactory.ResetSharedForTesting();
+            args = CommandLineBuilder.PreprocessArgs(args);
+            var root = CommandLineBuilder.CreateRootCommand();
+            return await root.Parse(args).InvokeAsync();
+        });
+    }
+}

@@ -686,9 +686,12 @@ internal sealed record ProjectPackageDocument(
     long Size,
     string Content)
 {
+    // Redeclared in full, in constructor order; see ProjectSkillRow.
     public string Package { get; init; } = CSharpIdentifier.ContainRenderedText(Package);
     public string Version { get; init; } = CSharpIdentifier.ContainRenderedText(Version);
     public string Path { get; init; } = CSharpIdentifier.ContainRenderedText(Path);
+    public long Size { get; init; } = Size;
+    public string Content { get; init; } = Content;
 }
 
 /// <summary>
@@ -707,13 +710,21 @@ internal sealed record ProjectSkillRow(
     long Size,
     string Name,
     string Description,
-    [property: JsonIgnore] string? FullPath)
+    string? FullPath)
 {
+    // Every positional property is redeclared, in constructor order, including
+    // the ones that need no containment: a record's compiler-generated
+    // properties are emitted before its explicitly declared ones, so
+    // redeclaring only some of them reorders the rendered columns and the
+    // serialized keys.
     public string Package { get; init; } = CSharpIdentifier.ContainRenderedText(Package);
     public string Version { get; init; } = CSharpIdentifier.ContainRenderedText(Version);
     public string Path { get; init; } = CSharpIdentifier.ContainRenderedText(Path);
+    public long Size { get; init; } = Size;
     public string Name { get; init; } = CSharpIdentifier.ContainRenderedText(Name);
     public string Description { get; init; } = CSharpIdentifier.ContainRenderedText(Description);
+    [JsonIgnore]
+    public string? FullPath { get; init; } = FullPath;
 }
 
 [JsonSourceGenerationOptions(

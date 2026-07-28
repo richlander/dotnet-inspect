@@ -28,7 +28,7 @@ public static class FindOutputFormatter
                 r.Match == MatchKind.NotFound ? "-" : CSharpIdentifier.ContainRenderedText(r.Type),
                 r.Match == MatchKind.NotFound ? "-" : CSharpIdentifier.ContainRenderedText(r.Namespace ?? ""),
                 r.Match == MatchKind.NotFound ? "-" : r.Kind,
-                r.Match == MatchKind.NotFound ? "-" : r.Library,
+                r.Match == MatchKind.NotFound ? "-" : CSharpIdentifier.ContainRenderedText(r.Library),
                 r.Match == MatchKind.NotFound ? "-" : SourceColumn.Format(r.Source, r.SourceVersion),
                 r.Match.ToString().ToLowerInvariant(),
                 r.Similarity.HasValue ? r.Similarity.Value.ToString("0.00") : "-"
@@ -51,11 +51,13 @@ public static class FindOutputFormatter
             Description = results.Count == 0 ? "No members found matching the pattern." : null,
             Results = results.Count == 0 ? null : results.Select(r => new FindMemberRow(
                 r.Pattern,
-                r.Member,
+                CSharpIdentifier.ContainRenderedText(r.Member),
                 r.Kind,
-                r.DeclaringType,
-                r.Signature ?? "",
-                r.Library,
+                CSharpIdentifier.ContainRenderedText(r.DeclaringType),
+                // The signature is composed from type names, so it carries a
+                // hostile type spelling even when the member name is benign.
+                CSharpIdentifier.ContainRenderedText(r.Signature ?? ""),
+                CSharpIdentifier.ContainRenderedText(r.Library),
                 SourceColumn.Format(r.Source, r.SourceVersion)
             )).ToList()
         };

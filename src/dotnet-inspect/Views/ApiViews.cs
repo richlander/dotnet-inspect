@@ -1,3 +1,4 @@
+using ILInspector.CSharp;
 using System.Text.Json.Serialization;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
@@ -568,17 +569,41 @@ public record MemberIndexRow(
     [property: MarkoutIgnore] string Digest);
 
 [MarkoutSerializable]
-public record TypeSourceFileRow(string Url);
+/// <inheritdoc cref="SourceFileRow"/>
+public record TypeSourceFileRow(string Url)
+{
+    public string Url { get; init; } = CSharpIdentifier.ContainRenderedText(Url);
+}
 
 [MarkoutSerializable]
+/// <inheritdoc cref="SourceFileRow"/>
 public record MemberSourceLocationRow(
-    [property: MarkoutSkipNull] string? Selector,
-    [property: MarkoutSkipNull] string? Signature,
-    [property: MarkoutSkipNull] string? File,
-    [property: MarkoutSkipNull] int? Line,
-    [property: MarkoutPropertyName("End Line")]
-    [property: MarkoutSkipNull] int? EndLine,
-    [property: MarkoutSkipNull] string? Url);
+    string? Selector,
+    string? Signature,
+    string? File,
+    int? Line,
+    int? EndLine,
+    string? Url)
+{
+    // Redeclared in full, in constructor order; partial redeclaration reorders
+    // the rendered columns.
+    [MarkoutSkipNull]
+    public string? Selector { get; init; } = Contain(Selector);
+    [MarkoutSkipNull]
+    public string? Signature { get; init; } = Contain(Signature);
+    [MarkoutSkipNull]
+    public string? File { get; init; } = Contain(File);
+    [MarkoutSkipNull]
+    public int? Line { get; init; } = Line;
+    [MarkoutPropertyName("End Line")]
+    [MarkoutSkipNull]
+    public int? EndLine { get; init; } = EndLine;
+    [MarkoutSkipNull]
+    public string? Url { get; init; } = Contain(Url);
+
+    private static string? Contain(string? value)
+        => value is null ? null : CSharpIdentifier.ContainRenderedText(value);
+}
 
 [MarkoutSerializable]
 public record MemberSignatureRow(
