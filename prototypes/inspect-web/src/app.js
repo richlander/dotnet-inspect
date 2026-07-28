@@ -12,6 +12,29 @@ function loadStoredTaste() {
 }
 
 const PLATFORM_RECENT_MAX = 8;
+const RECENT_PACKAGES_MAX = 12;
+
+// Recently-opened NuGet packages, most-recent first, persisted across sessions so the
+// Home listing survives a refresh (the in-memory workspace does not). Written only from
+// actual opens (a successful loadPackage), never from search hits or prefetches. Each
+// entry is { id, version, framework }; re-opening refetches the nupkg (fast from the
+// browser HTTP cache when still present).
+function loadRecentPackages() {
+  try {
+    const value = JSON.parse(localStorage.getItem("inspect-recent-packages") || "[]");
+    if (!Array.isArray(value)) return [];
+    return value
+      .filter(entry => entry && typeof entry.id === "string" && entry.id)
+      .map(entry => ({
+        id: entry.id,
+        version: typeof entry.version === "string" && entry.version ? entry.version : "latest",
+        framework: typeof entry.framework === "string" ? entry.framework : "",
+      }))
+      .slice(0, RECENT_PACKAGES_MAX);
+  } catch {
+    return [];
+  }
+}
 
 // Recently-opened platform libraries, most-recent first, persisted across sessions.
 // Backs the selector's "Recent" group and the "start on the library you were last
@@ -35,7 +58,6 @@ function loadPlatformRecent() {
 }
 
 let spotlightCache = null;
-
 const state = {
   theme: localStorage.getItem("inspect-theme") === "light" ? "light" : "dark",
   packages: [],
@@ -106,6 +128,7 @@ const state = {
   kindFilter: "",
   libraryScope: null,
   platformRecent: loadPlatformRecent(),
+  recentPackages: loadRecentPackages(),
   accessibilityFilter: new Set(["public"]),
   command: "",
   completionIndex: 0,
@@ -1079,7 +1102,7 @@ function render() {
             <span class="diag" title="Initial package query precomputed during load">⚡ precompute ${fmtMs(state.diag.precomputeMs)}</span>
             <span class="diag diag-total" title="Total time from navigation start to interactive">Σ ${fmtMs(state.diag.totalMs)}</span>` : ""}
             ${state.packageCacheStats && state.packageCacheStats.packages > 0 ? `
-            <span class="diag" title="${state.packageCacheStats.packages} distinct NuGet package${state.packageCacheStats.packages === 1 ? "" : "s"} acquired this session; ${state.packageCacheStats.resident} currently resident in the in-memory cache${state.packageCacheStats.packages > state.packageCacheStats.resident ? ` (${state.packageCacheStats.packages - state.packageCacheStats.resident} evicted under the LRU limit of 6 packages / 64 MB)` : ""}">◇ ${state.packageCacheStats.packages} package${state.packageCacheStats.packages === 1 ? "" : "s"} · ${state.packageCacheStats.resident} resident in cache</span>` : ""}
+            <span class="diag" title="${state.packageCacheStats.packages} distinct NuGet package${state.packageCacheStats.packages === 1 ? "" : "s"} acquired this session; ${state.packageCacheStats.resident} currently resident in the in-memory cache${state.packageCacheStats.packages > state.packageCacheStats.resident ? ` (${state.packageCacheStats.packages - state.packageCacheStats.resident} evicted under the LRU limit of 12 packages / 128 MB)` : ""}">◇ ${state.packageCacheStats.packages} package${state.packageCacheStats.packages === 1 ? "" : "s"} · ${state.packageCacheStats.resident} resident in cache</span>` : ""}
           <span class="status-spacer"></span>
           <span>${escapeHtml(current.assembly)}</span>
           <span>${escapeHtml(state.package.activeFramework)}</span>
@@ -3118,6 +3141,24 @@ function recordPlatformRecent(assembly, pack) {
   }
 }
 
+// Remember an opened NuGet package at the front of the recent list (most-recent first,
+// deduped by id, capped) and persist it, so the Home listing survives a refresh. Called
+// only from a successful open, never from search hits or prefetches. The resident runtime
+// pseudo-package has no nupkg and is excluded.
+function recordRecentPackage(id, version, framework) {
+  if (!id || isRuntimePackId(id)) return;
+  const rest = (state.recentPackages || []).filter(entry => entry.id.toLowerCase() !== id.toLowerCase());
+  state.recentPackages = [
+    { id, version: version || "latest", framework: framework || "" },
+    ...rest,
+  ].slice(0, RECENT_PACKAGES_MAX);
+  try {
+    localStorage.setItem("inspect-recent-packages", JSON.stringify(state.recentPackages));
+  } catch {
+    // Persistence is best-effort; the in-memory list still works this session.
+  }
+}
+
 // The most-recently-opened library that is actually available in the active
 // platform framework's roster, or null. Lets the Platform land on the library you
 // were last looking at instead of the aggregate overview.
@@ -3182,9 +3223,22 @@ function spotlightResults() {
     const loaded = spotlightLoadedPackageMatches(query).slice(0, all ? 3 : 20);
     for (const match of loaded) results.push({ kind: "pkg-loaded", pkg: match.pkg, ranges: match.ranges });
     const openIds = new Set(state.packages.map(pkg => pkg.id.toLowerCase()));
+    // Persisted recently-opened packages that are not currently open. These carry the
+    // Home listing across a refresh (the in-memory workspace is gone); re-opening one
+    // refetches its nupkg (fast from the browser HTTP cache).
+    const lowerQuery = query.toLowerCase();
+    const recentShown = new Set();
+    for (const entry of state.recentPackages || []) {
+      const key = entry.id.toLowerCase();
+      if (openIds.has(key) || recentShown.has(key)) continue;
+      if (lowerQuery && !key.includes(lowerQuery)) continue;
+      recentShown.add(key);
+      results.push({ kind: "pkg-recent", entry, ranges: computeHighlightRanges(entry.id, lowerQuery) });
+      if (all && recentShown.size >= 6) break;
+    }
     let added = 0;
     for (const hit of state.spotlightPkgHits) {
-      if (openIds.has(hit.id.toLowerCase())) continue;
+      if (openIds.has(hit.id.toLowerCase()) || recentShown.has(hit.id.toLowerCase())) continue;
       results.push({ kind: "pkg-nuget", hit, ranges: computeHighlightRanges(hit.id, query.toLowerCase()) });
       if (all && ++added >= 4) break;
     }
@@ -3221,6 +3275,14 @@ function spotlightRowHtml(result, index) {
       <span class="kind-icon sl-pkg-new">↓</span>
       <span class="spotlight-item-name">${highlightRanges(result.hit.id, result.ranges)}</span>
       <span class="spotlight-item-ns">${escapeHtml(result.hit.version || "")} · nuget.org</span>
+    </button>`;
+  }
+  if (result.kind === "pkg-recent") {
+    const ver = result.entry.version && result.entry.version !== "latest" ? result.entry.version : "";
+    return `<button ${base} data-sl-pkg-recent="${escapeHtml(result.entry.id)}">
+      <span class="kind-icon sl-pkg">▣</span>
+      <span class="spotlight-item-name">${highlightRanges(result.entry.id, result.ranges)}</span>
+      <span class="spotlight-item-ns">${ver ? `${escapeHtml(ver)} · ` : ""}recent</span>
     </button>`;
   }
   if (result.kind === "rtpack-suggest") {
@@ -3626,6 +3688,7 @@ function pickSpotlightResult(result) {
   switch (result.kind) {
     case "pkg-loaded": pickSpotlightLoadedPackage(result.pkg); break;
     case "pkg-nuget": closeSpotlight(); loadPackage(result.hit.id, result.hit.version); break;
+    case "pkg-recent": closeSpotlight(); loadPackage(result.entry.id, result.entry.version, result.entry.framework); break;
     case "member": pickSpotlightMember(result); break;
     case "rtpack-suggest": state.spotlightScope = "runtime"; state.spotlightIndex = 0; activateRuntimePack(); break;
     case "platform-lib": openPlatformLibrary(result.assembly, result.pack); break;
@@ -5855,6 +5918,7 @@ async function loadPackage(packageId, version, framework) {
     if (existing >= 0) state.packages[existing] = packageModel;
     else state.packages.push(packageModel);
     state.package = packageModel;
+    recordRecentPackage(packageModel.id, packageModel.version, packageModel.activeFramework);
     state.typeFilter = "";
     state.namespaceFilter = "";
     state.kindFilter = "";

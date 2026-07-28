@@ -348,8 +348,8 @@ public static partial class BrowserInspectionEngine
     static readonly HttpClient Http = new();
     static readonly object PackageCacheLock = new();
     static readonly Dictionary<string, PackageCacheEntry> PackageCache = new(StringComparer.Ordinal);
-    const int MaxCachedPackages = 6;
-    const long MaxCachedPackageBytes = 64L * 1024 * 1024;
+    const int MaxCachedPackages = 12;
+    const long MaxCachedPackageBytes = 128L * 1024 * 1024;
     static long _packageCacheClock;
     static readonly HashSet<string> DownloadedPackages = new(StringComparer.Ordinal);
 
