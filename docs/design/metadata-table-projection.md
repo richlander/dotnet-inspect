@@ -217,34 +217,89 @@ session-lifetime rule in
 
 ## Surface — the `metadata` table lens
 
-The projection is exposed as its own table lens so it composes with the existing
-verbosity model and can be selected explicitly. It rides the `library` command
-(the assembly-oriented surface; note the deprecated `package X --metadata` alias
-already redirects there):
+Each metadata table is **one section**, and the tables together form a section
+category, `@Metadata`, registered the same way `@Performance` is:
+
+```csharp
+.AddCategory(SectionCategoryNames.Metadata, MetadataTables.Sections)
+```
+
+The lens therefore adds **no new shape flags**. Metadata tables introduce no new
+currency — they are sections, addressed by name — so they are reached with the
+existing selection vocabulary rather than a focused flag. It rides the `library`
+command (the assembly-oriented surface; note the deprecated `package X
+--metadata` alias already redirects there):
 
 ```bash
-# enumerate a single table
-dotnet-inspect library My.dll --table TypeDef
+# Document: every projected table
+dotnet-inspect library My.dll -S @Metadata
 
-# a single row with its columns and resolvable handle refs
-dotnet-inspect library My.dll --table MethodDef --row 3
+# Table: one metadata table
+dotnet-inspect library My.dll -S "Metadata: TypeRef"
+
+# Vector: one column of that table
+dotnet-inspect library My.dll -S "Metadata: TypeRef" --columns Name --tsv
+
+# Scalar: collapse to a row count
+dotnet-inspect library My.dll -S "Metadata: TypeDef" --count
+
+# a bounded window into a large table
+dotnet-inspect library My.dll -S "Metadata: MethodDef" --rows --head 20
 
 # structured, for tooling
-dotnet-inspect library My.dll --table TypeRef --jsonl
+dotnet-inspect library My.dll -S "Metadata: TypeRef" --jsonl
 ```
 
 This obeys the shape ladder in [output-shapes.md](output-shapes.md): a table is a
-**Table**, one column is a **Vector**, `--count` / one row is a **Scalar**. Each
-metadata table is one section; a `HandleRef` cell renders as its token +
-optional label in Markdown and as structured fields in JSON/JSONL.
+**Table**, one column is a **Vector**, and `--count` is a **Scalar**. A
+`HandleRef` cell renders as its token + optional label in Markdown and as
+structured fields in JSON/JSONL.
+
+Because `--count` reduces *each* selected section to a count, the category
+selection doubles as the table-stream overview, with no separate rendering path:
+
+```bash
+dotnet-inspect library My.dll -S @Metadata --count
+```
+
+```md
+| Section | Count |
+| ------- | ----- |
+| Metadata: TypeRef | 309 |
+| Metadata: TypeDef | 118 |
+| Metadata: MethodDef | 1204 |
+```
+
+The parts of the image that are not rows of a table — stream sizes, the
+table-present bitmask, the metadata version string — are not expressible as row
+counts, so they remain a single `Metadata: Image` section.
 
 Progressive-disclosure discipline (see
 [progressive-disclosure.md](progressive-disclosure.md) and
 [section-model.md](section-model.md)): raw tables are **not** in the default
-`-v:m` view. They are reached by explicit selection (`--table <Name>` or
-`-S`), following the same focused-flag-promotes-sections pattern that
-`library --il-offset` uses to add its coordinate-scoped sections. Heap dumps are
-a further explicit opt-in on top of that.
+`-v:m` view. Category membership is what keeps them out, exactly as it does for
+`@Performance`, so no section-specific special-casing is required. They are
+reached by explicit selection (`-S @Metadata` or `-S "Metadata: <Table>"`).
+
+Heap **addressing** is the one place this lens does introduce a new currency: a
+heap coordinate such as `#Strings:0x1a4` is not a section name, so it needs a
+carrier. `--heap` is that carrier, and it behaves like `--il-offset` — it makes a
+coordinate-scoped section available and discoverable only when present (see the
+coordinate-carrier family in [output-shapes.md](output-shapes.md)):
+
+```bash
+# bounded heap preview — just a section
+dotnet-inspect library My.dll -S "Metadata: #Strings"
+
+# one address — a coordinate
+dotnet-inspect library My.dll --heap "#Strings:0x1a4"
+```
+
+Deep paging into the middle of a table is deliberately **not** a CLI gesture.
+`--head`/`--tail` are presentation limits rather than row selectors, and a
+start-row flag would blend those concepts. Random access at an arbitrary row
+stays a library concern, served by `ProjectRow` and the row window for the
+explorer host.
 
 ## Safety
 
@@ -822,10 +877,19 @@ via the existing section pipeline and `OutputFormatter`.
 
 - **`HandleRef` shape.** Exact fields and whether `Display` is always populated
   or lazily resolved. Decide before code, since the explorer's value rests on it.
-- **Lens home.** A focused `--table <Name>` flag on `library`, a `-S` section
-  group ("Metadata Tables"), or a dedicated `metadata` command. Leaning toward a
-  `library` flag to reuse assembly acquisition and the section pipeline.
-- **Heap surfacing flags.** The exact opt-in gesture(s) for dumping string / blob
-  / user-string / guid heaps, and their bounded-preview defaults.
-- **Table selection grammar.** Whether tables are addressed by ECMA name
-  (`TypeDef`), by index (`0x02`), or both.
+- **Row addressing.** `--row` is currently a *printable-row* selector, not a
+  row-id addressor, so it cannot name `MethodDef[3]`; `--where` carries that
+  today. Reworking `--row` into a row-id addressor is a known weak point but is
+  deliberately out of scope for this series.
+
+Resolved:
+
+- **Lens home.** A `@Metadata` section category, not a focused flag and not a
+  dedicated command. Metadata tables introduce no new currency, so section
+  selection already addresses them. This also avoids a collision: `--table` is
+  already taken as a presentation modifier ("render as a pretty table").
+- **Heap surfacing flags.** Bounded per-heap previews are ordinary sections
+  (`Metadata: #Strings`). Reading a specific address is a coordinate, so it gets
+  a carrier: `--heap "#Strings:0x1a4"`.
+- **Table selection grammar.** Both, since output already prints hex tokens and
+  users will paste them: `TypeDef` and `0x02` address the same table.

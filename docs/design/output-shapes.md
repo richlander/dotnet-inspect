@@ -51,6 +51,31 @@ A flag can contribute in one of three ways:
 - **URL-shape modifiers** change only the form of GitHub URLs emitted as data
   (`--raw`, `--blob`). They are orthogonal to the output-shape ladder.
 
+### Coordinate carriers sit before the ladder
+
+A fourth kind of flag does not walk the ladder at all: it *supplies an input the
+command has no other way to express*, and in doing so changes which sections
+exist to be selected. `--il-offset` and `--heap` are the members of this family.
+
+A coordinate carrier is the right shape for a flag only when the input is a
+genuinely new currency — a value that is not a section name, a column name, or a
+row. An IL coordinate (`0x06000002+0x1`) and a heap address (`#Strings:0x1a4`)
+qualify; a table name does not, because a table is already a section and `-S`
+already addresses sections.
+
+Carriers behave consistently:
+
+- The sections they enable are **discoverable only when the carrier is present**,
+  so `-D` reflects the carrier (see the IL-offset case study below).
+- Absent the carrier, requesting a coordinate-scoped section is an error that
+  names the missing carrier, for example
+  `IL coordinate sections require --il-offset`.
+- Once the carrier resolves, its sections are ordinary sections: they obey `-S`,
+  `--columns`, `--count`, and the rest of the ladder like any other.
+
+Prefer a section, a category, or `--where` before reaching for a new carrier.
+The bar is a new currency, not merely a new thing to look at.
+
 ## How Markout produces the shapes
 
 Markout serializes a view object into a **Document** of **Sections** and renders
@@ -387,5 +412,8 @@ The stable vocabulary is:
   GitHub links, not the shape of the payload itself.
 - `--plaintext` remains distinct from `--bare`; if it stays in the product, it is
   a whole-document plain-text rendering mode rather than a bare-payload mode.
+- `--il-offset` / `--heap` are coordinate carriers: they supply an input that has
+  no other expression and gate the sections it makes meaningful. They do not
+  narrow a shape, and a flag qualifies only if its input is a new currency.
 
 New flags should fit one of those buckets rather than blending concepts.
