@@ -306,6 +306,44 @@ public class CallerScopeFilterTests
             CallerScopeFilter.SelectCouldReach(target.Name, [caller, indirect, lookalike]));
     }
 
+    // Copies of one assembly under several subdirectories, or several facades canonicalizing
+    // together, all share a canonical name. Every copy must be selected — and the walk must stay
+    // linear while doing it. Before the adjacency entry was consumed on first visit, each selected
+    // sharer re-enqueued the shared name and re-traversed the whole group: quadratic in group size,
+    // measured at ~10s for 40k sharers against ~13ms after.
+    [Fact]
+    public void SameNamedCandidatesAreAllSelectedInLinearTime()
+    {
+        const int sharers = 40_000;
+        var candidates = new List<CallerScopeFilter.Candidate>(sharers);
+        for (int i = 0; i < sharers; i++)
+            candidates.Add(CallerScopeFilter.Candidate.Known("Dup", ["Target"]));
+
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var selected = CallerScopeFilter.SelectCouldReach("Target", candidates);
+        watch.Stop();
+
+        Assert.All(selected, Assert.True);
+
+        // Three orders of magnitude of headroom over the linear cost, and two under the quadratic
+        // one, so this discriminates the shapes without being a wall-clock measurement.
+        Assert.True(
+            watch.ElapsedMilliseconds < 2_000,
+            $"selection over {sharers} same-named candidates took {watch.ElapsedMilliseconds}ms, "
+                + "which indicates the walk revisits an adjacency entry per sharer");
+    }
+
+    // A candidate whose own name is also one of its references, and a candidate naming the same
+    // reference twice, are both indexed once per name. Nothing above depends on the count, so this
+    // pins the dedupe directly rather than through an observable it cannot reach.
+    [Fact]
+    public void RepeatedNamesIndexACandidateOnce()
+    {
+        Assert.True(Selects("Target", "Target", ["Target", "Target"]));
+        Assert.True(Selects("Target", "Self", ["Self", "Target", "Target"]));
+        Assert.False(Selects("Target", "Self", ["Self", "Self"]));
+    }
+
     [Fact]
     public void EmptyCandidateListSelectsNothing()
     {

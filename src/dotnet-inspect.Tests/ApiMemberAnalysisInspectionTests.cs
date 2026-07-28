@@ -162,6 +162,61 @@ public class ApiMemberAnalysisInspectionTests
         Assert.Empty(scopes);
     }
 
+    // Round-5 review: a zero-byte or malformed *.dll beside real ones was classified as
+    // undecidable, which selects the whole scope and disables the prefilter entirely — the 960 MB
+    // behavior this change exists to remove, reintroduced by one junk file in a --bin directory.
+    // Such an image cannot be opened as a PE at all, and caller analysis opens the same path the
+    // same way, so it could not have contributed edges and must be ruled out instead.
+    [Fact]
+    public void CallerScopes_WhenAScopeEntryIsNotAPortableExecutable_StillRulesOutTheOthers()
+    {
+        string target = FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        string lookalike = FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath();
+        string directory = Path.Combine(Path.GetTempPath(), $"scope-junk-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string empty = Path.Combine(directory, "empty.dll");
+            string truncated = Path.Combine(directory, "truncated.dll");
+            File.WriteAllBytes(empty, []);
+            File.WriteAllBytes(truncated, "MZ not really a PE"u8.ToArray());
+
+            var scopes = Create(target, [empty, truncated, lookalike])
+                .CallerScopes(includeAllocations: true);
+
+            Assert.NotNull(scopes);
+            Assert.Empty(scopes);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    // The complement, so the fix above cannot be "rule out anything that fails to read". An image
+    // that opens but reads badly may still decode bodies, so it stays undecidable and keeps the
+    // scope selected.
+    [Fact]
+    public void CallerScopes_WhenAScopeEntryIsAnUnreadableDirectory_StillRulesOutTheOthers()
+    {
+        string target = FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        string lookalike = FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath();
+        string directory = Path.Combine(Path.GetTempPath(), $"scope-dir-{Guid.NewGuid():N}.dll");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var scopes = Create(target, [directory, lookalike])
+                .CallerScopes(includeAllocations: true);
+
+            Assert.NotNull(scopes);
+            Assert.Empty(scopes);
+        }
+        finally
+        {
+            Directory.Delete(directory);
+        }
+    }
+
     static IReadOnlyList<string> ReferenceNames(string assemblyPath)
     {
         using var stream = File.OpenRead(assemblyPath);

@@ -183,40 +183,80 @@ internal sealed class ApiMemberAnalysisInspection
     {
         var identities = new Analysis.CallerScopeFilter.Candidate[scopePaths.Count];
         for (int i = 0; i < scopePaths.Count; i++)
+            identities[i] = ScopeIdentity(scopePaths[i]);
+
+        return identities;
+    }
+
+    /// <summary>
+    /// Classifies one candidate. Opening the image, proving it is a managed PE, and reading its
+    /// identity are separated because they fail differently: an image whose PE structure cannot be
+    /// parsed at all is <c>Unopenable</c>, while an image that parses but whose metadata reads
+    /// badly is undecidable and must stay in the relation.
+    ///
+    /// The split falls at <see cref="AssemblyInspectionSession.HasMetadata"/> rather than at
+    /// <c>Open</c> because <c>PEReader</c> is lazy: opening a zero-byte or truncated file succeeds,
+    /// and the header parse throws on first use. <see cref="LibraryBodyIndex.Open"/> parses the
+    /// same headers from the same file and throws in the same place, so ruling such an image out
+    /// matches what opening it for analysis would have produced.
+    ///
+    /// Treating an unopenable image as undecidable is not merely conservative — one malformed or
+    /// zero-byte <c>*.dll</c> beside a real one would select every other candidate and disable the
+    /// prefilter for the whole scope.
+    /// </summary>
+    static Analysis.CallerScopeFilter.Candidate ScopeIdentity(string scopePath)
+    {
+        AssemblyInspectionSession session;
+        try
+        {
+            session = AssemblyInspectionSession.Open(scopePath);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+                                      or IOException
+                                      or UnauthorizedAccessException)
+        {
+            // Not openable as a PE, or not readable as a file. Analysis opens the same path the
+            // same way — both construct a PEReader over a FileStream — so it would fail here too.
+            return Analysis.CallerScopeFilter.Candidate.Unopenable();
+        }
+        catch
+        {
+            // An unanticipated failure says nothing about whether analysis could open the image.
+            return Analysis.CallerScopeFilter.Candidate.Unknown();
+        }
+
+        using (session)
         {
             try
             {
-                using var session = AssemblyInspectionSession.Open(scopePaths[i]);
+                // Forces the deferred PE header parse, so an unparseable image is ruled out here
+                // rather than mistaken for an assembly with unreadable metadata.
                 if (!session.HasMetadata)
-                {
-                    identities[i] = Analysis.CallerScopeFilter.Candidate.Unopenable();
-                    continue;
-                }
-
-                var names = session.IdentityNames();
-                identities[i] = names.ReferencesComplete
-                    ? Analysis.CallerScopeFilter.Candidate.Known(names.Name, names.ReferenceNames)
-                    : Analysis.CallerScopeFilter.Candidate.UnknownReferences(names.Name);
+                    return Analysis.CallerScopeFilter.Candidate.Unopenable();
             }
-            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException)
+            catch (BadImageFormatException)
             {
-                // The image exists and may still open for analysis, but nothing about its identity
-                // is trustworthy, so nothing above it can be ruled out.
-                identities[i] = Analysis.CallerScopeFilter.Candidate.Unknown();
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                // Unreadable as a file; opening it for analysis would fail the same way.
-                identities[i] = Analysis.CallerScopeFilter.Candidate.Unopenable();
+                return Analysis.CallerScopeFilter.Candidate.Unopenable();
             }
             catch
             {
-                // Anything else is undecidable, and undecidable must fail open.
-                identities[i] = Analysis.CallerScopeFilter.Candidate.Unknown();
+                return Analysis.CallerScopeFilter.Candidate.Unknown();
+            }
+
+            try
+            {
+                var names = session.IdentityNames();
+                return names.ReferencesComplete
+                    ? Analysis.CallerScopeFilter.Candidate.Known(names.Name, names.ReferenceNames)
+                    : Analysis.CallerScopeFilter.Candidate.UnknownReferences(names.Name);
+            }
+            catch
+            {
+                // The PE structure parsed, so analysis can still open the image and decode bodies
+                // from it. Its identity is untrustworthy, so nothing above it can be ruled out.
+                return Analysis.CallerScopeFilter.Candidate.Unknown();
             }
         }
-
-        return identities;
     }
 
     /// <summary>

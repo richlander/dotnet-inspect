@@ -152,7 +152,14 @@ public static class CallerScopeFilter
 
         while (pending.Count > 0)
         {
-            if (!referrers.TryGetValue(pending.Dequeue(), out var mentioning))
+            // Removing the entry is what keeps the walk linear. Once a name has been processed
+            // every candidate mentioning it is selected, so a second visit could never select
+            // anything new — but it would still re-traverse the whole adjacency list. Candidates
+            // sharing a canonical name (facades, or the same assembly copied into several
+            // subdirectories) each re-enqueue that shared name on selection, so leaving the entry
+            // in place costs one traversal per sharer: quadratic in the size of the largest
+            // same-named group.
+            if (!referrers.Remove(pending.Dequeue(), out var mentioning))
                 continue;
 
             foreach (int i in mentioning)
