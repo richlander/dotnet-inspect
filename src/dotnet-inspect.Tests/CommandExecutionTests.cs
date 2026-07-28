@@ -3476,6 +3476,38 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Find_Count_ComposesWithJson()
+    {
+        // Found by the projection audit: --json was resolved before --count, so a count
+        // request was answered with the full unprojected result set and exit 0.
+        var (exit, output, _) = await RunAppAsync(
+            "find", "Cache", "--library", TestAssemblyPath, "--count", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
+    }
+
+    [Fact]
+    public async Task Implements_Count_ComposesWithJson()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "implements", "IDisposable", "--library", TestAssemblyPath, "--count", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
+    }
+
+    [Fact]
+    public async Task Extensions_Count_ComposesWithJson()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "extensions", "String", "--library", TestAssemblyPath, "--count", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
+    }
+
+    [Fact]
     public async Task Type_SourceFiles_Value_RowSelectsUrl()
     {
         var (exit, output, error) = await RunAppAsync(

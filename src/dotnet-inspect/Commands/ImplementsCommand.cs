@@ -76,13 +76,16 @@ public class ImplementsCommand
                 NamespacePrefixHints.WriteIfLikelyNamespacePrefix(targetType);
 
             // Output results
-            if (options.JsonOutput)
-            {
-                WriteJsonOutput(results, options.CompactJson);
-            }
-            else if (options.Count)
+            // --count reduces the payload, so it is resolved before the format flags that
+            // render it. Ordering these the other way lets --json answer a count request
+            // with the full unprojected result set.
+            if (options.Count)
             {
                 WriteCount(results);
+            }
+            else if (options.JsonOutput)
+            {
+                WriteJsonOutput(results, options.CompactJson);
             }
             else
             {
