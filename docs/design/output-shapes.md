@@ -140,20 +140,30 @@ modifier changes how a selected payload is rendered.
 
 `--print` projects a selected row's declared printable payload. It is unary, but
 it does not mean "take the first row." Cardinality is resolved after section
-selection, filtering, and printable-capability filtering:
+selection and filtering:
 
-| Printable rows | `--print` | `--print --row N\|first\|last` |
+| Rendered rows | `--print` | `--print --row N\|first\|last` |
 | ---: | --- | --- |
-| 0 | Error: the selected shape is not printable. | Error. |
-| 1 | Print the one payload. | Print row `1`, `first`, or `last`; any other index is an error. |
-| More than 1 | Guidance error requiring `--row`. | Print exactly the selected printable row. |
+| 0 | Error: the selected section has no rows. | Error. |
+| 1 | Print the one payload. | Print that row by its number, `first`, or `last`; any other number is an error. |
+| More than 1 | Guidance error requiring `--row`. | Print exactly the selected row. |
 
 `--print` resolves exactly one payload. There is no fan-out gesture: printing
 more than one document at a time is not currently expressible.
 
-Numeric `--row N` is one-based and counts printable rows, not every row in the
-selected table. `first` and `last` are stable aliases for the endpoints of that
-printable-row sequence.
+Numeric `--row N` addresses the row number the reader can see in the rendered
+section. It is not a position within a filtered subsequence, and in particular
+printability does not renumber anything: a row that declares no payload still
+occupies its number, and selecting it reports that it has no document rather
+than silently sliding to a neighbour. `first` and `last` are the endpoints of
+the rendered sequence, so when a projection skips rows they resolve to the
+first and last numbers actually on screen rather than to `1` and the row count.
+
+This is the one rule that makes the ordinal trustworthy. Numbering by position
+in a filtered list is wrong in the worst way available: it returns a real row,
+so nothing looks broken, and the reader has no way to see the sequence being
+indexed. Selecting by displayed number can only ever hit the intended row or
+report a miss.
 
 Because `--print` is exactly-one, failing to acquire the selected row's payload
 is an error, not an omission: it reports the failure and exits non-zero rather
@@ -162,7 +172,7 @@ selected row; whether a section producer declares a row at all is that
 producer's concern.
 
 `-n N` / `--head N` and `--tail N` are rendered-line windows applied after
-printable-row cardinality is resolved and the payload is fetched. They do not
+row cardinality is resolved and the payload is fetched. They do not
 select rows:
 
 ```text
@@ -170,7 +180,7 @@ select rows:
   multi-row selection -> error; does not choose the first row
 
 --print --row 2 --head 20
-  select printable row 2 -> fetch one payload -> render its first 20 lines
+  select row 2 -> fetch one payload -> render its first 20 lines
 ```
 
 `--rows` changes head/tail from rendered-line windows into per-table data-row
@@ -180,7 +190,7 @@ windows:
 - `--rows --tail N` keeps the last N data rows.
 
 Both row-window forms are incompatible with `--print`;
-`--row N|first|last` is the explicit printable-row selector. The CLI implements
+`--row N|first|last` is the explicit row selector. The CLI implements
 both head and tail data-row windows symmetrically.
 
 This policy deliberately rejects implicit-first behavior. Row order may change
@@ -433,12 +443,15 @@ The stable vocabulary is:
 - `--count` is a shape-reduction selector: it collapses a selected table/vector to a
   single scalar count.
 - `--print` is an exactly-one row-payload projection: it never chooses the first
-  of multiple printable rows implicitly, does not make non-printable rows
-  printable, and does not evaluate new addresses.
+  of multiple rows implicitly, does not make rows without a payload printable,
+  and does not evaluate new addresses.
 - `--head` / `--tail` are post-projection line windows: they do not select rows
   or constrain payload acquisition.
 - `--rows` promotes head/tail to first/last data-row windows, but those windows
-  remain presentation limits rather than printable-row selectors.
+  remain presentation limits rather than row selectors.
+- `--row` addresses a rendered row by its displayed number. Any future selector
+  that takes an ordinal joins this rule: the number a reader can see is the
+  number that can be addressed, and no filter may renumber it.
 - `--bare` is a presentation modifier: it strips the surrounding framing from an
   already-selected payload.
 - `--raw` / `--blob` are URL-shape modifiers: they control the form of emitted

@@ -42,16 +42,29 @@ public readonly record struct RowSelector
     public static RowSelector FromIndex(int index) => new(RowSelectorKind.Index, index);
 
     /// <summary>
-    /// Resolves this selector to a 1-based row index against a known row count:
-    /// <c>first</c> → 1, <c>last</c> → <paramref name="count"/>, and an explicit
-    /// index passes through unchanged (still range-checked by the caller).
+    /// Resolves this selector to the row number it addresses, given the row
+    /// numbers a projection actually rendered, in render order.
+    ///
+    /// This deliberately takes the rendered numbers rather than a count. A
+    /// projection that drops rows carrying no value leaves gaps, so the Nth
+    /// entry of the list and the row labelled N are different rows, and a count
+    /// cannot tell them apart. <c>first</c>/<c>last</c> are the endpoints of the
+    /// rendered sequence — the first and last numbers a reader can see — not 1
+    /// and <c>count</c>. An explicit index passes through as the displayed
+    /// number it names; the caller looks it up and reports a miss.
     /// </summary>
-    public int Resolve(int count) => Kind switch
+    public int Resolve(IReadOnlyList<int> rowNumbers)
     {
-        RowSelectorKind.First => 1,
-        RowSelectorKind.Last => count,
-        _ => _index,
-    };
+        ArgumentNullException.ThrowIfNull(rowNumbers);
+        ArgumentOutOfRangeException.ThrowIfZero(rowNumbers.Count);
+
+        return Kind switch
+        {
+            RowSelectorKind.First => rowNumbers[0],
+            RowSelectorKind.Last => rowNumbers[^1],
+            _ => _index,
+        };
+    }
 
     /// <summary>
     /// Parses a <c>--row</c> token: a case-insensitive <c>first</c>/<c>last</c>
@@ -91,4 +104,70 @@ public enum RowSelectorKind
     Index,
     First,
     Last,
+}
+
+/// <summary>
+/// Helpers for addressing rendered rows by the number the reader sees.
+///
+/// Selection and identity are the same concern here: a projection carries the
+/// row number it rendered on every row, so selection looks that number up
+/// instead of indexing the list positionally. Positional indexing is what made
+/// <c>--row</c> address an invisible sequence, and it fails silently — it
+/// returns a real row, just not the requested one.
+/// </summary>
+public static class RowNumbering
+{
+    /// <summary>
+    /// Returns the position in <paramref name="rowNumbers"/> of the row labelled
+    /// <paramref name="rowNumber"/>, or -1 when no rendered row carries it.
+    /// </summary>
+    public static int IndexOf(IReadOnlyList<int> rowNumbers, int rowNumber)
+    {
+        ArgumentNullException.ThrowIfNull(rowNumbers);
+
+        for (var i = 0; i < rowNumbers.Count; i++)
+        {
+            if (rowNumbers[i] == rowNumber)
+                return i;
+        }
+
+        return -1;
+    }
+
+    /// <summary>
+    /// Describes the addressable rows for an error message. A contiguous run
+    /// reads as a range; a gapped sequence is listed explicitly, because the
+    /// gaps are the whole reason the requested number missed and a range would
+    /// name rows that cannot be selected. Long lists are elided in the middle so
+    /// the message stays one line while still showing both endpoints.
+    /// </summary>
+    public static string Describe(IReadOnlyList<int> rowNumbers)
+    {
+        ArgumentNullException.ThrowIfNull(rowNumbers);
+
+        if (rowNumbers.Count == 0)
+            return "none";
+        if (rowNumbers.Count == 1)
+            return rowNumbers[0].ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        var contiguous = true;
+        for (var i = 1; i < rowNumbers.Count; i++)
+        {
+            if (rowNumbers[i] != rowNumbers[i - 1] + 1)
+            {
+                contiguous = false;
+                break;
+            }
+        }
+
+        if (contiguous)
+            return $"{rowNumbers[0]} through {rowNumbers[^1]}";
+
+        const int shown = 8;
+        if (rowNumbers.Count <= shown)
+            return string.Join(", ", rowNumbers);
+
+        var head = string.Join(", ", rowNumbers.Take(shown - 1));
+        return $"{head}, … , {rowNumbers[^1]}";
+    }
 }

@@ -3719,7 +3719,7 @@ public class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("selected section has 2 printable rows; use --row N|first|last to choose one row", error);
+        Assert.Contains("selected section has 2 rows; use --row N|first|last to choose one row", error);
     }
 
     [Fact]
@@ -3821,7 +3821,7 @@ public class CommandExecutionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("selected section has 2 printable rows; use --row N|first|last to choose one row", error);
+        Assert.Contains("selected section has 2 rows; use --row N|first|last to choose one row", error);
     }
 
     [Fact]
@@ -3876,7 +3876,7 @@ public class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("failed to fetch the document for printable row 2 from", error);
+            Assert.Contains("failed to fetch the document for row 2 from", error);
             Assert.Contains("/Src/Newtonsoft.Json/JsonReader.Async.cs", error);
         }
         finally
@@ -3909,7 +3909,7 @@ public class CommandExecutionTests
 
             Assert.Equal(1, exit);
             Assert.Empty(output);
-            Assert.Contains("failed to fetch the document for printable row 2 from", error);
+            Assert.Contains("failed to fetch the document for row 2 from", error);
         }
         finally
         {

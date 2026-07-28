@@ -1036,16 +1036,19 @@ public class ApiCommand
 
     private static List<ShapeProjectionRow> ProjectTypeSourceFiles(TypeView view, string section, ShapeProjectionKind kind)
     {
+        // Number by position in the rendered section, then drop valueless rows.
+        // Renumbering after the filter would relabel the survivors 1..N and break
+        // the correspondence with the table the reader is looking at.
         return (view.SourceFileRows ?? [])
-            .Select((row, index) => row.Url)
-            .Where(url => !string.IsNullOrWhiteSpace(url))
-            .Select((url, index) =>
+            .Select((row, index) => (Number: index + 1, row.Url))
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.Url))
+            .Select(entry =>
             {
-                var value = url!;
+                var value = entry.Url!;
                 return kind switch
                 {
                     ShapeProjectionKind.Urls or ShapeProjectionKind.Value =>
-                        new ShapeProjectionRow(index + 1, section, value, Url: value),
+                        new ShapeProjectionRow(entry.Number, section, value, Url: value),
                     _ => null
                 };
             })
@@ -1121,35 +1124,51 @@ public class ApiCommand
         IEnumerable<(int Row, string? Label, string? Url)>? rows,
         ApiOptions options)
     {
-        var printableRows = (rows ?? [])
-            .Where(row => !string.IsNullOrWhiteSpace(row.Url))
-            .ToList();
-        if (printableRows.Count == 0)
+        // Numbering covers every row the section rendered. Filtering to rows that
+        // carry a payload and then indexing that shorter list positionally is how
+        // --row came to address a sequence the reader cannot see: with rows 1-2
+        // carrying no URL, --row 1 returned the row displayed as 3. Printability
+        // is checked after selection, against the row the caller actually named.
+        var allRows = (rows ?? []).ToList();
+        if (allRows.Count == 0)
         {
-            Console.Error.WriteLine("Error: selected section has no printable rows.");
+            Console.Error.WriteLine("Error: selected section has no rows.");
             return 1;
         }
 
-        if (options.PrintRow is null && printableRows.Count != 1)
+        if (options.PrintRow is null && allRows.Count != 1)
         {
-            Console.Error.WriteLine($"Error: selected section has {printableRows.Count} printable rows; use --row N|first|last to choose one row.");
+            Console.Error.WriteLine($"Error: selected section has {allRows.Count} rows; use --row N|first|last to choose one row.");
             return 1;
         }
 
-        var targetIndex = options.PrintRow?.Resolve(printableRows.Count) ?? 1;
-        if (targetIndex < 1 || targetIndex > printableRows.Count)
+        var rowNumbers = allRows.Select(row => row.Row).ToList();
+        var targetRow = options.PrintRow?.Resolve(rowNumbers) ?? rowNumbers[0];
+        var position = RowNumbering.IndexOf(rowNumbers, targetRow);
+        if (position < 0)
         {
-            Console.Error.WriteLine($"Error: printable row {targetIndex} is out of range. Use 1 through {printableRows.Count}, first, or last.");
+            Console.Error.WriteLine(
+                $"Error: row {targetRow} is not in this section. Use --row {RowNumbering.Describe(rowNumbers)}, first, or last.");
             return 1;
         }
 
-        var selectedRow = printableRows[targetIndex - 1];
+        var selectedRow = allRows[position];
+        if (string.IsNullOrWhiteSpace(selectedRow.Url))
+        {
+            // The row exists and was addressed correctly; it simply has nothing
+            // behind it. Reporting that is what keeps the ordinal trustworthy —
+            // skipping to a neighbouring row would silently answer a different
+            // question.
+            Console.Error.WriteLine($"Error: row {targetRow} has no printable document.");
+            return 1;
+        }
+
         var rawUrl = GitHubUrlResolver.ConvertBlobToRawUrl(selectedRow.Url!);
         var fetcher = new SourceFetcher(DotnetInspector.Core.HttpClientFactory.SharedUntrustedFetch);
         var content = await fetcher.FetchSourceAsync(rawUrl);
         if (content == null)
         {
-            Console.Error.WriteLine($"Error: failed to fetch the document for printable row {targetIndex} from {rawUrl}.");
+            Console.Error.WriteLine($"Error: failed to fetch the document for row {targetRow} from {rawUrl}.");
             return 1;
         }
 
