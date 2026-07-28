@@ -205,8 +205,15 @@ public class UntrustedViewContainmentTests
         };
 
         var summaryView = new TypeView();
+        // The method-group and event views must be walked too. They were
+        // constructed inline here and thrown away, so the event summary row --
+        // which was the one member kind still passing its name through raw --
+        // was never inspected and the gate passed anyway (found by adversarial
+        // review).
+        var methodGroupsView = new MethodGroupsView();
+        var eventsView = new EventsView();
         ApiOutputFormatter.PopulateMemberSummarySections(
-            summaryView, new MethodGroupsView(), new EventsView(), type, new ApiOptions());
+            summaryView, methodGroupsView, eventsView, type, new ApiOptions());
 
         var enumView = new TypeView();
         ApiOutputFormatter.PopulateEnumValues(enumView, enumType, new ApiOptions());
@@ -219,7 +226,8 @@ public class UntrustedViewContainmentTests
         // Non-vacuity: the hostile names must actually be present in the views,
         // or a view that dropped every member would pass trivially.
         int seen = 0;
-        foreach (var view in new object[] { summaryView, enumView, shapeView, tableView })
+        foreach (var view in new object[]
+                 { summaryView, methodGroupsView, eventsView, enumView, shapeView, tableView })
         {
             foreach (string text in Strings(view, new HashSet<object>(ReferenceEqualityComparer.Instance)))
             {

@@ -1,3 +1,4 @@
+using ILInspector.CSharp;
 using System.Collections.Immutable;
 using System.Reflection.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -204,8 +205,24 @@ public static class ApiMemberIdentity
             return true;
         }
 
+        //   * A member or type-parameter name carrying a rendering hazard is
+        //     respelled in the display signature by containment (issue #3319)
+        //     but kept raw in identity. The text fallback locates the member
+        //     name by searching the display signature for the raw spelling, so
+        //     a respelling makes that search miss and silently drops the
+        //     generic arity -- a round-tripped `M<T>(int)` would pair as
+        //     `M(int)`. Persisting the live identity keeps the two in lockstep.
+        if (CarriesRenderingHazard(member.Name)
+            || signature.TypeParameters.Any(parameter => CarriesRenderingHazard(parameter.Name)))
+        {
+            return true;
+        }
+
         return !string.Equals(signature.EffectiveCanonicalReturnType, signature.ReturnType, StringComparison.Ordinal);
     }
+
+    static bool CarriesRenderingHazard(string? name)
+        => name is not null && name.Any(CSharpIdentifierCore.IsRenderingHazard);
 
     public static string GetMemberSignatureSortKey(ApiMember member)
     {

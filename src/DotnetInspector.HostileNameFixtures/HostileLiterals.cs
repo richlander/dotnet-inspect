@@ -56,3 +56,10 @@ public static class HostileBodyLiterals
 
     public static char Character() => '\u202E';
 }
+
+// A hostile *identifier* cannot come from this fixture. C# admits Unicode
+// category Cf in identifiers, so `Evt\u202EName` compiles -- but ECMA-334
+// requires identifiers to be normalized with formatting characters removed, so
+// the emitted metadata name is plain `EvtName` and a gate built on it would be
+// vacuous. Hostile identifiers must be synthesized directly into metadata; see
+// UntrustedLibraryViewContainmentTests.WriteHostileLibrary.

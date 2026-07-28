@@ -1093,7 +1093,9 @@ public static class ApiOutputFormatter
                     var rows = byName.Select(e =>
                     {
                         var m = e.members[0];
-                        return new EventSummaryRow(m.Name, CSharpIdentifier.ContainRenderedText(m.ReturnType ?? m.Signature ?? ""));
+                        return new EventSummaryRow(
+                            OperatorNames.FormatDisplayName(m.Name),
+                            CSharpIdentifier.ContainRenderedText(m.ReturnType ?? m.Signature ?? ""));
                     }).ToList();
                     eventsView.SummaryRows = rows;
                     break;

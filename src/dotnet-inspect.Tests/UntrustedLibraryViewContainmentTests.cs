@@ -64,6 +64,28 @@ public class UntrustedLibraryViewContainmentTests : IDisposable
         AssertNoLineSplit(output);
     }
 
+    /// <summary>
+    /// The sections this fixture actually seeds, each with the marker that
+    /// proves it rendered. The gate below derives both its section selection
+    /// and its assertions from this one table, so a section cannot be added to
+    /// the selection without also declaring the marker that keeps it honest.
+    /// An earlier version listed Custom Attributes, Type Forwarders, Union
+    /// Types, References, and Symbols as well; <see cref="WriteHostileLibrary"/>
+    /// seeds none of them, so those five sections rendered empty and could not
+    /// have failed however containment regressed (found by adversarial review).
+    /// They are covered instead by
+    /// <see cref="UntrustedStringLiteralContainmentTests"/>, which uses a
+    /// compiled fixture — <see cref="System.Reflection.Emit.PersistedAssemblyBuilder"/>
+    /// cannot emit manifest resources at all, and the attribute blobs it emits
+    /// do not decode back.
+    /// </summary>
+    private static readonly (string Section, string Marker)[] SeededSections =
+    [
+        ("Async Methods", "INJECTEDASYNC"),
+        ("P/Invoke Methods", "INJECTEDPI"),
+        ("Extension Methods", "INJECTEDEXT"),
+    ];
+
     [Fact]
     public async Task LibraryAllSections_WithHostileMetadataNames_RendersNoHazard()
     {
@@ -71,12 +93,7 @@ public class UntrustedLibraryViewContainmentTests : IDisposable
             () => LibraryCommand.ExecuteAsync(new LibraryOptions
             {
                 AssemblyName = _path,
-                IncludeSections =
-                [
-                    "Async Methods", "P/Invoke Methods", "Extension Methods",
-                    "Custom Attributes", "Type Forwarders", "Union Types",
-                    "References", "Library Info", "Signals", "Symbols",
-                ],
+                IncludeSections = SeededSections.Select(s => s.Section).ToHashSet(StringComparer.OrdinalIgnoreCase),
                 Markdown = true,
                 Verbosity = Verbosity.Detailed,
             }));
@@ -85,13 +102,12 @@ public class UntrustedLibraryViewContainmentTests : IDisposable
 
         // Per-channel non-vacuity. A single global "INJECTED" check would be
         // satisfied by the async section alone, letting a regression confined to
-        // attributes or resources pass vacuously (found by adversarial review).
-        foreach (var marker in new[]
-                 {
-                     "INJECTEDASYNC", "INJECTEDPI", "INJECTEDEXT",
-                 })
+        // another channel pass vacuously (found by adversarial review).
+        foreach (var (section, marker) in SeededSections)
         {
-            Assert.Contains(marker, output, StringComparison.Ordinal);
+            Assert.True(
+                output.Contains(marker, StringComparison.Ordinal),
+                $"section '{section}' rendered nothing hostile, so this gate proves nothing about it");
         }
 
         AssertNoHazard(output);
@@ -592,5 +608,107 @@ public class UntrustedStringLiteralContainmentTests
             var root = CommandLineBuilder.CreateRootCommand();
             return await root.Parse(args).InvokeAsync();
         });
+    }
+}
+
+/// <summary>
+/// Gate for the <c>package</c> channel (issue #3319). A .nupkg is untrusted
+/// input in exactly the way an assembly is: its nuspec text and ZIP entry names
+/// are chosen by whoever built it, and both reach rendered Markdown.
+/// </summary>
+/// <remarks>
+/// The package is built here rather than checked in because a .nupkg carrying
+/// these characters is a binary blob whose payload would be invisible in review,
+/// and because the nuspec cannot be authored as an MSBuild-packed project: XML
+/// 1.0 cannot represent U+000B at all, so the vertical-tab case only exists in a
+/// hand-written archive.
+/// </remarks>
+[Collection("Console")]
+public class UntrustedPackageContainmentTests : IDisposable
+{
+    private readonly string _dir = Path.Combine(Path.GetTempPath(), $"HostilePkg_{Guid.NewGuid():N}");
+    private readonly string _path;
+
+    public UntrustedPackageContainmentTests()
+    {
+        Directory.CreateDirectory(_dir);
+        _path = Path.Combine(_dir, "Hostile.Pkg.1.0.0.nupkg");
+        WriteHostilePackage(_path);
+    }
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_dir, recursive: true); } catch { /* best effort */ }
+        GC.SuppressFinalize(this);
+    }
+
+    private static void WriteHostilePackage(string path)
+    {
+        const string Bidi = "\u202E";
+        var nuspec = $"""
+            <?xml version="1.0" encoding="utf-8"?>
+            <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+              <metadata>
+                <id>Hostile.Pkg</id>
+                <version>1.0.0</version>
+                <authors>Auth{Bidi}INJECTEDAUTHOR</authors>
+                <description>Desc{Bidi}INJECTEDDESC here.</description>
+                <dependencies><group targetFramework="net8.0" /></dependencies>
+              </metadata>
+            </package>
+            """;
+
+        using var archive = new System.IO.Compression.ZipArchive(
+            File.Create(path), System.IO.Compression.ZipArchiveMode.Create);
+
+        Write(archive, "Hostile.Pkg.nuspec", nuspec);
+        Write(archive, "lib/net8.0/Good.dll", "MZ");
+        // A ZIP entry name is not XML, so it can carry the vertical tab too.
+        Write(archive, $"docs/Path{Bidi}INJECTEDPATH.md", "# doc");
+        Write(archive, "docs/Vtab\u000BINJECTEDVPATH.md", "# doc");
+
+        static void Write(System.IO.Compression.ZipArchive archive, string name, string content)
+        {
+            using var writer = new StreamWriter(archive.CreateEntry(name).Open());
+            writer.Write(content);
+        }
+    }
+
+    [Theory]
+    [InlineData(Verbosity.Normal)]
+    [InlineData(Verbosity.Detailed)]
+    public async Task PackageMetadata_WithHostileNuspec_RendersNoHazard(Verbosity verbosity)
+    {
+        var (exit, output, _) = await ConsoleCapture.RunAsync(
+            () => PackageCommand.ExecuteAsync(new InspectionOptions
+            {
+                PackageArgs = [_path],
+                Verbosity = verbosity,
+                TipLevel = TipLevel.Quiet,
+            }));
+
+        Assert.Equal(0, exit);
+
+        // Per-channel non-vacuity. The description renders as a prose block and
+        // the authors as a table cell; they take different containment paths.
+        foreach (var marker in new[] { "INJECTEDAUTHOR", "INJECTEDDESC" })
+        {
+            Assert.True(
+                output.Contains(marker, StringComparison.Ordinal),
+                $"'{marker}' never rendered, so this gate proves nothing about its channel");
+        }
+
+        for (int i = 0; i < output.Length; i++)
+        {
+            char c = output[i];
+            if (c is not '\t' and not '\n' and not '\r'
+                && (char.IsControl(c)
+                    || c is '\u061C' or '\u200E' or '\u200F'
+                        or >= '\u202A' and <= '\u202E'
+                        or >= '\u2066' and <= '\u2069'))
+            {
+                Assert.Fail($"rendered package output carries U+{(int)c:X4} at index {i}");
+            }
+        }
     }
 }
