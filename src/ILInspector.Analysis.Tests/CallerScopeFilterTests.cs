@@ -27,15 +27,24 @@ public class CallerScopeFilterTests
     static CallerScopeFilter.Candidate Candidate(string assemblyPath)
     {
         var identity = Identity(assemblyPath);
-        return new(identity.Name, identity.ReferenceNames);
+        return CallerScopeFilter.Candidate.Known(identity.Name, identity.ReferenceNames);
     }
+
+    /// <summary>A candidate from raw names, mapping null to the matching undecidable state.</summary>
+    static CallerScopeFilter.Candidate MakeCandidate(string? name, IReadOnlyList<string>? references)
+        => (name, references) switch
+        {
+            (null, _) => CallerScopeFilter.Candidate.Unknown(),
+            (not null, null) => CallerScopeFilter.Candidate.UnknownReferences(name),
+            _ => CallerScopeFilter.Candidate.Known(name, references),
+        };
 
     /// <summary>Whether a single candidate survives selection for the given target.</summary>
     static bool Selects(string? targetAssembly, CallerScopeFilter.Candidate candidate) =>
         CallerScopeFilter.SelectCouldReach(targetAssembly, [candidate])[0];
 
     static bool Selects(string? targetAssembly, string? name, IReadOnlyList<string>? references) =>
-        Selects(targetAssembly, new CallerScopeFilter.Candidate(name, references));
+        Selects(targetAssembly, MakeCandidate(name, references));
 
     static bool SelectsFile(string targetAssemblyPath, string candidateAssemblyPath) =>
         Selects(Identity(targetAssemblyPath).Name, Candidate(candidateAssemblyPath));
@@ -124,8 +133,8 @@ public class CallerScopeFilterTests
     {
         CallerScopeFilter.Candidate[] candidates =
         [
-            new("Middle", ["Target"]),
-            new("Entry", ["Middle"]),
+            CallerScopeFilter.Candidate.Known("Middle", ["Target"]),
+            CallerScopeFilter.Candidate.Known("Entry", ["Middle"]),
         ];
 
         Assert.Equal([true, true], CallerScopeFilter.SelectCouldReach("Target", candidates));
@@ -138,8 +147,8 @@ public class CallerScopeFilterTests
     {
         CallerScopeFilter.Candidate[] candidates =
         [
-            new("Entry", ["Middle"]),
-            new("Middle", ["Target"]),
+            CallerScopeFilter.Candidate.Known("Entry", ["Middle"]),
+            CallerScopeFilter.Candidate.Known("Middle", ["Target"]),
         ];
 
         Assert.Equal([true, true], CallerScopeFilter.SelectCouldReach("Target", candidates));
@@ -152,11 +161,11 @@ public class CallerScopeFilterTests
     {
         CallerScopeFilter.Candidate[] candidates =
         [
-            new("L1", ["Target"]),
-            new("L2", ["L1"]),
-            new("L3", ["L2"]),
-            new("OtherA", ["OtherB"]),
-            new("OtherB", ["Newtonsoft.Json"]),
+            CallerScopeFilter.Candidate.Known("L1", ["Target"]),
+            CallerScopeFilter.Candidate.Known("L2", ["L1"]),
+            CallerScopeFilter.Candidate.Known("L3", ["L2"]),
+            CallerScopeFilter.Candidate.Known("OtherA", ["OtherB"]),
+            CallerScopeFilter.Candidate.Known("OtherB", ["Newtonsoft.Json"]),
         ];
 
         Assert.Equal(
@@ -170,25 +179,73 @@ public class CallerScopeFilterTests
     {
         CallerScopeFilter.Candidate[] candidates =
         [
-            new("A", ["B", "Target"]),
-            new("B", ["A"]),
+            CallerScopeFilter.Candidate.Known("A", ["B", "Target"]),
+            CallerScopeFilter.Candidate.Known("B", ["A"]),
         ];
 
         Assert.Equal([true, true], CallerScopeFilter.SelectCouldReach("Target", candidates));
     }
 
-    // An unreadable candidate is kept, but its unknown name must not widen the closure: nothing may
-    // join merely by referencing an assembly whose identity the filter never established.
+    // Round-4 review found the previous rule here was unsound. An unreadable candidate is still
+    // OPENED and can still contribute edges, so anything referencing it can be a caller-of-a-caller.
+    // Refusing to widen the closure cut those assemblies off and truncated the graph — reproduced
+    // end to end with a single-byte mutation that broke identity reading while body indexing still
+    // succeeded. An unnameable assembly could sit anywhere in the chain, so nothing above it can be
+    // ruled out and the whole scope has to be selected.
     [Fact]
-    public void UnknownCandidateDoesNotWidenClosure()
+    public void UnknownIdentityCandidateSelectsTheWholeScope()
     {
         CallerScopeFilter.Candidate[] candidates =
         [
-            new(null, null),
-            new("Consumer", ["Newtonsoft.Json"]),
+            CallerScopeFilter.Candidate.Unknown(),
+            CallerScopeFilter.Candidate.Known("Consumer", ["Newtonsoft.Json"]),
         ];
 
-        Assert.Equal([true, false], CallerScopeFilter.SelectCouldReach("Target", candidates));
+        Assert.Equal([true, true], CallerScopeFilter.SelectCouldReach("Target", candidates));
+    }
+
+    // ...but an unopenable file could not have contributed edges under the old unfiltered walk
+    // either, so it must NOT drag the scope in with it. Otherwise a single stray native DLL in a
+    // --bin directory would defeat the whole optimization.
+    [Fact]
+    public void UnopenableCandidateDoesNotSelectTheScope()
+    {
+        CallerScopeFilter.Candidate[] candidates =
+        [
+            CallerScopeFilter.Candidate.Unopenable(),
+            CallerScopeFilter.Candidate.Known("Consumer", ["Newtonsoft.Json"]),
+        ];
+
+        Assert.Equal([false, false], CallerScopeFilter.SelectCouldReach("Target", candidates));
+    }
+
+    // The narrower half of the same defect: a candidate whose NAME was read but whose reference set
+    // was not. It must be selected (a dropped reference row could have been the target), and it must
+    // still publish its own name, or callers above it are cut off.
+    [Fact]
+    public void UnknownReferencesCandidateWidensTheClosureUnderItsOwnName()
+    {
+        CallerScopeFilter.Candidate[] candidates =
+        [
+            CallerScopeFilter.Candidate.UnknownReferences("Middle"),
+            CallerScopeFilter.Candidate.Known("Entry", ["Middle"]),
+        ];
+
+        Assert.Equal([true, true], CallerScopeFilter.SelectCouldReach("Target", candidates));
+    }
+
+    // An unopenable candidate must not be selected even when the target is unknown, since it can
+    // contribute nothing at all.
+    [Fact]
+    public void UnknownTargetStillRulesOutUnopenableCandidates()
+    {
+        CallerScopeFilter.Candidate[] candidates =
+        [
+            CallerScopeFilter.Candidate.Known("A", ["Newtonsoft.Json"]),
+            CallerScopeFilter.Candidate.Unopenable(),
+        ];
+
+        Assert.Equal([true, false], CallerScopeFilter.SelectCouldReach(null, candidates));
     }
 
     // Facade canonicalization has to hold at every level of the closure, not just the first hop.
@@ -197,8 +254,8 @@ public class CallerScopeFilterTests
     {
         CallerScopeFilter.Candidate[] candidates =
         [
-            new("Middle", ["System.Runtime"]),
-            new("Entry", ["Middle"]),
+            CallerScopeFilter.Candidate.Known("Middle", ["System.Runtime"]),
+            CallerScopeFilter.Candidate.Known("Entry", ["Middle"]),
         ];
 
         Assert.Equal(
@@ -211,8 +268,8 @@ public class CallerScopeFilterTests
     {
         CallerScopeFilter.Candidate[] candidates =
         [
-            new("A", ["Newtonsoft.Json"]),
-            new("B", ImmutableArray<string>.Empty),
+            CallerScopeFilter.Candidate.Known("A", ["Newtonsoft.Json"]),
+            CallerScopeFilter.Candidate.Known("B", ImmutableArray<string>.Empty),
         ];
 
         Assert.Equal([true, true], CallerScopeFilter.SelectCouldReach(null, candidates));

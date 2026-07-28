@@ -26,6 +26,7 @@ internal sealed class ApiMemberAnalysisInspection
     bool _graphScopesResolved;
     string? _targetAssemblyName;
     bool _targetAssemblyNameResolved;
+    IReadOnlyList<string>? _selectedScopePaths;
 
     internal ApiMemberAnalysisInspection(
         string assemblyPath,
@@ -118,16 +119,11 @@ internal sealed class ApiMemberAnalysisInspection
         if (_callerScopeAssemblies is not { Count: > 0 })
             return null;
 
-        var selected = Analysis.CallerScopeFilter.SelectCouldReach(
-            TargetAssemblyName, ScopeIdentities(_callerScopeAssemblies));
+        var selected = SelectedScopePaths();
 
         var opened = new List<MethodBodyInspectionSession>();
-        for (int i = 0; i < _callerScopeAssemblies.Count; i++)
+        foreach (string scopePath in selected)
         {
-            if (!selected[i])
-                continue;
-
-            string scopePath = _callerScopeAssemblies[i];
             try
             {
                 opened.Add(MethodBodyInspectionSession.Open(
@@ -147,12 +143,41 @@ internal sealed class ApiMemberAnalysisInspection
     }
 
     /// <summary>
+    /// The scope assemblies that survive prefiltering, resolved once. The two lenses open separate
+    /// sessions because they decode different things, but they ask the same identity question, and
+    /// the scan is the whole cost of prefiltering — running it twice for a request that renders
+    /// both the <c>Callers</c> table and the <c>Call Graph</c> would halve the saving.
+    /// </summary>
+    IReadOnlyList<string> SelectedScopePaths()
+    {
+        if (_selectedScopePaths is not null)
+            return _selectedScopePaths;
+
+        var scopePaths = _callerScopeAssemblies!;
+        var selected = Analysis.CallerScopeFilter.SelectCouldReach(
+            TargetAssemblyName, ScopeIdentities(scopePaths));
+
+        var survivors = new List<string>();
+        for (int i = 0; i < scopePaths.Count; i++)
+        {
+            if (selected[i])
+                survivors.Add(scopePaths[i]);
+        }
+
+        _selectedScopePaths = survivors;
+        return survivors;
+    }
+
+    /// <summary>
     /// Reads assembly identity for every scope candidate. This is the cheap question that makes
     /// prefiltering worthwhile: it touches only the <c>Assembly</c> and <c>AssemblyRef</c> tables,
     /// where <see cref="MethodBodyInspectionSession.Open"/> decodes every method body in the image.
-    /// A candidate whose identity cannot be read — including a file with no managed metadata, since
-    /// <c>--bin</c> enumerates every top-level <c>*.dll</c> with no managed-image filter — is
-    /// reported as unknown so the filter keeps it and the open path decides.
+    ///
+    /// The distinctions matter for soundness, not tidiness. A file that cannot be opened or carries
+    /// no managed metadata — <c>--bin</c> enumerates every top-level <c>*.dll</c> with no
+    /// managed-image filter — could not have contributed edges either, so ruling it out matches
+    /// what opening it would have produced. An image that reads partially is the dangerous case: it
+    /// may still open for analysis, so it has to stay in the relation rather than be dropped.
     /// </summary>
     static Analysis.CallerScopeFilter.Candidate[] ScopeIdentities(IReadOnlyList<string> scopePaths)
     {
@@ -162,15 +187,32 @@ internal sealed class ApiMemberAnalysisInspection
             try
             {
                 using var session = AssemblyInspectionSession.Open(scopePaths[i]);
-                if (session.HasMetadata)
+                if (!session.HasMetadata)
                 {
-                    var names = session.IdentityNames();
-                    identities[i] = new(names.Name, names.ReferenceNames);
+                    identities[i] = Analysis.CallerScopeFilter.Candidate.Unopenable();
+                    continue;
                 }
+
+                var names = session.IdentityNames();
+                identities[i] = names.ReferencesComplete
+                    ? Analysis.CallerScopeFilter.Candidate.Known(names.Name, names.ReferenceNames)
+                    : Analysis.CallerScopeFilter.Candidate.UnknownReferences(names.Name);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException)
+            {
+                // The image exists and may still open for analysis, but nothing about its identity
+                // is trustworthy, so nothing above it can be ruled out.
+                identities[i] = Analysis.CallerScopeFilter.Candidate.Unknown();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Unreadable as a file; opening it for analysis would fail the same way.
+                identities[i] = Analysis.CallerScopeFilter.Candidate.Unopenable();
             }
             catch
             {
-                // Undecidable: left as the default unknown candidate, which is always selected.
+                // Anything else is undecidable, and undecidable must fail open.
+                identities[i] = Analysis.CallerScopeFilter.Candidate.Unknown();
             }
         }
 
