@@ -249,6 +249,257 @@ public static class MetadataProjectionRenderer
 
     static string Describe(MetadataRowLocation location) => $"{location.Table}[{location.RowId}]";
 
+    /// <summary>
+    /// Renders an image overview — metadata root identity, heap sizes, table row
+    /// counts, and PE/CLI header facts — to <paramref name="output"/>.
+    ///
+    /// Only tables that carry rows are listed; the number omitted is reported as
+    /// a caveat rather than left implicit, so a short list is never mistaken for
+    /// the whole of ECMA-335. A table with rows that the projection does not
+    /// model stays visible and is marked as unprojected, because that is a gap in
+    /// coverage rather than an empty table.
+    /// </summary>
+    public static void Render(
+        MetadataImageOverview overview,
+        TextWriter output,
+        MetadataTableFormat format = MetadataTableFormat.Markdown)
+    {
+        ArgumentNullException.ThrowIfNull(overview);
+        ArgumentNullException.ThrowIfNull(output);
+
+        if (format == MetadataTableFormat.Markdown)
+            RenderOverviewMarkdown(overview, output);
+        else
+            RenderOverviewTabular(overview, output, format);
+    }
+
+    static void RenderOverviewMarkdown(MetadataImageOverview overview, TextWriter output)
+    {
+        var writer = new MarkoutWriter(output, new MarkdownFormatter(), new MarkoutWriterOptions());
+
+        writer.WriteHeading(2, "Image");
+        WriteImageTable(writer, overview, identifySection: false);
+
+        writer.WriteBlankLine();
+        writer.WriteHeading(2, "Heaps");
+        WriteHeapTable(writer, overview, identifySection: false);
+
+        writer.WriteBlankLine();
+        writer.WriteHeading(2, $"Tables ({NonEmptyTables(overview).Count})");
+        WriteTableTable(writer, overview, identifySection: false);
+
+        foreach (string caveat in Caveats(overview))
+        {
+            writer.WriteBlankLine();
+            writer.WriteParagraph(caveat);
+        }
+
+        writer.Flush();
+    }
+
+    static void RenderOverviewTabular(MetadataImageOverview overview, TextWriter output, MetadataTableFormat format)
+    {
+        var options = new MarkoutWriterOptions
+        {
+            TableMode = format == MetadataTableFormat.Tsv ? MarkoutTableMode.Tsv : MarkoutTableMode.Jsonl,
+        };
+        var writer = new MarkoutWriter(output, new TableFormatter(showHeader: true), options);
+
+        // The three parts have different shapes, so each keeps its own header and
+        // carries a leading Section column, matching how the table renderer keeps
+        // machine rows self-identifying.
+        WriteImageTable(writer, overview, identifySection: true);
+        WriteHeapTable(writer, overview, identifySection: true);
+        WriteTableTable(writer, overview, identifySection: true);
+
+        writer.Flush();
+    }
+
+    static void WriteImageTable(MarkoutWriter writer, MetadataImageOverview overview, bool identifySection)
+    {
+        var rows = new List<string[]>();
+        Add("Metadata version", overview.MetadataVersion);
+        Add("Metadata kind", overview.Kind.ToString());
+        Add("Has assembly manifest", overview.IsAssembly ? "yes" : "no");
+        Add("Metadata offset", overview.MetadataOffset.ToString());
+        Add("Metadata size", $"{overview.MetadataSize} bytes");
+        Add("Machine", overview.Headers.Machine.ToString());
+        Add("Image characteristics", overview.Headers.ImageCharacteristics.ToString());
+        Add("Subsystem", overview.Headers.Subsystem.ToString());
+        Add("DLL characteristics", overview.Headers.DllCharacteristics.ToString());
+        Add("Optional header", overview.Headers.IsPE32Plus ? "PE32+" : "PE32");
+
+        if (overview.Headers.Cor is { } cor)
+        {
+            Add("CLI runtime version", $"{cor.MajorRuntimeVersion}.{cor.MinorRuntimeVersion}");
+            Add("CLI flags", cor.Flags.ToString());
+            Add("Entry point", DescribeEntryPoint(cor));
+        }
+        else
+        {
+            // Never rendered as a blank or zero: an image with no CLI header is a
+            // different fact from one whose header happens to be empty.
+            Add("CLI header", "absent");
+        }
+
+        WriteSectionTable(writer, identifySection, "image", ["Property", "Value"], ["property", "value"], rows);
+
+        void Add(string property, string value) => rows.Add([property, value]);
+    }
+
+    static string DescribeEntryPoint(MetadataCorHeaderSummary cor)
+    {
+        if (cor.EntryPointToken is { } token)
+            return $"token 0x{token:X8}";
+
+        if (cor.EntryPointTokenOrRelativeVirtualAddress == 0)
+            return "none";
+
+        return $"native RVA 0x{cor.EntryPointTokenOrRelativeVirtualAddress:X8}";
+    }
+
+    static void WriteHeapTable(MarkoutWriter writer, MetadataImageOverview overview, bool identifySection)
+    {
+        var rows = new List<string[]>(overview.Heaps.Length);
+        foreach (var heap in overview.Heaps)
+        {
+            rows.Add([
+                heap.Heap.ToString(),
+                heap.SizeInBytes.ToString(),
+                heap.Addressing == MetadataHeapAddressing.Index ? "index" : "byte offset",
+                heap.MaxAddress.ToString(),
+            ]);
+        }
+
+        WriteSectionTable(
+            writer,
+            identifySection,
+            "heap",
+            ["Heap", "Bytes", "Addressing", "Max address"],
+            ["heap", "bytes", "addressing", "maxAddress"],
+            rows);
+    }
+
+    static void WriteTableTable(MarkoutWriter writer, MetadataImageOverview overview, bool identifySection)
+    {
+        var rows = new List<string[]>();
+        foreach (var table in NonEmptyTables(overview))
+            rows.Add([table.Name, table.RowCount.ToString(), table.IsProjected ? "yes" : "no"]);
+
+        WriteSectionTable(
+            writer,
+            identifySection,
+            "table",
+            ["Table", "Rows", "Projected"],
+            ["table", "rows", "projected"],
+            rows);
+    }
+
+    static void WriteSectionTable(
+        MarkoutWriter writer,
+        bool identifySection,
+        string section,
+        string[] headers,
+        string[] headerNames,
+        List<string[]> rows)
+    {
+        if (!identifySection)
+        {
+            writer.WriteTable(headers, headerNames, rows);
+            return;
+        }
+
+        string[] prefixedHeaders = ["Section", .. headers];
+        string[] prefixedNames = ["section", .. headerNames];
+        var prefixedRows = new List<string[]>(rows.Count);
+        foreach (var row in rows)
+            prefixedRows.Add([section, .. row]);
+
+        writer.WriteTable(prefixedHeaders, prefixedNames, prefixedRows);
+    }
+
+    static List<MetadataTableSummary> NonEmptyTables(MetadataImageOverview overview)
+    {
+        var tables = new List<MetadataTableSummary>();
+        foreach (var table in overview.Tables)
+        {
+            if (table.RowCount > 0)
+                tables.Add(table);
+        }
+
+        return tables;
+    }
+
+    /// <summary>
+    /// What an image overview leaves out, as caveats a reader must see: the
+    /// tables omitted for being empty, and any table with rows the projection
+    /// does not model.
+    /// </summary>
+    public static IEnumerable<string> Caveats(MetadataImageOverview overview)
+    {
+        ArgumentNullException.ThrowIfNull(overview);
+
+        int empty = overview.Tables.Length - NonEmptyTables(overview).Count;
+        if (empty > 0)
+            yield return $"{empty} of {overview.Tables.Length} ECMA-335 tables carry no rows in this image and are not listed.";
+
+        var unprojected = new List<string>();
+        foreach (var table in NonEmptyTables(overview))
+        {
+            if (!table.IsProjected)
+                unprojected.Add(table.Name);
+        }
+
+        if (unprojected.Count > 0)
+            yield return $"{unprojected.Count} {(unprojected.Count == 1 ? "table has" : "tables have")} rows the projection does not model, so their contents cannot be dumped: {string.Join(", ", unprojected)}.";
+    }
+
+    /// <summary>
+    /// Renders a single heap value read by address to
+    /// <paramref name="output"/>. The address is echoed alongside the value so
+    /// the row identifies what was asked for, in every format.
+    /// </summary>
+    public static void Render(
+        MetadataValue value,
+        HeapKind heap,
+        int address,
+        TextWriter output,
+        MetadataTableFormat format = MetadataTableFormat.Markdown)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        ArgumentNullException.ThrowIfNull(output);
+
+        var heapReference = value as MetadataValue.HeapReference;
+        string[] row =
+        [
+            heap.ToString(),
+            address.ToString(),
+            heapReference is null ? string.Empty : heapReference.Length.ToString(),
+            heapReference is { Truncated: true } ? "yes" : "no",
+            FormatCell(value),
+        ];
+
+        string[] headers = ["Heap", "Address", "Length", "Truncated", "Value"];
+        string[] headerNames = ["heap", "address", "length", "truncated", "value"];
+
+        if (format == MetadataTableFormat.Markdown)
+        {
+            var markdown = new MarkoutWriter(output, new MarkdownFormatter(), new MarkoutWriterOptions());
+            markdown.WriteHeading(2, $"{heap} heap at {address}");
+            markdown.WriteTable(headers, headerNames, [row]);
+            markdown.Flush();
+            return;
+        }
+
+        var options = new MarkoutWriterOptions
+        {
+            TableMode = format == MetadataTableFormat.Tsv ? MarkoutTableMode.Tsv : MarkoutTableMode.Jsonl,
+        };
+        var writer = new MarkoutWriter(output, new TableFormatter(showHeader: true), options);
+        writer.WriteTable(headers, headerNames, [row]);
+        writer.Flush();
+    }
+
     static string HeadingText(MetadataTableView table)
     {
         if (table.Truncation is not { } truncation)

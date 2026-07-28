@@ -148,5 +148,26 @@ public sealed class AssemblyInspectionSession : IDisposable
         int maxReferences = MetadataRowReferenceSet.DefaultMaxReferences)
         => MetadataTableProjector.FindReferences(_image.PEReader, targetTable, targetRowId, maxReferences);
 
+    /// <summary>
+    /// Image-level facts outside the table projection: metadata root identity,
+    /// heap sizes and addressing, physical row counts for every ECMA-335 table
+    /// (including tables the projection does not model), and PE/CLI header
+    /// facts. Null when the image carries no metadata.
+    /// </summary>
+    public MetadataImageOverview? MetadataImage()
+        => MetadataImageInspector.Describe(_image.PEReader);
+
+    /// <summary>
+    /// One heap value read by address, independent of any row that references
+    /// it. The address follows
+    /// <see cref="MetadataValue.HeapReference.Offset"/>, so a projected cell's
+    /// offset round-trips. Null when the image carries no metadata.
+    /// </summary>
+    public MetadataValue? MetadataHeapValue(
+        HeapKind heap,
+        int address,
+        MetadataProjectionOptions? options = null)
+        => MetadataTableProjector.ReadHeapValue(_image.PEReader, heap, address, options);
+
     public void Dispose() => _image.Dispose();
 }

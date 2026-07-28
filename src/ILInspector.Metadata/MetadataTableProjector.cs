@@ -76,6 +76,15 @@ public static class MetadataTableProjector
     ];
 
     /// <summary>
+    /// The tables this projector models, in ECMA-335 table order. A table absent
+    /// from this set is not projected at all, which is a different fact from a
+    /// table that is projected and empty — see
+    /// <see cref="MetadataTableSummary.IsProjected"/>.
+    /// </summary>
+    public static ImmutableArray<TableIndex> ProjectedTables { get; } =
+        [.. SupportedTables.Select(static spec => spec.Index)];
+
+    /// <summary>
     /// Projects the supported metadata tables of <paramref name="peReader"/>.
     /// Returns an empty projection when the image carries no metadata.
     /// </summary>
@@ -405,6 +414,78 @@ public static class MetadataTableProjector
         }
 
         return unscanned.ToImmutable();
+    }
+
+    /// <summary>
+    /// Reads one heap value by address, independent of any table row that
+    /// references it. This is the heap counterpart of
+    /// <see cref="ProjectRow"/>: a <see cref="MetadataValue.HeapReference"/> cell
+    /// carries a bounded preview plus an <see cref="MetadataValue.HeapReference.Offset"/>,
+    /// and this resolves that address back to a value so a browser can show the
+    /// whole entry, or browse a heap the tables never point into at all (the
+    /// UserString heap is referenced only from IL).
+    ///
+    /// <paramref name="address"/> uses the same convention as
+    /// <see cref="MetadataValue.HeapReference.Offset"/>, so a value read from a
+    /// projected cell round-trips: a byte offset for the String, Blob, and
+    /// UserString heaps, but a 1-based index for the GUID heap. See
+    /// <see cref="MetadataHeapAddressing"/>. Address zero is the nil value of
+    /// every heap and reads as <see cref="MetadataValue.Nil"/>.
+    ///
+    /// The result is shaped exactly like the projected cell for the same value,
+    /// so one renderer serves both. An address past the end of the heap yields
+    /// <see cref="MetadataValue.Malformed"/> rather than an empty value.
+    ///
+    /// Returns <see langword="null"/> when the image carries no metadata.
+    /// </summary>
+    public static MetadataValue? ReadHeapValue(
+        PEReader peReader,
+        HeapKind heap,
+        int address,
+        MetadataProjectionOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(peReader);
+        ArgumentOutOfRangeException.ThrowIfNegative(address);
+        options ??= new MetadataProjectionOptions();
+
+        if (!peReader.HasMetadata)
+            return null;
+
+        var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
+
+        // Address zero is nil in every heap, including an absent one, so it is
+        // answered before the bounds check rather than reported out of range.
+        if (address == 0)
+            return new MetadataValue.Nil();
+
+        int size = reader.GetHeapSize(MetadataImageInspector.ToHeapIndex(heap));
+        bool addressable = MetadataImageInspector.AddressingOf(heap) is MetadataHeapAddressing.Index
+            ? address <= size / MetadataHeapAddressingSizes.GuidSize
+            : address < size;
+
+        if (!addressable)
+            return new MetadataValue.Malformed(
+                $"{heap} heap address {address} is past the end of a {size}-byte heap.");
+
+        try
+        {
+            return heap switch
+            {
+                HeapKind.String => StringCell(reader, MetadataTokens.StringHandle(address), options),
+                HeapKind.Blob => BlobCell(reader, MetadataTokens.BlobHandle(address), options),
+                HeapKind.Guid => GuidCell(reader, MetadataTokens.GuidHandle(address)),
+                HeapKind.UserString => UserStringCell(reader, MetadataTokens.UserStringHandle(address), options),
+                _ => throw new System.Diagnostics.UnreachableException($"Unhandled heap {heap}."),
+            };
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
+        {
+            // Handle construction happens outside the cell readers' own guards,
+            // so a rejected address is contained here rather than escaping as a
+            // throw from a read-only query. An unknown HeapKind is not caught
+            // here: ToHeapIndex above already rejected it.
+            return new MetadataValue.Malformed($"{heap} heap read failed: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -842,6 +923,24 @@ public static class MetadataTableProjector
         catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
         {
             return new MetadataValue.Malformed($"String heap read failed: {ex.Message}");
+        }
+    }
+
+    static MetadataValue UserStringCell(MetadataReader reader, UserStringHandle handle, MetadataProjectionOptions options)
+    {
+        if (handle.IsNil)
+            return new MetadataValue.Nil();
+
+        try
+        {
+            string raw = reader.GetUserString(handle);
+            string text = EscapeText(raw, options.MaxStringChars, out bool truncated);
+            return new MetadataValue.HeapReference(
+                HeapKind.UserString, MetadataTokens.GetHeapOffset(handle), raw.Length, text, text, truncated);
+        }
+        catch (Exception ex) when (ex is BadImageFormatException or ArgumentException)
+        {
+            return new MetadataValue.Malformed($"UserString heap read failed: {ex.Message}");
         }
     }
 
