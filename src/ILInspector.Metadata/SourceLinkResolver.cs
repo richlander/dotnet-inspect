@@ -313,11 +313,17 @@ public class SourceLinkResolver
             // "class Inner { }" is back below it before the line ends. Both stayed open, so a
             // sibling above the target held the innermost slot and every constructor below it
             // was reported absent (adversarial review, MAI-Code). A declaration that ended
-            // encloses nothing, and it ends on the ";" or "}" that terminates it.
+            // encloses nothing, and it ends on the ";" or "}" that terminates it — but only
+            // when that terminator is at declaration level. An attribute on a type parameter
+            // may hold an array initializer, whose closing brace ends nothing while the
+            // attribute's bracket is still open (adversarial review, GPT). This is the same
+            // carried-bracket blindness the sibling question had to learn in round 6.
             while (open.Count > 0
                 && (open[^1].Entered
                     ? depth < open[^1].BodyDepth
-                    : depth == open[^1].BodyDepth - 1 && (significant == ';' || significant == '}')))
+                    : depth == open[^1].BodyDepth - 1
+                        && state.BracketDepth == 0
+                        && (significant == ';' || significant == '}')))
             {
                 open.RemoveAt(open.Count - 1);
             }

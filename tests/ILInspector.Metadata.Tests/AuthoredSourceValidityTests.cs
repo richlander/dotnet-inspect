@@ -734,6 +734,58 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
+    /// A type whose body closes on the constructor's own line is not retired, so the enclosing
+    /// type is never reached and the constructor is reported absent (adversarial review,
+    /// MAI-Code). Pinned rather than fixed, because retiring it is not the improvement it
+    /// looks like.
+    /// <para>
+    /// Scoping the target-line exemption to the type declared on that line — which is all the
+    /// exemption's own justification asks for — was implemented and measured. It restores the
+    /// enclosing type and finds the constructor, and the slice it then produces is
+    /// <c>"} Outer() { }"</c>: CS8803, CS1002, CS1022. A declaration is located by line, so a
+    /// slice cannot begin mid-line, and every shape this scoping reaches has a brace ahead of
+    /// the constructor on that line by construction. The change therefore converts an absent
+    /// answer into a malformed one, which is the wrong direction for the gate this branch
+    /// exists to satisfy. It is also what the code did before round 8, so the current answer
+    /// is the improvement.
+    /// </para>
+    /// </summary>
+    /// <summary>
+    /// A declaration ends on the ";" or "}" that terminates it, but only at declaration level.
+    /// An attribute on a type parameter may hold an array initializer whose closing brace ends
+    /// nothing while the attribute's bracket is still open; reading it as the terminator
+    /// retired the declaring type and returned the whole type instead of the constructor
+    /// (adversarial review, GPT). This is the carried-bracket blindness the sibling question
+    /// had to learn in round 6, in the retirement rule round 8 added.
+    /// </summary>
+    [Fact]
+    public void ABraceInsideATypeParameterAttribute_DoesNotEndTheDeclaration()
+    {
+        var source = string.Join('\n',
+        [
+            "public class C<",
+            "    [Attr(new int[] { 1 }",
+            "    )] T>",
+            "{",
+            "    public",
+            "    C()",
+            "    {",
+            "    }",
+            "}",
+        ]);
+
+        var slice = SourceLinkResolver.ExtractMethodBody(source, startLine: 7, endLine: 8, methodName: ".ctor");
+
+        Assert.Equal("public\nC()\n{\n}", slice);
+    }
+
+    [Fact]
+    public void ATypeClosingOnTheConstructorsLine_ReportsAbsent_KnownGap()
+    {
+        Assert.Null(SourceLinkResolver.ExtractMethodBody("class Outer\n{\n    class Inner\n    {\n    } Outer() { }\n}", startLine: 5, endLine: 5, methodName: ".ctor"));
+    }
+
+    /// <summary>
     /// Member level is read as brace depth 1, and an expression body or lambda adds no brace,
     /// so a call spelled like the type's name on a continuation line of a field initializer is
     /// accepted as the declaration (adversarial review, Gemini). Reaching the shape needs a
