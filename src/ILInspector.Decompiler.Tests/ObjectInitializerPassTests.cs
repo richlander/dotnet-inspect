@@ -536,6 +536,33 @@ public class ObjectInitializerPassTests
             CSharpPrinter.Print(function).Output);
     }
 
+    // #3336 stage 1: a single-use member-value `default` spill. Roslyn spills
+    // `default(InitFlag)` (a struct) to a local via `initobj` and reads it back as
+    // the trailing member value AFTER the `newobj`. #3272's skip guard tolerates
+    // only spills computed BEFORE the newobj, so this member — and thus the whole
+    // initializer — stayed lowered. The pass now consumes the single-use spill and
+    // inlines `default(InitFlag)` at the member, folding the entire chain.
+    [Fact]
+    public void DefaultStructMemberSpill_FoldsWholeInitializer()
+    {
+        var function = Raised(nameof(CfgSampleClass.MakeTargetWithDefaultStructMember));
+
+        var initializer = Assert.Single(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.False(initializer.IsCollection);
+        Assert.Equal(["X", "Y", "Flag"], initializer.Members);
+        // The inlined member value is default(InitFlag), and the spilling initobj is gone.
+        Assert.Single(initializer.Entries[^1].Arguments.OfType<DefaultValue>());
+        Assert.Empty(function.Descendants.OfType<InitObject>());
+
+        // The whole dup chain, its version copies, and the spill local are gone.
+        Assert.Empty(function.Descendants.OfType<StoreStackSlot>());
+        Assert.Empty(function.Descendants.OfType<StoreProperty>());
+
+        Assert.Contains(
+            "new InitTargetWithFlag { X = a, Y = b, Flag = default(InitFlag) }",
+            CSharpPrinter.Print(function).Output);
+    }
+
     static IrFunction FunctionWithSetter(bool generic, string propertyName = "set_Value")
     {
         var type = TypeRef.Definition("Synthetic", "Samples", "Owner");
