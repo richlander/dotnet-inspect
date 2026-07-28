@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using SLF = SourceLinkFetch;
 
 namespace ILInspector.Metadata.Tests;
@@ -65,23 +66,53 @@ public class SourceLinkUrlResolutionTests
     /// </summary>
     [Theory]
     [InlineData("/_/*/src/*")]      // two wildcards
-    [InlineData("/_/*/src")]        // one wildcard, not final
-    [InlineData("/*/*/*/*/*/*a")]   // the denial-of-service shape
+    [InlineData("/_/*/src/b.cs")]   // one wildcard, not final
+    [InlineData("/*/*/*/*s")]       // the denial-of-service shape
     public void ANonConformantKey_IsIgnored(string pattern)
     {
+        AssertTheReplacedImplementationWouldHaveResolved(pattern, NonConformantPath);
+
         var resolver = For((pattern, "https://example.test/*"));
 
-        Assert.Null(resolver.ResolveUrl("/_/a/src/b.cs"));
+        Assert.Null(resolver.ResolveUrl(NonConformantPath));
     }
 
     [Fact]
     public void ANonConformantKey_DoesNotShadowAConformantOne()
     {
+        // The non-conformant key is listed first and, under the replaced implementation, matches
+        // this path and wins. Ignoring it must not merely be silent; the conformant key behind it
+        // must still resolve.
+        AssertTheReplacedImplementationWouldHaveResolved("/_/*/a.cs", "/_/src/a.cs");
+
         var resolver = For(
-            ("/_/*/bad/*", "https://wrong.test/*"),
+            ("/_/*/a.cs", "https://wrong.test/*"),
             ("/_/src/*", "https://right.test/*"));
 
         Assert.Equal("https://right.test/a.cs", resolver.ResolveUrl("/_/src/a.cs"));
+    }
+
+    private const string NonConformantPath = "/_/a/src/b.cs";
+
+    /// <summary>
+    /// Guards the negative tests above against going vacuous. Each asserts that a non-conformant
+    /// key resolves to nothing, but that assertion only means something if the key is one the
+    /// replaced implementation would have accepted. A key the old regex never matched would pass
+    /// those tests against the vulnerable code too, proving nothing.
+    ///
+    /// This reconstructs the replaced matcher — build "^" + escaped key with every '*' as the
+    /// greedy group "(.*)" + "$" — and requires it to match. Changing an <c>InlineData</c> row to
+    /// a key the old code ignored therefore fails here rather than silently weakening the suite.
+    /// </summary>
+    private static void AssertTheReplacedImplementationWouldHaveResolved(string pattern, string path)
+    {
+        string asRegex = "^" + Regex.Escape(pattern).Replace("\\*", "(.*)") + "$";
+
+        Assert.True(
+            Regex.IsMatch(path, asRegex, RegexOptions.None, TimeSpan.FromSeconds(10)),
+            $"Vacuous case: the replaced implementation ignored key '{pattern}' for path " +
+            $"'{path}', so asserting that the current implementation ignores it proves nothing. " +
+            "Choose a key the old regex matched.");
     }
 
     /// <summary>
