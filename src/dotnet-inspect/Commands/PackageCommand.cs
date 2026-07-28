@@ -138,7 +138,7 @@ public class PackageCommand
             // A lens renders its own payload, so demanding a printable section selection reports a
             // requirement the lens does not have. The readme lens prints its own document, and
             // the rest refuse --print through LensProjection with an accurate reason.
-            if (options.Print && !lensMode && !ValidatePackagePrintSelection(options.IncludeSections))
+            if (options.Print && !rendersOwnPayload && !ValidatePackagePrintSelection(options.IncludeSections))
                 return 1;
 
             if (!OutputFormatResolver.ValidateSingleSectionForTabular(options.TabularExplicitlySet, options.IncludeSections))
@@ -419,8 +419,11 @@ public class PackageCommand
                     options);
             }
 
-            // Handle --readme/--print mode: print the selected grounding document and exit early
-            if (options.ShowReadme || options.Print)
+            // Handle --readme/--print mode: print the selected grounding document and exit early.
+            // Discovery is excluded: it renders its own payload further down and refuses --print
+            // with an accurate reason, where falling in here would print the grounding document
+            // instead of the discovery rows the caller asked to project.
+            if (options.ShowReadme || (options.Print && !effectiveDiscovery))
             {
                 var packageId = nuspec?.PackageName ?? packageName;
                 var packageVersion = nuspec?.Version ?? version;

@@ -156,7 +156,7 @@ public class ApiCommand
             return (null!, 1);
         }
 
-        if (options.Print && !ValidateApiPrintSelection(options.IncludeSections))
+        if (options.Print && options.Discover == null && !ValidateApiPrintSelection(options.IncludeSections))
             return (null!, 1);
 
         if (options.Print && options.Rows is not null)

@@ -3836,6 +3836,19 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Discover_Print_RefusesInsteadOfPrintingTheGroundingDocument()
+    {
+        // The grounding branch sat ahead of the discovery branch, so --print fell into it and
+        // returned the readme at exit 0 -- an unrelated payload for a projection of discovery.
+        var (exit, output, error) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.4", "-D", "", "--print");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("-D/--discover", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("Json.NET", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task LensCount_WritesToTheRequestedOutputFile()
     {
         // A count is the command's payload, so --out has to apply to it. Writing it to stdout

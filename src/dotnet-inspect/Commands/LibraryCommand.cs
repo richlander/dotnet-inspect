@@ -170,7 +170,7 @@ public class LibraryCommand
             return 1;
         }
 
-        if (options.Print && !ValidateLibraryPrintSelection(options.IncludeSections))
+        if (options.Print && !rendersOwnPayload && !ValidateLibraryPrintSelection(options.IncludeSections))
             return 1;
 
         if (options.Print && options.Rows is not null)
