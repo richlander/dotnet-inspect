@@ -217,6 +217,11 @@ session-lifetime rule in
 
 ## Surface — the `metadata` table lens
 
+**Status: designed, not yet implemented.** Nothing in this section runs today;
+`-S @Metadata` currently fails with `Select value '@Metadata' not found.` The
+commands and outputs below are the intended surface, recorded so the
+implementation has a target.
+
 Each metadata table is **one section**, and the tables together form a section
 category, `@Metadata`, registered the same way `@Performance` is:
 
@@ -277,9 +282,16 @@ counts, so they remain a single `Metadata: Image` section.
 Progressive-disclosure discipline (see
 [progressive-disclosure.md](progressive-disclosure.md) and
 [section-model.md](section-model.md)): raw tables are **not** in the default
-`-v:m` view. Category membership is what keeps them out, exactly as it does for
-`@Performance`, so no section-specific special-casing is required. They are
-reached by explicit selection (`-S @Metadata` or `-S "Metadata: <Table>"`).
+`-v:m` view. Two separate mechanisms are involved, and they do different jobs:
+
+- Each metadata table descriptor sets `ExplicitOnly => true`. That is the
+  render gate — `SectionPipeline.IsRequested` returns `false` for an
+  `ExplicitOnly` entry unless it is explicitly included, so no verbosity level
+  auto-selects it. This is per-section configuration, the same as the
+  `@Performance` sections and the `--il-offset` coordinate sections.
+- The `@Metadata` category is the *selection and discovery* affordance. It lets
+  `-S @Metadata` name the whole group and gives `-D` something to list; it does
+  not by itself suppress anything.
 
 Heap **addressing** is the one place this lens does introduce a new currency: a
 heap coordinate such as `#Strings:0x1a4` is not a section name, so it needs a
