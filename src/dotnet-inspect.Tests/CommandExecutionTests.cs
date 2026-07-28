@@ -3581,6 +3581,19 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Depends_Count_ComposesWithJson()
+    {
+        // The type with dependencies matters: a type with none short-circuits before the
+        // JSON branch, which is why an earlier probe using such a type saw no defect.
+        var (exit, output, _) = await RunAppAsync(
+            "depends", "SampleGenericClass`1", "--library", TestAssemblyPath, "--count", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out var count), $"expected a bare count, got: {output}");
+        Assert.True(count > 0, "fixture must have dependencies for this to be a meaningful regression test");
+    }
+
+    [Fact]
     public async Task Type_SourceFiles_Value_RowSelectsUrl()
     {
         var (exit, output, error) = await RunAppAsync(

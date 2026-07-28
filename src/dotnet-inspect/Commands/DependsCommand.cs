@@ -56,16 +56,16 @@ public class DependsCommand
                 return 0;
             }
 
-            if (options.JsonOutput)
+            if (options.Count)
+            {
+                WriteCount(result.Tree);
+            }
+            else if (options.JsonOutput)
             {
                 JsonOutputHelper.Write(result.Tree,
                     DependsJsonContext.Default.ListTypeDependencyNode,
                     DependsCompactJsonContext.Default.ListTypeDependencyNode,
                     options.CompactJson);
-            }
-            else if (options.Count)
-            {
-                WriteCount(result.Tree);
             }
             else
             {
