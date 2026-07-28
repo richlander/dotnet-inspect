@@ -500,6 +500,15 @@ jobs:
     # expensive for the PR lane. A regression is therefore caught within a week of
     # landing, not at the PR that causes it. The merge-lane half of this gate is
     # AuthoredCorpusRatchetTests, which ratchets the tracked trend store on every PR.
+    #
+    # The pool sweep resolves current top-N package versions, so the pool drifts
+    # against the recorded manifest over time. --ratchet-pool-manifest is what makes
+    # that visible: the run identifies the pool it actually measured, so a drifted
+    # pool becomes a loud ratchet skip rather than a comparison against numbers
+    # measured on different code. Coarser drift surfaces as Drift/unmatched rows, a
+    # measurement-integrity failure. Both readings are "this run is untrustworthy",
+    # not "the decompiler got worse", and both want a corpus refresh, not a product
+    # fix.
     if: github.event_name == 'schedule' || inputs.lane == 'authored-corpus' || inputs.lane == 'all'
     runs-on: ubuntu-26.04
     # Extrapolated, not measured: a 60-row run takes ~16s locally, so 12,000 rows is
@@ -537,10 +546,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/deep-inspect
-          dotnet run --project tools/DecompilerHarness -c Release --no-build -- \
+          mapfile -t assemblies < evil-pool/assemblies.txt
+          dotnet run --project tools/DecompilerHarness -c Release -- \
             --benchmark-authored-corpus external/authored-source-corpus/evil/corpus.jsonl \
             --ratchet-baseline tools/DecompilerHarness/corpus/evil-runs/history.jsonl \
-            --json $(cat evil-pool/assemblies.txt) \
+            --ratchet-pool-manifest evil-pool/sweep-manifest.json \
+            --json "${assemblies[@]}" \
             > artifacts/deep-inspect/authored-corpus-run.json
 
       - name: Upload the run JSON

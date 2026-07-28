@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using ILInspector.DecompilerHarness;
 
 namespace ILInspector.Decompiler.Tests;
@@ -20,13 +21,12 @@ public class AuthoredCorpusRatchetTests
         int evaluated = 12000,
         int poolMatched = 26,
         int poolTotal = 26,
-        int methodology = 2,
         string? sha = "0a7eded85c3e1410")
-        => new(evaluated, poolMatched, poolTotal, methodology, sha);
+        => new(evaluated, poolMatched, poolTotal, sha);
 
     static HistoryRun Row(
         string date = "2026-07-26",
-        double validPct = 56.7,
+        int validDifferent = 5226,
         int correct = 1576,
         int invalid = 5198,
         int? productBodyDefect = 326,
@@ -41,9 +41,9 @@ public class AuthoredCorpusRatchetTests
             PoolMatched: poolMatched,
             PoolTotal: poolTotal,
             Evaluated: evaluated,
-            ValidPct: validPct,
+            ValidPct: 0,
             Correct: correct,
-            ValidDifferent: null,
+            ValidDifferent: new HistoryRunValidDifferent(validDifferent, 0, 0, 0, 0, 0),
             Invalid: invalid,
             InvalidBreakdown: productBodyDefect is { } defects
                 ? new HistoryRunInvalidBreakdown(defects, 0, 0)
@@ -55,11 +55,12 @@ public class AuthoredCorpusRatchetTests
             MethodologyVersion: methodology);
 
     static AuthoredCorpusRatchet.RunMetrics Metrics(
-        double validPct = 56.7,
+        int? valid = 6802,
         int correct = 1576,
         int invalid = 5198,
-        int? productBodyDefect = 326)
-        => new(validPct, correct, invalid, productBodyDefect);
+        int? productBodyDefect = 326,
+        int methodology = 2)
+        => new(valid, correct, invalid, productBodyDefect, methodology);
 
     /// <summary>
     /// The headline case. These are the exact numbers a reviewer appended to the
@@ -72,12 +73,12 @@ public class AuthoredCorpusRatchetTests
     {
         var comparison = AuthoredCorpusRatchet.Compare(
             Key(),
-            Metrics(validPct: 40.0, correct: 800, invalid: 7000, productBodyDefect: 2328),
+            Metrics(valid: 4800, correct: 800, invalid: 7000, productBodyDefect: 2328),
             [Row()]);
 
         Assert.False(comparison.Skipped);
         Assert.Equal(
-            ["validPct", "correct", "invalid", "productBodyDefect"],
+            ["valid", "correct", "invalid", "productBodyDefect"],
             comparison.Regressions.Select(metric => metric.Name));
     }
 
@@ -96,16 +97,16 @@ public class AuthoredCorpusRatchetTests
     /// since two runs of one commit against one pinned pool measured bit-identical.
     /// </summary>
     [Theory]
-    [InlineData(56.6, 1576, 5198, 326, "validPct")]
-    [InlineData(56.7, 1575, 5198, 326, "correct")]
-    [InlineData(56.7, 1576, 5199, 326, "invalid")]
-    [InlineData(56.7, 1576, 5198, 327, "productBodyDefect")]
+    [InlineData(6801, 1576, 5198, 326, "valid")]
+    [InlineData(6802, 1575, 5198, 326, "correct")]
+    [InlineData(6802, 1576, 5199, 326, "invalid")]
+    [InlineData(6802, 1576, 5198, 327, "productBodyDefect")]
     public void Ratchet_BandIsZero_OneStepTheWrongWayFails(
-        double validPct, int correct, int invalid, int productBodyDefect, string expected)
+        int valid, int correct, int invalid, int productBodyDefect, string expected)
     {
         var comparison = AuthoredCorpusRatchet.Compare(
             Key(),
-            Metrics(validPct, correct, invalid, productBodyDefect),
+            Metrics(valid, correct, invalid, productBodyDefect),
             [Row()]);
 
         Assert.Equal([expected], comparison.Regressions.Select(metric => metric.Name));
@@ -120,7 +121,7 @@ public class AuthoredCorpusRatchetTests
     {
         var comparison = AuthoredCorpusRatchet.Compare(
             Key(),
-            Metrics(validPct: 60.0, correct: 2000, invalid: 4000, productBodyDefect: 100),
+            Metrics(valid: 7200, correct: 2000, invalid: 4000, productBodyDefect: 100),
             [Row()]);
 
         Assert.Empty(comparison.Regressions);
@@ -128,30 +129,56 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
-    /// The store records validPct at one decimal place. Comparing a full-precision
-    /// current value against the rounded baseline would fail a run that did not move,
-    /// so both sides round to the precision the store preserves.
+    /// The reason <c>valid</c> is an exact count and not <c>validPct</c>. The store
+    /// records the percentage to one decimal, so 6,802/12,000 (56.6833) and
+    /// 6,801/12,000 (56.675) both read as 56.7: a genuinely lost valid row would clear
+    /// a "zero tolerance" ratchet on the rounded figure. On the exact count it cannot.
     /// </summary>
     [Fact]
-    public void Ratchet_ValidPctComparesAtRecordedPrecision()
+    public void Ratchet_LostRowInvisibleToRoundedPercentIsCaughtOnTheExactCount()
     {
-        var comparison = AuthoredCorpusRatchet.Compare(Key(), Metrics(validPct: 56.6501), [Row(validPct: 56.7)]);
+        Assert.Equal(
+            Math.Round(100.0 * 6802 / 12000, 1),
+            Math.Round(100.0 * 6801 / 12000, 1));
 
-        Assert.Empty(comparison.Regressions);
+        var comparison = AuthoredCorpusRatchet.Compare(
+            Key(),
+            Metrics(valid: 6801, correct: 1575),
+            [Row()]);
+
+        Assert.Contains(comparison.Regressions, metric => metric.Name == "valid");
+    }
+
+    /// <summary>
+    /// Rows predating the valid-bucket breakdown record no <c>validDifferent</c>, so
+    /// the exact valid count cannot be reconstructed for them. Absent means not
+    /// measured: the metric drops out rather than being inferred from the rounded
+    /// percentage, and the other three still ratchet.
+    /// </summary>
+    [Fact]
+    public void Ratchet_UnrecordedValidBreakdownOmitsTheValidMetric()
+    {
+        var row = Row() with { ValidDifferent = null };
+
+        var comparison = AuthoredCorpusRatchet.Compare(Key(), Metrics(), [row]);
+
+        Assert.False(comparison.Skipped);
+        Assert.DoesNotContain(comparison.Metrics, metric => metric.Name == "valid");
+        Assert.Equal(3, comparison.Metrics.Count);
     }
 
     [Theory]
-    [InlineData(11999, 26, 26, 2, "0a7eded85c3e1410")]
-    [InlineData(12000, 25, 26, 2, "0a7eded85c3e1410")]
-    [InlineData(12000, 26, 27, 2, "0a7eded85c3e1410")]
-    [InlineData(12000, 26, 26, 1, "0a7eded85c3e1410")]
-    [InlineData(12000, 26, 26, 2, "deadbeefdeadbeef")]
+    [InlineData(11999, 26, 26, "0a7eded85c3e1410")]
+    [InlineData(12000, 25, 26, "0a7eded85c3e1410")]
+    [InlineData(12000, 26, 27, "0a7eded85c3e1410")]
+    [InlineData(12000, 26, 26, "deadbeefdeadbeef")]
+    [InlineData(12000, 26, 26, null)]
     public void Ratchet_IncomparableRunSkipsLoudly_RatherThanComparingUnlikeThings(
-        int evaluated, int poolMatched, int poolTotal, int methodology, string sha)
+        int evaluated, int poolMatched, int poolTotal, string? sha)
     {
         var comparison = AuthoredCorpusRatchet.Compare(
-            Key(evaluated, poolMatched, poolTotal, methodology, sha),
-            Metrics(validPct: 40.0, correct: 800, invalid: 7000, productBodyDefect: 2328),
+            Key(evaluated, poolMatched, poolTotal, sha),
+            Metrics(valid: 4800, correct: 800, invalid: 7000, productBodyDefect: 2328),
             [Row()]);
 
         Assert.True(comparison.Skipped);
@@ -160,17 +187,82 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
-    /// A live benchmark run is not handed the pool's sweep manifest, so it carries no
-    /// hash. Requiring one unconditionally would make the live path skip forever — a
-    /// permanently green gate wearing a different hat.
+    /// The baseline governs the pool hash. A run that cannot identify its pool is not
+    /// comparable to a row that can — even though every count lines up — because a
+    /// package resolving to a newer version with the same method identities matches
+    /// cleanly, drifts nothing, and would otherwise be ratcheted against numbers
+    /// measured on different code. Refusing is the safe direction: a loud skip, not a
+    /// silent pass. This is why the CLI has <c>--ratchet-pool-manifest</c>.
     /// </summary>
     [Fact]
-    public void Ratchet_AbsentManifestHashOnOneSideStillCompares()
+    public void Ratchet_RunThatCannotIdentifyItsPoolWillNotBorrowABaselineThatCan()
     {
         var comparison = AuthoredCorpusRatchet.Compare(Key(sha: null), Metrics(correct: 1), [Row()]);
 
+        Assert.True(comparison.Skipped);
+        Assert.Contains("(none supplied)", comparison.SkipReason!, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The converse: a baseline recorded before pool hashes existed cannot demand one,
+    /// so it still ratchets. Otherwise every pre-hash row would be permanently
+    /// unusable as a baseline.
+    /// </summary>
+    [Fact]
+    public void Ratchet_BaselineWithoutAPoolHashStillRatchets()
+    {
+        var comparison = AuthoredCorpusRatchet.Compare(Key(), Metrics(correct: 1), [Row(sha: null)]);
+
         Assert.False(comparison.Skipped);
         Assert.Contains(comparison.Regressions, metric => metric.Name == "correct");
+    }
+
+    /// <summary>
+    /// Methodology governs how <c>productBodyDefect</c> is computed and nothing else.
+    /// It used to sit in the comparability key, which discarded three sound metrics at
+    /// every version bump — and, because every store row after the bump was therefore
+    /// incomparable, is what made the tracked-store gate a permanent skip. Across a
+    /// bump the other three must still ratchet.
+    /// </summary>
+    [Fact]
+    public void Ratchet_MethodologyBumpRetiresOnlyProductBodyDefect()
+    {
+        var comparison = AuthoredCorpusRatchet.Compare(
+            Key(),
+            Metrics(valid: 4800, correct: 800, invalid: 7000, productBodyDefect: 2328, methodology: 2),
+            [Row(methodology: 1)]);
+
+        Assert.False(comparison.Skipped);
+        Assert.Equal(
+            ["valid", "correct", "invalid"],
+            comparison.Metrics.Select(metric => metric.Name));
+        Assert.Equal(3, comparison.Regressions.Count);
+    }
+
+    /// <summary>
+    /// The hash definition <c>--ratchet-pool-manifest</c> records: the first 8 bytes of
+    /// the manifest's SHA-256, lowercase hex, matching the store's 16-character form.
+    /// The store's historical values were recorded by hand and this derivation is
+    /// asserted, not verified against them; a mismatch yields a skip, never a pass.
+    /// </summary>
+    [Fact]
+    public void PoolManifestDigest_IsTheFirstEightBytesOfSha256()
+    {
+        string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        File.WriteAllText(path, "manifest");
+        try
+        {
+            string digest = AuthoredCorpusRatchet.PoolManifestDigest(path);
+
+            Assert.Equal(16, digest.Length);
+            Assert.Equal(
+                Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path)).AsSpan(0, 8)),
+                digest);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     /// <summary>
@@ -192,16 +284,16 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
-    /// The newest comparable row wins, not the newest row outright: a methodology bump
-    /// in between must not silently retarget the ratchet at an incomparable baseline.
+    /// The newest comparable row wins, not the newest row outright: a corpus resize in
+    /// between must not silently retarget the ratchet at an incomparable baseline.
     /// </summary>
     [Fact]
     public void Ratchet_PicksNewestComparableRow_SkippingIncomparableOnes()
     {
         var comparison = AuthoredCorpusRatchet.Compare(
-            Key(methodology: 1),
-            Metrics(correct: 1600),
-            [Row(date: "2026-07-24", methodology: 1, correct: 1539), Row(date: "2026-07-26", methodology: 2)]);
+            Key(evaluated: 11000),
+            Metrics(valid: 6802, correct: 1600),
+            [Row(date: "2026-07-24", evaluated: 11000, correct: 1539), Row(date: "2026-07-26")]);
 
         Assert.False(comparison.Skipped);
         Assert.Equal("2026-07-24", comparison.Baseline!.Date);
@@ -255,23 +347,170 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
-    /// The tracked store's own append gate: the newest recorded row must not regress
+    /// The exit contract's integrity half. Every one of these says the run is not
+    /// trustworthy, so it fails regardless of how good the numbers look — and
+    /// regardless of what the ratchet concluded.
+    /// </summary>
+    [Theory]
+    [InlineData(false, true, 0, 0, 0)]
+    [InlineData(true, false, 0, 0, 0)]
+    [InlineData(true, true, 1, 0, 0)]
+    [InlineData(true, true, 0, 1, 0)]
+    [InlineData(true, true, 0, 0, 1)]
+    public void ExitContract_UntrustworthyRunFails_EvenWithACleanRatchet(
+        bool inputsComplete, bool partitionClosed, int drift, int unsupported, int unknownOutcome)
+    {
+        bool sound = AuthoredCorpusExitContract.MeasurementIsSound(
+            inputsComplete, partitionClosed, drift, unsupported, unknownOutcome);
+        var clean = AuthoredCorpusRatchet.Compare(Key(), Metrics(), [Row()]);
+
+        Assert.False(sound);
+        Assert.Empty(clean.Regressions);
+        Assert.Equal(1, AuthoredCorpusExitContract.ExitCode(sound, invalid: 0, clean));
+    }
+
+    [Fact]
+    public void ExitContract_SoundRunRequiresEveryIntegrityCondition()
+    {
+        Assert.True(AuthoredCorpusExitContract.MeasurementIsSound(true, true, 0, 0, 0));
+    }
+
+    /// <summary>
+    /// A corpus row that failed to parse is an integrity failure, not a logged
+    /// curiosity. It shrinks <c>evaluated</c>, which makes the run incomparable, which
+    /// makes the ratchet skip — and a skip exits 0. Left out of this predicate, a
+    /// corpus quietly losing rows would <em>disarm</em> the gate instead of tripping
+    /// it, which is precisely the shape of the defect #3245 removes.
+    /// </summary>
+    [Theory]
+    [InlineData(0, 0, 12000, true)]
+    [InlineData(1, 0, 12000, false)]
+    [InlineData(0, 1, 11999, false)]
+    [InlineData(0, 0, 0, false)]
+    public void ExitContract_InputsAreCompleteOnlyWhenNoRowWasLost(
+        int unmatchedRows, int malformedRows, int evaluated, bool expected)
+    {
+        Assert.Equal(
+            expected,
+            AuthoredCorpusExitContract.InputsComplete(unmatchedRows, malformedRows, evaluated));
+    }
+
+    /// <summary>
+    /// End to end for the case above: one dropped row, everything else pristine, a
+    /// ratchet that skips because the shortened corpus no longer matches its baseline.
+    /// Every individual signal reads benign; the run must still fail.
+    /// </summary>
+    [Fact]
+    public void ExitContract_DroppedCorpusRowFails_EvenThoughTheRatchetSkipsGreen()
+    {
+        var skipped = AuthoredCorpusRatchet.Compare(Key(evaluated: 11999), Metrics(), [Row()]);
+        // Even setting the skip aside, integrity alone must fail this run.
+        bool sound = AuthoredCorpusExitContract.MeasurementIsSound(
+            AuthoredCorpusExitContract.InputsComplete(unmatchedRows: 0, malformedRows: 1, evaluated: 11999),
+            partitionClosed: true,
+            drift: 0,
+            unsupported: 0,
+            unknownOutcome: 0);
+
+        Assert.True(skipped.Skipped);
+        Assert.True(AuthoredCorpusExitContract.QualityHeld(invalid: 5198, skipped));
+        Assert.False(sound);
+        Assert.Equal(1, AuthoredCorpusExitContract.ExitCode(sound, invalid: 5198, skipped));
+    }
+
+    /// <summary>
+    /// A skip fails. It carries no quality opinion — <see cref="AuthoredCorpusExitContract.QualityHeld"/>
+    /// is vacuously true on it — but exiting 0 having compared nothing is the defect
+    /// #3245 removes, rebuilt one level up. Passing <c>--ratchet-baseline</c> demands a
+    /// verdict; "none available" fails that demand.
+    ///
+    /// <para>The weekly caller is why this is not pedantry: its pool is resolved from
+    /// current package versions and will drift off the recorded manifest, so a green
+    /// skip would leave the job passing forever while measuring nothing.</para>
+    /// </summary>
+    [Fact]
+    public void ExitContract_SkipFails_BecauseAGateThatComparedNothingIsNotAPass()
+    {
+        var skipped = AuthoredCorpusRatchet.Comparison.Skip("no comparable row");
+
+        Assert.True(AuthoredCorpusExitContract.QualityHeld(invalid: 5198, skipped));
+        Assert.False(AuthoredCorpusExitContract.RatchetReachedAVerdict(skipped));
+        Assert.Equal(1, AuthoredCorpusExitContract.ExitCode(measurementIsSound: true, invalid: 5198, skipped));
+        Assert.Equal(1, AuthoredCorpusExitContract.ExitCode(measurementIsSound: false, invalid: 0, skipped));
+    }
+
+    /// <summary>
+    /// The converse, so the rule above cannot be read as "any ratchet object fails":
+    /// a real comparison that held exits 0, and no baseline at all leaves the
+    /// historical contract untouched.
+    /// </summary>
+    [Fact]
+    public void ExitContract_OnlySkipsFail_AVerdictAndNoBaselineBothStillPass()
+    {
+        var held = AuthoredCorpusRatchet.Compare(Key(), Metrics(), [Row()]);
+
+        Assert.True(AuthoredCorpusExitContract.RatchetReachedAVerdict(held));
+        Assert.True(AuthoredCorpusExitContract.RatchetReachedAVerdict(null));
+        Assert.Equal(0, AuthoredCorpusExitContract.ExitCode(measurementIsSound: true, invalid: 5198, held));
+    }
+
+    /// <summary>
+    /// The headline fix, at the contract level: with a baseline it holds, a run with
+    /// thousands of invalid rows succeeds. Under the old contract this was the
+    /// permanently-1 case that made the exit code read identically at 56.7% valid and
+    /// at 40% valid.
+    /// </summary>
+    [Fact]
+    public void ExitContract_NonZeroInvalidPassesWhenItHoldsItsBaseline()
+    {
+        var held = AuthoredCorpusRatchet.Compare(Key(), Metrics(), [Row()]);
+
+        Assert.Equal(0, AuthoredCorpusExitContract.ExitCode(measurementIsSound: true, invalid: 5198, held));
+    }
+
+    [Fact]
+    public void ExitContract_RegressionFailsEvenWhenMeasurementIsSound()
+    {
+        var regressed = AuthoredCorpusRatchet.Compare(Key(), Metrics(correct: 800), [Row()]);
+
+        Assert.NotEmpty(regressed.Regressions);
+        Assert.Equal(1, AuthoredCorpusExitContract.ExitCode(measurementIsSound: true, invalid: 5198, regressed));
+    }
+
+    /// <summary>
+    /// Without a baseline the historical contract is untouched, so the trend store's
+    /// documented append run keeps exiting 1 while invalid is non-zero. Adding the
+    /// ratchet must not silently repurpose the default exit code.
+    /// </summary>
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(5198, 1)]
+    public void ExitContract_WithoutABaselineTheHistoricalPerfectionContractStands(int invalid, int expected)
+    {
+        Assert.Equal(expected, AuthoredCorpusExitContract.ExitCode(measurementIsSound: true, invalid, ratchet: null));
+    }
+
+    /// <summary>
+    /// The tracked trend store's own append gate: the newest recorded row must not regress
     /// against the newest earlier row it is comparable with. Rows before it were
     /// recorded without a ratchet and are data, not a contract, so only the new row is
     /// judged — which is why this passes today even though the store contains an
     /// earlier step where raw invalid rose.
     ///
-    /// This is currently a <em>skip</em>: the newest row is the only one stamped
-    /// methodologyVersion 2, and v1 and v2 productBodyDefect counts are not
-    /// comparable by construction. The assertion is therefore deliberately written to
-    /// accept either outcome except a regression, so it starts biting the moment a
-    /// second v2 row lands rather than needing to be re-enabled by hand.
+    /// <para><see cref="Assert.False(bool)"/> on <c>Skipped</c> is the load-bearing
+    /// half. <c>Assert.Empty(Regressions)</c> alone passes for a skip, so this gate was
+    /// vacuous while methodology sat in the comparability key: the newest row was the
+    /// only v2 row, nothing was comparable, and a hand-appended regression that also
+    /// nudged <c>poolMatched</c> landed green. Asserting the comparison actually
+    /// happened is what makes the emptiness mean something.</para>
     /// </summary>
     [Fact]
     public void TrackedHistory_NewestRowDoesNotRegressAgainstItsBaseline()
     {
         var comparison = AuthoredCorpusRatchet.CompareNewestRow(AuthoredCorpusHistoryCardTests.TrackedHistory());
 
+        Assert.False(comparison.Skipped, comparison.SkipReason);
+        Assert.NotEmpty(comparison.Metrics);
         Assert.Empty(comparison.Regressions);
     }
 
@@ -288,7 +527,7 @@ public class AuthoredCorpusRatchetTests
         runs.Add(newest with
         {
             Date = "2026-07-31",
-            ValidPct = 40.0,
+            ValidDifferent = newest.ValidDifferent! with { Total = newest.ValidDifferent!.Total - 100 },
             Correct = 800,
             InvalidBreakdown = new HistoryRunInvalidBreakdown(2328, 0, 0),
         });
@@ -298,7 +537,7 @@ public class AuthoredCorpusRatchetTests
         Assert.False(comparison.Skipped);
         Assert.Equal(newest.Date, comparison.Baseline!.Date);
         Assert.Equal(
-            ["validPct", "correct", "productBodyDefect"],
+            ["valid", "correct", "productBodyDefect"],
             comparison.Regressions.Select(metric => metric.Name));
     }
 }

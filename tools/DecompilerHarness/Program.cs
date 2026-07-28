@@ -76,6 +76,7 @@ static class Program
         bool benchmarkAuthoredCorpus = false;
         string? benchmarkCorpusPath = null;
         string? ratchetBaselinePath = null;
+        string? ratchetPoolManifestPath = null;
         bool historyCard = false;
         string? historyCardPath = null;
         int historyCardWindow = 3;
@@ -214,6 +215,7 @@ static class Program
                         benchmarkCorpusPath = NextArg(args, ref i, flag);
                         break;
                     case "--ratchet-baseline": ratchetBaselinePath = NextArg(args, ref i, flag); break;
+                    case "--ratchet-pool-manifest": ratchetPoolManifestPath = NextArg(args, ref i, flag); break;
                     case "--history-card": historyCard = true; break;
                     case "--history-path": historyCardPath = NextArg(args, ref i, flag); break;
                     case "--history-window": historyCardWindow = NextIntArg(args, ref i, flag); break;
@@ -334,6 +336,15 @@ static class Program
 
         if (returnToSenderMarkout && !returnToSenderCatalog)
             return Fail("--return-to-sender-markout requires --return-to-sender-catalog.");
+        // A gate flag that is silently ignored is a permanently green gate, which is
+        // the failure these flags exist to remove. This sits with the other
+        // flag-combination checks, ahead of every mode dispatch: placed after one, the
+        // earlier-returning modes (--fixture-source-inventory, --history-card) would
+        // accept and ignore a dangling baseline and exit 0.
+        if (ratchetBaselinePath is not null && !benchmarkAuthoredCorpus)
+            return Fail("--ratchet-baseline applies to --benchmark-authored-corpus; it has no effect on its own.");
+        if (ratchetPoolManifestPath is not null && ratchetBaselinePath is null)
+            return Fail("--ratchet-pool-manifest identifies the pool for --ratchet-baseline; it has no effect on its own.");
         if (cfgStageSpecified && (!cfg || dumpMethod is null))
             return Fail("--cfg-stage requires --dump --cfg.");
         int harnessReportModes = (returnAddress ? 1 : 0)
@@ -358,11 +369,6 @@ static class Program
                 return Fail("--history-card renders the committed EVIL run-history trend store; do not pass assembly paths.");
             return AuthoredCorpusHistoryCard.Run(historyCardPath, historyCardWindow);
         }
-
-        // A gate flag that is silently ignored is a permanently green gate, which is
-        // the failure --ratchet-baseline exists to remove; refuse it instead.
-        if (ratchetBaselinePath is not null && !benchmarkAuthoredCorpus)
-            return Fail("--ratchet-baseline applies to --benchmark-authored-corpus; it has no effect on its own.");
 
         if (generatedFixtures)
         {
@@ -489,7 +495,7 @@ static class Program
             return AuthoredSourceHarvest.Run(assemblies, harvestOutputPath!, harvestTarget, evil: true, repositoryPaths: sourceRepositories);
 
         if (benchmarkAuthoredCorpus)
-            return AuthoredCorpusBenchmark.Run(assemblies, benchmarkCorpusPath!, json, ratchetBaselinePath);
+            return AuthoredCorpusBenchmark.Run(assemblies, benchmarkCorpusPath!, json, ratchetBaselinePath, ratchetPoolManifestPath);
 
         if (verifyAuthoredCorpus)
             return AuthoredCorpusDrift.Run(assemblies, verifyCorpusPath!, json, failOnDrift, sourceRepositories);
@@ -2073,6 +2079,13 @@ static class Program
                                 missing or unparseable is a hard error; a baseline
                                 that parses but holds no comparable row is a loud
                                 skip, never a silent pass.
+          --ratchet-pool-manifest <sweep-manifest.json>
+                                with --ratchet-baseline: identify the assembly pool
+                                this run measured, so it can be checked against the
+                                baseline row's recorded pool. Without it, a run cannot
+                                be compared to any row that records a pool hash — a
+                                loud skip, because equal row and assembly counts do
+                                not establish that the inputs were the same code.
           --history-card         render a Markout progress card over the committed
                                 EVIL run-history trend store: every run as a trend
                                 table plus a pivoted movement table over the last N
