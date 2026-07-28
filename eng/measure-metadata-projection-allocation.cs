@@ -90,6 +90,9 @@ foreach (var (name, options) in Scenarios())
 }
 
 Console.WriteLine();
+ReportRetentionSplit(image);
+
+Console.WriteLine();
 ReportRetainedTextCost(image);
 
 static IEnumerable<(string Name, MetadataProjectionOptions Options)> Scenarios() =>
@@ -98,10 +101,19 @@ static IEnumerable<(string Name, MetadataProjectionOptions Options)> Scenarios()
     ("default (MaxRows = 4096)", new MetadataProjectionOptions()),
     ("window 1000", new MetadataProjectionOptions { MaxRowsPerTable = 1000 }),
     ("window 100", new MetadataProjectionOptions { MaxRowsPerTable = 100 }),
-    ("window 100 @ row 40000", new MetadataProjectionOptions { MaxRowsPerTable = 100, StartRowId = 40000 }),
     ("window 100, MethodDef only", new MetadataProjectionOptions
     {
         MaxRowsPerTable = 100,
+        Tables = [TableIndex.MethodDef],
+    }),
+    // Deep paging has to be measured inside a single large table. An all-tables
+    // window at a high start row is not a deep-paging measurement: only the two
+    // tables that actually reach that depth contribute rows, so it reports a
+    // small number for the wrong reason.
+    ("window 100 @ MethodDef row 40000", new MetadataProjectionOptions
+    {
+        MaxRowsPerTable = 100,
+        StartRowId = 40000,
         Tables = [TableIndex.MethodDef],
     }),
 ];
@@ -163,6 +175,11 @@ static (long Allocated, long Retained, int Rows, long Cells) Measure(
 
 // Attributes the retained graph to the eagerly formatted display text each cell
 // carries, which is the only component large enough to be worth a design change.
+//
+// Counting is by object identity, not by property. String, UserString, and Guid
+// cells pass the SAME string instance as both `Text` and `Preview`, so summing
+// the two properties double-counts every one of them. Only Blob cells hold a
+// distinct preview with a null `Text`.
 static void ReportRetainedTextCost(byte[] image)
 {
     using var peReader = new PEReader(new MemoryStream(image));
@@ -173,10 +190,21 @@ static void ReportRetainedTextCost(byte[] image)
     long scalarCount = 0, scalarChars = 0;
     long flagsCount = 0, flagsChars = 0;
     long handleCount = 0, handleChars = 0;
-    long heapTextChars = 0, heapPreviewChars = 0;
+    long heapCount = 0, heapChars = 0;
+    long sharedTextPreview = 0;
     long nilCount = 0;
 
     var distinctDisplay = new HashSet<string>(StringComparer.Ordinal);
+    var seen = new HashSet<string>(StringIdentityComparer.Instance);
+
+    // Charges each distinct string OBJECT once, however many properties expose it.
+    void Charge(string? s, ref long count, ref long chars)
+    {
+        if (s is null || !seen.Add(s))
+            return;
+        count++;
+        chars += s.Length;
+    }
 
     foreach (var table in projection.Tables)
     {
@@ -187,22 +215,21 @@ static void ReportRetainedTextCost(byte[] image)
                 switch (cell)
                 {
                     case MetadataValue.Scalar scalar:
-                        scalarCount++;
-                        scalarChars += scalar.Display.Length;
+                        Charge(scalar.Display, ref scalarCount, ref scalarChars);
                         distinctDisplay.Add(scalar.Display);
                         break;
                     case MetadataValue.Flags flags:
-                        flagsCount++;
-                        flagsChars += flags.Decoded.Length;
+                        Charge(flags.Decoded, ref flagsCount, ref flagsChars);
                         distinctDisplay.Add(flags.Decoded);
                         break;
                     case MetadataValue.Handle handle:
-                        handleCount++;
-                        handleChars += handle.Reference.Display?.Length ?? 0;
+                        Charge(handle.Reference.Display, ref handleCount, ref handleChars);
                         break;
                     case MetadataValue.HeapReference heap:
-                        heapTextChars += heap.Text?.Length ?? 0;
-                        heapPreviewChars += heap.Preview.Length;
+                        if (ReferenceEquals(heap.Text, heap.Preview))
+                            sharedTextPreview++;
+                        Charge(heap.Text, ref heapCount, ref heapChars);
+                        Charge(heap.Preview, ref heapCount, ref heapChars);
                         break;
                     case MetadataValue.Nil:
                         nilCount++;
@@ -212,23 +239,69 @@ static void ReportRetainedTextCost(byte[] image)
         }
     }
 
+    long total = Bytes(scalarCount, scalarChars) + Bytes(flagsCount, flagsChars)
+        + Bytes(handleCount, handleChars) + Bytes(heapCount, heapChars);
+
     Console.WriteLine("=== Retained text cost of the full projection ===");
-    Console.WriteLine($"Scalar.Display  {scalarCount,10:N0} strings {scalarChars,12:N0} chars  ~{Estimate(scalarCount, scalarChars)}");
-    Console.WriteLine($"Flags.Decoded   {flagsCount,10:N0} strings {flagsChars,12:N0} chars  ~{Estimate(flagsCount, flagsChars)}");
-    Console.WriteLine($"Handle.Display  {handleCount,10:N0} strings {handleChars,12:N0} chars  ~{Estimate(handleCount, handleChars)}");
-    Console.WriteLine($"HeapRef.Text    {"",10}         {heapTextChars,12:N0} chars  ~{Estimate(0, heapTextChars)}");
-    Console.WriteLine($"HeapRef.Preview {"",10}         {heapPreviewChars,12:N0} chars  ~{Estimate(0, heapPreviewChars)}");
+    Console.WriteLine("(distinct string objects; a shared instance is charged once)");
+    Console.WriteLine($"Scalar.Display  {scalarCount,10:N0} objects {scalarChars,12:N0} chars {Mb(Bytes(scalarCount, scalarChars))}");
+    Console.WriteLine($"Flags.Decoded   {flagsCount,10:N0} objects {flagsChars,12:N0} chars {Mb(Bytes(flagsCount, flagsChars))}");
+    Console.WriteLine($"Handle.Display  {handleCount,10:N0} objects {handleChars,12:N0} chars {Mb(Bytes(handleCount, handleChars))}");
+    Console.WriteLine($"Heap text       {heapCount,10:N0} objects {heapChars,12:N0} chars {Mb(Bytes(heapCount, heapChars))}");
+    Console.WriteLine($"{"total",-16}{"",10}         {"",12} {Mb(total)}");
     Console.WriteLine();
-    Console.WriteLine($"Nil cells (stateless, all identical) : {nilCount:N0}");
-    Console.WriteLine($"Scalar/Flags strings                 : {scalarCount + flagsCount:N0}");
-    Console.WriteLine($"  distinct                           : {distinctDisplay.Count:N0}");
-    Console.WriteLine($"  duplication factor                 : {(scalarCount + flagsCount) / (double)Math.Max(1, distinctDisplay.Count):N1}x");
+    Console.WriteLine($"Heap cells sharing one instance as Text and Preview : {sharedTextPreview:N0}");
+    Console.WriteLine($"Nil cells (stateless, all identical)                : {nilCount:N0}");
+    Console.WriteLine($"Scalar/Flags distinct by value                      : {distinctDisplay.Count:N0}");
 
     GC.KeepAlive(projection);
 
-    // A string costs roughly 22 bytes of object overhead plus 2 bytes per char.
-    static string Estimate(long count, long chars)
-        => $"{((count * 22) + (chars * 2)) / 1024.0 / 1024.0,6:N1} MB";
+    // Actual x64 System.String size: 8 header + 8 method table + 4 length +
+    // 2*(length+1) for the chars and null terminator, rounded up to 8.
+    static long Bytes(long count, long chars) => (count * 24) + (((chars * 2) + (count * 2) + 7) / 8 * 8);
+    static string Mb(long bytes) => $"{bytes / 1024.0 / 1024.0,8:N1} MB";
+}
+
+// Isolates what the PROJECTION retains from what SRM retains lazily. The
+// projection is created and measured inside a scope, then becomes unreachable
+// while the PEReader stays live; whatever survives is not the projection's.
+// A WeakReference confirms the projection really was collected rather than
+// merely appearing to be.
+static void ReportRetentionSplit(byte[] image)
+{
+    using (var warmup = new PEReader(new MemoryStream(image)))
+    {
+        _ = MetadataTableProjector.Project(warmup, new MetadataProjectionOptions { MaxRowsPerTable = int.MaxValue });
+    }
+
+    long baseline = Quiesce();
+    using var peReader = new PEReader(new MemoryStream(image));
+
+    var (live, weak) = ProjectScoped(peReader, baseline);
+    long afterDrop = Quiesce() - baseline;
+
+    Console.WriteLine("=== Where the retained bytes actually live ===");
+    Console.WriteLine($"projection reachable            : {Megabytes(live)}");
+    Console.WriteLine($"projection unreachable, reader live : {Megabytes(afterDrop)}");
+    Console.WriteLine($"attributable to the projection  : {Megabytes(live - afterDrop)}");
+    Console.WriteLine($"projection survived the drop?   : {weak.IsAlive}");
+    Console.WriteLine();
+    Console.WriteLine("Not on the managed heap, so not counted above:");
+    Console.WriteLine($"  input image bytes             : {Megabytes(image.LongLength)}");
+    Console.WriteLine($"  SRM metadata block            : {Megabytes(peReader.GetMetadata().Length)}");
+
+    GC.KeepAlive(peReader);
+
+    static (long Retained, WeakReference Weak) ProjectScoped(PEReader peReader, long baseline)
+    {
+        var projection = MetadataTableProjector.Project(
+            peReader,
+            new MetadataProjectionOptions { MaxRowsPerTable = int.MaxValue });
+        long retained = Quiesce() - baseline;
+        var weak = new WeakReference(projection);
+        GC.KeepAlive(projection);
+        return (retained, weak);
+    }
 }
 
 static long Quiesce()
@@ -240,3 +313,14 @@ static long Quiesce()
 }
 
 static string Megabytes(long bytes) => $"{bytes / 1024.0 / 1024.0,9:N1} MB";
+
+// Distinguishes string OBJECTS, not string values. Two equal-valued strings at
+// different addresses each occupy memory, so a value comparer would undercount.
+sealed class StringIdentityComparer : IEqualityComparer<string>
+{
+    public static readonly StringIdentityComparer Instance = new();
+
+    public bool Equals(string? x, string? y) => ReferenceEquals(x, y);
+
+    public int GetHashCode(string obj) => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
+}
