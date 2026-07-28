@@ -335,36 +335,24 @@ static class Program
             return Fail(ex.Message);
         }
 
-        // --help is answered after flag validation, not during parsing. Returning 0
-        // from the parse loop let "--ratchet-baseline <path> --help" silently ignore the
-        // gate flag, which is the one thing these checks exist to prevent. The gate flag
-        // itself has to be in this condition too: guarding only the two ratchet options
-        // left "--benchmark-authored-corpus <missing> --help" printing usage and exiting
-        // 0, which is the same silently-ignored gate one flag over.
-        if (showHelp && !benchmarkAuthoredCorpus && ratchetBaselinePath is null && !integrityOnly)
+        // --help is answered after flag validation, not during parsing: returning 0 from
+        // the parse loop let a gate flag be silently ignored, which is a permanently
+        // green gate. The rule is a function in AuthoredCorpusExitContract because this
+        // file cannot be linked into the test project, and an unreachable rule is one
+        // nothing notices the deletion of — see JudgeGateFlags.
+        var flags = AuthoredCorpusExitContract.JudgeGateFlags(
+            showHelp, benchmarkAuthoredCorpus, ratchetBaselinePath is not null, integrityOnly);
+        switch (flags.Disposition)
         {
-            PrintUsage();
-            return 0;
+            case AuthoredCorpusExitContract.FlagDisposition.PrintUsage:
+                PrintUsage();
+                return 0;
+            case AuthoredCorpusExitContract.FlagDisposition.Refuse:
+                return Fail(flags.Message!);
         }
 
         if (returnToSenderMarkout && !returnToSenderCatalog)
             return Fail("--return-to-sender-markout requires --return-to-sender-catalog.");
-        // A gate flag that is silently ignored is a permanently green gate, which is
-        // the failure these flags exist to remove. This sits with the other
-        // flag-combination checks, ahead of every mode dispatch: placed after one, the
-        // earlier-returning modes (--fixture-source-inventory, --history-card) would
-        // accept and ignore a dangling baseline and exit 0.
-        if (ratchetBaselinePath is not null && !benchmarkAuthoredCorpus)
-            return Fail("--ratchet-baseline applies to --benchmark-authored-corpus; it has no effect on its own.");
-        if (showHelp)
-            return Fail("--help does not run a gate; drop the ratchet flags to read usage.");
-        if (integrityOnly && !benchmarkAuthoredCorpus)
-            return Fail("--integrity-only applies to --benchmark-authored-corpus; it has no effect on its own.");
-        // Asking for a quality verdict and declining to judge quality are contradictory
-        // demands, and silently honouring one of them would make the exit code mean
-        // something the caller did not ask for.
-        if (integrityOnly && ratchetBaselinePath is not null)
-            return Fail("--integrity-only and --ratchet-baseline are contradictory: one declines to judge quality, the other demands a verdict on it.");
         // Every other mode dispatches ahead of the authored-corpus gate, so combining
         // them does not run the gate second — it does not run it at all. A reviewer
         // pointed a gate request at a nonexistent corpus, added --history-card, and got

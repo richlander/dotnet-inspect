@@ -529,6 +529,70 @@ static class AuthoredCorpusRatchet
 /// </summary>
 static class AuthoredCorpusExitContract
 {
+    /// <summary>What a flag combination asks the harness to do before any mode runs.</summary>
+    internal enum FlagDisposition
+    {
+        /// <summary>The flags are consistent; dispatch normally.</summary>
+        Proceed,
+
+        /// <summary>The caller asked only for usage; print it and exit 0.</summary>
+        PrintUsage,
+
+        /// <summary>The flags contradict each other; refuse with <see cref="FlagVerdict.Message"/>.</summary>
+        Refuse,
+    }
+
+    /// <summary>The disposition of one flag combination, and why.</summary>
+    internal readonly record struct FlagVerdict(FlagDisposition Disposition, string? Message);
+
+    /// <summary>
+    /// Judges the gate flags against <c>--help</c> before any mode dispatches.
+    ///
+    /// <para>This lives here rather than inline in <c>Program.cs</c> because
+    /// <c>Program.cs</c> cannot be linked into the test project — it owns an entry
+    /// point — and a rule that no test can reach is a rule that can be deleted without
+    /// anything noticing. That is not hypothetical: the fix for
+    /// <c>--benchmark-authored-corpus &lt;missing&gt; --help</c> exiting 0 was verified
+    /// once by hand against the real binary, and reverting it afterwards left the whole
+    /// suite green. Sixteen combinations are cheap to enumerate once the decision is a
+    /// function.</para>
+    ///
+    /// <para>The shape of the bug in every case: a gate flag that is silently ignored is
+    /// a permanently green gate, which is the failure these flags exist to remove
+    /// (#3245). <c>--help</c> answering first made every gate flag ignorable one flag at
+    /// a time — first the two ratchet options, then the gate flag itself.</para>
+    /// </summary>
+    internal static FlagVerdict JudgeGateFlags(
+        bool showHelp,
+        bool benchmarkAuthoredCorpus,
+        bool ratchetBaselineSupplied,
+        bool integrityOnly)
+    {
+        bool anyGateFlag = benchmarkAuthoredCorpus || ratchetBaselineSupplied || integrityOnly;
+
+        if (showHelp && !anyGateFlag)
+            return new FlagVerdict(FlagDisposition.PrintUsage, null);
+
+        if (ratchetBaselineSupplied && !benchmarkAuthoredCorpus)
+            return Refuse("--ratchet-baseline applies to --benchmark-authored-corpus; it has no effect on its own.");
+
+        if (showHelp)
+            return Refuse("--help does not run a gate; drop the ratchet flags to read usage.");
+
+        if (integrityOnly && !benchmarkAuthoredCorpus)
+            return Refuse("--integrity-only applies to --benchmark-authored-corpus; it has no effect on its own.");
+
+        // Asking for a quality verdict and declining to judge quality are contradictory
+        // demands, and silently honouring one of them would make the exit code mean
+        // something the caller did not ask for.
+        if (integrityOnly && ratchetBaselineSupplied)
+            return Refuse("--integrity-only and --ratchet-baseline are contradictory: one declines to judge quality, the other demands a verdict on it.");
+
+        return new FlagVerdict(FlagDisposition.Proceed, null);
+
+        static FlagVerdict Refuse(string message) => new(FlagDisposition.Refuse, message);
+    }
+
     /// <summary>
     /// Whether the run measured the corpus it was asked to measure. A row whose
     /// assembly was not supplied, a row that failed to parse, or an empty run all mean

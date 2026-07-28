@@ -979,6 +979,68 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
+    /// Every combination of <c>--help</c> and the three gate flags, enumerated.
+    ///
+    /// <para>A gate flag that is silently ignored is a permanently green gate, which is
+    /// exactly the failure this whole change exists to remove (#3245). <c>--help</c>
+    /// answering before flag validation made every gate flag ignorable, and it was fixed
+    /// one flag at a time: first the two ratchet options, then
+    /// <c>--benchmark-authored-corpus</c> itself, which a reviewer found still exiting 0
+    /// on a nonexistent corpus. Each fix was verified by hand against the real binary and
+    /// then had no gate, so reverting either one left the suite green.</para>
+    ///
+    /// <para>Sixteen rows is the cheapest way to stop finding these one at a time. The
+    /// only row that may print usage is the one that asks for nothing else; the only rows
+    /// that may proceed are those with no <c>--help</c> and no dangling or contradictory
+    /// gate flag.</para>
+    /// </summary>
+    [Theory]
+    // benchmark, baseline, integrityOnly, help -> disposition
+    [InlineData(false, false, false, false, "Proceed")]
+    [InlineData(true, false, false, false, "Proceed")]
+    [InlineData(true, true, false, false, "Proceed")]
+    [InlineData(true, false, true, false, "Proceed")]
+    [InlineData(false, true, false, false, "Refuse")]
+    [InlineData(false, false, true, false, "Refuse")]
+    [InlineData(false, true, true, false, "Refuse")]
+    [InlineData(true, true, true, false, "Refuse")]
+    [InlineData(false, false, false, true, "PrintUsage")]
+    [InlineData(true, false, false, true, "Refuse")]
+    [InlineData(false, true, false, true, "Refuse")]
+    [InlineData(true, true, false, true, "Refuse")]
+    [InlineData(false, false, true, true, "Refuse")]
+    [InlineData(true, false, true, true, "Refuse")]
+    [InlineData(false, true, true, true, "Refuse")]
+    [InlineData(true, true, true, true, "Refuse")]
+    public void GateFlags_AreJudgedBeforeAnyModeDispatches(
+        bool benchmark, bool baseline, bool integrityOnly, bool help, string expected)
+    {
+        var verdict = AuthoredCorpusExitContract.JudgeGateFlags(help, benchmark, baseline, integrityOnly);
+
+        Assert.Equal(expected, verdict.Disposition.ToString());
+
+        // A refusal that says nothing is a refusal a caller cannot act on.
+        if (verdict.Disposition == AuthoredCorpusExitContract.FlagDisposition.Refuse)
+            Assert.False(string.IsNullOrWhiteSpace(verdict.Message));
+        else
+            Assert.Null(verdict.Message);
+    }
+
+    /// <summary>
+    /// The one row above that carries the whole point: asking for the gate and for usage
+    /// at once must not print usage. Named separately because it is the regression a
+    /// reviewer actually found, and a named test says so in the failure output.
+    /// </summary>
+    [Fact]
+    public void GateFlags_HelpDoesNotPreemptTheAuthoredCorpusGate()
+    {
+        var verdict = AuthoredCorpusExitContract.JudgeGateFlags(
+            showHelp: true, benchmarkAuthoredCorpus: true, ratchetBaselineSupplied: false, integrityOnly: false);
+
+        Assert.Equal(AuthoredCorpusExitContract.FlagDisposition.Refuse, verdict.Disposition);
+    }
+
+    /// <summary>
     /// No row in the tracked store records run identity, so the next append — which
     /// will come from a live run, and a live run always records both digests — is
     /// <em>not</em> comparable to the row it lands on, and
