@@ -128,7 +128,9 @@ public class ApiCommand
         if (shapeCount == 1)
         {
             var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
-            if (!ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
+            // Discovery renders its own payload and refuses the shape projections itself with
+            // an accurate reason; demanding -S first reports a requirement that is not the problem.
+            if (options.Discover == null && !ShapeProjectionOutput.ValidateSingleSection(options.IncludeSections, optionName))
                 return (null!, 1);
             if (options.Count || options.Print)
             {

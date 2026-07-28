@@ -932,12 +932,6 @@ public class PackageCommand
             return false;
         }
 
-        if (options.ShowContent && options.Count)
-        {
-            Console.Error.WriteLine("Error: --content cannot be combined with --count.");
-            return false;
-        }
-
         if (options.ShowContent)
         {
             List<string> conflicts = [];
@@ -1475,7 +1469,7 @@ public class PackageCommand
     {
         var rows = FlattenPackageFileContentRows(results, options).ToList();
 
-        if (LensProjection.TryProject(options, "--content", rows.Count, out var contentProjectionExit, scalarPayload: true))
+        if (LensProjection.TryProject(options, "--content", rows.Count, out var contentProjectionExit))
             return contentProjectionExit;
 
         if (options.Bare)

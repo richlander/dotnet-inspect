@@ -3806,6 +3806,37 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Content_Count_CountsMatchedFilesBecauseThePayloadIsAVector()
+    {
+        // --content renders text, but it yields one structured row per matched file rather than a
+        // single document, so it counts. The multi-match case is what proves it is not a scalar.
+        var (rowsExit, rowsOutput, _) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.4", "--content", "--path", "*.md", "--jsonl");
+        Assert.Equal(0, rowsExit);
+        var rows = rowsOutput.ReplaceLineEndings("\n").Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
+        Assert.True(rows > 1, "The pattern must match more than one file for this test to prove anything.");
+
+        var (exit, output, _) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.4", "--content", "--path", "*.md", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(rows, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public async Task Discover_ShapeProjection_ReportsTheLensRefusalWithoutRequiringASelection()
+    {
+        // The ordinary shape gate ran first and reported a missing -S, which is not the actual
+        // problem: discovery renders its own payload and cannot answer a column projection.
+        var (exit, _, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-D", "--value", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("--value is not available with -D/--discover", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("requires -S/--select", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Readme_Count_IsRefusedBecauseThePayloadIsAScalar()
     {
         // A README is a text blob, and --count collapses a vector, so counting it could only

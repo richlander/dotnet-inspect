@@ -68,7 +68,7 @@ public class ProjectCommand
         if (shapeCount == 1)
         {
             var optionName = options.Value ? "--value" : options.Urls ? "--urls" : "--paths";
-            if (!ShapeProjectionOutput.ValidateSingleSection(selectResult.Sections, optionName))
+            if (options.Discover == null && !ShapeProjectionOutput.ValidateSingleSection(selectResult.Sections, optionName))
                 return 1;
             if (options.Count || options.Print)
             {

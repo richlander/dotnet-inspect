@@ -23,10 +23,11 @@ namespace DotnetInspector.Output;
 /// inspects successful exits.
 /// </para>
 /// <para>
-/// Two lenses render a text blob rather than a list — <c>--content</c> and <c>--readme</c>. Those
-/// are Scalars in the shape model, and <c>--count</c> collapses a Vector, so counting them is not
-/// a smaller answer but a meaningless one: it can only ever report the number of blobs asked for.
-/// Those lenses pass <c>scalarPayload</c> and refuse <c>--count</c> as well.
+/// Two lenses render text rather than a table, and they differ. <c>--readme</c> is a single
+/// document — a Scalar in the shape model — and <c>--count</c> collapses a Vector, so counting it
+/// could only report that one document was requested; it passes <c>scalarPayload</c> and refuses
+/// <c>--count</c>. <c>--content</c> looks similar but yields one structured row per matched file,
+/// so it is a Vector and counts normally.
 /// </para>
 /// </remarks>
 public static class LensProjection

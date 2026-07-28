@@ -238,11 +238,12 @@ unchanged. Because the lens owns the shape, its answers are fixed:
   files, IL offsets, discovered artifacts — not the lines used to render it. A
   layout count is a count of files, even though the rendered tree also shows the
   directories that contain them.
-- `--count` is refused by the two lenses whose payload is a text blob rather
-  than a list, `--content` and `--readme`. Those are Scalars, and `--count`
-  collapses a Vector; counting them would not be a smaller answer but a
-  meaningless one, since it could only ever report how many blobs were asked
-  for.
+- `--count` is refused by `--readme`, whose payload is a single document rather
+  than a list. A README is a Scalar in the shape model, and `--count` collapses
+  a Vector, so counting it could only ever report that one document was asked
+  for. `--content` is *not* in this category despite also rendering text: it
+  yields one structured row per matched file, so its count is the number of
+  files matched.
 - `--print`, `--value`, `--urls`, and `--paths` are refused with the reason,
   not approximated. They address a cell or a column of a selected section, and a
   lens payload has neither; answering anyway would require inferring structure
