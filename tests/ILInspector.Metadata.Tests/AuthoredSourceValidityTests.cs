@@ -709,6 +709,25 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
+    /// Only the first type declaration on a line is seen, so a second type on the same line is
+    /// never entered and never encloses anything. A constructor belonging to it is reported
+    /// absent (adversarial review, GPT). Pin today's wrong answer so the gap cannot widen
+    /// unnoticed and closing it is a visible test change.
+    /// <para>
+    /// This is not a regression from the bodiless-type retirement: verified <c>null</c> at
+    /// fa1af2b6 as well. Reading every declaration on a line needs intra-line declaration
+    /// scanning, which is not worth its false-positive surface for a shape that does not occur
+    /// — real source declares one type per line, and the one-line form that does occur,
+    /// <c>class C { C() { } }</c>, is covered above.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void ASecondTypeDeclaredOnTheSameLine_IsNotRecognized_KnownGap()
+    {
+        Assert.Null(SourceLinkResolver.ExtractMethodBody("class A { } class B { B() { } }", startLine: 1, endLine: 1, methodName: ".ctor"));
+    }
+
+    /// <summary>
     /// A declarator split between the constructor's name and its parameter list is legal and
     /// is not recognized, because the match is made within one line. Pin today's wrong answer
     /// so the gap cannot widen unnoticed and closing it is a visible test change. Splitting
