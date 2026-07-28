@@ -21,39 +21,51 @@ using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
 
 const string RefPackId = "microsoft.netcore.app.ref";
 const string RuntimePackId = "microsoft.netcore.app.runtime.linux-x64";
+const string AspNetRefPackId = "microsoft.aspnetcore.app.ref";
+const string AspNetRuntimePackId = "microsoft.aspnetcore.app.runtime.linux-x64";
 
 var rows = new List<Row>();
 
-// --- Microsoft.NETCore.App: net6.0 .. net10.0 -----------------------------
-foreach (var major in new[] { 6, 7, 8, 9, 10 })
+// --- Shared frameworks: net6.0 .. net10.0 ---------------------------------
+// Each shared framework is its own runtime pack. Microsoft.NETCore.App is the
+// base (CoreCLR); Microsoft.AspNetCore.App layers on top with the routing/
+// hosting/Microsoft.Extensions.* surface. Rows carry a pack label so a per-pack
+// consumer (e.g. the resident-pack overview count) does not conflate the two.
+await AddSharedFrameworkAsync(RefPackId, RuntimePackId, "netcore.app");
+await AddSharedFrameworkAsync(AspNetRefPackId, AspNetRuntimePackId, "aspnetcore.app");
+
+async Task AddSharedFrameworkAsync(string refPackId, string runtimePackId, string pack)
 {
-    var tfm = $"net{major}.0";
-    Console.Error.WriteLine($"== {tfm} ==");
-
-    var refVersion = await ResolveVersionAsync(RefPackId, major);
-    var runtimeVersion = await ResolveVersionAsync(RuntimePackId, major);
-    if (refVersion is null || runtimeVersion is null)
+    foreach (var major in new[] { 6, 7, 8, 9, 10 })
     {
-        Console.Error.WriteLine($"  skip {tfm}: ref={refVersion ?? "?"} runtime={runtimeVersion ?? "?"}");
-        continue;
+        var tfm = $"net{major}.0";
+        Console.Error.WriteLine($"== {tfm} ({pack}) ==");
+
+        var refVersion = await ResolveVersionAsync(refPackId, major);
+        var runtimeVersion = await ResolveVersionAsync(runtimePackId, major);
+        if (refVersion is null || runtimeVersion is null)
+        {
+            Console.Error.WriteLine($"  skip {tfm}: ref={refVersion ?? "?"} runtime={runtimeVersion ?? "?"}");
+            continue;
+        }
+        Console.Error.WriteLine($"  ref={refVersion}  runtime={runtimeVersion}");
+
+        // Reference assemblies give the logical public API surface per assembly name.
+        var refPack = await GetPackAsync(refPackId, refVersion);
+        var refInfo = ReadPack(refPack, name =>
+            name.StartsWith($"ref/{tfm}/", StringComparison.OrdinalIgnoreCase) &&
+            name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase));
+
+        // Runtime assemblies reveal which physical files are facades + their targets.
+        var runtimePack = await GetPackAsync(runtimePackId, runtimeVersion);
+        var runtimeInfo = ReadPack(runtimePack, name =>
+            name.StartsWith("runtimes/", StringComparison.OrdinalIgnoreCase) &&
+            name.Contains($"/lib/{tfm}/", StringComparison.OrdinalIgnoreCase) &&
+            name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase));
+
+        MergeInto(rows, tfm, pack, refInfo, runtimeInfo);
+        Console.Error.WriteLine($"  ref assemblies={refInfo.Count}  runtime assemblies={runtimeInfo.Count}");
     }
-    Console.Error.WriteLine($"  ref={refVersion}  runtime={runtimeVersion}");
-
-    // Reference assemblies give the logical public API surface per assembly name.
-    var refPack = await GetPackAsync(RefPackId, refVersion);
-    var refInfo = ReadPack(refPack, name =>
-        name.StartsWith($"ref/{tfm}/", StringComparison.OrdinalIgnoreCase) &&
-        name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase));
-
-    // Runtime assemblies reveal which physical files are facades + their targets.
-    var runtimePack = await GetPackAsync(RuntimePackId, runtimeVersion);
-    var runtimeInfo = ReadPack(runtimePack, name =>
-        name.StartsWith("runtimes/", StringComparison.OrdinalIgnoreCase) &&
-        name.Contains($"/lib/{tfm}/", StringComparison.OrdinalIgnoreCase) &&
-        name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase));
-
-    MergeInto(rows, tfm, refInfo, runtimeInfo);
-    Console.Error.WriteLine($"  ref assemblies={refInfo.Count}  runtime assemblies={runtimeInfo.Count}");
 }
 
 // --- netstandard ref packs ------------------------------------------------
@@ -70,25 +82,26 @@ async Task AddNetStandardAsync(string packId, string? pinnedVersion, string tfm,
     var info = ReadPack(pack, name =>
         name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
         name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase));
-    MergeInto(rows, tfm, info, new Dictionary<string, AsmInfo>(StringComparer.OrdinalIgnoreCase));
+    MergeInto(rows, tfm, "netstandard", info, new Dictionary<string, AsmInfo>(StringComparer.OrdinalIgnoreCase));
     Console.Error.WriteLine($"  assemblies={info.Count}");
 }
 
 // --- Emit TSV -------------------------------------------------------------
 var sb = new StringBuilder();
-sb.Append("tfm\tassembly\tfile\tkind\tforwardsTo\tversion\tpublicTypes\n");
+sb.Append("tfm\tpack\tassembly\tfile\tkind\tforwardsTo\tversion\tpublicTypes\n");
 foreach (var r in rows
     .OrderBy(r => TfmSortKey(r.Tfm))
+    .ThenBy(r => r.Pack, StringComparer.OrdinalIgnoreCase)
     .ThenBy(r => r.Assembly, StringComparer.OrdinalIgnoreCase))
 {
-    sb.Append($"{r.Tfm}\t{r.Assembly}\t{r.File}\t{r.Kind}\t{r.ForwardsTo}\t{r.Version}\t{r.PublicTypes}\n");
+    sb.Append($"{r.Tfm}\t{r.Pack}\t{r.Assembly}\t{r.File}\t{r.Kind}\t{r.ForwardsTo}\t{r.Version}\t{r.PublicTypes}\n");
 }
 File.WriteAllText(outputPath, sb.ToString());
 Console.Error.WriteLine($"\nWrote {rows.Count} rows -> {outputPath} ({new FileInfo(outputPath).Length} bytes)");
 
 // ==========================================================================
 
-void MergeInto(List<Row> sink, string tfm,
+void MergeInto(List<Row> sink, string tfm, string pack,
     Dictionary<string, AsmInfo> refInfo, Dictionary<string, AsmInfo> runtimeInfo)
 {
     var files = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -125,7 +138,7 @@ void MergeInto(List<Row> sink, string tfm,
         var publicTypes = r?.TopLevelPublicTypes ?? rt?.TopLevelPublicTypes ?? 0;
         var version = r?.Version ?? rt?.Version ?? "";
 
-        sink.Add(new Row(tfm, assembly, file, kind, forwardsTo, version, publicTypes));
+        sink.Add(new Row(tfm, pack, assembly, file, kind, forwardsTo, version, publicTypes));
     }
 }
 
@@ -250,5 +263,5 @@ static int TfmSortKey(string tfm)
     return 9999;
 }
 
-record Row(string Tfm, string Assembly, string File, string Kind, string ForwardsTo, string Version, int PublicTypes);
+record Row(string Tfm, string Pack, string Assembly, string File, string Kind, string ForwardsTo, string Version, int PublicTypes);
 record AsmInfo(int TopLevelPublicTypes, int ForwardCount, string? DominantForwardTarget, string Version);

@@ -1822,9 +1822,12 @@ function renderPackageOverview() {
 
   // For the runtime pack, the loaded set is one library; the static index knows
   // the full roster, so surface how many more libraries this framework carries.
+  // Scope the count to the resident pack — the index now spans both the CoreCLR
+  // and ASP.NET Core shared frameworks, and conflating them would overcount.
   let librariesSubtitle = `${libStats.size} loaded`;
   if (pkg.isRuntimePack && state.platformIndex) {
-    const total = state.platformIndex.assembliesFor(pkg.activeFramework).filter(a => a.kind === "impl").length;
+    const indexPack = /aspnetcore/i.test(pkg.name || "") ? "aspnetcore.app" : "netcore.app";
+    const total = state.platformIndex.assembliesFor(pkg.activeFramework, indexPack).filter(a => a.kind === "impl").length;
     if (total > 0) librariesSubtitle = `${libStats.size} loaded · ${total} in ${escapeHtml(pkg.activeFramework)}`;
   }
 
