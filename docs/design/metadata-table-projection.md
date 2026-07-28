@@ -309,11 +309,12 @@ dotnet-inspect library My.dll --heap "#Strings:0x1a4"
 
 Deep paging into the middle of a table needs no metadata-specific gesture. It is
 a general row-selection concern, and `--row`/`--rows` are being reworked to
-carry it: a row range such as `--rows 40000..40099` addresses an arbitrary
-window in any section, metadata tables included. This lens therefore adds
-nothing for paging and inherits whatever that work lands. Random access from a
-host that is not the CLI stays a library concern, served by `ProjectRow` and the
-row window.
+carry it ([#3364](https://github.com/richlander/dotnet-inspect/issues/3364)):
+once that lands, a row range such as `--rows 40000..40099` will address an
+arbitrary window in any section, metadata tables included. Neither spelling
+parses a range today. This lens therefore adds nothing for paging and inherits
+whatever that work lands. Random access from a host that is not the CLI stays a
+library concern, served by `ProjectRow` and the row window.
 
 ## Safety
 
@@ -894,10 +895,14 @@ via the existing section pipeline and `OutputFormatter`.
 - **Row addressing.** `--row` currently selects the Nth row that survived an
   invisible printability filter, so it neither names `MethodDef[3]` nor matches
   the row a reader counted in the output; `--where` carries row addressing
-  today. A general rework is designed — `-n` carries the count, `--rows` selects
-  the unit, `--tail` selects the direction, and `--rows` accepts `N`, `N..M`
-  (inclusive), and `N+K` (start plus count) — but it is a CLI-wide change and is
-  out of scope for this series. This lens inherits it.
+  today. Part of the shape is already in place: `-n`/`--head` and `--tail` take
+  a count, and `--rows` is a boolean that switches their unit from output lines
+  to data rows. What is missing is range addressing — neither `--row` nor
+  `--rows` parses a range today. The rework designed in
+  [#3364](https://github.com/richlander/dotnet-inspect/issues/3364) would give
+  `--rows` a value of `N`, `N..M` (inclusive), or `N+K` (start plus count), but
+  it is a CLI-wide change and is out of scope for this series. This lens
+  inherits it.
 
 Resolved:
 
