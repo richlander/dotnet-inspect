@@ -1181,6 +1181,120 @@ kbd {
 .graph-source-status { padding: 20px; color: var(--dim); font: 12px var(--mono); }
 .graph-source-status.error { color: var(--red, #d97070); }
 
+/* Package documentation: presence chips on the overview + a Markdown reader modal. */
+.doc-chip-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.doc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-raised);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.doc-chip:hover { border-color: var(--line-strong); background: var(--panel-active); }
+.doc-chip .doc-glyph { color: var(--accent); font: 12px var(--mono); }
+.doc-chip .doc-name { font: 12px var(--mono); }
+.doc-chip .doc-kind {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: 10px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.doc-chip.doc-skill .doc-kind { background: var(--panel-active); color: var(--blue); }
+
+.doc-viewer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 7vh;
+  background: rgba(8, 9, 7, 0.55);
+  backdrop-filter: blur(3px);
+  animation: spotlight-fade 120ms ease-out;
+}
+.doc-viewer {
+  width: 860px;
+  max-width: 94vw;
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  animation: spotlight-rise 120ms ease-out;
+}
+.doc-viewer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.doc-viewer-title { display: flex; flex-direction: column; gap: 2px; font: 13px var(--mono); color: var(--text); overflow: hidden; }
+.doc-viewer-title small { color: var(--dim); font: 10px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-viewer-head button {
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--dim);
+  font: 10px var(--mono);
+  padding: 3px 7px;
+  cursor: pointer;
+  flex: none;
+}
+.doc-viewer-head button:hover { color: var(--text); border-color: var(--text); }
+.doc-viewer-body { overflow: auto; padding: 8px 26px 26px; }
+.doc-viewer-status { padding: 24px; color: var(--dim); font: 12px var(--mono); }
+.doc-viewer-status.error { color: var(--red, #d97070); }
+.doc-frontmatter {
+  margin: 12px 0 4px;
+  padding: 12px 15px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.doc-fm-head { display: flex; align-items: baseline; gap: 9px; }
+.doc-fm-head strong { font: 13px var(--mono); color: var(--text); }
+.doc-fm-version { font: 10px var(--mono); color: var(--accent); }
+.doc-fm-desc { margin: 7px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.55; }
+.doc-fm-desc code { font: 11.5px var(--mono); background: var(--panel-active); padding: 0.1em 0.35em; border-radius: 4px; }
+
+/* Rendered Markdown. Sanitized (DOMPurify) before insertion, so this styles trusted shapes only. */
+.markdown-body { color: var(--text); font-size: 14px; line-height: 1.65; word-wrap: break-word; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 { line-height: 1.25; margin: 1.4em 0 0.5em; font-weight: 600; }
+.markdown-body h1 { font-size: 1.7em; padding-bottom: 0.3em; border-bottom: 1px solid var(--line); }
+.markdown-body h2 { font-size: 1.35em; padding-bottom: 0.25em; border-bottom: 1px solid var(--line); }
+.markdown-body h3 { font-size: 1.15em; }
+.markdown-body h1:first-child, .markdown-body h2:first-child { margin-top: 0.2em; }
+.markdown-body p, .markdown-body ul, .markdown-body ol, .markdown-body blockquote { margin: 0.7em 0; }
+.markdown-body a { color: var(--blue); text-decoration: none; }
+.markdown-body a:hover { text-decoration: underline; }
+.markdown-body ul, .markdown-body ol { padding-left: 1.7em; }
+.markdown-body li + li { margin-top: 0.25em; }
+.markdown-body code { font: 12.5px var(--mono); background: var(--panel-active); padding: 0.15em 0.4em; border-radius: 4px; }
+.markdown-body pre { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 13px 15px; overflow: auto; margin: 0.9em 0; }
+.markdown-body pre code { background: none; padding: 0; font-size: 12.5px; }
+.markdown-body blockquote { padding-left: 1em; border-left: 3px solid var(--line-strong); color: var(--muted); }
+.markdown-body table { border-collapse: collapse; margin: 0.9em 0; display: block; overflow: auto; }
+.markdown-body th, .markdown-body td { border: 1px solid var(--line); padding: 6px 11px; text-align: left; }
+.markdown-body th { background: var(--panel-active); font-weight: 600; }
+.markdown-body img { max-width: 100%; }
+.markdown-body hr { border: none; border-top: 1px solid var(--line); margin: 1.4em 0; }
+
 #taste-btn { width: auto !important; padding: 0 9px; }
 #taste-btn.active { color: var(--text); border-color: var(--accent, var(--line-strong)); background: var(--panel-active); }
 .taste-popover {

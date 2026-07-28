@@ -25,13 +25,29 @@ public sealed record BrowserPackageSurface(
     string ActiveFramework,
     BrowserAssemblySurface[] Assemblies,
     BrowserTypeSurface[] Types,
-    int TotalMembers);
+    int TotalMembers,
+    BrowserPackageDocument[] Documents);
 
 public sealed record BrowserAssemblySurface(
     string Name,
     string Asset,
     int PublicTypes,
     int PublicMembers);
+
+// A browsable Markdown document shipped inside the package: the root README/PACKAGE
+// or a skill file under a skills directory. The manifest carries presence + size only;
+// the body is fetched on demand through GetPackageDocument to keep the surface payload small.
+public sealed record BrowserPackageDocument(
+    string Kind,
+    string Name,
+    string Path,
+    int Size);
+
+public sealed record BrowserPackageDocumentContent(
+    string Kind,
+    string Name,
+    string Path,
+    string Text);
 
 public sealed record BrowserTypeSurface(
     string Id,
@@ -309,6 +325,7 @@ public sealed record BrowserPerfMember(
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(BrowserPackageSurface))]
+[JsonSerializable(typeof(BrowserPackageDocumentContent))]
 [JsonSerializable(typeof(BrowserMemberSource))]
 [JsonSerializable(typeof(BrowserCallGraph))]
 [JsonSerializable(typeof(BrowserMemberDocumentation))]
@@ -448,9 +465,96 @@ public static partial class BrowserInspectionEngine
             selectedFramework,
             assemblies.ToArray(),
             identifiedTypes,
-            identifiedTypes.Where(type => type.Accessibility == "public").Sum(type => type.Members));
+            identifiedTypes.Where(type => type.Accessibility == "public").Sum(type => type.Members),
+            CollectPackageDocuments(archive).ToArray());
 
         return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageSurface);
+    }
+
+    // Enumerates the package's browsable Markdown: a root README.md/PACKAGE.md and any *.md
+    // under a "skills" directory (e.g. skills/&lt;name&gt;/SKILL.md). Presence + size only; the
+    // body is served on demand by GetPackageDocument, which validates against this same list so
+    // the client can never coax an arbitrary zip entry (assembly, signature) out of the package.
+    static List<BrowserPackageDocument> CollectPackageDocuments(ZipArchive archive)
+    {
+        var documents = new List<BrowserPackageDocument>();
+        foreach (var entry in archive.Entries)
+        {
+            var fullName = entry.FullName;
+            if (fullName.EndsWith('/'))
+                continue;
+            var segments = fullName.Split('/');
+            var fileName = segments[^1];
+            var isRoot = segments.Length == 1;
+
+            if (isRoot && fileName.Equals("README.md", StringComparison.OrdinalIgnoreCase))
+                documents.Add(new BrowserPackageDocument("readme", fileName, fullName, (int)entry.Length));
+            else if (isRoot && fileName.Equals("PACKAGE.md", StringComparison.OrdinalIgnoreCase))
+                documents.Add(new BrowserPackageDocument("package", fileName, fullName, (int)entry.Length));
+            else if (fileName.EndsWith(".md", StringComparison.OrdinalIgnoreCase) && IsUnderSkillsDirectory(segments))
+                documents.Add(new BrowserPackageDocument("skill", SkillDisplayName(segments), fullName, (int)entry.Length));
+        }
+
+        // Stable order: README, then PACKAGE, then skills alphabetically.
+        return documents
+            .OrderBy(document => document.Kind switch { "readme" => 0, "package" => 1, _ => 2 })
+            .ThenBy(document => document.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    static bool IsUnderSkillsDirectory(string[] segments)
+    {
+        // Any directory segment before the file name named "skills" (skills/, .github/skills/, …).
+        for (var i = 0; i < segments.Length - 1; i++)
+            if (segments[i].Equals("skills", StringComparison.OrdinalIgnoreCase))
+                return true;
+        return false;
+    }
+
+    static string SkillDisplayName(string[] segments)
+    {
+        // Prefer the skill's own folder name (skills/<name>/SKILL.md -> <name>); fall back to the
+        // file name for a flat skills/<file>.md layout.
+        for (var i = 0; i < segments.Length - 1; i++)
+        {
+            if (!segments[i].Equals("skills", StringComparison.OrdinalIgnoreCase))
+                continue;
+            return i + 2 < segments.Length ? segments[i + 1] : segments[^1];
+        }
+        return segments[^1];
+    }
+
+    /// <summary>
+    /// Returns the UTF-8 text of one package-shipped Markdown document, identified by its exact zip
+    /// entry path. The path must appear in <see cref="CollectPackageDocuments"/> for the package —
+    /// arbitrary entries are refused — so this never becomes a general file-extraction primitive.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> GetPackageDocument(string packageId, string version, string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        var normalizedId = packageId.ToLowerInvariant();
+        var resolvedVersion = await ResolvePackageVersionAsync(normalizedId, version);
+        var normalizedVersion = resolvedVersion.ToLowerInvariant();
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+        using var packageStream = new MemoryStream(packageBytes, writable: false);
+        using var archive = new ZipArchive(packageStream, ZipArchiveMode.Read);
+
+        var document = CollectPackageDocuments(archive)
+            .FirstOrDefault(candidate => string.Equals(candidate.Path, path, StringComparison.Ordinal))
+            ?? throw new InvalidOperationException(
+                $"'{path}' is not a browsable document in {packageId} {resolvedVersion}.");
+
+        var entry = archive.GetEntry(document.Path)
+            ?? throw new InvalidOperationException($"'{path}' was not found in the package.");
+        await using var entryStream = entry.Open();
+        using var reader = new StreamReader(entryStream, Encoding.UTF8);
+        var text = await reader.ReadToEndAsync();
+
+        var content = new BrowserPackageDocumentContent(document.Kind, document.Name, document.Path, text);
+        return JsonSerializer.Serialize(content, BrowserJsonContext.Default.BrowserPackageDocumentContent);
     }
 
     /// <summary>
@@ -1993,7 +2097,8 @@ public static partial class BrowserInspectionEngine
                     assemblyTypes.Sum(type => type.Members)),
             ],
             assemblyTypes,
-            assemblyTypes.Sum(type => type.Members));
+            assemblyTypes.Sum(type => type.Members),
+            []);
         return JsonSerializer.Serialize(result, BrowserJsonContext.Default.BrowserPackageSurface);
     }
 

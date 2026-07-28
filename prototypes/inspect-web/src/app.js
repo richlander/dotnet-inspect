@@ -1,6 +1,6 @@
 import { lenses, packageLenses, rootCommands } from "./data.js";
 import { loadPlatformIndex } from "/src/platform-index.js";
-import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectLoadRuntimePack, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageIntegrations, inspectPackageOpportunities, inspectPackagePerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
+import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectLoadRuntimePack, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageIntegrations, inspectPackageOpportunities, inspectPackagePerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
 
 function loadStoredTaste() {
   try {
@@ -99,6 +99,12 @@ const state = {
   graphSource: null,
   graphSourceLoading: false,
   graphSourceError: "",
+  docViewerOpen: false,
+  docViewer: null,
+  docViewerLoading: false,
+  docViewerError: "",
+  docViewerHtml: "",
+  docViewerMeta: null,
   graphSourceTitle: "",
   graphSourceRequest: null,
   styleOptions: null,
@@ -396,6 +402,7 @@ let pendingDeepLink = {
 
 const app = document.querySelector("#app");
 let mermaidModule;
+let markdownModule;
 let depGraphRenderSeq = 0;
 document.documentElement.dataset.theme = state.theme;
 
@@ -1041,6 +1048,7 @@ function render() {
       </section>
       ${state.spotlightOpen ? renderSpotlight() : ""}
       ${state.graphSourceOpen ? renderGraphSource() : ""}
+      ${state.docViewerOpen ? renderDocViewer() : ""}
       ${state.tasteOpen ? renderTastePopover() : ""}
     </div>`;
 
@@ -1844,6 +1852,24 @@ function renderPackageOverview() {
     .join("");
   const nsOverflow = nsCounts.size > 12 ? `<span class="ns-overflow">+${nsCounts.size - 12} more</span>` : "";
 
+  // Package-shipped Markdown: README/PACKAGE at the root and skill files under skills/.
+  // Presence comes from the surface manifest; the body is fetched on demand when opened.
+  const docKindLabel = { readme: "Readme", package: "Package", skill: "Skill" };
+  const docKindGlyph = { readme: "▤", package: "▤", skill: "◆" };
+  const documents = (pkg.documents || [])
+    .map(doc => `<button class="doc-chip doc-${escapeHtml(doc.kind)}" data-doc-path="${escapeHtml(doc.path)}" title="${escapeHtml(doc.path)} · ${doc.size.toLocaleString()} bytes">
+        <span class="doc-glyph">${docKindGlyph[doc.kind] || "▤"}</span>
+        <span class="doc-name">${escapeHtml(doc.name)}</span>
+        <span class="doc-kind">${docKindLabel[doc.kind] || doc.kind}</span>
+      </button>`)
+    .join("");
+  const documentsSection = (pkg.documents || []).length
+    ? `<section class="document-section">
+      <div class="section-title"><h2>Documentation</h2><span>${pkg.documents.length} file${pkg.documents.length === 1 ? "" : "s"} — click to read</span></div>
+      <div class="doc-chip-list">${documents}</div>
+    </section>`
+    : "";
+
   return `
     <section class="document-section">
       <div class="section-title"><h2>Target frameworks</h2><span>${pkg.frameworks.length} · active highlighted</span></div>
@@ -1856,7 +1882,7 @@ function renderPackageOverview() {
     <section class="document-section">
       <div class="section-title"><h2>Namespaces</h2><span>${nsCounts.size} — click to filter</span></div>
       <div class="type-chip-list">${namespaces}${nsOverflow}</div>
-    </section>`;
+    </section>${documentsSection}`;
 }
 
 function renderLens(item) {
@@ -2619,6 +2645,12 @@ function bindEvents() {
     if (event.target.id === "graph-source-backdrop") closeGraphSource();
   });
   document.querySelector("#graph-source-close")?.addEventListener("click", closeGraphSource);
+  document.querySelectorAll("[data-doc-path]").forEach(button =>
+    button.addEventListener("click", () => openPackageDocument(button.dataset.docPath)));
+  document.querySelector("#doc-viewer-backdrop")?.addEventListener("mousedown", event => {
+    if (event.target.id === "doc-viewer-backdrop") closeDocViewer();
+  });
+  document.querySelector("#doc-viewer-close")?.addEventListener("click", closeDocViewer);
   document.querySelector("#taste-btn")?.addEventListener("click", event => {
     event.stopPropagation();
     state.tasteOpen = !state.tasteOpen;
@@ -5100,6 +5132,124 @@ function closeGraphSource() {
   render();
 }
 
+// Lazily load marked + DOMPurify (mirrors the mermaid CDN-ESM pattern). marked renders GFM
+// (tables, fenced code); DOMPurify strips any embedded HTML/script so third-party package
+// Markdown can never inject active content into the app.
+async function markdownLibs() {
+  markdownModule ??= Promise.all([
+    import("https://cdn.jsdelivr.net/npm/marked@15.0.7/lib/marked.esm.js"),
+    import("https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.es.mjs")
+  ]);
+  const [{ marked }, { default: DOMPurify }] = await markdownModule;
+  return { marked, DOMPurify };
+}
+
+async function renderMarkdown(text) {
+  const { marked, DOMPurify } = await markdownLibs();
+  const html = marked.parse(String(text ?? ""), { gfm: true, breaks: false });
+  return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+}
+
+async function renderMarkdownInline(text) {
+  const { marked, DOMPurify } = await markdownLibs();
+  const html = marked.parseInline(String(text ?? ""), { gfm: true });
+  return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+}
+
+// Skill files carry a leading YAML frontmatter block (---\n…\n---). Rendered as Markdown it turns
+// into a mangled setext heading, so split it out: parse name/version/description (handling folded
+// >-/> and literal |/|- block scalars) and hand back the remaining body for normal rendering.
+function splitFrontmatter(text) {
+  const source = String(text ?? "");
+  const match = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(source);
+  if (!match) return { meta: null, body: source };
+  const meta = {};
+  const lines = match[1].split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const kv = /^([A-Za-z0-9_-]+):\s?(.*)$/.exec(lines[i]);
+    if (!kv) continue;
+    let value = kv[2];
+    if (value === ">" || value === ">-" || value === "|" || value === "|-") {
+      const folded = value.startsWith(">");
+      const buffer = [];
+      while (i + 1 < lines.length && (/^\s+\S/.test(lines[i + 1]) || lines[i + 1].trim() === "")) {
+        buffer.push(lines[++i].trim());
+      }
+      value = buffer.join(folded ? " " : "\n").trim();
+    }
+    meta[kv[1]] = value.trim();
+  }
+  return { meta, body: source.slice(match[0].length) };
+}
+
+async function openPackageDocument(path) {
+  const pkg = state.package;
+  const doc = (pkg?.documents || []).find(candidate => candidate.path === path);
+  if (!pkg || !doc) return;
+  state.docViewerOpen = true;
+  state.docViewer = doc;
+  state.docViewerHtml = "";
+  state.docViewerMeta = null;
+  state.docViewerError = "";
+  state.docViewerLoading = true;
+  render();
+  try {
+    const content = await inspectPackageDocument({ packageId: pkg.id, version: pkg.version, path });
+    const { meta, body } = splitFrontmatter(content.text);
+    state.docViewerHtml = await renderMarkdown(body);
+    state.docViewerMeta = meta && (meta.name || meta.description)
+      ? {
+          name: meta.name || doc.name,
+          version: meta.version || "",
+          descriptionHtml: meta.description ? await renderMarkdownInline(meta.description) : ""
+        }
+      : null;
+  } catch (error) {
+    state.docViewerError = String(error?.message || error);
+  } finally {
+    state.docViewerLoading = false;
+    render();
+  }
+}
+
+function closeDocViewer() {
+  state.docViewerOpen = false;
+  state.docViewer = null;
+  state.docViewerHtml = "";
+  state.docViewerMeta = null;
+  state.docViewerError = "";
+  state.docViewerLoading = false;
+  render();
+}
+
+function renderDocViewer() {
+  const doc = state.docViewer;
+  const title = doc ? `${doc.name}` : "Document";
+  const subtitle = doc ? doc.path : "";
+  const meta = state.docViewerMeta;
+  const metaCard = meta
+    ? `<div class="doc-frontmatter">
+        <div class="doc-fm-head"><strong>${escapeHtml(meta.name)}</strong>${meta.version ? `<span class="doc-fm-version">v${escapeHtml(meta.version)}</span>` : ""}</div>
+        ${meta.descriptionHtml ? `<p class="doc-fm-desc">${meta.descriptionHtml}</p>` : ""}
+      </div>`
+    : "";
+  const body = state.docViewerLoading
+    ? `<div class="doc-viewer-status">Loading ${escapeHtml(title)}…</div>`
+    : state.docViewerError
+      ? `<div class="doc-viewer-status error">${escapeHtml(state.docViewerError)}</div>`
+      : `${metaCard}<article class="markdown-body">${state.docViewerHtml}</article>`;
+  return `
+    <div class="doc-viewer-backdrop" id="doc-viewer-backdrop">
+      <div class="doc-viewer" role="dialog" aria-modal="true" aria-label="Package document">
+        <div class="doc-viewer-head">
+          <span class="doc-viewer-title">${escapeHtml(title)}<small>${escapeHtml(subtitle)}</small></span>
+          <button id="doc-viewer-close" type="button" aria-label="Close">esc</button>
+        </div>
+        <div class="doc-viewer-body">${body}</div>
+      </div>
+    </div>`;
+}
+
 const TASTE_TIERS = [
   ["Formatting", "Formatting"],
   ["Spelling", "Spelling (this.)"],
@@ -5283,7 +5433,8 @@ async function loadPackage(packageId, version, framework) {
       assemblies: result.assemblies ?? [],
       types,
       totalTypes: types.filter(type => accessBucket(type.accessibility) === "public").length,
-      totalMembers: result.totalMembers
+      totalMembers: result.totalMembers,
+      documents: result.documents ?? []
     };
     const existing = state.packages.findIndex(item =>
       item.id.toLowerCase() === packageModel.id.toLowerCase()
@@ -5376,6 +5527,7 @@ async function loadRuntimePack(framework) {
       types,
       totalTypes: types.length,
       totalMembers: result.totalMembers,
+      documents: result.documents ?? [],
       isRuntimePack: true
     };
     const at = state.packages.findIndex(item =>
@@ -5570,6 +5722,9 @@ document.addEventListener("keydown", event => {
   } else if (event.key === "Escape" && state.graphSourceOpen) {
     event.preventDefault();
     closeGraphSource();
+  } else if (event.key === "Escape" && state.docViewerOpen) {
+    event.preventDefault();
+    closeDocViewer();
   } else if (event.key === "Escape" && !typing && (navMode() === "member" || !state.atPackageRoot)) {
     event.preventDefault();
     drillOut();
