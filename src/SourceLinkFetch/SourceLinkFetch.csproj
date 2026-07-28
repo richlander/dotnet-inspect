@@ -9,7 +9,7 @@
 
   <PropertyGroup>
     <Authors>Richard Lander</Authors>
-    <Description>Extract and verify SourceLink metadata from .NET assemblies</Description>
+    <Description>Extract SourceLink metadata from .NET assemblies</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
   </PropertyGroup>
 
