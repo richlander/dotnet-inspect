@@ -432,22 +432,30 @@ test in the same change that crosses the bootstrap. Tracked as #3362.
   and asserts what it says for each gate-flag combination — a gate combined with
   an earlier mode, a gate combined with `--help`, each modifier without its
   gate, the contradictory pair, a mode that preempts nothing, and the scheduled
-  lane's own flags.
+  lane's own flags. It also runs the binary far enough to observe that
+  `--integrity-only` and `--ratchet-baseline` were *forwarded*, and that each of
+  the seventeen preceding modes refuses rather than replacing a requested gate.
 
-  These exist because six review rounds found six instances of one defect: a
+  These exist because eight review rounds found eight instances of one defect: a
   term of the gate rule stranded in `Program.cs`, which owns an entry point and
   so cannot be linked into a test project. Each round moved one more term into
   `AuthoredCorpusExitContract`, and the next round found the next one — a
-  forwarded argument, an array literal, a tuple's boolean. Every time, the
-  contract function was thoroughly tested, the suite was green, and the binary
-  exited 0 having measured nothing.
+  forwarded argument, an array literal, a tuple's boolean, an argument at the
+  dispatch call. Every time, the contract function was thoroughly tested, the
+  suite was green, and the binary exited 0 having measured nothing.
 
   Pinning the call site's source text was tried and was worse than useless: a
   behavior-preserving comment failed it, while a commented-out decoy above the
   real call satisfied it. Running the binary leaves no seam to strand a rule
-  behind. The test project takes a `ReferenceOutputAssembly="false"` reference
-  on the harness so the binary is rebuilt with the tests, and a missing binary
-  fails rather than skips.
+  behind — but only as far as the binary actually gets. The first version of
+  these tests pointed every run at a missing corpus, so the process returned at
+  "corpus file not found" before reading the arguments the tests were named for,
+  and dropping either one left the suite green. Reaching past that guard is the
+  point.
+
+  The test project takes a `ReferenceOutputAssembly="false"` reference on the
+  harness so the binary is rebuilt with the tests, and a missing binary fails
+  rather than skips.
 - **Weekly**: the `authored-corpus-ratchet` lane in `deep-inspect.yml` restores
   the vendored corpus, prepares the EVIL pool, and runs the benchmark. It is a
   *periodic* job — the corpus and the 100-package sweep are far too expensive for
