@@ -233,6 +233,13 @@ public class MetadataRowReferenceRendererTests
         Assert.Contains("Assembly", markdown);
         Assert.DoesNotContain("not modelled", markdown);
         Assert.Contains("not searched in full", markdown);
+
+        // A table lands in UnscannedTables for three reasons, and only two of
+        // them leave a whole row unread — the third stops between columns of an
+        // already-read final row. Claiming an unread row would be false there,
+        // so the caveat is worded around an unexamined cell instead.
+        Assert.Contains("cell the scan never examined", markdown);
+        Assert.DoesNotContain("row the scan never read", markdown);
     }
 
     [Fact]

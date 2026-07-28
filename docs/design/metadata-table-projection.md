@@ -450,14 +450,43 @@ oversights:
   blind spot that under-reports is the whole failure this exists to prevent.
   Entering a table is deliberately not enough: a loop that stops part-way leaves
   rows unread, and an edge onto the target could sit in any of them. That also
-  makes the budget interaction fall out for free — a scan the budget stops
-  leaves both the table it stopped inside and every table after it unsearched,
-  and all of them are reported. Note that reaching the end of the row loop is
-  *also* not enough, because the budget is checked inside the **column** loop:
-  truncation on a table's final row leaves that row entered and abandoned
-  part-way through its columns while the row counter still passes the row count,
-  so a completed scan and a scan stopped on the last row are indistinguishable
-  from the counter alone. `Truncated` is what separates them.
+  makes the budget interaction mostly fall out for free — a scan the budget
+  stops leaves every table after it unsearched, and all of them are reported.
+
+  Reaching the end of the row loop is *also* not enough, because the budget is
+  checked inside the **column** loop: truncation on a table's final row leaves
+  that row entered and abandoned part-way through its columns while the row
+  counter still passes the row count, so the counter alone cannot tell a
+  completed scan from one stopped on the last row.
+
+  `Truncated` is too blunt to separate them, though, because of the boundary
+  case: if the budget trips on the **last column of the last row**, every cell
+  the table has was examined and the table genuinely was searched in full, even
+  though the scan ended inside it. Reporting it unscanned there would be a false
+  blind spot — it would tell the reader an unexamined cell could hide an edge
+  when no cell went unexamined. So the scan tracks the precise fact instead:
+  whether anything in this table was left unlooked-at, which is the columns
+  after the stop on that row, or any row after it.
+
+  That also keeps the malformed-cell blind spot sound. A stop before the last
+  column leaves the remaining columns unchecked for malformed edges, so the row
+  might belong in `UnreadableRows` without the scan knowing — but that is
+  exactly the case where the table is reported unscanned, so the gap is still
+  disclosed. When the stop is on the last column, every column was checked and
+  the row's status is fully determined.
+- **`UnscannedTables` covers unexamined cells, not just unread rows.** A table
+  lands there for three different reasons — never entered, entered and stopped
+  between rows, or entered and stopped between columns of its final row — and
+  only the first two leave a whole row unread. The caveat is therefore worded
+  around a cell the scan never examined, which is true of all three.
+- **A table with an unreadable row is not an `UnscannedTables` entry.** The two
+  blind spots partition the space rather than overlapping: `UnreadableRows` is
+  for rows the scan **read but could not decode**, `UnscannedTables` for cells it
+  **never examined**. A row whose read threw, or whose edge column decoded as
+  `Malformed`, is named individually in `UnreadableRows` and forces `IsComplete`
+  false, which is strictly more precise than implicating its whole table. Folding
+  it into `UnscannedTables` would also print a false statement, since every row
+  of that table was in fact read.
 - **Signature blobs are not searched, and that limit is not detectable.** The
   scan matches `Handle` and `HandleRange` columns. A `TypeDefOrRef` coded token
   spelled inside a signature blob lives in a `Heap` column, which is correctly

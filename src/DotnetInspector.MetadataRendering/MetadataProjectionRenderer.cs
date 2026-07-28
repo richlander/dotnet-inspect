@@ -220,7 +220,13 @@ public static class MetadataProjectionRenderer
             // false claim about the other. "in full" is load-bearing for the same
             // reason: the budget can stop part-way through a table, so claiming
             // none of its rows was read would be false.
-            yield return $"{count} populated {(count == 1 ? "table was" : "tables were")} not searched in full, so an edge in a row the scan never read would have been missed: {names}.";
+            // "Cell" rather than "row" deliberately. A table lands here for
+            // three different reasons — never entered, entered and stopped
+            // between rows, or entered and stopped between columns of its final
+            // row — and only the first two leave a row unread. The third leaves
+            // every row read but some cells unexamined, so "a row the scan never
+            // read" would be false there.
+            yield return $"{count} populated {(count == 1 ? "table was" : "tables were")} not searched in full, so an edge in a cell the scan never examined would have been missed: {names}.";
         }
 
         // Unconditional, unlike the four above, because no per-query signal can

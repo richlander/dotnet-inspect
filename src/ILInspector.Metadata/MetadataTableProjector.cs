@@ -318,6 +318,16 @@ public static class MetadataTableProjector
                         // last row leaves nothing unexamined, so the table was
                         // genuinely searched in full even though the scan ended
                         // inside it.
+                        //
+                        // This also covers `blind` going under-determined. A
+                        // break before the last column leaves the remaining
+                        // columns unchecked for Malformed edges, so this row
+                        // might belong in unreadable without our knowing — but
+                        // that break is exactly the case where the flag is true,
+                        // so the table is disclosed as unscanned instead. When
+                        // the break is on the last column, every column was
+                        // checked and `blind` is fully determined. Either way
+                        // the gap is reported.
                         abandonedMidTable = column + 1 < cells.Length || rid < rowCount;
                         break;
                     }
