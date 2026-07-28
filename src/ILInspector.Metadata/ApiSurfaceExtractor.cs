@@ -527,7 +527,7 @@ public static class ApiSurfaceExtractor
                     Name = reader.GetString(evt.Name),
                     Kind = "event",
                     ReturnType = eventType,
-                    Signature = $"{eventType} {reader.GetString(evt.Name)}",
+                    Signature = $"{eventType} {SanitizeIdentifier(reader.GetString(evt.Name))}",
                     SignatureModel = new ApiSignature
                     {
                         ReturnType = eventType,

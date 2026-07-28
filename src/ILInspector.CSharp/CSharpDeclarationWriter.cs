@@ -1251,9 +1251,10 @@ internal static class CSharpDeclarationWriter
         if (nameIndex < 0)
             return signature;
 
-        string escaped = memberName.Contains('.', StringComparison.Ordinal)
-            ? EscapeQualifiedName(memberName)
-            : EscapeIdentifier(memberName);
+        // Containment, not just keyword escaping: this name is untrusted metadata
+        // and the result is rendered into a signature cell. A qualified name keeps
+        // its dots, so each segment is contained on its own (issue #3319).
+        string escaped = ContainMemberName(memberName);
         return escaped == memberName
             ? signature
             : string.Concat(signature.AsSpan(0, nameIndex), escaped, signature.AsSpan(nameIndex + memberName.Length));
@@ -1406,6 +1407,22 @@ internal static class CSharpDeclarationWriter
 
     static string EscapeQualifiedName(string name)
         => string.Join(".", name.Split('.').Select(part => string.Join("+", part.Split('+').Select(EscapeIdentifier))));
+
+    /// <summary>
+    /// <see cref="EscapeQualifiedName"/> with each segment contained rather than
+    /// only keyword-escaped, for a name that came from untrusted metadata.
+    /// </summary>
+    static string ContainQualifiedName(string name)
+        => string.Join(".", name.Split('.').Select(part => string.Join("+", part.Split('+').Select(SanitizeIdentifier))));
+
+    /// <summary>
+    /// Contains a member name that is about to be rendered into a declaration,
+    /// keeping the dots of a qualified (explicit interface) name intact.
+    /// </summary>
+    static string ContainMemberName(string name)
+        => name.Contains('.', StringComparison.Ordinal)
+            ? ContainQualifiedName(name)
+            : SanitizeIdentifier(name);
 
     public static string EscapeIdentifier(string name)
         => CSharpKeywords.RequiresDeclarationEscape(name) ? "@" + name : name;
