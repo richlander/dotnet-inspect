@@ -1565,6 +1565,38 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
+    /// A fabricated baseline that matches the run's identity and methodology exactly,
+    /// and omits only <c>invalidBreakdown</c>, is refused.
+    ///
+    /// <para>Round seven reported this as a live bypass: the claim was that
+    /// <c>StatesEveryMetric</c> checks the metric only on the <em>current</em> side, so a
+    /// baseline missing it would be accepted whenever the run has it, and
+    /// <c>productBodyDefect</c> would silently drop out of <c>Build</c> leaving a clean
+    /// three-metric <c>RATCHET OK</c>. The reported code did not match the source — the
+    /// rule is a disjunction over both rows — but the scenario is worth holding by name
+    /// rather than by argument, because it is the shape that has already worked twice
+    /// here from two different directions.</para>
+    /// </summary>
+    [Fact]
+    public void Ratchet_ABaselineMatchingIdentityAndMethodologyCannotOmitTheProductMetric()
+    {
+        var comparison = AuthoredCorpusRatchet.Compare(
+            Key(),
+            Metrics(methodology: 2),
+            [Row(productBodyDefect: null, methodology: 2)]);
+
+        Assert.True(comparison.Skipped);
+        Assert.Contains("invalidBreakdown", comparison.SkipReason!, StringComparison.Ordinal);
+
+        // And the run does state it, so the omission is the baseline's alone — which is
+        // precisely the asymmetry the report claimed went unchecked.
+        Assert.Equal(
+            ["valid", "correct", "invalid", "productBodyDefect"],
+            AuthoredCorpusRatchet.Compare(Key(), Metrics(methodology: 2), [Row(methodology: 2)])
+                .Metrics.Select(metric => metric.Name));
+    }
+
+    /// <summary>
     /// The exact bypass a reviewer built against the gate above, and the reason the
     /// ratchet refuses untrustworthy rows outright rather than only ratcheting quality.
     ///
