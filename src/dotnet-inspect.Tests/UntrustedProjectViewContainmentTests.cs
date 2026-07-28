@@ -135,17 +135,6 @@ public class UntrustedProjectViewContainmentTests : IDisposable
                 $"'{marker}' never rendered, so this gate proves nothing about its channel");
         }
 
-        for (int i = 0; i < output.Length; i++)
-        {
-            char c = output[i];
-            if (c is not '\t' and not '\n' and not '\r'
-                && (char.IsControl(c)
-                    || c is '\u061C' or '\u200E' or '\u200F' or '\u2028' or '\u2029'
-                        or >= '\u202A' and <= '\u202E'
-                        or >= '\u2066' and <= '\u2069'))
-            {
-                Assert.Fail($"rendered project output carries U+{(int)c:X4} at index {i}");
-            }
-        }
+        HostileOutputAssert.NoRenderingHazard(output, "UntrustedProjectViewContainmentTests");
     }
 }

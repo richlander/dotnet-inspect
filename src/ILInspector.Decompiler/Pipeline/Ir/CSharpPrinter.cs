@@ -5329,7 +5329,7 @@ public sealed partial class CSharpPrinter
         // into a literal they survive into the rendered code fence and reorder
         // the displayed source without changing what it compiles to -- Trojan
         // Source (issue #3319). The \u escape is the same C# string.
-        _ when CSharpIdentifier.IsRenderingHazard(c) => $"\\u{(int)c:x4}",
+        _ when CSharpIdentifier.RequiresLiteralEscape(c) => $"\\u{(int)c:x4}",
         // A lone surrogate code unit has no valid UTF-8/UTF-16 text form: emitted
         // raw it cannot survive an encode (writers substitute U+FFFD, corrupting
         // the literal \u2014 char.IsHighSurrogate's own bounds rendered as two

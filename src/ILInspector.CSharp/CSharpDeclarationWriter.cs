@@ -1207,13 +1207,13 @@ internal static class CSharpDeclarationWriter
             .Replace("\n", "\\n", StringComparison.Ordinal)
             .Replace("\t", "\\t", StringComparison.Ordinal);
 
-        if (!escaped.Any(CSharpIdentifier.IsRenderingHazard))
+        if (!escaped.Any(CSharpIdentifier.RequiresLiteralEscape))
             return escaped;
 
         var builder = new StringBuilder(escaped.Length);
         foreach (var ch in escaped)
         {
-            if (CSharpIdentifier.IsRenderingHazard(ch))
+            if (CSharpIdentifier.RequiresLiteralEscape(ch))
                 builder.Append($"\\u{(int)ch:X4}");
             else
                 builder.Append(ch);

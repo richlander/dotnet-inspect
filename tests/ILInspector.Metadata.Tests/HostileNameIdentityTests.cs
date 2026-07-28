@@ -185,4 +185,35 @@ public sealed class HostileNameIdentityTests
             failures.Count == 0,
             $"containment respells these characters but identity is not persisted for them: {string.Join(", ", failures)}");
     }
+
+    /// <summary>
+    /// Two <c>&lt;param name&gt;</c> values that differ only by a character
+    /// containment would fold must remain two distinct entries.
+    /// </summary>
+    /// <remarks>
+    /// This is the identity rule stated for a dictionary key. Containing the key
+    /// collapsed distinct parameter names into one, and the resulting duplicate
+    /// key threw out of <c>ToDictionary</c> — so a package that shipped such an
+    /// XML doc file ended the whole inspection with an error rather than
+    /// producing output. Containment protects rendering; it must never decide
+    /// what two things are.
+    /// </remarks>
+    [Fact]
+    public void DocParameters_DifferingOnlyByAFoldedCharacter_StayDistinct()
+    {
+        var doc = new DocComment
+        {
+            Parameters = new Dictionary<string, string>
+            {
+                ["a\u2028b"] = "first",
+                ["a b"] = "second",
+                ["c\u202Ed"] = "third",
+            },
+        };
+
+        Assert.Equal(3, doc.Parameters!.Count);
+        Assert.Equal("first", doc.Parameters["a\u2028b"]);
+        Assert.Equal("second", doc.Parameters["a b"]);
+        Assert.Equal("third", doc.Parameters["c\u202Ed"]);
+    }
 }

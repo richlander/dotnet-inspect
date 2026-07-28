@@ -227,8 +227,9 @@ public class InspectionResultView
     public int TargetFrameworkCount => _data.TargetFrameworks?.Count ?? 0;
 
     [MarkoutPropertyName("Highest TFM")]
+    /// <inheritdoc cref="PackageViewText"/>
     public string? HighestTfm => _data.TargetFrameworks is { Count: > 0 }
-        ? TfmSelector.SelectHighestTfm(_data.TargetFrameworks)
+        ? PackageViewText.Contain(TfmSelector.SelectHighestTfm(_data.TargetFrameworks))
         : null;
 
     [MarkoutJoin(", ")]
@@ -440,16 +441,27 @@ public class SigningSection
     public string? Status { get; init; }
 }
 
+/// <inheritdoc cref="PackageViewText"/>
 [MarkoutSerializable]
 public record ManifestRow(
     string Kind,
     string Name,
     string Value,
-    string? Available);
+    string? Available)
+{
+    public string Kind { get; init; } = PackageViewText.Contain(Kind);
+    public string Name { get; init; } = PackageViewText.Contain(Name);
+    public string Value { get; init; } = PackageViewText.Contain(Value);
+    public string? Available { get; init; } = PackageViewText.Contain(Available);
+}
 
+/// <inheritdoc cref="PackageViewText"/>
 [MarkoutSerializable]
-public record TargetFrameworkRow(
-    [property: MarkoutPropertyName("TFM")] string Tfm);
+public record TargetFrameworkRow(string Tfm)
+{
+    [MarkoutPropertyName("TFM")]
+    public string Tfm { get; init; } = PackageViewText.Contain(Tfm);
+}
 
 /// <summary>
 /// Containment for text rendered by the package views.

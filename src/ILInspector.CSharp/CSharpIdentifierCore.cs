@@ -108,6 +108,25 @@ internal static class CSharpIdentifierCore
         => ContainsLineTerminator(name) || name.Any(IsRenderingHazard);
 
     /// <summary>
+    /// Whether a character must not appear raw inside a rendered C# literal.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="IsRenderingHazard"/> is the wrong question for a literal on its
+    /// own. It is the predicate for an *identifier*, where the line separators
+    /// U+2028 and U+2029 are already covered by
+    /// <see cref="ContainsLineTerminator"/>; a literal escaper has no such
+    /// companion, so relying on the hazard set alone let those two through. They
+    /// end a line in rendered Markdown and are not legal raw in a C# literal
+    /// either, so a fence containing one shows text on a line the tool did not
+    /// write and does not compile back.
+    ///
+    /// Every literal escaper shares this predicate rather than restating the set,
+    /// because three of the five restated it and three of the five were wrong.
+    /// </remarks>
+    public static bool RequiresLiteralEscape(char ch)
+        => IsRenderingHazard(ch) || ch is '\u2028' or '\u2029';
+
+    /// <summary>
     /// The line terminators <c>ReplaceLineEndings</c> recognizes — the set that can
     /// end a line in rendered output, and so the set that must never survive inside
     /// a name.

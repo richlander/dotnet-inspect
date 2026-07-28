@@ -143,16 +143,7 @@ public class UntrustedLibraryViewContainmentTests : IDisposable
 
     private static void AssertNoHazard(string output)
     {
-        for (int i = 0; i < output.Length; i++)
-        {
-            char c = output[i];
-            if (IsHazard(c))
-            {
-                Assert.Fail(
-                    $"rendered library output carries U+{(int)c:X4} at index {i}: "
-                    + output.Substring(Math.Max(0, i - 60), Math.Min(120, output.Length - Math.Max(0, i - 60))));
-            }
-        }
+        HostileOutputAssert.NoRenderingHazard(output, "UntrustedLibraryViewContainmentTests");
     }
 
     /// <summary>
@@ -162,12 +153,7 @@ public class UntrustedLibraryViewContainmentTests : IDisposable
     /// return are legitimate structure in rendered Markdown, so only the
     /// remaining controls and the bidi set are hazards here.
     /// </summary>
-    private static bool IsHazard(char c)
-        => c is not '\t' and not '\n' and not '\r'
-            && (char.IsControl(c)
-                || c is '\u061C' or '\u200E' or '\u200F'
-                    or >= '\u202A' and <= '\u202E'
-                    or >= '\u2066' and <= '\u2069');
+    private static bool IsHazard(char c) => HostileOutputAssert.IsForbidden(c);
 
     private static void WriteHostileLibrary(string path)
     {
@@ -306,26 +292,14 @@ public class UntrustedTypeSpellingContainmentTests : IDisposable
 
     private static void AssertNoHazard(string output)
     {
-        for (int i = 0; i < output.Length; i++)
-        {
-            char c = output[i];
-            if (IsHazard(c))
-            {
-                Assert.Fail($"rendered output carries U+{(int)c:X4} at index {i}");
-            }
-        }
+        HostileOutputAssert.NoRenderingHazard(output, "UntrustedLibraryViewContainmentTests");
     }
 
     /// <summary>
     /// Spelled out rather than calling the product's own hazard predicate, so a
     /// wrong answer from the product cannot make this gate agree with it.
     /// </summary>
-    private static bool IsHazard(char c)
-        => c is not '\t' and not '\n' and not '\r'
-            && (char.IsControl(c)
-                || c is '\u061C' or '\u200E' or '\u200F'
-                    or >= '\u202A' and <= '\u202E'
-                    or >= '\u2066' and <= '\u2069');
+    private static bool IsHazard(char c) => HostileOutputAssert.IsForbidden(c);
 
     private static void WriteHostileAssembly(string path)
     {
@@ -424,18 +398,7 @@ public class UntrustedILOffsetContainmentTests
             Assert.Contains(marker, output, StringComparison.Ordinal);
         }
 
-        for (int i = 0; i < output.Length; i++)
-        {
-            char c = output[i];
-            if (c is not '\t' and not '\n' and not '\r'
-                && (char.IsControl(c)
-                    || c is '\u061C' or '\u200E' or '\u200F'
-                        or >= '\u202A' and <= '\u202E'
-                        or >= '\u2066' and <= '\u2069'))
-            {
-                Assert.Fail($"rendered il-offset output carries U+{(int)c:X4} at index {i}");
-            }
-        }
+        HostileOutputAssert.NoRenderingHazard(output, "UntrustedLibraryViewContainmentTests");
 
         // Line integrity: the hazard must not have become a raw newline, which
         // the hazard scan above deliberately permits as Markdown structure.
@@ -552,18 +515,7 @@ public class UntrustedStringLiteralContainmentTests
     /// </summary>
     private static void AssertNoHazard(string output)
     {
-        for (int i = 0; i < output.Length; i++)
-        {
-            char c = output[i];
-            if (c is not '\t' and not '\n' and not '\r'
-                && (char.IsControl(c)
-                    || c is '\u061C' or '\u200E' or '\u200F'
-                        or >= '\u202A' and <= '\u202E'
-                        or >= '\u2066' and <= '\u2069'))
-            {
-                Assert.Fail($"rendered output carries U+{(int)c:X4} at index {i}");
-            }
-        }
+        HostileOutputAssert.NoRenderingHazard(output, "UntrustedLibraryViewContainmentTests");
     }
 
     /// <summary>
@@ -649,11 +601,15 @@ public class UntrustedPackageContainmentTests : IDisposable
             <?xml version="1.0" encoding="utf-8"?>
             <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
               <metadata>
-                <id>Hostile.Pkg</id>
+                <id>Pkg{Bidi}INJECTEDPKGID</id>
                 <version>1.0.0</version>
                 <authors>Auth{Bidi}INJECTEDAUTHOR</authors>
                 <description>Desc{Bidi}INJECTEDDESC here.</description>
-                <dependencies><group targetFramework="net8.0" /></dependencies>
+                <dependencies>
+                  <group targetFramework="net8.0">
+                    <dependency id="Dep{Bidi}INJECTEDDEPID" version="1.0.0" />
+                  </group>
+                </dependencies>
               </metadata>
             </package>
             """;
@@ -663,6 +619,8 @@ public class UntrustedPackageContainmentTests : IDisposable
 
         Write(archive, "Hostile.Pkg.nuspec", nuspec);
         Write(archive, "lib/net8.0/Good.dll", "MZ");
+        // The TFM is a folder name, so it is attacker-chosen too.
+        Write(archive, "lib/net9.0\u000BINJECTEDTFM/Good.dll", "MZ");
         // A ZIP entry name is not XML, so it can carry the vertical tab too.
         Write(archive, $"docs/Path{Bidi}INJECTEDPATH.md", "# doc");
         Write(archive, "docs/Vtab\u000BINJECTEDVPATH.md", "# doc");
@@ -691,14 +649,10 @@ public class UntrustedPackageContainmentTests : IDisposable
 
         // Per-channel non-vacuity. The description renders as a prose block and
         // the authors as a table cell; they take different containment paths.
-        foreach (var marker in new[] { "INJECTEDAUTHOR", "INJECTEDDESC" })
-        {
-            Assert.True(
-                output.Contains(marker, StringComparison.Ordinal),
-                $"'{marker}' never rendered, so this gate proves nothing about its channel");
-        }
+        HostileOutputAssert.MarkersRendered(
+            output, "package", "INJECTEDAUTHOR", "INJECTEDDESC", "INJECTEDPKGID");
 
-        AssertNoRenderingHazard(output, "package");
+        HostileOutputAssert.NoRenderingHazard(output, "package");
     }
 
     /// <summary>
@@ -726,22 +680,57 @@ public class UntrustedPackageContainmentTests : IDisposable
                 $"'{marker}' never rendered, so this gate proves nothing about its channel");
         }
 
-        AssertNoRenderingHazard(output, "package --layout");
+        HostileOutputAssert.NoRenderingHazard(output, "package --layout");
     }
 
-    private static void AssertNoRenderingHazard(string output, string channel)
+}
+
+/// <summary>
+/// Gate for the Symbols and Non-normalized Paths channels (issue #3319).
+/// </summary>
+/// <remarks>
+/// The CodeView and SourceLink records these render come out of the inspected
+/// binary, so the build path, repository URL, and publisher are chosen by
+/// whoever produced the assembly. A crafted path fabricated another list line,
+/// recolored the terminal, and reordered visible text.
+///
+/// This gates the section objects rather than an end-to-end run: synthesizing a
+/// PDB whose CodeView path carries these characters is not something the
+/// fixture builder can currently do. That is a real limit on this gate — it
+/// proves the containment is on the properties every producer assigns through,
+/// not that a hostile PDB on disk renders clean.
+/// </remarks>
+public class UntrustedSymbolsSectionContainmentTests
+{
+    [Fact]
+    public void SymbolsSection_WithHostilePaths_ContainsEveryRenderedField()
     {
-        for (int i = 0; i < output.Length; i++)
+        const string Hostile = "/a/\u000BINJVT\u001B[31m\nINJNL\u2028INJLS\u202EINJRLO.pdb";
+
+        var section = new SymbolsSection
         {
-            char c = output[i];
-            if (c is not '\t' and not '\n' and not '\r'
-                && (char.IsControl(c)
-                    || c is '\u061C' or '\u200E' or '\u200F' or '\u2028' or '\u2029'
-                        or >= '\u202A' and <= '\u202E'
-                        or >= '\u2066' and <= '\u2069'))
-            {
-                Assert.Fail($"rendered {channel} output carries U+{(int)c:X4} at index {i}");
-            }
+            PdbPath = Hostile,
+            PdbLocation = Hostile,
+            PdbFormat = Hostile,
+            Builder = Hostile,
+            Publisher = Hostile,
+            Repository = Hostile,
+            RepositoryUrl = Hostile,
+            Signature = Hostile,
+            SourceLink = Hostile,
+            SymbolServer = Hostile,
+        };
+
+        foreach (var text in new[]
+        {
+            section.PdbPath, section.PdbLocation, section.PdbFormat, section.Builder,
+            section.Publisher, section.Repository, section.RepositoryUrl,
+            section.Signature, section.SourceLink, section.SymbolServer,
+        })
+        {
+            Assert.NotNull(text);
+            HostileOutputAssert.MarkersRendered(text!, "Symbols", "INJVT", "INJNL", "INJLS", "INJRLO");
+            Assert.DoesNotContain(text!, c => c is '\n' or '\r' || HostileOutputAssert.IsForbidden(c));
         }
     }
 }

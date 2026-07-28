@@ -192,9 +192,13 @@ public class LibraryInspectionView
     [MarkoutIgnore]
     public bool HasNonNormalizedPaths => _data.NonNormalizedPaths is { Count: > 0 };
 
+    /// <inheritdoc cref="LibraryViewText"/>
     [MarkoutSection(Name = "Non-normalized Paths", ShowWhenProperty = nameof(HasNonNormalizedPaths))]
     public List<string>? NonNormalizedPathsSection =>
-        _data.NonNormalizedPaths?.OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
+        _data.NonNormalizedPaths?
+            .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+            .Select(p => LibraryViewText.Contain(p))
+            .ToList();
 
     [MarkoutIgnore]
     public bool HasPInvokeMethods => _data.PInvokeMethodCount > 0;
@@ -1664,23 +1668,33 @@ public record UnionTypeRow(
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]
 [MarkoutSkipNull]
+/// <summary>
+/// The Symbols section.
+/// </summary>
+/// <remarks>
+/// The CodeView and SourceLink records this reads sit inside the inspected
+/// binary, so the build path, repository URL, and publisher are whatever the
+/// assembly's author put there -- untrusted for the same reason a type name is
+/// (issue #3319). Containment is on the properties so every producer of this
+/// section inherits it.
+/// </remarks>
 public class SymbolsSection
 {
-    public string? Builder { get; init; }
+    public string? Builder { get => field; init => field = LibraryViewText.Contain(value); }
     [MarkoutPropertyName("PDB Format")]
-    public string PdbFormat { get; init; } = "Unknown";
+    public string PdbFormat { get => field; init => field = LibraryViewText.Contain(value); } = "Unknown";
     [MarkoutPropertyName("PDB Location")]
-    public string PdbLocation { get; init; } = "Unknown";
+    public string PdbLocation { get => field; init => field = LibraryViewText.Contain(value); } = "Unknown";
     [MarkoutPropertyName("PDB Path")]
-    public string? PdbPath { get; init; }
-    public string? Publisher { get; init; }
+    public string? PdbPath { get => field; init => field = LibraryViewText.Contain(value); }
+    public string? Publisher { get => field; init => field = LibraryViewText.Contain(value); }
     public string? Recommendation { get; init; }
-    public string? Repository { get; init; }
+    public string? Repository { get => field; init => field = LibraryViewText.Contain(value); }
     [MarkoutPropertyName("Repository URL")]
-    public string? RepositoryUrl { get; init; }
-    public string? Signature { get; init; }
-    public string? SourceLink { get; init; }
-    public string? SymbolServer { get; init; }
+    public string? RepositoryUrl { get => field; init => field = LibraryViewText.Contain(value); }
+    public string? Signature { get => field; init => field = LibraryViewText.Contain(value); }
+    public string? SourceLink { get => field; init => field = LibraryViewText.Contain(value); }
+    public string? SymbolServer { get => field; init => field = LibraryViewText.Contain(value); }
     public string? Warning { get; init; }
 }
 

@@ -34,13 +34,27 @@ public class DocComment
     /// <inheritdoc cref="DocText"/>
     public string? Remarks { get => field; set => field = DocText.Contain(value); }
 
+    /// <summary>
+    /// Parameter documentation, keyed by parameter name.
+    /// </summary>
+    /// <remarks>
+    /// The key is deliberately left raw. It is a parameter name used to look
+    /// documentation up, not display text, and it is never rendered — this
+    /// dictionary is <see cref="JsonIgnoreAttribute"/>d and its only consumers
+    /// merge it. Containing the key was containment applied to identity, which
+    /// is the one thing #3319 must not do: containment folds line endings, so
+    /// two distinct <c>&lt;param name&gt;</c> values in an attacker-supplied XML
+    /// doc file collapsed to one key and <c>ToDictionary</c> threw, ending the
+    /// inspection with an error instead of output. The value is contained
+    /// because it is prose that may reach output.
+    /// </remarks>
     [JsonIgnore]
     public Dictionary<string, string>? Parameters
     {
         get => field;
         set => field = value is null
             ? null
-            : value.ToDictionary(e => DocText.Contain(e.Key), e => DocText.Contain(e.Value));
+            : value.ToDictionary(e => e.Key, e => DocText.Contain(e.Value));
     }
 
     /// <inheritdoc cref="DocText"/>

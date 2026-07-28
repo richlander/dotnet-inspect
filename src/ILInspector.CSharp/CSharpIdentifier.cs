@@ -112,6 +112,9 @@ public static class CSharpIdentifier
     /// </remarks>
     public static bool IsRenderingHazard(char ch) => CSharpIdentifierCore.IsRenderingHazard(ch);
 
+    /// <inheritdoc cref="CSharpIdentifierCore.RequiresLiteralEscape"/>
+    public static bool RequiresLiteralEscape(char ch) => CSharpIdentifierCore.RequiresLiteralEscape(ch);
+
     /// <summary>
     /// Contains free text that is rendered but is not a C# identifier — an IL side
     /// comment, a composed member name (<c>.ctor</c>, <c>IFoo.Bar</c>), a taste

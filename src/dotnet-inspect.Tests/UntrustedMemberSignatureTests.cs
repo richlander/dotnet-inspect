@@ -126,14 +126,11 @@ public class UntrustedMemberSignatureTests
     /// </summary>
     static void AssertContained(string signature)
     {
+        // A signature is a single line, so unlike rendered Markdown it may not
+        // carry CR or LF either.
         Assert.DoesNotContain(
             signature,
-            c => c != '\t' && (char.IsControl(c) || IsBidiControl(c)));
-
-        static bool IsBidiControl(char ch)
-            => ch is '\u061C' or '\u200E' or '\u200F'
-                or >= '\u202A' and <= '\u202E'
-                or >= '\u2066' and <= '\u2069';
+            c => c is '\n' or '\r' || HostileOutputAssert.IsForbidden(c));
     }
 }
 
@@ -245,12 +242,7 @@ public class UntrustedViewContainmentTests
     /// <see cref="CSharpIdentifier.IsRenderingHazard"/>, so that a wrong answer
     /// from the product cannot make this gate agree with it.
     /// </summary>
-    static bool IsHazard(char c)
-        => c != '\t'
-            && (char.IsControl(c)
-                || c is '\u061C' or '\u200E' or '\u200F'
-                    or >= '\u202A' and <= '\u202E'
-                    or >= '\u2066' and <= '\u2069');
+    static bool IsHazard(char c) => c != '\n' && c != '\r' && HostileOutputAssert.IsForbidden(c);
 
     /// <summary>Every string reachable from a built view, however nested.</summary>
     static IEnumerable<string> Strings(object? node, HashSet<object> seen)
@@ -358,6 +350,6 @@ public class UntrustedDiffContainmentTests
         Assert.Contains("INJECTED", change.Message, StringComparison.Ordinal);
 
         foreach (string text in new[] { change.Message, change.OldValue!, change.NewValue! })
-            Assert.DoesNotContain(text, c => c != '\t' && char.IsControl(c));
+            Assert.DoesNotContain(text, c => c is '\n' or '\r' || HostileOutputAssert.IsForbidden(c));
     }
 }
