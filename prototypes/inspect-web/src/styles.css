@@ -650,6 +650,9 @@ kbd {
 .graph-viewport g.node.nav-node { cursor: pointer; }
 .graph-viewport g.node.nav-node:hover rect,
 .graph-viewport g.node.nav-node:hover polygon { stroke: var(--blue); stroke-width: 2px; }
+.graph-viewport g.node.non-nav { cursor: help; }
+.graph-viewport g.node.non-nav rect,
+.graph-viewport g.node.non-nav polygon { stroke-dasharray: 4 3; opacity: .85; }
 .graph-viewport > svg { position: absolute; top: 0; left: 0; transform-origin: 0 0; min-width: 0; max-width: none; height: auto; }
 .graph-controls { position: absolute; right: 14px; bottom: 14px; display: flex; flex-direction: column; gap: 6px; z-index: 2; }
 .graph-controls button { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--panel); color: var(--text); font: 15px var(--mono); line-height: 1; cursor: pointer; }
@@ -815,6 +818,8 @@ kbd {
 .type-chip-list { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 10px; border-top: 1px solid var(--line); }
 .type-chip-list .type-chip { font: 12px var(--mono); padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line-strong); color: var(--text); background: var(--panel); cursor: pointer; }
 .type-chip-list .type-chip:hover { border-color: var(--blue); color: var(--blue); }
+.type-chip-list .type-chip.is-static { border-style: dashed; border-color: var(--line); color: var(--dim); cursor: help; }
+.type-chip-list .type-chip.is-static:hover { border-color: var(--line); color: var(--dim); }
 .type-chip-list .attr-chip { font: 12px var(--mono); padding: 4px 8px; color: var(--dim); }
 .metadata-warning { padding: 14px 12px; border-top: 1px solid var(--line); background: color-mix(in srgb, #d97757 8%, var(--panel)); }
 .metadata-warning strong { display: block; color: #d97757; font-size: 13px; margin-bottom: 6px; }

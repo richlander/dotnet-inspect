@@ -2169,14 +2169,14 @@ function renderTypeMetadata(item) {
   const interfaces = (meta.interfaces || []).length
     ? `<section class="document-section">
         <div class="section-title"><h2>Implements</h2><span>${meta.interfaces.length} interface${meta.interfaces.length === 1 ? "" : "s"}</span></div>
-        <div class="type-chip-list">${meta.interfaces.map(name => `<button class="type-chip" data-graph-type="${escapeHtml(name)}" title="${escapeHtml(name)}">${escapeHtml(shortTypeName(name))}</button>`).join("")}</div>
+        <div class="type-chip-list">${meta.interfaces.map(name => relatedTypeChip(name)).join("")}</div>
       </section>`
     : "";
 
   const derived = (meta.derivedTypes || []).length
     ? `<section class="document-section">
         <div class="section-title"><h2>Known derived types</h2><span>${meta.derivedTypes.length} in ${escapeHtml(meta.assembly || item.assembly)}</span></div>
-        <div class="type-chip-list">${meta.derivedTypes.map(name => `<button class="type-chip" data-graph-type="${escapeHtml(name)}" title="${escapeHtml(name)}">${escapeHtml(shortTypeName(name))}</button>`).join("")}</div>
+        <div class="type-chip-list">${meta.derivedTypes.map(name => relatedTypeChip(name)).join("")}</div>
       </section>`
     : "";
 
@@ -2196,7 +2196,7 @@ function renderTypeMetadata(item) {
 
   const graph = (meta.graphNodes || []).length > 1
     ? `<section class="document-section call-graph-section">
-        <div class="section-title"><h2>Type relationships</h2><span>base · interfaces · derived — click a node to open</span></div>
+        <div class="section-title"><h2>Type relationships</h2><span>base · interfaces · derived — click a highlighted node to open</span></div>
         <div id="type-graph-diagram" class="call-graph-diagram"><span class="loader"></span><p>Rendering graph…</p></div>
       </section>`
     : "";
@@ -4031,10 +4031,19 @@ async function renderTypeGraph() {
       const fullName = fullNameOf.get(label);
       if (!fullName) return;
       const target = state.package.types.find(candidate => candidate.id === fullName);
-      if (!target) return;
-      node.classList.add("nav-node");
-      node.style.cursor = "pointer";
-      node.addEventListener("click", () => navigateToTypeByName(fullName));
+      if (target) {
+        node.classList.add("nav-node");
+        node.style.cursor = "pointer";
+        node.addEventListener("click", () => navigateToTypeByName(fullName));
+        return;
+      }
+      // Reported by metadata but not in the browsable surface (internal type or a
+      // type in another assembly). Mark it non-navigable with a native tooltip so
+      // the dead node reads as informational rather than broken.
+      node.classList.add("non-nav");
+      const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+      title.textContent = `${fullName} — not in the browsable public surface`;
+      node.insertBefore(title, node.firstChild);
     });
   } catch (error) {
     if (document.querySelector("#type-graph-diagram") === container) {
@@ -4051,6 +4060,23 @@ function navigateToTypeByName(fullName) {
   state.memberKindFilter = "all";
   state.typeCursor = filteredTypes().findIndex(candidate => candidate.id === target.id);
   render();
+}
+
+// A related type (interface / base / derived) is only openable if it is part of
+// the loaded public surface. Internal implementers and types in other assemblies
+// are reported by metadata but have no browsable page.
+function typeIsNavigable(fullName) {
+  return !!state.package && state.package.types.some(candidate => candidate.id === fullName);
+}
+
+// Render a related-type chip: an active button when it resolves to a browsable
+// public type, otherwise a static chip that explains why it can't be opened.
+function relatedTypeChip(name) {
+  const short = escapeHtml(shortTypeName(name));
+  if (typeIsNavigable(name)) {
+    return `<button class="type-chip" data-graph-type="${escapeHtml(name)}" title="${escapeHtml(name)}">${short}</button>`;
+  }
+  return `<span class="type-chip is-static" title="${escapeHtml(name)} — not in the browsable public surface (internal or in another assembly)">${short}</span>`;
 }
 
 // Projects the current package, its direct dependencies for the selected framework, and any
@@ -4501,7 +4527,10 @@ function attachGraphPanZoom(container, viewport, bindCallGraphNodes = false) {
   function fit() {
     const rect = viewport.getBoundingClientRect();
     if (!naturalWidth || !naturalHeight || !rect.width) return;
-    view.scale = clampScale(Math.min(rect.width / naturalWidth, rect.height / naturalHeight) * 0.92);
+    // Cap at 1:1 so a tiny graph (e.g. two nodes) renders at its natural size,
+    // centered, instead of being upscaled to fill the tall viewport.
+    const fitScale = Math.min(rect.width / naturalWidth, rect.height / naturalHeight) * 0.92;
+    view.scale = clampScale(Math.min(fitScale, 1));
     view.x = (rect.width - naturalWidth * view.scale) / 2;
     view.y = (rect.height - naturalHeight * view.scale) / 2;
     apply();
