@@ -3306,6 +3306,7 @@ function activateRuntimePack() {
 
 function pickSpotlightLoadedPackage(pkg) {
   const target = state.packages.find(item => item.id === pkg.id) || pkg;
+  state.home = false;
   state.package = target;
   state.atPackageRoot = true;
   state.selectedTypeId = null;
@@ -3322,6 +3323,7 @@ function pickSpotlightMember(result) {
   const pkg = state.packages.find(item => item.id === result.pkg.id) || result.pkg;
   const type = pkg?.types?.find(item => item.id === result.type.id);
   if (!type) { closeSpotlight(); return; }
+  state.home = false;
   state.package = pkg;
   state.atPackageRoot = false;
   state.selectedTypeId = type.id;
@@ -3347,6 +3349,7 @@ function pickSpotlight(pkgId, typeId) {
     closeSpotlight();
     return;
   }
+  state.home = false;
   state.package = pkg;
   state.atPackageRoot = false;
   state.selectedTypeId = type.id;
