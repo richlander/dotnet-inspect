@@ -341,7 +341,7 @@ static class Program
         // file cannot be linked into the test project, and an unreachable rule is one
         // nothing notices the deletion of — see JudgeGateFlags.
         var flags = AuthoredCorpusExitContract.JudgeGateFlags(
-            showHelp, benchmarkAuthoredCorpus || verifyAuthoredCorpus, ratchetBaselinePath is not null, integrityOnly);
+            showHelp, benchmarkAuthoredCorpus, verifyAuthoredCorpus, ratchetBaselinePath is not null, integrityOnly);
         switch (flags.Disposition)
         {
             case AuthoredCorpusExitContract.FlagDisposition.PrintUsage:

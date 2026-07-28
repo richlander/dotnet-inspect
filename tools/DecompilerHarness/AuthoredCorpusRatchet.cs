@@ -565,10 +565,16 @@ static class AuthoredCorpusExitContract
     internal static FlagVerdict JudgeGateFlags(
         bool showHelp,
         bool benchmarkAuthoredCorpus,
+        bool verifyAuthoredCorpus,
         bool ratchetBaselineSupplied,
         bool integrityOnly)
     {
-        bool anyGateFlag = benchmarkAuthoredCorpus || ratchetBaselineSupplied || integrityOnly;
+        // Both corpus gates are taken separately rather than pre-combined by the caller.
+        // Pre-combining put the `||` in Program.cs, which no test can reach: tampering it
+        // away left the whole suite green even though `--verify-authored-corpus --help`
+        // then exited 0 again. Every term of this rule has to live where a test can see
+        // it, or the rule is only as strong as the last person to read the call site.
+        bool anyGateFlag = benchmarkAuthoredCorpus || verifyAuthoredCorpus || ratchetBaselineSupplied || integrityOnly;
 
         if (showHelp && !anyGateFlag)
             return new FlagVerdict(FlagDisposition.PrintUsage, null);

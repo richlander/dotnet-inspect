@@ -1198,27 +1198,33 @@ public class AuthoredCorpusRatchetTests
     /// gate flag.</para>
     /// </summary>
     [Theory]
-    // benchmark, baseline, integrityOnly, help -> disposition
-    [InlineData(false, false, false, false, "Proceed")]
-    [InlineData(true, false, false, false, "Proceed")]
-    [InlineData(true, true, false, false, "Proceed")]
-    [InlineData(true, false, true, false, "Proceed")]
-    [InlineData(false, true, false, false, "Refuse")]
-    [InlineData(false, false, true, false, "Refuse")]
-    [InlineData(false, true, true, false, "Refuse")]
-    [InlineData(true, true, true, false, "Refuse")]
-    [InlineData(false, false, false, true, "PrintUsage")]
-    [InlineData(true, false, false, true, "Refuse")]
-    [InlineData(false, true, false, true, "Refuse")]
-    [InlineData(true, true, false, true, "Refuse")]
-    [InlineData(false, false, true, true, "Refuse")]
-    [InlineData(true, false, true, true, "Refuse")]
-    [InlineData(false, true, true, true, "Refuse")]
-    [InlineData(true, true, true, true, "Refuse")]
+    // benchmark, verify, baseline, integrityOnly, help -> disposition
+    [InlineData(false, false, false, false, false, "Proceed")]
+    [InlineData(true, false, false, false, false, "Proceed")]
+    [InlineData(false, true, false, false, false, "Proceed")]
+    [InlineData(true, false, true, false, false, "Proceed")]
+    [InlineData(true, false, false, true, false, "Proceed")]
+    [InlineData(false, true, false, true, false, "Refuse")]
+    [InlineData(false, false, true, false, false, "Refuse")]
+    [InlineData(false, false, false, true, false, "Refuse")]
+    [InlineData(false, true, true, false, false, "Refuse")]
+    [InlineData(false, false, true, true, false, "Refuse")]
+    [InlineData(true, false, true, true, false, "Refuse")]
+    [InlineData(false, false, false, false, true, "PrintUsage")]
+    [InlineData(true, false, false, false, true, "Refuse")]
+    [InlineData(false, true, false, false, true, "Refuse")]
+    [InlineData(true, true, false, false, true, "Refuse")]
+    [InlineData(false, false, true, false, true, "Refuse")]
+    [InlineData(true, false, true, false, true, "Refuse")]
+    [InlineData(false, false, false, true, true, "Refuse")]
+    [InlineData(true, false, false, true, true, "Refuse")]
+    [InlineData(false, true, false, true, true, "Refuse")]
+    [InlineData(false, false, true, true, true, "Refuse")]
+    [InlineData(true, true, true, true, true, "Refuse")]
     public void GateFlags_AreJudgedBeforeAnyModeDispatches(
-        bool benchmark, bool baseline, bool integrityOnly, bool help, string expected)
+        bool benchmark, bool verify, bool baseline, bool integrityOnly, bool help, string expected)
     {
-        var verdict = AuthoredCorpusExitContract.JudgeGateFlags(help, benchmark, baseline, integrityOnly);
+        var verdict = AuthoredCorpusExitContract.JudgeGateFlags(help, benchmark, verify, baseline, integrityOnly);
 
         Assert.Equal(expected, verdict.Disposition.ToString());
 
@@ -1230,6 +1236,38 @@ public class AuthoredCorpusRatchetTests
     }
 
     /// <summary>
+    /// Usage is printed for exactly one input: <c>--help</c> with no gate flag at all.
+    ///
+    /// <para>Enumerated exhaustively over all thirty-two combinations rather than
+    /// sampled, because the defect this guards has now appeared three times, each time
+    /// one flag over from the last fix — the two ratchet options, then
+    /// <c>--benchmark-authored-corpus</c>, then <c>--verify-authored-corpus</c>. Sampling
+    /// is what let it keep moving.</para>
+    /// </summary>
+    [Fact]
+    public void GateFlags_PrintUsageForExactlyOneCombination()
+    {
+        var printsUsage = new List<string>();
+
+        for (int bits = 0; bits < 32; bits++)
+        {
+            bool help = (bits & 1) != 0;
+            bool benchmark = (bits & 2) != 0;
+            bool verify = (bits & 4) != 0;
+            bool baseline = (bits & 8) != 0;
+            bool integrityOnly = (bits & 16) != 0;
+
+            var verdict = AuthoredCorpusExitContract.JudgeGateFlags(help, benchmark, verify, baseline, integrityOnly);
+            if (verdict.Disposition == AuthoredCorpusExitContract.FlagDisposition.PrintUsage)
+                printsUsage.Add($"help={help} benchmark={benchmark} verify={verify} baseline={baseline} integrityOnly={integrityOnly}");
+        }
+
+        Assert.Equal(
+            ["help=True benchmark=False verify=False baseline=False integrityOnly=False"],
+            printsUsage);
+    }
+
+    /// <summary>
     /// The one row above that carries the whole point: asking for the gate and for usage
     /// at once must not print usage. Named separately because it is the regression a
     /// reviewer actually found, and a named test says so in the failure output.
@@ -1237,10 +1275,17 @@ public class AuthoredCorpusRatchetTests
     [Fact]
     public void GateFlags_HelpDoesNotPreemptTheAuthoredCorpusGate()
     {
-        var verdict = AuthoredCorpusExitContract.JudgeGateFlags(
-            showHelp: true, benchmarkAuthoredCorpus: true, ratchetBaselineSupplied: false, integrityOnly: false);
+        foreach (var (benchmark, verify) in new[] { (true, false), (false, true) })
+        {
+            var verdict = AuthoredCorpusExitContract.JudgeGateFlags(
+                showHelp: true,
+                benchmarkAuthoredCorpus: benchmark,
+                verifyAuthoredCorpus: verify,
+                ratchetBaselineSupplied: false,
+                integrityOnly: false);
 
-        Assert.Equal(AuthoredCorpusExitContract.FlagDisposition.Refuse, verdict.Disposition);
+            Assert.Equal(AuthoredCorpusExitContract.FlagDisposition.Refuse, verdict.Disposition);
+        }
     }
 
     /// <summary>
