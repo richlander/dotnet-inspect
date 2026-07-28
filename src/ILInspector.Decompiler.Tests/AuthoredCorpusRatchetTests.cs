@@ -969,11 +969,63 @@ public class AuthoredCorpusRatchetTests
             : ["valid", "correct", "invalid"];
 
         // Today the store's baseline predates methodology stamping, so this takes the
-        // second branch and productBodyDefect is not yet ratcheted — a real gap, and a
-        // self-healing one: the next append compares against a stamped row. Nothing can
-        // re-open it, because TrackedHistory_NewestRowStatesTheMethodologyTheCodeProduces
-        // refuses an unstamped newest row.
+        // second branch and productBodyDefect is not yet ratcheted — a real gap. It
+        // closes on the append after next, not the next one: see
+        // TrackedHistory_RecordsNoRunIdentity_SoTheNextAppendCannotRatchet. Nothing can
+        // re-open it once closed, because
+        // TrackedHistory_NewestRowStatesTheMethodologyTheCodeProduces refuses an
+        // unstamped newest row.
         Assert.Equal(expected, comparison.Metrics.Select(metric => metric.Name));
+    }
+
+    /// <summary>
+    /// No row in the tracked store records run identity, so the next append — which
+    /// will come from a live run, and a live run always records both digests — is
+    /// <em>not</em> comparable to the row it lands on, and
+    /// <see cref="TrackedHistory_NewestRowDoesNotRegressAgainstItsBaseline"/> will fail
+    /// with a skip. That is the ratchet working, not breaking: it refuses to certify a
+    /// comparison it cannot make. But an appender deserves to learn it from a test that
+    /// names the remedy rather than from a red merge lane, so this pins the gap.
+    ///
+    /// <para><b>If this test fails, the store has crossed the bootstrap</b> — delete it
+    /// and delete this paragraph. Until then, the first identified append is expected to
+    /// be red, and the appender must land it together with a second identified run over
+    /// the same pool and corpus (the two together form the first ratchetable pair). The
+    /// historical rows cannot be back-filled: their pools and corpora were archived
+    /// out-of-tree and the artifacts are gone.</para>
+    ///
+    /// <para>The obvious cheaper fix — let a baseline that records no identity compare
+    /// against anything — is unsound and was rejected twice. <c>--ratchet-baseline</c>
+    /// reads a caller-supplied file, so that rule would let any baseline opt out of
+    /// identity and then compare clean against a run over a wholly different corpus.
+    /// <see cref="AuthoredCorpusRatchet.RunKey.IsComparableTo"/> therefore compares both
+    /// digests symmetrically, absence included.</para>
+    ///
+    /// <para>Tracked as #3362.</para>
+    /// </summary>
+    [Fact]
+    public void TrackedHistory_RecordsNoRunIdentity_SoTheNextAppendCannotRatchet()
+    {
+        var tracked = AuthoredCorpusHistoryCardTests.TrackedHistory();
+
+        Assert.All(tracked, row =>
+        {
+            Assert.Null(row.PoolSha256);
+            Assert.Null(row.CorpusSha256);
+        });
+
+        // And name the consequence, so this test fails if the bootstrap is crossed by
+        // some route that leaves the rows unidentified but the comparison sound.
+        var live = new AuthoredCorpusRatchet.RunKey(
+            Evaluated: tracked[^1].Evaluated,
+            PoolMatched: tracked[^1].PoolMatched,
+            PoolTotal: tracked[^1].PoolTotal,
+            PoolSha256: new string('a', 64),
+            CorpusSha256: new string('b', 64));
+
+        Assert.False(
+            live.IsComparableTo(AuthoredCorpusRatchet.RunKey.From(tracked[^1]), out string mismatch));
+        Assert.Contains("(none recorded)", mismatch, StringComparison.Ordinal);
     }
 
     /// <summary>
