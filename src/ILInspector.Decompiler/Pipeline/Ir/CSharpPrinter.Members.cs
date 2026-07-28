@@ -890,7 +890,61 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
-    /// A rectangular (multi-dimensional) array element/creation pseudo-member.
+    /// Renders an object/collection initializer as a wrapped Allman block — the
+    /// <c>new T(...)</c> head on the first line, <c>{</c> and <c>}</c> on their own
+    /// lines at the statement indent, and one <c>Member = value</c> / element entry
+    /// per line one continuation level deeper — when the initializer has at least
+    /// <see cref="FluentChainMinSegments"/> entries and its single-line form would
+    /// exceed <see cref="FluentChainWrapWidth"/>. Returns null (render inline)
+    /// otherwise. The wrapped form reuses the same head and entry texts the inline
+    /// <see cref="ObjectInitializerText"/> renders and carries no trailing comma, so
+    /// it is token-identical to the inline form: only whitespace differs and the IL
+    /// is unchanged. A defensive re-match against the inline text keeps the
+    /// statement inline if the reconstruction diverges rather than reshaping a token.
+    /// </summary>
+    string? ObjectInitializerLines(ObjectInitializerExpression initializer, string prefix, string suffix, int indent)
+    {
+        var entries = initializer.Entries;
+        if (entries.Count < FluentChainMinSegments)
+            return null;
+
+        string flat = ObjectInitializerText(initializer);
+        if (indent * 4 + prefix.Length + flat.Length + suffix.Length <= FluentChainWrapWidth)
+            return null;
+
+        var creation = initializer.Creation;
+        string arguments = creation.Arguments.Count == 0
+            ? string.Empty
+            : $"({Arguments(creation.Arguments, creation.Constructor.ParameterTypes, creation.Constructor.ParameterRefKinds)})";
+        string head = $"new {TypeText(creation.Constructor.DeclaringType)}{arguments}";
+
+        var entryTexts = entries
+            .Select(entry => InitializerEntryText(initializer.IsCollection, entry))
+            .ToList();
+
+        // The wrapped form must be a pure whitespace variant of the inline text.
+        // Reconstruct the inline body from the same head and entry texts and bail if
+        // it does not match exactly, so a renderer quirk keeps the statement inline
+        // rather than reshaping a token.
+        if ($"{head} {{ {string.Join(", ", entryTexts)} }}" != flat)
+            return null;
+
+        string pad = new(' ', indent * 4);
+        string continuation = pad + "    ";
+        var sb = new System.Text.StringBuilder();
+        sb.Append(pad).Append(prefix).Append(head);
+        sb.Append('\n').Append(pad).Append('{');
+        for (int i = 0; i < entryTexts.Count; i++)
+        {
+            sb.Append('\n').Append(continuation).Append(entryTexts[i]);
+            if (i < entryTexts.Count - 1)
+                sb.Append(',');
+        }
+        sb.Append('\n').Append(pad).Append('}');
+        sb.Append(suffix);
+        return sb.ToString();
+    }
+
     /// The CLR models <c>int[,]</c> element get/set/address and construction as
     /// calls to runtime-generated members named <c>Get</c>/<c>Set</c>/<c>Address</c>
     /// and a rank-shaped <c>.ctor</c> — none of which are spellable C#. The
