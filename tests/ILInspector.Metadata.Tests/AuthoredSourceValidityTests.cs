@@ -356,6 +356,126 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
+    /// The forward scan yields to a sibling accessor, and only to one. Asking whether any line
+    /// "opens a declaration" read a <c>static</c> local function — and any other statement
+    /// leading with a declaration modifier — as a sibling, and truncated the enclosing method
+    /// at it (adversarial review, Gemini). Only a property or event block can hold a sibling
+    /// accessor, so the question is asked only when the member being sliced is an accessor.
+    /// </summary>
+    [Theory]
+    [InlineData("static void L() { }")]
+    [InlineData("static int F() => 1;")]
+    [InlineData("async Task T() => await U();")]
+    [InlineData("var f = async () => await U();")]
+    [InlineData("int[] a = [1, 2, 3];")]
+    [InlineData("const int q = 1;")]
+    public void StatementsThatLeadWithADeclarationModifier_DoNotTruncateTheMember(string statement)
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public void M()",
+            "    {",
+            "        int x = 1;",
+            "        " + statement,
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 4, 5, "M");
+
+        Assert.NotNull(slice);
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.Contains(statement, slice);
+    }
+
+    /// <summary>
+    /// The other half: an accessor's slice must still stop at its sibling, including when the
+    /// sibling shares its line with a comment or carries its own modifier or attribute
+    /// (adversarial review, Gemini).
+    /// </summary>
+    [Theory]
+    [InlineData("set => _ = value;")]
+    [InlineData("/* c */ set => _ = value;")]
+    [InlineData("private set => _ = value;")]
+    [InlineData("[Foo] set => _ = value;")]
+    [InlineData("/* a */ private set => _ = value;")]
+    [InlineData("init => _ = value;")]
+    public void AccessorSlice_StopsAtItsSibling(string sibling)
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public int P",
+            "    {",
+            "        get => 1;",
+            "        " + sibling,
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
+
+        Assert.Equal("public int P\n{\n    get => 1;", slice);
+    }
+
+    /// <summary>
+    /// Since C# 11 an interpolation hole may span lines even in a single-quoted literal. Treating
+    /// every non-verbatim, non-raw literal as bound to one line marked valid source untracked and
+    /// truncated the member (adversarial review, Gemini).
+    /// </summary>
+    [Fact]
+    public void InterpolationHoleSpanningLines_DoesNotAbandonTheScan()
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public void M()",
+            "    {",
+            "        var s = $\"{",
+            "            1",
+            "        }\";",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 4, 5, "M");
+
+        Assert.NotNull(slice);
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.EndsWith("}\";\n}", slice);
+    }
+
+    /// <summary>
+    /// The counterpart to the case above: a literal's own text really is bound to its line, so an
+    /// unterminated one must still leave the depth unknown rather than be read across the break.
+    /// </summary>
+    [Fact]
+    public void UnterminatedLiteralText_StillLeavesTheDepthUnknown()
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public void M()",
+            "    {",
+            "        var s = \"oops",
+            "        int y = 2;",
+            "    }",
+            "}",
+        ];
+
+        // The scan must not claim to have found the member's closing brace by reading through
+        // a literal it lost its place in.
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 4, 5, "M");
+
+        Assert.DoesNotContain("int y = 2;", slice);
+    }
+
+    /// <summary>
     /// A sequence range that ends on a statement above the member's closing brace must still
     /// recover the whole member. The forward scan used to stop at the first non-empty line
     /// below the range, so every statement after that one — and the closing brace with them —
