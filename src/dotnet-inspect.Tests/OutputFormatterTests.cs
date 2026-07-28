@@ -1513,9 +1513,37 @@ public class OutputFormatterTests
     [Fact]
     public void RowSelector_ResolvesFirstLastAndIndex()
     {
-        Assert.Equal(1, RowSelector.First.Resolve(7));
-        Assert.Equal(7, RowSelector.Last.Resolve(7));
-        Assert.Equal(3, RowSelector.FromIndex(3).Resolve(7));
+        int[] contiguous = [1, 2, 3, 4, 5, 6, 7];
+        Assert.Equal(1, RowSelector.First.Resolve(contiguous));
+        Assert.Equal(7, RowSelector.Last.Resolve(contiguous));
+        Assert.Equal(3, RowSelector.FromIndex(3).Resolve(contiguous));
+    }
+
+    [Fact]
+    public void RowSelector_ResolvesEndpointsOfGappedRows()
+    {
+        // first/last name the endpoints of the rendered sequence, not 1 and the count.
+        int[] gapped = [2, 5, 9];
+        Assert.Equal(2, RowSelector.First.Resolve(gapped));
+        Assert.Equal(9, RowSelector.Last.Resolve(gapped));
+        Assert.Equal(5, RowSelector.FromIndex(5).Resolve(gapped));
+    }
+
+    [Fact]
+    public void RowNumbering_DescribesContiguousAndGappedRows()
+    {
+        Assert.Equal("1 through 4", RowNumbering.Describe([1, 2, 3, 4]));
+        Assert.Equal("2, 5, 9", RowNumbering.Describe([2, 5, 9]));
+        Assert.Equal("7", RowNumbering.Describe([7]));
+        Assert.Equal("none", RowNumbering.Describe([]));
+    }
+
+    [Fact]
+    public void RowNumbering_IndexOfFindsRowByDisplayedNumber()
+    {
+        int[] gapped = [2, 5, 9];
+        Assert.Equal(1, RowNumbering.IndexOf(gapped, 5));
+        Assert.Equal(-1, RowNumbering.IndexOf(gapped, 3));
     }
 
     [Fact]
