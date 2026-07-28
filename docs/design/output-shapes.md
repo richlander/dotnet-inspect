@@ -39,9 +39,10 @@ Most sections are Tables, but a section can also be a key-value field set, a
 list, a code/text blob, or a tree (for example a call graph). Those are still
 "one section" — the Table rung — and they collapse to Scalars the same way.
 
-## Three flag families
+## Flag families
 
-A flag can contribute in one of three ways:
+Three families walk the shape ladder, and a fourth sits before it. A flag in one
+of the ladder families contributes in one of three ways:
 
 - **Shape selectors** narrow the requested shape (`-S`, `--fields`/`--columns`,
   `--count`, `-n 1`).
