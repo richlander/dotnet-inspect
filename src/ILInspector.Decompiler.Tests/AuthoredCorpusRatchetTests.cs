@@ -1133,76 +1133,24 @@ public class AuthoredCorpusRatchetTests
         Assert.Equal("--history-card", AuthoredCorpusExitContract.FindPreemptingMode(order, gate));
     }
 
-    /// <summary>
-    /// The test's copy of the dispatch order is the harness's copy.
-    ///
-    /// <para>Restating a list the product owns is how four flags went missing from the
-    /// refusal in an earlier round, so a copy that can drift is not acceptable even in a
-    /// test. Pinning it against the source means a mode added to the harness fails here
-    /// until the fixture is updated, rather than silently narrowing what these tests
-    /// prove.</para>
-    /// </summary>
-    [Fact]
-    public void DispatchOrder_MatchesTheHarnessDispatchOrder()
-    {
-        string source = File.ReadAllText(Path.Combine(
-            FindRepositoryRoot(), "tools", "DecompilerHarness", "Program.cs"));
-
-        int start = source.IndexOf("dispatchOrder =", StringComparison.Ordinal);
-        Assert.True(start >= 0, "Program.cs no longer declares dispatchOrder.");
-        int open = source.IndexOf('[', start);
-        int close = source.IndexOf("];", open, StringComparison.Ordinal);
-
-        string[] declared = [.. source[open..close]
-            .Split('\n')
-            .Select(line => line.Trim())
-            .Where(line => line.StartsWith("(\"", StringComparison.Ordinal))
-            .Select(line => line[2..line.IndexOf('"', 2)])];
-
-        Assert.Equal(DispatchOrder("--history-card").Select(entry => entry.Flag), declared);
-    }
-
-    /// <summary>The harness's dispatch order, with exactly one mode selected.</summary>
     static (string Flag, bool Selected)[] DispatchOrder(string selected) => DispatchOrder([selected]);
 
     /// <summary>
-    /// The harness's dispatch order.
+    /// The harness's dispatch order, taken from the product declaration.
     ///
-    /// <para>Shared with <see cref="AuthoredCorpusHarnessProcessTests"/>, which runs the
-    /// binary once per mode and so needs to know that it covered every one of them.
-    /// Review round ten found why that matters: this list records the mode <em>names</em>
-    /// only, and the harness pairs each name with a <c>Selected</c> expression that no
-    /// test could see. Marking one mode unselected there stopped it preempting a
-    /// requested gate — the gate was dropped, the mode ran in its place, the binary
-    /// exited 0, and the suite stayed green.</para>
+    /// <para>Not a copy, and no longer read out of <c>Program.cs</c>'s source text. The
+    /// fixtures below and <see cref="AuthoredCorpusHarnessProcessTests"/>' coverage both
+    /// hang off this, and both were once tied to the harness by parsing that source —
+    /// which review round eleven defeated with a commented-out decoy list, adding an
+    /// untested mode to the live one while the whole suite stayed green.</para>
     /// </summary>
     internal static string[] DispatchOrderFlags { get; } =
-        [.. DispatchOrder([]).Select(entry => entry.Flag)];
+        [.. AuthoredCorpusExitContract.DispatchModes];
 
     /// <summary>The harness's dispatch order, with the named modes selected.</summary>
     static (string Flag, bool Selected)[] DispatchOrder(string[] selected)
     {
-        string[] flags =
-        [
-            "--fixture-source-inventory",
-            "--history-card",
-            "--generated-fixtures",
-            "--fuzz-signatures",
-            "--return-to-sender-catalog",
-            "--emit-inverse-ledger",
-            "--assertion-scan",
-            "--validity-check",
-            "--validity-predicate-scan",
-            "--fidelity-check",
-            "--return-to-sender",
-            "--return-address",
-            "--not-my-type",
-            "--enumerate-real-methods",
-            "--harvest-authored-corpus",
-            "--harvest-evil-corpus",
-            "--benchmark-authored-corpus",
-            "--verify-authored-corpus",
-        ];
+        string[] flags = DispatchOrderFlags;
 
         foreach (string flag in selected)
             Assert.Contains(flag, flags);

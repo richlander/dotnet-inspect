@@ -647,6 +647,50 @@ static class AuthoredCorpusExitContract
         ["--benchmark-authored-corpus", "--verify-authored-corpus"];
 
     /// <summary>
+    /// Every mode the harness dispatches, in dispatch order.
+    ///
+    /// <para>This is product code, and <see cref="PreemptedGateRefusal"/> refuses to
+    /// judge a dispatch order that does not match it, because the alternative was tried
+    /// and failed. The coverage of the black-box tests used to be tied to the harness by
+    /// <em>parsing <c>Program.cs</c> for its dispatch list</em>, and review round eleven
+    /// defeated that by placing a commented-out copy of the old list above the live
+    /// declaration: the parse found the decoy, the expected names still matched, a new
+    /// mode entered the live list untested, and
+    /// <c>--black-box-gap --benchmark-authored-corpus &lt;corpus&gt;</c> exited 0 having
+    /// discarded the requested gate while the whole suite stayed green.</para>
+    ///
+    /// <para>One review round earlier, the same technique had been deleted from a sibling
+    /// test for being wrong in both directions. It was kept here on the reasoning that a
+    /// name mirror "can false-red but cannot false-green". That reasoning was wrong, and
+    /// the lesson is narrower than "avoid source parsing": a test that reads source text
+    /// is guessing at what the program does, and a decoy is always available. Naming the
+    /// modes here, where the running binary checks them, cannot be decoyed — a mode added
+    /// to the harness without being declared makes every invocation throw, and the
+    /// black-box tests all invoke it.</para>
+    /// </summary>
+    internal static readonly ImmutableArray<string> DispatchModes =
+    [
+        "--fixture-source-inventory",
+        "--history-card",
+        "--generated-fixtures",
+        "--fuzz-signatures",
+        "--return-to-sender-catalog",
+        "--emit-inverse-ledger",
+        "--assertion-scan",
+        "--validity-check",
+        "--validity-predicate-scan",
+        "--fidelity-check",
+        "--return-to-sender",
+        "--return-address",
+        "--not-my-type",
+        "--enumerate-real-methods",
+        "--harvest-authored-corpus",
+        "--harvest-evil-corpus",
+        "--benchmark-authored-corpus",
+        "--verify-authored-corpus",
+    ];
+
+    /// <summary>
     /// The refusal owed by the flag combination, or <see langword="null"/> if none.
     ///
     /// <para>A gate is preempted when a mode earlier in the dispatch order is also
@@ -671,6 +715,23 @@ static class AuthoredCorpusExitContract
         IReadOnlyList<(string Flag, bool Selected)> dispatchOrder,
         IReadOnlyList<string> gates)
     {
+        // The caller's order must be the declared one. A mode the harness dispatches but
+        // never declares is a mode no test knows to cover, which is how a gate goes
+        // ungated while the suite stays green; failing here makes the binary say so on
+        // every invocation rather than only on the combination nobody wrote a case for.
+        if (!dispatchOrder.Select(entry => entry.Flag).SequenceEqual(DispatchModes))
+        {
+            throw new ArgumentException(
+                "The dispatch order does not match AuthoredCorpusExitContract.DispatchModes. "
+                    + "A mode was added, removed, or reordered in the harness without "
+                    + "declaring it, so nothing knows to test it. Declared: "
+                    + string.Join(", ", DispatchModes)
+                    + ". Received: "
+                    + string.Join(", ", dispatchOrder.Select(entry => entry.Flag))
+                    + ".",
+                nameof(dispatchOrder));
+        }
+
         foreach (string gate in gates)
         {
             int position = IndexOfGate(dispatchOrder, gate);
