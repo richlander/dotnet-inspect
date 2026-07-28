@@ -1,4 +1,7 @@
 using System.Collections.Immutable;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using DotnetInspector.Fixtures;
 using ILInspector.Analysis;
@@ -311,5 +314,145 @@ public class CallerScopeTypeFilterTests
         // hold for any filter at all.
         Assert.True(ruledOut > 0, "no candidate was ever ruled out, so the assertion proved nothing");
         Assert.True(matchedWhenKept > 0, "no kept candidate ever matched, so the matcher proved nothing");
+    }
+
+    /// <summary>
+    /// Metadata for a module with no assembly manifest — the shape <c>csc -target:module</c>
+    /// produces. Only the metadata blob is built, because <see cref="CallerScopeTypeFilter"/>
+    /// decides from a <see cref="MetadataReader"/> and never needs the surrounding PE.
+    ///
+    /// The assertions below pin the two properties that make this stand in for a compiled
+    /// netmodule, so the fixture cannot quietly stop being one: the reader is not an assembly, and
+    /// the decoder gives its definitions the empty assembly name. Both were confirmed against an
+    /// actual <c>csc -target:module</c> output before this test was written.
+    /// </summary>
+    static MetadataReaderProvider BuildModuleMetadata(string ns, string typeName)
+    {
+        var builder = new MetadataBuilder();
+        builder.AddModule(
+            generation: 0,
+            builder.GetOrAddString("ModOnly.netmodule"),
+            builder.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+
+        // Row 1 is always <Module>; the real type follows it, exactly as a compiler emits.
+        builder.AddTypeDefinition(
+            default,
+            default,
+            builder.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        builder.AddTypeDefinition(
+            TypeAttributes.Public,
+            builder.GetOrAddString(ns),
+            builder.GetOrAddString(typeName),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        var root = new MetadataRootBuilder(builder);
+        var blob = new BlobBuilder();
+        root.Serialize(blob, methodBodyStreamRva: 0, mappedFieldDataStreamRva: 0);
+        return MetadataReaderProvider.FromMetadataImage(blob.ToImmutableArray());
+    }
+
+    /// <summary>
+    /// A type defined by a module with no assembly manifest decodes to the empty assembly name,
+    /// and <see cref="MemberPattern.MatchesCrossAssembly"/> compares that name like any other. The
+    /// filter therefore has to recognise it as the module's own identity and keep the candidate.
+    ///
+    /// Deriving the answer by hand from <c>reader.IsAssembly</c> gets this wrong: the guard skips
+    /// the whole own-identity check for module metadata, the type appears in no <c>TypeRef</c> row
+    /// because it is defined here, and the module is ruled out despite declaring the very type
+    /// being searched for. Asking <see cref="TypeRefDecoder"/> instead cannot drift from what the
+    /// matcher compares.
+    /// </summary>
+    [Fact]
+    public void ModuleWithoutAnAssemblyManifestIsNotRuledOutForItsOwnTypes()
+    {
+        using var provider = BuildModuleMetadata("Sample", "ModTarget");
+        var reader = provider.GetMetadataReader();
+
+        Assert.False(reader.IsAssembly);
+
+        var declaringType = reader.TypeDefinitions
+            .Select(h => TypeRefDecoder.Instance.GetTypeFromDefinition(reader, h, 0))
+            .First(t => t.Name == "ModTarget");
+
+        Assert.Equal(string.Empty, declaringType.Assembly);
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.Names,
+            CallerScopeTypeFilter.Classify(reader, declaringType));
+    }
+
+    /// <summary>
+    /// The same module must still be ruled out for a type it does not declare, or the test above
+    /// would be satisfied by a filter that simply kept every module.
+    /// </summary>
+    [Fact]
+    public void ModuleWithoutAnAssemblyManifestIsStillRuledOutForAForeignType()
+    {
+        using var provider = BuildModuleMetadata("Sample", "ModTarget");
+        var reader = provider.GetMetadataReader();
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            CallerScopeTypeFilter.Classify(reader, TypeRef.CoreLib("System", "Object")));
+    }
+
+    /// <summary>
+    /// A <c>TypeRef</c> row the decoder cannot project is not evidence of absence: the rows that
+    /// did decode do not speak for it, so the candidate has to be kept. The row here nests
+    /// resolution scopes deeper than <c>MetadataSafetyPolicy</c> allows the traversal to walk,
+    /// which is the cheapest way to make the real decoder return <c>Unsupported</c> without
+    /// corrupting anything else.
+    /// </summary>
+    [Fact]
+    public void AnUndecodableTypeReferenceRowLeavesTheCandidateUndecided()
+    {
+        var builder = new MetadataBuilder();
+        builder.AddModule(
+            generation: 0,
+            builder.GetOrAddString("Deep.dll"),
+            builder.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        builder.AddTypeDefinition(
+            default,
+            default,
+            builder.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        // Each row's resolution scope is the row above it, so the chain never terminates in an
+        // AssemblyRef and its length is bounded only by the row count.
+        int depth = ILInspector.Metadata.MetadataSafetyPolicy.MaxRelationshipNodes + 2;
+        for (int i = 1; i <= depth; i++)
+        {
+            builder.AddTypeReference(
+                MetadataTokens.TypeReferenceHandle(i == 1 ? depth : i - 1),
+                builder.GetOrAddString(""),
+                builder.GetOrAddString($"Nested{i}"));
+        }
+
+        var root = new MetadataRootBuilder(builder);
+        var blob = new BlobBuilder();
+        root.Serialize(blob, methodBodyStreamRva: 0, mappedFieldDataStreamRva: 0);
+        using var provider = MetadataReaderProvider.FromMetadataImage(blob.ToImmutableArray());
+        var reader = provider.GetMetadataReader();
+
+        // The premise: the decoder really does fail on this table. Without it the test would pass
+        // for a filter that never returns Undecidable at all.
+        Assert.Contains(
+            reader.TypeReferences,
+            h => TypeRefDecoder.Instance.GetTypeFromReference(reader, h, 0).Kind == TypeRefKind.Unsupported);
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.Undecidable,
+            CallerScopeTypeFilter.Classify(reader, TypeRef.CoreLib("System", "Object")));
     }
 }

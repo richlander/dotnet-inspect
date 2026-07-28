@@ -377,6 +377,40 @@ public class ApiMemberAnalysisInspectionTests
             graph.Select(s => s.SourceName));
     }
 
+    // The narrow scope is cached per declaring type, so a second member with a *different*
+    // declaring type must not be answered from the first one's entry. Box`1 and Api are declared by
+    // the same fixture but named by different callers, so a single shared cache entry would hand
+    // one of them the other's scope.
+    [Fact]
+    public void DirectCallerScopes_AreCachedPerDeclaringType()
+    {
+        string target = FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        int store = TokenOf(target, "Box`1", "Store");
+        int ping = TokenOf(target, "Api", "Ping");
+
+        static string[] Names(IReadOnlyList<MethodBodyInspectionSession>? scopes) => scopes!
+            .Select(s => s.SourceName)
+            .OrderBy(n => n, StringComparer.Ordinal)
+            .ToArray();
+
+        var forward = CreateForCallers(target, FullScope);
+        var storeFirst = Names(forward.DirectCallerScopes(store));
+        var pingSecond = Names(forward.DirectCallerScopes(ping));
+
+        // The reverse order must produce the same two answers, or the first call is poisoning the
+        // second through the cache.
+        var reverse = CreateForCallers(target, FullScope);
+        var pingFirst = Names(reverse.DirectCallerScopes(ping));
+        var storeSecond = Names(reverse.DirectCallerScopes(store));
+
+        Assert.Equal(storeFirst, storeSecond);
+        Assert.Equal(pingFirst, pingSecond);
+
+        // Non-vacuity: if the two declaring types selected the same assemblies, a shared cache
+        // entry would satisfy the assertions above and prove nothing.
+        Assert.NotEqual(storeFirst, pingFirst);
+    }
+
     static string? FindNativeImage()
     {
         foreach (string path in Directory.EnumerateFiles(

@@ -89,11 +89,23 @@ public static class CallerScopeTypeFilter
 
         try
         {
-            if (reader.IsAssembly)
+            // The identity that this image's own definitions carry is asked of the decoder rather
+            // than recomputed here. Restating it is what made this branch disagree with the matcher
+            // for module metadata: a definition in an image with no assembly manifest decodes to
+            // the empty assembly name, which a hand-written `reader.IsAssembly` guard skips over
+            // entirely while MatchesCrossAssembly happily compares it.
+            foreach (var definitionHandle in reader.TypeDefinitions)
             {
-                string own = reader.GetString(reader.GetAssemblyDefinition().Name);
-                if (TypeRef.CanonicalAssembly(own) == openDeclaringType.Assembly)
+                var own = TypeRefDecoder.Instance.GetTypeFromDefinition(reader, definitionHandle, 0);
+                if (own.Kind == TypeRefKind.Unsupported)
+                    return TypeReferenceState.Undecidable;
+
+                if (own.Assembly == openDeclaringType.Assembly)
                     return TypeReferenceState.Names;
+
+                // Every definition in an image carries the same assembly identity, so one answers
+                // for all of them.
+                break;
             }
 
             foreach (var handle in reader.TypeReferences)
