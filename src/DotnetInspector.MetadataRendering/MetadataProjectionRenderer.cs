@@ -202,6 +202,13 @@ public static class MetadataProjectionRenderer
             int count = references.UnreadableRows.Length;
             yield return $"{count} {(count == 1 ? "row" : "rows")} had {(count == 1 ? "an edge" : "edges")} that could not be read, so a reference from {(count == 1 ? "it" : "them")} would have been missed.";
         }
+
+        if (!references.UnscannedTables.IsEmpty)
+        {
+            int count = references.UnscannedTables.Length;
+            var names = string.Join(", ", references.UnscannedTables);
+            yield return $"{count} populated {(count == 1 ? "table is" : "tables are")} not modelled by the projection and {(count == 1 ? "was" : "were")} not searched, so an edge from {(count == 1 ? "it" : "them")} would have been missed: {names}.";
+        }
     }
 
     static string Describe(MetadataRowLocation location) => $"{location.Table}[{location.RowId}]";

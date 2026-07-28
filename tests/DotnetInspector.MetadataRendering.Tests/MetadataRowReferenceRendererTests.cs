@@ -7,8 +7,9 @@ namespace DotnetInspector.MetadataRendering.Tests;
 /// <summary>
 /// Tests for rendering a <see cref="MetadataRowReferenceSet"/>. The renderer's
 /// obligation is that a reverse search's blind spots — a budget that stopped the
-/// scan, and rows that could not be decoded — survive into every format, so an
-/// empty answer is never mistaken for a confident one.
+/// scan, rows that could not be decoded, and populated tables the projection
+/// never modelled — survive into every format, so an empty answer is never
+/// mistaken for a confident one.
 /// </summary>
 public class MetadataRowReferenceRendererTests
 {
@@ -22,6 +23,7 @@ public class MetadataRowReferenceRendererTests
     static MetadataRowReferenceSet Set(
         ImmutableArray<MetadataRowReference>? references = null,
         ImmutableArray<MetadataRowLocation>? unreadable = null,
+        ImmutableArray<TableIndex>? unscanned = null,
         bool truncated = false)
         => new(
             new MetadataRowLocation(TableIndex.TypeDef, 5),
@@ -32,6 +34,7 @@ public class MetadataRowReferenceRendererTests
                     ColumnName: "EnclosingClass",
                     MetadataRowReferenceKind.Handle)),
             unreadable ?? [],
+            unscanned ?? [],
             truncated);
 
     [Fact]
@@ -54,6 +57,7 @@ public class MetadataRowReferenceRendererTests
         // Nothing was hidden, so no caveat may appear.
         Assert.DoesNotContain("budget", markdown);
         Assert.DoesNotContain("could not be read", markdown);
+        Assert.DoesNotContain("not modelled by the projection", markdown);
     }
 
     [Fact]
@@ -146,13 +150,36 @@ public class MetadataRowReferenceRendererTests
         => Assert.Empty(MetadataProjectionRenderer.Caveats(Set()));
 
     [Fact]
-    public void Caveats_ReportBothBlindSpotsIndependently()
+    public void Caveats_ReportEachBlindSpotIndependently()
     {
-        var both = Set(
+        var all = Set(
             unreadable: ImmutableArray.Create(new MetadataRowLocation(TableIndex.MethodDef, 7)),
+            unscanned: ImmutableArray.Create(TableIndex.NestedClass),
             truncated: true);
 
-        Assert.Equal(2, MetadataProjectionRenderer.Caveats(both).Count());
+        Assert.Equal(3, MetadataProjectionRenderer.Caveats(all).Count());
+    }
+
+    [Fact]
+    public void Markdown_UnscannedTables_AreNamedNotJustCounted()
+    {
+        // A reader cannot judge what the search missed from a bare count, so the
+        // caveat must name the tables that went unvisited.
+        var markdown = Render(Set(
+            unscanned: ImmutableArray.Create(TableIndex.NestedClass, TableIndex.MethodSemantics)));
+
+        Assert.Contains("2 populated tables are not modelled by the projection", markdown);
+        Assert.Contains("NestedClass", markdown);
+        Assert.Contains("MethodSemantics", markdown);
+    }
+
+    [Fact]
+    public void Markdown_SingleUnscannedTable_ReadsAsSingular()
+    {
+        var markdown = Render(Set(unscanned: ImmutableArray.Create(TableIndex.NestedClass)));
+
+        Assert.Contains("1 populated table is not modelled by the projection", markdown);
+        Assert.DoesNotContain("1 populated tables", markdown);
     }
 
     [Fact]

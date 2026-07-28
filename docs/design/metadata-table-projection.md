@@ -432,15 +432,28 @@ Two design points are deliberate and worth stating, because both look like
 oversights:
 
 - **`options.Tables` is not honored.** Like `ProjectRow`, the search is a query
-  over the whole image, not a projection of a selection. Narrowing the scan
-  could report "nothing points here" while a pointer sat in an unsearched table,
-  which is worse than a slower answer.
+  over the whole projection, not a projection of a selection. Narrowing the scan
+  per call could report "nothing points here" while a pointer sat in an
+  unsearched table, which is worse than a slower answer.
+- **The projection's table coverage is itself a blind spot.** The scan cannot
+  be wider than the projection, and the projection models a subset of ECMA-335's
+  tables. A real assembly populates tables outside that subset — `NestedClass`,
+  `MethodSemantics`, `InterfaceImpl`, `Property` and friends — so an edge living
+  in one of them is invisible to the search. A nested type's declaring type is
+  exactly such an edge. `UnscannedTables` names the populated unmodelled tables
+  so the gap is disclosed rather than answered as an absence. Empty tables are
+  excluded: they cannot hide a reference.
 - **Blind spots are reported, not folded in.** `Truncated` marks a scan the
-  result budget stopped, and `UnreadableRows` lists rows whose edges could not
-  be fully determined. `IsComplete` is true only when neither happened, which is
-  what makes an empty result trustworthy. Unlike `MetadataTableTruncation`,
-  `Truncated` carries no total: a stopped scan never learns how many references
-  it did not reach.
+  result budget stopped, `UnreadableRows` lists rows whose edges could not be
+  fully determined, and `UnscannedTables` lists the populated tables the scan
+  never visited. `IsComplete` is true only when none of the three happened,
+  which is what would make an empty result trustworthy — and today that means it
+  is **false for essentially every real assembly**, because the third blind spot
+  always fires. That is the honest reading: until the projection covers every
+  table, the search has not covered the whole image. Callers that only want to
+  know whether the scan itself finished should read `Truncated`. Unlike
+  `MetadataTableTruncation`, `Truncated` carries no total: a stopped scan never
+  learns how many references it did not reach.
 
 `UnreadableRows` is subtler than "the row failed to read". The cell readers
 **contain** a decode failure as a `Malformed` cell rather than throwing, so a

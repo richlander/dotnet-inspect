@@ -214,9 +214,16 @@ public static class MetadataTableProjector
         var unreadable = ImmutableArray.CreateBuilder<MetadataRowLocation>();
 
         if (!peReader.HasMetadata)
-            return new MetadataRowReferenceSet(target, references.ToImmutable(), unreadable.ToImmutable(), Truncated: false);
+            return new MetadataRowReferenceSet(
+                target, references.ToImmutable(), unreadable.ToImmutable(), [], Truncated: false);
 
         var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
+
+        // Populated tables outside the projection are never visited, so an edge
+        // living in one of them cannot be found. Report that as a blind spot
+        // rather than letting the caller read an empty result as an absent
+        // reference. Row counts only — no scanning is required to learn this.
+        var unscanned = CollectUnscannedTables(reader);
 
         // The scan needs edges, not text. Handle and range cells carry their
         // target table and row id independently of these budgets, so trimming the
@@ -289,7 +296,36 @@ public static class MetadataTableProjector
             }
         }
 
-        return new MetadataRowReferenceSet(target, references.ToImmutable(), unreadable.ToImmutable(), truncated);
+        return new MetadataRowReferenceSet(
+            target, references.ToImmutable(), unreadable.ToImmutable(), unscanned, truncated);
+    }
+
+    /// <summary>
+    /// The populated tables a reverse search cannot see, because the projection
+    /// does not model them. Empty tables are excluded: a table with no rows
+    /// cannot hold an edge onto the target, so reporting it would overstate the
+    /// blind spot.
+    /// </summary>
+    static ImmutableArray<TableIndex> CollectUnscannedTables(MetadataReader reader)
+    {
+        var modeled = new HashSet<TableIndex>();
+        foreach (var spec in SupportedTables)
+            modeled.Add(spec.Index);
+
+        var unscanned = ImmutableArray.CreateBuilder<TableIndex>();
+        foreach (var table in Enum.GetValues<TableIndex>())
+        {
+            if (modeled.Contains(table))
+                continue;
+
+            // Every defined TableIndex is below the reader's table count, so
+            // this is a range check plus an array index over counts parsed at
+            // MetadataReader construction. It cannot fail here.
+            if (reader.GetTableRowCount(table) > 0)
+                unscanned.Add(table);
+        }
+
+        return unscanned.ToImmutable();
     }
 
     /// <summary>

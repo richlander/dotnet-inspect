@@ -72,6 +72,19 @@ public class MetadataRowReferenceSearchTests
         MetadataRowReferenceSet set)
         => [.. set.References.Select(r => (r.Source.Table, r.Source.RowId, r.ColumnName, r.Kind))];
 
+    /// <summary>
+    /// The scan itself finished and read every row it visited. This is not
+    /// <see cref="MetadataRowReferenceSet.IsComplete"/>: on a real assembly that
+    /// is false because the projection models a subset of ECMA-335's tables, so
+    /// populated tables go unvisited. Tests that mean "the scan ran clean" must
+    /// say so rather than borrowing a stronger claim.
+    /// </summary>
+    static void AssertScanRanClean(MetadataRowReferenceSet set)
+    {
+        Assert.False(set.Truncated, "Expected the scan to run to completion.");
+        Assert.Empty(set.UnreadableRows);
+    }
+
     [Theory]
     [InlineData(TableIndex.TypeDef, 1)]
     [InlineData(TableIndex.TypeDef, 2)]
@@ -88,7 +101,7 @@ public class MetadataRowReferenceSearchTests
         var expected = Expected(FullProjection(peReader), table, rowId);
         var set = MetadataTableProjector.FindReferences(peReader, table, rowId, int.MaxValue);
 
-        Assert.True(set.IsComplete, "Expected a complete scan over a well-formed image.");
+        AssertScanRanClean(set);
         Assert.Equal(expected, Actual(set));
     }
 
@@ -172,7 +185,7 @@ public class MetadataRowReferenceSearchTests
     }
 
     [Fact]
-    public void FindReferences_ForARowNothingPointsAt_ReportsACompleteEmptyResult()
+    public void FindReferences_ForARowNothingPointsAt_ReportsAnEmptyResultFromACleanScan()
     {
         using var peReader = OpenSelfFromBytes();
         var typeDef = FullProjection(peReader).Tables.Single(t => t.Index == TableIndex.TypeDef);
@@ -182,7 +195,7 @@ public class MetadataRowReferenceSearchTests
         var set = MetadataTableProjector.FindReferences(peReader, TableIndex.TypeDef, typeDef.RowCount + 1_000, int.MaxValue);
 
         Assert.Empty(set.References);
-        Assert.True(set.IsComplete, "An empty result must be distinguishable from a stopped or blind scan.");
+        AssertScanRanClean(set);
     }
 
     /// <summary>
@@ -265,6 +278,82 @@ public class MetadataRowReferenceSearchTests
         Assert.Empty(set.UnreadableRows);
     }
 
+    /// <summary>
+    /// The projection models a subset of ECMA-335's tables, and a real assembly
+    /// populates tables outside that subset. The scan never visits them, so an
+    /// edge living in one is invisible — and that must be reported rather than
+    /// folded into an empty or "complete" answer.
+    /// </summary>
+    [Fact]
+    public void FindReferences_ReportsPopulatedUnmodelledTables_AsABlindSpot()
+    {
+        using var peReader = OpenSelfFromBytes();
+
+        var set = MetadataTableProjector.FindReferences(peReader, TableIndex.TypeDef, 1, int.MaxValue);
+
+        AssertScanRanClean(set);
+        Assert.NotEmpty(set.UnscannedTables);
+        Assert.False(
+            set.IsComplete,
+            "A scan that never visited a populated table has not covered the whole image.");
+    }
+
+    /// <summary>
+    /// The blind spot must be exactly the populated tables the projection does
+    /// not model — no modelled table, and no empty table. Over-reporting would
+    /// scare a caller off a result the search actually did cover.
+    /// </summary>
+    [Fact]
+    public void FindReferences_UnscannedTables_AreExactlyThePopulatedUnmodelledOnes()
+    {
+        using var peReader = OpenSelfFromBytes();
+        var reader = peReader.GetMetadataReader();
+
+        var projected = FullProjection(peReader).Tables.Select(t => t.Index).ToHashSet();
+        var expected = Enum.GetValues<TableIndex>()
+            .Where(t => !projected.Contains(t) && reader.GetTableRowCount(t) > 0)
+            .ToArray();
+
+        var set = MetadataTableProjector.FindReferences(peReader, TableIndex.TypeDef, 1, int.MaxValue);
+
+        Assert.NotEmpty(expected);
+        Assert.Equal(expected, set.UnscannedTables);
+        Assert.All(set.UnscannedTables, t => Assert.DoesNotContain(t, projected));
+        Assert.All(set.UnscannedTables, t => Assert.True(reader.GetTableRowCount(t) > 0));
+    }
+
+    /// <summary>
+    /// The blind spot is not hypothetical. <c>NestedClass</c> is the only place a
+    /// nested type's declaring type is recorded, and the projection does not
+    /// model it, so the search silently misses that edge today. This test pins
+    /// the miss *and* the disclosure together: if the projection later covers
+    /// <c>NestedClass</c>, the edge must appear and the table must drop off the
+    /// blind-spot list at the same time.
+    /// </summary>
+    [Fact]
+    public void FindReferences_MissesTheDeclaringTypeOfANestedType_AndDisclosesWhy()
+    {
+        using var peReader = OpenSelfFromBytes();
+        var reader = peReader.GetMetadataReader();
+
+        // Independent oracle: ask SRM which TypeDef is nested, rather than
+        // hardcoding a row id that recompiling this assembly would move.
+        int nestedRowId = reader.TypeDefinitions
+            .Where(h => reader.GetTypeDefinition(h).IsNested)
+            .Select(h => MetadataTokens.GetRowNumber((EntityHandle)h))
+            .First();
+
+        var set = MetadataTableProjector.FindReferences(peReader, TableIndex.TypeDef, nestedRowId, int.MaxValue);
+
+        AssertScanRanClean(set);
+        Assert.DoesNotContain(set.References, r => r.Source.Table == TableIndex.NestedClass);
+
+        if (set.UnscannedTables.Contains(TableIndex.NestedClass))
+            Assert.False(set.IsComplete, "The missed edge must not be hidden behind a complete result.");
+        else
+            Assert.Contains(set.References, r => r.Source.Table == TableIndex.NestedClass);
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]
@@ -314,7 +403,8 @@ public class MetadataRowReferenceSearchTests
             direct.References.Select(r => (r.Source.Table, r.Source.RowId, r.ColumnName, r.Kind)),
             viaSession.References.Select(r => (r.Source.Table, r.Source.RowId, r.ColumnName, r.Kind)));
         Assert.Equal(direct.Target.Token, viaSession.Target.Token);
-        Assert.True(viaSession.IsComplete);
+        Assert.Equal(direct.IsComplete, viaSession.IsComplete);
+        AssertScanRanClean(viaSession);
     }
 
     [Fact]
@@ -485,17 +575,17 @@ public class MetadataRowReferenceSearchTests
     }
 
     [Fact]
-    public void FindReferences_WellFormedImage_ReportsNoBlindSpots()
+    public void FindReferences_WellFormedImage_ReportsNoUnreadableRows()
     {
         // The negative case for the check above: a real assembly must not start
-        // reporting blind spots just because malformed edge cells are now tracked.
+        // reporting unreadable rows just because malformed edge cells are now
+        // tracked.
         using var peReader = OpenSelfFromBytes();
 
         foreach (var table in new[] { TableIndex.TypeDef, TableIndex.MethodDef, TableIndex.Field, TableIndex.TypeRef })
         {
             var set = MetadataTableProjector.FindReferences(peReader, table, 1);
-            Assert.Empty(set.UnreadableRows);
-            Assert.True(set.IsComplete);
+            AssertScanRanClean(set);
         }
     }
 

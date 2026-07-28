@@ -82,10 +82,12 @@ public sealed record MetadataRowReference
 /// <see cref="Target"/>, plus the honest limits of that search.
 ///
 /// A reverse search must never answer "nothing points here" when it simply
-/// stopped early or could not read part of the metadata, so both blind spots are
-/// reported rather than folded into an empty result: <see cref="Truncated"/>
-/// when the result budget stopped the scan, and <see cref="UnreadableRows"/> for
-/// rows the scan could not decode and therefore could not inspect.
+/// stopped early, could not read part of the metadata, or never looked at part
+/// of it, so all three blind spots are reported rather than folded into an empty
+/// result: <see cref="Truncated"/> when the result budget stopped the scan,
+/// <see cref="UnreadableRows"/> for rows the scan could not decode and therefore
+/// could not inspect, and <see cref="UnscannedTables"/> for populated tables the
+/// projection does not model and so never visited.
 /// </summary>
 public sealed record MetadataRowReferenceSet
 {
@@ -96,6 +98,7 @@ public sealed record MetadataRowReferenceSet
         MetadataRowLocation Target,
         ImmutableArray<MetadataRowReference> References,
         ImmutableArray<MetadataRowLocation> UnreadableRows,
+        ImmutableArray<TableIndex> UnscannedTables,
         bool Truncated)
     {
         ArgumentNullException.ThrowIfNull(Target);
@@ -103,10 +106,13 @@ public sealed record MetadataRowReferenceSet
             throw new ArgumentException("References must be initialized.", nameof(References));
         if (UnreadableRows.IsDefault)
             throw new ArgumentException("UnreadableRows must be initialized.", nameof(UnreadableRows));
+        if (UnscannedTables.IsDefault)
+            throw new ArgumentException("UnscannedTables must be initialized.", nameof(UnscannedTables));
 
         this.Target = Target;
         this.References = References;
         this.UnreadableRows = UnreadableRows;
+        this.UnscannedTables = UnscannedTables;
         this.Truncated = Truncated;
     }
 
@@ -132,6 +138,18 @@ public sealed record MetadataRowReferenceSet
     public ImmutableArray<MetadataRowLocation> UnreadableRows { get; }
 
     /// <summary>
+    /// Populated tables the scan never looked at, because the projection does
+    /// not model them. This is the largest blind spot of the three and the only
+    /// one that fires on well-formed metadata: the search covers the projected
+    /// tables, not all of ECMA-335, so an edge living in an unmodelled table —
+    /// <c>NestedClass</c>, <c>MethodSemantics</c>, <c>InterfaceImpl</c> and
+    /// friends on a typical assembly — is invisible to it. A nested type's
+    /// declaring type is exactly such an edge. Empty tables are excluded: they
+    /// cannot hide a reference.
+    /// </summary>
+    public ImmutableArray<TableIndex> UnscannedTables { get; }
+
+    /// <summary>
     /// Whether the result budget stopped the scan before it finished. Unlike
     /// <see cref="MetadataTableTruncation"/> this carries no total, because a
     /// stopped scan never learns how many references it did not reach; raise the
@@ -140,9 +158,19 @@ public sealed record MetadataRowReferenceSet
     public bool Truncated { get; }
 
     /// <summary>
-    /// Whether the search covered the whole image: it ran to completion and
-    /// every row was readable, so an empty <see cref="References"/> genuinely
-    /// means nothing points at <see cref="Target"/>.
+    /// Whether the search covered the whole image: it ran to completion, every
+    /// row was readable, and no populated table went unscanned, so an empty
+    /// <see cref="References"/> genuinely means nothing points at
+    /// <see cref="Target"/>.
     /// </summary>
-    public bool IsComplete => !Truncated && UnreadableRows.IsEmpty;
+    /// <remarks>
+    /// This is <see langword="false"/> for essentially every real assembly,
+    /// because the projection models a subset of ECMA-335's tables and typical
+    /// metadata populates tables outside it. That is the honest answer rather
+    /// than a defect in the caller's input: until the projection covers every
+    /// table, the search cannot claim to have covered the whole image. Callers
+    /// that only want to know whether the scan itself finished should read
+    /// <see cref="Truncated"/>.
+    /// </remarks>
+    public bool IsComplete => !Truncated && UnreadableRows.IsEmpty && UnscannedTables.IsEmpty;
 }
