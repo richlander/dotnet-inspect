@@ -996,7 +996,7 @@ public class SectionPipelineTests
     {
         var categories = LibrarySections.CreatePipeline().GetCategoryMap();
 
-        Assert.True(categories.TryGetValue("@Integrations", out var sections));
+        Assert.True(categories.TryGetValue(SectionCategoryNames.Integrations, out var sections));
         Assert.DoesNotContain("Union Types", sections);
     }
 

@@ -110,7 +110,7 @@ public static class LibrarySections
                 SectionNames.SourceLinkFiles,
                 SectionNames.SourceLinkAvailability,
                 SectionNames.SourceLinkMissingFiles)
-            .AddCategory("@Integrations", [.. LibraryIntegrationCatalog.CategorySections, IntegrationSectionNames.Opportunities]);
+            .AddCategory(SectionCategoryNames.Integrations, [.. LibraryIntegrationCatalog.CategorySections, IntegrationSectionNames.Opportunities]);
     }
 
     /// <summary>Builds the scanner registry with all library scanners registered.</summary>

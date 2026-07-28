@@ -31,6 +31,15 @@ public static class SectionCategoryNames
     public const string Escape = "@Escape";
 
     /// <summary>
+    /// Ecosystem integration sections (library scope): the <c>Integration: &lt;X&gt;</c> members
+    /// plus <c>Integration Opportunities</c>. Unlike <see cref="Escape"/> and
+    /// <see cref="Performance"/>, whose applicability is a capability predicate, each member's
+    /// applicability is evidence-based (a cheap reference probe), so the whole category
+    /// hyper-subscribes away for a library with no integrations.
+    /// </summary>
+    public const string Integrations = "@Integrations";
+
+    /// <summary>
     /// Computed complement pole: sections surfaced by no listed category. Discovered only via
     /// <c>--schema</c> or exact name; excluded from the top-level <c>-D</c> catalog.
     /// </summary>
