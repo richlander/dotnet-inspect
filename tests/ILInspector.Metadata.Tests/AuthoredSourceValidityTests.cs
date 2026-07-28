@@ -100,6 +100,24 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
+    /// True when <paramref name="name"/> carries a compiler-generated segment. The compiler
+    /// spells such names with a leading '&lt;' on the segment it owns — "&lt;M&gt;d__0" for an
+    /// iterator, "&lt;&gt;c" for a lambda holder — which no C# identifier can spell. A generic
+    /// name such as "Walk&lt;THandle&gt;" or "RelationshipChain&lt;T&gt;" also contains '&lt;',
+    /// but never at the start of a segment, so it stays in the corpus.
+    /// </summary>
+    private static bool IsCompilerGenerated(string name)
+    {
+        foreach (var segment in name.Split('.', '+'))
+        {
+            if (segment.StartsWith('<'))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Drives the product path end to end: <see cref="PdbContext.EnumerateMemberSources"/>
     /// supplies the same anchor, line range, and finalizer flag that
     /// <c>AuthoredSourceAcquisition</c> passes to the slicer, so nothing here reconstructs a
@@ -138,8 +156,11 @@ public class AuthoredSourceValidityTests
                 {
                     // The slicer only ever runs for a member the caller selected from the API
                     // surface. Compiler-generated shapes (state machines, display classes,
-                    // lambdas) spell '<' in a name no user can ask for.
-                    if (member.Anchor.MemberName.Contains('<') || member.Anchor.TypeFullName.Contains('<'))
+                    // lambdas) spell a name segment that opens with '<' — "<M>d__0", "<>c".
+                    // A generic member spells '<' too, in "Walk<THandle>", and that one is
+                    // ordinary API surface the gate must keep.
+                    if (IsCompilerGenerated(member.Anchor.MemberName)
+                        || IsCompilerGenerated(member.Anchor.TypeFullName))
                         continue;
                     if (!File.Exists(member.FilePath))
                         continue;
@@ -194,7 +215,10 @@ public class AuthoredSourceValidityTests
     [Fact]
     public void SlicedMembers_DoNotCaptureTheEnclosingTypesClosingBrace()
     {
-        var offenders = SliceCorpus().Where(s => s.Outcome == SliceOutcome.OverCapture).ToList();
+        var slices = SliceCorpus();
+        Assert.NotEmpty(slices);
+
+        var offenders = slices.Where(s => s.Outcome == SliceOutcome.OverCapture).ToList();
 
         Assert.True(
             offenders.Count == 0,
@@ -327,5 +351,51 @@ public class AuthoredSourceValidityTests
         ]);
 
         Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 2, endLine: 3, methodName: ".ctor"));
+    }
+
+    /// <summary>
+    /// A brace inside an interpolation hole belongs to the hole, not to the enclosing block.
+    /// The end-boundary decision reads brace depth to tell a range that closes its own block
+    /// from one that does not, so a hole whose nested string quotes a brace must not move that
+    /// count. When it did, the depth reached zero early, the range looked closed, the forward
+    /// scan was suppressed, and the member lost its own closing brace.
+    /// <para>
+    /// Each case pairs an interpolated line with a plain-string line of the same shape: the
+    /// literal must not change the slice, so both must extract identically.
+    /// </para>
+    /// </summary>
+    [Theory]
+    // A nested string containing a closing brace, inside an object initializer in the hole.
+    [InlineData("return $\"{new Holder { S = \"}\" }.S}\";")]
+    // Escaped braces in the literal text.
+    [InlineData("return $\"{{ {Value} }}\";")]
+    // A nested interpolated string inside the hole.
+    [InlineData("return $\"{$\"{Value}\"}\";")]
+    // A raw interpolated string whose content spells braces.
+    [InlineData("return $\"\"\"{ Value }\"\"\";")]
+    // A char literal spelling a brace inside the hole.
+    [InlineData("return $\"{Pick('}')}\";")]
+    public void BracesInsideInterpolationHoles_DoNotEndTheDeclaration(string statement)
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public string M()",
+            "    {",
+            "        " + statement,
+            "    }",
+            "}",
+        ];
+
+        // The range ends on the statement, as a sequence-point range does; the member's own
+        // closing brace is recovered by the forward scan.
+        var body = SourceLinkResolver.ExtractMethodBody(
+            string.Join("\n", lines), startLine: 5, endLine: 5, methodName: "M");
+
+        Assert.NotNull(body);
+        Assert.Equal(
+            $"public string M()\n{{\n    {statement}\n}}",
+            body);
     }
 }

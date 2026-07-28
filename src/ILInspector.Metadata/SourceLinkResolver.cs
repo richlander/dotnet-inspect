@@ -417,11 +417,169 @@ public class SourceLinkResolver
     }
 
     /// <summary>
+    /// Index just past the string literal opening at <paramref name="start"/>, or <c>-1</c> when
+    /// the literal does not close on this line. Handles the raw form (three or more quotes) and
+    /// the ordinary form, in which a backslash escapes the following character.
+    /// </summary>
+    private static int EndOfStringLiteral(string line, int start)
+    {
+        int i = start;
+        int quotes = 0;
+        while (i < line.Length && line[i] == '"')
+        {
+            quotes++;
+            i++;
+        }
+
+        if (quotes >= 3)
+            return IndexOfQuoteRun(line, i, quotes);
+
+        // Two quotes are the empty string, already consumed by the run above.
+        if (quotes == 2)
+            return i;
+
+        while (i < line.Length)
+        {
+            if (line[i] == '\\')
+            {
+                i += 2;
+                continue;
+            }
+
+            if (line[i] == '"')
+                return i + 1;
+
+            i++;
+        }
+
+        return -1;
+    }
+
+    /// <summary>
+    /// Index just past the interpolated string opening at <paramref name="start"/>, or <c>-1</c>
+    /// when this scanner cannot close it on this line.
+    /// <para>
+    /// An interpolation hole holds ordinary C#, so it may spell braces of its own — an object
+    /// initializer, a nested interpolation — and may quote a string containing a brace. Neither
+    /// belongs to the enclosing block, so consuming the whole literal as one unit is what keeps
+    /// a hole's braces out of the caller's depth count. Reading <c>$"{new T { S = "}" }}"</c>
+    /// character by character instead lets the inner quote appear to close the literal, after
+    /// which its braces are counted as structural and the block looks closed when it is not.
+    /// </para>
+    /// <para>
+    /// The verbatim forms (<c>$@"</c> and <c>@$"</c>) may span lines, so they stay on the
+    /// verbatim path the caller already carries across lines; this method reports them as
+    /// unclosed so the caller routes them there.
+    /// </para>
+    /// </summary>
+    private static int EndOfInterpolatedString(string line, int start)
+    {
+        int i = start;
+        while (i < line.Length && line[i] == '$')
+            i++;
+
+        if (i == start || i >= line.Length)
+            return -1;
+
+        // A verbatim interpolated string may continue onto the next line.
+        if (line[i] == '@')
+            return -1;
+
+        if (line[i] != '"')
+            return -1;
+
+        int quoteStart = i;
+        while (i < line.Length && line[i] == '"')
+            i++;
+        int quotes = i - quoteStart;
+
+        // A raw interpolated string closes on its quote run; braces inside it are content.
+        if (quotes >= 3)
+            return IndexOfQuoteRun(line, i, quotes);
+
+        if (quotes == 2)
+            return i;
+
+        int hole = 0;
+        while (i < line.Length)
+        {
+            char c = line[i];
+
+            if (hole == 0)
+            {
+                if (c == '\\')
+                {
+                    i += 2;
+                    continue;
+                }
+
+                // "{{" and "}}" are escaped braces in the literal text, not hole delimiters.
+                if ((c == '{' || c == '}') && i + 1 < line.Length && line[i + 1] == c)
+                {
+                    i += 2;
+                    continue;
+                }
+
+                if (c == '{')
+                {
+                    hole++;
+                    i++;
+                    continue;
+                }
+
+                if (c == '"')
+                    return i + 1;
+
+                i++;
+                continue;
+            }
+
+            // Inside a hole the text is ordinary C#.
+            if (c == '$')
+            {
+                int nested = EndOfInterpolatedString(line, i);
+                if (nested < 0)
+                    return -1;
+                i = nested;
+                continue;
+            }
+
+            if (c == '"')
+            {
+                int nested = EndOfStringLiteral(line, i);
+                if (nested < 0)
+                    return -1;
+                i = nested;
+                continue;
+            }
+
+            if (c == '\'')
+            {
+                i++;
+                while (i < line.Length && line[i] != '\'')
+                    i += line[i] == '\\' ? 2 : 1;
+                i++;
+                continue;
+            }
+
+            if (c == '{')
+                hole++;
+            else if (c == '}')
+                hole--;
+
+            i++;
+        }
+
+        return -1;
+    }
+
+    /// <summary>
     /// Scans one line of C# text, carrying <paramref name="inBlockComment"/> and
     /// <paramref name="inVerbatimString"/> across lines, and returns the last significant
     /// character on it — the last non-whitespace character that is not inside a comment.
     /// Braces outside comments and literals are counted into <paramref name="depth"/>.
-    /// Raw string literals are not tracked; <paramref name="untracked"/> is set instead so the
+    /// Raw string literals and multi-line interpolated strings are not tracked;
+    /// <paramref name="untracked"/> is set instead so the
     /// caller can fall back to the unconditional forward scan, which is the conservative answer.
     /// </summary>
     private static char ScanLine(
@@ -494,6 +652,33 @@ public class SourceLinkResolver
                     j += 2;
                     continue;
                 }
+            }
+
+            if (c == '$')
+            {
+                int after = j;
+                while (after < line.Length && line[after] == '$')
+                    after++;
+
+                // "$@" is the verbatim interpolated form. Hand it to the verbatim path, which
+                // already carries an unterminated literal across lines.
+                if (after < line.Length && line[after] == '@')
+                {
+                    significant = '$';
+                    j = after - 1;
+                    continue;
+                }
+
+                int end = EndOfInterpolatedString(line, j);
+                if (end < 0)
+                {
+                    untracked = true;
+                    return significant;
+                }
+
+                j = end - 1;
+                significant = '"';
+                continue;
             }
 
             if (c == '"')
