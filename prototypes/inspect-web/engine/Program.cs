@@ -87,7 +87,8 @@ public sealed record BrowserCallGraph(
     string Mermaid,
     BrowserCallGraphNode Callers,
     BrowserCallGraphNode Callees,
-    BrowserCallGraphScope Scope);
+    BrowserCallGraphScope Scope,
+    bool NoBody = false);
 
 public sealed record BrowserCallGraphNode(
     string Label,
@@ -1576,6 +1577,24 @@ public static partial class BrowserInspectionEngine
                 ?? throw new InvalidOperationException($"The selected overload '{memberSignature}' was not found.");
             if (member.MetadataToken is not int token)
                 throw new InvalidOperationException("The selected member has no method body identity.");
+
+            // Abstract and interface methods declare no IL body, so there is nothing to graph.
+            // Building the tree anyway yields a lone "<unsupported: method token …>" root; return
+            // a well-formed empty graph flagged NoBody so the client shows a clean explanation.
+            if (member.IsAbstract)
+            {
+                var emptyNode = new BrowserCallGraphNode(
+                    member.Signature ?? member.Name, "target", false, null, [],
+                    assemblyName, type.FullName, member.Name, member.Signature ?? "");
+                return JsonSerializer.Serialize(
+                    new BrowserCallGraph(
+                        "",
+                        emptyNode,
+                        emptyNode,
+                        new BrowserCallGraphScope(workspace.Length, workspaceAssemblies.Count, 1, assemblyName),
+                        NoBody: true),
+                    BrowserJsonContext.Default.BrowserCallGraph);
+            }
 
             var index = Analysis.LibraryBodyIndex.Open(
                 implementationPath,
