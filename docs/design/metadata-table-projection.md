@@ -650,41 +650,63 @@ Pinned input `Microsoft.NETCore.App/10.0.9/System.Private.CoreLib.dll`
 dotnet run eng/measure-metadata-projection-allocation.cs
 ```
 
-| Scenario | Allocated | Retained | Rows | Cells |
-| --- | --- | --- | --- | --- |
-| control: `PEReader` only, no rows | 0.0 MB | 0.0 MB | — | — |
-| full (`MaxRowsPerTable = int.MaxValue`) | 222.8 MB | 74.7 MB | 182,719 | 670,982 |
-| `mdi` default (`MaxRowsPerTable = 4096`) | 81.4 MB | 19.8 MB | 45,501 | 145,332 |
-| window 1000 | 17.4 MB | 5.0 MB | 12,002 | 38,014 |
-| window 100 | 1.8 MB | 0.5 MB | 1,202 | 3,814 |
-| window 100, `MethodDef` only | 0.1 MB | 0.1 MB | 100 | 600 |
-| window 100 @ `MethodDef` row 40000 | 0.1 MB | 0.1 MB | 100 | 600 |
+| Scenario | Allocated | Retained | Retained bytes | Rows | Cells |
+| --- | --- | --- | --- | --- | --- |
+| control: `PEReader` only, no rows | 0.0 MB | 0.0 MB | 3,720 | — | — |
+| full (`MaxRowsPerTable = int.MaxValue`) | 222.8–222.9 MB | 74.7 MB | 78,288,336 | 182,719 | 670,982 |
+| `mdi` default (`MaxRowsPerTable = 4096`) | 81.4–82.3 MB | 19.8 MB | 20,754,800 | 45,501 | 145,332 |
+| window 1000 | 17.4–17.6 MB | 5.0 MB | 5,205,704 | 12,002 | 38,014 |
+| window 100 | 1.8 MB | 0.5 MB | 523,968 | 1,202 | 3,814 |
+| window 100, `MethodDef` only | 0.1 MB | 0.1 MB | 63,760 | 100 | 600 |
+| window 100 @ `MethodDef` row 40000 | 0.1 MB | 0.1 MB | 60,880 | 100 | 600 |
 
-Across repeated runs every `retained`, row, and cell figure is stable to the
-byte; only the full scenario's *allocated* churn drifts, over 222.3–222.8 MB
-(0.2%). Deep paging is measured **inside a single large table** on purpose: an
+The probe prints raw bytes as well as megabytes so these claims can be checked
+rather than inferred from a rounded figure, and the two columns behave
+differently. Row and cell counts are exactly reproducible. Retained bytes are
+exactly reproducible for the windowed scenarios and drift by a few dozen bytes
+on the larger ones (78,288,336 / 78,288,360 / 78,288,384 across runs).
+
+Allocated churn is the noisy column and is reported as a range: it is bimodal
+across processes, with the `mdi` default landing at either 85,322,584 or
+86,310,024 bytes (a 1.2% spread) depending on when tiered JIT recompilation
+happens. Two reviewers of this measurement initially disagreed about these
+values for exactly that reason. Treat allocated as an order-of-magnitude
+GC-pressure signal and retained as the precise number.
+
+Deep paging is measured **inside a single large table** on purpose: an
 all-tables window at a high start row looks cheap for the wrong reason, since
 only the two tables that reach that depth contribute any rows at all. Windowing
-into `MethodDef` at row 40,000 costs the same as at row 1, which is the actual
-claim worth making.
+into `MethodDef` at row 40,000 costs no more than at row 1 — in fact slightly
+less (60,880 vs 63,760 bytes), since those rows carry shorter names — so cost
+tracks the size of the window, not its distance into the table.
 
 The control row is load-bearing, and a second experiment makes it stronger.
 The probe projects inside a scope, lets the projection become unreachable while
 the `PEReader` stays live, and re-measures; a `WeakReference` confirms the
 projection really was collected. With the projection reachable, 74.7 MB. With it
-unreachable and the reader still open, **0.0 MB**. SRM retains nothing
-row-proportional on the managed heap, so the whole 74.7 MB is the projection's.
+unreachable and the reader still open, **0.0 MB** (3,720 bytes).
+
+Read that as a measurement, not a proof of a universal property. A delta cannot
+distinguish the projection from some *other* root that happens to retain memory,
+so what the experiment establishes is narrower: for this input and runtime,
+nothing row-proportional survived dropping the projection. That is still the
+result that matters, because the failure mode runs the other way — a hidden root
+or a static cache in SRM would keep the post-drop delta *positive*, which is
+exactly what the test would surface. It read zero.
 
 ### What the numbers say
 
 A full projection retains **74.7 MB of managed heap for a 15.3 MB image**, at
-117 bytes per cell. #3333 measured 1.6 GB as already fatal in a browser tab, so
-a full projection of a large assembly is not something an explorer can hold.
+117 bytes per cell. Adding the image and the unmanaged metadata block, a host
+holding a full CoreLib projection is carrying roughly 93 MB. #3333 measured
+1.6 GB as fatal in a browser tab, so this does not on its own prove a full
+projection is undeliverable — but it scales with the assembly, it is paid before
+anything is rendered, and it buys rows nobody asked for.
 
-But an explorer never does that. The row window landed for exactly this reason,
-and it is **150x cheaper**: paging 100 rows across all tables retains 0.5 MB, and
-the realistic explorer interaction — one table, one window — retains **0.1 MB**,
-whether that window is at the start of the table or 40,000 rows in.
+Because an explorer never needs them. The row window landed for exactly this
+reason, and it is **150x cheaper**: paging 100 rows across all tables retains
+0.5 MB, and the realistic explorer interaction — one table, one window — retains
+**0.1 MB**, whether that window is at the start of the table or 40,000 rows in.
 
 The scope of that conclusion is the measured workload: a windowed, table-selected
 projection. It says the explorer does not need a representation change to be
@@ -707,32 +729,40 @@ laziness as such. These remain open and are simply not needed yet:
 
 - `ReadOnlyMemory<T>` **can** be stored in a field and retained, and could back
   cell text without per-cell string objects.
-- Struct cells would remove one object header per cell — the 117-bytes-per-cell
-  figure is mostly per-object overhead.
+- Struct cells would remove one object header per cell — the 44 MB that is not
+  string inventory is spread across 670,982 cell objects and their rows.
 - Formatting display text lazily from the `MetadataReader`, or a flyweight over
   it, would trade retention for recomputation.
 - A span-returning *accessor* over compact backing storage is compatible with a
   retained model, unlike a span-shaped *cell*.
 
-**Eager display text is the largest component, and still not worth changing for
-the explorer.** Attribution of the 74.7 MB, counted by **object identity** with
-x64 string sizing. Counting by property instead would double-count badly:
-`String`, `UserString`, and `Guid` cells pass the *same instance* as both `Text`
-and `Preview` (136,299 cells do this), and only `Blob` cells hold a distinct
-preview.
+**Eager display text accounts for 41% of the retained graph, and is still not
+worth changing for the explorer.** Attribution of the 74.7 MB, counted by
+**object identity** with per-object x64 string sizing — `Align8(22 + 2 * Length)`
+charged for each string separately, since rounding a summed character count once
+at the end understates the total. Counting by property instead would double-count
+badly: `String`, `UserString`, and `Guid` cells pass the *same instance* as both
+`Text` and `Preview` (136,299 cells do this), and only `Blob` cells hold a
+distinct preview.
 
 | Component | Distinct string objects | Chars | Size |
 | --- | --- | --- | --- |
-| `Handle.Display` | 79,870 | 5,455,583 | 12.4 MB |
-| heap `Text`/`Preview` | 239,289 | 3,347,232 | 12.3 MB |
-| `Flags.Decoded` | 53,106 | 1,645,153 | 4.5 MB |
+| `Handle.Display` | 79,870 | 5,455,583 | 12.3 MB |
+| heap `Text`/`Preview` | 239,289 | 3,347,232 | 12.1 MB |
+| `Flags.Decoded` | 53,106 | 1,645,153 | 4.4 MB |
 | `Scalar.Display` | 42,453 | 423,938 | 1.9 MB |
-| total | | | **31.0 MB** |
+| total | | | **30.7 MB** |
 
-So 41% of the retained graph is display text. Two cheap wins are visible and were
-deliberately **not** taken: `Scalar`/`Flags` strings collapse to 40,357 distinct
-values, and the 14,217 `Nil` cells are stateless and identical so could be a
-singleton.
+Two caveats keep this honest. Identity counting charges a string the runtime had
+already cached — small integers and enum names — as though the projection owned
+it, and whether such a string is shared depends on what ran earlier in the
+process, so character totals drift by a few dozen between runs. And this measures
+only the string inventory; the remaining 44 MB is per-object overhead across
+670,982 cells and their rows, which was not broken down further.
+
+Two cheap wins are visible and were deliberately **not** taken:
+`Scalar`/`Flags` strings collapse to 40,357 distinct values, and the 14,217
+`Nil` cells are stateless and identical so could be a singleton.
 
 They were left alone because of where they pay off, and that boundary should be
 stated honestly rather than dismissed. `mdi` defaults to all tables at 4,096 rows
