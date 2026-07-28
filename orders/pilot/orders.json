@@ -1,0 +1,34 @@
+{
+  "plan": "pilot",
+  "standard": "docs/templates/decompiler-pr.md",
+  "orders": [
+    {
+      "order": "using-elide",
+      "issue": 3346,
+      "title": "Raise variable-less using(expr) when the resource local is disposed-only",
+      "paths": [
+        "src/ILInspector.Decompiler/Pipeline/Ir/CSharpPrinter.cs",
+        "src/ILInspector.Decompiler.Tests/UsingStatementPassTests.cs",
+        "src/ILInspector.Decompiler.Tests/UsingReferenceTypeDisposeGuardTests.cs",
+        "src/ILInspector.Decompiler.Tests/DisposedOnlyUsingFixture.cs",
+        "docs/decompiler-quality.md",
+        "docs/decompiler-taste.md",
+        "docs/templates/decompiler-pr.md"
+      ],
+      "brief": "Elide the resource variable to the variable-less using(expr) form only when the resource slot is referenced solely by the generated Dispose machinery; keep using(T v = ...) when the body reads it (close negative + non-vacuity). Reuse witness CfgSampleClass.InlineArraySpanUsingResource read-only; put the body-referenced close-negative in the new DisposedOnlyUsingFixture. Prove the folded form recompiles to identical IL. Exercise Markdown and structured render modes. Land the Full-fidelity-vs-fully-raised docs note (quality/taste/pr-template) in the same change."
+    },
+    {
+      "order": "long-literal",
+      "issue": 3347,
+      "title": "Opt-in taste lens folding conv.i8 of an int constant to an NL long literal",
+      "paths": [
+        "src/ILInspector.Decompiler/Pipeline/Ir/CSharpPrinter.Numerics.cs",
+        "src/ILInspector.Decompiler/Pipeline/Ir/StyleOptionCatalog.cs",
+        "src/ILInspector.Decompiler.Tests/LongLiteralFoldTests.cs",
+        "src/ILInspector.Decompiler.Tests/LongLiteralFoldFixture.cs"
+      ],
+      "brief": "Add an opt-in (not default) taste lens that folds Convert(->Int64, Int32 constant) into a single NL long literal, reusing the UL/NL suffix path in CSharpPrinter.Numerics.cs. Fold ONLY when the source IL was ldc.i4(.s) N; conv.i8; preserve (long)N when the source opcode was a genuine ldc.i8 (opcode-fidelity guard, close negative). Register the lens in StyleOptionCatalog as byte-divergent/opt-in. Compile-back verify the folded output round-trips. Reuse witness CfgSampleClass.InlineArraySpanTernaryConditionValue read-only.",
+      "related": ["#3346"]
+    }
+  ]
+}
