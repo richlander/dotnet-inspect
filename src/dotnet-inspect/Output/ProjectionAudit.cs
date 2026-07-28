@@ -112,25 +112,38 @@ public static class ProjectionAudit
     private static List<string> RequestedFlags(ParseResult parseResult)
     {
         var requested = new List<string>();
-        var command = parseResult.CommandResult.Command;
 
         foreach (var name in ProjectionOptionNames)
         {
-            var option = command.Options.FirstOrDefault(
-                o => string.Equals(o.Name, name, StringComparison.Ordinal));
-            if (option is null)
-                continue;
-
-            // Implicit results come from defaults, not from the command line, and only a
-            // true bool flag shapes the payload.
-            if (parseResult.GetResult(option) is { Implicit: false } result
-                && result.GetValueOrDefault<bool>())
-            {
+            // A projection can be declared by the executing command or by any ancestor:
+            // `package --count search <id>` binds the flag to the parent `package` command,
+            // and the parser accepts it. Inspecting only the executing command would miss a
+            // projection that was accepted and is about to be dropped.
+            if (CommandChain(parseResult).Any(command => IsExplicitlySet(parseResult, command, name)))
                 requested.Add(name);
-            }
         }
 
         return requested;
+    }
+
+    private static IEnumerable<Command> CommandChain(ParseResult parseResult)
+    {
+        for (SymbolResult? scope = parseResult.CommandResult; scope is not null; scope = scope.Parent)
+            if (scope is CommandResult commandResult)
+                yield return commandResult.Command;
+    }
+
+    private static bool IsExplicitlySet(ParseResult parseResult, Command command, string name)
+    {
+        var option = command.Options.FirstOrDefault(
+            o => string.Equals(o.Name, name, StringComparison.Ordinal));
+        if (option is null)
+            return false;
+
+        // Implicit results come from defaults, not from the command line, and only a
+        // true bool flag shapes the payload.
+        return parseResult.GetResult(option) is { Implicit: false } result
+            && result.GetValueOrDefault<bool>();
     }
 
     // Matched against option tokens rather than raw token text: '/h' can legitimately be the

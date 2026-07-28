@@ -3476,6 +3476,36 @@ public class CommandExecutionTests
     }
 
     [Fact]
+    public void ProjectionAudit_TracksProjectionDeclaredByAnAncestorCommand()
+    {
+        // `package --count search <id>` binds --count to the parent command, which the parser
+        // accepts. Inspecting only the executing command missed it, so the subcommand rendered
+        // its full payload and exited 0 with the projection silently discarded.
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(["package", "--count", "search", "Newtonsoft.Json"]);
+
+        try
+        {
+            ProjectionAudit.BeginRequest(result);
+
+            Assert.Equal(1, ProjectionAudit.Verify(0));
+        }
+        finally
+        {
+            ProjectionAudit.ResetForTesting();
+        }
+    }
+
+    [Fact]
+    public void ProjectionAudit_RejectsConflictDeclaredByAnAncestorCommand()
+    {
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(["package", "--count", "--print", "search", "Newtonsoft.Json"]);
+
+        Assert.False(ProjectionAudit.ValidateExclusive(result));
+    }
+
+    [Fact]
     public void ProjectionAudit_WrongFlagDoesNotSatisfyRequest()
     {
         // The print writer also serves --bare, so an untyped "honored" signal would let it
