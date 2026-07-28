@@ -264,6 +264,119 @@ public class ApiMemberAnalysisInspectionTests
         return ILInspector.Metadata.AssemblyIdentityScanner.Scan(reader).ReferenceNames;
     }
 
+    // --- #3333 increment 2: narrowing the single-hop Callers path ---
+
+    static ApiMemberAnalysisInspection CreateForCallers(string assemblyPath, IReadOnlyList<string>? scope)
+        => new(assemblyPath, [], new HashSet<string> { SectionNames.Callers }, scope, null);
+
+    static int TokenOf(string assemblyPath, string declaringTypeName, string methodName)
+        => ILInspector.Analysis.LibraryBodyIndex.Open(assemblyPath).Methods
+            .First(m => m.DeclaringType.Name == declaringTypeName && m.Name == methodName)
+            .MetadataToken;
+
+    static string[] FullScope =>
+    [
+        FixtureCatalog.AnalysisCallerGraphCaller.AssemblyPath(),
+        FixtureCatalog.AnalysisCallerGraphCallerTwin.AssemblyPath(),
+        FixtureCatalog.AnalysisCallerGraphIndirectCaller.AssemblyPath(),
+        FixtureCatalog.AnalysisCallerGraphLookalikeCaller.AssemblyPath(),
+    ];
+
+    // The Callers table is built from strictly single-hop edges, so it needs the assemblies that
+    // name the declaring type, not the transitive closure the Call Graph needs. Box`1 is declared
+    // by the target and referenced only by the caller fixture: the twin references the target
+    // assembly but never Box`1, and the indirect fixture reaches the target only through the
+    // caller. The closure keeps all three; only one can contribute an edge.
+    [Fact]
+    public void DirectCallerScopes_NarrowsToAssembliesNamingTheDeclaringType()
+    {
+        string target = FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        int store = TokenOf(target, "Box`1", "Store");
+
+        var wide = CreateForCallers(target, FullScope).CallerScopes(includeAllocations: false);
+        var narrow = CreateForCallers(target, FullScope).DirectCallerScopes(store);
+
+        Assert.NotNull(wide);
+        Assert.NotNull(narrow);
+
+        // Non-vacuity: the narrowing has to be a real reduction, or the equivalence test below
+        // would be comparing a scope against itself.
+        Assert.Equal(3, wide.Count);
+        Assert.Equal(
+            ["ILInspector.Analysis.CallerGraphCaller"],
+            narrow.Select(s => s.SourceName).OrderBy(n => n, StringComparer.Ordinal));
+    }
+
+    // The obligation: narrowing changes how many assemblies are opened, never the answer. Every
+    // method in the target fixture is compared, with the un-narrowed scope as the control.
+    //
+    // The control is obtained by resolving the graph lens first, which makes DirectCallerScopes
+    // reuse that wider set — so this exercises the reuse branch as well as pinning equivalence.
+    [Fact]
+    public void CallerEdges_AreUnchangedByNarrowing()
+    {
+        string target = FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        var index = ILInspector.Analysis.LibraryBodyIndex.Open(target);
+
+        int compared = 0;
+        int withEdges = 0;
+        foreach (var method in index.Methods)
+        {
+            var narrowed = CreateForCallers(target, FullScope);
+
+            var control = CreateForCallers(target, FullScope);
+            Assert.NotNull(control.CallerScopes(includeAllocations: true));
+
+            string[] Render(ApiMemberAnalysisInspection inspection) => inspection
+                .CallerEdges(method.MetadataToken)
+                .Select(edge => $"{edge.Source}|{edge.Call.Caller.Name}|{edge.Call.ILOffset}")
+                .OrderBy(value => value, StringComparer.Ordinal)
+                .ToArray();
+
+            var expected = Render(control);
+            Assert.Equal(expected, Render(narrowed));
+
+            compared++;
+            if (expected.Length > 0)
+                withEdges++;
+        }
+
+        // Without these the comparison could hold by both sides always being empty, which is what
+        // a filter that ruled everything out would produce.
+        Assert.True(compared > 0, "no member was compared");
+        Assert.True(withEdges > 0, "no member had any cross-assembly caller, so nothing was proven");
+    }
+
+    // Narrowing must never reach the Call Graph, which is transitive and would be truncated by it.
+    // The indirect fixture is the case that distinguishes them: it belongs in the graph and cannot
+    // contribute a direct edge.
+    //
+    // The lens asked for here is deliberately includeAllocations: false, because that is the one
+    // that shares a cache with the path CallerEdges used to take. Asking the allocations lens would
+    // read the other cache and so could not observe a narrow set leaking into the graph. Narrowing
+    // is resolved first, so a leak is present before the graph asks.
+    [Fact]
+    public void CallerScopes_ForTheGraphIsNotNarrowed()
+    {
+        string target = FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        int store = TokenOf(target, "Box`1", "Store");
+
+        var inspection = CreateForCallers(target, FullScope);
+        var narrow = inspection.DirectCallerScopes(store);
+
+        Assert.NotNull(narrow);
+        Assert.DoesNotContain(
+            "ILInspector.Analysis.CallerGraphIndirectCaller",
+            narrow.Select(s => s.SourceName));
+
+        var graph = inspection.CallerScopes(includeAllocations: false);
+
+        Assert.NotNull(graph);
+        Assert.Contains(
+            "ILInspector.Analysis.CallerGraphIndirectCaller",
+            graph.Select(s => s.SourceName));
+    }
+
     static string? FindNativeImage()
     {
         foreach (string path in Directory.EnumerateFiles(
