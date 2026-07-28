@@ -234,6 +234,29 @@ public class ApiMemberAnalysisInspectionTests
         }
     }
 
+    // Round-8 review (Gemini): the routing flag must not be set by a candidate this walk opens
+    // itself. Classification could not decide this path, so it is SELECTED, so the open below
+    // settles whether the scope really had a session — and when that open fails, the unfiltered
+    // walk also ended with an empty opened list and took the token builder. Deriving the flag from
+    // every candidate rather than only the ruled-out ones routed this to the structural builder
+    // instead and printed a different tree for the same request.
+    //
+    // The path carries an embedded null, so File.OpenRead throws ArgumentException — outside the
+    // BadImageFormatException/IOException/UnauthorizedAccessException set that means "definitely
+    // unopenable". It therefore classifies as undecidable, which is the whole point: an
+    // undecidable candidate must not be treated as evidence that the scope was openable, because
+    // this walk goes on to open it and find out.
+    [Fact]
+    public void CallerScopes_WhenTheOnlySelectedScopeEntryFailsToOpen_SelectsTheSameAssemblyBuilder()
+    {
+        string target = FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        string undecidable = "scope\0entry.dll";
+
+        var scopes = Create(target, [undecidable]).CallerScopes(includeAllocations: true);
+
+        Assert.Null(scopes);
+    }
+
     static IReadOnlyList<string> ReferenceNames(string assemblyPath)
     {
         using var stream = File.OpenRead(assemblyPath);

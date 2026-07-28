@@ -27,7 +27,7 @@ internal sealed class ApiMemberAnalysisInspection
     string? _targetAssemblyName;
     bool _targetAssemblyNameResolved;
     IReadOnlyList<string>? _selectedScopePaths;
-    bool _scopeHasOpenableCandidate;
+    bool _ruledOutScopeIsOpenable;
 
     internal ApiMemberAnalysisInspection(
         string assemblyPath,
@@ -131,16 +131,23 @@ internal sealed class ApiMemberAnalysisInspection
         // scope containing one native DLL (62 lines against 60).
         //
         // So the distinction is "was anything here openable at all", not "did anything survive
-        // selection". An openable candidate that the closure ruled out still means the unfiltered
-        // walk would have opened something, so that case keeps the structural builder.
+        // selection". That question splits by whether this walk opens the candidate itself:
         //
-        // This is decidable from classification alone. The residual gap is an image whose identity
-        // tables read cleanly but whose bodies fail to index — round 2 found those exist — where
-        // the unfiltered walk would have ended with an empty opened list and taken the token
-        // builder. Deciding that would require the body index this prefilter exists to avoid.
-        if (!_scopeHasOpenableCandidate)
-            return cached;
-
+        //   - Candidates that survive selection are opened below, so `opened` answers directly.
+        //   - Candidates that selection ruled out are never opened, so the only available
+        //     evidence is their classification. A ruled-out candidate that read as an assembly
+        //     means the unfiltered walk would have opened something, and the structural builder
+        //     has to be kept for it.
+        //
+        // Deriving the flag from every candidate rather than only the ruled-out ones would be
+        // wrong: a candidate that classification could not decide is always selected, so this
+        // walk does open it, and treating its classification as proof of openability would take
+        // the structural builder even when the open then failed and the unfiltered walk took the
+        // token builder. Round 8 found that case.
+        //
+        // The residual gap is an image whose identity tables read cleanly, which selection then
+        // rules out, but which body indexing would have failed to read — round 2 found those
+        // exist. Deciding that would require the body index this prefilter exists to avoid.
         var opened = new List<MethodBodyInspectionSession>();
         foreach (string scopePath in selected)
         {
@@ -157,6 +164,9 @@ internal sealed class ApiMemberAnalysisInspection
                 // Caller scope is best-effort; unreadable assemblies do not contribute edges.
             }
         }
+
+        if (opened.Count == 0 && !_ruledOutScopeIsOpenable)
+            return cached;
 
         cached = opened;
         return cached;
@@ -176,22 +186,22 @@ internal sealed class ApiMemberAnalysisInspection
         var scopePaths = _callerScopeAssemblies!;
         var identities = ScopeIdentities(scopePaths);
 
-        foreach (var identity in identities)
-        {
-            if (identity.Kind is not Analysis.CallerScopeFilter.CandidateIdentity.Unopenable)
-            {
-                _scopeHasOpenableCandidate = true;
-                break;
-            }
-        }
-
         var selected = Analysis.CallerScopeFilter.SelectCouldReach(TargetAssemblyName, identities);
 
         var survivors = new List<string>();
         for (int i = 0; i < scopePaths.Count; i++)
         {
             if (selected[i])
+            {
                 survivors.Add(scopePaths[i]);
+            }
+            else if (identities[i].Kind is not Analysis.CallerScopeFilter.CandidateIdentity.Unopenable)
+            {
+                // Ruled out, so this walk never opens it and never learns whether it would have
+                // opened. Its classification is the only evidence that the unfiltered walk would
+                // have had a session here, which is what builder routing turns on.
+                _ruledOutScopeIsOpenable = true;
+            }
         }
 
         _selectedScopePaths = survivors;
@@ -233,6 +243,18 @@ internal sealed class ApiMemberAnalysisInspection
     /// Treating an unopenable image as undecidable is not merely conservative — one malformed or
     /// zero-byte <c>*.dll</c> beside a real one would select every other candidate and disable the
     /// prefilter for the whole scope.
+    ///
+    /// Reading identity does not prove the image will index, but the line does not fall where it
+    /// looks like it should. Failures <em>inside</em> a method body do not escape:
+    /// <see cref="LibraryBodyIndex"/> suppresses per-method decode failures, so an invalid IL
+    /// opcode — or even a fat body header declaring a code size past the end of the image — still
+    /// opens and simply contributes no edges for that method. What escapes is a fault in metadata
+    /// that body indexing reads and identity scanning never touches, which is a much narrower
+    /// region than "the bodies" and does not correspond to any single table. One byte inside the
+    /// metadata streams is enough to cross it while the <c>Assembly</c> and <c>AssemblyRef</c>
+    /// tables still read perfectly, so this is a real class of input rather than a theoretical
+    /// one, and it is the one place where classification and body indexing disagree. See the
+    /// tracking issue.
     ///
     /// This classification reads each candidate once, and body indexing reads the survivors again
     /// later. Any change to a scope file between those two reads is invisible: selection is
