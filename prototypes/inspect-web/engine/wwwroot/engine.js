@@ -43,7 +43,7 @@ export async function initializeEngine(onStatus = () => {}) {
   listStyleOptions = exports.BrowserInspectionEngine.ListStyleOptions;
   packageCacheStats = exports.BrowserInspectionEngine.PackageCacheStats;
   await runtime.runMain();
-  onStatus("Querying package compile assets…");
+  onStatus("Reading package assemblies…");
 }
 
 export async function inspectPackage(packageId, version, framework) {
