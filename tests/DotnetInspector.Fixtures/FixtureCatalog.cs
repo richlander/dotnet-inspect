@@ -28,6 +28,7 @@ public enum FixtureBoundary
     OutputKind,
     SidecarAsset,
     TargetFramework,
+    UntrustedText,
     VersionPair,
 }
 
@@ -103,10 +104,21 @@ public static class FixtureCatalog
     /// carrying a bidi override and a vertical tab (issue #3319). Must be
     /// compiler-produced: an emitted attribute message blob does not decode back.
     /// </summary>
+    /// <remarks>
+    /// The project boundary is load-bearing, which is why this is not folded
+    /// into a shared fixture project. Its assembly-level attributes carry bidi
+    /// overrides, so every consumer of a shared project would inherit hostile
+    /// Company/Product/Copyright text in its expected output; its build
+    /// deliberately disables SourceLink and determinism to plant a hostile
+    /// SourceLink map in the PDB; and MSBuild's default globs cannot even walk a
+    /// directory whose name holds a control character. Hostile input has to be
+    /// quarantined at the project boundary to stay hostile.
+    /// </remarks>
     public static readonly FixtureDefinition HostileLiterals = Fixture(
         FixtureIds.HostileLiterals,
         "DotnetInspector.HostileNameFixtures",
         "DotnetInspector.HostileNameFixtures.dll",
+        Boundaries(FixtureBoundary.UntrustedText),
         "presentation", "untrusted-input");
 
     public static readonly FixtureDefinition DiffV1 = Fixture(
