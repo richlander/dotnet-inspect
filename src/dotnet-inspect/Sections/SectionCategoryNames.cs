@@ -23,12 +23,10 @@ public static class SectionCategoryNames
     /// <summary>Cheap-but-verbose surface sections (Async Methods, Custom Attributes, Resources, etc.).</summary>
     public const string Surface = "@Surface";
 
-    /// <summary>
-    /// Resource escape / exception-safety sections (Resource Escape Triage family). Members are
-    /// <c>Escape: &lt;Resource&gt;</c> findings where a resource escapes its safe cleanup scope on an
-    /// exception path (today only <c>Escape: Array Pool</c>).
-    /// </summary>
-    public const string Escape = "@Escape";
+    // No @Escape category: the Escape: <Resource> family has exactly one member today
+    // (Escape: Array Pool), and a door with a single room behind it is pure indirection --
+    // the shared "Escape: " prefix already groups the family in the flat catalog and under
+    // alphabetical render order. Reintroduce the category when a second member lands.
 
     /// <summary>
     /// Ecosystem integration sections (library scope): the <c>Integration: &lt;X&gt;</c> members

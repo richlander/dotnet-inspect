@@ -52,9 +52,15 @@ Two orthogonal facts round out a section's placement:
   Info`). It is the only thing `-v:m` renders; it is described by fields, not a
   size class.
 - **Topical category membership** — which visible doors (`@Surface`,
-  `@Performance`, `@Audit`, `@SourceLink`, `@Escape`, `@Integrations`) surface
+  `@Performance`, `@Audit`, `@SourceLink`, `@Integrations`) surface
   the section. `@All`/`@Hidden` remain internal computed poles (below); they are
   not user-facing doors.
+
+A category earns its keep only at two or more members: a door with a single
+room behind it is pure indirection, since the flat catalog already lists that
+section and a shared name prefix (`Escape:`, `Performance:`) already groups
+the family under alphabetical render order. This is why the `Escape: <Resource>`
+family has no `@Escape` door while it has exactly one member.
 
 `Effective` is not a declared axis — it is the existing `CanRender` filter: an
 auto-selected section that would produce zero rows is suppressed. `Unbounded`

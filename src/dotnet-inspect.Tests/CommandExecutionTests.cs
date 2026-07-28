@@ -7233,7 +7233,7 @@ public class CommandExecutionTests
             .ToArray();
         var categoryNames = categoryLines.Select(ExtractSectionName).ToArray();
         Assert.Equal(
-            new[] { "@Audit", "@Escape", "@Integrations", "@Performance", "@SourceLink", "@Surface" },
+            new[] { "@Audit", "@Integrations", "@Performance", "@SourceLink", "@Surface" },
             categoryNames);
 
         var raw = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);

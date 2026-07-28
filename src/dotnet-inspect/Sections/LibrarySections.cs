@@ -104,8 +104,6 @@ public static class LibrarySections
                 "Type Forwarders",
                 "Union Types",
                 "P/Invoke Methods")
-            .AddCategory(SectionCategoryNames.Escape,
-                SectionNames.EscapeArrayPool)
             .AddCategory(SectionCategoryNames.SourceLink,
                 SectionNames.SourceLinkFiles,
                 SectionNames.SourceLinkAvailability,
@@ -670,9 +668,6 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.EscapeArrayPool;
         public static bool IsExpensive => false;
-        // Kept behind the @Escape door in the flat -D catalog (a growing Escape: <Resource> family),
-        // yet still reachable by drilling into that door (-D @Escape) or by exact name.
-        public static bool ListedInCatalog => false;
         public static string? ScannerKey => ScannerResourceTriage;
         public static bool CanRender(LibraryInspection model)
             => model.ResourceLifecycleInspection?.Value
