@@ -429,6 +429,56 @@ public class AuthoredCorpusRatchetTests
             AuthoredCorpusRatchet.CorpusDigest(assembly));
     }
 
+    /// <summary>
+    /// The seam that keeps identity and measurement from drifting: whatever
+    /// <c>SelectPool</c> chose is exactly what it identified. Computing the two
+    /// separately is what let a reviewer reorder two byte-distinct assemblies sharing
+    /// an identity and change the measurement without changing the digest, and that
+    /// mistake was invisible to this suite because the benchmark cannot be linked into
+    /// it. Returning both from one call moves the property somewhere a test can reach.
+    /// </summary>
+    [Fact]
+    public void SelectPool_IdentifiesExactlyWhatItSelected()
+    {
+        using var pool = new TempPool();
+        string a = pool.Write("a", "A.dll", [1, 1, 1]);
+        string shadowedA = pool.Write("a2", "A.dll", [9, 9, 9]);
+        string b = pool.Write("b", "B.dll", [2, 2, 2]);
+        string ignored = pool.Write("c", "C.dll", [3, 3, 3]);
+
+        static string? Identify(string path)
+            => Path.GetFileName(path) is "C.dll" ? null : Path.GetFileName(path);
+
+        var selected = AuthoredCorpusRatchet.SelectPool([a, shadowedA, b, ignored], Identify);
+
+        // First path per identity wins; the shadowed duplicate and the unmeasured
+        // assembly are absent from both the selection and the identity.
+        Assert.Equal([a, b], selected.Assemblies);
+        Assert.Equal(["A.dll", "B.dll"], selected.Identities);
+        Assert.Equal(AuthoredCorpusRatchet.PoolDigest(selected.Assemblies), selected.Sha256);
+
+        // The reviewer's exploit: swapping which duplicate comes first changes the
+        // measurement, so it must change the identity.
+        var swapped = AuthoredCorpusRatchet.SelectPool([shadowedA, a, b, ignored], Identify);
+
+        Assert.Equal([shadowedA, b], swapped.Assemblies);
+        Assert.NotEqual(selected.Sha256, swapped.Sha256);
+    }
+
+    /// <summary>
+    /// A run that selects nothing identifies no pool. The absent digest is what the
+    /// caller keys its integrity failure off; inventing one here would give a run that
+    /// measured nothing an identity it could be compared under.
+    /// </summary>
+    [Fact]
+    public void SelectPool_IdentifiesNoPoolWhenItSelectedNothing()
+    {
+        var selected = AuthoredCorpusRatchet.SelectPool(["irrelevant.dll"], _ => null);
+
+        Assert.Empty(selected.Assemblies);
+        Assert.Null(selected.Sha256);
+    }
+
     /// <summary>A run that measured nothing identifies no pool, and says so.</summary>
     [Fact]
     public void PoolDigest_RefusesARunThatMeasuredNoAssemblies()

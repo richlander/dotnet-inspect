@@ -74,40 +74,39 @@ static class AuthoredCorpusBenchmark
             .GroupBy(record => record.Assembly, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => (IReadOnlyList<AuthoredSourceHarvest.CorpusRecord>)group.ToArray(), StringComparer.Ordinal);
 
-        var results = new List<ReturnToSenderSourceProbeResult>();
-        var matchedGroups = new HashSet<string>(StringComparer.Ordinal);
-        var measured = new List<string>();
-        foreach (var assemblyPath in assemblies)
-        {
-            if (!File.Exists(assemblyPath))
-                continue;
+        // Selection and identity come out of one call, so the pool this run identifies
+        // is the pool it measures. They used to be computed separately, and a reviewer
+        // showed the two could disagree: evaluation takes the first path per assembly
+        // identity, so reordering two byte-distinct assemblies with the same identity
+        // changed what was measured without changing the digest.
+        var pool = AuthoredCorpusRatchet.SelectPool(
+            assemblies,
+            path => File.Exists(path)
+                && AuthoredSourceHarvest.ReadAssemblyIdentity(path).Name is { } name
+                && byAssembly.ContainsKey(name)
+                    ? name
+                    : null);
 
-            string name = AuthoredSourceHarvest.ReadAssemblyIdentity(assemblyPath).Name;
-            if (!byAssembly.TryGetValue(name, out var group) || !matchedGroups.Add(name))
-                continue;
-
-            measured.Add(assemblyPath);
-            var index = ReturnToSenderSourceIndex.FromMembers(group.Select(ToSourceMember));
-            var targets = group.Select(ToTarget).ToArray();
-            results.AddRange(ReturnToSenderSourceProbe.EvaluateWithIndex(assemblyPath, targets, index));
-        }
-
-        // The pool identifies itself, and it identifies the assemblies this run actually
-        // decompiled — not the ones it was handed. Digesting the handed set was wrong in
-        // a way a reviewer demonstrated: selection takes the *first* path for each
-        // assembly identity, so two byte-distinct assemblies with the same identity
-        // could be reordered to change which one was measured while the digest stayed
-        // put, and a B-first run compared clean against an A-first baseline. Digesting
-        // the selected set makes that impossible by construction, and it also stops a
-        // supplied-but-unused assembly from perturbing an identity it contributed
-        // nothing to.
-        if (measured.Count == 0)
+        if (pool.Assemblies.Count == 0)
         {
             Console.Error.WriteLine($"No supplied assembly matched the corpus, so the run measured nothing: {corpusPath}");
             return 1;
         }
 
-        string? poolSha256 = AuthoredCorpusRatchet.PoolDigest(measured);
+        var results = new List<ReturnToSenderSourceProbeResult>();
+        var matchedGroups = new HashSet<string>(StringComparer.Ordinal);
+        for (int i = 0; i < pool.Assemblies.Count; i++)
+        {
+            string assemblyPath = pool.Assemblies[i];
+            var group = byAssembly[pool.Identities[i]];
+            matchedGroups.Add(pool.Identities[i]);
+
+            var index = ReturnToSenderSourceIndex.FromMembers(group.Select(ToSourceMember));
+            var targets = group.Select(ToTarget).ToArray();
+            results.AddRange(ReturnToSenderSourceProbe.EvaluateWithIndex(assemblyPath, targets, index));
+        }
+
+        string? poolSha256 = pool.Sha256;
 
         int unmatchedRows = byAssembly
             .Where(entry => !matchedGroups.Contains(entry.Key))

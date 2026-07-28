@@ -384,6 +384,61 @@ static class AuthoredCorpusRatchet
     }
 
     /// <summary>
+    /// The set of assemblies a run will measure, together with the identity of that
+    /// set. The two are produced here, from one list, so they cannot describe different
+    /// pools — which is the only reason this type exists rather than a plain list.
+    /// </summary>
+    /// <param name="Sha256">
+    /// The identity of <paramref name="Assemblies"/>, or <see langword="null"/> when the
+    /// selection is empty — a run that measures nothing identifies no pool, and the
+    /// caller reports that as an integrity failure rather than comparing against it.
+    /// </param>
+    internal sealed record MeasuredPool(IReadOnlyList<string> Assemblies, IReadOnlyList<string> Identities, string? Sha256);
+
+    /// <summary>
+    /// Selects the assemblies a run measures and identifies that exact set.
+    ///
+    /// <para>Evaluation takes the first path offered for each assembly identity and
+    /// ignores the rest, so the selection is order-sensitive. A reviewer showed what
+    /// happens when the identity is taken from the supplied list instead: two
+    /// byte-distinct assemblies sharing an identity could be reordered to change which
+    /// one was measured while the digest stayed put, and a B-first run compared clean
+    /// against an A-first baseline.</para>
+    ///
+    /// <para>Returning the selection and its digest together is what makes that
+    /// unrepeatable. The caller has no second list to reach for, so the identity cannot
+    /// drift from the measurement without deleting this seam outright — and
+    /// <c>SelectPool_IdentifiesExactlyWhatItSelected</c> would notice.</para>
+    /// </summary>
+    /// <param name="supplied">Paths as handed to the run, in the order they will be tried.</param>
+    /// <param name="identify">
+    /// Returns the assembly identity to measure this path under, or <see langword="null"/>
+    /// if the run will not measure it at all (missing file, or no corpus rows).
+    /// </param>
+    internal static MeasuredPool SelectPool(IReadOnlyList<string> supplied, Func<string, string?> identify)
+    {
+        ArgumentNullException.ThrowIfNull(supplied);
+        ArgumentNullException.ThrowIfNull(identify);
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var assemblies = new List<string>();
+        var identities = new List<string>();
+        foreach (var path in supplied)
+        {
+            if (identify(path) is not { } identity || !seen.Add(identity))
+                continue;
+
+            assemblies.Add(path);
+            identities.Add(identity);
+        }
+
+        return new MeasuredPool(
+            assemblies,
+            identities,
+            assemblies.Count == 0 ? null : PoolDigest(assemblies));
+    }
+
+    /// <summary>
     /// The corpus's identity: a digest of its exact bytes. The corpus is a pinned
     /// vendored artifact, so byte equality is the right expectation and any edit —
     /// including one that preserves the row count — must retarget the comparison.
