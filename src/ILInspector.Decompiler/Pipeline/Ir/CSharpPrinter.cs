@@ -2021,7 +2021,7 @@ public sealed partial class CSharpPrinter
             if (!TryAppendFluentChain(sb, node, line, indent)
                 && !TryAppendSplittableExpression(sb, node, line, indent)
                 && !TryAppendBitwiseChain(sb, node, line, indent)
-                && !TryAppendObjectInitializer(sb, node, line, indent))
+                && !TryAppendBraceBody(sb, node, line, indent))
                 sb.Append(pad).AppendLine(line);
         }
     }
@@ -2360,61 +2360,77 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
-    /// Emits <paramref name="node"/> as a wrapped object/collection initializer —
-    /// the <c>new T(...)</c> head on the first line, an Allman <c>{</c>/<c>}</c>
-    /// pair on their own lines, and one <c>Member = value</c> / element entry per
-    /// line — when it is an initializer-valued statement whose flat single-line
-    /// form would exceed <see cref="FluentChainWrapWidth"/>, returning true after
-    /// appending; false to fall through to the flat single-line emit. The broken
-    /// form is only chosen when the flat statement <paramref name="line"/> is
-    /// exactly <c>prefix + initializer + ";"</c>, so any coercion cast the renderer
-    /// added around the initializer keeps the statement inline — breaking never
-    /// drops or reshapes a token.
+    /// Emits <paramref name="node"/> as a wrapped brace-bodied expression — an
+    /// object/collection initializer (<c>new T(...) { ... }</c>), a record
+    /// <c>with</c> expression (<c>receiver with { ... }</c>), or an anonymous object
+    /// (<c>new { ... }</c>) — with the head on the first line, an Allman <c>{</c>/<c>}</c>
+    /// pair on their own lines, and one entry per line, when it is a brace-bodied
+    /// statement whose flat single-line form would exceed
+    /// <see cref="FluentChainWrapWidth"/>, returning true after appending; false to
+    /// fall through to the flat single-line emit. The broken form is only chosen
+    /// when the flat statement <paramref name="line"/> is exactly
+    /// <c>prefix + body + ";"</c>, so any coercion cast the renderer added around the
+    /// body keeps the statement inline — breaking never drops or reshapes a token.
     /// </summary>
-    bool TryAppendObjectInitializer(StringBuilder sb, IrNode node, string line, int indent)
+    bool TryAppendBraceBody(StringBuilder sb, IrNode node, string line, int indent)
     {
         if (_options.DisableOneLinerWrapping)
             return false;
-        if (!TryObjectInitializerStatement(node, out var initializer, out var prefix))
+        if (!TryBraceBodyStatement(node, out var value, out var prefix))
             return false;
-        if (line != prefix + ObjectInitializerText(initializer) + ";")
+        string flat = value switch
+        {
+            ObjectInitializerExpression initializer => ObjectInitializerText(initializer),
+            WithExpression with => WithExpressionText(with),
+            AnonymousObject anonymous => AnonymousObjectText(anonymous),
+            _ => null!,
+        };
+        if (line != prefix + flat + ";")
             return false;
-        if (ObjectInitializerLines(initializer, prefix, ";", indent) is not { } broken)
+        string? broken = value switch
+        {
+            ObjectInitializerExpression initializer => ObjectInitializerLines(initializer, prefix, ";", indent),
+            WithExpression with => WithExpressionLines(with, prefix, ";", indent),
+            AnonymousObject anonymous => AnonymousObjectLines(anonymous, prefix, ";", indent),
+            _ => null,
+        };
+        if (broken is null)
             return false;
         sb.AppendLine(broken);
         return true;
     }
 
     /// <summary>
-    /// Recognizes the statement positions whose value is a bare object/collection
-    /// initializer — a <c>return</c> or a (non-ref) local or stack-slot store — and
-    /// yields the initializer plus the exact statement prefix the flat renderer
-    /// prints before it. The caller re-derives the flat text and only breaks the
-    /// initializer when it matches, so the prefix here need only cover the common
+    /// Recognizes the statement positions whose value is a bare brace-bodied
+    /// expression — an object/collection initializer, a record <c>with</c>
+    /// expression, or an anonymous object — in a <c>return</c> or a (non-ref) local
+    /// or stack-slot store, and yields the value plus the exact statement prefix the
+    /// flat renderer prints before it. The caller re-derives the flat text and only
+    /// breaks the body when it matches, so the prefix here need only cover the common
     /// (cast-free) spelling.
     /// </summary>
-    bool TryObjectInitializerStatement(IrNode node, out ObjectInitializerExpression initializer, out string prefix)
+    bool TryBraceBodyStatement(IrNode node, out IrExpression value, out string prefix)
     {
         switch (node)
         {
-            case Return { Value: ObjectInitializerExpression init }:
-                initializer = init;
+            case Return { Value: ObjectInitializerExpression or WithExpression or AnonymousObject } ret:
+                value = ret.Value!;
                 prefix = "return ";
                 return true;
-            case StoreLocal { Type.Kind: not TypeRefKind.ByRef, Value: ObjectInitializerExpression init } store:
-                initializer = init;
+            case StoreLocal { Type.Kind: not TypeRefKind.ByRef, Value: ObjectInitializerExpression or WithExpression or AnonymousObject } store:
+                value = store.Value;
                 prefix = _declaringStores.Contains(store)
                     ? $"{DeclarationTypeText(store.Type, store.Value)} {LocalName(store.Index)} = "
                     : $"{LocalName(store.Index)} = ";
                 return true;
-            case StoreStackSlot store when store.Value is ObjectInitializerExpression init && StackSlotTargetType(store) is { Kind: not TypeRefKind.ByRef }:
-                initializer = init;
+            case StoreStackSlot store when store.Value is (ObjectInitializerExpression or WithExpression or AnonymousObject) && StackSlotTargetType(store) is { Kind: not TypeRefKind.ByRef }:
+                value = store.Value;
                 prefix = _declaringStores.Contains(store)
                     ? $"{DeclarationTypeText(StackSlotTargetType(store)!, store.Value)} {StackSlotName(store)} = "
                     : $"{StackSlotName(store)} = ";
                 return true;
             default:
-                initializer = null!;
+                value = null!;
                 prefix = "";
                 return false;
         }

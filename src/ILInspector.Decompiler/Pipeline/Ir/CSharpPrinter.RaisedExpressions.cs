@@ -70,6 +70,17 @@ public sealed partial class CSharpPrinter
     {
         if (anonymous.Values.Count == 0)
             return "new { }";
+        return $"new {{ {string.Join(", ", AnonymousObjectParts(anonymous))} }}";
+    }
+
+    /// <summary>
+    /// Renders each anonymous-object projection part (<c>x</c> / <c>obj.Member</c>
+    /// shorthand where the value's own member name matches, else <c>Name = value</c>),
+    /// shared by the inline <see cref="AnonymousObjectText"/> and the wrapped
+    /// <c>AnonymousObjectLines</c> so both spell identical tokens.
+    /// </summary>
+    List<string> AnonymousObjectParts(AnonymousObject anonymous)
+    {
         var parts = new List<string>(anonymous.Values.Count);
         for (int i = 0; i < anonymous.Values.Count; i++)
         {
@@ -82,7 +93,7 @@ public sealed partial class CSharpPrinter
                 || (value is LoadProperty property && property.PropertyName == name && text.EndsWith("." + escapedName, StringComparison.Ordinal));
             parts.Add(shorthand ? text : $"{escapedName} = {text}");
         }
-        return $"new {{ {string.Join(", ", parts)} }}";
+        return parts;
     }
 
     /// <summary>
