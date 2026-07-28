@@ -663,7 +663,7 @@ public static partial class BrowserInspectionEngine
                 implementationPath,
                 () => File.OpenRead(implementationPath),
                 Provenance: $"lib/{targetFramework}/{assemblyName}"));
-            var type = inspection.ApiSurface().Types.FirstOrDefault(candidate =>
+            var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
                 candidate.FullName.Equals(typeId, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
             var member = type.Members.FirstOrDefault(candidate =>
@@ -738,7 +738,7 @@ public static partial class BrowserInspectionEngine
                 implementationPath,
                 () => File.OpenRead(implementationPath),
                 Provenance: $"lib/{targetFramework}/{assemblyName}"));
-            var type = inspection.ApiSurface().Types.FirstOrDefault(candidate =>
+            var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
                 candidate.FullName.Equals(typeId, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
             var member = type.Members.FirstOrDefault(candidate =>
@@ -1219,7 +1219,7 @@ public static partial class BrowserInspectionEngine
                         () => File.OpenRead(assemblyPath),
                         Provenance: $"lib/{targetFramework}/{assemblyName}")))
                     {
-                        foreach (var type in inspection.ApiSurface().Types)
+                        foreach (var type in inspection.ApiSurface(includeAll: true).Types)
                         {
                             foreach (var member in type.Members)
                             {
@@ -1468,7 +1468,7 @@ public static partial class BrowserInspectionEngine
                 implementationPath,
                 () => File.OpenRead(implementationPath),
                 Provenance: $"lib/{targetFramework}/{assemblyName}"));
-            var type = inspection.ApiSurface().Types.FirstOrDefault(candidate =>
+            var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
                 candidate.FullName.Equals(typeId, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
 
@@ -1567,7 +1567,7 @@ public static partial class BrowserInspectionEngine
                 implementationPath,
                 () => File.OpenRead(implementationPath),
                 Provenance: $"lib/{targetFramework}/{assemblyName}"));
-            var type = inspection.ApiSurface().Types.FirstOrDefault(candidate =>
+            var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
                 candidate.FullName.Equals(typeId, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
             var member = type.Members.FirstOrDefault(candidate =>
@@ -1636,7 +1636,7 @@ public static partial class BrowserInspectionEngine
                 implementationPath,
                 () => File.OpenRead(implementationPath),
                 Provenance: $"lib/{targetFramework}/{assemblyName}"));
-            var type = inspection.ApiSurface().Types.FirstOrDefault(candidate =>
+            var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
                 candidate.FullName.Equals(typeId, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException($"Type '{typeId}' is not in the implementation assembly.");
             var member = type.Members.FirstOrDefault(candidate =>
@@ -2076,7 +2076,7 @@ public static partial class BrowserInspectionEngine
                 path,
                 () => File.OpenRead(path),
                 Provenance: $"runtime-pack/{PlatformRuntimePackId}/{acquired.FileName}"));
-            var type = inspection.ApiSurface().Types.FirstOrDefault(candidate =>
+            var type = inspection.ApiSurface(includeAll: true).Types.FirstOrDefault(candidate =>
                 candidate.FullName.Equals(typeFullName, StringComparison.Ordinal))
                 ?? throw new InvalidOperationException(
                     $"Type '{typeFullName}' is not defined in {acquired.FileName}.");
