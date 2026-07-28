@@ -144,6 +144,21 @@ public class UnlistedVersionTests : IDisposable
         Assert.Null(result);
     }
 
+    [Fact]
+    public async Task GetLatestVersion_Prerelease_ReturnsNull_WhenRegistrationUnavailable()
+    {
+        // Flat-container is healthy but the registration index (the authoritative source of listed
+        // status) is unavailable, so the listed list is a fail-open UNFILTERED snapshot flagged
+        // non-authoritative. Latest resolution must NOT pick from it — otherwise the unlisted head
+        // 3.0.0-beta.1 would surface as prerelease "latest" during a transient registration outage.
+        using var client = new HttpClient(new NuGetOrgHandler("unlistedpkg", Registry, serveRegistration: false));
+
+        var result = await PackageExtractor.GetLatestVersionAsync(
+            client, "UnlistedPkg", [NuGetOrgSource], log: null, includePrerelease: true);
+
+        Assert.Null(result);
+    }
+
     /// <summary>
     /// Serves the three nuget.org endpoints version resolution touches: the flat-container version
     /// list (no listed flag), the registration index (single inline page carrying listed flags),

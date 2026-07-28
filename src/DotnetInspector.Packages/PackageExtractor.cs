@@ -970,14 +970,16 @@ public static class PackageExtractor
         }
 
         // For nuget.org, the flat-container/prerelease path must exclude unlisted versions.
-        // FetchListedVersionsFromSourceAsync consults the registration index; its result is
-        // authoritative for nuget.org, so do not fall through to the unfiltered index below —
-        // returning null (couldn't determine a latest) is safer than an unfiltered latest that
-        // could be an unlisted version.
+        // FetchListedVersionsFromSourceAsync consults the registration index; only an
+        // authoritative result (registration index read successfully) is trustworthy. If the
+        // registration index is unavailable the method fails open to an UNFILTERED list flagged
+        // Authoritative=false; picking a "latest" from that could surface an unlisted version, so
+        // return null (couldn't determine a latest) instead of falling through to the unfiltered
+        // index below.
         if (source.IsNuGetOrg)
         {
-            var (listed, _) = await FetchListedVersionsFromSourceAsync(client, packageName, source, log).ConfigureAwait(false);
-            if (listed != null)
+            var (listed, authoritative) = await FetchListedVersionsFromSourceAsync(client, packageName, source, log).ConfigureAwait(false);
+            if (listed != null && authoritative)
                 return PickLatest(listed, includePrerelease);
             return null;
         }
