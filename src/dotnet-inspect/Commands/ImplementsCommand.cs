@@ -76,13 +76,16 @@ public class ImplementsCommand
                 NamespacePrefixHints.WriteIfLikelyNamespacePrefix(targetType);
 
             // Output results
-            if (options.JsonOutput)
-            {
-                WriteJsonOutput(results, options.CompactJson);
-            }
-            else if (options.Count)
+            // --count reduces the payload, so it is resolved before the format flags that
+            // render it. Ordering these the other way lets --json answer a count request
+            // with the full unprojected result set.
+            if (options.Count)
             {
                 WriteCount(results);
+            }
+            else if (options.JsonOutput)
+            {
+                WriteJsonOutput(results, options.CompactJson);
             }
             else
             {
@@ -140,7 +143,7 @@ public class ImplementsCommand
 
     private static void WriteCount(List<ImplementerResult> results)
     {
-        Console.WriteLine(results.Count);
+        CountOutput.WriteCount(results.Count);
     }
 
     private static void WriteMarkoutOutput(string targetType, List<ImplementerResult> results, bool tabular, bool tsv, bool jsonl, bool noHeader, string[]? columns, string[]? fields, RowWindow? rows)

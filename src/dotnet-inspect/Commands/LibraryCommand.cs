@@ -793,7 +793,7 @@ public class LibraryCommand
             SectionNames.CostContext => inspection.ILOffset?.CostContext is { Count: > 0 },
             _ => false
         };
-        Console.WriteLine(hasRow ? 1 : 0);
+        CountOutput.WriteCount(hasRow ? 1 : 0);
         return true;
     }
 

@@ -56,16 +56,16 @@ public class DependsCommand
                 return 0;
             }
 
-            if (options.JsonOutput)
+            if (options.Count)
+            {
+                WriteCount(result.Tree);
+            }
+            else if (options.JsonOutput)
             {
                 JsonOutputHelper.Write(result.Tree,
                     DependsJsonContext.Default.ListTypeDependencyNode,
                     DependsCompactJsonContext.Default.ListTypeDependencyNode,
                     options.CompactJson);
-            }
-            else if (options.Count)
-            {
-                WriteCount(result.Tree);
             }
             else
             {
@@ -235,12 +235,12 @@ public class DependsCommand
 
     private static void WriteCount(List<TypeDependencyNode> nodes)
     {
-        Console.WriteLine(CountTypeNodes(nodes));
+        CountOutput.WriteCount(CountTypeNodes(nodes));
     }
 
     private static void WriteCount(int count)
     {
-        Console.WriteLine(count);
+        CountOutput.WriteCount(count);
     }
 
     private static int CountTypeNodes(List<TypeDependencyNode> nodes)

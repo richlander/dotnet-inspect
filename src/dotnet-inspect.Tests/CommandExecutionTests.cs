@@ -548,7 +548,7 @@ public class CommandExecutionTests
             }
             try
             {
-                return await result.InvokeAsync();
+                return await CommandLineBuilder.InvokeAsync(result);
             }
             catch (RowWindowValidationException ex)
             {
@@ -3421,6 +3421,258 @@ public class CommandExecutionTests
         Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.cs", rows[0].GetProperty("url").GetString());
         Assert.Equal(2, rows[1].GetProperty("row").GetInt32());
         Assert.EndsWith("/Src/Newtonsoft.Json/JsonReader.Async.cs", rows[1].GetProperty("url").GetString());
+    }
+
+    [Theory]
+    [InlineData("--value")]
+    [InlineData("--urls")]
+    [InlineData("--paths")]
+    [InlineData("--print")]
+    public async Task WholeSurfaceListing_DroppedProjection_FailsLoudly(string projectionFlag)
+    {
+        // The whole-surface type listing renders sections but has no projection dispatch, so
+        // before the audit it answered a projection request with the full unprojected listing
+        // and exit 0. The audit turns that silent drop into a reported failure. When this route
+        // gains real column projection, this expectation changes to a projected payload.
+        var (exit, _, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes", projectionFlag);
+
+        Assert.Equal(1, exit);
+        Assert.Contains($"'{projectionFlag}' was accepted but this command path produced unprojected output", error);
+    }
+
+    [Fact]
+    public async Task ProjectionAudit_DoesNotFireForHelp()
+    {
+        // --help short-circuits rendering, so the projection is not dropped; it is moot.
+        var (exit, _, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes", "--value", "--help");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("produced unprojected output", error);
+    }
+
+    [Fact]
+    public async Task ProjectionAudit_DoesNotFireWhenProjectionIsRejected()
+    {
+        // A command that rejects an unsupported projection has already reported the problem;
+        // the audit must not add a second, misleading "this is a bug" line on top of it.
+        var (exit, _, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "Signals", "--urls");
+
+        Assert.Equal(1, exit);
+        Assert.DoesNotContain("produced unprojected output", error);
+    }
+
+    [Fact]
+    public async Task ProjectionAudit_DoesNotFireForHonoredCount()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "References", "--count");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("produced unprojected output", error);
+        Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
+    }
+
+    [Fact]
+    public async Task Router_RewrittenCommand_IsAudited()
+    {
+        // The router captures projection flags as raw tokens, so the outer invocation records
+        // nothing. It used to invoke the rewritten parse directly, bypassing the audit, which
+        // left every bare-mode invocation unguarded. It now goes through the choke point.
+        var (exit, _, error) = await RunAppAsync("Regex", "--count", "--print", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("--count cannot be combined with --print", error);
+    }
+
+    [Fact]
+    public void ProjectionAudit_NestedInvocationDoesNotDiscardOuterRequest()
+    {
+        // Invocations nest: the router invokes the command it rewrites to. An inner invocation
+        // must not consume the outer one's request, or the outer verify finds nothing to check
+        // and a dropped projection escapes.
+        var root = CommandLineBuilder.CreateRootCommand();
+        var outer = root.Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
+        var inner = root.Parse(["library", TestAssemblyPath, "-S", "References"]);
+
+        try
+        {
+            using (ProjectionAudit.BeginRequest(outer))
+            {
+                using (ProjectionAudit.BeginRequest(inner))
+                {
+                    Assert.Equal(0, ProjectionAudit.Verify(0));
+                }
+
+                Assert.Equal(1, ProjectionAudit.Verify(0));
+            }
+        }
+        finally
+        {
+            ProjectionAudit.ResetForTesting();
+        }
+    }
+
+    [Fact]
+    public void ProjectionAudit_TracksProjectionDeclaredByAnAncestorCommand()
+    {
+        // `package --count search <id>` binds --count to the parent command, which the parser
+        // accepts. Inspecting only the executing command missed it, so the subcommand rendered
+        // its full payload and exited 0 with the projection silently discarded.
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(["package", "--count", "search", "Newtonsoft.Json"]);
+
+        try
+        {
+            ProjectionAudit.BeginRequest(result);
+
+            Assert.Equal(1, ProjectionAudit.Verify(0));
+        }
+        finally
+        {
+            ProjectionAudit.ResetForTesting();
+        }
+    }
+
+    [Fact]
+    public void ProjectionAudit_RejectsConflictDeclaredByAnAncestorCommand()
+    {
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(["package", "--count", "--print", "search", "Newtonsoft.Json"]);
+
+        Assert.False(ProjectionAudit.ValidateExclusive(result));
+    }
+
+    [Fact]
+    public void ProjectionAudit_WrongFlagDoesNotSatisfyRequest()
+    {
+        // The print writer also serves --bare, so an untyped "honored" signal would let it
+        // satisfy an unrelated recorded --count and let that drop escape.
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
+
+        try
+        {
+            ProjectionAudit.BeginRequest(result);
+            ProjectionAudit.MarkHonored(ProjectionAudit.Print);
+
+            Assert.Equal(1, ProjectionAudit.Verify(0));
+        }
+        finally
+        {
+            ProjectionAudit.ResetForTesting();
+        }
+    }
+
+    [Fact]
+    public void ProjectionAudit_MatchingFlagSatisfiesRequest()
+    {
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(["library", TestAssemblyPath, "-S", "References", "--count"]);
+
+        try
+        {
+            ProjectionAudit.BeginRequest(result);
+            ProjectionAudit.MarkHonored(ProjectionAudit.Count);
+
+            Assert.Equal(0, ProjectionAudit.Verify(0));
+        }
+        finally
+        {
+            ProjectionAudit.ResetForTesting();
+        }
+    }
+
+    [Fact]
+    public void ProjectionAudit_HelpTokenAsOptionValueDoesNotDisableAudit()
+    {
+        // '/h' here is the value of --type, not a help request. Matching raw token text
+        // rather than option tokens would silently disable the audit for the invocation.
+        var result = CommandLineBuilder.CreateRootCommand()
+            .Parse(["type", "--library", TestAssemblyPath, "-S", "Classes", "--value", "--type", "/h"]);
+
+        try
+        {
+            ProjectionAudit.BeginRequest(result);
+
+            Assert.Equal(1, ProjectionAudit.Verify(0));
+        }
+        finally
+        {
+            ProjectionAudit.ResetForTesting();
+        }
+    }
+
+    [Fact]
+    public async Task ProjectionFlags_AreMutuallyExclusive()
+    {
+        // Two projections cannot both shape one payload, so honoring either one would
+        // discard the other.
+        var (exit, output, error) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes", "--count", "--print");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("--count cannot be combined with --print", error);
+    }
+
+    [Fact]
+    public async Task ProjectionFlags_ConflictIsMootUnderHelp()
+    {
+        // Help renders no payload, so there is nothing for two projections to fight over.
+        // Rejecting the combination here would turn a working help request into an error.
+        var (exit, output, _) = await RunAppAsync(
+            "type", "--library", TestAssemblyPath, "-S", "Classes", "--count", "--print", "--help");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("Usage", output, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Find_Count_ComposesWithJson()
+    {
+        // Found by the projection audit: --json was resolved before --count, so a count
+        // request was answered with the full unprojected result set and exit 0.
+        var (exit, output, _) = await RunAppAsync(
+            "find", "Cache", "--library", TestAssemblyPath, "--count", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
+    }
+
+    [Fact]
+    public async Task Implements_Count_ComposesWithJson()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "implements", "IDisposable", "--library", TestAssemblyPath, "--count", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
+    }
+
+    [Fact]
+    public async Task Extensions_Count_ComposesWithJson()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "extensions", "String", "--library", TestAssemblyPath, "--count", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out _), $"expected a bare count, got: {output}");
+    }
+
+    [Fact]
+    public async Task Depends_Count_ComposesWithJson()
+    {
+        // The type with dependencies matters: a type with none short-circuits before the
+        // JSON branch, which is why an earlier probe using such a type saw no defect.
+        var (exit, output, _) = await RunAppAsync(
+            "depends", "SampleGenericClass`1", "--library", TestAssemblyPath, "--count", "--json");
+
+        Assert.Equal(0, exit);
+        Assert.True(int.TryParse(output.Trim(), out var count), $"expected a bare count, got: {output}");
+        Assert.True(count > 0, "fixture must have dependencies for this to be a meaningful regression test");
     }
 
     [Fact]

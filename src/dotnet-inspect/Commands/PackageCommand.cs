@@ -458,6 +458,7 @@ public class PackageCommand
 
             if (options.Count)
             {
+                ProjectionAudit.MarkHonored(ProjectionAudit.Count);
                 Console.WriteLine(OutputFormatter.FormatResult(result, options, pipeline));
                 return 0;
             }
@@ -653,7 +654,7 @@ public class PackageCommand
 
         if (options.Count)
         {
-            Console.WriteLine(CountMultiPackageRows(results, rowSection, options).ToString(CultureInfo.InvariantCulture));
+            CountOutput.WriteCount(CountMultiPackageRows(results, rowSection, options));
             return 0;
         }
 

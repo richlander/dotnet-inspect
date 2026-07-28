@@ -49,13 +49,16 @@ public class ExtensionsCommand
                 NamespacePrefixHints.WriteIfLikelyNamespacePrefix(targetType);
 
             // Output results
-            if (options.JsonOutput)
-            {
-                WriteJsonOutput(results, options.CompactJson);
-            }
-            else if (options.Count)
+            // --count reduces the payload, so it is resolved before the format flags that
+            // render it. Ordering these the other way lets --json answer a count request
+            // with the full unprojected result set.
+            if (options.Count)
             {
                 WriteCount(results);
+            }
+            else if (options.JsonOutput)
+            {
+                WriteJsonOutput(results, options.CompactJson);
             }
             else if (options.Tabular || options.Tsv || options.Jsonl || options.NoHeader)
             {
@@ -235,7 +238,7 @@ public class ExtensionsCommand
 
     private static void WriteCount(List<ExtensionMethodResult> results)
     {
-        Console.WriteLine(results.Count);
+        CountOutput.WriteCount(results.Count);
     }
 
     private static void WriteMarkoutOutput(string targetType, List<ExtensionMethodResult> results, Verbosity verbosity, RowWindow? rows)
