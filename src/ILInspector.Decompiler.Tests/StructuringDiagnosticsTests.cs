@@ -231,9 +231,13 @@ public class StructuringDiagnosticsTests
     [Fact]
     public void EarlyBreakFromInnerTry_RaisesWithoutLeaveGoto()
     {
-        // The readability win: the inner try body and its post-finally
-        // continuation structure without either flat goto soup or a surviving
-        // `goto ...; // leave`.
+        // The readability win: the inner enumerator's try/finally (the foreach
+        // Dispose) and its post-finally continuation structure without either flat
+        // goto soup or a surviving `goto ...; // leave`. Both the outer and inner
+        // loops are genuine compiler foreach loops whose single-use iteration
+        // variable is read unconditionally at the body top, so ForeachStatementPass
+        // (#3164) now recovers both: the inner loop no longer stays a
+        // `using`/`while (e.MoveNext())` enumerator loop.
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         var function = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, nameof(CfgSampleClass.AllOuterMatchInner));
         Assert.NotNull(function);
@@ -243,7 +247,8 @@ public class StructuringDiagnosticsTests
         Assert.Equal(DecompilationFidelity.Full, result.Fidelity);
 
         var output = result.Output!.ReplaceLineEndings("\n");
-        Assert.Contains("while (", output);
+        Assert.Equal(2, output.Split("foreach (").Length - 1);
+        Assert.DoesNotContain("while (", output);
         Assert.DoesNotContain("// leave", output);
     }
 
