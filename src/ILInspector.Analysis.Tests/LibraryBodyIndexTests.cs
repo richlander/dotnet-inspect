@@ -316,6 +316,109 @@ public class LibraryBodyIndexTests
             child.Member.Name == nameof(BodilessRootFixtures.InvokesThroughInterface));
     }
 
+    // #3342: the whole-graph maps behind the call-tree builders (definition map, distinct-caller
+    // counts, reverse edges, and the cross-assembly scope maps) are cached per index so a
+    // consumer that asks many questions of one index pays for them once. That is only sound if
+    // none of them depends on which member was selected or on a previously requested scope set.
+    // This walks one index through a sequence designed to poison a root- or scope-dependent
+    // cache, and requires every answer to match a fresh index that was asked nothing else.
+    //
+    // Scope note: this pins cache *independence*, not the bodiless-root contract itself. Serving
+    // a bodiless root from the shared grouping is a correctness fault that a fresh index would
+    // reproduce identically, so no independence test can see it;
+    // BuildCallerTree_ResolvesCallers_WhenSelectedRootIsBodilessInterfaceMethod owns that, and
+    // was confirmed to fail when the guard is removed.
+    [Fact]
+    public void CallTreeBuilders_AreUnaffectedByEarlierRequestsOnTheSameIndex()
+    {
+        string analysisPath = typeof(LibraryBodyIndex).Assembly.Location;
+        string testPath = typeof(LibraryBodyIndexTests).Assembly.Location;
+
+        // Pick a root with a genuinely branching caller tree. Comparing trees is only evidence
+        // if the trees can differ: a root with no in-assembly callers renders one leaf line, and
+        // every comparison below would hold no matter how badly a cache leaked.
+        var probe = LibraryBodyIndex.Open(analysisPath);
+        int richToken = PickRichest(probe, out int richest);
+
+        Assert.True(richest >= 4, $"expected a branching caller tree to compare; richest had {richest} nodes");
+        int otherToken = probe.Methods.First(method => method.MetadataToken != richToken).MetadataToken;
+        // A bodiless root is the one case whose caller grouping genuinely depends on the root,
+        // so it must not be served from (or poison) the shared per-index cache.
+        int bodilessToken = typeof(ICallerGraphTarget).GetMethod(nameof(ICallerGraphTarget.Target))!.MetadataToken;
+
+        // Each expectation comes from an index that has answered nothing else.
+        var expectedCallers = Describe(LibraryBodyIndex.Open(analysisPath).BuildCallerTree(richToken, maxDepth: 2, maxNodes: 50));
+        var expectedCallees = Describe(LibraryBodyIndex.Open(analysisPath).BuildCallTree(richToken, maxDepth: 2, maxNodes: 50));
+        var expectedScoped = Describe(LibraryBodyIndex.Open(analysisPath)
+            .BuildCallerTree(richToken, new[] { LibraryBodyIndex.Open(testPath) }, maxDepth: 2, maxNodes: 50));
+        var expectedUnscoped = Describe(LibraryBodyIndex.Open(analysisPath)
+            .BuildCallerTree(richToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 2, maxNodes: 50));
+        var expectedBodiless = Describe(LibraryBodyIndex.Open(testPath).BuildCallerTree(bodilessToken, maxDepth: 2, maxNodes: 50));
+
+        // Scoping must actually change the answer, or the scope-set comparisons prove nothing.
+        Assert.NotEqual(expectedScoped, expectedUnscoped);
+
+        // Now ask one index everything, in an order that would expose a leaked root or scope.
+        var reused = LibraryBodyIndex.Open(analysisPath);
+        var scopeA = LibraryBodyIndex.Open(testPath);
+        reused.BuildCallerTree(otherToken, maxDepth: 2, maxNodes: 50);
+        reused.BuildCallTree(otherToken, maxDepth: 2, maxNodes: 50);
+        reused.BuildCallerTree(otherToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50);
+        reused.BuildCallerTree(otherToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 2, maxNodes: 50);
+
+        Assert.Equal(expectedCallers, Describe(reused.BuildCallerTree(richToken, maxDepth: 2, maxNodes: 50)));
+        Assert.Equal(expectedCallees, Describe(reused.BuildCallTree(richToken, maxDepth: 2, maxNodes: 50)));
+
+        // Alternating scope sets on one index: the empty set must not be answered from the
+        // populated set's map, nor the reverse, however many times they interleave.
+        Assert.Equal(expectedScoped, Describe(reused.BuildCallerTree(richToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50)));
+        Assert.Equal(expectedUnscoped, Describe(reused.BuildCallerTree(richToken, Array.Empty<LibraryBodyIndex>(), maxDepth: 2, maxNodes: 50)));
+        Assert.Equal(expectedScoped, Describe(reused.BuildCallerTree(richToken, new[] { scopeA }, maxDepth: 2, maxNodes: 50)));
+
+        // A bodiless root asked after body-rooted requests have populated the cache.
+        var reusedTests = LibraryBodyIndex.Open(testPath);
+        int testAsmToken = PickRichest(reusedTests, out int testRichest);
+        Assert.True(testRichest >= 2, $"expected a non-leaf caller tree in the test assembly; richest had {testRichest} nodes");
+        var expectedTestAsmCallers = Describe(LibraryBodyIndex.Open(testPath).BuildCallerTree(testAsmToken, maxDepth: 2, maxNodes: 50));
+        reusedTests.BuildCallerTree(testAsmToken, maxDepth: 2, maxNodes: 50);
+        Assert.Equal(expectedBodiless, Describe(reusedTests.BuildCallerTree(bodilessToken, maxDepth: 2, maxNodes: 50)));
+
+        // ...and the bodiless request must not have written its root-dependent grouping into the
+        // shared cache, so a body-rooted request after it still answers like a fresh index.
+        Assert.Equal(expectedTestAsmCallers, Describe(reusedTests.BuildCallerTree(testAsmToken, maxDepth: 2, maxNodes: 50)));
+
+        static int PickRichest(LibraryBodyIndex index, out int richest)
+        {
+            int token = 0;
+            richest = 0;
+            foreach (var method in index.Methods.Take(150))
+            {
+                int size = Describe(index.BuildCallerTree(method.MetadataToken, maxDepth: 2, maxNodes: 50)).Count;
+                if (size > richest)
+                {
+                    richest = size;
+                    token = method.MetadataToken;
+                }
+            }
+
+            return token;
+        }
+
+        static List<string> Describe(CallTreeNode root)
+        {
+            var lines = new List<string>();
+            void Walk(CallTreeNode node, int depth)
+            {
+                lines.Add($"{depth}|{node.Member.DeclaringType.Name}.{node.Member.Name}|{node.Status}|" +
+                    $"{node.Perf?.Source ?? ""}|fanout={node.Perf?.Fanout ?? -1}|fanin={node.Perf?.Fanin ?? -1}");
+                foreach (var child in node.Children)
+                    Walk(child, depth + 1);
+            }
+            Walk(root, 0);
+            return lines;
+        }
+    }
+
     [Fact]
     public void BuildCallerTree_WithScope_IncorporatesAndTagsExternalCallers()
     {
