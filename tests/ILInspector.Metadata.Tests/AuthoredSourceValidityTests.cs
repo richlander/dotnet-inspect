@@ -905,6 +905,106 @@ public class AuthoredSourceValidityTests
     }
 
     /// <summary>
+    /// An attribute list is not itself an accessor. Reading any line that opens with "[" as a
+    /// sibling truncated an accessor at an attributed local function in its own body
+    /// (adversarial review, MAI-Code). The list is skipped and the question asked of what
+    /// follows it.
+    /// </summary>
+    [Theory]
+    [InlineData("[System.Obsolete]", "void Local() { }")]
+    [InlineData("[System.Obsolete]", "static void Local() { }")]
+    [InlineData("[System.Obsolete(\"]\")]", "void Local() { }")]
+    public void AttributedLocalFunction_DoesNotEndAnAccessor(string attribute, string declaration)
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public int P",
+            "    {",
+            "        get",
+            "        {",
+            "            int x = 1;",
+            "            " + attribute,
+            "            " + declaration,
+            "            return x;",
+            "        }",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 7, 7, "get_P");
+
+        Assert.NotNull(slice);
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.Contains(declaration, slice);
+    }
+
+    /// <summary>
+    /// The other half: an attribute that really does precede a sibling accessor still stops the
+    /// slice, whether it shares the accessor's line or sits above it.
+    /// </summary>
+    [Theory]
+    [InlineData("[System.Obsolete] set => _ = value;")]
+    [InlineData("[System.Obsolete(\"]\")] set => _ = value;")]
+    [InlineData("[System.Obsolete]\n        set => _ = value;")]
+    public void AttributedSiblingAccessor_StillEndsTheSlice(string sibling)
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public int P",
+            "    {",
+            "        get => 1;",
+            "        " + sibling,
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
+
+        Assert.Equal("public int P\n{\n    get => 1;", slice);
+    }
+
+    /// <summary>
+    /// The sibling-accessor question is asked before the line is scanned, so it must not be
+    /// asked at all when the carried lexical state says the line is not code. An accessor
+    /// keyword inside a multi-line block comment or raw string literal is text, and reading it
+    /// as a sibling truncated the accessor (adversarial review, Gemini).
+    /// </summary>
+    [Theory]
+    [InlineData("/*", "set", "*/")]
+    [InlineData("/*", "get => 1;", "*/")]
+    [InlineData("_ = \"\"\"", "set", "\"\"\";")]
+    [InlineData("_ = \"\"\"", "[Foo] init", "\"\"\";")]
+    public void AccessorKeywordInsideCommentOrLiteral_IsNotASibling(string open, string body, string close)
+    {
+        string[] lines =
+        [
+            "public class C",
+            "{",
+            "    public int Property",
+            "    {",
+            "        get",
+            "        {",
+            "            return 1;",
+            "            " + open,
+            "            " + body,
+            "            " + close,
+            "        }",
+            "    }",
+            "}",
+        ];
+
+        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 7, 7, "get_Property");
+
+        Assert.NotNull(slice);
+        Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
+        Assert.Contains(body, slice);
+    }
+
+    /// <summary>
     /// A sequence range that ends on a statement above the member's closing brace must still
     /// recover the whole member. The forward scan used to stop at the first non-empty line
     /// below the range, so every statement after that one — and the closing brace with them —
