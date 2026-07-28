@@ -772,7 +772,7 @@ internal static class CSharpDeclarationWriter
             if (typeParameter.Constraints.Count == 0)
                 continue;
 
-            declaration += $" where {EscapeIdentifier(typeParameter.Name)} : {FormatConstraintList(typeParameter, typeParameters.Select(p => p.Name))}";
+            declaration += $" where {SanitizeIdentifier(typeParameter.Name)} : {FormatConstraintList(typeParameter, typeParameters.Select(p => p.Name))}";
         }
 
         return declaration;
@@ -954,7 +954,7 @@ internal static class CSharpDeclarationWriter
             : $"{parameter.Modifier} {type}";
         var declaration = string.IsNullOrWhiteSpace(parameter.Name)
             ? head
-            : $"{head} {EscapeIdentifier(parameter.Name)}";
+            : $"{head} {SanitizeIdentifier(parameter.Name)}";
         declaration = parameter.HasDefault && parameter.DefaultValueText is { Length: > 0 }
             ? $"{declaration} = {parameter.DefaultValueText}"
             : declaration;
@@ -1179,8 +1179,8 @@ internal static class CSharpDeclarationWriter
 
     static string TypeParameterDisplayName(TypeParameter typeParameter)
         => typeParameter.Variance is { } variance
-            ? $"{variance} {EscapeIdentifier(typeParameter.Name)}"
-            : EscapeIdentifier(typeParameter.Name);
+            ? $"{variance} {SanitizeIdentifier(typeParameter.Name)}"
+            : SanitizeIdentifier(typeParameter.Name);
 
     static string FormatObsoleteAttribute(string? message)
         => string.IsNullOrWhiteSpace(message)
@@ -1410,6 +1410,20 @@ internal static class CSharpDeclarationWriter
     public static string EscapeIdentifier(string name)
         => CSharpKeywords.RequiresDeclarationEscape(name) ? "@" + name : name;
 
+    /// <summary>
+    /// The spelling to use for a metadata name that reaches emitted declaration
+    /// text: <see cref="EscapeIdentifier"/> handles keywords but leaves an
+    /// unspellable name (one carrying a line terminator, say) intact, which would
+    /// let it break out of the surrounding code fence. Sanitizing folds it to
+    /// identifier characters instead.
+    /// </summary>
+    /// <remarks>
+    /// Byte-neutral for every name a compiler can emit, since none of them carry a
+    /// line terminator; pinned by <c>CSharpIdentifierSanitizationTests</c>.
+    /// </remarks>
+    static string SanitizeIdentifier(string name)
+        => CSharpIdentifier.ContainIdentifierForDeclaration(name);
+
     static bool IsIdentifierStart(char c) => char.IsLetter(c) || c == '_';
 
     static bool IsIdentifierPart(char c) => char.IsLetterOrDigit(c) || c == '_';
@@ -1431,7 +1445,7 @@ internal static class CSharpDeclarationWriter
         if (insertAt < parenStart && signature[insertAt] == '<')
             return signature;
 
-        return signature.Insert(insertAt, $"<{string.Join(", ", methodParameters)}>");
+        return signature.Insert(insertAt, $"<{string.Join(", ", methodParameters.Select(SanitizeIdentifier))}>");
     }
 
     public static string EscapeNamespace(string name)
@@ -1439,8 +1453,7 @@ internal static class CSharpDeclarationWriter
             ? ""
             : string.Join(
                 ".",
-                name.Split('.').Select(segment =>
-                    segment.StartsWith('@') ? segment : EscapeIdentifier(segment)));
+                name.Split('.').Select(SanitizeIdentifier));
 
     internal static string TypeAccessibility(ApiType type)
         => type.Accessibility ?? "public";

@@ -632,7 +632,7 @@ public static class MemberBodyProducer
         foreach (var typeParameter in typeParameters)
         {
             if (typeParameter.Constraints.Count > 0)
-                sb.Append($" where {EscapeIdentifier(typeParameter.Name)} : {CSharpFormatter.FormatTypeParameterConstraints(typeParameter, typeParameters.Select(p => p.Name))}");
+                sb.Append($" where {ContainedIdentifier(typeParameter.Name)} : {CSharpFormatter.FormatTypeParameterConstraints(typeParameter, typeParameters.Select(p => p.Name))}");
         }
     }
 
@@ -642,7 +642,7 @@ public static class MemberBodyProducer
         {
             if (member.Kind != "field" || member.EnumValue is null)
                 continue;
-            sb.AppendLine($"    {EscapeIdentifier(member.Name)} = {member.EnumValueLiteral ?? member.EnumValue.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)},");
+            sb.AppendLine($"    {ContainedIdentifier(member.Name)} = {member.EnumValueLiteral ?? member.EnumValue.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)},");
             any = true;
         }
     }
@@ -749,8 +749,8 @@ public static class MemberBodyProducer
             // source name (displayName), and is assigned in the constructor body,
             // so it never carries a lifted initializer.
             string typeAndName = fixedBuffer is null
-                ? $"{EscapeKnownIdentifiers(Shorten(fieldType), genericContext.TypeParameters)} {EscapeIdentifier(displayName)}"
-                : fixedBuffer.DeclarationSignature(EscapeIdentifier(displayName));
+                ? $"{EscapeKnownIdentifiers(Shorten(fieldType), genericContext.TypeParameters)} {ContainedIdentifier(displayName)}"
+                : fixedBuffer.DeclarationSignature(ContainedIdentifier(displayName));
             decl.Append(!field.Attributes.HasFlag(FieldAttributes.Literal)
                     && fixedBuffer is null
                     && fieldInitializers.TryGetValue(name, out var initializer)
@@ -1065,7 +1065,7 @@ public static class MemberBodyProducer
                 }
             }
 
-            parameters.Add($"{signature.ParameterTypes[i]} {EscapeIdentifier(string.IsNullOrEmpty(name) ? $"arg{i}" : name)}");
+            parameters.Add($"{signature.ParameterTypes[i]} {ContainedIdentifier(string.IsNullOrEmpty(name) ? $"arg{i}" : name)}");
         }
 
         return $"{signature.ReturnType} .ctor({string.Join(", ", parameters)})";
@@ -1129,7 +1129,7 @@ public static class MemberBodyProducer
             string propName = name[(at + marker.Length)..];
             if (propName.Length == 0 || propName is "Item" or "Chars")
                 return null;
-            return $"{EscapeQualifiedName(name[..at])}.{EscapeIdentifier(propName)}";
+            return $"{EscapeQualifiedName(name[..at])}.{ContainedIdentifier(propName)}";
         }
         return null;
     }
@@ -1144,8 +1144,8 @@ public static class MemberBodyProducer
 
     static string TypeParameterDisplayName(TypeParameter typeParameter)
         => typeParameter.Variance is { } variance
-            ? $"{variance} {EscapeIdentifier(typeParameter.Name)}"
-            : EscapeIdentifier(typeParameter.Name);
+            ? $"{variance} {ContainedIdentifier(typeParameter.Name)}"
+            : ContainedIdentifier(typeParameter.Name);
 
     static string EscapeKnownIdentifiers(string text, IEnumerable<string> rawNames)
     {
@@ -1171,17 +1171,23 @@ public static class MemberBodyProducer
     }
 
     static string EscapeQualifiedIdentifier(string name)
-        => string.Join("+", name.Split('+').Select(EscapeIdentifier));
+        => string.Join("+", name.Split('+').Select(ContainedIdentifier));
 
     static string EscapeQualifiedName(string name)
-        => string.Join(".", name.Split('.').Select(part => string.Join("+", part.Split('+').Select(EscapeIdentifier))));
+        => string.Join(".", name.Split('.').Select(part => string.Join("+", part.Split('+').Select(ContainedIdentifier))));
 
     static string EscapeIdentifier(string name) => Pipeline.CSharpNaming.EscapeIdentifier(name);
+
+    /// <summary>The spelling for a metadata name entering emitted declaration text:
+    /// unlike <see cref="EscapeIdentifier"/> this folds an unspellable name to
+    /// identifier characters, so it cannot break out of the surrounding code fence
+    /// (issue #3319). Gated by <c>UntrustedIdentifierPresentationTests</c>.</summary>
+    static string ContainedIdentifier(string name) => Pipeline.CSharpNaming.ContainedIdentifier(name);
 
     /// <summary>An accessor that just passes through the auto-property backing field — `return this.Name;` or `this.Name = value;`.</summary>
     static bool IsTrivialAutoAccessor(string keyword, string? body, string name)
     {
-        string escapedName = EscapeIdentifier(name);
+        string escapedName = ContainedIdentifier(name);
         return keyword == "get"
             ? body?.Trim() == $"return this.{escapedName};"
             : body?.Trim() == $"this.{escapedName} = value;";

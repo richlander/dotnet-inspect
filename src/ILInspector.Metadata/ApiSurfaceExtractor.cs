@@ -1624,7 +1624,13 @@ public static class ApiSurfaceExtractor
         var methodName = context.MethodParameters.Count > 0
             ? $"{name}<{string.Join(", ", methodTypeParameters.Select(parameter => parameter.Name))}>"
             : name;
-        return ($"{returnType} {methodName}({paramStr2})", new ApiSignature
+        // MemberName carries identity (ApiMemberIdentity parses it for docids and
+        // the generic-parameter map), so it keeps the raw metadata spelling; only
+        // the rendered signature is sanitized (issue #3319).
+        var displayName = context.MethodParameters.Count > 0
+            ? $"{SanitizeMemberDisplayName(name)}<{string.Join(", ", methodTypeParameters.Select(parameter => SanitizeIdentifier(parameter.Name)))}>"
+            : SanitizeMemberDisplayName(name);
+        return ($"{returnType} {displayName}({paramStr2})", new ApiSignature
         {
             ReturnType = returnType,
             CanonicalReturnType = canonicalReturnType,
@@ -1931,7 +1937,7 @@ public static class ApiSurfaceExtractor
         object? defaultValue,
         bool acceptsNullDefault)
     {
-        var escapedName = EscapeIdentifier(name);
+        var escapedName = SanitizeIdentifier(name);
         var parameter = modifier is null ? $"{type} {escapedName}" : $"{modifier} {type} {escapedName}";
         if (!hasDefault)
             return parameter;
@@ -1945,8 +1951,25 @@ public static class ApiSurfaceExtractor
         return $"{parameter} = {FormatDefaultValue(reader, defaultValue, type, acceptsNullDefault)}";
     }
 
-    private static string EscapeIdentifier(string name)
-        => CSharpKeywords.RequiresDeclarationEscape(name) ? "@" + name : name;
+    /// <summary>
+    /// The spelling for a metadata name entering emitted C# declaration text.
+    /// Keyword escaping alone leaves an unspellable name (one carrying a line
+    /// terminator, say) intact, which lets it break out of the surrounding code
+    /// fence or tree layout; sanitizing folds it to identifier characters
+    /// instead (issue #3319). Byte-neutral for names that are already legal
+    /// identifiers, which covers every well-formed assembly.
+    /// </summary>
+    /// <summary>
+    /// The display spelling of a member name. A member name is not always a simple
+    /// identifier — <c>.ctor</c>, and an explicit interface implementation spells
+    /// <c>System.IConvertible.ToBoolean</c> — so this contains it rather than
+    /// sanitizing it into one, which would mangle both.
+    /// </summary>
+    private static string SanitizeMemberDisplayName(string name)
+        => CSharpIdentifierCore.ContainComposedName(name);
+
+    private static string SanitizeIdentifier(string name)
+        => CSharpIdentifierCore.ContainIdentifier(name, CSharpKeywords.RequiresDeclarationEscape);
 
     private static string FormatDecimalLiteral(decimal value)
         => value.ToString("G29", CultureInfo.InvariantCulture) + "m";

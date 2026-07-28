@@ -75,7 +75,7 @@ public sealed partial class CSharpPrinter
         {
             var value = anonymous.Values[i];
             string name = anonymous.PropertyNames[i];
-            string escapedName = CSharpNaming.EscapeIdentifier(name);
+            string escapedName = CSharpNaming.ContainedIdentifier(name);
             string text = Expression(value);
             bool shorthand = text == escapedName
                 || (value is LoadField field && field.Field.Name == name && text.EndsWith("." + escapedName, StringComparison.Ordinal))
@@ -99,8 +99,8 @@ public sealed partial class CSharpPrinter
     string LambdaText(Lambda lambda)
     {
         string parameters = lambda.Parameters is [var single]
-            ? CSharpNaming.EscapeIdentifier(single.Name)
-            : $"({string.Join(", ", lambda.Parameters.Select(p => CSharpNaming.EscapeIdentifier(p.Name)))})";
+            ? CSharpNaming.ContainedIdentifier(single.Name)
+            : $"({string.Join(", ", lambda.Parameters.Select(p => CSharpNaming.ContainedIdentifier(p.Name)))})";
 
         if (lambda.ExpressionBody is { } expr)
             return $"{parameters} => {ExpressionTreeBodyText(lambda, expr)}";
@@ -327,7 +327,7 @@ public sealed partial class CSharpPrinter
     string PatternSwitchArmText(PatternSwitchExpressionArm arm, TypeRef? target = null)
     {
         string pattern = arm.Subpattern is { } sub
-            ? $"{TypeText(arm.PatternType)}{(arm.LocalIndex is { } outer ? $" {LocalName(outer)}" : "")} {{ {CSharpNaming.EscapeIdentifier(sub.PropertyName)}: {TypeText(sub.PatternType)} {LocalName(sub.LocalIndex)} }}"
+            ? $"{TypeText(arm.PatternType)}{(arm.LocalIndex is { } outer ? $" {LocalName(outer)}" : "")} {{ {CSharpNaming.ContainedIdentifier(sub.PropertyName)}: {TypeText(sub.PatternType)} {LocalName(sub.LocalIndex)} }}"
             : $"{TypeText(arm.PatternType)}{(arm.LocalIndex is { } index ? $" {LocalName(index)}" : "")}";
         string guard = arm.Guard is { } g ? $" when {RenderedCondition(g).At(Precedence.NullCoalescing)}" : "";
         return $"{pattern}{guard} => {SwitchArmValueText(arm.Value, target)}";
@@ -453,7 +453,7 @@ public sealed partial class CSharpPrinter
     {
         LoadField field => NullConditionalFieldSuffix(field.Field),
         LoadProperty property when property.IndexArguments.Count > 0 => $"[{Arguments(property.IndexArguments)}]",
-        LoadProperty property => $".{CSharpNaming.EscapeIdentifier(property.PropertyName)}",
+        LoadProperty property => $".{CSharpNaming.ContainedIdentifier(property.PropertyName)}",
         Call call => NullConditionalCallSuffix(call),
         _ => $".{member.Describe()}",
     };
@@ -461,9 +461,9 @@ public sealed partial class CSharpPrinter
     static string NullConditionalFieldSuffix(FieldRef field)
     {
         if (field.BackingPropertyName is { } property)
-            return $".{CSharpNaming.EscapeIdentifier(property)}";
+            return $".{CSharpNaming.ContainedIdentifier(property)}";
         if (CSharpNaming.PrimaryConstructorCaptureName(field.Name) is { } capture)
-            return $".{CSharpNaming.EscapeIdentifier(capture)}";
+            return $".{CSharpNaming.ContainedIdentifier(capture)}";
         return $".{CSharpNaming.SafeIdentifier(field.Name)}";
     }
 
