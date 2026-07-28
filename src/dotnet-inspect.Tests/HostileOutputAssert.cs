@@ -1,3 +1,5 @@
+using DotnetInspector.CommandLine;
+using CoreFactory = DotnetInspector.Core.HttpClientFactory;
 using Xunit;
 
 namespace DotnetInspector.Tests;
@@ -59,6 +61,42 @@ internal static class HostileOutputAssert
             Assert.True(
                 output.Contains(marker, StringComparison.Ordinal),
                 $"'{marker}' never rendered in {channel}, so this gate proves nothing about that channel");
+        }
+    }
+}
+
+/// <summary>
+/// Runs the CLI in-process for a containment gate.
+/// </summary>
+/// <remarks>
+/// Offline mode is a process-wide static on <see cref="CoreFactory"/>, not a
+/// per-invocation option, so a gate that turned it on and walked away left it
+/// on for every later test in the process. That is not hypothetical: it made
+/// the network-backed <c>PackageVersionTests</c> fail in CI while every one of
+/// them passed in isolation, which reads exactly like flakiness. The previous
+/// state is therefore saved and restored, and this exists as one helper so a
+/// fourth copy cannot reintroduce the leak.
+/// </remarks>
+internal static class HostileCli
+{
+    public static async Task<(int exit, string output, string error)> RunAsync(params string[] args)
+    {
+        var wasOffline = CoreFactory.IsOffline;
+        try
+        {
+            return await ConsoleCapture.RunAsync(async () =>
+            {
+                CoreFactory.Initialize(offline: true);
+                CoreFactory.ResetSharedForTesting();
+                args = CommandLineBuilder.PreprocessArgs(args);
+                var root = CommandLineBuilder.CreateRootCommand();
+                return await root.Parse(args).InvokeAsync();
+            });
+        }
+        finally
+        {
+            CoreFactory.Initialize(offline: wasOffline);
+            CoreFactory.ResetSharedForTesting();
         }
     }
 }

@@ -550,17 +550,8 @@ public class UntrustedStringLiteralContainmentTests
 
     /// <summary>Mirrors the Program.cs entry point, so this gate exercises the
     /// same argument path a user drives.</summary>
-    private static async Task<(int exit, string output, string error)> RunAppAsync(params string[] args)
-    {
-        return await ConsoleCapture.RunAsync(async () =>
-        {
-            CoreFactory.Initialize(offline: true);
-            CoreFactory.ResetSharedForTesting();
-            args = CommandLineBuilder.PreprocessArgs(args);
-            var root = CommandLineBuilder.CreateRootCommand();
-            return await root.Parse(args).InvokeAsync();
-        });
-    }
+    private static Task<(int exit, string output, string error)> RunAppAsync(params string[] args)
+        => HostileCli.RunAsync(args);
 }
 
 /// <summary>
@@ -785,17 +776,8 @@ public class UntrustedSourceLinkContainmentTests
         HostileOutputAssert.NoRenderingHazard(output, string.Join(' ', args));
     }
 
-    private static async Task<(int exit, string output, string error)> RunAppAsync(params string[] args)
-    {
-        return await ConsoleCapture.RunAsync(async () =>
-        {
-            CoreFactory.Initialize(offline: true);
-            CoreFactory.ResetSharedForTesting();
-            args = CommandLineBuilder.PreprocessArgs(args);
-            var root = CommandLineBuilder.CreateRootCommand();
-            return await root.Parse(args).InvokeAsync();
-        });
-    }
+    private static Task<(int exit, string output, string error)> RunAppAsync(params string[] args)
+        => HostileCli.RunAsync(args);
 }
 
 /// <summary>
@@ -919,15 +901,6 @@ public class UntrustedRelationshipContainmentTests : IDisposable
         ab.Save(path);
     }
 
-    private static async Task<(int exit, string output, string error)> RunAppAsync(params string[] args)
-    {
-        return await ConsoleCapture.RunAsync(async () =>
-        {
-            CoreFactory.Initialize(offline: true);
-            CoreFactory.ResetSharedForTesting();
-            args = CommandLineBuilder.PreprocessArgs(args);
-            var root = CommandLineBuilder.CreateRootCommand();
-            return await root.Parse(args).InvokeAsync();
-        });
-    }
+    private static Task<(int exit, string output, string error)> RunAppAsync(params string[] args)
+        => HostileCli.RunAsync(args);
 }
