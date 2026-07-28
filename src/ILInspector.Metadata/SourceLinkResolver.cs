@@ -346,6 +346,60 @@ public class SourceLinkResolver
     }
 
     /// <summary>
+    /// Index just past the attribute list opening at index 0, or <c>-1</c> when it does not
+    /// close on this line. Brackets nest — <c>[Foo(new[] { 1 })]</c> — and a string inside the
+    /// list may spell a bracket of its own, so neither is counted structurally.
+    /// </summary>
+    private static int IndexPastAttributeList(string trimmed)
+    {
+        int depth = 0;
+        for (int i = 0; i < trimmed.Length; i++)
+        {
+            char c = trimmed[i];
+
+            if (c == '"')
+            {
+                int end = EndOfSingleLineLiteral(trimmed, i);
+                if (end < 0)
+                    return -1;
+                i = end - 1;
+                continue;
+            }
+
+            if (c == '\'')
+            {
+                i++;
+                while (i < trimmed.Length && trimmed[i] != '\'')
+                    i += trimmed[i] == '\\' ? 2 : 1;
+                continue;
+            }
+
+            if (c == '/' && i + 1 < trimmed.Length && trimmed[i + 1] == '/')
+            {
+                // The rest of the line is a comment, so the list does not close on it.
+                return -1;
+            }
+
+            if (c == '/' && i + 1 < trimmed.Length && trimmed[i + 1] == '*')
+            {
+                int close = trimmed.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                if (close < 0)
+                    return -1;
+
+                i = close + 1;
+                continue;
+            }
+
+            if (c == '[')
+                depth++;
+            else if (c == ']' && --depth == 0)
+                return i + 1;
+        }
+
+        return -1;
+    }
+
+    /// <summary>
     /// True when <paramref name="line"/> opens an accessor sibling to the one being sliced.
     /// <para>
     /// This is asked only while slicing an accessor. Asking it of every member read a
@@ -359,9 +413,19 @@ public class SourceLinkResolver
     {
         var trimmed = StripLeadingComments(line.TrimStart());
 
-        // An accessor may carry attributes or an accessibility modifier of its own.
-        if (trimmed.StartsWith('['))
-            return true;
+        // An accessor may carry attributes of its own. An attribute list is not itself an
+        // accessor, though: reading one as a sibling truncated an accessor at an attributed
+        // local function in its body (adversarial review, MAI-Code). Skip past the list and
+        // ask about what follows it — nothing, when the list has the line to itself, in which
+        // case the accessor below it is the line that answers.
+        while (trimmed.StartsWith('['))
+        {
+            int close = IndexPastAttributeList(trimmed);
+            if (close < 0)
+                return false;
+
+            trimmed = StripLeadingComments(trimmed[close..].TrimStart());
+        }
 
         if (StartsWithDeclarationModifier(trimmed))
             trimmed = StripLeadingComments(SkipLeadingModifiers(trimmed));
@@ -444,7 +508,10 @@ public class SourceLinkResolver
         int limit = Math.Min(lines.Length, to + ForwardScanLimit);
         for (int i = to; i < limit; i++)
         {
-            if (slicingAccessor && OpensSiblingAccessor(lines[i]))
+            // Asked before the line is scanned, so it must not be asked at all when the carried
+            // state says the line is not code: a "set" inside a multi-line block comment or raw
+            // string literal is text, not a sibling (adversarial review, Gemini).
+            if (slicingAccessor && !state.InBlockComment && !state.InLiteral && OpensSiblingAccessor(lines[i]))
                 return to;
 
             ScanLine(lines[i], state, ref depth);
@@ -588,8 +655,43 @@ public class SourceLinkResolver
     /// </summary>
     private static char ScanLine(string line, LexState state, ref int depth)
     {
-        char significant = '\0';
-        int i = 0;
+        Scan(line, state, ref depth, start: 0, untilLiteralCloses: false, out char significant);
+        return significant;
+    }
+
+    /// <summary>
+    /// Index just past the literal opening at <paramref name="start"/>, or <c>-1</c> when it
+    /// does not close on that line. Used where the construct examined is known to be
+    /// single-line — an attribute list — so a literal that continues means it did not close.
+    /// <para>
+    /// This runs the same scanner as <see cref="ScanLine"/> rather than a second literal
+    /// parser, so the verbatim, raw, and interpolated forms are read one way everywhere.
+    /// </para>
+    /// </summary>
+    private static int EndOfSingleLineLiteral(string line, int start)
+    {
+        var state = new LexState();
+        int depth = 0;
+        int end = Scan(line, state, ref depth, start, untilLiteralCloses: true, out _);
+        return state.InLiteral ? -1 : end;
+    }
+
+    /// <summary>
+    /// Scans <paramref name="line"/> from <paramref name="start"/>, returning the index it
+    /// stopped at. With <paramref name="untilLiteralCloses"/> the scan stops as soon as the
+    /// literal it opened is closed, which is how a caller consumes a single literal.
+    /// </summary>
+    private static int Scan(
+        string line,
+        LexState state,
+        ref int depth,
+        int start,
+        bool untilLiteralCloses,
+        out char significant)
+    {
+        significant = '\0';
+        int i = start;
+        bool opened = false;
 
         if (!state.InBlockComment && !state.InLiteral && IsDirective(line, out bool conditional))
         {
@@ -604,6 +706,9 @@ public class SourceLinkResolver
 
         while (i < line.Length)
         {
+            if (untilLiteralCloses && opened && !state.InLiteral)
+                return i;
+
             char c = line[i];
 
             if (state.InBlockComment)
@@ -774,6 +879,8 @@ public class SourceLinkResolver
                     // The empty literal.
                     i = open + 2;
                     significant = '"';
+                    if (untilLiteralCloses)
+                        return i;
                     continue;
                 }
 
@@ -785,6 +892,7 @@ public class SourceLinkResolver
                     Raw = raw,
                 });
 
+                opened = true;
                 significant = '"';
                 i = open + (raw ? quotes : 1);
                 continue;
@@ -839,7 +947,7 @@ public class SourceLinkResolver
         if (state.HasLineBoundLiteral)
             state.Untracked = true;
 
-        return significant;
+        return i;
     }
     /// <summary>
     /// Words that can open a statement, and so rule out a declaration no matter what follows.
