@@ -366,6 +366,9 @@ kbd {
 /* Namespace picker dropdown (replaces the old overflow chip strip). Also the
    shared look for the scopebar Library selector. */
 .namespace-picker, .library-picker { padding: 7px 9px; border-bottom: 1px solid var(--line); }
+.platform-library-select optgroup { font: 600 11px var(--mono); color: var(--muted); }
+.overview-library-picker { padding: 0; border: 0; margin: 0 0 14px; }
+.overview-library-picker .scope-select { max-width: 420px; height: 30px; font-size: 12px; }
 .scope-select {
   width: 100%;
   height: 26px;

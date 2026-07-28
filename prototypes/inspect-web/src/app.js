@@ -517,6 +517,10 @@ function afterLibraryScopeChange() {
 // framework chips) for a handful of libraries, a single-select dropdown once a
 // package (e.g. the runtime pack) carries too many.
 function libraryControl() {
+  if (state.package?.isRuntimePack) {
+    const select = platformLibrarySelectHtml();
+    return select ? `<div class="library-picker platform-library-picker">${select}</div>` : "";
+  }
   const mode = libraryMode();
   if (mode === "none") return "";
   const libs = packageLibraries();
@@ -996,8 +1000,8 @@ function render() {
 
       <section class="scopebar">
         <div class="package-title">
-          <span class="scope-kicker">package</span>
-          <strong>${escapeHtml(state.package.id)}</strong>
+          <span class="scope-kicker">${state.package.isRuntimePack ? "platform" : "package"}</span>
+          <strong>${escapeHtml(packageDisplayName(state.package))}</strong>
           <span>${escapeHtml(state.package.version)}</span>
         </div>
         <label class="version-select">
@@ -1008,7 +1012,7 @@ function render() {
         </label>
         <label class="framework-select">
           <span>framework</span>
-          <select id="framework">
+          <select id="framework"${state.package.frameworks.length <= 1 ? " disabled" : ""}>
             ${state.package.frameworks.map(item => `<option ${item === state.package.activeFramework ? "selected" : ""}>${item}</option>`).join("")}
           </select>
         </label>
@@ -1032,8 +1036,8 @@ function render() {
             </div>
             <div class="breadcrumbs">
               ${state.atPackageRoot
-                ? `<strong>${escapeHtml(state.package.id)}</strong><b>/</b><span>${escapeHtml(packageLenses.find(([id]) => id === state.packageLens)?.[1] || "Overview")}</span>`
-                : `<span>${escapeHtml(state.package.id)}</span><b>/</b><span>${escapeHtml(current.namespace)}</span><b>/</b><strong>${escapeHtml(current.name)}</strong>
+                ? `<strong>${escapeHtml(packageDisplayName(state.package))}</strong><b>/</b><span>${escapeHtml(packageLenses.find(([id]) => id === state.packageLens)?.[1] || "Overview")}</span>`
+                : `<span>${escapeHtml(packageDisplayName(state.package))}</span><b>/</b><span>${escapeHtml(current.namespace)}</span><b>/</b><strong>${escapeHtml(current.name)}</strong>
               ${state.selectedMemberKey ? `<b>/</b><strong>${escapeHtml(selectedMember(current)?.name ?? "")}</strong>` : ""}`}
             </div>
             <div class="detail-actions"><button id="copy-name" type="button">copy name</button><button id="taste-btn" class="${state.taste.length ? "active" : ""}" title="Decompiler style (taste)">taste${state.taste.length ? ` · ${state.taste.length}` : ""}</button></div>
@@ -1239,11 +1243,11 @@ function renderMemberNav(type) {
 function packageHeading() {
   const pkg = state.package;
   return `<header class="type-heading">
-    <div class="type-badge">⬡</div>
+    <div class="type-badge">${pkg.isRuntimePack ? "◎" : "⬡"}</div>
     <div>
-      <div class="type-namespace">NuGet package</div>
-      <h1>${escapeHtml(pkg.id)}</h1>
-      <code class="type-signature">${escapeHtml(pkg.id)}@${escapeHtml(pkg.version)}</code>
+      <div class="type-namespace">${pkg.isRuntimePack ? "Shared framework" : "NuGet package"}</div>
+      <h1>${escapeHtml(packageDisplayName(pkg))}</h1>
+      <code class="type-signature">${pkg.isRuntimePack ? `${escapeHtml(packageDisplayName(pkg))} · ${escapeHtml(pkg.version)}` : `${escapeHtml(pkg.id)}@${escapeHtml(pkg.version)}`}</code>
     </div>
     <div class="type-metrics"><span><strong>${pkg.totalTypes}</strong> types</span><span><strong>${pkg.totalMembers.toLocaleString()}</strong> members</span></div>
     <dl class="definition-list">
@@ -1902,6 +1906,7 @@ function renderPackageOverview() {
     </section>
     <section class="document-section">
       <div class="section-title"><h2>Libraries</h2><span>${librariesSubtitle}</span></div>
+      ${pkg.isRuntimePack ? `<div class="library-picker platform-library-picker overview-library-picker">${platformLibrarySelectHtml()}</div>` : ""}
       <div class="library-list">${libraryRows}</div>
     </section>
     <section class="document-section">
@@ -2623,6 +2628,14 @@ function bindEvents() {
     state.libraryScope = libraryJump.value ? new Set([libraryJump.value]) : null;
     afterLibraryScopeChange();
   });
+  document.querySelectorAll("[data-platform-library-select]").forEach(select => select.addEventListener("change", () => {
+    const name = select.value;
+    if (!name) { state.libraryScope = null; afterLibraryScopeChange(); return; }
+    const pack = select.selectedOptions[0]?.dataset.pack || "netcore.app";
+    const loaded = (runtimePackPackage()?.types || []).some(type => libraryKey(type) === name);
+    if (loaded) { state.libraryScope = new Set([name]); afterLibraryScopeChange(); }
+    else openPlatformLibrary(name, pack);
+  }));
   bindCommandCompletionClicks(document);
 
   document.querySelector("#framework").addEventListener("change", event => {
@@ -4061,8 +4074,8 @@ async function openRuntimePackFromHome() {
   state.home = false;
   state.loading = true;
   state.error = "";
-  state.loadingMessage = "Loading the .NET runtime pack…";
-  state.loadingSubtitle = "Microsoft.NETCore.App · net10.0";
+  state.loadingMessage = "Loading the .NET Platform…";
+  state.loadingSubtitle = ".NET Platform · net10.0";
   render();
   const pack = await loadRuntimePack("net10.0");
   if (!pack) {
@@ -5724,6 +5737,38 @@ function runtimePackLoaded() {
 
 function runtimePackPackage() {
   return state.packages.find(item => item.isRuntimePack) || null;
+}
+
+// Display name for a package. The resident runtime pseudo-package is presented as
+// ".NET Platform"; its stable identity stays "Microsoft.NETCore.App" for the wire
+// protocol, tab matching, and deep-link restore (see isRuntimePackId). Every other
+// package shows its own id. Presentation only — never feed this back as an identity.
+function packageDisplayName(pkg) {
+  return pkg && pkg.isRuntimePack ? ".NET Platform" : (pkg ? pkg.id : "");
+}
+
+// Large-n library selector for the resident Platform pseudo-package: a single
+// dropdown over the full static-index roster across both shared frameworks — the
+// natural expansion of the small-n library chips. Picking a resident library scopes
+// the workbench to it; picking one that is not yet loaded drills in (fetching just
+// that assembly). Rendered both in the nav pane (where the small-n chips live) and on
+// the overview page. Returns "" until the index is available.
+function platformLibrarySelectHtml() {
+  const roster = platformLibraryRoster("");
+  if (!roster.length) return "";
+  const scoped = state.libraryScope && state.libraryScope.size === 1 ? [...state.libraryScope][0] : "";
+  const group = (pack, label) => {
+    const rows = roster
+      .filter(lib => lib.pack === pack)
+      .map(lib => `<option value="${escapeHtml(lib.assembly)}" data-pack="${escapeHtml(lib.pack)}" ${scoped === lib.assembly ? "selected" : ""}>${escapeHtml(lib.assembly)} · ${lib.publicTypes}${lib.loaded ? "" : " · load"}</option>`)
+      .join("");
+    return rows ? `<optgroup label="${escapeHtml(label)}">${rows}</optgroup>` : "";
+  };
+  return `<select class="scope-select platform-library-select" data-platform-library-select aria-label="Select a platform library">
+      <option value="" ${!scoped ? "selected" : ""}>All loaded libraries</option>
+      ${group("netcore.app", ".NET")}
+      ${group("aspnetcore.app", "ASP.NET Core")}
+    </select>`;
 }
 
 // The always-present, non-closable, left-most "Platform" tab. It abstracts the .NET runtime
