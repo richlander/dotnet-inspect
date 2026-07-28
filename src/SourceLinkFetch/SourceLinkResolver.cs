@@ -14,7 +14,7 @@ public class SourceLinkResolver
 
     private readonly Dictionary<string, string> _documentMappings;
 
-    private SourceLinkResolver(Dictionary<string, string> documentMappings)
+    internal SourceLinkResolver(Dictionary<string, string> documentMappings)
     {
         _documentMappings = documentMappings;
     }
@@ -45,16 +45,20 @@ public class SourceLinkResolver
 
         foreach (var (pattern, urlTemplate) in _documentMappings)
         {
-            if (pattern.Contains('*'))
+            int star = pattern.IndexOf('*');
+            if (star >= 0)
             {
-                string regexPattern = "^" + Regex.Escape(pattern).Replace("\\*", "(.*)") + "$";
-                var match = Regex.Match(filePath, regexPattern);
+                // SourceLink allows a key at most one '*', and requires it to be the final
+                // character, so a conformant key is a prefix and the match is a prefix test.
+                // Testing the first '*' for finality rejects both violations at once: a second
+                // '*' leaves the first one non-final. A key we reject is one no conformant
+                // producer emits and one we could not honor unambiguously anyway.
+                if (star != pattern.Length - 1)
+                    continue;
 
-                if (match.Success && match.Groups.Count > 1)
-                {
-                    string captured = match.Groups[1].Value;
-                    return urlTemplate.Replace("*", captured);
-                }
+                string prefix = pattern[..^1];
+                if (filePath.StartsWith(prefix, StringComparison.Ordinal))
+                    return urlTemplate.Replace("*", filePath[prefix.Length..]);
             }
             else if (filePath == pattern)
             {
