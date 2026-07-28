@@ -92,6 +92,27 @@ cache entries use SHA-256-derived keys through `CoreCache`.
 Archive containment does not itself bound expanded bytes, entry count, or disk
 consumption. Resource budgets remain an open requirement below.
 
+### Untrusted JSON rejects duplicate properties
+
+JSON does not define how duplicate object keys resolve, so two readers of one payload can
+disagree. `DotnetInspector.Core.HardenedJson` (and its `ILInspector.Metadata.SourceLinkJson`
+counterpart, kept separate because Metadata sits below the Core infrastructure layer) parses with
+`AllowDuplicateProperties = false`, so such a payload fails visibly instead of binding one of
+several possible readings.
+
+This is not hypothetical for SourceLink. `SourceDocumentPathResolver` orders mappings by
+descending pattern length and takes the first match, while the repository-URL reader in
+`AssemblyInspector` takes the first value naming a known host. Given a repeated key under
+`documents`, those rules select different entries, so a hostile PDB could resolve source from one
+origin while the tool reported provenance from another. Rejecting the map closes that gap.
+
+Feed responses, package contents, `project.assets.json`, `.deps.json`, and product cache entries
+parse through the same guard. Callers that already treated malformed JSON as "no data" now treat
+duplicate-bearing JSON the same way; that is fail-closed, but it does not by itself convert those
+callers to explicit failure reporting, which remains open work below.
+
+`runfaster` still parses its trace inputs directly and is not yet covered.
+
 ### Artifact-derived source URLs use an SSRF-hardened client
 
 SourceLink and other artifact-derived fetches must use
@@ -211,22 +232,24 @@ only ordinary compiler output.
 | Resource extraction | Traversal and rooted names rejected before writes; valid nested and empty resources retained; malformed ranges rejected; separator/case aliases collide; existing file preserved; device/control names rejected |
 | Archive extraction | Zip-slip fixture; expanded-size and entry-count policy tests once budgets exist |
 | Metadata and signatures | Malformed table/blob fixtures, depth/size limits, no process crash |
-| SourceLink | Private/loopback/redirect targets rejected; allowed public target and checksum path retained |
+| SourceLink | Private/loopback/redirect targets rejected; allowed public target and checksum path retained; duplicate `documents` entries rejected rather than resolved |
+| Untrusted JSON | Duplicate properties rejected at top level, nested, and from UTF-8 bytes; case-distinct and sibling-repeated names still parse |
 | Cache paths | Traversal/separator components rejected; content-addressed keys deterministic |
 | Structured output | Untrusted delimiters/control characters cannot escape the selected format |
 
 ## Open work
 
-1. Define package, symbol, source-download, and decompressed-archive byte and
+1. Extend duplicate-property rejection to `runfaster` trace parsing.
+2. Define package, symbol, source-download, and decompressed-archive byte and
    entry-count budgets.
-2. Audit every product write against the derived-path rules, including symbol
+3. Audit every product write against the derived-path rules, including symbol
    server cache path construction.
-3. Audit Markdown, plain-text, and stderr rendering for terminal control
+4. Audit Markdown, plain-text, and stderr rendering for terminal control
    characters and structure injection.
-4. Implement the [bounded metadata traversal](bounded-metadata-traversal.md)
+5. Implement the [bounded metadata traversal](bounded-metadata-traversal.md)
    migration and expand malformed PE/PDB product-entry-point coverage around
    graph depth, row count, and allocation limits.
-5. Migrate legacy metadata scanners that collapse malformed reads into empty or
+6. Migrate legacy metadata scanners that collapse malformed reads into empty or
    zero-valued results onto explicit failure-bearing outcomes.
-6. Revisit filesystem containment if .NET exposes a portable atomic
+7. Revisit filesystem containment if .NET exposes a portable atomic
    no-follow/open-beneath primitive.
