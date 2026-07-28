@@ -450,9 +450,17 @@ public class AuthoredCorpusHarnessProcessTests
             process.WaitForExit(milliseconds: 120_000),
             "The harness did not exit within two minutes.");
 
-        return new HarnessRun(
-            process.ExitCode,
-            standardOutput.GetAwaiter().GetResult() + standardError.GetAwaiter().GetResult());
+        string output = standardOutput.GetAwaiter().GetResult()
+            + standardError.GetAwaiter().GetResult();
+
+        // A crash otherwise surfaces as an exit code nobody expected, and the reader has
+        // to go find the process output to learn why. Every assertion below this point is
+        // about what the harness decided, so a harness that never decided anything should
+        // say so in its own words.
+        if (output.Contains("Unhandled exception", StringComparison.Ordinal))
+            Assert.Fail($"The harness crashed instead of deciding:{Environment.NewLine}{output}");
+
+        return new HarnessRun(process.ExitCode, output);
     }
 
     /// <summary>
