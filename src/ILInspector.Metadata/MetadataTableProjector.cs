@@ -112,16 +112,81 @@ public static class MetadataTableProjector
         return new MetadataTableProjection(views.ToImmutable());
     }
 
+    /// <summary>
+    /// Projects a single row of one table on demand, independent of any row
+    /// window applied to a wider projection. This is the handle click-through
+    /// primitive: a <see cref="HandleRef"/> whose target lies outside the current
+    /// window is still reachable without re-projecting the target table.
+    ///
+    /// The row is returned inside its table's <see cref="MetadataTableView"/> so
+    /// the caller also gets the column schema and the table's physical
+    /// <see cref="MetadataTableView.RowCount"/>, which a single row cannot carry.
+    ///
+    /// <paramref name="table"/> names the target directly, so
+    /// <see cref="MetadataProjectionOptions.Tables"/> and
+    /// <see cref="MetadataProjectionOptions.StartRowId"/> are deliberately
+    /// ignored here; only the cell budgets apply. Honouring the table selection
+    /// would dead-end the very edges this method exists to follow — a caller
+    /// browsing TypeRef could not follow a TypeRef row into TypeDef.
+    ///
+    /// Returns <see langword="null"/> when the image has no metadata, when
+    /// <paramref name="table"/> is not one this projector supports, or when
+    /// <paramref name="rowId"/> is past the table's last row.
+    /// </summary>
+    public static MetadataTableView? ProjectRow(
+        PEReader peReader,
+        TableIndex table,
+        int rowId,
+        MetadataProjectionOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(peReader);
+        ArgumentOutOfRangeException.ThrowIfLessThan(rowId, 1);
+        options ??= new MetadataProjectionOptions();
+
+        if (!peReader.HasMetadata)
+            return null;
+
+        TableSpec? match = null;
+        foreach (var candidate in SupportedTables)
+        {
+            if (candidate.Index == table)
+            {
+                match = candidate;
+                break;
+            }
+        }
+
+        if (match is not { } spec)
+            return null;
+
+        var reader = peReader.GetMetadataReader(MetadataReaderOptions.None);
+        int rowCount = reader.GetTableRowCount(spec.Index);
+        if (rowId > rowCount)
+            return null;
+
+        // Reuse the windowed reader rather than a second row path: a one-row
+        // window at rowId is exactly this lookup, including malformed-row containment.
+        return BuildView(reader, spec, rowCount, options with { StartRowId = rowId, MaxRowsPerTable = 1 });
+    }
+
     static MetadataTableView BuildView(
         MetadataReader reader,
         TableSpec spec,
         int rowCount,
         MetadataProjectionOptions options)
     {
-        int limit = Math.Min(rowCount, Math.Max(0, options.MaxRowsPerTable));
-        var rows = ImmutableArray.CreateBuilder<MetadataRow>(limit);
+        int start = Math.Max(1, options.StartRowId);
+        int budget = Math.Max(0, options.MaxRowsPerTable);
 
-        for (int rid = 1; rid <= limit; rid++)
+        // Widen before adding: a caller-supplied start near int.MaxValue would
+        // otherwise overflow into a window that wrongly overlaps the table.
+        long inclusiveEnd = (long)start + budget - 1;
+        int end = (int)Math.Min(rowCount, inclusiveEnd);
+        int projected = end < start ? 0 : end - start + 1;
+
+        var rows = ImmutableArray.CreateBuilder<MetadataRow>(projected);
+
+        for (int rid = start; rid <= end; rid++)
         {
             int token = ((int)spec.Index << 24) | rid;
 
@@ -141,7 +206,7 @@ public static class MetadataTableProjector
             }
         }
 
-        var truncation = limit < rowCount ? new MetadataTableTruncation(limit, rowCount) : null;
+        var truncation = projected < rowCount ? new MetadataTableTruncation(projected, rowCount) : null;
         return new MetadataTableView(spec.Index, spec.Name, rowCount, spec.Columns, rows.ToImmutable(), truncation);
     }
 

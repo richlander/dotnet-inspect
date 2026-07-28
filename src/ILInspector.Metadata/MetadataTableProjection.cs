@@ -69,8 +69,8 @@ public sealed record MetadataTableView
     public ImmutableArray<MetadataRow> Rows { get; }
 
     /// <summary>
-    /// Non-null when the row budget stopped enumeration before the physical end
-    /// of the table. Enumeration never silently truncates without this marker.
+    /// Non-null when the row window covered fewer than all of the table's rows.
+    /// Enumeration never silently truncates without this marker.
     /// </summary>
     public MetadataTableTruncation? Truncation { get; }
 }
@@ -273,8 +273,9 @@ public sealed record HandleRange
 }
 
 /// <summary>
-/// Evidence that a table's row budget stopped enumeration before its physical
-/// end. Its presence makes truncation explicit rather than silent.
+/// Evidence that a table's row window projected fewer than all of its rows. Its
+/// presence makes partial coverage explicit rather than silent, whether the
+/// cause was the row budget or a window that starts past row 1.
 /// </summary>
 public sealed record MetadataTableTruncation
 {
@@ -286,7 +287,7 @@ public sealed record MetadataTableTruncation
         this.RowCount = RowCount;
     }
 
-    /// <summary>How many rows were projected before the budget stopped enumeration.</summary>
+    /// <summary>How many rows the window projected.</summary>
     public int ProjectedRows { get; }
 
     /// <summary>The physical row count of the table.</summary>
@@ -299,6 +300,9 @@ public sealed record MetadataProjectionOptions
     /// <summary>The default per-table row ceiling.</summary>
     public const int DefaultMaxRowsPerTable = 4096;
 
+    /// <summary>The default first row projected from each table.</summary>
+    public const int DefaultStartRowId = 1;
+
     /// <summary>The default bounded blob preview length, in bytes.</summary>
     public const int DefaultMaxPreviewBytes = 32;
 
@@ -307,6 +311,21 @@ public sealed record MetadataProjectionOptions
 
     /// <summary>The maximum number of rows projected per table before truncation.</summary>
     public int MaxRowsPerTable { get; init; } = DefaultMaxRowsPerTable;
+
+    /// <summary>
+    /// The 1-based row id at which each table's projection begins. Together with
+    /// <see cref="MaxRowsPerTable"/> this forms a row window, letting a consumer
+    /// page through a large table without materializing it whole. Values below 1
+    /// are clamped to 1, matching how <see cref="MaxRowsPerTable"/> clamps.
+    ///
+    /// A window never hides the table's size: <see cref="MetadataTableView.RowCount"/>
+    /// stays the physical count, each <see cref="MetadataRow.RowId"/> locates the
+    /// row absolutely, and a partial window is marked by
+    /// <see cref="MetadataTableView.Truncation"/>. A window past the end of a
+    /// non-empty table yields that table's view with zero rows rather than
+    /// dropping the table.
+    /// </summary>
+    public int StartRowId { get; init; } = DefaultStartRowId;
 
     /// <summary>The maximum number of blob bytes captured in a bounded preview.</summary>
     public int MaxPreviewBytes { get; init; } = DefaultMaxPreviewBytes;
