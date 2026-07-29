@@ -992,6 +992,33 @@ public class SectionPipelineTests
     }
 
     /// <summary>
+    /// Non-vacuity gate for the Cost/@All consistency check in
+    /// <see cref="SectionPipeline{TModel}.Add(SectionEntry{TModel})"/>. Membership in the
+    /// <c>@All</c> pole is computed from <c>IsExpensive</c>/<c>ExplicitOnly</c>, not from
+    /// <c>Cost</c>, so the two axes could otherwise drift and let a section costing unbounded
+    /// work be rendered by <c>-S @All</c>. This test is what proves that check is still wired.
+    /// </summary>
+    [Fact]
+    public void SectionPipeline_Add_UnboundedCostSectionThatWouldJoinAll_Throws()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            new SectionPipeline<InspectionResult>().Add(new SectionEntry<InspectionResult>
+            {
+                Name = "Bogus Unbounded",
+                IsExpensive = false,
+                ExplicitOnly = false,
+                Cost = SectionCost.Unbounded,
+                ScannerKey = null,
+                HasExplicitApplicability = true,
+                IsApplicable = static _ => true,
+                CanRender = static _ => true,
+            }));
+
+        Assert.Contains("Bogus Unbounded", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Cost=Unbounded", ex.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Every declared category member must resolve to a registered section in every pipeline that
     /// declares categories. Complements the constructor-time check by covering pipelines this
     /// suite would not otherwise build.
@@ -1554,7 +1581,7 @@ public class SectionPipelineTests
     public void PackagePipeline_HasExpectedSectionCount()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
-        Assert.Equal(16, pipeline.AllSectionNames.Length);
+        Assert.Equal(15, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -1568,7 +1595,6 @@ public class SectionPipelineTests
         Assert.Contains("Package README file", names);
         Assert.Contains("Signals", names);
         Assert.Contains("Target Frameworks", names);
-        Assert.Contains("Package markdown files", names);
         Assert.Contains("Package nuspec file", names);
         Assert.Contains("Statistics", names);
         Assert.Contains("Dependencies", names);

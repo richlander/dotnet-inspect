@@ -19,13 +19,13 @@ public static class PackageSectionDescriptors
     {
         return new SectionPipeline<InspectionResult>()
             .UseCuratedCatalog()
+            .WithoutComputedPoles()
             .Add<Summary>()
             .Add<PackageInfo>()
             .Add<PackageReadme>()
             .Add<Signals>()
             .Add<Statistics>()
             .Add<TargetFrameworks>()
-            .Add<MarkdownFiles>()
             .Add<NuspecFiles>()
             .Add<SkillFiles>()
             .Add<SourceFiles>()
@@ -119,16 +119,6 @@ public static class PackageSectionDescriptors
         public static string? ScannerKey => null;
         public static bool CanRender(InspectionResult model)
             => model.TargetFrameworks is { Count: > 0 };
-    }
-
-    public sealed class MarkdownFiles : ISectionDescriptor<InspectionResult>
-    {
-        public static string Name => PackageSections.FilesMarkdown;
-        public static bool IsExpensive => false;
-        public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        public static string? ScannerKey => null;
-        public static bool CanRender(InspectionResult model)
-            => Matches(model, PackageSections.FilesMarkdown);
     }
 
     public sealed class SkillFiles : ISectionDescriptor<InspectionResult>

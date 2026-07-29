@@ -173,7 +173,6 @@ The package command has 17 registered sections:
 | Manifest | Minimal | — | Basic package manifest rows, with extra tool manifest rows when present |
 | Package files | Explicit | — | Full-depth package file listing with `Path` and `Size`; `Unbounded` cost, so verbosity never reaches it |
 | Package Info | Minimal | — | Full metadata field table |
-| Package markdown files | Normal | — | Full-depth `.md` file listing with `Path` and `Size` |
 | Package nuspec file | Minimal | — | The `.nuspec` manifest path with `Path` and `Size`; at most one row. `--print` emits the document |
 | Package README file | Minimal | — | Best README candidate with `Path` and `Size`; at most one row |
 | Package skill files | Normal | — | `skills/**/SKILL.md` files with `Path` and `Size`; only when the package ships skills |

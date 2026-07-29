@@ -19,7 +19,6 @@ public static class PackageFileFamily
     /// </summary>
     public static readonly (string Section, Func<PackageFile, bool> Matches)[] Members =
     [
-        (PackageSections.FilesMarkdown, static file => HasExtension(file, ".md")),
         (PackageSections.FilesNuspec, static file => HasExtension(file, ".nuspec")),
         // At most one row: IsReadme is set on the single file that ResolvePackageReadme
         // picked (README.md, then PACKAGE.md, then the declared readme), so the priority

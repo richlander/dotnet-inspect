@@ -73,9 +73,6 @@ public class InspectionResultView
     [MarkoutSection(Name = PackageSections.PackageInfo, FieldOrder = MarkoutFieldOrder.Alphabetical)]
     public List<MarkoutField> Metadata => GetMetadataFields();
 
-    [MarkoutSection(Name = PackageSections.FilesMarkdown)]
-    public List<PackageFileRow>? MarkdownFiles => FamilyRows(PackageSections.FilesMarkdown);
-
     // The manifest is listed as a path row rather than printed, so the section
     // stays a listing like its siblings; --print renders the document.
     [MarkoutSection(Name = PackageSections.FilesNuspec)]

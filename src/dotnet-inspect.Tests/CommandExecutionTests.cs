@@ -9987,20 +9987,32 @@ public class CommandExecutionTests
         Assert.Contains("Select value 'Signature' not found.", error);
     }
 
+    /// <summary>
+    /// The package command drops the computed <c>@All</c> and <c>@Default</c> poles
+    /// (<see cref="DotnetInspector.Sections.SectionPipeline{TModel}.WithoutComputedPoles"/>):
+    /// its sections are reachable by name, by topical door, and by verbosity, so a pole that
+    /// renders a superset nobody asked for is a surface no discovery output describes. This is
+    /// the gate that keeps them from being reintroduced.
+    /// </summary>
     [Fact]
-    public async Task Package_SelectAll_IncludesOptInSignals()
+    public async Task Package_ComputedPoles_AreNotResolvable()
     {
         var (packagePath, tempDir) = CreateLocalRefPackage("System.Runtime");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "@All");
+            var (allExit, _, allError) = await RunAppAsync("package", packagePath, "-S", "@All");
+            Assert.Equal(1, allExit);
+            Assert.Contains("'@All' not found", allError, StringComparison.Ordinal);
 
-            Assert.Equal(0, exit);
-            Assert.Contains("## Signals", output);
-            Assert.Contains("Known vulnerabilities", output);
-            Assert.DoesNotContain("Version: 1.0.0 |", output);
-            Assert.True(output.IndexOf("## Package Info", StringComparison.Ordinal) < output.IndexOf("## Signals", StringComparison.Ordinal));
-            Assert.DoesNotContain("Tip:", error);
+            // @Default is still the internal encoding of bare -S, so it must not resolve as a
+            // category while bare -S keeps working.
+            var (comboExit, _, comboError) = await RunAppAsync("package", packagePath, "-S", "@Default,Manifest");
+            Assert.Equal(0, comboExit);
+            Assert.Contains("'@Default' not found", comboError, StringComparison.Ordinal);
+
+            var (bareExit, bareOutput, _) = await RunAppAsync("package", packagePath, "-S");
+            Assert.Equal(0, bareExit);
+            Assert.Contains("## Package Info", bareOutput);
         }
         finally
         {
@@ -10126,21 +10138,16 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_FilesFamily_RendersEachLayoutRoot()
+    public async Task Package_FilesFamily_RendersEachDocumentKind()
     {
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
         try
         {
-            var (mdExit, mdOutput, _) = await RunAppAsync("package", packagePath, "-S", "Package markdown files");
-            Assert.Equal(0, mdExit);
-            Assert.Contains("## Package markdown files", mdOutput);
-            Assert.Contains("| README.md |", mdOutput);
-            Assert.DoesNotContain("| lib/net8.0/Layout.dll |", mdOutput);
-
             var (readmeExit, readmeOutput, _) = await RunAppAsync("package", packagePath, "-S", "Package README file");
             Assert.Equal(0, readmeExit);
             Assert.Contains("## Package README file", readmeOutput);
             Assert.Contains("| README.md |", readmeOutput);
+            Assert.DoesNotContain("| lib/net8.0/Layout.dll |", readmeOutput);
 
             var (nuspecExit, nuspecOutput, _) = await RunAppAsync("package", packagePath, "-S", "Package nuspec file");
             Assert.Equal(0, nuspecExit);
@@ -10231,34 +10238,15 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalLayoutPackage();
         try
         {
-            var (mdExit, mdOutput, _) = await RunAppAsync("package", packagePath, "-S", "Markdown Files");
-            Assert.Equal(0, mdExit);
-            Assert.Contains("## Package markdown files", mdOutput);
+            // "Grounding" was this section's canonical name, not a nickname, so scripts
+            // spelling it must keep working after the rename.
+            var (groundingExit, groundingOutput, _) = await RunAppAsync("package", packagePath, "-S", "Grounding");
+            Assert.Equal(0, groundingExit);
+            Assert.Contains("## Package README file", groundingOutput);
 
             var (nuspecExit, nuspecOutput, _) = await RunAppAsync("package", packagePath, "-S", "Files: Nuspec");
             Assert.Equal(0, nuspecExit);
             Assert.Contains("## Package nuspec file", nuspecOutput);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Package_MarkdownFiles_RendersAllMarkdownFilesWithFileSchema()
-    {
-        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.MarkdownFiles", "PACKAGE.md", "readme", "agents");
-        try
-        {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Markdown Files");
-
-            Assert.Equal(0, exit);
-            Assert.Contains("## Package markdown files", output);
-            Assert.Contains("| Path | Size |", output);
-            Assert.Contains("| AGENTS.md | 6 |", output);
-            Assert.Contains("| PACKAGE.md | 6 |", output);
-            Assert.DoesNotContain("Tip:", error);
         }
         finally
         {

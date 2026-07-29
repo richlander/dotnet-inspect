@@ -67,7 +67,7 @@ var schema = new DocumentSchema()
     .Add("Package Info", "field", "Version", "Type", "Size", "Highest TFM", "TFM Count", "Built", ...)
     .Add("Package README file", "column", "Path", "Size")
     .Add("Target Frameworks", "column", "TFM")
-    .Add("Package markdown files", "column", "Path", "Size")
+    .Add("Package skill files", "column", "Path", "Size")
     .Add("Dependencies", "column", "Target Framework", "Id", "Version")
     .Add("Files", "column", "Path", "Size");
 ```

@@ -46,6 +46,7 @@ public sealed class SectionPipeline<TModel>
     private readonly List<SectionEntry<TModel>> _entries = [];
     private readonly List<SectionCategory> _categories = [];
     private bool _curatedCatalog;
+    private bool _computedPoles = true;
 
     public const string DefaultCategory = "@Default";
     public const string AllCategory = "@All";
@@ -66,13 +67,34 @@ public sealed class SectionPipeline<TModel>
     }
 
     /// <summary>
+    /// Drops the computed <c>@All</c> and <c>@Default</c> poles from this pipeline's category map,
+    /// making them unresolvable as selectors rather than merely undiscoverable. They are artifacts
+    /// of the legacy catalog: <c>@All</c> renders a superset nobody asked for, and <c>@Default</c>
+    /// restates what bare <c>-S</c> already means. A command whose sections are reachable through
+    /// topical doors and verbosity does not need either, and keeping them resolvable-but-unlisted
+    /// leaves a surface no discovery output describes.
+    /// </summary>
+    public SectionPipeline<TModel> WithoutComputedPoles()
+    {
+        _computedPoles = false;
+        return this;
+    }
+
+    /// <summary>
     /// Membership test for the visible <c>@All</c> pole (curated catalogs only), computed from flags
     /// alone so it is independent of any model: a section is included when it is cheap and is either
     /// auto-selectable by verbosity or an explicitly opt-in <see cref="SectionEntry{TModel}.Noisy"/>
     /// surface section. Expensive sections and non-noisy feeders are excluded.
     /// </summary>
+    /// <summary>
+    /// Whether a section joins the <c>@All</c> pole, which renders every member. A
+    /// <see cref="SectionEntry{TModel}.Noisy"/> section is deliberately excluded: it is a
+    /// superset of narrower sections, so rendering it alongside them would emit the same
+    /// rows twice. Noisy sections stay listed in the discovery catalog
+    /// (<see cref="GetCatalogHiddenSections"/>) so they remain reachable by name.
+    /// </summary>
     private static bool IsAllMember(SectionEntry<TModel> entry)
-        => !entry.IsExpensive && (!entry.ExplicitOnly || entry.Noisy);
+        => !entry.IsExpensive && !entry.ExplicitOnly;
 
     /// <summary>
     /// Registers a section descriptor. The descriptor type is never instantiated —
@@ -111,6 +133,16 @@ public sealed class SectionPipeline<TModel>
             throw new InvalidOperationException(
                 $"{entry.Name} sets ProbeEffectiveness=false and must be explicit-only or " +
                 "provide a structural applicability predicate.");
+
+        // @All renders every member, so an Unbounded section must not be able to join it.
+        // IsAllMember reads IsExpensive/ExplicitOnly rather than Cost, so without this check
+        // the two axes could disagree and a section costing unbounded work would be pulled in
+        // by -S @All. Enforcing the implication here makes that state unrepresentable instead
+        // of leaving it to a comment on each descriptor.
+        if (entry.Cost == SectionCost.Unbounded && !entry.IsExpensive && !entry.ExplicitOnly)
+            throw new InvalidOperationException(
+                $"{entry.Name} declares Cost=Unbounded and must also declare IsExpensive=true " +
+                "or ExplicitOnly=true, otherwise it joins the @All pole.");
 
         _entries.Add(entry);
         return this;
@@ -177,13 +209,14 @@ public sealed class SectionPipeline<TModel>
 
     public IReadOnlyDictionary<string, string[]> GetCategoryMap()
     {
-        Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase)
+        Dictionary<string, string[]> categories = new(StringComparer.OrdinalIgnoreCase);
+        if (_computedPoles)
         {
-            [DefaultCategory] = InfoSectionNames,
-            [AllCategory] = _curatedCatalog
+            categories[DefaultCategory] = InfoSectionNames;
+            categories[AllCategory] = _curatedCatalog
                 ? _entries.Where(e => IsSelectable(e) && IsAllMember(e)).Select(e => e.Name).ToArray()
-                : SelectableSectionNames
-        };
+                : SelectableSectionNames;
+        }
 
         foreach (var category in _categories)
             categories[category.Name] = category.Sections;
@@ -218,7 +251,7 @@ public sealed class SectionPipeline<TModel>
     /// </summary>
     public IReadOnlySet<string> GetCatalogHiddenSections()
         => _curatedCatalog
-            ? _entries.Where(e => IsSelectable(e) && (!IsAllMember(e) || !e.ListedInCatalog))
+            ? _entries.Where(e => IsSelectable(e) && ((!IsAllMember(e) && !e.Noisy) || !e.ListedInCatalog))
                 .Select(e => e.Name)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase)
             : _entries.Where(e => !e.ListedInCatalog)

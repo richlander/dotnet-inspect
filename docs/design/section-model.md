@@ -86,8 +86,7 @@ rather than a mechanism change:
   `SourceLink:`. This suits families whose leaf names are only meaningful under
   the group.
 - A shared **noun-phrase suffix**, used by the package file family:
-  `Package markdown files`, `Package skill files`, `Package nuspec file`, and
-  `Package README file`. These read as English rather than as a namespace, and
+  `Package skill files`, `Package nuspec file`, and `Package README file`. These read as English rather than as a namespace, and
   their singular/plural form carries real information — a singular name means
   the section yields at most one row.
 
@@ -328,7 +327,6 @@ $ dotnet run --project src/dotnet-inspect -- package System.CommandLine -D
 | Manifest | section |
 | Package files | section |
 | Package Info | section |
-| Package markdown files | section |
 | Package nuspec file | section |
 | Package README file | section |
 | Signals | section |
@@ -338,8 +336,12 @@ $ dotnet run --project src/dotnet-inspect -- package System.CommandLine -D
 ```
 
 Curated catalogs lead with the topical doors, then list sections alphabetically.
-`@All`, `@Default`, and `@Hidden` are computed poles rather than doors, so
-discovery does not advertise them. `SourceLink: Files` is absent from the
+The `package` command goes further and drops the computed `@All` and `@Default`
+poles entirely (`WithoutComputedPoles`), so they are unresolvable rather than
+merely unlisted: its sections are reachable by name, by door, and by verbosity,
+and a pole that renders a superset nobody asked for is a surface no discovery
+output describes. `@Default` survives only as the internal encoding of bare
+`-S`, which is short-circuited before selector resolution. `SourceLink: Files` is absent from the
 section rows for the same reason a `Performance:` leaf is on the library
 command: the door above it is the entry point.
 

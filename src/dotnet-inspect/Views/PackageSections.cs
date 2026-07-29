@@ -17,7 +17,6 @@ public static class PackageSections
     // Singular names render exactly one row; plural names are listings.
     // Plain PackageFiles is the whole-package listing rather than a subset, so
     // it stays outside the door to avoid rendering every row twice.
-    public const string FilesMarkdown = "Package markdown files";
     public const string FilesNuspec = "Package nuspec file";
 
     /// <summary>

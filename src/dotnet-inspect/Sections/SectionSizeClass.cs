@@ -24,8 +24,9 @@ public enum SectionSizeClass
 {
     /// <summary>
     /// Structurally constant across every package (identity/signal/summary tables). This is the
-    /// bare <c>-S</c> overview tier: membership is package-independent, so these sections render
-    /// the same set for every target.
+    /// bare <c>-S</c> overview tier: the row set does not grow with the target, so the overview
+    /// cannot become long. Applicability still applies on top — a section with nothing to report
+    /// drops out, so absence means "not applicable", never "too long for this package".
     /// </summary>
     Fixed,
 

@@ -1019,7 +1019,6 @@ public class PackageCommand
         {
             PackageSections.PackageInfo => ProjectPackageInfo(result, section, kind, options),
             PackageSections.Files => ProjectPackageFiles(new InspectionResultView(result).Files, section, kind, options),
-            PackageSections.FilesMarkdown => ProjectPackageFiles(new InspectionResultView(result).MarkdownFiles, section, kind, options),
             PackageSections.FilesNuspec => ProjectPackageFiles(new InspectionResultView(result).NuspecFiles, section, kind, options),
             PackageSections.FilesReadme => ProjectPackageFiles(new InspectionResultView(result).PackageReadme, section, kind, options),
             PackageSections.FilesSkills => ProjectPackageFiles(new InspectionResultView(result).SkillFiles, section, kind, options),
@@ -1407,9 +1406,11 @@ public class PackageCommand
                || section.Equals(PackageSections.FilesReadme, StringComparison.OrdinalIgnoreCase)
                || PackageFileFamily.IsFamilySection(section));
 
+    // Only when the section was actually asked for. @All deliberately excludes
+    // SourceLink: Files (it is IsExpensive), so treating @All as a request here would
+    // acquire PDBs over the network to populate rows no view renders.
     private static bool ShouldPopulatePackageSourceFiles(InspectionOptions options)
-        => options.IncludeSections?.Contains(PackageSections.SourceLinkFiles) == true
-           || SelectResolver.IsActiveAllSelector(options.Select, options.IncludeSections);
+        => options.IncludeSections?.Contains(PackageSections.SourceLinkFiles) == true;
 
     private static async Task PopulatePackageSourceFilesAsync(
         InspectionResult result,
@@ -1707,8 +1708,7 @@ public class PackageCommand
         }
 
         var section = include.Single();
-        if (section.Equals(PackageSections.FilesReadme, StringComparison.OrdinalIgnoreCase)
-            || section.Equals(PackageSections.FilesMarkdown, StringComparison.OrdinalIgnoreCase))
+        if (section.Equals(PackageSections.FilesReadme, StringComparison.OrdinalIgnoreCase))
         {
             var files = GetPackageFileRows(result, section);
             return PrintBarePackageFiles(extractPath, packageName, version, files, options, section);

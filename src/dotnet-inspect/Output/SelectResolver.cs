@@ -49,6 +49,9 @@ public static class SelectResolver
         ["Safety Context"] = SectionNames.SafetyContext,
         ["Cost Context"] = SectionNames.CostContext,
         ["Package README"] = DotnetInspector.Views.PackageSections.FilesReadme,
+        // "Grounding" was this section's canonical name, not a nickname, so scripts
+        // spelling it must keep resolving even though the term is gone from the surface.
+        ["Grounding"] = DotnetInspector.Views.PackageSections.FilesReadme,
         ["Resource Triage"] = SectionNames.ArrayPoolEscapes,
         ["Resource Escape Triage"] = SectionNames.ArrayPoolEscapes,
         ["Escape"] = SectionNames.ArrayPoolEscapes,
@@ -65,8 +68,6 @@ public static class SelectResolver
         ["Performance: Loop hot paths"] = SectionNames.PerformanceLoops,
         ["Performance: Allocation hotspots"] = SectionNames.PerformanceHotspots,
         // Package file family: both the original names and the interim "Files:" spellings.
-        ["Markdown Files"] = DotnetInspector.Views.PackageSections.FilesMarkdown,
-        ["Files: Markdown"] = DotnetInspector.Views.PackageSections.FilesMarkdown,
         ["Files: Nuspec"] = DotnetInspector.Views.PackageSections.FilesNuspec,
         ["Files"] = DotnetInspector.Views.PackageSections.Files,
         // file". The agent-grounding intent the name carried is served by "Package skill
