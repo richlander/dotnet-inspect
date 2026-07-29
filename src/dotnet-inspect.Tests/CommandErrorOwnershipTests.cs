@@ -298,6 +298,50 @@ public class CommandErrorOwnershipTests
     }
 
     /// <summary>
+    /// Every build file that can put a <c>Using</c> into a CLI compilation.
+    /// </summary>
+    /// <remarks>
+    /// This scan used to read the closure's <c>.csproj</c> files and nothing
+    /// else, which mistakes "the project" for "the project's build". A reviewer
+    /// put <c>&lt;Using Include="System.Console" Static="true"/&gt;</c> in
+    /// <c>Directory.Build.props</c> -- imported implicitly into every project
+    /// beneath it -- wrote a bare <c>Error.WriteLine(args[1])</c>, and all five
+    /// tests stayed green while the CLI forged a diagnostic line.
+    ///
+    /// Rather than reproduce MSBuild's implicit-import walk and its explicit
+    /// <c>Import</c> graph -- which would need property evaluation, and would be
+    /// a second implementation of the thing being trusted -- this reads every
+    /// props/targets file in the repository. Over-reading is free here: the rule
+    /// only fires on an import of <c>System.Console</c> or on an unevaluable
+    /// <c>Include</c>, and no build file has a legitimate reason to carry
+    /// either, wherever it sits. Deriving the exact set would be more precise
+    /// and strictly more fragile.
+    /// </remarks>
+    private static IEnumerable<string> MsBuildFiles(string root)
+    {
+        HashSet<string> files = new(
+            ProjectClosure(Path.Combine(root, "src", "dotnet-inspect", "dotnet-inspect.csproj")),
+            StringComparer.Ordinal);
+
+        foreach (string pattern in new[] { "*.props", "*.targets" })
+        {
+            foreach (string file in Directory.EnumerateFiles(root, pattern, SearchOption.AllDirectories))
+            {
+                if (file.Contains($"{Path.DirectorySeparatorChar}artifacts{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                    || file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                    || file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                files.Add(file);
+            }
+        }
+
+        return files;
+    }
+
+    /// <summary>
     /// Files named by an explicit <c>&lt;Compile Include="..."/&gt;</c> in
     /// <paramref name="projectPath"/>.
     /// </summary>
@@ -756,9 +800,9 @@ public class CommandErrorOwnershipTests
             }
         }
 
-        // The same import can be declared per-project in MSBuild, where no .cs
-        // file mentions it and every source scan above is blind to it.
-        foreach (string project in ProjectClosure(Path.Combine(root, "src", "dotnet-inspect", "dotnet-inspect.csproj")))
+        // The same import can be declared in MSBuild, where no .cs file mentions
+        // it and every source scan above is blind to it.
+        foreach (string project in MsBuildFiles(root))
         {
             string text = File.ReadAllText(project);
             foreach (Match match in MsBuildStaticUsing.Matches(text))
@@ -941,9 +985,37 @@ public class CommandErrorOwnershipTests
         Assert.Contains("@\"", Normalize("_ = @\"a\"\"b\"; Console.Error.WriteLine(x);"), StringComparison.Ordinal);
         Assert.Matches(StderrWrite, Normalize("_ = @\"a\"\"b\"; Console.Error.WriteLine(x);"));
 
+        // A `@` before an escape is still an identifier prefix. Deciding that
+        // against the raw next character kept the `@`, decoded to `@Error`, and
+        // matched nothing.
+        Assert.Matches(StderrWrite, Normalize("Console.@\\u0045rror.WriteLine(x);"));
+        Assert.Matches(ConsoleImport, Normalize("using static System.@\\u0043onsole;"));
+
+        // An escape that does not spell an identifier character is not decoded.
+        // Turning `\u0022` into a quote outside a literal would open one and
+        // hide every write in the rest of the file.
+        Assert.DoesNotContain("\"", Normalize("var x = a\\u0022b;"), StringComparison.Ordinal);
+
         // The owner still writes, so the rule is about who, not about whether.
         string owner = Path.Combine(RepositoryRoot(), "src", "dotnet-inspect", "Output", "CommandError.cs");
         Assert.Matches(StderrWrite, File.ReadAllText(owner));
+
+        // The MSBuild half reaches the implicitly imported build files, not just
+        // the projects. A `Using` in Directory.Build.props applies to every
+        // project beneath it and named no .cs file, so a scan that missed these
+        // reported nothing while the CLI compiled the import.
+        string[] buildFiles = [.. MsBuildFiles(RepositoryRoot())];
+        Assert.Contains(
+            buildFiles,
+            f => string.Equals(Path.GetFileName(f), "Directory.Build.props", StringComparison.Ordinal));
+        Assert.Contains(
+            buildFiles,
+            f => string.Equals(Path.GetFileName(f), "dotnet-inspect.csproj", StringComparison.Ordinal));
+
+        // ... and the source half reaches files the SDK glob does not name.
+        Assert.Contains(
+            CliSourceFiles(RepositoryRoot()),
+            f => string.Equals(Path.GetFileName(f), "CommandError.cs", StringComparison.Ordinal));
     }
 
     [Fact]
