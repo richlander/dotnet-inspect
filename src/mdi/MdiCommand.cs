@@ -73,7 +73,7 @@ public static class MdiCommand
 
         var heapOption = new Option<string?>("--heap")
         {
-            Description = "Instead of dumping tables, read one heap value, given as Heap:Address (for example String:1234 or Guid:1). Addresses match a cell's offset: a byte offset, except the Guid heap's 1-based index.",
+            Description = "Instead of dumping tables, read one heap value, given as Heap:Address (for example #Strings:0x1a4 or #GUID:1). Addresses match a cell's offset: a byte offset, except the #GUID heap's 1-based index.",
         };
 
         var maxBytesOption = new Option<int>("--max-bytes")
@@ -162,7 +162,7 @@ public static class MdiCommand
 
             if (heapSpec is not null)
             {
-                if (!TryParseHeapLocation(heapSpec, out var heap, out int address, out string? heapError))
+                if (!MetadataHeapCoordinate.TryParse(heapSpec, out var heap, out int address, out string? heapError))
                 {
                     Console.Error.WriteLine($"Error: {heapError}");
                     return 1;
@@ -533,42 +533,6 @@ public static class MdiCommand
         if (!int.TryParse(rowText, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out rowId) || rowId < 1)
         {
             error = $"'{rowText}' is not a row id. Row ids are 1-based positive integers.";
-            return false;
-        }
-
-        error = null;
-        return true;
-    }
-
-    /// <summary>
-    /// Parses a <c>Heap:Address</c> heap reference (for example
-    /// <c>String:1234</c>). The two halves are validated separately so the
-    /// diagnostic names the half that is wrong.
-    /// </summary>
-    internal static bool TryParseHeapLocation(string spec, out HeapKind heap, out int address, out string? error)
-    {
-        heap = default;
-        address = 0;
-
-        int separator = spec.LastIndexOf(':');
-        if (separator < 0)
-        {
-            error = $"'{spec}' is not a heap reference. Use Heap:Address, for example String:1234.";
-            return false;
-        }
-
-        string heapName = spec[..separator].Trim();
-        string addressText = spec[(separator + 1)..].Trim();
-
-        if (!Enum.TryParse(heapName, ignoreCase: true, out heap) || !Enum.IsDefined(heap))
-        {
-            error = $"unknown heap '{heapName}'. Use String, Blob, Guid, or UserString.";
-            return false;
-        }
-
-        if (!int.TryParse(addressText, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out address))
-        {
-            error = $"'{addressText}' is not a heap address. Addresses are non-negative integers.";
             return false;
         }
 

@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Reflection.Metadata.Ecma335;
+using DotnetInspector.MetadataRendering;
 using ILInspector.Metadata;
 using Markout;
 
@@ -31,6 +32,55 @@ public static class MetadataSectionNames
     public const string Image = Prefix + "Image";
 
     /// <summary>
+    /// The coordinate-scoped section: the single heap value <c>--heap</c> names.
+    ///
+    /// Like the IL-offset sections, this one exists only when its coordinate does. Without
+    /// <c>--heap</c> there is no value to show, so the section is inapplicable and <c>-D</c> does
+    /// not list it; a section listed with nothing to render would advertise a view the command
+    /// cannot produce.
+    /// </summary>
+    public const string Heap = Prefix + "Heap";
+
+    /// <summary>
+    /// One section name per heap, spelled with the ECMA-335 stream name
+    /// (<c>Metadata: #Strings</c>), so the section a user selects and the coordinate they pass to
+    /// <c>--heap</c> name the heap the same way.
+    /// </summary>
+    public static ImmutableArray<string> Heaps { get; } =
+        [.. MetadataHeapCoordinate.Heaps.Select(static heap => Prefix + MetadataHeapCoordinate.StreamName(heap))];
+
+    static readonly ImmutableDictionary<string, HeapKind> HeapsByName =
+        MetadataHeapCoordinate.Heaps.ToImmutableDictionary(
+            static heap => Prefix + MetadataHeapCoordinate.StreamName(heap),
+            static heap => heap,
+            StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The section name that lists <paramref name="heap"/>'s entries.</summary>
+    public static string ForHeap(HeapKind heap) => Prefix + MetadataHeapCoordinate.StreamName(heap);
+
+    /// <summary>
+    /// Resolves a section name to the heap it lists. Returns <see langword="false"/> for
+    /// <see cref="Heap"/> — the coordinate section is one value, not a heap listing — and for
+    /// every non-heap section.
+    /// </summary>
+    public static bool TryGetHeap(string section, out HeapKind heap)
+        => HeapsByName.TryGetValue(section, out heap);
+
+    /// <summary>
+    /// The heaps selected by <paramref name="sections"/>, in stream-name order. Sections that are
+    /// not heap listings are skipped.
+    /// </summary>
+    public static ImmutableArray<HeapKind> HeapsFor(IEnumerable<string> sections)
+    {
+        var selected = sections
+            .Where(static s => HeapsByName.ContainsKey(s))
+            .Select(static s => HeapsByName[s])
+            .ToHashSet();
+
+        return [.. MetadataHeapCoordinate.Heaps.Where(selected.Contains)];
+    }
+
+    /// <summary>
     /// One section name per projected table, in ECMA-335 table order — the same order
     /// <see cref="MetadataTableProjector.ProjectedTables"/> declares, so rendered sections follow
     /// table order rather than an independent list that could drift out of it.
@@ -39,11 +89,12 @@ public static class MetadataSectionNames
         [.. MetadataTableProjector.ProjectedTables.Select(static index => Prefix + index)];
 
     /// <summary>
-    /// Every section in the <c>@Metadata</c> category: the image overview first, then the tables.
+    /// Every section in the <c>@Metadata</c> category: the image overview first, then the heap
+    /// coordinate section, the per-heap listings, and the tables.
     /// This is the category membership list and the registration list, so a table can never be
     /// registered without being reachable through the category door.
     /// </summary>
-    public static ImmutableArray<string> All { get; } = [Image, .. Tables];
+    public static ImmutableArray<string> All { get; } = [Image, Heap, .. Heaps, .. Tables];
 
     static readonly ImmutableDictionary<string, TableIndex> ByName =
         MetadataTableProjector.ProjectedTables.ToImmutableDictionary(
@@ -68,6 +119,8 @@ public static class MetadataSectionNames
     /// </summary>
     public static bool IsMetadataSection(string section)
         => string.Equals(section, Image, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(section, Heap, StringComparison.OrdinalIgnoreCase)
+            || HeapsByName.ContainsKey(section)
             || ByName.ContainsKey(section);
 
     /// <summary>
@@ -93,7 +146,11 @@ public static class MetadataSectionNames
     public static ImmutableArray<string> ColumnsFor(string section)
         => TryGetTable(section, out var table)
             ? [RowIdColumn, .. MetadataTableProjector.ColumnsFor(table).Select(static c => c.Name)]
-            : [];
+            : string.Equals(section, Heap, StringComparison.OrdinalIgnoreCase)
+                ? [.. MetadataProjectionRenderer.HeapValueColumns]
+                : TryGetHeap(section, out _)
+                    ? [.. MetadataProjectionRenderer.HeapEntryColumns]
+                    : [];
 
     /// <summary>
     /// The name of the leading row-id column every table section carries. It is not an ECMA-335
@@ -115,6 +172,13 @@ public static class MetadataSectionNames
         ArgumentNullException.ThrowIfNull(schema);
 
         schema.Add(Image, "column", "Property", "Value");
+        schema.Add(Heap, "column", [.. ColumnsFor(Heap)]);
+        foreach (var heap in MetadataHeapCoordinate.Heaps)
+        {
+            var heapSection = ForHeap(heap);
+            schema.Add(heapSection, "column", [.. ColumnsFor(heapSection)]);
+        }
+
         foreach (var table in MetadataTableProjector.ProjectedTables)
         {
             var name = ForTable(table);
