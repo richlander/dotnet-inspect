@@ -1974,6 +1974,34 @@ internal static class LibraryMetadataService
         }
     }
 
+    /// <summary>
+    /// Scans the image-level metadata facts backing the <c>@Metadata</c> lens: metadata version,
+    /// heap sizes, and per-table physical row counts.
+    ///
+    /// This is the cheap half of the lens deliberately. It reads table row counts, never rows, so
+    /// selecting one metadata section does not pay to project every table; the per-table sections
+    /// consult these counts to decide whether they have anything to render, and the row projection
+    /// happens at render time for the selected tables only.
+    /// </summary>
+    internal static void ScanMetadataImage(string path, LibraryInspection inspection, VerboseLogger logger)
+    {
+        // Recorded even when the describe below fails, so the render path can tell "the scanner
+        // never ran" (path is null) from "the scanner ran and found no metadata" (path is set,
+        // overview is null) and report the second rather than rendering empty sections.
+        inspection.MetadataAssemblyPath = path;
+
+        try
+        {
+            using var session = AssemblyInspectionSession.Open(path);
+            inspection.MetadataOverview = session.MetadataImage();
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Warning: Error reading metadata image of {path}: {ex.Message}");
+            inspection.MetadataOverview = null;
+        }
+    }
+
     static FindingInspection<T> FailedInspection<T>(
         string path,
         FindingDescriptor descriptor,

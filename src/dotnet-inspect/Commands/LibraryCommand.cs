@@ -14,6 +14,7 @@ using DotnetInspector.Services;
 using DotnetInspector.Views;
 using Markout;
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -31,7 +32,8 @@ public class LibraryCommand
         var pipeline = LibrarySections.CreatePipeline();
         var scannerRegistry = LibrarySections.CreateScannerRegistry();
 
-        var schemaMap = InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema();
+        var schemaMap = MetadataSectionNames.AugmentSchema(
+            InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema());
         bool hasInputSource = !string.IsNullOrEmpty(assemblyPath)
             || !string.IsNullOrEmpty(options.PackagePath)
             || !string.IsNullOrEmpty(options.PlatformAssembly);
@@ -228,6 +230,14 @@ public class LibraryCommand
         var scanners = pipeline.GetRequiredScanners(
             options.Verbosity, options.IncludeSections, options.FixedOverview);
 
+        // Discovery must know which metadata tables carry rows, or the whole @Metadata category
+        // filters out of the catalog: its sections are explicit-only, so no verbosity requests
+        // them, and their applicability is the scanned row count. The scan is deliberately the
+        // cheap half of the lens -- table row counts, never rows -- so listing the category
+        // accurately costs a header read rather than a projection.
+        if (effectiveDiscovery)
+            scanners.Add(LibrarySections.ScannerMetadata);
+
         // Check for valid input source
         if (string.IsNullOrEmpty(assemblyPath) &&
             string.IsNullOrEmpty(options.PackagePath) &&
@@ -279,10 +289,15 @@ public class LibraryCommand
                 bool sourceLinkAvailable = effectiveDiscovery && !HasILOffsetCoordinate(options)
                     && await LibraryMetadataService.ProbeLocalSourceLinkAsync(resolvedPath!, context.HttpClient, logger, isPlatformAssembly: true);
 
+                // Identity of the bytes about to be inspected. Computed once and reused for the
+                // lookup, the pre-inspection snapshot, and (via CacheEffective) the write, so a
+                // discovery run hashes the assembly at most twice.
+                string? inspectedContentHash = effectiveDiscovery ? TryGetContentHash(resolvedPath!) : null;
+
                 // Check effective sections cache before running full inspection
-                if (effectiveDiscovery && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options))
+                if (effectiveDiscovery && inspectedContentHash != null && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options))
                 {
-                    var cached = TryGetCachedEffective(resolvedPath!, sourceLinkAvailable);
+                    var cached = TryGetCachedEffective(resolvedPath!, inspectedContentHash, sourceLinkAvailable);
                     if (cached != null)
                     {
                         var rootLabel = Path.GetFileNameWithoutExtension(resolvedPath!);
@@ -306,7 +321,7 @@ public class LibraryCommand
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
                 if (effectiveDiscovery)
-                    return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options));
+                    return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options), inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspection, options))
                     return 0;
                 if (options.Print)
@@ -342,10 +357,15 @@ public class LibraryCommand
                     && await LibraryMetadataService.ProbeLocalSourceLinkAsync(assemblyPaths[0], context.HttpClient, logger, isPlatformAssembly: false,
                         packageName: packageName, packageVersion: packageVersion);
 
+                // Identity of the bytes about to be inspected; see the platform path above.
+                string? inspectedContentHash = effectiveDiscovery && assemblyPaths.Count > 0
+                    ? TryGetContentHash(assemblyPaths[0])
+                    : null;
+
                 // Check effective sections cache before running full inspection
-                if (effectiveDiscovery && options.Discover is { Length: 0 } && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options))
+                if (effectiveDiscovery && inspectedContentHash != null && options.Discover is { Length: 0 } && assemblyPaths.Count > 0 && !HasILOffsetCoordinate(options))
                 {
-                    var cached = TryGetCachedEffective(assemblyPaths[0], sourceLinkAvailable);
+                    var cached = TryGetCachedEffective(assemblyPaths[0], inspectedContentHash, sourceLinkAvailable);
                     if (cached != null)
                     {
                         var rootLabel = Path.GetFileNameWithoutExtension(assemblyPaths[0]);
@@ -381,7 +401,7 @@ public class LibraryCommand
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
                 if (effectiveDiscovery)
-                    return WriteEffectiveSections(assemblyPaths[0], inspections[0], options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options));
+                    return WriteEffectiveSections(assemblyPaths[0], inspections[0], options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options), inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspections[0], options))
                     return 0;
                 if (options.Print)
@@ -395,7 +415,11 @@ public class LibraryCommand
                 if (inspections.Count == 1)
                     OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
                 else
+                {
+                    if (RejectMultiAssemblyMetadataSelection(inspections, options))
+                        return 1;
                     OutputFormatter.WriteLibraryResults(inspections, options, pipeline);
+                }
 
                 return IntegrityExitCode([.. inspections]);
             }
@@ -415,10 +439,13 @@ public class LibraryCommand
                 bool sourceLinkAvailable = effectiveDiscovery && !HasILOffsetCoordinate(options)
                     && await LibraryMetadataService.ProbeLocalSourceLinkAsync(assemblyPath!, context.HttpClient, logger, isPlatformAssembly: false);
 
+                // Identity of the bytes about to be inspected; see the platform path above.
+                string? inspectedContentHash = effectiveDiscovery ? TryGetContentHash(assemblyPath!) : null;
+
                 // Check effective sections cache before running full inspection
-                if (effectiveDiscovery && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options))
+                if (effectiveDiscovery && inspectedContentHash != null && options.Discover is { Length: 0 } && !HasILOffsetCoordinate(options))
                 {
-                    var cached = TryGetCachedEffective(assemblyPath!, sourceLinkAvailable);
+                    var cached = TryGetCachedEffective(assemblyPath!, inspectedContentHash, sourceLinkAvailable);
                     if (cached != null)
                     {
                         var rootLabel = Path.GetFileNameWithoutExtension(assemblyPath!);
@@ -441,7 +468,7 @@ public class LibraryCommand
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
                 if (effectiveDiscovery)
-                    return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options));
+                    return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options), inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspection, options))
                     return 0;
                 if (options.Print)
@@ -760,6 +787,30 @@ public class LibraryCommand
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Rejects a metadata-lens selection when a package resolved to more than one assembly.
+    /// The lens renders raw ECMA-335 tables of one image: row ids are image-relative and section
+    /// names carry no assembly, so several assemblies would emit repeated
+    /// <c>## Metadata: TypeDef</c> headings whose rows silently belong to different images and
+    /// whose row numbering restarts without saying so. Failing here keeps that ambiguity visible
+    /// instead of rendering a confidently wrong document.
+    /// </summary>
+    private static bool RejectMultiAssemblyMetadataSelection(
+        IReadOnlyCollection<LibraryInspection> inspections, LibraryOptions options)
+    {
+        if (inspections.Count <= 1 || options.IncludeSections is not { Count: > 0 } selected)
+            return false;
+
+        if (!selected.Any(MetadataSectionNames.IsMetadataSection))
+            return false;
+
+        Console.Error.WriteLine(
+            $"Error: {SectionCategoryNames.Metadata} inspects the metadata tables of a single assembly, " +
+            $"but this package resolved to {inspections.Count} assemblies.");
+        Console.Error.WriteLine("Select one assembly with --library <path> and retry.");
+        return true;
     }
 
     private static readonly string[] ILCoordinateSections =
@@ -1350,7 +1401,7 @@ public class LibraryCommand
 
     private static int WriteEffectiveSections(string assemblyPath, LibraryInspection inspection,
         LibraryOptions options, SectionPipeline<LibraryInspection> pipeline, Verbosity userVerbosity = Verbosity.Minimal,
-        bool sourceLinkAvailable = false, bool cache = true)
+        bool sourceLinkAvailable = false, bool cache = true, string? inspectedContentHash = null)
     {
         // Seed the network-free SourceLink-availability fact so the SourceLink section family
         // gates on a cached/embedded/adjacent PDB during discovery (never clears a value the
@@ -1361,12 +1412,13 @@ public class LibraryCommand
         // including opt-in sections whose renderability depends on the section's
         // own work (for example SourceLink audit sections).
         var allEffective = pipeline.GetDiscoverableSections(inspection);
-        var schemaMap = InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema();
+        var schemaMap = MetadataSectionNames.AugmentSchema(
+            InspectionContext.Default.GetSchemaInfo<LibraryInspectionView>()!.ToDocumentSchema());
 
         // Field-level filtering on ALL effective sections (unfiltered) for caching
         var filteredSchema = FilterSchemaToEffectiveFields(inspection, allEffective, schemaMap, pipeline, allEffective.ToArray());
         if (cache)
-            CacheEffective(assemblyPath, inspection.HasSourceLink, allEffective, filteredSchema);
+            CacheEffective(assemblyPath, inspection.HasSourceLink, allEffective, filteredSchema, inspectedContentHash);
 
         // Apply user filters
         var effective = FilterEffective(allEffective, options);
@@ -1385,23 +1437,30 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    private const string EffectiveCategory = "effective-v18";
+    // Bumped to v19: the cached catalog now carries the @Metadata lens sections, and entries
+    // written by v18 were poisoned by the CRLF split bug below, so stale entries must not be read.
+    private const string EffectiveCategory = "effective-v19";
 
     static LibraryCommand()
     {
         CoreCache.RegisterVersionedCategory("effective-v", EffectiveCategory);
     }
 
-    private static (List<string> Sections, DocumentSchema Schema)? TryGetCachedEffective(string assemblyPath, bool hasSourceLink)
+    private static (List<string> Sections, DocumentSchema Schema)? TryGetCachedEffective(string assemblyPath, string contentHash, bool hasSourceLink)
     {
-        string key = GetEffectiveCacheKey(assemblyPath, hasSourceLink);
+        string key = BuildEffectiveCacheKey(assemblyPath, contentHash, hasSourceLink);
         var cached = CoreCache.TryGet(EffectiveCategory, key, extension: "tsv");
         if (cached == null) return null;
 
         var sections = new List<string>();
         var schema = new DocumentSchema();
-        foreach (var line in cached.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var raw in cached.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
+            // Entries are written with AppendLine, which is CRLF on Windows. Splitting on '\n'
+            // alone leaves the '\r' attached to the last field of every line, so a cached section
+            // name would not compare equal to the registered name and would silently escape
+            // name-keyed filters such as the catalog-hidden set.
+            var line = raw.TrimEnd('\r');
             var parts = line.Split('\t');
             var name = parts[0];
             sections.Add(name);
@@ -1413,28 +1472,95 @@ public class LibraryCommand
         return (sections, schema);
     }
 
-    private static void CacheEffective(string assemblyPath, bool hasSourceLink, List<string> sections, DocumentSchema filteredSchema)
+    /// <summary>
+    /// Stores a discovery catalog under the identity of the bytes it was derived from.
+    /// </summary>
+    /// <param name="inspectedContentHash">
+    /// Content hash captured immediately <em>before</em> the inspection that produced
+    /// <paramref name="sections"/>, or <see langword="null"/> when it was not captured.
+    /// </param>
+    private static void CacheEffective(string assemblyPath, bool hasSourceLink, List<string> sections,
+        DocumentSchema filteredSchema, string? inspectedContentHash)
     {
-        string key = GetEffectiveCacheKey(assemblyPath, hasSourceLink);
+        // The catalog describes the bytes the inspection parsed, but the key is derived from a
+        // separate read that happens after it. If the assembly is replaced in between — an
+        // ordinary rebuild racing a discovery run — the pre- and post-inspection hashes disagree,
+        // and writing the entry would file this catalog under the *replacement's* identity, where
+        // it would be served as a correct answer indefinitely. Declining to cache turns that
+        // silent, persistent mislabelling into a recomputation on the next run.
+        //
+        // This narrows the window rather than closing it: the hash and the parse remain two reads,
+        // so bytes that change and change back around the inspection still agree. Closing it needs
+        // the inspection to report the identity of the image it actually parsed, tracked in #3478.
+        var currentContentHash = TryGetContentHash(assemblyPath);
+        if (currentContentHash == null) return;
+        if (inspectedContentHash != null && !string.Equals(inspectedContentHash, currentContentHash, StringComparison.Ordinal))
+            return;
+
+        string key = BuildEffectiveCacheKey(assemblyPath, currentContentHash, hasSourceLink);
         var sb = new System.Text.StringBuilder();
         foreach (var name in sections)
         {
             var section = filteredSchema.GetSection(name);
             if (section != null && section.Items.Length > 0)
-                sb.AppendLine($"{name}\t{section.ItemKind}\t{string.Join(',', section.Items.Select(i => i.Name))}");
+                sb.Append($"{name}\t{section.ItemKind}\t{string.Join(',', section.Items.Select(i => i.Name))}").Append('\n');
             else
-                sb.AppendLine(name);
+                sb.Append(name).Append('\n');
         }
         CoreCache.Set(EffectiveCategory, key, sb.ToString(), extension: "tsv");
     }
 
-    private static string GetEffectiveCacheKey(string assemblyPath, bool hasSourceLink)
+    /// <summary>
+    /// SHA-256 of an assembly's bytes, or <see langword="null"/> when they cannot be read.
+    /// </summary>
+    private static string? TryGetContentHash(string assemblyPath)
     {
-        // Include file size for invalidation when local files change, and a network-free
-        // SourceLink-availability token so warming/clearing a cached PDB (which flips whether
-        // the SourceLink section family is effective) busts a stale -D catalog.
-        var size = new FileInfo(assemblyPath).Length;
-        return $"{assemblyPath}#{size}#sl{(hasSourceLink ? 1 : 0)}";
+        // A cached catalog is only valid for the bytes it was computed from, so the cache is keyed
+        // by content. Neither size nor write time identifies content: a rebuild in place, or
+        // copying a different assembly over the same path, routinely produces a same-sized file,
+        // and a write time can be preserved by a copy, restored from an archive (whose recorded
+        // stamps are coarse and often fixed for reproducibility), or shared by two writes that
+        // land inside one filesystem timestamp tick. Any of those served the previous file's
+        // catalog. Hashing removes the collision by construction rather than narrowing it:
+        // different bytes cannot share a key. It costs a read and a SHA-256 pass — measured at
+        // 9.8 ms for the largest assembly in this repository against a ~2.4 s warm discovery run,
+        // so well under 1% of the work the cache exists to avoid.
+        //
+        // Gate: MetadataLensTests.LibraryCommand_DiscoverEffective_SameSizeReplacement_
+        // InvalidatesCache and ..._PreservedWriteTimeReplacement_InvalidatesCache pin both
+        // collisions; both fail if the key stops being content-derived.
+        try
+        {
+            // Share the file as permissively as the inspector that is about to read it, so a
+            // concurrent reader or a pending delete does not turn a cache lookup into a failure.
+            using var stream = new FileStream(
+                Path.GetFullPath(assemblyPath),
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            return Convert.ToHexString(SHA256.HashData(stream));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The identity of the bytes is unknown, so no cache entry can be proven to describe
+            // them. Callers bypass the cache rather than key on a weaker identity: this costs a
+            // full discovery run, and the caller reads the same file immediately afterwards,
+            // which surfaces the underlying failure with its own diagnostics.
+            return null;
+        }
+    }
+
+    private static string BuildEffectiveCacheKey(string assemblyPath, string contentHash, bool hasSourceLink)
+    {
+        // Include a network-free SourceLink-availability token so warming/clearing a cached PDB
+        // (which flips whether the SourceLink section family is effective) busts a stale -D
+        // catalog.
+        //
+        // The path is resolved because the key is built from whatever the caller typed. A
+        // relative path names different files from different working directories, so two
+        // same-sized assemblies at the same relative path — the normal case for one repository
+        // and its worktrees — otherwise share a key and serve each other's catalog.
+        return $"{Path.GetFullPath(assemblyPath)}#{contentHash}#sl{(hasSourceLink ? 1 : 0)}";
     }
 
     private static List<string> FilterEffective(List<string> sections, LibraryOptions options)
