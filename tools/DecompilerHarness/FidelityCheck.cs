@@ -210,7 +210,14 @@ static class FidelityCheck
     /// types, so any changed method on a nested type fell into the
     /// <c>target-method-not-found</c> bucket.
     /// </summary>
-    internal static IReadOnlyList<string> CollectibleFullTypeNames(string assemblyPath)
+    /// <param name="typeFilter">
+    /// Optional full-type-name predicate applied before any method is decompiled.
+    /// Collecting a name still costs a full render of the type's methods, so a
+    /// caller interested in a few types should say so rather than pay for every
+    /// type in the assembly. Declining a type only removes it from the returned
+    /// set; it never changes how a retained name is computed.
+    /// </param>
+    internal static IReadOnlyList<string> CollectibleFullTypeNames(string assemblyPath, Func<string, bool>? typeFilter = null)
     {
         var names = new List<string>();
         using var pe = new PEReader(File.OpenRead(assemblyPath));
@@ -226,7 +233,7 @@ static class FidelityCheck
             var typeDef = reader.GetTypeDefinition(typeHandle);
             if (!typeDef.GetDeclaringType().IsNil)
                 continue;
-            foreach (var (fullType, _, _) in EnumerateTypeTree(reader, pe, source, typeHandle, render))
+            foreach (var (fullType, _, _) in EnumerateTypeTree(reader, pe, source, typeHandle, render, typeFilter))
                 names.Add(fullType);
         }
         return names;
@@ -320,8 +327,19 @@ static class FidelityCheck
     /// is the console-reporting entry point. Shares all of the skeleton-emission and
     /// opcode-comparison machinery so the two paths can never drift.
     /// </summary>
-    public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath)
-        => Evaluate(assemblyPath, lowered: false);
+    /// <param name="typeFilter">
+    /// Optional predicate over the full type name, applied before any decompile or
+    /// recompile work. A caller that wants a single fixture type out of a large
+    /// assembly should pass it here rather than filtering the returned results: this
+    /// overload otherwise renders and recompiles <em>every</em> type in the assembly,
+    /// which for a test assembly is thousands of types of wasted work. Names match
+    /// <see cref="CompileBackResult.Type"/>, so the predicate and a post-filter select
+    /// the same rows. Filtering does not change how any individual result is computed,
+    /// because the reconstruction skeleton is rebuilt from whole-module metadata inside
+    /// the compile step.
+    /// </param>
+    public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath, Func<string, bool>? typeFilter = null)
+        => Evaluate(assemblyPath, lowered: false, typeFilter);
 
     /// <summary>
     /// Runs the fidelity check roundtrip for a chosen view — the shipped raised
@@ -330,16 +348,16 @@ static class FidelityCheck
     /// validation. The renderer is built here so the raised path can bind the
     /// cross-method import seam from the open source (lambda raising).
     /// </summary>
-    public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath, bool lowered)
-        => Evaluate(assemblyPath, lowered, ClusterMode.Off);
+    public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath, bool lowered, Func<string, bool>? typeFilter = null)
+        => Evaluate(assemblyPath, lowered, ClusterMode.Off, typeFilter);
 
     /// <summary>
     /// Compatibility overload: <paramref name="cluster"/> true selects the
     /// operational <see cref="ClusterMode.Escalate"/> path (whole-module first,
     /// then escalate only its failures to the reconstruction closure).
     /// </summary>
-    public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath, bool lowered, bool cluster)
-        => Evaluate(assemblyPath, lowered, cluster ? ClusterMode.Escalate : ClusterMode.Off);
+    public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath, bool lowered, bool cluster, Func<string, bool>? typeFilter = null)
+        => Evaluate(assemblyPath, lowered, cluster ? ClusterMode.Escalate : ClusterMode.Off, typeFilter);
 
     /// <summary>
     /// Evaluates one assembly with the chosen reconstruction-closure (cluster)
@@ -347,7 +365,7 @@ static class FidelityCheck
     /// environment variable selects <see cref="ClusterMode.Escalate"/> for the
     /// console path.
     /// </summary>
-    public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath, bool lowered, ClusterMode clusterMode)
+    public static IReadOnlyList<CompileBackResult> Evaluate(string assemblyPath, bool lowered, ClusterMode clusterMode, Func<string, bool>? typeFilter = null)
     {
         var compileOptions = new CSharpCompilationOptions(
             OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
@@ -367,7 +385,7 @@ static class FidelityCheck
         var references = RuntimeReferences(assemblyPath);
 
         foreach (var typeHandle in reader.TypeDefinitions)
-            EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, results, clusterMode: clusterMode);
+            EvaluateType(reader, pe, source, typeHandle, references, parseOptions, compileOptions, render, results, clusterMode: clusterMode, typeFilter: typeFilter);
 
         return results;
     }
@@ -967,12 +985,13 @@ static class FidelityCheck
     /// </summary>
     static (string FullType, List<Entry> Entries)? CollectType(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
-        Func<IrFunction, DecompilerResult> render, int maxEntries = int.MaxValue)
+        Func<IrFunction, DecompilerResult> render, int maxEntries = int.MaxValue,
+        Func<string, bool>? typeFilter = null)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
         if (!typeDef.GetDeclaringType().IsNil)
             return null; // nested types are emitted by their enclosing type
-        return CollectTypeEntries(reader, pe, source, typeHandle, typeDef, render, maxEntries);
+        return CollectTypeEntries(reader, pe, source, typeHandle, typeDef, render, maxEntries, typeFilter);
     }
 
     /// <summary>
@@ -985,7 +1004,8 @@ static class FidelityCheck
     /// </summary>
     static (string FullType, List<Entry> Entries)? CollectTypeEntries(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
-        TypeDefinition typeDef, Func<IrFunction, DecompilerResult> render, int maxEntries = int.MaxValue)
+        TypeDefinition typeDef, Func<IrFunction, DecompilerResult> render, int maxEntries = int.MaxValue,
+        Func<string, bool>? typeFilter = null)
     {
         if (maxEntries <= 0)
             return null;
@@ -993,6 +1013,14 @@ static class FidelityCheck
             return null;
 
         string fullType = reader.GetFullTypeName(typeDef);
+
+        // Declining here is what makes a single-type caller cheap: everything
+        // above is metadata-only, while everything below renders and
+        // disassembles every method on the type. A caller that wants one
+        // fixture out of a large assembly must not pay for the rest.
+        if (typeFilter is not null && !typeFilter(fullType))
+            return null;
+
         if (IsGeneratedType(reader, typeDef, fullType))
             return null;
 
@@ -1176,13 +1204,13 @@ static class FidelityCheck
     /// </summary>
     static IEnumerable<(string FullType, List<Entry> Entries, TypeDefinitionHandle Handle)> EnumerateTypeTree(
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
-        Func<IrFunction, DecompilerResult> render)
+        Func<IrFunction, DecompilerResult> render, Func<string, bool>? typeFilter = null)
     {
         var typeDef = reader.GetTypeDefinition(typeHandle);
-        if (CollectTypeEntries(reader, pe, source, typeHandle, typeDef, render) is { } collected)
+        if (CollectTypeEntries(reader, pe, source, typeHandle, typeDef, render, typeFilter: typeFilter) is { } collected)
             yield return (collected.FullType, collected.Entries, typeHandle);
         foreach (var nested in typeDef.GetNestedTypes())
-            foreach (var result in EnumerateTypeTree(reader, pe, source, nested, render))
+            foreach (var result in EnumerateTypeTree(reader, pe, source, nested, render, typeFilter))
                 yield return result;
     }
 
@@ -1190,11 +1218,12 @@ static class FidelityCheck
         MetadataReader reader, PEReader pe, MetadataSource source, TypeDefinitionHandle typeHandle,
         ReferenceSet references, CSharpParseOptions parseOptions,
         CSharpCompilationOptions compileOptions, Func<IrFunction, DecompilerResult> render, List<CompileBackResult> results,
-        int maxEntries = int.MaxValue, ClusterMode clusterMode = ClusterMode.Off)
+        int maxEntries = int.MaxValue, ClusterMode clusterMode = ClusterMode.Off,
+        Func<string, bool>? typeFilter = null)
     {
         if (maxEntries <= 0)
             return;
-        if (CollectType(reader, pe, source, typeHandle, render, maxEntries) is not var (fullType, entries) || entries.Count == 0)
+        if (CollectType(reader, pe, source, typeHandle, render, maxEntries, typeFilter) is not var (fullType, entries) || entries.Count == 0)
             return;
         results.AddRange(EvaluateGrouped(reader, pe, references, parseOptions, compileOptions, fullType, typeHandle, entries, clusterMode));
     }
@@ -2284,12 +2313,19 @@ static class FidelityCheck
         int remaining = cap - total;
         if (remaining <= 0)
             return;
+        // CB_TYPE is the documented "focus one type" switch, so it has to be
+        // applied before CollectType renders a type's methods -- focusing should
+        // cost one type's work, not the whole assembly's. Tested against the same
+        // full type name the discarding check below used, so the selected set is
+        // unchanged.
+        Func<string, bool>? typeFilter =
+            Environment.GetEnvironmentVariable("CB_TYPE") is { } filter
+                ? name => name.Contains(filter, StringComparison.Ordinal)
+                : null;
         var collected = timings is null
-            ? CollectType(reader, pe, source, typeHandle, render, remaining)
-            : timings.MeasureCollectRender(() => CollectType(reader, pe, source, typeHandle, render, remaining));
+            ? CollectType(reader, pe, source, typeHandle, render, remaining, typeFilter)
+            : timings.MeasureCollectRender(() => CollectType(reader, pe, source, typeHandle, render, remaining, typeFilter));
         if (collected is not var (fullType, entries) || entries.Count == 0)
-            return;
-        if (Environment.GetEnvironmentVariable("CB_TYPE") is { } filter && !fullType.Contains(filter, StringComparison.Ordinal))
             return;
 
         var results = EvaluateGrouped(reader, pe, references, parseOptions, compileOptions, fullType, typeHandle, entries, timings: timings);
