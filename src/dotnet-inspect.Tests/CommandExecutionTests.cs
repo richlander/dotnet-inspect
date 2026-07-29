@@ -9842,6 +9842,24 @@ public class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("CON")]
+    [InlineData("COM1")]
+    public async Task PackageCommand_CoordinateThatIsNotAPathComponent_ReportsAnError(string name)
+    {
+        // A package coordinate becomes a cache directory name. NuGetCache validates it by
+        // throwing, which was unreachable for an ordinary name until the shared rule started
+        // rejecting reserved device names: `package CON@1.0.0` then printed an unhandled
+        // ArgumentException and ~1800 bytes of stack trace where it had printed a one-line
+        // "not found". Refusal is correct; crashing to report it is not.
+        var (exit, _, error) = await RunAppAsync("package", $"{name}@1.0.0", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.DoesNotContain("Unhandled exception", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("   at ", error, StringComparison.Ordinal);
+        Assert.Contains("Invalid package name", error, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task PackageCommand_LibraryFlag_BareSelectsUnambiguousLibrary()
     {

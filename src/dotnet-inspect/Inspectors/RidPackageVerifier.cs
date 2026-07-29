@@ -30,7 +30,7 @@ public static class RidPackageVerifier
                 // (docs/design/untrusted-data-threat-model.md, "Derived paths").
                 if (!HardenedPath.IsSafePathComponent(ridPkg.PackageId) || !HardenedPath.IsSafePathComponent(version))
                 {
-                    logger.Log($"  {ridPkg.RuntimeIdentifier}: refusing unsafe package coordinate '{ridPkg.PackageId}.{version}'");
+                    logger.Warn($"{ridPkg.RuntimeIdentifier}: refusing unsafe package coordinate '{ridPkg.PackageId}.{version}'");
                     continue;
                 }
 

@@ -77,6 +77,10 @@ public static class HardenedPath
             || value.Contains('\\')
             || value.Contains(':')
             || value.AsSpan().ContainsAny(s_invalidFileNameCharacters)
+            // Redundant given the separator and volume rejections above -- a rooted value must
+            // start with one of those -- and kept only as a backstop against a host whose rooting
+            // rules differ. Removing it fails no test, so do not read it as the rule that stops
+            // rooted paths; the character rejections are.
             || Path.IsPathRooted(value))
         {
             return false;

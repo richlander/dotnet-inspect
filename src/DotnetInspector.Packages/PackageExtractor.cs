@@ -4,6 +4,7 @@
 using System.IO.Compression;
 using System.Net.Http.Headers;
 using DotnetInspector.Core;
+using ILInspector.MetadataPrimitives;
 using NuGetFetch;
 using NuGetSource = NuGetFetch.PackageSource;
 
@@ -232,6 +233,20 @@ public static class PackageExtractor
         // Normalize to lowercase for NuGet API
         string normalizedName = packageName.ToLowerInvariant();
         string normalizedVersion = version.ToLowerInvariant();
+
+        // The coordinate becomes a cache directory name, so it has to be a safe path component.
+        // NuGetCache validates it too, but by throwing, which leaves the command with an unhandled
+        // ArgumentException and a stack trace. That throw used to be unreachable for an ordinary
+        // name: the local copy of the rule this PR deleted could only reject separators, traversal
+        // and volume qualifiers, all of which the argument parser rejects earlier. Tightening the
+        // rule made it reachable -- `package CON@1.0.0` printed 1846 bytes of stack trace where it
+        // previously printed `Error: Package 'con' not found.` -- so refuse it here as an ordinary
+        // acquisition failure instead.
+        if (!HardenedPath.IsSafePathComponent(normalizedName))
+            return PackageExtractionOutcome.Error($"Invalid package name: '{packageName}'.");
+
+        if (!HardenedPath.IsSafePathComponent(normalizedVersion))
+            return PackageExtractionOutcome.Error($"Invalid package version: '{version}'.");
 
         var request = new PackageAcquisitionRequest(
             Path.GetFullPath(

@@ -179,7 +179,7 @@ internal static class ApiServices
             // paths"), so refuse unsafe names rather than sanitize them.
             if (!HardenedPath.IsSafePathComponent(targetAssembly))
             {
-                logger.Log($"Warning: refusing to resolve forwarded types to library with unsafe assembly name: '{targetAssembly}'");
+                logger.Warn($"refusing to resolve forwarded types to library with unsafe assembly name: '{targetAssembly}'");
                 continue;
             }
 
