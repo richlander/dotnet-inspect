@@ -355,7 +355,9 @@ public class LibraryCommand
                     inspection, resolvedPath!, null, null, isPlatformAssembly: true, options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
-                PopulateMetadataHeapIfRequested(inspection, options, logger);
+                int heapExitCode = PopulateMetadataHeapIfRequested(inspection, options, logger);
+                if (heapExitCode != 0)
+                    return heapExitCode;
                 if (effectiveDiscovery)
                     return WriteEffectiveSections(resolvedPath!, inspection, options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options), inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspection, options))
@@ -436,7 +438,9 @@ public class LibraryCommand
                     options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
-                PopulateMetadataHeapIfRequested(inspections[0], options, logger);
+                int heapExitCode = PopulateMetadataHeapIfRequested(inspections[0], options, logger);
+                if (heapExitCode != 0)
+                    return heapExitCode;
                 if (effectiveDiscovery)
                     return WriteEffectiveSections(assemblyPaths[0], inspections[0], options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options), inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspections[0], options))
@@ -504,7 +508,9 @@ public class LibraryCommand
                     options, context.HttpClient, logger);
                 if (ilOffsetExitCode != 0)
                     return ilOffsetExitCode;
-                PopulateMetadataHeapIfRequested(inspection, options, logger);
+                int heapExitCode = PopulateMetadataHeapIfRequested(inspection, options, logger);
+                if (heapExitCode != 0)
+                    return heapExitCode;
                 if (effectiveDiscovery)
                     return WriteEffectiveSections(assemblyPath!, inspection, options, pipeline, userVerbosity, sourceLinkAvailable, cache: !HasILOffsetCoordinate(options) && !HasHeapCoordinate(options), inspectedContentHash: inspectedContentHash);
                 if (TryWriteLibrarySingletonCount(inspection, options))
@@ -931,36 +937,58 @@ public class LibraryCommand
 
     /// <summary>
     /// Reads the heap value <c>--heap</c> named onto the model, which is what makes the
-    /// coordinate-scoped section applicable.
+    /// coordinate-scoped section applicable. Returns a process exit code, having written its own
+    /// diagnostic, exactly as the <c>--il-offset</c> resolution above it does.
     ///
-    /// A read failure becomes a malformed value on the model rather than a null: the section was
-    /// asked for by an explicit coordinate, so it must render and say what went wrong instead of
-    /// vanishing as though no coordinate had been given.
+    /// A coordinate that does not resolve is an <em>error</em>, not a malformed cell in an
+    /// otherwise successful render. The two cases look alike but are not: a bad heap reference
+    /// found inside a projected table row is a fact about the image, so it renders as
+    /// <c>!malformed</c> and the command succeeds; a coordinate is the caller's own input, and the
+    /// caller asked for exactly one thing that does not exist. Rendering that as a successful row
+    /// would exit 0 while answering nothing, and — worse — <c>-D</c> would go on advertising
+    /// <c>Metadata: Heap</c> as an available section. <c>--il-offset</c> already draws the line
+    /// here (<c>IL offset 0x… is not an instruction boundary</c>, exit 1) and this matches it.
     /// </summary>
-    private static void PopulateMetadataHeapIfRequested(
+    private static int PopulateMetadataHeapIfRequested(
         LibraryInspection inspection, LibraryOptions options, VerboseLogger logger)
     {
         if (string.IsNullOrWhiteSpace(options.HeapParameter)
             || (options.Discover == null && options.IncludeSections?.Contains(MetadataSectionNames.Heap) != true))
-            return;
+            return 0;
 
         if (inspection.MetadataAssemblyPath is not { } path)
-            return;
+            return 0;
 
         if (!MetadataHeapCoordinate.TryParse(options.HeapParameter, out var heap, out int address, out _))
             throw new UnreachableException("NormalizeHeapSelection rejects a malformed --heap coordinate before this point.");
 
+        string name = MetadataHeapCoordinate.StreamName(heap);
+        MetadataValue? value;
         try
         {
             using var session = AssemblyInspectionSession.Open(path);
-            if (session.MetadataHeapValue(heap, address) is { } value)
-                inspection.MetadataHeap = new MetadataHeapLookup(heap, address, value);
+            value = session.MetadataHeapValue(heap, address);
         }
         catch (Exception ex)
         {
-            logger.Log($"Warning: Error reading {MetadataHeapCoordinate.StreamName(heap)} heap at {address} in {path}: {ex.Message}");
-            inspection.MetadataHeap = new MetadataHeapLookup(
-                heap, address, new MetadataValue.Malformed($"{MetadataHeapCoordinate.StreamName(heap)} heap read failed: {ex.Message}"));
+            logger.Log($"Warning: Error reading {name} heap at {address} in {path}: {ex.Message}");
+            Console.Error.WriteLine($"Error: could not read {name} heap at {address}: {ex.Message}");
+            return 1;
+        }
+
+        switch (value)
+        {
+            case null:
+                Console.Error.WriteLine($"Error: could not read {name} heap at {address}: {path} carries no metadata.");
+                return 1;
+
+            case MetadataValue.Malformed malformed:
+                Console.Error.WriteLine($"Error: could not read {name} heap at {address}: {malformed.Detail}");
+                return 1;
+
+            default:
+                inspection.MetadataHeap = new MetadataHeapLookup(heap, address, value);
+                return 0;
         }
     }
 

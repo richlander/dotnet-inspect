@@ -71,6 +71,12 @@ public static class MetadataHeapCoordinate
     /// The prefix is required for hex rather than inferred, because a bare <c>10</c> would
     /// otherwise be ambiguous and silently address the wrong entry. Both radixes reject a sign and
     /// any thousands separator, so no locale changes what a coordinate means.
+    ///
+    /// Hex is parsed through <see cref="uint"/> and then range-checked, because
+    /// <see cref="NumberStyles.AllowHexSpecifier"/> on a signed <see cref="int"/> *wraps* rather
+    /// than overflows: <c>0x80000000</c> would parse successfully as <c>-2147483648</c> and address
+    /// a heap position that does not exist. Rejecting it here keeps a bad coordinate a parse error
+    /// instead of a malformed read that still exits 0.
     /// </summary>
     public static bool TryParseAddress(string text, out int address)
     {
@@ -86,9 +92,17 @@ public static class MetadataHeapCoordinate
         if (digits.Length == 0)
             return false;
 
-        return hex
-            ? int.TryParse(digits, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out address)
-            : int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out address);
+        if (!hex)
+            return int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out address);
+
+        if (!uint.TryParse(digits, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out uint parsed)
+            || parsed > int.MaxValue)
+        {
+            return false;
+        }
+
+        address = (int)parsed;
+        return true;
     }
 
     /// <summary>

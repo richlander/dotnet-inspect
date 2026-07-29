@@ -421,11 +421,32 @@ public class MetadataImageOverviewRendererTests
     // Hex is opt-in, never inferred: a bare "1a4" would otherwise silently address a different
     // entry than the "0x1a4" a metadata dump printed.
     [InlineData("String:1a4", "not a heap address")]
+    // NumberStyles.AllowHexSpecifier on a signed int *wraps* rather than overflows, so these
+    // parsed successfully as -2147483648 and -1 and produced a malformed heap read that still
+    // exited 0. An address that cannot exist is a parse error.
+    [InlineData("String:0x80000000", "not a heap address")]
+    [InlineData("String:0xFFFFFFFF", "not a heap address")]
+    [InlineData("String:0x100000000", "not a heap address")]
+    [InlineData("String:2147483648", "not a heap address")]
     public void TryParseHeapLocation_NamesTheHalfThatIsWrong(string spec, string expected)
     {
         Assert.False(MetadataHeapCoordinate.TryParse(spec, out _, out _, out string? error));
         Assert.NotNull(error);
         Assert.Contains(expected, error);
+    }
+
+    /// <summary>
+    /// The boundary the overflow rejection must not overshoot: <c>int.MaxValue</c> is still a
+    /// representable address and stays accepted in both radixes.
+    /// </summary>
+    [Theory]
+    [InlineData("String:0x7FFFFFFF")]
+    [InlineData("String:2147483647")]
+    public void TryParseHeapLocation_AcceptsTheLargestRepresentableAddress(string spec)
+    {
+        Assert.True(MetadataHeapCoordinate.TryParse(spec, out _, out int address, out string? error));
+        Assert.Equal(int.MaxValue, address);
+        Assert.Null(error);
     }
 
     [Fact]

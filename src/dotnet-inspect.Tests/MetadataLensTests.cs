@@ -610,6 +610,11 @@ public partial class CommandExecutionTests
     [InlineData("#Strings", "not a heap reference")]
     [InlineData("#Nope:1", "unknown heap")]
     [InlineData("#Strings:zz", "not a heap address")]
+    // Reported by adversarial review of #3497: NumberStyles.AllowHexSpecifier on a signed int
+    // wraps, so this parsed as -2147483648, reached the heap read, and rendered a malformed cell
+    // while still exiting 0. Asserted through the command surface because the exit code was the
+    // part that was wrong.
+    [InlineData("#Strings:0x80000000", "not a heap address")]
     public async Task MetadataLens_MalformedHeapCoordinate_NamesTheHalfThatIsWrong(
         string coordinate, string expected)
     {
@@ -697,6 +702,35 @@ public partial class CommandExecutionTests
             foreach (var heap in MetadataHeapCoordinate.Heaps)
                 Assert.DoesNotContain("## " + MetadataSectionNames.ForHeap(heap), output, StringComparison.Ordinal);
         }
+    }
+
+    /// <summary>
+    /// A well-formed coordinate that does not resolve is an error, not a successful render
+    /// containing a malformed cell. Reported by adversarial review of #3497, which observed exit 0
+    /// with a <c>!malformed</c> row — and, worse, <c>-D</c> still advertising the section.
+    ///
+    /// The distinction the product draws: a bad heap reference inside a projected table row is a
+    /// fact about the image and renders as <c>!malformed</c>; a coordinate is the caller's own
+    /// input naming one thing that does not exist. <c>--il-offset</c> already exits 1 here.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_UnresolvableHeapCoordinate_IsAnErrorNotAMalformedRow()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "--heap", "#Strings:999999999", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("#Strings", error, StringComparison.Ordinal);
+        Assert.Contains("999999999", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("## " + MetadataSectionNames.Heap, output, StringComparison.Ordinal);
+
+        // Discovery must not advertise a section the coordinate cannot produce.
+        var (discoverExit, discoverOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata,
+            "--heap", "#Strings:999999999", "--tsv", "--tips", "q");
+
+        Assert.Equal(1, discoverExit);
+        Assert.DoesNotContain(MetadataSectionNames.Heap, DiscoveryNames(discoverOutput));
     }
 
     /// <summary>Section names from a <c>-D --tsv</c> listing, header row dropped.</summary>
