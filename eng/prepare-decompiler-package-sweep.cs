@@ -18,23 +18,52 @@ bool resolveLatest = args.Contains("--resolve-latest") || refreshPin;
 string[] positional = args
     .Where(argument => argument is not ("--refresh-pin" or "--resolve-latest"))
     .ToArray();
+// Bad input is reported, not thrown. An unhandled exception here leaves exit 134,
+// which is the shape this file exists to remove: a caller reading the exit code sees
+// a crash where the contract promises a stated refusal.
+const string UsageText =
+    "Usage: dotnet run eng/prepare-decompiler-package-sweep.cs -- "
+    + "<output-directory> [start-rank] [package-count] [--resolve-latest] [--refresh-pin]";
 if (positional.Length is < 1 or > 3 || args.Any(argument =>
         argument.StartsWith("--", StringComparison.Ordinal)
         && argument is not ("--refresh-pin" or "--resolve-latest")))
 {
-    throw new ArgumentException(
-        "Usage: dotnet run eng/prepare-decompiler-package-sweep.cs -- "
-        + "<output-directory> [start-rank] [package-count] [--resolve-latest] [--refresh-pin]");
+    Console.Error.WriteLine(UsageText);
+    Environment.ExitCode = 2;
+    return;
 }
 
 string root = FindRepositoryRoot(Directory.GetCurrentDirectory());
 string outputDirectory = Path.GetFullPath(positional[0]);
-int startRank = positional.Length >= 2 ? int.Parse(positional[1]) : 1;
-int packageCount = positional.Length >= 3 ? int.Parse(positional[2]) : 10;
+int startRank = 1;
+int packageCount = 10;
+if (positional.Length >= 2 && !int.TryParse(positional[1], out startRank))
+{
+    Console.Error.WriteLine($"Start rank '{positional[1]}' is not a number.{Environment.NewLine}{UsageText}");
+    Environment.ExitCode = 2;
+    return;
+}
+
+if (positional.Length >= 3 && !int.TryParse(positional[2], out packageCount))
+{
+    Console.Error.WriteLine($"Package count '{positional[2]}' is not a number.{Environment.NewLine}{UsageText}");
+    Environment.ExitCode = 2;
+    return;
+}
+
 if (startRank <= 0)
-    throw new ArgumentOutOfRangeException(nameof(startRank), "Start rank must be positive.");
+{
+    Console.Error.WriteLine("Start rank must be positive.");
+    Environment.ExitCode = 2;
+    return;
+}
+
 if (packageCount is <= 0 or > 100)
-    throw new ArgumentOutOfRangeException(nameof(packageCount), "Package count must be between 1 and 100.");
+{
+    Console.Error.WriteLine("Package count must be between 1 and 100.");
+    Environment.ExitCode = 2;
+    return;
+}
 
 string sourcePath = Path.Combine(root, "docs", "data", "nuget-top-packages.json");
 var jsonOptions = new JsonSerializerOptions
@@ -47,10 +76,40 @@ var packageList = JsonSerializer.Deserialize<List<PackageListEntry>>(
     await File.ReadAllTextAsync(sourcePath),
     jsonContext.ListPackageListEntry)
     ?? throw new InvalidDataException($"Could not read package list '{sourcePath}'.");
+// Reported rather than thrown, for the same reason as the usage errors above: a
+// caller cannot tell exit 134 from a crash, and a malformed list is a refusal the
+// contract makes on purpose.
 if (packageList.Any(entry => entry.Rank <= 0 || string.IsNullOrWhiteSpace(entry.Package)))
-    throw new InvalidDataException($"Package list '{sourcePath}' contains an invalid entry.");
+{
+    Console.Error.WriteLine($"Package list '{sourcePath}' contains an invalid entry.");
+    Environment.ExitCode = 2;
+    return;
+}
+
 if (packageList.Select(entry => entry.Rank).Distinct().Count() != packageList.Count)
-    throw new InvalidDataException($"Package list '{sourcePath}' contains duplicate ranks.");
+{
+    Console.Error.WriteLine($"Package list '{sourcePath}' contains duplicate ranks.");
+    Environment.ExitCode = 2;
+    return;
+}
+// Distinct ranks are not distinct packages. One package listed at two ranks acquires
+// the same assembly twice, so the pool is a hundred slots holding ninety-nine
+// packages -- and every count in sight still says a hundred. A padded pool measures
+// one package's methods twice, which skews the ratchet exactly like a shortened one.
+if (packageList
+        .Select(entry => entry.Package)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .Count() != packageList.Count)
+{
+    string duplicates = string.Join(", ", packageList
+        .GroupBy(entry => entry.Package, StringComparer.OrdinalIgnoreCase)
+        .Where(group => group.Count() > 1)
+        .Select(group => $"{group.Key} (ranks {string.Join("/", group.Select(entry => entry.Rank))})"));
+    Console.Error.WriteLine(
+        $"Package list '{sourcePath}' ranks the same package more than once: {duplicates}.");
+    Environment.ExitCode = 2;
+    return;
+}
 
 string pinPath = Path.Combine(root, "docs", "data", "nuget-top-packages.lock.json");
 var pinFile = File.Exists(pinPath)
@@ -101,7 +160,6 @@ Directory.CreateDirectory(packageDirectory);
 HttpClientFactory.Initialize();
 NuGetCache.Initialize("dotnet-inspect");
 
-int unreproducible = 0;
 var results = new List<SweepPackageResult>(selected.Length);
 var assemblies = new List<string>(selected.Length);
 foreach (var entry in selected)
@@ -131,16 +189,20 @@ foreach (var entry in selected)
             results.Add(Failed(entry, "unpinned", $"'{entry.Package}' is not in {Path.GetFileName(pinPath)}."));
             Console.Error.WriteLine(
                 $"rank {entry.Rank}: {entry.Package}: not pinned; run with --refresh-pin to record a version.");
-            unreproducible++;
             continue;
         }
 
+        // --resolve-latest means what it says. Passing the pinned version here anyway
+        // would make the discovery lane replay the pinned pool while its own comment
+        // claimed it was sampling what ships today, and would leave --refresh-pin
+        // unable to ever bump a version it had already recorded.
+        bool honorPin = pin is not null && !resolveLatest;
         var outcome = await PackageExtractor.ExtractPackageAsync(
             HttpClientFactory.Shared,
             entry.Package,
             tempDirPrefix: "decompiler-package-sweep",
-            version: pin?.Version,
-            forceLatest: pin is null);
+            version: honorPin ? pin!.Version : null,
+            forceLatest: !honorPin);
         if (!outcome.IsSuccess)
         {
             results.Add(Failed(entry, "acquisition-failed", outcome.ErrorMessage));
@@ -178,7 +240,7 @@ foreach (var entry in selected)
         // selected TFM can move when TfmSelector changes even though the package did
         // not -- both change the assemblies measured, which is what the pool identity
         // is for.
-        if (pin is not null)
+        if (honorPin)
         {
             string? mismatch =
                 !string.Equals(package.Version, pin.Version, StringComparison.OrdinalIgnoreCase)
@@ -193,7 +255,6 @@ foreach (var entry in selected)
                     entry, "pin-mismatch", mismatch, resolvedPackage, package.Version, selection.Tfm,
                     package.FromCache));
                 Console.Error.WriteLine($"rank {entry.Rank}: {entry.Package}: {mismatch}");
-                unreproducible++;
                 continue;
             }
         }
@@ -359,13 +420,29 @@ Console.WriteLine(
     + $"manifest: {Path.Combine(outputDirectory, "manifest.json")}");
 if (assemblies.Count == 0)
     Environment.ExitCode = 1;
-if (unreproducible > 0)
+if (!resolveLatest)
 {
-    // Not merely reported. A pool that silently measured something other than what was
-    // pinned is the defect this file exists to prevent, so it ends the run.
-    Console.Error.WriteLine(
-        $"{unreproducible} package(s) could not be acquired as pinned; the pool is not reproducible.");
-    Environment.ExitCode = 1;
+    // The pin already declares what the pool should hold, so the gate asks the pin
+    // rather than a counter each failure site has to remember to increment. Within the
+    // selected window every "pinned" entry owes exactly one assembly and every
+    // "no-library" entry owes none, so a package that fails to acquire, yields no
+    // library, resolves to a version or TFM nobody pinned, or is not pinned at all
+    // leaves the pool short -- and it ends the run whichever way it went wrong,
+    // including ways added after this was written.
+    //
+    // Counting incidents was the earlier spelling, and it exited 0 over a pinned
+    // package that failed to acquire, because only two of the five failure sites
+    // remembered to count.
+    int owed = selected.Count(entry =>
+        pins.TryGetValue(entry.Package, out var pin) && pin.Status == "pinned");
+    if (assemblies.Count != owed)
+    {
+        Console.Error.WriteLine(
+            $"The pin owes {owed} {(owed == 1 ? "assembly" : "assemblies")} for ranks "
+            + $"{startRank}-{selected[^1].Rank} but the pool holds {assemblies.Count}; "
+            + "it is not reproducible.");
+        Environment.ExitCode = 1;
+    }
 }
 
 void RecordProcessingFailure(

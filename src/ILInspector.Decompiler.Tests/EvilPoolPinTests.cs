@@ -70,7 +70,7 @@ public class EvilPoolPinTests
     [Fact]
     public void NoPinNamesAPackageTheListDoesNotRank()
     {
-        var ranked = ReadRankedPackages();
+        var ranked = ReadRankedPackages().ToHashSet(StringComparer.OrdinalIgnoreCase);
         var orphans = ReadPins()
             .Select(pin => pin.Package)
             .Where(package => !ranked.Contains(package))
@@ -121,14 +121,46 @@ public class EvilPoolPinTests
             .ToArray();
     }
 
-    static HashSet<string> ReadRankedPackages()
+    /// <summary>
+    /// The ranked list names each package once.
+    ///
+    /// <para>Distinct ranks are not distinct packages. A list that ranks one package
+    /// twice displaces a pinned package out of the top hundred and acquires the same
+    /// assembly into two pool slots, so the pool holds a hundred files covering
+    /// ninety-nine packages while every count in sight still reads a hundred. A padded
+    /// denominator skews the ratchet exactly like a shortened one -- #3245's defect
+    /// wearing the other sign.</para>
+    ///
+    /// <para>This reads the list as a list. An earlier draft of these tests collapsed it
+    /// into a set before comparing, which is what let a duplicate through green: the set
+    /// erased the very repetition being looked for.</para>
+    /// </summary>
+    [Fact]
+    public void TheRankedListRanksEachPackageOnce()
+    {
+        var ranked = ReadRankedPackages();
+        var repeated = ranked
+            .GroupBy(package => package, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .Select(group => $"{group.Key} x{group.Count()}")
+            .Order()
+            .ToArray();
+
+        Assert.Empty(repeated);
+    }
+
+    /// <summary>
+    /// Reads the ranked list preserving cardinality, so a caller can see a repeat.
+    /// Callers that want set semantics say so themselves.
+    /// </summary>
+    static IReadOnlyList<string> ReadRankedPackages()
     {
         string path = Path.Combine(AuthoredCorpusRatchetTests.FindRepositoryRoot(), ListRelativePath);
         using var document = JsonDocument.Parse(File.ReadAllText(path));
         return document.RootElement
             .EnumerateArray()
             .Select(element => element.GetProperty("package").GetString() ?? "")
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            .ToArray();
     }
 
     sealed record PinnedPackage(string Package, string? Version, string? Tfm, string Status);
