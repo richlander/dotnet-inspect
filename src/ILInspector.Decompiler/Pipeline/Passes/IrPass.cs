@@ -176,6 +176,20 @@ public static class IrPasses
         // folding can recompose into one && return (issue #3051).
         new StructReceiverInliningPass(),
         new StructuringPass(),
+        // Second, spill-anchored object-initializer run. The default run above
+        // (early, before diamond collapsing) cannot fold a member whose value
+        // Roslyn spilled to a reused temp because its branches could not sit on
+        // the stack beneath the dup-chain receiver (`cond ? f(x) : null`): at that
+        // point the value is still a ConditionalBranch diamond across basic
+        // blocks, so the spill and its member store are never adjacent. Only after
+        // structuring has collapsed the diamond into a single Conditional in one
+        // straight-line block does the `t = V; ref.M = t` pair become adjacent and
+        // foldable. This run (spillReusedTemps: true) recovers those, and — folding
+        // inner-first with the shared machinery — the enclosing initializers that
+        // held a lowered nested chain as well. It commits a fold only when the plan
+        // rests on such a spill, so every chain the early run already judged stays
+        // exactly as it left it (issue #3336).
+        new ObjectInitializerPass(spillReusedTemps: true),
         // Recover a destructor: a Finalize override's try/finally + base.Finalize()
         // scaffold, structured just above, collapses to the ~T() body.
         new DestructorRecoveryPass(),
