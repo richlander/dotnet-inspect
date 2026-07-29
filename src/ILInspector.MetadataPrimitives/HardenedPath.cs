@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 
 namespace ILInspector.MetadataPrimitives;
@@ -27,13 +28,22 @@ namespace ILInspector.MetadataPrimitives;
 public static class HardenedPath
 {
     /// <summary>
+    /// Characters no path component may carry. The Windows-invalid set is spelled out rather than
+    /// taken from <see cref="Path.GetInvalidFileNameChars"/> alone, which returns only
+    /// <c>\0</c> and <c>/</c> on Unix: the inspected artifact is frequently not from the host that
+    /// will consume the report, so the rule has to be the same on every platform.
+    /// </summary>
+    private static readonly SearchValues<char> s_invalidFileNameCharacters =
+        SearchValues.Create([.. Path.GetInvalidFileNameChars(), '<', '>', '"', '|', '?', '*']);
+
+    /// <summary>
     /// Names Windows resolves to a device rather than a file, in any directory. Opening one can
     /// block or hang a read, so they are refused on every platform: the inspected artifact is
     /// frequently not from the host that will consume the report.
     /// </summary>
     private static readonly string[] ReservedDeviceNames =
     [
-        "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$",
+        "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$",
         "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
         "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
     ];
@@ -57,6 +67,7 @@ public static class HardenedPath
             || value.Contains('/')
             || value.Contains('\\')
             || value.Contains(':')
+            || value.AsSpan().ContainsAny(s_invalidFileNameCharacters)
             || Path.IsPathRooted(value))
         {
             return false;
@@ -72,6 +83,21 @@ public static class HardenedPath
             // applied to an identifier read from untrusted input, and char.IsControl misses it.
             if (char.GetUnicodeCategory(c) == UnicodeCategory.Format)
                 return false;
+        }
+
+        // Malformed UTF-16. No package id, version, assembly simple name or forwarder target
+        // contains an unpaired surrogate, so the cost of refusing one is nil, and accepting one
+        // means reasoning about what each host does with a code unit that denotes no character.
+        // It also keeps the digit fold's pair handling a question about well-formed input only.
+        for (var i = 0; i < value.Length; i++)
+        {
+            if (!char.IsSurrogate(value[i]))
+                continue;
+
+            if (!IsPairAt(value, i))
+                return false;
+
+            i++;
         }
 
         // Windows strips trailing spaces and dots from a path component, so "CON " and "CON" open
@@ -134,7 +160,7 @@ public static class HardenedPath
             if (value[i] > '\u007f' && AsciiDigitFor(value, i) >= 0)
                 return true;
 
-            if (char.IsHighSurrogate(value[i]))
+            if (IsPairAt(value, i))
                 i++;
         }
 
@@ -152,18 +178,33 @@ public static class HardenedPath
             if (digit >= 0)
             {
                 folded[written++] = (char)('0' + digit);
-                if (char.IsHighSurrogate(value[i]))
+                if (IsPairAt(value, i))
                     i++;
                 continue;
             }
 
             folded[written++] = value[i];
-            if (char.IsHighSurrogate(value[i]) && i + 1 < value.Length)
+            if (IsPairAt(value, i))
                 folded[written++] = value[++i];
         }
 
         return new string(folded, 0, written);
     }
+
+    /// <summary>
+    /// Whether <paramref name="index"/> starts a well-formed surrogate pair.
+    /// </summary>
+    /// <remarks>
+    /// A high surrogate alone is not enough to skip the next code unit. An unpaired one followed
+    /// by a digit -- <c>COM\ud800\u00b9</c> -- let the loop consume that digit as if it were a
+    /// trailing surrogate, so the digit was copied out without ever being tested. Malformed UTF-16
+    /// is the input most likely to carry that shape, which is the reason to check rather than
+    /// assume.
+    /// </remarks>
+    private static bool IsPairAt(string value, int index)
+        => char.IsHighSurrogate(value[index])
+           && index + 1 < value.Length
+           && char.IsLowSurrogate(value[index + 1]);
 
     /// <summary>
     /// Returns the digit 0-9 the code point at <paramref name="index"/> denotes, or -1.

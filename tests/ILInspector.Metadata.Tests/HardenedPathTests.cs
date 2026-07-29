@@ -63,6 +63,16 @@ public class HardenedPathTests
     // enclosed digit blocks are outside the basic plane and a per-char loop exempted them.
     [InlineData("COM\U0001d7cf")]
     [InlineData("LPT\U0001d7e3")]
+    // Absorbed from ResourceExtractor's copy when it was made to delegate: the Windows-invalid
+    // filename characters, which Path.GetInvalidFileNameChars misses on Unix, and CLOCK$.
+    [InlineData("Cont<oso")]
+    [InlineData("Cont>oso")]
+    [InlineData("Cont\"oso")]
+    [InlineData("Cont|oso")]
+    [InlineData("Cont?oso")]
+    [InlineData("Cont*oso")]
+    [InlineData("CLOCK$")]
+    [InlineData("clock$.dll")]
     // Invisible or reordering format characters: the rendered name is not the opened name.
     [InlineData("System.Text.Json\u200b")]
     [InlineData("\u200bSystem.Text.Json")]
@@ -97,6 +107,7 @@ public class HardenedPathTests
     [InlineData("My\u00a0Assembly.Core")]
     // A device name only as a prefix of a longer stem, including the console devices.
     [InlineData("CONIN$Extras")]
+    [InlineData("CLOCK$Extras")]
     // The digit fold only fires when the whole stem becomes a device name.
     [InlineData("COM\u00b9Plus")]
     [InlineData("COM\uff11Plus")]
@@ -109,6 +120,25 @@ public class HardenedPathTests
     public void LegitimateComponent_IsAccepted(string value)
     {
         Assert.True(HardenedPath.IsSafePathComponent(value));
+    }
+
+    /// <summary>
+    /// Malformed UTF-16 is rejected. Built in code rather than as theory data: xUnit serializes
+    /// InlineData through a round-trip that replaces an unpaired surrogate with U+FFFD, so the
+    /// theory would silently test a well-formed string and pass for the wrong reason.
+    /// </summary>
+    [Fact]
+    public void UnpairedSurrogate_IsRejected()
+    {
+        Assert.False(HardenedPath.IsSafePathComponent("COM\ud800\u00b9"));
+        Assert.False(HardenedPath.IsSafePathComponent("COM\udfff\uff11"));
+        Assert.False(HardenedPath.IsSafePathComponent("Contoso.\ud800"));
+        Assert.False(HardenedPath.IsSafePathComponent("\udc00Contoso"));
+        Assert.False(HardenedPath.IsSafePathComponent("Contoso\ud800"));
+
+        // The well-formed pair beside it is still accepted, so the rule refuses malformed UTF-16
+        // rather than the supplementary planes.
+        Assert.True(HardenedPath.IsSafePathComponent("Contoso.\U0001d400ssembly"));
     }
 
     [Fact]

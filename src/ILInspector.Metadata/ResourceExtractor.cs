@@ -1,6 +1,6 @@
-using System.Buffers;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using ILInspector.MetadataPrimitives;
 
 namespace ILInspector.Metadata;
 
@@ -12,13 +12,6 @@ static class ResourceExtractor
         int Size,
         string DestinationPath,
         string DestinationFullPath);
-
-    // The portable set ('<' '>' '"' '|' '?' '*') is unioned with the platform's
-    // invalid file-name characters so component validation stays deterministic
-    // across operating systems. Caching in SearchValues also avoids the fresh
-    // array that Path.GetInvalidFileNameChars() allocates on every call.
-    static readonly SearchValues<char> s_invalidFileNameCharacters =
-        SearchValues.Create([.. Path.GetInvalidFileNameChars(), '<', '>', '"', '|', '?', '*']);
 
     public static List<string> ExtractAll(PEReader peReader, string outputDirectory)
     {
@@ -203,16 +196,13 @@ static class ResourceExtractor
         var components = name.Split(['/', '\\'], StringSplitOptions.None);
         foreach (var component in components)
         {
-            if (component.Length == 0
-                || component is "." or ".."
-                || component.AsSpan().ContainsAny(s_invalidFileNameCharacters)
-                || component.Contains(':')
-                || component.EndsWith(' ')
-                || component.EndsWith('.')
-                || IsWindowsDeviceName(component))
-            {
+            // Per-component safety belongs to HardenedPath, which owns it for every other
+            // untrusted name that becomes a path. This used to be a fifth copy of that rule and
+            // was missing its digit fold, its format-character and malformed-UTF-16 refusals, and
+            // its length bound. What stays here is genuinely path-level rather than
+            // component-level: the split itself, and the rooted/drive-qualified checks above.
+            if (!HardenedPath.IsSafePathComponent(component))
                 throw UnsafeResourceName(name);
-            }
         }
         return components;
     }
@@ -220,26 +210,6 @@ static class ResourceExtractor
     static bool IsDriveQualified(string name)
         => name.Length >= 2 && char.IsAsciiLetter(name[0]) && name[1] == ':';
 
-    static bool IsWindowsDeviceName(string component)
-    {
-        var separator = component.IndexOf('.');
-        var stem = (separator >= 0 ? component[..separator] : component).TrimEnd(' ', '.');
-        return stem.Equals("CON", StringComparison.OrdinalIgnoreCase)
-            || stem.Equals("PRN", StringComparison.OrdinalIgnoreCase)
-            || stem.Equals("AUX", StringComparison.OrdinalIgnoreCase)
-            || stem.Equals("NUL", StringComparison.OrdinalIgnoreCase)
-            || stem.Equals("CLOCK$", StringComparison.OrdinalIgnoreCase)
-            || IsNumberedDevice(stem, "COM")
-            || IsNumberedDevice(stem, "LPT");
-    }
-
-    static bool IsNumberedDevice(string stem, string prefix)
-        => stem.Length == prefix.Length + 1
-            && stem.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-            && IsDeviceDigit(stem[^1]);
-
-    static bool IsDeviceDigit(char value)
-        => value is >= '1' and <= '9' or '\u00B9' or '\u00B2' or '\u00B3';
 
     static InvalidDataException UnsafeResourceName(string name)
         => new($"Manifest resource '{name}' is not a safe relative extraction path.");

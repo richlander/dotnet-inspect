@@ -1,5 +1,6 @@
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
+using ILInspector.MetadataPrimitives;
 
 namespace DotnetInspector.Services;
 
@@ -260,6 +261,16 @@ public static class PlatformPackService
         var cachePath = GetPacksCachePath();
         if (cachePath == null)
         {
+            return null;
+        }
+
+        // The version normally arrives from GetLatestPackVersionAsync, which is a feed response,
+        // and the pack name from a resolved TFM; both become path components here and the result
+        // is a cache directory this process then writes an extracted package into. Refuse rather
+        // than resolve, matching the null the caller already handles for an unavailable pack.
+        if (!HardenedPath.IsSafePathComponent(packName) || !HardenedPath.IsSafePathComponent(version))
+        {
+            log?.Invoke($"Refusing unsafe pack coordinate: {packName} {version}");
             return null;
         }
 
