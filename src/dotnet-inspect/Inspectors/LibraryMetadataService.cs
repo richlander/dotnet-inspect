@@ -700,6 +700,14 @@ internal static class LibraryMetadataService
     /// <summary>
     /// Builds a recursive tree of assembly references with resolution.
     /// </summary>
+    /// <param name="sourceKind">
+    /// What resolving beside <paramref name="sourceDir"/> means for provenance. Recursion replaces
+    /// <paramref name="sourceDir"/> with the resolved parent's directory, so probing "beside the
+    /// parent" is not the same claim at depth 3 as at depth 0. Without carrying the parent's
+    /// provenance down, a platform assembly's own dependency -- found beside it, inside the shared
+    /// framework -- was reported as <c>local</c>, which reads as "shipped next to the assembly you
+    /// inspected". Children of a platform assembly are platform.
+    /// </param>
     public static List<AssemblyReferenceNode> BuildTransitiveReferences(
         List<AssemblyReference> references,
         string? sourceDir,
@@ -707,7 +715,8 @@ internal static class LibraryMetadataService
         VerboseLogger logger,
         int depth = 0,
         bool deduplicate = false,
-        Dictionary<string, int>? globalSeen = null)
+        Dictionary<string, int>? globalSeen = null,
+        string sourceKind = "local")
     {
         globalSeen ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         List<AssemblyReferenceNode> nodes = [];
@@ -766,7 +775,7 @@ internal static class LibraryMetadataService
                 if (File.Exists(localPath))
                 {
                     resolvedPath = localPath;
-                    resolvedFrom = "local";
+                    resolvedFrom = sourceKind;
                 }
             }
 
@@ -793,7 +802,15 @@ internal static class LibraryMetadataService
                     if (childRefs.Count > 0)
                     {
                         var branchVisited = deduplicate ? visited : new HashSet<string>(visited, StringComparer.OrdinalIgnoreCase);
-                        var childNodes = BuildTransitiveReferences(childRefs, Path.GetDirectoryName(resolvedPath), branchVisited, logger, depth + 1, deduplicate, globalSeen);
+                        var childNodes = BuildTransitiveReferences(
+                            childRefs,
+                            Path.GetDirectoryName(resolvedPath),
+                            branchVisited,
+                            logger,
+                            depth + 1,
+                            deduplicate,
+                            globalSeen,
+                            resolvedFrom ?? sourceKind);
                         nodes.AddRange(childNodes);
                     }
                 }

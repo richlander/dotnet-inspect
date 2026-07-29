@@ -1522,6 +1522,70 @@ public class SectionPipelineTests
         }
     }
 
+    /// <summary>
+    /// The converse of <see cref="SharedReadScannerKeys_EachKeyActuallyDrivesTheRead"/>: a key the
+    /// declaration does NOT name must not drive the read either.
+    /// </summary>
+    /// <remarks>
+    /// Every other gate constrains the two SETS. None of them constrains the CODE that consults
+    /// them, so widening the condition itself -- <c>scanners is { Count: > 0 }</c> in place of
+    /// <c>scanners?.Any(ReferenceReadingScannerKeys.Contains)</c> -- left both sets untouched, the
+    /// literal pin passing, and every unrelated section quietly collecting and serializing
+    /// references. A reviewer measured the difference as 0 references to 49 on a single section.
+    /// <para>
+    /// Pinning the sets cannot catch that. Only asserting the biconditional can: references are
+    /// extracted if and only if the requested key is one the declaration names. This is the gate
+    /// that ties the declaration to the behavior rather than to more declaration.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task OnlyTheDeclaredKeys_DriveTheSharedRead()
+    {
+        var path = typeof(SectionPipelineTests).Assembly.Location;
+        using var httpClient = new HttpClient();
+        var logger = new DotnetInspector.Output.VerboseLogger(false);
+        var declared = LibrarySections.CreatePipeline().DeclaredScannerKeys;
+
+        Assert.NotEmpty(declared);
+
+        var unexpected = new List<string>();
+        var missing = new List<string>();
+
+        foreach (var key in declared)
+        {
+            var inspection = await LibraryMetadataService.InspectAsync(
+                path,
+                new LibraryOptions(),
+                logger,
+                null,
+                null,
+                httpClient,
+                scanners: new HashSet<string>(StringComparer.Ordinal) { key },
+                scannerRegistry: LibrarySections.CreateScannerRegistry());
+
+            Assert.NotNull(inspection);
+
+            var readReferences = inspection!.AssemblyReferenceInspection.HasFindings();
+            var shouldRead = LibraryMetadataService.ReferenceReadingScannerKeys.Contains(key);
+
+            if (readReferences && !shouldRead)
+                unexpected.Add(key);
+            else if (!readReferences && shouldRead)
+                missing.Add(key);
+        }
+
+        Assert.True(
+            unexpected.Count == 0,
+            $"These keys are not declared as reference-reading, but requesting one alone extracted "
+                + $"assembly references anyway: {string.Join(", ", unexpected)}. The condition that "
+                + "consults ReferenceReadingScannerKeys has drifted wider than the declaration.");
+
+        Assert.True(
+            missing.Count == 0,
+            $"These keys are declared as reference-reading but extracted nothing: "
+                + $"{string.Join(", ", missing)}.");
+    }
+
     // ===== Presence flag / CanRender discovery tests =====
 
     [Fact]
@@ -2783,6 +2847,46 @@ public class SectionPipelineTests
     public void LegitimateAssemblyReferenceName_IsAccepted(string name)
     {
         Assert.True(LibraryMetadataService.IsSafeAssemblySimpleName(name));
+    }
+
+    /// <summary>
+    /// A platform assembly's own dependency is platform, not local. Recursion replaces the source
+    /// directory with the resolved parent's directory, so the "is it beside the source directory?"
+    /// probe answers a different question at depth 3 than at depth 0: inside the shared framework
+    /// it answers yes for every platform assembly. Before provenance was carried down, this
+    /// reported 101 assemblies in /usr/local/share/dotnet as "local" -- which reads as "shipped
+    /// beside the assembly you inspected" -- including System.Private.CoreLib.
+    /// </summary>
+    [Fact]
+    public void PlatformAssemblyDependencies_AreNotReportedAsLocal()
+    {
+        var path = typeof(SectionPipelineTests).Assembly.Location;
+        var sourceDir = Path.GetDirectoryName(path)!;
+        var (references, _) = AssemblyInspector.ExtractReferencesAndCompany(path);
+
+        var nodes = LibraryMetadataService.BuildTransitiveReferences(
+            references,
+            sourceDir,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            new DotnetInspector.Output.VerboseLogger(false),
+            deduplicate: true);
+
+        var mislabelled = nodes
+            .Where(n => n.ResolvedFrom == "local"
+                && n.Path is not null
+                && !string.Equals(Path.GetDirectoryName(Path.GetFullPath(n.Path)), sourceDir, StringComparison.Ordinal))
+            .Select(n => $"{n.Name} (depth {n.Depth}) -> {n.Path}")
+            .ToList();
+
+        Assert.True(
+            mislabelled.Count == 0,
+            "These are reported as resolved 'local' but do not live beside the inspected assembly: "
+                + string.Join("; ", mislabelled));
+
+        // Positive control: the walk actually resolved things, and it did label some of them
+        // platform. Without this, a walk that resolved nothing would pass the assertion above.
+        Assert.Contains(nodes, n => n.ResolvedFrom == "platform");
+        Assert.Contains(nodes, n => n.ResolvedFrom == "local");
     }
 
     // Artifact canary for the predicate above: exercises the real resolution walk rather than the
