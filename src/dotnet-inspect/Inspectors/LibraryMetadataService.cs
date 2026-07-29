@@ -24,6 +24,31 @@ namespace DotnetInspector.Inspectors;
 internal static class LibraryMetadataService
 {
     /// <summary>
+    /// Scanner keys whose data the shared metadata read produces, rather than a registered
+    /// scanner. <see cref="SharedReadScannerKeys"/> is the subset a section may declare.
+    /// </summary>
+    /// <remarks>
+    /// <c>ScannerTransitiveRefs</c> appears here because the transitive scan needs the reference
+    /// list the read extracts, not because the read satisfies it; a registered scanner still does
+    /// that work. Keeping the two sets distinct is what lets
+    /// <c>SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration</c> assert
+    /// equality rather than containment: a key that no scanner registers and no read satisfies
+    /// still fails, which is the silence #3453 found.
+    /// </remarks>
+    private static readonly HashSet<string> ReferenceReadingScannerKeys =
+    [
+        LibrarySections.ScannerReferences,
+        LibrarySections.ScannerTransitiveRefs
+    ];
+
+    /// <summary>
+    /// The keys the shared metadata read alone satisfies. Unioned with the registry's registered
+    /// keys to form the set a section is allowed to declare.
+    /// </summary>
+    internal static IReadOnlySet<string> SharedReadScannerKeys { get; } =
+        new HashSet<string>(StringComparer.Ordinal) { LibrarySections.ScannerReferences };
+
+    /// <summary>
     /// Full inspection pipeline for a single assembly.
     /// </summary>
     public static async Task<LibraryInspection?> InspectAsync(
@@ -73,8 +98,7 @@ internal static class LibraryMetadataService
             // The References and Dependencies sections both read assembly references, which are
             // extracted during the metadata read below rather than by a registered scanner. Their
             // scanner keys therefore have to be consulted here, before that read.
-            var needsReferences = scanners?.Contains(LibrarySections.ScannerReferences) == true
-                || scanners?.Contains(LibrarySections.ScannerTransitiveRefs) == true;
+            var needsReferences = scanners?.Any(ReferenceReadingScannerKeys.Contains) == true;
 
             var inspection = new LibraryInspection
             {

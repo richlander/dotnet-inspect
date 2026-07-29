@@ -10,10 +10,14 @@ namespace DotnetInspector.Sections;
 /// </summary>
 public static class LibrarySections
 {
-    // Scanner keys identify data collection steps in LibraryMetadataService. Most are registered in
-    // CreateScannerRegistry and run after the shared metadata read. ScannerReferences is the
-    // exception: assembly references are extracted during that read, so LibraryMetadataService
-    // consumes the key directly instead of registering a scanner that would have nothing to do.
+    // Scanner keys identify data collection steps in LibraryMetadataService. A key is satisfied
+    // one of two ways, and both halves are held to SectionPipelineTests
+    // .LibraryScannerRegistry_RegistrationMatchesDeclaration: most are registered in
+    // CreateScannerRegistry and run after the shared metadata read, while ScannerReferences names
+    // work the shared read itself performs, so LibraryMetadataService consults it directly and
+    // declares it in SharedReadScannerKeys. What a key must never be is neither -- #3453 retired
+    // two keys that no consumer honored, and a section pointing at one of those collected nothing
+    // in silence.
     public const string ScannerTransitiveRefs = "TransitiveRefs";
     public const string ScannerReferences = "References";
     public const string ScannerExtensionMethods = "ExtensionMethods";
@@ -23,7 +27,6 @@ public static class LibrarySections
     public const string ScannerUnionTypes = "UnionTypes";
     public const string ScannerTypeForwarders = "TypeForwarders";
     public const string ScannerInfoCounts = "InfoCounts";
-    public const string ScannerSymbols = "Symbols";
     public const string ScannerAuditSignals = "AuditSignals";
     public const string ScannerIntegrations = LibraryIntegrationCatalog.RollupName;
     public const string ScannerIntegrationOpportunities = "IntegrationOpportunities";
@@ -287,7 +290,7 @@ public static class LibrarySections
         public static string Name => SectionNames.Symbols;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
-        public static string? ScannerKey => ScannerSymbols;
+        public static string? ScannerKey => null; // data comes from PdbContext (always collected)
         public static bool CanRender(LibraryInspection model) => true;
     }
 
@@ -536,6 +539,12 @@ public static class LibrarySections
         // A tree, not a table: the row-oriented modes have nothing to project until the graph
         // gets a declared row lowering (#3427).
         public static bool HasRowProjection => false;
+        // #3453 read this key as vestige and retired it, on the evidence that
+        // `--dependencies -S Dependencies` was byte-identical without it. That command supplies
+        // the tree through options.IncludeDependencies, so it cannot see the case that motivated
+        // this branch: `-S Dependencies` alone, where nothing sets IncludeDependencies and the
+        // section had no collection step of its own. The key is real now -- a registered scanner
+        // backs it -- so selecting the section collects its data.
         public static string? ScannerKey => ScannerTransitiveRefs;
         public static bool CanRender(LibraryInspection model)
             => model.AssemblyInfo?.TransitiveReferences is { Count: > 0 };

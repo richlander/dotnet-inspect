@@ -6,7 +6,7 @@ namespace DotnetInspector.Options;
 /// <summary>
 /// Configuration options for assembly inspection.
 /// </summary>
-public record LibraryOptions
+public record LibraryOptions : IProjectionOptions
 {
     /// <summary>
     /// Assembly name within a package (positional argument).
@@ -227,6 +227,12 @@ public record LibraryOptions
     /// already drifted twice -- missing <c>--count</c>, then missing <c>--rows</c>/<c>--row</c>
     /// and <c>--schema</c> -- because a new row mode had no single place to register. Add new ones
     /// here rather than at a call site.
+    /// </para>
+    /// <para>
+    /// Distinct from <see cref="IProjectionOptions"/>, which #3405 introduced for the lens payload
+    /// (<c>--print</c>, <c>--value</c>, <c>--urls</c>, <c>--paths</c>, <c>--out</c>). The two axes
+    /// meet only at <c>--count</c> and answer different questions: that one asks what payload to
+    /// emit, this one asks whether the request needs a section to have rows at all.
     /// </para>
     /// </summary>
     public bool ConsumesRowProjection =>

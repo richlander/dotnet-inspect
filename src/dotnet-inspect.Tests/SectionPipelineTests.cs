@@ -1122,17 +1122,28 @@ public class SectionPipelineTests
     }
 
     [Fact]
-    public void LibraryScannerRegistry_HasAllDetailedScanners()
+    public void LibraryScannerRegistry_RegistrationMatchesDeclaration()
     {
+        // Set equality, not containment, so both failure directions are caught: a section
+        // declaring a key nobody honors (its data silently never collected) and a collection step
+        // no section asks for (dead code). Derived from the pipeline, the registry, and the shared
+        // read rather than restated as a literal list, so adding a section or a scanner cannot
+        // drift past this test.
+        //
+        // The right-hand side is a union because a key is satisfied one of two ways: a registered
+        // scanner that runs after the shared metadata read, or the read itself. #3453 asserted
+        // equality against the registry alone, which is only sound while no section declares work
+        // the read performs; the References section does, so the read declares its keys rather
+        // than the test knowing them.
         var registry = LibrarySections.CreateScannerRegistry();
         var pipeline = LibrarySections.CreatePipeline();
 
-        // All scanner keys from detailed sections should be registered
-        var detailedScanners = pipeline.GetRequiredScanners(Verbosity.Detailed);
+        var honored = registry.RegisteredKeys
+            .Union(LibraryMetadataService.SharedReadScannerKeys, StringComparer.Ordinal);
 
-        // Registry should handle all of them without throwing
-        // (we can't easily inspect the registry, but we can verify it runs)
-        Assert.NotEmpty(detailedScanners);
+        Assert.Equal(
+            pipeline.DeclaredScannerKeys.OrderBy(k => k, StringComparer.Ordinal),
+            honored.OrderBy(k => k, StringComparer.Ordinal));
     }
 
     // ===== Presence flag / CanRender discovery tests =====

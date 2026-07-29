@@ -4387,9 +4387,10 @@ public class CfgSampleClass
     public static string ReusedSlotNullableBool(JoinBase node)
         => node?.Label.Contains("x") == true ? "hit" : "miss";
 
-    // The object-initializer-like lowering reuses a stack slot first for the
-    // string Status value, then for the nullable list receiver, then for Count.
-    // Those disjoint live ranges need distinct synthetic carriers.
+    // A reused-temp member-value spill: `missing?.Count ?? 0` spills its receiver
+    // to a reused edge slot beneath the dup-chain object initializer. The #3336
+    // stage-2 post-structuring fold raises this to
+    // `new SlotReuseSection { Status = ..., Missing = ... }`.
     public static SlotReuseSection ReusedSlotStringListCount(System.Collections.Generic.List<string>? missing, bool complete)
     {
         var section = new SlotReuseSection();
@@ -5074,6 +5075,35 @@ public class CfgSampleClass
         public int X { get; set; }
         public int Y { get; set; }
         public InitFlag Flag { get; set; }
+    }
+
+    static string PickTag(int x) => x.ToString();
+
+    // #3336 stage 2: two branchy member values (`f ? PickTag(..) : null`) that
+    // Roslyn spills to reused temps beneath the dup chain. The early
+    // object-initializer pass (stage 18) sees cross-block ternary diamonds and
+    // declines; only the post-structuring late spill pass (stage 42), after the
+    // diamonds collapse to single Conditionals in one straight-line block, folds
+    // it to `new Branchy { A = ..., B = ... }`. Recompiles byte-exact.
+    public static Branchy MakeBranchyReusedTempSpill(int x, bool f)
+        => new Branchy { A = f ? PickTag(x) : null, B = f ? PickTag(-x) : null };
+
+    // #3336 stage 3: the outer initializer's Inner member is itself a branchy
+    // reused-temp spill initializer. The late pass folds inner-first, then the
+    // enclosing initializer, composing both levels in one straight-line block.
+    public static InitOuter MakeNestedReusedTempSpill(int x, bool f)
+        => new InitOuter { Inner = new Branchy { A = f ? PickTag(x) : null, B = f ? PickTag(-x) : null }, Tag = x };
+
+    public sealed class Branchy
+    {
+        public string? A { get; set; }
+        public string? B { get; set; }
+    }
+
+    public sealed class InitOuter
+    {
+        public Branchy? Inner { get; set; }
+        public int Tag { get; set; }
     }
 }
 
