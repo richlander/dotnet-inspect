@@ -229,7 +229,7 @@ public class IlBodyDiffNormalizationTests
     [InlineData("<.ctor>b__103_0", "<.ctor>b__128_0")]                // lambda in a constructor
     [InlineData("<Run>g__A__B|103_0", "<Run>g__A__B|128_0")]          // local name containing `__`
     [InlineData("<<Run>b__103_0>b__104_1", "<<Run>b__128_0>b__129_1")] // lambda nested in a lambda
-    [InlineData("<<Run>b__103_0>d__1", "<<Run>b__128_0>d__1")]        // async lambda: outer state machine is declined, inner still normalizes
+    [InlineData("<<Run>b__103_0>d__1", "<<Run>b__128_0>d__1")]        // enclosing name declined, inner still normalizes
     public void NormalizeSynthesizedMemberOrdinals_ToleratesContainingMethodRenumbering(
         string oldName,
         string newName)
@@ -264,7 +264,13 @@ public class IlBodyDiffNormalizationTests
     [InlineData("<Run>b__103_0_extra", "<Run>b__128_0_extra")]  // trailing text: not a closure name
     [InlineData("<Run>g__Local|103_0x", "<Run>g__Local|128_0x")] // trailing text after a local function
     [InlineData("<Run>b__103_0$x", "<Run>b__128_0$x")]          // trailing `$`, which some producers emit
-    [InlineData("<Run>b__103_0\u00e9", "<Run>b__128_0\u00e9")]  // trailing non-ASCII identifier character
+    [InlineData("<Run>b__103_0\u00e9", "<Run>b__128_0\u00e9")]  // trailing letter (Lu/Ll)
+    [InlineData("<Run>b__103_0\u16ee", "<Run>b__128_0\u16ee")]  // trailing letter number (Nl)
+    [InlineData("<Run>b__103_0\u0301", "<Run>b__128_0\u0301")]  // trailing combining mark (Mn)
+    [InlineData("<Run>b__103_0\u0903", "<Run>b__128_0\u0903")]  // trailing combining mark (Mc)
+    [InlineData("<Run>b__103_0\u203f", "<Run>b__128_0\u203f")]  // trailing connector punctuation (Pc)
+    [InlineData("<Run>b__103_0\u200c", "<Run>b__128_0\u200c")]  // trailing format character (Cf)
+    [InlineData("<Run>b__103_0\U00010400", "<Run>b__128_0\U00010400")] // trailing supplementary-plane letter
     public void NormalizeSynthesizedMemberOrdinals_PreservesEveryOtherNameComponent(
         string oldName,
         string newName)
@@ -328,6 +334,62 @@ public class IlBodyDiffNormalizationTests
         Assert.False(diff.IsExact);
     }
 
+    /// <summary>
+    /// The option is scoped to a member's simple name, so a type operand keeps
+    /// its ordinal even when the type name is spelled like a closure. Applying
+    /// the rewrite to the formatted operand string instead would let it reach
+    /// declaring types, parameter types, and generic arguments, collapsing
+    /// references to genuinely distinct types.
+    /// </summary>
+    [Theory]
+    [InlineData("<Run>b__103_0", "<Run>b__128_0")]
+    [InlineData("<>9__103_0", "<>9__128_0")]
+    [InlineData("<>c__DisplayClass103_0", "<>c__DisplayClass128_0")]
+    public void NormalizeSynthesizedMemberOrdinals_LeavesTypeOperandsAlone(
+        string oldTypeName,
+        string newTypeName)
+    {
+        Assert.False(CompareDeclaringTypeNames(
+            oldTypeName,
+            newTypeName,
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact);
+    }
+
+    /// <summary>
+    /// Each candidate <c>&lt;</c> starts its own forward scan for the <c>&gt;</c>
+    /// that closes it, so a name built from unbalanced <c>&lt;</c> characters
+    /// costs O(n²) without a budget. Member names come from untrusted metadata
+    /// and the threat model requires CPU amplification to be bounded
+    /// (docs/design/untrusted-data-threat-model.md). This pins the budget's
+    /// observable behavior instead of its timing: a closure name buried behind
+    /// a few unbalanced <c>&lt;</c> characters still normalizes, and one buried
+    /// behind enough of them to exhaust the budget is declined rather than
+    /// scanned. Declining can only cost a false positive, never a masked
+    /// difference.
+    /// </summary>
+    [Fact]
+    public void NormalizeSynthesizedMemberOrdinals_BoundsScanWorkOnUnbalancedNames()
+    {
+        Assert.True(CompareMemberNames(
+            Buried(unbalanced: 4, ordinal: 103),
+            Buried(unbalanced: 4, ordinal: 128),
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact,
+            "Within the scan budget a buried closure name must still normalize.");
+
+        Assert.False(CompareMemberNames(
+            Buried(unbalanced: 200, ordinal: 103),
+            Buried(unbalanced: 200, ordinal: 128),
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact,
+            "Past the scan budget the name must be declined rather than scanned quadratically.");
+    }
+
+    /// <summary>
+    /// A closure name preceded by <paramref name="unbalanced"/> <c>&lt;</c>
+    /// characters that never close, each of which starts its own failing scan.
+    /// </summary>
+    static string Buried(int unbalanced, int ordinal)
+        => new string('<', unbalanced) + $"<Run>b__{ordinal}_0";
+
     [Fact]
     public void Compare_RejectsUndefinedOptions()
     {
@@ -344,6 +406,15 @@ public class IlBodyDiffNormalizationTests
         => CompareImages(
             BuildCallImage("Same", "Library.Probe", oldMemberName),
             BuildCallImage("Same", "Library.Probe", newMemberName),
+            normalization);
+
+    static IlBodyDiffResult CompareDeclaringTypeNames(
+        string oldTypeName,
+        string newTypeName,
+        IlBodyDiffNormalization normalization = IlBodyDiffNormalization.None)
+        => CompareImages(
+            BuildCallImage("Same", "Library.Probe", "Target", oldTypeName),
+            BuildCallImage("Same", "Library.Probe", "Target", newTypeName),
             normalization);
 
     static MethodInstructions Decode(byte[] il)
@@ -382,7 +453,8 @@ public class IlBodyDiffNormalizationTests
     static byte[] BuildCallImage(
         string assemblyName,
         string? referenceAssemblyName = null,
-        string? memberName = null)
+        string? memberName = null,
+        string? typeName = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -416,7 +488,7 @@ public class IlBodyDiffNormalizationTests
             var type = metadata.AddTypeReference(
                 reference,
                 selfReference ? default : metadata.GetOrAddString("System"),
-                metadata.GetOrAddString(selfReference ? "C" : "Probe"));
+                metadata.GetOrAddString(typeName ?? (selfReference ? "C" : "Probe")));
             target = metadata.AddMemberReference(
                 type,
                 metadata.GetOrAddString(memberName ?? (selfReference ? "Caller" : "Target")),

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
@@ -66,11 +67,22 @@ public enum IlBodyDiffNormalization
     /// differently named method, still diffs.
     /// </para>
     /// <para>
+    /// Applies to a member's simple name only, never to the rest of a
+    /// formatted operand. Declaring types, return types, parameter types,
+    /// generic arguments, standalone signatures, and string literals are left
+    /// alone, so the rewrite cannot reach text that is not a member name.
+    /// </para>
+    /// <para>
     /// Known limitation, deliberately not addressed: overloads share a
     /// containing-method name and are told apart only by <c>N</c>, so this
     /// option conflates the closures of two overloads with the same lambda
     /// index. State-machine names (<c>&lt;Name&gt;d__N</c>) are left alone for
     /// the same reason — <c>N</c> is their only distinguishing component.
+    /// Synthesized <em>types</em> that do carry the ordinal — display classes
+    /// (<c>&lt;&gt;c__DisplayClassN_M</c>) and the state machine of an async
+    /// lambda (<c>&lt;&lt;Run&gt;b__N_M&gt;d__1</c>) — keep it, because they
+    /// are types rather than members. Each of these costs a false positive,
+    /// never a masked difference.
     /// </para>
     /// </remarks>
     NormalizeSynthesizedMemberOrdinals = 1 << 3,
@@ -666,8 +678,6 @@ public static class IlBodyDiff
                     string assembly = reader.GetString(reader.GetAssemblyDefinition().Name);
                     value = NormalizeAssemblyScopes(value, assembly);
                 }
-                if (instruction.Operand != OperandKind.InlineString)
-                    value = NormalizeSynthesizedOrdinals(value);
                 operand = new IlOperandIdentity(IlOperandIdentityKind.Token, value);
                 failure = null;
                 return true;
@@ -751,7 +761,7 @@ public static class IlBodyDiff
                 ? decoded
                 : GuardedProviderDecode.FallbackSignature(
                     GuardedProviderDecode.RejectedIdentity(reader, method.Signature));
-            return FormatCall(signature, FormatType(method.GetDeclaringType()), reader.GetString(method.Name), genericArgs: null);
+            return FormatCall(signature, FormatType(method.GetDeclaringType()), NormalizeMemberName(reader.GetString(method.Name)), genericArgs: null);
         }
 
         string FormatMemberReference(MemberReferenceHandle handle)
@@ -769,7 +779,7 @@ public static class IlBodyDiff
                 ? decoded
                 : GuardedProviderDecode.FallbackSignature(
                     GuardedProviderDecode.RejectedIdentity(reader, member.Signature));
-            return FormatCall(signature, FormatMemberParent(member.Parent), reader.GetString(member.Name), genericArgs: null);
+            return FormatCall(signature, FormatMemberParent(member.Parent), NormalizeMemberName(reader.GetString(member.Name)), genericArgs: null);
         }
 
         string FormatMethodSpecification(MethodSpecificationHandle handle)
@@ -805,7 +815,7 @@ public static class IlBodyDiff
                 ? decoded
                 : GuardedProviderDecode.FallbackSignature(
                     GuardedProviderDecode.RejectedIdentity(reader, method.Signature));
-            return FormatCall(signature, FormatType(method.GetDeclaringType()), reader.GetString(method.Name), genericArgs);
+            return FormatCall(signature, FormatType(method.GetDeclaringType()), NormalizeMemberName(reader.GetString(method.Name)), genericArgs);
         }
 
         string FormatMethodSpecificationReference(MemberReferenceHandle handle, string genericArgs)
@@ -820,7 +830,7 @@ public static class IlBodyDiff
                 ? decoded
                 : GuardedProviderDecode.FallbackSignature(
                     GuardedProviderDecode.RejectedIdentity(reader, member.Signature));
-            return FormatCall(signature, FormatMemberParent(member.Parent), reader.GetString(member.Name), genericArgs);
+            return FormatCall(signature, FormatMemberParent(member.Parent), NormalizeMemberName(reader.GetString(member.Name)), genericArgs);
         }
 
         string FormatFieldDefinition(FieldDefinitionHandle handle)
@@ -834,7 +844,7 @@ public static class IlBodyDiff
                 out var decoded)
                 ? decoded
                 : GuardedProviderDecode.RejectedIdentity(reader, field.Signature);
-            return $"{fieldType} {FormatType(field.GetDeclaringType())}::{reader.GetString(field.Name)}";
+            return $"{fieldType} {FormatType(field.GetDeclaringType())}::{NormalizeMemberName(reader.GetString(field.Name))}";
         }
 
         string FormatFieldMemberReference(MemberReferenceHandle handle)
@@ -851,7 +861,7 @@ public static class IlBodyDiff
                 out var decoded)
                 ? decoded
                 : GuardedProviderDecode.RejectedIdentity(reader, member.Signature);
-            return $"{fieldType} {FormatMemberParent(member.Parent)}::{reader.GetString(member.Name)}";
+            return $"{fieldType} {FormatMemberParent(member.Parent)}::{NormalizeMemberName(reader.GetString(member.Name))}";
         }
 
         string FormatCall(MethodSignature<string> signature, string parent, string name, string? genericArgs)
@@ -993,13 +1003,34 @@ public static class IlBodyDiff
                 || name.Equals("Microsoft.CSharp", StringComparison.Ordinal)
                 || name.StartsWith("Microsoft.VisualBasic", StringComparison.Ordinal);
 
-        string NormalizeSynthesizedOrdinals(string value)
-        {
-            if ((normalization & IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals) == 0)
-                return value;
-
-            return SynthesizedOrdinals.Normalize(value);
-        }
+        /// <summary>
+        /// Applies <see cref="IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals"/>
+        /// to a member's simple name, taken straight from the metadata string
+        /// heap.
+        /// </summary>
+        /// <remarks>
+        /// The normalization is applied here, to the typed identity, rather
+        /// than to the formatted operand string. A formatted operand also
+        /// carries declaring types, return types, parameter types, and generic
+        /// arguments, and scanning that flattened text would let the rewrite
+        /// reach names that are not members at all. Scoping it to the member
+        /// name is what makes the flag mean what it says.
+        /// <para>
+        /// The corollary is that synthesized <em>type</em> names keep their
+        /// ordinals: display classes (<c>&lt;&gt;c__DisplayClassN_M</c>) and
+        /// the state machine of an async lambda
+        /// (<c>&lt;&lt;Run&gt;b__N_M&gt;d__1</c>) are types, so a body that
+        /// references one can still diff on a renumbered ordinal. That costs a
+        /// false positive, never a masked difference, and no corpus row needs
+        /// it today. Covering it means normalizing type leaf names too, which
+        /// requires threading this option through
+        /// <see cref="SignatureIdentityProvider"/>.
+        /// </para>
+        /// </remarks>
+        string NormalizeMemberName(string name)
+            => (normalization & IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals) != 0
+                ? SynthesizedOrdinals.Normalize(name)
+                : name;
     }
 
     /// <summary>
@@ -1035,14 +1066,31 @@ public static class IlBodyDiff
         const int MaxNestingDepth = 16;
 
         /// <summary>
-        /// Normalizes every synthesized name inside a resolved operand string
-        /// (for example <c>[Asm]Ns.Type::&lt;Run&gt;b__103_0</c>), rewriting
-        /// only the containing-method ordinal in each.
+        /// Bounds the total characters <see cref="FindClosingAngle"/> may
+        /// visit across one top-level call, expressed as a multiple of the
+        /// input length. Each candidate <c>&lt;</c> starts its own forward
+        /// scan, so a name made of unbalanced <c>&lt;</c> characters would
+        /// otherwise cost O(n²)
+        /// (see docs/design/untrusted-data-threat-model.md, which requires CPU
+        /// amplification over hostile input to be bounded). Every recognized
+        /// form pairs its angles off in one scan per nesting level, so real
+        /// input stays far inside the budget; exhausting it means the name is
+        /// not one of these forms.
+        /// </summary>
+        const int ScanBudgetFactor = MaxNestingDepth + 1;
+
+        /// <summary>
+        /// Normalizes every synthesized name inside a member's simple name
+        /// (for example <c>&lt;Run&gt;b__103_0</c>), rewriting only the
+        /// containing-method ordinal in each.
         /// </summary>
         public static string Normalize(string value)
-            => Normalize(value, depth: 0);
+        {
+            int budget = ScanBudgetFactor * (value.Length + 16);
+            return Normalize(value, depth: 0, ref budget);
+        }
 
-        static string Normalize(string value, int depth)
+        static string Normalize(string value, int depth, ref int budget)
         {
             // Every recognized form opens with '<', which C# cannot spell, and
             // carries the separator. Both checks are cheap rejects.
@@ -1067,7 +1115,13 @@ public static class IlBodyDiff
                 if (i > 0 && IsInteriorChar(value[i - 1]))
                     continue;
 
-                if (!TryNormalizeName(value, i, depth, out string replacement, out int end))
+                // Out of scan budget: abandon the whole string rather than
+                // return it half-rewritten. Declining can only cost a false
+                // positive, never a masked difference.
+                if (budget <= 0)
+                    return value;
+
+                if (!TryNormalizeName(value, i, depth, ref budget, out string replacement, out int end))
                     continue;
 
                 builder ??= new StringBuilder(value.Length);
@@ -1090,14 +1144,14 @@ public static class IlBodyDiff
         /// and rewrites only <c>N</c>. Any other identifier, including the
         /// state-machine form <c>&lt;Name&gt;d__N</c>, is declined.
         /// </summary>
-        static bool TryNormalizeName(string value, int start, int depth, out string replacement, out int end)
+        static bool TryNormalizeName(string value, int start, int depth, ref int budget, out string replacement, out int end)
         {
             replacement = "";
             end = start;
 
             // The enclosing name may itself be synthesized (a nested lambda),
             // so match the '>' that closes this name rather than the first one.
-            int close = FindClosingAngle(value, start);
+            int close = FindClosingAngle(value, start, ref budget);
             if (close < 0)
                 return false;
 
@@ -1157,7 +1211,7 @@ public static class IlBodyDiff
             // `b__1_0` distinct from one named `b__2_0`.
             string inner = value[(start + 1)..close];
             string normalizedInner = depth < MaxNestingDepth
-                ? Normalize(inner, depth + 1)
+                ? Normalize(inner, depth + 1, ref budget)
                 : inner;
 
             replacement = string.Concat(
@@ -1171,13 +1225,17 @@ public static class IlBodyDiff
 
         /// <summary>
         /// Returns the index of the <c>&gt;</c> closing the <c>&lt;</c> at
-        /// <paramref name="start"/>, honoring nesting, or -1 when unbalanced.
+        /// <paramref name="start"/>, honoring nesting, or -1 when unbalanced
+        /// or when <paramref name="budget"/> runs out.
         /// </summary>
-        static int FindClosingAngle(string value, int start)
+        static int FindClosingAngle(string value, int start, ref int budget)
         {
             int depth = 0;
             for (int i = start; i < value.Length; i++)
             {
+                if (--budget < 0)
+                    return -1;
+
                 if (value[i] == '<')
                 {
                     depth++;
@@ -1192,12 +1250,28 @@ public static class IlBodyDiff
         }
 
         /// <summary>
-        /// True for characters that can occur inside an identifier. Metadata
-        /// names come from any .NET producer, not just C#, so this is Unicode
-        /// aware and includes <c>$</c>, which several compilers emit.
+        /// True for characters that can continue an identifier. Metadata names
+        /// come from any .NET producer, not just C#, so this covers every
+        /// Unicode category the language admits as an identifier-part
+        /// character, plus <c>$</c>, which several compilers emit. A surrogate
+        /// counts as interior so a name continuing into a supplementary-plane
+        /// character is still recognized as continuing.
         /// </summary>
+        /// <remarks>
+        /// Used only to decide whether a name <em>ends</em> where a recognized
+        /// form does. Erring toward "interior" therefore declines to
+        /// normalize, which is the safe direction.
+        /// </remarks>
         static bool IsInteriorChar(char c)
-            => char.IsLetterOrDigit(c) || c is '_' or '$';
+            => char.IsLetterOrDigit(c)
+                || c is '_' or '$'
+                || char.IsSurrogate(c)
+                || CharUnicodeInfo.GetUnicodeCategory(c) is
+                    UnicodeCategory.LetterNumber
+                    or UnicodeCategory.NonSpacingMark
+                    or UnicodeCategory.SpacingCombiningMark
+                    or UnicodeCategory.ConnectorPunctuation
+                    or UnicodeCategory.Format;
     }
 
     sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, object?>
