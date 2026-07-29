@@ -83,36 +83,35 @@ tool honors is the clearest statement of the gap:
 | 4 | `NuGetPackageSourceCredentials_<name>` | **No** — the environment is never consulted for credentials. |
 | 5, "only ... where no other secure option is available" | `Username` + `ClearTextPassword` | **Yes.** |
 
-The two supported mechanisms are the ranking's top and bottom, which is less odd than it looks:
-rank 1 is the most secure where it exists, and rank 5 is the only one that exists everywhere.
-Ranks 2 through 4 remain unsupported, and are still dropped in silence.
+The two supported mechanisms are the ranking's top and bottom. Rank 1 is the most secure where
+it is available; rank 5 is available everywhere. Ranks 2 through 4 remain unsupported, and are
+still dropped in silence.
 
-### Rank 5 is the floor, not a mistake
+### Why clear text is still supported
 
-That table reads like an argument for dropping `ClearTextPassword` support and requiring a
-credential provider. It is not, and the reason is worth recording so the conclusion is not
-re-litigated: NuGet's ranking is *security* guidance, not *availability* guidance.
+The table invites the conclusion that `ClearTextPassword` should be dropped in favour of
+requiring a credential provider. It is worth recording why that has not been done: NuGet's
+ranking is security guidance, not availability guidance.
 
 NuGet's [list of credential providers](https://learn.microsoft.com/nuget/consume-packages/consuming-packages-authenticated-feeds#list-of-credential-providers)
 names three in the entire ecosystem — Azure Artifacts, AWS CodeArtifact, and MyGet, the last of
-which is Visual Studio-only and therefore irrelevant to a CLI. Everything else authenticates by
-putting a token in `nuget.config`:
+which is Visual Studio-only and so does not apply to a CLI. Other feeds authenticate by putting
+a token in `nuget.config`:
 
 | Feed | If rank 5 were dropped |
 | --- | --- |
-| Azure Artifacts | Fine — cross-platform provider exists. |
-| AWS CodeArtifact | Split. Fine with the provider; broken with `aws codeartifact login`, which writes a plaintext token into the *user-level* `nuget.config` and is documented to do exactly that on Linux and macOS. |
-| GitHub Packages | **Broken.** PAT-only, no provider, and the documented setup command is `dotnet nuget add source --username U --password T --store-password-in-clear-text`. |
-| GitLab, Artifactory, Nexus, ProGet, Cloudsmith, Artifact Registry | **Broken.** No NuGet credential providers exist. |
+| Azure Artifacts | Works — a cross-platform provider exists. |
+| AWS CodeArtifact | Mixed. Works with the provider; not with `aws codeartifact login`, which writes a plaintext token into the user-level `nuget.config` on Linux and macOS. |
+| GitHub Packages | Unsupported. PAT-only, no provider, and the documented setup command is `dotnet nuget add source --username U --password T --store-password-in-clear-text`. |
+| GitLab, Artifactory, Nexus, ProGet, Cloudsmith, Artifact Registry | Unsupported. No NuGet credential providers exist. |
 
-So the mechanism NuGet ranks last is the only one that works everywhere, and for GitHub Packages
-it is not merely the easiest path but the *only* path — GitHub's own documentation instructs
-users to store the token in clear text.
+The mechanism NuGet ranks last is therefore the one with the widest reach, and for GitHub
+Packages it is the only documented option.
 
-The defect is therefore not that rank 5 is supported. It is that rank 5 was supported
-*exclusively*, and that a dropped credential cannot be told apart from a missing package.
-Credential provider support closes the first half for Azure Artifacts and AWS CodeArtifact; it
-does nothing for GitHub Packages, where only better diagnosis helps.
+The gap this document describes is not that rank 5 is supported. It is that rank 5 was, until
+recently, the only supported mechanism, and that a dropped credential cannot be told apart from
+a missing package. Credential provider support addresses the first point for Azure Artifacts and
+AWS CodeArtifact. It does not help GitHub Packages, where better diagnosis is the only remedy.
 
 Two mechanisms that are not on NuGet's list are also worth stating, because both look plausible
 and neither works: a `ClearTextPassword` with no `Username` (both halves are required, even
