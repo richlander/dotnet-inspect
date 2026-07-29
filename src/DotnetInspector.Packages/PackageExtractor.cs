@@ -492,6 +492,18 @@ public static class PackageExtractor
         string normalizedName = packageId.ToLowerInvariant();
         string normalizedVersion = version.ToLowerInvariant();
 
+        // A dependency id comes from another package's nuspec, so it is untrusted. Refusing it has
+        // to say so: TryGetCachedPackage answers null for an unsafe coordinate, and without this
+        // the refusal became indistinguishable from an ordinary cache miss -- the dependency
+        // simply vanished from the resolved tree. Returning null is still right for the caller;
+        // being quiet about why is not.
+        if (!HardenedPath.IsSafePathComponent(normalizedName)
+            || !HardenedPath.IsSafePathComponent(normalizedVersion))
+        {
+            log?.Invoke($"Refusing unsafe package coordinate '{packageId}.{version}'");
+            return null;
+        }
+
         // Cache hit: read the nuspec straight from the already-extracted package.
         var cachedPath = NuGetCache.TryGetCachedPackage(normalizedName, normalizedVersion);
         if (cachedPath != null && NuGetCache.IsCachedPackageValid(cachedPath))
