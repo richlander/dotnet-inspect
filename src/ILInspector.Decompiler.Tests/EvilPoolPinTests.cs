@@ -165,6 +165,30 @@ public class EvilPoolPinTests
     }
 
     /// <summary>
+    /// Both files name bare NuGet package ids, not package references.
+    ///
+    /// <para>The extractor accepts <c>id@version</c>, so a ranked entry spelled that way
+    /// acquired the embedded version while <c>--resolve-latest</c> reported it was
+    /// sampling what ships today. It also defeats the duplicate check above: <c>x</c> and
+    /// <c>x@1.0.0</c> are different strings and the same package, so the pool holds one
+    /// library twice and every count still says what it should.</para>
+    ///
+    /// <para>The sweep refuses the spelling in both files and, separately, refuses a
+    /// package that comes back under a different identity than the one selected. This is
+    /// the offline half: an id that is not an id belongs in a diff.</para>
+    /// </summary>
+    [Fact]
+    public void BothFilesNameBareNuGetIds()
+    {
+        static bool IsBare(string id) =>
+            id.Length > 0 && id.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-');
+
+        string[] ids = [.. ReadRankedPackages(), .. ReadPins().Select(pin => pin.Package)];
+
+        Assert.DoesNotContain(ids, id => !IsBare(id));
+    }
+
+    /// <summary>
     /// The ranked list names each package once.
     ///
     /// <para>Distinct ranks are not distinct packages. A list that ranks one package

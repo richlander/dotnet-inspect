@@ -44,7 +44,24 @@ if (root is null)
     Environment.ExitCode = 2;
     return;
 }
-string outputDirectory = Path.GetFullPath(positional[0]);
+string outputDirectory;
+try
+{
+    // An unset shell variable forwards as an empty argument, which is length one and
+    // sails past the usage gate. Path.GetFullPath then threw, before the guard that
+    // reports an unusable output directory ever ran -- so the one bad argument a caller
+    // is most likely to produce by accident was the one that core-dumped.
+    outputDirectory = Path.GetFullPath(positional[0]);
+}
+catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+{
+    Console.Error.WriteLine(
+        $"Output directory '{positional[0]}' is not a usable path: {ex.Message}"
+        + $"{Environment.NewLine}{UsageText}");
+    Environment.ExitCode = 2;
+    return;
+}
+
 int startRank = 1;
 int packageCount = 10;
 if (positional.Length >= 2 && !int.TryParse(positional[1], out startRank))
@@ -140,6 +157,22 @@ if (packageList.Any(entry => entry.Rank <= 0 || string.IsNullOrWhiteSpace(entry.
     return;
 }
 
+// A package id is an id, not a package reference. The extractor accepts "id@version",
+// so a list entry spelled that way acquired the embedded version while --resolve-latest
+// claimed to be sampling what ships today -- and, because the two spellings are
+// different strings, the same package could be ranked twice and pad the pool straight
+// past the duplicate check. Refusing the spelling is narrower than teaching every
+// downstream check to parse it.
+var unbare = packageList.Where(entry => !IsBarePackageId(entry.Package)).ToArray();
+if (unbare.Length > 0)
+{
+    Console.Error.WriteLine(
+        $"Package list '{sourcePath}' names packages that are not bare NuGet ids: "
+        + $"{string.Join(", ", unbare.Select(entry => $"'{entry.Package}' (rank {entry.Rank})"))}.");
+    Environment.ExitCode = 2;
+    return;
+}
+
 if (packageList.Select(entry => entry.Rank).Distinct().Count() != packageList.Count)
 {
     Console.Error.WriteLine($"Package list '{sourcePath}' contains duplicate ranks.");
@@ -176,12 +209,14 @@ if (pinFile is not null)
                 ? "contains a null entry"
                 : pinFile.Packages.Any(pin => string.IsNullOrWhiteSpace(pin.Package))
                     ? "contains an entry without a package name"
-                    : pinFile.Packages.Any(pin => string.IsNullOrWhiteSpace(pin.Version))
-                        ? "pins a package without a version"
-                        : pinFile.Packages.Select(pin => pin.Package)
-                            .Distinct(StringComparer.OrdinalIgnoreCase).Count() != pinFile.Packages.Count
-                            ? "pins the same package twice"
-                            : null;
+                    : pinFile.Packages.Any(pin => !IsBarePackageId(pin.Package))
+                        ? "names a package that is not a bare NuGet id"
+                        : pinFile.Packages.Any(pin => string.IsNullOrWhiteSpace(pin.Version))
+                            ? "pins a package without a version"
+                            : pinFile.Packages.Select(pin => pin.Package)
+                                .Distinct(StringComparer.OrdinalIgnoreCase).Count() != pinFile.Packages.Count
+                                ? "pins the same package twice"
+                                : null;
     if (malformed is not null)
     {
         Console.Error.WriteLine($"Pin file '{pinPath}' {malformed}.");
@@ -317,6 +352,22 @@ foreach (var entry in selected)
 
         package = outcome.Result!;
         string resolvedPackage = package.PackageName ?? entry.Package;
+
+        // The id gate above refuses the one spelling known to do this, but the check
+        // that matters is made against what came back: a pool entry acquired under a
+        // different identity than the one selected is not the package the list ranked,
+        // whatever spelling got it there.
+        if (!string.Equals(resolvedPackage, entry.Package, StringComparison.OrdinalIgnoreCase))
+        {
+            results.Add(Failed(
+                entry, "identity-mismatch",
+                $"selected '{entry.Package}' but acquired '{resolvedPackage}'",
+                resolvedPackage, package.Version, null, package.FromCache));
+            Console.Error.WriteLine(
+                $"rank {entry.Rank}: {entry.Package}: acquired '{resolvedPackage}' instead.");
+            continue;
+        }
+
         var selection = TfmSelector.SelectPackageLibrary(
             package.ExtractPath,
             resolvedPackage,
@@ -654,6 +705,12 @@ static SweepPackageResult Failed(
         tfm,
         AssemblyPath: null,
         fromCache);
+
+// NuGet ids are letters, digits, and the separators '.', '_' and '-'. Anything else --
+// '@' most of all -- is a reference, a path, or a typo.
+static bool IsBarePackageId(string? id) =>
+    !string.IsNullOrWhiteSpace(id)
+    && id.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-');
 
 static async Task<string?> WriteOrReport(string path, Func<Task> write)
 {
