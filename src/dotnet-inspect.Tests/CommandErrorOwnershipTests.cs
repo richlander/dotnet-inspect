@@ -270,11 +270,118 @@ public class CommandErrorOwnershipTests
     /// found a real uncontained sink in <c>DotnetInspector.Core</c> the moment
     /// it was applied.
     /// </remarks>
-    private static IEnumerable<string> CliSourceFiles(string root) =>
-        ProjectClosure(Path.Combine(root, "src", "dotnet-inspect", "dotnet-inspect.csproj"))
-            .Select(Path.GetDirectoryName)
-            .OfType<string>()
-            .SelectMany(d => Directory.EnumerateFiles(d, "*.cs", SearchOption.AllDirectories));
+    private static IEnumerable<string> CliSourceFiles(string root)
+    {
+        HashSet<string> files = new(StringComparer.Ordinal);
+
+        foreach (string project in ProjectClosure(
+            Path.Combine(root, "src", "dotnet-inspect", "dotnet-inspect.csproj")))
+        {
+            string directory = Path.GetDirectoryName(project)!;
+
+            // The SDK's implicit glob.
+            foreach (string file in Directory.EnumerateFiles(directory, "*.cs", SearchOption.AllDirectories))
+            {
+                files.Add(file);
+            }
+
+            // ... and everything the project compiles that the glob does not
+            // reach: another extension, or a file linked in from outside the
+            // project directory.
+            foreach (string included in CompileIncludes(project))
+            {
+                files.Add(included);
+            }
+        }
+
+        return files;
+    }
+
+    /// <summary>
+    /// Files named by an explicit <c>&lt;Compile Include="..."/&gt;</c> in
+    /// <paramref name="projectPath"/>.
+    /// </summary>
+    /// <remarks>
+    /// The scanned set used to be "<c>*.cs</c> under each project directory",
+    /// which is the SDK's default glob mistaken for the set of files the
+    /// compiler reads. They are not the same set, and a reviewer showed the
+    /// difference: a raw stderr write in <c>Hack.txt</c> plus
+    /// <c>&lt;Compile Include="Hack.txt"/&gt;</c> compiles into the CLI and
+    /// this class never opened the file. A linked file from outside the project
+    /// directory is the same hole with a plainer motive.
+    ///
+    /// So the set is the union of the glob and what the project says, and an
+    /// <c>Include</c> naming nothing on disk throws rather than resolving to
+    /// zero files -- an unreadable answer must not read as an empty one. That is
+    /// the same rule the MSBuild <c>Using</c> scan already follows.
+    ///
+    /// Wildcards are expanded; <c>Remove</c> and <c>Exclude</c> are ignored,
+    /// because over-reporting a file that is not compiled costs a reworded line
+    /// and under-reporting one that is costs the guarantee.
+    /// </remarks>
+    private static IEnumerable<string> CompileIncludes(string projectPath)
+    {
+        XDocument document;
+        try
+        {
+            document = XDocument.Load(projectPath);
+        }
+        catch (XmlException)
+        {
+            yield break;
+        }
+
+        string directory = Path.GetDirectoryName(projectPath)!;
+
+        foreach (var element in document.Descendants())
+        {
+            if (!string.Equals(element.Name.LocalName, "Compile", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            string? include = element.Attributes()
+                .FirstOrDefault(a => string.Equals(a.Name.LocalName, "Include", StringComparison.OrdinalIgnoreCase))
+                ?.Value;
+
+            if (string.IsNullOrWhiteSpace(include) || include.Contains("$(", StringComparison.Ordinal))
+            {
+                // A property this class cannot evaluate. Refusing to guess is
+                // the same answer the MSBuild Using scan gives.
+                if (!string.IsNullOrWhiteSpace(include))
+                {
+                    throw new InvalidOperationException(
+                        $"{projectPath}: <Compile Include=\"{include}\"/> is not statically resolvable, so the "
+                        + "set of files compiled into the CLI cannot be determined. Resolve it or teach this scan "
+                        + "to expand it; do not let it read as zero files.");
+                }
+
+                continue;
+            }
+
+            string pattern = include.Replace('\\', Path.DirectorySeparatorChar);
+            string searchDirectory = Path.GetFullPath(
+                Path.Combine(directory, Path.GetDirectoryName(pattern) is { Length: > 0 } d ? d : "."));
+            string name = Path.GetFileName(pattern);
+
+            string[] matches = Directory.Exists(searchDirectory)
+                ? Directory.GetFiles(searchDirectory, name, SearchOption.TopDirectoryOnly)
+                : [];
+
+            if (matches.Length == 0)
+            {
+                throw new InvalidOperationException(
+                    $"{projectPath}: <Compile Include=\"{include}\"/> matched no file on disk. This scan claims "
+                    + "to cover every file compiled into the CLI, so an Include it cannot resolve is a gap in "
+                    + "that claim rather than an empty result.");
+            }
+
+            foreach (string match in matches)
+            {
+                yield return match;
+            }
+        }
+    }
 
     /// <summary>
     /// <paramref name="text"/> with every comment blanked to spaces, so that a
@@ -414,28 +521,24 @@ public class CommandErrorOwnershipTests
             // matching no pattern here. The `@` before a quote is a verbatim
             // *string* and is left alone, so the literal scan above still sees
             // it.
-            if (c == '@' && i + 1 < text.Length
-                && (char.IsLetter(text[i + 1]) || text[i + 1] == '_'))
+            //
+            // What follows the `@` is judged after decoding, not before. Asking
+            // whether the raw next character is a letter reads `@\u0045rror` as
+            // "not an identifier", keeps the `@`, and then decodes the escape
+            // anyway -- producing `@Error`, which matches nothing. The two
+            // rewrites are one rewrite, so neither may be decided against the
+            // other's input.
+            if (c == '@' && StartsIdentifier(text, i + 1))
             {
                 i++;
                 continue;
             }
 
-            if (c == '\\' && i + 1 < text.Length && (text[i + 1] == 'u' || text[i + 1] == 'U'))
+            if (TryDecodeEscape(text, i, out Rune rune, out int consumed))
             {
-                int digits = text[i + 1] == 'u' ? 4 : 8;
-                if (i + 2 + digits <= text.Length
-                    && uint.TryParse(
-                        text.AsSpan(i + 2, digits),
-                        NumberStyles.HexNumber,
-                        CultureInfo.InvariantCulture,
-                        out uint code)
-                    && code <= 0x10FFFF)
-                {
-                    result.Append(char.ConvertFromUtf32((int)code));
-                    i += 2 + digits;
-                    continue;
-                }
+                result.Append(rune.ToString());
+                i += consumed;
+                continue;
             }
 
             result.Append(c);
@@ -443,6 +546,76 @@ public class CommandErrorOwnershipTests
         }
 
         return result.ToString();
+    }
+
+    /// <summary>
+    /// Whether an identifier begins at <paramref name="index"/>, seeing through
+    /// a Unicode escape the way the compiler does.
+    /// </summary>
+    private static bool StartsIdentifier(string text, int index)
+    {
+        if (index >= text.Length)
+        {
+            return false;
+        }
+
+        if (TryDecodeEscape(text, index, out Rune escaped, out _))
+        {
+            return Rune.IsLetter(escaped) || escaped.Value == '_';
+        }
+
+        return char.IsLetter(text[index]) || text[index] == '_';
+    }
+
+    /// <summary>
+    /// Decodes the <c>\uXXXX</c>/<c>\UXXXXXXXX</c> escape at
+    /// <paramref name="index"/>, if there is one and it spells an identifier
+    /// character.
+    /// </summary>
+    /// <remarks>
+    /// The identifier-character restriction is what the compiler enforces: an
+    /// escape in identifier position may only spell something an identifier can
+    /// contain. It also keeps this rewrite from inventing syntax. Decoding
+    /// <c>\u0022</c> outside a literal would put a quote into the text and
+    /// desynchronize the literal scan for the rest of the file, turning code
+    /// into "string" and hiding every write after it -- a decoder that is more
+    /// permissive than the compiler is a hole, not a safety margin.
+    /// </remarks>
+    private static bool TryDecodeEscape(string text, int index, out Rune rune, out int consumed)
+    {
+        rune = default;
+        consumed = 0;
+
+        if (index + 1 >= text.Length || text[index] != '\\')
+        {
+            return false;
+        }
+
+        int digits = text[index + 1] switch { 'u' => 4, 'U' => 8, _ => 0 };
+        if (digits == 0 || index + 2 + digits > text.Length)
+        {
+            return false;
+        }
+
+        if (!uint.TryParse(
+                text.AsSpan(index + 2, digits),
+                NumberStyles.HexNumber,
+                CultureInfo.InvariantCulture,
+                out uint code)
+            || !Rune.IsValid((int)code))
+        {
+            return false;
+        }
+
+        Rune candidate = new((int)code);
+        if (!Rune.IsLetterOrDigit(candidate) && candidate.Value != '_')
+        {
+            return false;
+        }
+
+        rune = candidate;
+        consumed = 2 + digits;
+        return true;
     }
 
     /// <summary>

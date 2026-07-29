@@ -72,11 +72,34 @@ namespace DotnetInspector.Output;
 /// </description></item>
 /// </list>
 ///
-/// One property here is <b>not</b> gated, and is called out rather than
-/// implied: sibling entry points that are not in this CLI's project closure --
+/// Two properties here are <b>not</b> gated, and are called out rather than
+/// implied.
+///
+/// Sibling entry points that are not in this CLI's project closure --
 /// <c>mdi</c> above all -- read the same untrusted metadata, write their own
 /// stderr, and cannot reach this writer. They are out of scope by construction,
 /// tracked as issue #3444.
+///
+/// And the ownership scan reads source text, so it sees the names a program
+/// spells, not the members it reaches. Comments, identifier escapes, and
+/// verbatim <c>@</c> are normalized away because those are still spellings of
+/// the name; reflection is not.
+/// <c>((TextWriter)typeof(Console).GetProperty("Error")!.GetValue(null)!).WriteLine(untrusted)</c>
+/// names neither, and no amount of pattern work will make a text scan see it --
+/// which is the same argument this class makes about severity prefixes, applied
+/// to itself.
+///
+/// What covers it is the other kind of gate. The out-of-process tests in
+/// <c>UntrustedArgumentDiagnosticContainmentTests</c> read the bytes actually
+/// on the stream, so they do not care how a write was spelled: introducing that
+/// exact reflective write inside <see cref="Write(string, string[])"/> leaves
+/// all five ownership tests green and fails those tests across every channel and
+/// hazard. The residual is therefore narrower than "reflection defeats this" --
+/// it is a reflective write on a path no hostile test exercises -- and it is a
+/// reach limitation of the behavioral suite rather than a hole in the rule.
+/// Note also that neither gate defends against an author who intends the leak,
+/// since the same commit can delete the test; both exist to catch the
+/// regression, not the adversary with commit rights.
 /// </remarks>
 internal static class CommandError
 {

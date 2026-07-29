@@ -73,6 +73,18 @@ public class MarkoutRowContainmentTests
     private const string Hostile = "HOSTILE" + Bidi + "MARKER";
 
     /// <summary>
+    /// The part of <see cref="Hostile"/> that survives containment unchanged, so
+    /// that finding it in a property proves the hostile input reached it.
+    /// </summary>
+    /// <remarks>
+    /// Containment rewrites the hazard and leaves letters alone, so this witness
+    /// is present whether the value was contained, left raw, or escaped -- which
+    /// is what makes it usable to tell "the constructor supplied this" from "the
+    /// constructor ignored it" without also deciding whether it leaked.
+    /// </remarks>
+    private const string HostileWitness = "HOSTILE";
+
+    /// <summary>
     /// Types that carry untrusted text but cannot be constructed generically,
     /// asserted as an exact set so both a new gap and a stale entry fail.
     /// </summary>
@@ -602,13 +614,6 @@ public class MarkoutRowContainmentTests
             return false;
         }
 
-        // Sections and rows built from an empty constructor carry their text on
-        // settable properties instead, so a constructor-only fill would check
-        // the ones that need it least.
-        HashSet<string> fromConstructor = new(
-            constructor.GetParameters().Select(p => p.Name ?? string.Empty),
-            StringComparer.OrdinalIgnoreCase);
-
         foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
             if (property.PropertyType != typeof(string)
@@ -618,13 +623,22 @@ public class MarkoutRowContainmentTests
                 continue;
             }
 
-            // An init-only property the constructor already supplied has had the
-            // hostile value put through its containment; writing it again would
-            // replace the contained value with the raw one and report a leak
-            // that is not there. One the constructor did *not* supply is the
-            // opposite case -- it is still at its default, and the accessor is
-            // the only way in.
-            if (IsInitOnly(property) && fromConstructor.Contains(property.Name))
+            // A property that already carries the hostile input has had it put
+            // through whatever containment the type applies, and writing it
+            // again would replace the contained value with the raw one and
+            // report a leak that is not there. One that does not is still at its
+            // default, and the accessor is the only way in.
+            //
+            // This is decided by *reading the property*, not by matching its
+            // name against the constructor's parameters. Name matching asserts
+            // that a parameter reaches the property of the same name, which is
+            // an assumption about code this class exists to distrust: a reviewer
+            // wrote a constructor that accepted `name` and dropped it, and the
+            // property was skipped as "supplied", left at its default, and never
+            // examined -- an uncontained column passing as a checked one. The
+            // observation is available, so it is not worth inferring.
+            if (property.GetValue(row) is string current
+                && current.Contains(HostileWitness, StringComparison.Ordinal))
             {
                 continue;
             }
@@ -643,44 +657,42 @@ public class MarkoutRowContainmentTests
     }
 
     /// <summary>
-    /// True for <c>{ get; init; }</c>, which reflection can write and C# cannot.
+    /// Why the fill reads the property back instead of reasoning about how it
+    /// was declared.
     /// </summary>
     /// <remarks>
-    /// This is the difference between a gate and a generator of false leaks.
-    /// <c>init</c> is a <c>modreq</c> the compiler enforces at the call site,
-    /// not a runtime restriction, so <see cref="PropertyInfo.SetValue"/>
-    /// succeeds on one -- and every row here spells its containment as
-    /// <c>public string Kind { get; init; } = LibraryViewText.Contain(Kind);</c>.
-    /// Writing the property after construction therefore replaces the contained
-    /// value with the raw one and then reports the row as leaking.
+    /// Two failed rules preceded the current one, and each cost a real category.
     ///
-    /// The first run of this class did exactly that and accused 479 columns
-    /// across 107 types, including ones whose containment had been added and
-    /// verified days earlier. A gate that cannot be told apart from a bug in
-    /// itself is worse than no gate, because it trains its reader to dismiss it.
+    /// The first was "write every settable property". <c>init</c> is a
+    /// <c>modreq</c> the compiler enforces at the call site, not a runtime
+    /// restriction, so <see cref="PropertyInfo.SetValue"/> succeeds on
+    /// <c>public string Kind { get; init; } = LibraryViewText.Contain(Kind);</c>
+    /// and replaces the contained value with the raw one. The first run of this
+    /// class accused 479 columns across 107 types, including ones whose
+    /// containment had been added and verified days earlier. A gate that cannot
+    /// be told apart from a bug in itself is worse than no gate, because it
+    /// trains its reader to dismiss it.
     ///
-    /// An init-only property the constructor <i>supplied</i> needs no write: the
-    /// hostile value already went through the containment being tested.
+    /// The second was "skip an init-only property whose name matches a
+    /// constructor parameter". That fixed the false leaks and opened two holes.
+    /// Skipping on init-only-ness alone lost every type whose constructor is
+    /// parameterless and whose containment lives in
+    /// <c>init =&gt; field = LibraryViewText.Contain(value);</c> -- a reviewer
+    /// removed containment from <c>LibraryInfoSection</c> and this class stayed
+    /// green, because nothing was supplied and nothing was written, so every
+    /// column read back its default. Adding the name match fixed that and left
+    /// the last one: the name match asserts that a parameter reaches the
+    /// property of the same name, and a constructor that accepts an argument and
+    /// drops it makes that false. A reviewer wrote one, and the property was
+    /// skipped as "supplied", left at its default, and never examined.
     ///
-    /// The converse is not true, and treating it as true cost the gate a whole
-    /// category. A reviewer removed containment from <c>LibraryInfoSection</c>,
-    /// which has a parameterless constructor and only <c>init</c> properties
-    /// spelled <c>init =&gt; field = LibraryViewText.Contain(value);</c>, and
-    /// this class stayed green: nothing was supplied by the constructor and
-    /// nothing was written afterwards, so every column read back its default and
-    /// none was ever examined. It did not even dent the non-vacuity floors,
-    /// because other types kept those satisfied.
-    ///
-    /// So the skip is conditioned on the constructor having supplied the
-    /// property, not on the property being init-only. Where the accessor is the
-    /// only way in, reflection goes in through it -- which is exactly the path
-    /// that runs the containment.
+    /// Both holes have the same shape as the defects this PR is about: a claim
+    /// about code inferred from its surface rather than read off the thing
+    /// itself. The value is observable after construction, so the rule is now to
+    /// look -- a property holding <see cref="HostileWitness"/> was supplied and
+    /// is left alone; one that is not was not, and is written through its
+    /// accessor, which is exactly the path that runs the containment.
     /// </remarks>
-    private static bool IsInitOnly(PropertyInfo property) =>
-        property.SetMethod?.ReturnParameter
-            .GetRequiredCustomModifiers()
-            .Any(m => m.FullName == "System.Runtime.CompilerServices.IsExternalInit") == true;
-
     private static object? MakeArgument(Type type)
     {
         if (type == typeof(string))
