@@ -932,12 +932,24 @@ public class ScanTokenTests
         int checked_ = 0;
         HashSet<(string First, string Second)>? seedPairs = null;
 
+        var kindsReached = new HashSet<ScanTokenKind>();
+        int deepest = 0;
+        int shallowest = 0;
+
         void Check(string[] content)
         {
             if (seedPairs is not null && content.Length == 2)
                 seedPairs.Add((content[0], content[1]));
 
             var bare = BodySlicer.ScanTokens(content);
+
+            foreach (var token in bare)
+            {
+                kindsReached.Add(token.Kind);
+                deepest = Math.Max(deepest, token.Depth);
+                shallowest = Math.Min(shallowest, token.Depth);
+            }
+
 
             string[] wrapped = ["{", "[", .. content];
             var enclosed = BodySlicer.ScanTokens(wrapped).Where(t => t.Line >= 2).ToList();
@@ -1051,6 +1063,22 @@ public class ScanTokenTests
 
         Assert.Equal(9 * 12 * 132, expected.Count);
         Assert.Equal(expected, seedPairs);
+
+        // A single product pins only the product: 12 tails against 132 seconds and 1,584 tails
+        // against 1 second are the same number and not the same test (adversarial review, GPT).
+        // Pin each dimension, so one cannot be spent to buy another.
+        Assert.Equal(9, openers.Length);
+        Assert.Equal(12, tails.Count);
+        Assert.Equal(132, seconds.Count);
+
+        // Every count above can be met by an alphabet that spells nothing: replacing `{` with a
+        // letter keeps all three dimensions and the pinned total while deleting the only input
+        // that opens a block, and with it the depth movement this whole test is about
+        // (adversarial review, GPT). Pin what the alphabet must reach rather than which
+        // characters spell it, so the demand is on the coverage and not on the notation.
+        Assert.Equal(Enum.GetValues<ScanTokenKind>().ToHashSet(), kindsReached);
+        Assert.True(deepest > 0, "no input opened a block, so no token was ever scanned inside one");
+        Assert.True(shallowest < 0, "no input closed an unopened block, so depth never went below its start");
     }
 
 
