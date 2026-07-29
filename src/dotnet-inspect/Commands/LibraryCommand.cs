@@ -217,6 +217,14 @@ public class LibraryCommand
         var scanners = pipeline.GetRequiredScanners(
             options.Verbosity, options.IncludeSections, options.FixedOverview);
 
+        // Discovery must know which metadata tables carry rows, or the whole @Metadata category
+        // filters out of the catalog: its sections are explicit-only, so no verbosity requests
+        // them, and their applicability is the scanned row count. The scan is deliberately the
+        // cheap half of the lens -- table row counts, never rows -- so listing the category
+        // accurately costs a header read rather than a projection.
+        if (effectiveDiscovery)
+            scanners.Add(LibrarySections.ScannerMetadata);
+
         // Check for valid input source
         if (string.IsNullOrEmpty(assemblyPath) &&
             string.IsNullOrEmpty(options.PackagePath) &&
@@ -384,7 +392,11 @@ public class LibraryCommand
                 if (inspections.Count == 1)
                     OutputFormatter.WriteLibraryResult(inspections[0], options, pipeline);
                 else
+                {
+                    if (RejectMultiAssemblyMetadataSelection(inspections, options))
+                        return 1;
                     OutputFormatter.WriteLibraryResults(inspections, options, pipeline);
+                }
 
                 return IntegrityExitCode([.. inspections]);
             }
@@ -735,6 +747,30 @@ public class LibraryCommand
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Rejects a metadata-lens selection when a package resolved to more than one assembly.
+    /// The lens renders raw ECMA-335 tables of one image: row ids are image-relative and section
+    /// names carry no assembly, so several assemblies would emit repeated
+    /// <c>## Metadata: TypeDef</c> headings whose rows silently belong to different images and
+    /// whose row numbering restarts without saying so. Failing here keeps that ambiguity visible
+    /// instead of rendering a confidently wrong document.
+    /// </summary>
+    private static bool RejectMultiAssemblyMetadataSelection(
+        IReadOnlyCollection<LibraryInspection> inspections, LibraryOptions options)
+    {
+        if (inspections.Count <= 1 || options.IncludeSections is not { Count: > 0 } selected)
+            return false;
+
+        if (!selected.Any(MetadataSectionNames.IsMetadataSection))
+            return false;
+
+        Console.Error.WriteLine(
+            $"Error: {SectionCategoryNames.Metadata} inspects the metadata tables of a single assembly, " +
+            $"but this package resolved to {inspections.Count} assemblies.");
+        Console.Error.WriteLine("Select one assembly with --library <path> and retry.");
+        return true;
     }
 
     private static readonly string[] ILCoordinateSections =
@@ -1358,7 +1394,9 @@ public class LibraryCommand
 
     // ── Effective sections cache ──
 
-    private const string EffectiveCategory = "effective-v18";
+    // Bumped to v19: the cached catalog now carries the @Metadata lens sections, and entries
+    // written by v18 were poisoned by the CRLF split bug below, so stale entries must not be read.
+    private const string EffectiveCategory = "effective-v19";
 
     static LibraryCommand()
     {
@@ -1373,8 +1411,13 @@ public class LibraryCommand
 
         var sections = new List<string>();
         var schema = new DocumentSchema();
-        foreach (var line in cached.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        foreach (var raw in cached.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
+            // Entries are written with AppendLine, which is CRLF on Windows. Splitting on '\n'
+            // alone leaves the '\r' attached to the last field of every line, so a cached section
+            // name would not compare equal to the registered name and would silently escape
+            // name-keyed filters such as the catalog-hidden set.
+            var line = raw.TrimEnd('\r');
             var parts = line.Split('\t');
             var name = parts[0];
             sections.Add(name);
@@ -1394,9 +1437,9 @@ public class LibraryCommand
         {
             var section = filteredSchema.GetSection(name);
             if (section != null && section.Items.Length > 0)
-                sb.AppendLine($"{name}\t{section.ItemKind}\t{string.Join(',', section.Items.Select(i => i.Name))}");
+                sb.Append($"{name}\t{section.ItemKind}\t{string.Join(',', section.Items.Select(i => i.Name))}").Append('\n');
             else
-                sb.AppendLine(name);
+                sb.Append(name).Append('\n');
         }
         CoreCache.Set(EffectiveCategory, key, sb.ToString(), extension: "tsv");
     }
@@ -1406,8 +1449,14 @@ public class LibraryCommand
         // Include file size for invalidation when local files change, and a network-free
         // SourceLink-availability token so warming/clearing a cached PDB (which flips whether
         // the SourceLink section family is effective) busts a stale -D catalog.
-        var size = new FileInfo(assemblyPath).Length;
-        return $"{assemblyPath}#{size}#sl{(hasSourceLink ? 1 : 0)}";
+        //
+        // The path is resolved because the key is built from whatever the caller typed. A
+        // relative path names different files from different working directories, so two
+        // same-sized assemblies at the same relative path — the normal case for one repository
+        // and its worktrees — otherwise share a key and serve each other's catalog.
+        var fullPath = Path.GetFullPath(assemblyPath);
+        var size = new FileInfo(fullPath).Length;
+        return $"{fullPath}#{size}#sl{(hasSourceLink ? 1 : 0)}";
     }
 
     private static List<string> FilterEffective(List<string> sections, LibraryOptions options)

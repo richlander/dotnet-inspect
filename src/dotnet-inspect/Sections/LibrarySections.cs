@@ -28,6 +28,7 @@ public static class LibrarySections
     public const string ScannerTopLeverage = "TopLeverage";
     public const string ScannerOptimizationOpportunities = "OptimizationOpportunities";
     public const string ScannerResourceTriage = "ResourceTriage";
+    public const string ScannerMetadata = "Metadata";
 
     /// <summary>Builds the section pipeline with all library sections registered.</summary>
     public static SectionPipeline<LibraryInspection> CreatePipeline()
@@ -87,6 +88,7 @@ public static class LibrarySections
             .Add<UnionTypes>()
             .Add<TypeForwarders>()
             .Add<NonNormalizedPaths>()
+            .AddMetadataLens()
             .AddCategory(SectionCategoryNames.Audit,
                 SectionNames.UnsafeMembers,
                 SectionNames.PInvokeMethods,
@@ -155,7 +157,9 @@ public static class LibrarySections
             .Add(ScannerIntegrations, ctx =>
                 LibraryMetadataService.ScanIntegrations(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerIntegrationOpportunities, ctx =>
-                LibraryMetadataService.ScanIntegrationOpportunities(ctx.AssemblyPath, ctx.Model, ctx.Logger));
+                LibraryMetadataService.ScanIntegrationOpportunities(ctx.AssemblyPath, ctx.Model, ctx.Logger))
+            .Add(ScannerMetadata, ctx =>
+                LibraryMetadataService.ScanMetadataImage(ctx.AssemblyPath, ctx.Model, ctx.Logger));
     }
 
     // ===== Primary section =====

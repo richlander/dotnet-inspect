@@ -26,7 +26,7 @@ namespace DotnetInspector.Tests;
 /// </summary>
 [Collection("Console")]
 [Trait("Speed", "Slow")]
-public class CommandExecutionTests
+public partial class CommandExecutionTests
 {
     private static readonly string TestAssemblyPath =
         typeof(CommandExecutionTests).Assembly.Location;

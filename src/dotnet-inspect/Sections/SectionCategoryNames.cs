@@ -46,4 +46,13 @@ public static class SectionCategoryNames
 
     /// <summary>Curated group of the kind-scoped performance sections (library scope).</summary>
     public const string Performance = "@Performance";
+
+    /// <summary>
+    /// Raw ECMA-335 metadata sections (library scope): one <c>Metadata: &lt;Table&gt;</c> section
+    /// per projected table, plus <c>Metadata: Image</c> for the image-level facts that are not
+    /// rows. Every member is explicit-only, so this door is the discovery and selection
+    /// affordance for the group, never the mechanism that keeps raw tables out of the default
+    /// view -- that is <see cref="SectionEntry{TModel}.ExplicitOnly"/>.
+    /// </summary>
+    public const string Metadata = "@Metadata";
 }

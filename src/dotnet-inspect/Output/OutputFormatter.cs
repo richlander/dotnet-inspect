@@ -233,8 +233,7 @@ public static class OutputFormatter
 
         if (options.Count)
         {
-            var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts);
-            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
+            var markdown = SerializeLibraryMarkdown(auditView, inspection, writerOpts, pipeline);
             markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
             if (options.IncludeSections is { Count: > 1 })
             {
@@ -265,25 +264,51 @@ public static class OutputFormatter
         if (options.Format == OutputFormat.PlainText)
         {
             MarkoutSerializer.Serialize(auditView, Console.Out, new PlainTextFormatter(), InspectionContext.Default, writerOpts);
+            if (MetadataLensRenderer.RenderMarkdown(inspection, writerOpts.IncludeSections) is { } plainMetadata)
+                Console.WriteLine(plainMetadata);
         }
         else if (options.VerbosityEnabled)
         {
-            var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts).TrimEnd();
-            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
+            var markdown = SerializeLibraryMarkdown(auditView, inspection, writerOpts, pipeline);
             Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
         else if (writerOpts.IncludeSections is { Count: > 1 } && !options.TabularExplicitlySet)
         {
             // Auto-promote to markdown when multiple sections and tabular output wasn't explicitly requested
-            var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts).TrimEnd();
-            markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
+            var markdown = SerializeLibraryMarkdown(auditView, inspection, writerOpts, pipeline);
             Console.WriteLine(MarkdownTableRowLimiter.Apply(markdown, options.Rows));
         }
         else
         {
             ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-            WriteLibraryTabular(auditView, writerOpts, options);
+            WriteLibraryTabular(auditView, inspection, writerOpts, options);
         }
+    }
+
+    /// <summary>
+    /// Serializes the library view and, when the <c>@Metadata</c> lens is selected, composes its
+    /// sections into the same Markdown document before ordering.
+    ///
+    /// Metadata sections cannot be attributed view properties (their columns differ per table), so
+    /// they are rendered separately and appended. Ordering runs *after* the append, which is what
+    /// places them among the other sections rather than in a block at the end; every downstream
+    /// step — <c>--rows</c> windowing, <c>--count</c> — then treats them as ordinary sections.
+    /// </summary>
+    private static string SerializeLibraryMarkdown(
+        LibraryInspectionView auditView,
+        LibraryInspection inspection,
+        MarkoutWriterOptions writerOpts,
+        SectionPipeline<LibraryInspection> pipeline)
+    {
+        var markdown = MarkoutSerializer.Serialize(auditView, InspectionContext.Default, writerOpts);
+
+        if (MetadataLensRenderer.RenderMarkdown(inspection, writerOpts.IncludeSections) is { } metadata)
+        {
+            var body = markdown.TrimEnd();
+            markdown = body.Length == 0 ? metadata : body + Environment.NewLine + Environment.NewLine + metadata;
+        }
+
+        return MarkdownSectionOrderer.Apply(markdown, pipeline.AlphabeticalSectionOrder);
     }
 
     /// <summary>
@@ -295,8 +320,24 @@ public static class OutputFormatter
     /// consistent. <paramref name="writerOpts"/> must already have its TSV/JSONL format configured.
     /// </summary>
     private static void WriteLibraryTabular(
-        LibraryInspectionView auditView, MarkoutWriterOptions writerOpts, LibraryOptions options)
+        LibraryInspectionView auditView, LibraryInspection inspection,
+        MarkoutWriterOptions writerOpts, LibraryOptions options)
     {
+        // The metadata lens owns its own tabular rendering for the same reason it owns its
+        // Markdown rendering: per-table column shapes have no static row type for Markout to bind.
+        // Its rows already self-identify with a leading Table/Section column. It still goes through
+        // WriteTable so `--rows` windows it exactly as it windows every other tabular section —
+        // the limiter operates on rendered text and needs no knowledge of the lens.
+        if (MetadataLensRenderer.IsSelected(writerOpts.IncludeSections))
+        {
+            var format = MetadataLensRenderer.FormatFor(options.Tsv, options.Jsonl);
+            WriteTable(Console.Out, !options.NoHeader,
+                (writer, _) => MetadataLensRenderer.TryRenderTabular(
+                    inspection, writerOpts.IncludeSections, format, writer, Console.Error),
+                options.Rows);
+            return;
+        }
+
         if (writerOpts.IncludeSections is { Count: > 1 }
             && Sections.PerformanceKinds.AllShareCommonView(writerOpts.IncludeSections))
         {
@@ -375,7 +416,7 @@ public static class OutputFormatter
                     Projection = BuildProjection(options.Columns, options.Fields),
                 };
                 ConfigureTableWriterOptions(writerOpts, options.Tsv, options.Jsonl);
-                WriteLibraryTabular(auditView, writerOpts, options);
+                WriteLibraryTabular(auditView, inspection, writerOpts, options);
             }
         }
     }
