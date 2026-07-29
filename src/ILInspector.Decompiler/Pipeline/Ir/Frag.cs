@@ -36,7 +36,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// shipped print path allocates no list and pays no bookkeeping.
 /// </para>
 /// </remarks>
-public readonly struct Frag
+internal readonly struct Frag
 {
     /// <summary>The printed text.</summary>
     public string Text { get; }
@@ -110,7 +110,7 @@ public readonly struct Frag
 /// ambiguous — each was written at a different, recorded offset.
 /// </remarks>
 [InterpolatedStringHandler]
-public ref struct FragInterpolatedStringHandler
+internal ref struct FragInterpolatedStringHandler
 {
     readonly StringBuilder _builder;
     List<(IrNode Node, int Start, int Length)>? _spans;
