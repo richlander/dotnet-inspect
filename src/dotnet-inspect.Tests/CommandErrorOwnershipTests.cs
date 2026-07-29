@@ -456,8 +456,14 @@ public class CommandErrorOwnershipTests
     /// direction produces is a false report on a source file that quotes
     /// <c>Console.Error</c> in a string -- loud, and fixed by rewording. The
     /// other direction is silence.
+    ///
+    /// That reasoning is sound for the literal's <i>value</i> and wrong for an
+    /// interpolation hole, whose contents are code the compiler compiles.
+    /// <paramref name="ignoreLiterals"/> exists for that: see
+    /// <see cref="NormalizedVariants"/>, which scans both readings so that
+    /// neither can hide a write from the other.
     /// </remarks>
-    private static string BlankComments(string text)
+    private static string BlankComments(string text, bool ignoreLiterals = false)
     {
         char[] result = text.ToCharArray();
         int i = 0;
@@ -485,7 +491,7 @@ public class CommandErrorOwnershipTests
                 continue;
             }
 
-            if (c == '"' || c == '\'')
+            if (!ignoreLiterals && (c == '"' || c == '\''))
             {
                 i = SkipLiteral(text, i);
                 continue;
@@ -495,6 +501,40 @@ public class CommandErrorOwnershipTests
         }
 
         return new string(result);
+    }
+
+    /// <summary>
+    /// Every reading of <paramref name="text"/> the rules must be checked
+    /// against. A match in any of them is a match.
+    /// </summary>
+    /// <remarks>
+    /// A C# file is not one text. An interpolated string is literal content and
+    /// code at the same time: <c>$"{Console.Error.WriteLine(x)}"</c> compiles the
+    /// hole, so treating the whole literal as opaque hides a real write, while
+    /// treating none of it as literal reintroduces the round-20 defect where a
+    /// <c>//</c> inside a string blanked the rest of the line -- including the
+    /// write after it.
+    ///
+    /// Both readings are wrong in one direction and right in the other, and the
+    /// directions are opposite, so scanning both is exact where either alone is
+    /// not: whatever one reading hides, the other sees. That costs a wider class
+    /// of false report and buys no silence, which is the trade this file makes
+    /// everywhere.
+    ///
+    /// The alternative -- lexing interpolated strings properly, with nested
+    /// literals in holes, doubled-brace escapes, and the raw-string dollar/brace
+    /// count -- puts a second C# lexer in the test, where a bug is a hole rather
+    /// than a false report.
+    ///
+    /// Escape decoding needs no such split. It is restricted to identifier
+    /// characters, so it cannot synthesize a quote or a brace and cannot move a
+    /// literal boundary; it therefore runs over the whole text, which is what
+    /// catches an escaped name inside a hole.
+    /// </remarks>
+    private static IEnumerable<string> NormalizedVariants(string text)
+    {
+        yield return DecodeIdentifierEscapes(BlankComments(text));
+        yield return DecodeIdentifierEscapes(BlankComments(text, ignoreLiterals: true));
     }
 
     /// <summary>
@@ -526,11 +566,23 @@ public class CommandErrorOwnershipTests
     /// can appear is the same mistake as enumerating spellings. Normalizing it
     /// away once covers every position at once.
     ///
-    /// Literals are copied through untouched. An escape inside a string is part
-    /// of that string's value, not of an identifier, and <see cref="Console"/>
-    /// spelled inside a literal is not a call. An <c>@</c> immediately before a
-    /// quote opens a verbatim string rather than naming an identifier, so it is
-    /// not dropped.
+    /// This runs over literal text too. Exempting it looks right -- an escape in
+    /// a string is part of that string's value -- but an interpolated string is
+    /// literal content and code at once, and an escaped name inside a hole is an
+    /// identifier the compiler binds. The exemption made
+    /// <c>$"""{System.\u0043onsole.Error.WriteLineAsync(x)}"""</c> invisible, and
+    /// a reviewer landed it with every test green. Deciding which spans of a
+    /// literal are code needs an interpolated-string lexer, whose bugs would be
+    /// holes; not deciding needs only that this rewrite be harmless on literal
+    /// text, which the identifier-character restriction already guarantees --
+    /// it cannot produce a quote or a brace, so no literal boundary can move.
+    /// The residue is a false report on a source file that spells an escaped
+    /// <see cref="Console"/> in a string, which is the report
+    /// <see cref="BlankComments"/> already accepts for the plain spelling.
+    ///
+    /// An <c>@</c> immediately before a quote opens a verbatim string rather
+    /// than naming an identifier, so it is not dropped and <c>@"a""b"</c> stays
+    /// one literal for the comment blanker.
     ///
     /// Newlines are preserved, so reported line numbers stay those of the
     /// original file. Offsets within a line are not preserved, and nothing here
@@ -552,19 +604,11 @@ public class CommandErrorOwnershipTests
         {
             char c = text[i];
 
-            if (c == '"' || c == '\'')
-            {
-                int end = SkipLiteral(text, i);
-                result.Append(text, i, end - i);
-                i = end;
-                continue;
-            }
-
             // A verbatim identifier binds to the same member as the plain one:
             // `Console.@Error.WriteLine(untrusted)` reaches the stream while
-            // matching no pattern here. The `@` before a quote is a verbatim
-            // *string* and is left alone, so the literal scan above still sees
-            // it.
+            // matching no pattern here. The `@` before a quote opens a verbatim
+            // *string* and is left alone by the identifier-start test below, so
+            // `@"a""b"` stays one literal for the comment blanker.
             //
             // What follows the `@` is judged after decoding, not before. Asking
             // whether the raw next character is a letter reads `@\u0045rror` as
@@ -792,11 +836,23 @@ public class CommandErrorOwnershipTests
                 continue;
             }
 
-            string text = DecodeIdentifierEscapes(BlankComments(File.ReadAllText(path)));
-            foreach (Match match in StderrWrite.Matches(text).Concat(ConsoleImport.Matches(text)))
+            string source = File.ReadAllText(path);
+            foreach (string text in NormalizedVariants(source))
             {
-                int line = text.Take(match.Index).Count(c => c == '\n') + 1;
-                offenders.Add($"{Path.GetRelativePath(root, path)}:{line}: {match.Value.Trim()}");
+                foreach (Match match in StderrWrite.Matches(text).Concat(ConsoleImport.Matches(text)))
+                {
+                    // Both blanking modes preserve newlines and escape decoding
+                    // only ever shortens within a line, so the line number is
+                    // the source's in either reading -- which is also what makes
+                    // the offender string a sound key for the two readings'
+                    // overlap.
+                    int line = text.Take(match.Index).Count(c => c == '\n') + 1;
+                    string offender = $"{Path.GetRelativePath(root, path)}:{line}: {match.Value.Trim()}";
+                    if (!offenders.Contains(offender))
+                    {
+                        offenders.Add(offender);
+                    }
+                }
             }
         }
 
@@ -967,8 +1023,31 @@ public class CommandErrorOwnershipTests
         Assert.Matches(StderrWrite, Normalize("System.\\U00000043onsole.Error.WriteLine(x);"));
         Assert.Matches(ConsoleImport, Normalize("using static System.\\u0043onsole;"));
 
-        // An escape inside a literal is that literal's value, not an identifier.
-        Assert.DoesNotMatch(StderrWrite, Normalize("_ = \"System.\\u0043onsole.Error.WriteLine(\";"));
+        // ...including inside a literal, because a literal is not only a value.
+        // An interpolation hole is code the compiler compiles, so an escape in
+        // one names an identifier: this exact write landed with all five tests
+        // green. Decoding is restricted to identifier characters, so running it
+        // over literal text cannot invent a quote or move a boundary; the only
+        // cost is that quoting an escaped name in a string reports, which is the
+        // same false report BlankComments already accepts for the plain
+        // spelling.
+        Assert.Matches(
+            StderrWrite,
+            Normalize("_ = $\"\"\"{System.\\u0043onsole.Error.WriteLineAsync(args[0])}\"\"\";"));
+        Assert.Matches(StderrWrite, Normalize("_ = \"System.\\u0043onsole.Error.WriteLine(\";"));
+
+        // A comment inside an interpolation hole is a comment, so the literal-
+        // aware reading leaves it in place and the rule stops matching through
+        // it. The literal-blind reading blanks it -- and would blank a `//`
+        // inside a genuine string, erasing the write after it, which is why both
+        // readings are scanned rather than either one chosen.
+        string hidden = "_ = $\"{Console./*x*/Error.WriteLine(y)}\";";
+        Assert.DoesNotMatch(StderrWrite, Normalize(hidden));
+        Assert.Contains(NormalizedVariants(hidden), v => StderrWrite.IsMatch(v));
+
+        string shadowed = "_ = \"https://\"; Console.Error.WriteLine(x);";
+        Assert.DoesNotMatch(StderrWrite, DecodeIdentifierEscapes(BlankComments(shadowed, ignoreLiterals: true)));
+        Assert.Contains(NormalizedVariants(shadowed), v => StderrWrite.IsMatch(v));
 
         // A verbatim identifier binds to the same member, in every position.
         Assert.Matches(StderrWrite, Normalize("System.Console.@Error.WriteLine(x);"));
@@ -979,9 +1058,7 @@ public class CommandErrorOwnershipTests
         // The `@` of a verbatim string is not an identifier prefix. It must
         // survive, because dropping it would turn the verbatim literal that
         // follows into a regular one and desynchronize the literal scan --
-        // `@"a""b"` is one string, `"a""b"` is two. (The contents of a literal
-        // are deliberately left intact, so quoting `Console.Error.WriteLine(`
-        // in a string is a false report by design; see BlankComments.)
+        // `@"a""b"` is one string, `"a""b"` is two.
         Assert.Contains("@\"", Normalize("_ = @\"a\"\"b\"; Console.Error.WriteLine(x);"), StringComparison.Ordinal);
         Assert.Matches(StderrWrite, Normalize("_ = @\"a\"\"b\"; Console.Error.WriteLine(x);"));
 
