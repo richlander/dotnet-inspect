@@ -176,6 +176,16 @@ than rendering an empty or short success. This covers acquisition for the
 selected row; whether a section producer declares a row at all is that
 producer's concern.
 
+A printed document is the document the package shipped. Markdown conventions --
+YAML frontmatter scoping through `--frontmatter`/`--body`, and rewriting GitHub
+`blob` links to `raw` so the target is fetchable -- apply only to Markdown.
+Applied to anything else they are corruption rather than presentation: the link
+rewriter matches bare URLs anywhere in the text, so a URL inside an XML element
+or an MSBuild comment is rewritten and the printed manifest silently stops
+matching the one the feed serves. Asking for a Markdown scope on a document that
+is not Markdown is refused, because both other answers -- the whole document, or
+an empty one -- report success for a question that was never answered.
+
 `-n N` and `--tail` are rendered-line windows applied after
 row cardinality is resolved and the payload is fetched. They do not
 select rows:
@@ -249,8 +259,8 @@ resolved by discarding one.
 ### Lens modes project their own payload
 
 A few flags select a *lens* rather than a section of the normal document:
-`package --versions`, `--layout`, `--tfms`, `--content`, and `--readme`, along
-with `library --il-offsets` and the `-D`/`--discover` listing. Each renders a
+`package --versions`, `--layout`, `--tfms`, and `--content`, along with
+`library --il-offsets` and the `-D`/`--discover` listing. Each renders a
 payload it computes itself and returns before the section pipeline, so the
 section-selection vocabulary does not describe what the caller is looking at.
 
@@ -261,12 +271,8 @@ unchanged. Because the lens owns the shape, its answers are fixed:
   files, IL offsets, discovered artifacts — not the lines used to render it. A
   layout count is a count of files, even though the rendered tree also shows the
   directories that contain them.
-- `--count` is refused by `--readme`, whose payload is a single document rather
-  than a list. A README is a Scalar in the shape model, and `--count` collapses
-  a Vector, so counting it could only ever report that one document was asked
-  for. `--content` is *not* in this category despite also rendering text: it
-  yields one structured row per matched file, so its count is the number of
-  files matched.
+- `--content` yields one structured row per matched file despite rendering
+  text, so its count is the number of files matched.
 - A `--content` path that matches nothing in a package still renders a
   per-package placeholder — `(absent)` in the block render, a `found:false` row
   in `--jsonl` — and that placeholder is **not** counted. The count answers *how
@@ -278,14 +284,18 @@ unchanged. Because the lens owns the shape, its answers are fixed:
 - `--print`, `--value`, `--urls`, and `--paths` are refused with the reason,
   not approximated. They address a cell or a column of a selected section, and a
   lens payload has neither; answering anyway would require inferring structure
-  from rendered text. The one exception is `--readme --print`, where the lens
-  renders exactly the printable document `--print` asks for, so it prints it
-  without needing a selection to name it.
+  from rendered text.
 - `-S`/`--select` is refused when the caller typed it, rather than ignored. A
   lens and a section selection are competing answers to *what am I looking at*,
-  and silently honoring the lens hides that the selection did nothing. The
-  refusal is unconditional: excusing it for `--print` would let `-S <other
-  section> --readme --print` pass while ignoring the selection.
+  and silently honoring the lens hides that the selection did nothing.
+
+There is deliberately no lens for printing a document. A flag that renders one
+document is a second answer to *which document*, competing with the section the
+caller selected, and the two can disagree — which is exactly how a lens that
+printed the package README came to print the XML manifest through the README's
+Markdown pipeline. Printable documents are therefore reached only by selecting
+the section that lists them, and `--print` projects that section's rows like
+every other payload projection.
 
 Discovery (`-D`/`--discover`) is a lens for the projections above but not for
 `-S`, which legitimately narrows what discovery reports. Its own `--count` must

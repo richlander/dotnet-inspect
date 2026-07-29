@@ -321,6 +321,7 @@ public class CommandExecutionTests
         string readmeFile,
         string readmeText,
         string? agentsText = null,
+        string? extraNuspecMetadata = null,
         params (string Path, string Content)[] extraFiles)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
@@ -343,7 +344,7 @@ public class CommandExecutionTests
                 <version>1.0.0</version>
                 <authors>tests</authors>
                 <description>test package</description>
-                <readme>{{readmeFile}}</readme>
+                <readme>{{readmeFile}}</readme>{{extraNuspecMetadata}}
               </metadata>
             </package>
             """);
@@ -3998,23 +3999,24 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Readme_Print_PrintsWithoutASelectionAndRefusesOne()
+    public async Task Print_ProjectsTheSelectedDocumentSectionAndRefusesUnprintableOnes()
     {
-        // The lens renders its own document, so --print no longer needs a section selection.
+        // --print names the section whose rows carry the document, like every other payload
+        // projection. There is no per-document flag to disagree with the selection.
         var (exit, output, _) = await RunAppAsync(
-            "package", "Newtonsoft.Json@13.0.4", "--readme", "--print");
+            "package", "Newtonsoft.Json@13.0.4", "-S", "Package README file", "--print");
 
         Assert.Equal(0, exit);
         Assert.NotEmpty(output);
 
-        // Previously -S was required here and then ignored by the lens. It is now refused, so a
-        // selection naming anything other than the readme cannot pass unnoticed.
+        // Printability is a row capability. The whole-package listing also contains assemblies
+        // and images, so it declares no printable payload and is refused rather than guessing.
         var (selectedExit, selectedOutput, selectedError) = await RunAppAsync(
-            "package", "Newtonsoft.Json@13.0.4", "-S", "Files", "--readme", "--print");
+            "package", "Newtonsoft.Json@13.0.4", "-S", "Files", "--print");
 
         Assert.Equal(1, selectedExit);
         Assert.Empty(selectedOutput);
-        Assert.Contains("-S/--select is not available with --readme", selectedError, StringComparison.Ordinal);
+        Assert.Contains("exactly one printable section", selectedError, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -4180,16 +4182,19 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Readme_Count_IsRefusedBecauseThePayloadIsAScalar()
+    public async Task ReadmeSection_Count_CountsTheRowItRenders()
     {
-        // A README is a text blob, and --count collapses a vector, so counting it could only
-        // ever report the number of blobs requested.
-        var (exit, output, error) = await RunAppAsync(
-            "package", "Newtonsoft.Json@13.0.4", "--readme", "--count");
+        // The README section is a listing of one row, so --count answers over the same rows the
+        // section renders rather than over the document body.
+        var (exit, output, _) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.4", "-S", "Package README file", "--count");
+        var (pathsExit, pathsOutput, _) = await RunAppAsync(
+            "package", "Newtonsoft.Json@13.0.4", "-S", "Package README file", "--paths");
 
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains("--count is not available with --readme", error, StringComparison.Ordinal);
+        Assert.Equal(0, exit);
+        Assert.Equal(0, pathsExit);
+        Assert.Equal("1", output.Trim());
+        Assert.Single(pathsOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries));
     }
 
     [Fact]
@@ -10860,6 +10865,7 @@ public class CommandExecutionTests
             "README.md",
             "readme",
             "agents",
+            null,
             ("00-FIRST.txt", "wrong file"));
         try
         {
@@ -10918,7 +10924,7 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.BestReadme.Content", "README.md", "readme", "agents");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "--readme");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--print");
 
             Assert.Equal(0, exit);
             Assert.Contains("readme", output);
@@ -10937,11 +10943,15 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.BestReadme.Bare", "README.md", "readme", "agents");
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "--readme", "--bare");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--print", "--bare");
 
             Assert.Equal(0, exit);
             Assert.Empty(error);
-            Assert.Equal("readme\n", output.ReplaceLineEndings("\n"));
+
+            // --print emits the document, not a rendering of it: no trailing newline is added
+            // to a document that does not end with one. The readme lens used to append one,
+            // which is the same class of edit that rewrote links inside the XML manifest.
+            Assert.Equal("readme", output);
         }
         finally
         {
@@ -11016,7 +11026,7 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Readme.RawLinks", "README.md", readme);
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "--readme");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--print");
 
             Assert.Equal(0, exit);
             Assert.Contains("https://raw.githubusercontent.com/owner/repo/main/src/File.cs", output);
@@ -11037,7 +11047,7 @@ public class CommandExecutionTests
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Readme.BlobLinks", "README.md", readme);
         try
         {
-            var (exit, output, error) = await RunAppAsync("package", packagePath, "--readme", "--blob");
+            var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Package README file", "--print", "--blob");
 
             Assert.Equal(0, exit);
             Assert.Contains("https://github.com/owner/repo/blob/main/src/File.cs", output);
@@ -11051,32 +11061,164 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_ReadmeInfo_RecordsSelectedReadmeProvenance()
+    public async Task Package_ReadmePrint_ReportsTheSelectedDocumentInThePayload()
     {
+        // The selected readme used to be reported through an InfoTracker side channel that only
+        // the bespoke readme printer wrote. The generic print projection carries the path in the
+        // payload instead, so provenance survives without a printer of its own.
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.BestReadme.Info", "README.md", "readme", "agents");
         try
         {
-            InfoTracker.ResetForTests();
-            var (exit, output, error) = await ConsoleCapture.RunAsync(async () =>
-            {
-                InfoTracker.Start();
-                return await PackageCommand.ExecuteAsync(new InspectionOptions
-                {
-                    PackageArgs = [packagePath],
-                    ShowReadme = true,
-                    TipLevel = TipLevel.Quiet
-                });
-            });
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-S", "Package README file", "--print", "--json");
 
             Assert.Equal(0, exit);
-            Assert.Contains("readme", output);
-            Assert.DoesNotContain("agents", output);
             Assert.Empty(error);
-            Assert.Equal("README.md (6 B)", InfoTracker.GetDetail("readme"));
+            using var document = JsonDocument.Parse(output);
+            Assert.Equal("README.md", document.RootElement.GetProperty("path").GetString());
+            Assert.Equal("readme", document.RootElement.GetProperty("content").GetString()?.Trim());
         }
         finally
         {
-            InfoTracker.ResetForTests();
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_NuspecPrint_EmitsTheManifestExactlyAsShipped()
+    {
+        // The manifest is XML, so none of the Markdown treatment the README gets may touch it.
+        // The URL here is the shape the blob-to-raw rewriter matches, and it matches bare URLs
+        // anywhere in the text -- an XML element is not a Markdown link, but the regex cannot
+        // tell. A rewritten manifest still parses and still looks right, which is why this is
+        // pinned byte-for-byte against what the package actually contains.
+        const string ReleaseNotes = "https://github.com/owner/repo/blob/main/CHANGELOG.md";
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Nuspec.Verbatim",
+            "README.md",
+            "readme",
+            null,
+            $"\n    <releaseNotes>See {ReleaseNotes} for details</releaseNotes>");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-S", "Package nuspec file", "--print", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Empty(error);
+            Assert.Contains(ReleaseNotes, output, StringComparison.Ordinal);
+            Assert.DoesNotContain("raw.githubusercontent.com", output, StringComparison.Ordinal);
+
+            using var archive = ZipFile.OpenRead(packagePath);
+            var entry = Assert.Single(archive.Entries, e => e.FullName.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase));
+            using var reader = new StreamReader(entry.Open());
+            Assert.Equal(reader.ReadToEnd(), output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_NuspecPrint_RefusesMarkdownScopes()
+    {
+        // Frontmatter is a Markdown construct. XML can never carry it, so returning the whole
+        // manifest or an empty document would both report success for a question that was not
+        // answered.
+        var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Nuspec.Scope", "README.md", "readme");
+        try
+        {
+            var (exit, output, error) = await RunAppAsync(
+                "package", packagePath, "-S", "Package nuspec file", "--print", "--frontmatter");
+
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("apply to Markdown documents", error, StringComparison.Ordinal);
+            Assert.Contains("Test.Nuspec.Scope.nuspec", error, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Content_LeavesNonMarkdownFilesVerbatim()
+    {
+        // Same rewriter, reached through --content instead of --print. An MSBuild comment is
+        // not a Markdown link either.
+        const string Link = "https://github.com/owner/repo/blob/main/docs/config.md";
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Content.Props",
+            "README.md",
+            $"[docs]({Link})",
+            null,
+            null,
+            ("build/Test.props", $"<Project>\n  <!-- See {Link} -->\n</Project>"));
+        try
+        {
+            var (exit, output, _) = await RunAppAsync(
+                "package", packagePath, "--content", "--path", "build/Test.props", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Contains(Link, output, StringComparison.Ordinal);
+            Assert.DoesNotContain("raw.githubusercontent.com", output, StringComparison.Ordinal);
+
+            // The README in the same package still gets the Markdown treatment, so this is a
+            // rule about the document's kind rather than the rewriter being switched off.
+            var (readmeExit, readmeOutput, _) = await RunAppAsync(
+                "package", packagePath, "-S", "Package README file", "--print", "--bare");
+
+            Assert.Equal(0, readmeExit);
+            Assert.Contains("raw.githubusercontent.com", readmeOutput, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_SkillsPrint_ResolvesCardinalityWithoutAPrinterOfItsOwn()
+    {
+        // Skill documents never had a bespoke printer. They are printable because the section
+        // lists rows that declare documents, which is the whole point of the generic path:
+        // cardinality, --row, and the guidance error all come from PrintProjectionOutput.
+        var (packagePath, tempDir) = CreateLocalReadmePackage(
+            "Test.Skills.Print",
+            "README.md",
+            "readme",
+            null,
+            null,
+            ("skills/alpha/SKILL.md", "# Alpha skill"),
+            ("skills/beta/SKILL.md", "# Beta skill"));
+        try
+        {
+            var (ambiguousExit, ambiguousOutput, ambiguousError) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print");
+
+            Assert.Equal(1, ambiguousExit);
+            Assert.Empty(ambiguousOutput);
+            Assert.Contains("2 printable rows", ambiguousError, StringComparison.Ordinal);
+
+            var (exit, output, _) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--print", "--row", "2", "--bare");
+
+            Assert.Equal(0, exit);
+            Assert.Equal("# Beta skill", output);
+
+            // --row addresses the rendered position, so it must agree with the section listing.
+            var (pathsExit, pathsOutput, _) = await RunAppAsync(
+                "package", packagePath, "-S", "Package skill files", "--paths");
+
+            Assert.Equal(0, pathsExit);
+            var paths = pathsOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Assert.Equal(2, paths.Length);
+            Assert.EndsWith("beta/SKILL.md", paths[1].Trim(), StringComparison.Ordinal);
+        }
+        finally
+        {
             Directory.Delete(tempDir, recursive: true);
         }
     }
@@ -11467,7 +11609,7 @@ public class CommandExecutionTests
         try
         {
             var (exit, output, _) = await RunAppAsync(
-                "package", packagePath, "--readme", "--frontmatter");
+                "package", packagePath, "-S", "Package README file", "--print", "--frontmatter");
 
             Assert.Equal(0, exit);
             Assert.Contains("name: test", output);
@@ -11493,7 +11635,7 @@ public class CommandExecutionTests
         try
         {
             var (exit, output, _) = await RunAppAsync(
-                "package", packagePath, "--readme", "--body");
+                "package", packagePath, "-S", "Package README file", "--print", "--body");
 
             Assert.Equal(0, exit);
             Assert.Contains("# Body", output);
@@ -11506,21 +11648,23 @@ public class CommandExecutionTests
     }
 
     [Fact]
-    public async Task Package_ReadmeJsonl_IncludesPathSizeAndContent()
+    public async Task Package_ReadmePrintJsonl_CarriesTheSelectedDocumentPath()
     {
         var (packagePath, tempDir) = CreateLocalReadmePackage("Test.Readme.Jsonl", "PACKAGE.md", "package docs");
         try
         {
             var (exit, output, _) = await RunAppAsync(
-                "package", packagePath, "--readme", "--jsonl");
+                "package", packagePath, "-S", "Package README file", "--print", "--jsonl");
 
             Assert.Equal(0, exit);
             var line = Assert.Single(output.Split('\n', StringSplitOptions.RemoveEmptyEntries));
             using var document = JsonDocument.Parse(line);
-            Assert.Equal("Test.Readme.Jsonl", document.RootElement.GetProperty("package").GetString());
-            Assert.Equal("1.0.0", document.RootElement.GetProperty("version").GetString());
+
+            // Which document was selected is part of the payload rather than a side channel, so
+            // a caller can tell PACKAGE.md from README.md without parsing rendered text.
+            Assert.Equal("Package README file", document.RootElement.GetProperty("section").GetString());
             Assert.Equal("PACKAGE.md", document.RootElement.GetProperty("path").GetString());
-            Assert.True(document.RootElement.GetProperty("size").GetInt64() > 0);
+            Assert.Equal(1, document.RootElement.GetProperty("row").GetInt32());
             Assert.Equal("package docs", document.RootElement.GetProperty("content").GetString());
         }
         finally
@@ -11549,14 +11693,14 @@ public class CommandExecutionTests
         try
         {
             var (exit, output, error) = await RunAppAsync(
-                "package", firstPackage, secondPackage, "--readme", "--frontmatter");
+                "package", firstPackage, secondPackage, "--content", "--path", "@readme", "--frontmatter");
 
             Assert.Equal(0, exit);
             Assert.Contains("name: first", output);
             Assert.Contains("name: second", output);
             Assert.DoesNotContain("# First Body", output);
             Assert.DoesNotContain("# Second Body", output);
-            Assert.DoesNotContain("Multiple package inspection cannot be combined with --readme", error);
+            Assert.DoesNotContain("cannot be combined", error);
         }
         finally
         {

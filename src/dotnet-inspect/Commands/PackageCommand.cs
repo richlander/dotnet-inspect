@@ -92,7 +92,7 @@ public class PackageCommand
             // ignored. LensProjection answers the projection for those modes instead, and -S is
             // rejected outright below rather than silently dropped.
             var lensMode = options.ListVersions || options.ListLayout || options.ListTfms
-                || options.ShowContent || options.ShowReadme;
+                || options.ShowContent;
             // Discovery also renders its own payload, so it is exempt from the single-section
             // requirement below. It is deliberately not part of lensMode: unlike the lenses, -S
             // is meaningful with -D, which restricts discovery to the selected sections.
@@ -512,21 +512,6 @@ public class PackageCommand
                     options);
             }
 
-            // Handle --readme/--print mode: print the selected grounding document and exit early.
-            // Discovery is excluded: it renders its own payload further down and refuses --print
-            // with an accurate reason, where falling in here would print the grounding document
-            // instead of the discovery rows the caller asked to project.
-            if (options.ShowReadme || (options.Print && !effectiveDiscovery))
-            {
-                var packageId = nuspec?.PackageName ?? packageName;
-                var packageVersion = nuspec?.Version ?? version;
-                if (options.Print && options.IncludeSections?.Contains(PackageSections.FilesNuspec) == true)
-                    return PrintNuspec(extractPath, packageId, packageVersion, options);
-
-                var packageReadme = PackageFileLister.ResolvePackageReadme(extractPath, nuspec?.ReadmeFile);
-                return PrintReadme(extractPath, packageId, packageVersion, packageReadme, options);
-            }
-
             // Handle --dependencies mode: resolve transitive deps and show tree
             if (options.ShowDependencies)
             {
@@ -610,6 +595,13 @@ public class PackageCommand
 
             if ((options.Value || options.Urls || options.Paths) && !effectiveDiscovery)
                 return WritePackageShapeProjection(result, options);
+
+            // --print joins the other payload projections rather than short-circuiting earlier:
+            // it projects the rows the selected section renders, from the same view those rows
+            // come from. Discovery is excluded because it renders its own payload below and
+            // refuses --print with an accurate reason.
+            if (options.Print && !effectiveDiscovery)
+                return WritePackagePrintProjection(result, extractPath, options);
 
             if (options.Bare)
                 return PrintPackageBareSelection(result, extractPath, packageName, version, options);
@@ -763,7 +755,7 @@ public class PackageCommand
         if (!ValidateMultiPackageMode(options))
             return 1;
 
-        if (options.ShowContent || (options.ShowReadme && options.ContentScope == PackageFileContentScope.Frontmatter))
+        if (options.ShowContent)
             return await ExecuteMultiPackageContentAsync(packageArgs, options, context);
 
         if (!TryResolveMultiPackageRowSection(options, out var rowSection))
@@ -948,10 +940,7 @@ public class PackageCommand
         if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
         if (options.ListLayout) conflicts.Add("--layout");
         if (options.ListTfms) conflicts.Add("--tfms");
-        var multiReadmeFrontmatter = options.ShowReadme && options.ContentScope == PackageFileContentScope.Frontmatter;
-        if (options.ShowReadme && !multiReadmeFrontmatter) conflicts.Add("--readme");
         if (options.Print) conflicts.Add("--print");
-        if (multiReadmeFrontmatter && options.JsonOutput) conflicts.Add("--json");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (options.PackageLibrary != null) conflicts.Add("--library");
         if (options.AllLibraries) conflicts.Add("--all-libraries");
@@ -978,12 +967,6 @@ public class PackageCommand
         if (options.FrontmatterRequested && options.BodyRequested)
         {
             Console.Error.WriteLine("Error: --frontmatter/--yaml-header cannot be combined with --body.");
-            return false;
-        }
-
-        if (options.ShowReadme && options.ShowContent)
-        {
-            Console.Error.WriteLine("Error: --readme cannot be combined with --content. Use --content --path @readme for separator or JSONL output.");
             return false;
         }
 
@@ -1015,9 +998,9 @@ public class PackageCommand
             return false;
         }
 
-        if (scopedContent && !options.ShowReadme && !options.Print && !options.ShowContent)
+        if (scopedContent && !options.Print && !options.ShowContent)
         {
-            Console.Error.WriteLine("Error: --frontmatter/--yaml-header and --body require --readme, --print, or --content.");
+            Console.Error.WriteLine("Error: --frontmatter/--yaml-header and --body require --print or --content.");
             return false;
         }
 
@@ -1055,10 +1038,18 @@ public class PackageCommand
         return true;
     }
 
+    /// <summary>
+    /// The printable sections are the document members of the package file family: each lists
+    /// documents the package ships, so each row declares a payload <c>--print</c> can project.
+    /// The whole-package listing is deliberately excluded — it lists assemblies and images too,
+    /// and printability is a row capability rather than something a listing shape implies.
+    /// </summary>
     private static bool ValidatePackagePrintSelection(HashSet<string>? sections)
     {
         if (sections is { Count: 1 }
-            && (sections.Contains(PackageSections.FilesReadme) || sections.Contains(PackageSections.FilesNuspec)))
+            && (sections.Contains(PackageSections.FilesReadme)
+                || sections.Contains(PackageSections.FilesNuspec)
+                || sections.Contains(PackageSections.FilesSkills)))
             return true;
 
         Console.Error.WriteLine("Error: --print requires -S/--select to match exactly one printable section.");
@@ -1091,6 +1082,61 @@ public class PackageCommand
 
         return ShapeProjectionOutput.Write(rows,
             new ShapeProjectionOptions(kind, options.PrintRow, options.JsonOutput, options.Jsonl, options.JsonArray));
+    }
+
+    /// <summary>
+    /// Projects the printable payload of the selected section's rows. Document sections list
+    /// the files they describe as rows, so the documents printed here are the rows the section
+    /// renders rather than a document re-derived from the command line. Cardinality, the
+    /// <c>--row</c> selector, and output shape belong to <see cref="PrintProjectionOutput"/>,
+    /// so a new printable section declares its rows and needs no printer of its own.
+    /// </summary>
+    private static int WritePackagePrintProjection(InspectionResult result, string extractPath, InspectionOptions options)
+    {
+        var section = options.IncludeSections!.Single();
+        var view = new InspectionResultView(result);
+        var rows = section switch
+        {
+            PackageSections.FilesNuspec => view.NuspecFiles,
+            PackageSections.FilesReadme => view.PackageReadme,
+            PackageSections.FilesSkills => view.SkillFiles,
+            _ => null
+        } ?? [];
+
+        // A Markdown scope names a Markdown construct. The caller named this section explicitly,
+        // so silently returning the whole document -- or an empty one -- would answer a question
+        // they did not ask. Report that the scope does not apply to this document instead.
+        if (options.ContentScope != PackageFileContentScope.Full
+            && rows.FirstOrDefault(row => !MarkdownContent.IsMarkdown(row.Path)) is { } nonMarkdown)
+        {
+            Console.Error.WriteLine(
+                $"Error: --frontmatter/--yaml-header and --body apply to Markdown documents; '{nonMarkdown.Path}' is not Markdown.");
+            return 1;
+        }
+
+        var documents = new List<PrintableDocument>(rows.Count);
+        for (var i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            var file = ReadPackageFileContent(
+                extractPath,
+                result.PackageName ?? string.Empty,
+                result.Version ?? string.Empty,
+                new PackageFile(row.Path, row.Size),
+                options.ContentScope,
+                normalizeGithubLinksToRaw: !options.BrowsableUrls);
+            documents.Add(new PrintableDocument(i + 1, section, row.Path, row.Path, null, file.Content));
+        }
+
+        return PrintProjectionOutput.Write(
+            documents,
+            new PrintProjectionOptions(
+                options.PrintRow,
+                options.JsonOutput,
+                options.Jsonl,
+                options.JsonArray,
+                options.Bare,
+                options.OutputPath));
     }
 
     private static List<ShapeProjectionRow> ProjectPackageFiles(IEnumerable<PackageFileRow>? files, string section, ShapeProjectionKind kind, InspectionOptions options)
@@ -1539,9 +1585,7 @@ public class PackageCommand
         InspectionOptions options)
     {
         var files = PackageFileLister.ListAll(extractPath, readmeFile);
-        var selectedFiles = options.ShowReadme || options.Print
-            ? PackageFileLister.Filter(files, "@readme")
-            : FilterPackageFiles(files, options);
+        var selectedFiles = FilterPackageFiles(files, options);
         var contents = selectedFiles
             .Select(file => ReadPackageFileContent(
                 extractPath,
@@ -1563,9 +1607,18 @@ public class PackageCommand
         bool normalizeGithubLinksToRaw)
     {
         var fullPath = Path.Combine(extractPath, file.Path.Replace('/', Path.DirectorySeparatorChar));
-        var content = MarkdownContent.ApplyScope(File.ReadAllText(fullPath), scope);
-        if (normalizeGithubLinksToRaw)
-            content = GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(content);
+        var content = File.ReadAllText(fullPath);
+
+        // Scoping and link rewriting are Markdown conventions. Applied to anything else they
+        // corrupt the document the package shipped rather than presenting it, and the caller
+        // has no way to see that it happened.
+        if (MarkdownContent.IsMarkdown(file.Path))
+        {
+            content = MarkdownContent.ApplyScope(content, scope);
+            if (normalizeGithubLinksToRaw)
+                content = GitHubUrlResolver.NormalizeGitHubFileLinksToRaw(content);
+        }
+
         return new PackageFileContent(packageName, version, file.Path, file.Size, Found: true, content);
     }
 
@@ -1919,7 +1972,6 @@ public class PackageCommand
         if (HasPathFilter(options)) conflicts.Add("--path");
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
-        if (options.ShowReadme) conflicts.Add("--readme");
         if (options.Print) conflicts.Add("--print");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (string.Equals(options.Tfm, "all", StringComparison.OrdinalIgnoreCase)) conflicts.Add("--tfm all");
@@ -1939,7 +1991,6 @@ public class PackageCommand
         if (HasPathFilter(options)) conflicts.Add("--path");
         if (options.ListTfms) conflicts.Add("--tfms");
         if (options.ListVersions) conflicts.Add("--versions/--version/--latest-version");
-        if (options.ShowReadme) conflicts.Add("--readme");
         if (options.Print) conflicts.Add("--print");
         if (options.ShowDependencies) conflicts.Add("--dependencies");
         if (options.Discover != null) conflicts.Add("-D/--discover");
@@ -2811,100 +2862,5 @@ public class PackageCommand
                 ? new TreeNode(label) { Children = ToTreeNodes(n.Children) }
                 : new TreeNode(label);
         }).ToList();
-    }
-
-    /// <summary>
-    /// Prints the package manifest behind a <c>Package nuspec file</c> selection. The section itself
-    /// lists the manifest as a path row; only <c>--print</c> renders the document.
-    /// </summary>
-    private static int PrintNuspec(
-        string extractPath,
-        string packageName,
-        string version,
-        InspectionOptions options)
-    {
-        var nuspecPath = Services.NuspecParser.FindNuspec(extractPath);
-        if (nuspecPath == null)
-        {
-            Console.Error.WriteLine("Error: This package does not contain a nuspec manifest.");
-            return 1;
-        }
-
-        var relativePath = Path.GetFileName(nuspecPath);
-        var result = ReadPackageFileContents(extractPath, packageName, version, relativePath, options);
-        if (result.Files is not { Count: > 0 })
-        {
-            Console.Error.WriteLine($"Error: Could not read the nuspec manifest at '{relativePath}'.");
-            return 1;
-        }
-
-        var file = result.Files[0];
-        return PrintProjectionOutput.Write(
-            [new PrintableDocument(1, PackageSections.FilesNuspec, file.Path, file.Path, null, file.Content)],
-            new PrintProjectionOptions(
-                options.PrintRow,
-                options.JsonOutput,
-                options.Jsonl,
-                options.JsonArray,
-                options.Bare,
-                options.OutputPath));
-    }
-
-    private static int PrintReadme(
-        string extractPath,
-        string packageName,
-        string version,
-        string? readmeFile,
-        InspectionOptions options)
-    {
-        var result = ReadPackageFileContents(extractPath, packageName, version, readmeFile, options);
-        if (result.Files is not { Count: > 0 })
-        {
-            Console.Error.WriteLine("Error: This package does not contain a readme file.");
-            return 1;
-        }
-
-        var file = result.Files[0];
-        InfoTracker.SetDetail("readme", $"{file.Path} ({file.Size.ToString(CultureInfo.InvariantCulture)} B)");
-
-        if (LensProjection.TryProject(options, "--readme", result.Files.Count, out var readmeProjectionExit, printHandledByLens: true, scalarPayload: true))
-            return readmeProjectionExit;
-        if (options.Print)
-        {
-            return PrintProjectionOutput.Write(
-                [new PrintableDocument(1, PackageSections.FilesReadme, file.Path, file.Path, null, file.Content)],
-                new PrintProjectionOptions(
-                    options.PrintRow,
-                    options.JsonOutput,
-                    options.Jsonl,
-                    options.JsonArray,
-                    options.Bare,
-                    options.OutputPath));
-        }
-
-        if (options.Bare)
-            return WriteBarePackageText(file.Content, options.OutputPath);
-
-        if (options.JsonOutput || options.Jsonl)
-        {
-            var json = JsonSerializer.Serialize(file, PackageFileContentJsonContext.Default.PackageFileContent);
-            if (!string.IsNullOrEmpty(options.OutputPath))
-                File.WriteAllText(options.OutputPath, options.Jsonl ? json + Environment.NewLine : json);
-            else
-                Console.WriteLine(json);
-            return 0;
-        }
-
-        string content = file.Content;
-        if (!string.IsNullOrEmpty(options.OutputPath))
-        {
-            File.WriteAllText(options.OutputPath, content);
-        }
-        else
-        {
-            Console.WriteLine(content);
-        }
-        
-        return 0;
     }
 }
