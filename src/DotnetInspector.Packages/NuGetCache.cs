@@ -323,8 +323,18 @@ public static class NuGetCache
     /// Returns the newest cached version of a package from the NuGet or app cache.
     /// Pure disk I/O — never hits the network.
     /// </summary>
+    /// <remarks>
+    /// Returns <see langword="null"/> for a name that is not safe as a path component, rather than
+    /// combining it into a cache root. The guard lives here, not in the callers: six call sites
+    /// reach this method, and an earlier fix in this series guarded one route while the identical
+    /// hole survived on a sibling route with a green suite. Callers that surface the result to a
+    /// user should distinguish a refusal from a miss.
+    /// </remarks>
     public static string? TryGetLatestCachedVersion(string packageName)
     {
+        if (!HardenedPath.IsSafePathComponent(packageName))
+            return null;
+
         var normalizedName = packageName.ToLowerInvariant();
 
         // Newest non-prerelease, structurally-valid version across both caches.

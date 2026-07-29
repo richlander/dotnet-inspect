@@ -80,6 +80,14 @@ public class HardenedPathTests
     // Non-ASCII edge whitespace renders as padding but denotes something else.
     [InlineData("System.Text.Json\u00a0")]
     [InlineData("\u3000System.Text.Json")]
+    // Format characters outside the BMP. char.GetUnicodeCategory sees only the two surrogate
+    // halves of these and reports Surrogate for each, so a char-by-char scan accepted them while
+    // they render as nothing: "Valid\U000E0020Dependency" displays as "ValidDependency". The
+    // Plane 14 tag block U+E0000-U+E007F is Format in its entirety.
+    [InlineData("Valid\U000E0020Dependency")]
+    [InlineData("Valid\U000E0041Dependency")]
+    [InlineData("Valid\U000E0001Dependency")]
+    [InlineData("\U000E007FContoso")]
     public void UnsafeComponent_IsRejected(string value)
     {
         Assert.False(HardenedPath.IsSafePathComponent(value));
@@ -132,6 +140,10 @@ public class HardenedPathTests
     [InlineData("\uff2c\uff29\uff22.Assembly")]
     [InlineData("\u30c6\u30b9\u30c8.Library")]
     [InlineData("Contoso.\uff26\uff4f\uff4f")]
+    // A supplementary-plane character that is NOT Format stays legitimate: the rune scan must
+    // reject by category, not by "is outside the BMP".
+    [InlineData("Contoso.\U0001F600")]
+    [InlineData("\U00020000.Library")]
     // Consecutive dots inside a component are not traversal: with no separator the combined path
     // fully-resolves inside the trusted root. These are real names the C# compiler emits, and
     // refusing them left the reference unresolved with no company and no children.

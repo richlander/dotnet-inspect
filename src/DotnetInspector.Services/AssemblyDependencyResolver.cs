@@ -44,6 +44,13 @@ public sealed record AssemblyDependencyResolutionOptions(string TargetAssemblyPa
     public bool PreferImplementationAssemblies { get; init; }
     public bool AllowPlatformAssemblyVersionRollForward { get; init; }
     public bool ExcludeTargetAssembly { get; init; }
+
+    /// <summary>
+    /// Where the resolver reports inputs it refused. A refused package coordinate or asset path is
+    /// dropped from the resolved graph, which without this reads exactly like a dependency that
+    /// legitimately did not resolve. AGENTS.md forbids that: failure has to stay visible.
+    /// </summary>
+    public Action<string>? Log { get; init; }
 }
 
 /// <summary>
@@ -110,7 +117,8 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
         foreach (var path in PackageDependencyReferencePaths(
             targetPath,
             _options.PackageRoots,
-            preferImplementationAssemblies: _options.PreferImplementationAssemblies))
+            preferImplementationAssemblies: _options.PreferImplementationAssemblies,
+            log: _options.Log))
         {
             var package = TryReadPackageIdentity(path, _options.PackageRoots);
             Add(path, AssemblyDependencyProvenance.PackageDependency, package.Id, package.Version);
@@ -133,12 +141,12 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
                 {
                     var package = TryReadPackageIdentity(path, _options.PackageRoots);
                     Add(path, AssemblyDependencyProvenance.DepsJsonAsset, package.Id, package.Version);
-                });
+                }, _options.Log);
         }
 
         if (_options.ProjectAssetsPath is { Length: > 0 } assetsPath && File.Exists(assetsPath))
         {
-            foreach (var (path, packageName, version) in ProjectAssetsParser.Parse(assetsPath, _options.TargetFramework, log: null))
+            foreach (var (path, packageName, version) in ProjectAssetsParser.Parse(assetsPath, _options.TargetFramework, log: _options.Log))
                 Add(path, AssemblyDependencyProvenance.ProjectAsset, packageName, version);
         }
 
@@ -255,7 +263,8 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
     public static IReadOnlyList<string> PackageDependencyReferencePaths(
         string targetPath,
         IReadOnlyList<string>? packageRoots,
-        bool preferImplementationAssemblies)
+        bool preferImplementationAssemblies,
+        Action<string>? log = null)
     {
         if (NuGetPackageContext(targetPath, packageRoots) is not { } context)
             return [];
@@ -275,7 +284,8 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
                 packageRoots,
                 packageDirectories,
                 dependencyGraph,
-                new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                log);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException)
         {
@@ -316,7 +326,8 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
         IReadOnlyList<string>? packageRoots,
         Dictionary<string, Dictionary<string, string>> packageDirectories,
         Dictionary<string, List<PackageDependency>> dependencyGraph,
-        HashSet<string> visiting)
+        HashSet<string> visiting,
+        Action<string>? log = null)
     {
         var nuspec = Directory.EnumerateFiles(packageDirectory, "*.nuspec").FirstOrDefault();
         if (nuspec is null)
@@ -338,7 +349,10 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
             // into what later gets read as an assembly. Skipping an unsafe coordinate matches the
             // loop's existing behavior for a dependency that does not resolve.
             if (!HardenedPath.IsSafePathComponent(id) || !HardenedPath.IsSafePathComponent(version))
+            {
+                log?.Invoke($"Refusing unsafe package coordinate '{id}/{version}' from {packageDirectory}");
                 continue;
+            }
 
             foreach (var root in NuGetPackageRoots(packageRoots))
             {
@@ -360,7 +374,8 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
                         packageRoots,
                         packageDirectories,
                         dependencyGraph,
-                        visiting);
+                        visiting,
+                        log);
                     visiting.Remove(visitKey);
                 }
                 break;
@@ -663,7 +678,7 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
 
     static string VersionCore(string version) => version.Split('-', 2)[0];
 
-    static void AddDepsJsonReferences(string targetDirectory, string targetName, Action<string> addReference)
+    static void AddDepsJsonReferences(string targetDirectory, string targetName, Action<string> addReference, Action<string>? log = null)
     {
         var depsPath = Path.Combine(targetDirectory, $"{targetName}.deps.json");
         if (!File.Exists(depsPath))
@@ -696,8 +711,8 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
 
                 foreach (var library in target.Value.EnumerateObject())
                 {
-                    AddAssetGroup(targetDirectory, libraryPaths, library, "compile", addReference);
-                    AddAssetGroup(targetDirectory, libraryPaths, library, "runtime", addReference);
+                    AddAssetGroup(targetDirectory, libraryPaths, library, "compile", addReference, log);
+                    AddAssetGroup(targetDirectory, libraryPaths, library, "runtime", addReference, log);
                 }
             }
         }
@@ -711,7 +726,8 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
         IReadOnlyDictionary<string, string> libraryPaths,
         JsonProperty library,
         string groupName,
-        Action<string> addReference)
+        Action<string> addReference,
+        Action<string>? log = null)
     {
         if (!library.Value.TryGetProperty(groupName, out var assets))
             return;
@@ -726,14 +742,21 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
             if (asset.Value.ValueKind == JsonValueKind.Object &&
                 asset.Value.TryGetProperty("localPath", out var localPathElement) &&
                 localPathElement.ValueKind == JsonValueKind.String &&
-                localPathElement.GetString() is { Length: > 0 } localPath &&
-                HardenedPath.IsSafeRelativePath(localPath))
-                addReference(Path.Combine(targetDirectory, NativePath(localPath)));
+                localPathElement.GetString() is { Length: > 0 } localPath)
+            {
+                if (HardenedPath.IsSafeRelativePath(localPath))
+                    addReference(Path.Combine(targetDirectory, NativePath(localPath)));
+                else
+                    log?.Invoke($"Refusing unsafe deps.json localPath '{localPath}' for library '{library.Name}'");
+            }
 
-            if (libraryPaths.TryGetValue(library.Name, out var packagePath) &&
-                HardenedPath.IsSafeRelativePath(packagePath) &&
-                HardenedPath.IsSafeRelativePath(asset.Name))
-                addReference(Path.Combine(GlobalPackagesRoot(), NativePath(packagePath), NativePath(asset.Name)));
+            if (libraryPaths.TryGetValue(library.Name, out var packagePath))
+            {
+                if (HardenedPath.IsSafeRelativePath(packagePath) && HardenedPath.IsSafeRelativePath(asset.Name))
+                    addReference(Path.Combine(GlobalPackagesRoot(), NativePath(packagePath), NativePath(asset.Name)));
+                else
+                    log?.Invoke($"Refusing unsafe deps.json asset '{packagePath}/{asset.Name}' for library '{library.Name}'");
+            }
         }
     }
 

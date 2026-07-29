@@ -1,3 +1,4 @@
+using ILInspector.MetadataPrimitives;
 using DotnetInspector.Models;
 using DotnetInspector.Core;
 using ILInspector.Metadata;
@@ -279,6 +280,17 @@ public class PackageCommand
 
             var (versionQueryName, versionQueryPinned) = PackageExtractor.ParsePackageReference(packageArgs[0]);
             string normalizedName = versionQueryName.ToLowerInvariant();
+
+            // Refuse before any cache lookup or network call, and say that it is a refusal. The
+            // cache helper returns null for an unsafe name, which on its own reads as an ordinary
+            // miss -- "Package '../foo' not found on nuget.org" tells the user the name was
+            // searched for and absent, when in fact it was never searched for at all.
+            if (!HardenedPath.IsSafePathComponent(versionQueryName))
+            {
+                Console.Error.WriteLine($"Error: Invalid package name: '{versionQueryName}'.");
+                return 1;
+            }
+
             if (string.Equals(versionQueryPinned, "latest", StringComparison.OrdinalIgnoreCase))
             {
                 versionQueryPinned = null;

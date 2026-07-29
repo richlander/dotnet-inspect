@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Globalization;
+using System.Text;
 
 namespace ILInspector.MetadataPrimitives;
 
@@ -96,22 +97,12 @@ public static class HardenedPath
             return false;
         }
 
-        foreach (var c in value)
-        {
-            if (char.IsControl(c))
-                return false;
-
-            // Format characters are invisible, or reorder what follows them, so the name shown to
-            // the user is not the name being opened. That is Trojan Source (CVE-2021-42574)
-            // applied to an identifier read from untrusted input, and char.IsControl misses it.
-            if (char.GetUnicodeCategory(c) == UnicodeCategory.Format)
-                return false;
-        }
-
         // Malformed UTF-16. No package id, version, assembly simple name or forwarder target
         // contains an unpaired surrogate, so the cost of refusing one is nil, and accepting one
         // means reasoning about what each host does with a code unit that denotes no character.
         // It also keeps the digit fold's pair handling a question about well-formed input only.
+        // This runs before the rune scan below because EnumerateRunes substitutes U+FFFD for an
+        // unpaired surrogate, which is not Format and would sail past that scan.
         for (var i = 0; i < value.Length; i++)
         {
             if (!char.IsSurrogate(value[i]))
@@ -121,6 +112,22 @@ public static class HardenedPath
                 return false;
 
             i++;
+        }
+
+        // Iterate runes, not chars. Format characters are invisible, or reorder what follows them,
+        // so the name shown to the user is not the name being opened -- Trojan Source
+        // (CVE-2021-42574) applied to an identifier read from untrusted input, which char.IsControl
+        // misses. Scanning by char missed it too for anything outside the BMP: the Plane 14 tag
+        // characters U+E0000-U+E007F are Format, but char.GetUnicodeCategory sees only the two
+        // surrogate halves and reports Surrogate for each, so "Valid\U000E0020Dependency" was
+        // accepted while rendering as "ValidDependency".
+        foreach (var rune in value.EnumerateRunes())
+        {
+            if (Rune.IsControl(rune))
+                return false;
+
+            if (Rune.GetUnicodeCategory(rune) == UnicodeCategory.Format)
+                return false;
         }
 
         // Windows strips trailing spaces and dots from a path component, so "CON " and "CON" open

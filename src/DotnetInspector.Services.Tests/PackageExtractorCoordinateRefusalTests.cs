@@ -1,3 +1,4 @@
+using ILInspector.MetadataPrimitives;
 using DotnetInspector.Packages;
 
 namespace DotnetInspector.Services.Tests;
@@ -46,5 +47,37 @@ public class PackageExtractorCoordinateRefusalTests
             new HttpClient(), "Newtonsoft.Json", "13.0.3", log.Add);
 
         Assert.DoesNotContain(log, m => m.Contains("Refusing unsafe package coordinate", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The latest-version cache lookup is a ninth path sink: it combined a caller-supplied package
+    /// name into a cache root with no validation, and six call sites reach it. The guard lives in
+    /// the method rather than at those call sites, because an earlier fix in this series guarded one
+    /// route while the identical hole survived on a sibling route with a green suite.
+    /// </summary>
+    [Theory]
+    [InlineData("../foo")]
+    [InlineData("..\\foo")]
+    [InlineData("CON")]
+    [InlineData("Newtonsoft.Json ")]
+    public void TryGetLatestCachedVersion_UnsafeName_ReturnsNullWithoutProbingTheCache(string name)
+    {
+        NuGetCache.Initialize("dotnet-inspect-test");
+
+        Assert.Null(NuGetCache.TryGetLatestCachedVersion(name));
+    }
+
+    /// <summary>
+    /// The positive control for the guard above. Without it, a guard that refused every name would
+    /// satisfy the refusal theory just as well as a correct one. This asserts only that a
+    /// well-formed name is not refused by the path rule -- it may legitimately be absent from the
+    /// cache, so a null result here is only a failure if the name was rejected as unsafe.
+    /// </summary>
+    [Fact]
+    public void TryGetLatestCachedVersion_LegitimateName_IsNotRefusedByThePathRule()
+    {
+        Assert.True(HardenedPath.IsSafePathComponent("Newtonsoft.Json"));
+        Assert.True(HardenedPath.IsSafePathComponent("System.Text.Json"));
+        Assert.True(HardenedPath.IsSafePathComponent("Valid..Dependency"));
     }
 }

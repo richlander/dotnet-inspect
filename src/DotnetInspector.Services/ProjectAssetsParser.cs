@@ -209,7 +209,10 @@ public static class ProjectAssetsParser
                         // model lists as untrusted along with the paths inside it.
                         if (!HardenedPath.IsSafeRelativePath(packagePath) ||
                             !HardenedPath.IsSafeRelativePath(asm.Name))
+                        {
+                            log?.Invoke($"Refusing unsafe asset path '{packagePath}/{asm.Name}' from {assetsPath}");
                             continue;
+                        }
 
                         var fullPath = Path.Combine(nugetCache, packagePath, asm.Name.Replace('/', Path.DirectorySeparatorChar));
                         if (File.Exists(fullPath))
