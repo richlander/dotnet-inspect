@@ -1058,9 +1058,12 @@ public static class IlBodyDiff
                     continue;
 
                 // Only start at a '<' that opens a name. One preceded by an
-                // identifier character is interior text, and one preceded by
-                // '<' or '>' belongs to a nested name that the recursive call
-                // below already covers.
+                // identifier character is interior text. A '<' preceded by
+                // '<' or '>' is reachable and must be scanned: a successful
+                // match jumps past the whole name it consumed, so the only way
+                // to arrive at a nested '<' is for the enclosing name to have
+                // been declined (`<<Run>b__103_0>d__1`, the state machine of an
+                // async lambda), and the name inside it still needs normalizing.
                 if (i > 0 && IsInteriorChar(value[i - 1]))
                     continue;
 
@@ -1189,7 +1192,7 @@ public static class IlBodyDiff
         }
 
         static bool IsInteriorChar(char c)
-            => char.IsAsciiLetterOrDigit(c) || c is '_' or '<' or '>';
+            => char.IsAsciiLetterOrDigit(c) || c == '_';
     }
 
     sealed class SignatureIdentityProvider : ISignatureTypeProvider<string, object?>

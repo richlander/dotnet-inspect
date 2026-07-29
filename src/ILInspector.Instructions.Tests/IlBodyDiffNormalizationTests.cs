@@ -229,6 +229,7 @@ public class IlBodyDiffNormalizationTests
     [InlineData("<.ctor>b__103_0", "<.ctor>b__128_0")]                // lambda in a constructor
     [InlineData("<Run>g__A__B|103_0", "<Run>g__A__B|128_0")]          // local name containing `__`
     [InlineData("<<Run>b__103_0>b__104_1", "<<Run>b__128_0>b__129_1")] // lambda nested in a lambda
+    [InlineData("<<Run>b__103_0>d__1", "<<Run>b__128_0>d__1")]        // async lambda: outer state machine is declined, inner still normalizes
     public void NormalizeSynthesizedMemberOrdinals_ToleratesContainingMethodRenumbering(
         string oldName,
         string newName)
@@ -244,8 +245,13 @@ public class IlBodyDiffNormalizationTests
     /// The negative half of #3503: only the containing-method ordinal is
     /// non-evidence. Every other component of a closure name still identifies
     /// which lambda a body binds to, so a real mis-binding must keep diffing.
-    /// State-machine names are a documented non-goal — their ordinal is their
-    /// only distinguishing component.
+    /// Two forms are documented limitations rather than desired outcomes:
+    /// state-machine names (<c>&lt;Name&gt;d__N</c>), whose ordinal is their
+    /// only distinguishing component, and display classes
+    /// (<c>&lt;&gt;c__DisplayClassN_M</c>), which do carry the same
+    /// compilation-unit ordinal and so can still produce a false positive for
+    /// a capturing lambda. Widening to display classes is deliberately out of
+    /// scope here; the corpus has no remaining row that needs it.
     /// </summary>
     [Theory]
     [InlineData("<Run>b__103_0", "<Run>b__103_1")]              // different lambda in the same method
@@ -254,7 +260,7 @@ public class IlBodyDiffNormalizationTests
     [InlineData("<Run>d__103", "<Run>d__128")]                  // state machine: not normalized
     [InlineData("Grab__103_0", "Grab__128_0")]                  // authored name, not synthesized
     [InlineData("<b__1_0>b__103_0", "<b__2_0>b__128_0")]        // authored enclosing name that looks synthesized
-    [InlineData("<Run>c__DisplayClass103_0", "<Run>c__DisplayClass128_0")] // display class: not normalized
+    [InlineData("<>c__DisplayClass103_0", "<>c__DisplayClass128_0")] // display class: known limitation, see remarks
     [InlineData("<Run>b__103_0_extra", "<Run>b__128_0_extra")]  // trailing text: not a closure name
     [InlineData("<Run>g__Local|103_0x", "<Run>g__Local|128_0x")] // trailing text after a local function
     public void NormalizeSynthesizedMemberOrdinals_PreservesEveryOtherNameComponent(
