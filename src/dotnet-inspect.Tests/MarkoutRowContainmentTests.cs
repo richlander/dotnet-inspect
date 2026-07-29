@@ -56,8 +56,8 @@ namespace DotnetInspector.Tests;
 /// had to be corrected for. It is the exact complement of the set that contains
 /// <i>in the row</i>. Membership is a fact about which idiom a column uses; some
 /// entries are producer-contained and correct as they stand, and the remainder
-/// are the residual tracked by issue #3463 -- which this measures at 345 members
-/// across 83 types, where the estimate had been "roughly 290."</para>
+/// are the residual tracked by issue #3463 -- which this measures at 350 members
+/// across 85 types, where the estimate had been "roughly 290."</para>
 ///
 /// <para>Asserting it as a set is what makes the weaker property still bite. A
 /// column cannot leave the self-containing set without failing here, which is
@@ -90,8 +90,15 @@ public class MarkoutRowContainmentTests
     /// </summary>
     /// <remarks>
     /// Not a leak list -- see the remarks on
-    /// <see cref="MarkoutRowContainmentTests"/>. Some of these are contained at
-    /// the producer and are correct as they stand; the rest are issue #3463.
+    /// <see cref="MarkoutRowContainmentTests"/>. Membership has three causes and
+    /// this set does not distinguish them: a column contained at the producer
+    /// (<c>ResourceTriageRow.Member</c>, built from <c>MarkoutInline.Code</c>);
+    /// a column whose value the tool composes rather than reads, so there is no
+    /// untrusted text to contain (<c>SourceLinkAuditSection.SourceFiles</c>,
+    /// which is <c>$"{int}/{int} available"</c>); and the genuine residual
+    /// tracked by issue #3463. Deciding which a given entry is takes reading its
+    /// producer -- which is the work #3463 exists to do, and is why this pins
+    /// the set rather than asserting it empty.
     /// Ordinal sort order, matching the assertion.
     /// </remarks>
     private static readonly string[] NotSelfContaining =
@@ -387,6 +394,11 @@ public class MarkoutRowContainmentTests
         "SampleRow.Description",
         "SampleRow.Type",
         "SampleRow.Url",
+        "SourceIntegritySection.CrlfMismatch",
+        "SourceIntegritySection.MismatchedFiles",
+        "SourceIntegritySection.Status",
+        "SourceLinkAuditSection.SourceFiles",
+        "SourceLinkAuditSection.Status",
         "SwitchRow.Api",
         "SwitchRow.Kind",
         "SwitchRow.Switch",
@@ -593,21 +605,37 @@ public class MarkoutRowContainmentTests
         // Sections and rows built from an empty constructor carry their text on
         // settable properties instead, so a constructor-only fill would check
         // the ones that need it least.
+        HashSet<string> fromConstructor = new(
+            constructor.GetParameters().Select(p => p.Name ?? string.Empty),
+            StringComparer.OrdinalIgnoreCase);
+
         foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
-            if (property.PropertyType == typeof(string)
-                && property.CanWrite
-                && !IsInitOnly(property)
-                && property.GetIndexParameters().Length == 0)
+            if (property.PropertyType != typeof(string)
+                || !property.CanWrite
+                || property.GetIndexParameters().Length > 0)
             {
-                try
-                {
-                    property.SetValue(row, Hostile);
-                }
-                catch (Exception)
-                {
-                    // A validating setter. The constructor already covered it.
-                }
+                continue;
+            }
+
+            // An init-only property the constructor already supplied has had the
+            // hostile value put through its containment; writing it again would
+            // replace the contained value with the raw one and report a leak
+            // that is not there. One the constructor did *not* supply is the
+            // opposite case -- it is still at its default, and the accessor is
+            // the only way in.
+            if (IsInitOnly(property) && fromConstructor.Contains(property.Name))
+            {
+                continue;
+            }
+
+            try
+            {
+                property.SetValue(row, Hostile);
+            }
+            catch (Exception)
+            {
+                // A validating setter. The constructor already covered it.
             }
         }
 
@@ -631,8 +659,22 @@ public class MarkoutRowContainmentTests
     /// verified days earlier. A gate that cannot be told apart from a bug in
     /// itself is worse than no gate, because it trains its reader to dismiss it.
     ///
-    /// Init-only properties need no write anyway: the constructor already put
-    /// the hostile value through the containment being tested.
+    /// An init-only property the constructor <i>supplied</i> needs no write: the
+    /// hostile value already went through the containment being tested.
+    ///
+    /// The converse is not true, and treating it as true cost the gate a whole
+    /// category. A reviewer removed containment from <c>LibraryInfoSection</c>,
+    /// which has a parameterless constructor and only <c>init</c> properties
+    /// spelled <c>init =&gt; field = LibraryViewText.Contain(value);</c>, and
+    /// this class stayed green: nothing was supplied by the constructor and
+    /// nothing was written afterwards, so every column read back its default and
+    /// none was ever examined. It did not even dent the non-vacuity floors,
+    /// because other types kept those satisfied.
+    ///
+    /// So the skip is conditioned on the constructor having supplied the
+    /// property, not on the property being init-only. Where the accessor is the
+    /// only way in, reflection goes in through it -- which is exactly the path
+    /// that runs the containment.
     /// </remarks>
     private static bool IsInitOnly(PropertyInfo property) =>
         property.SetMethod?.ReturnParameter

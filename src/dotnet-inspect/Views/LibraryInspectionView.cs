@@ -1799,14 +1799,14 @@ public class SymbolsSection
     [MarkoutPropertyName("PDB Path")]
     public string? PdbPath { get => field; init => field = LibraryViewText.Contain(value); }
     public string? Publisher { get => field; init => field = LibraryViewText.Contain(value); }
-    public string? Recommendation { get; init; }
+    public string? Recommendation { get => field; init => field = LibraryViewText.Contain(value); }
     public string? Repository { get => field; init => field = LibraryViewText.Contain(value); }
     [MarkoutPropertyName("Repository URL")]
     public string? RepositoryUrl { get => field; init => field = LibraryViewText.Contain(value); }
     public string? Signature { get => field; init => field = LibraryViewText.Contain(value); }
     public string? SourceLink { get => field; init => field = LibraryViewText.Contain(value); }
     public string? SymbolServer { get => field; init => field = LibraryViewText.Contain(value); }
-    public string? Warning { get; init; }
+    public string? Warning { get => field; init => field = LibraryViewText.Contain(value); }
 }
 
 [MarkoutSerializable(NamingPolicy = NamingPolicy.PascalCaseWords, FieldLayout = FieldLayout.Table)]

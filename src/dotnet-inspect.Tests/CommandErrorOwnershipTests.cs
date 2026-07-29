@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
@@ -345,6 +347,80 @@ public class CommandErrorOwnershipTests
     }
 
     /// <summary>
+    /// <paramref name="text"/> with <c>\uXXXX</c> and <c>\UXXXXXXXX</c> escapes
+    /// outside literals replaced by the characters they denote.
+    /// </summary>
+    /// <remarks>
+    /// C# lets an identifier be spelled with Unicode escapes, and the compiler
+    /// resolves the result: <c>System.\u0043onsole.Error.WriteLine(untrusted)</c>
+    /// binds to <see cref="Console"/> and writes to the stream, while matching
+    /// none of the patterns in this file. A reviewer landed exactly that with
+    /// all five tests green.
+    ///
+    /// Every rule here is a claim about the program the compiler sees, so the
+    /// text they match has to be that program. This is the third form of the
+    /// same correction: blank comments so a match is code, read project
+    /// references as XML so attribute order is XML's problem, and decode
+    /// identifier escapes so a name is the name it binds to. Each replaces a
+    /// guess about the source's surface with the structure underneath it.
+    ///
+    /// Literals are copied through untouched. An escape inside a string is part
+    /// of that string's value, not of an identifier, and <see cref="Console"/>
+    /// spelled inside a literal is not a call.
+    ///
+    /// Newlines are preserved, so reported line numbers stay those of the
+    /// original file. Offsets within a line are not preserved, and nothing here
+    /// reports them.
+    /// </remarks>
+    private static string Normalize(string text) => DecodeIdentifierEscapes(BlankComments(text));
+
+    private static string DecodeIdentifierEscapes(string text)
+    {
+        if (!text.Contains('\\'))
+        {
+            return text;
+        }
+
+        StringBuilder result = new(text.Length);
+        int i = 0;
+
+        while (i < text.Length)
+        {
+            char c = text[i];
+
+            if (c == '"' || c == '\'')
+            {
+                int end = SkipLiteral(text, i);
+                result.Append(text, i, end - i);
+                i = end;
+                continue;
+            }
+
+            if (c == '\\' && i + 1 < text.Length && (text[i + 1] == 'u' || text[i + 1] == 'U'))
+            {
+                int digits = text[i + 1] == 'u' ? 4 : 8;
+                if (i + 2 + digits <= text.Length
+                    && uint.TryParse(
+                        text.AsSpan(i + 2, digits),
+                        NumberStyles.HexNumber,
+                        CultureInfo.InvariantCulture,
+                        out uint code)
+                    && code <= 0x10FFFF)
+                {
+                    result.Append(char.ConvertFromUtf32((int)code));
+                    i += 2 + digits;
+                    continue;
+                }
+            }
+
+            result.Append(c);
+            i++;
+        }
+
+        return result.ToString();
+    }
+
+    /// <summary>
     /// The index just past the literal starting at <paramref name="start"/>.
     /// </summary>
     private static int SkipLiteral(string text, int start)
@@ -474,7 +550,7 @@ public class CommandErrorOwnershipTests
                 continue;
             }
 
-            string text = BlankComments(File.ReadAllText(path));
+            string text = DecodeIdentifierEscapes(BlankComments(File.ReadAllText(path)));
             foreach (Match match in StderrWrite.Matches(text).Concat(ConsoleImport.Matches(text)))
             {
                 int line = text.Take(match.Index).Count(c => c == '\n') + 1;
@@ -542,7 +618,7 @@ public class CommandErrorOwnershipTests
 
         foreach (string path in CliSourceFiles(root))
         {
-            string text = BlankComments(File.ReadAllText(path));
+            string text = DecodeIdentifierEscapes(BlankComments(File.ReadAllText(path)));
             foreach (Match match in StderrSink.Matches(text))
             {
                 string relative = Path.GetRelativePath(root, path).Replace('\\', '/');
@@ -643,6 +719,14 @@ public class CommandErrorOwnershipTests
 
         // Verbatim identifiers alias the type just as plain ones do.
         Assert.Matches(ConsoleImport, "using @C = System.Console;");
+
+        // A Unicode-escaped identifier binds to the same type.
+        Assert.Matches(StderrWrite, Normalize("System.\\u0043onsole.Error.WriteLine(x);"));
+        Assert.Matches(StderrWrite, Normalize("System.\\U00000043onsole.Error.WriteLine(x);"));
+        Assert.Matches(ConsoleImport, Normalize("using static System.\\u0043onsole;"));
+
+        // An escape inside a literal is that literal's value, not an identifier.
+        Assert.DoesNotMatch(StderrWrite, Normalize("_ = \"System.\\u0043onsole.Error.WriteLine(\";"));
 
         // The owner still writes, so the rule is about who, not about whether.
         string owner = Path.Combine(RepositoryRoot(), "src", "dotnet-inspect", "Output", "CommandError.cs");
