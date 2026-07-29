@@ -292,6 +292,14 @@ jobs:
       - name: Run services tests
         run: dotnet run --project src/DotnetInspector.Services.Tests -c Release
 
+      # NuGetFetch is the HTTP and credential layer. Its live-network tests are tagged
+      # [Trait("Network", "Live")] and excluded here: the nuget.org ones would make the gate
+      # depend on a third-party service, and the Azure DevOps ones need a private feed and a
+      # token that CI — and any fork PR — does not have. Everything that can be proven with an
+      # in-memory transport, including the whole credential-mechanism matrix, runs here.
+      - name: Run NuGetFetch tests (offline)
+        run: dotnet run --project src/NuGetFetch.Tests -c Release -- -trait- "Network=Live"
+
       # Fast decompiler unit tests: pass logic, printer, importer facts, identity,
       # and classification regressions. Slow compile-back/recompile, corpus-sweep,
       # and fidelity tests are tagged [Trait("Speed", "Slow")] and excluded here;

@@ -1,0 +1,121 @@
+# NuGet feed authentication
+
+How `dotnet-inspect` authenticates to a NuGet feed, which credential mechanisms it honors,
+and which it silently ignores.
+
+This document describes *what the tool does*. For what you *should* do — choosing between
+Microsoft Entra tokens, PATs, service principals, and workload identity federation — follow
+the Azure DevOps guidance, which is authoritative and kept current:
+
+- [Authentication guidance](https://learn.microsoft.com/azure/devops/integrate/get-started/authentication/authentication-guidance)
+  — picks a mechanism by scenario. Entra ID for applications; PATs only for personal, ad hoc use.
+- [Use Microsoft Entra tokens](https://learn.microsoft.com/azure/devops/integrate/get-started/authentication/entra)
+- [Service principals and managed identities](https://learn.microsoft.com/azure/devops/integrate/get-started/authentication/service-principal-managed-identity)
+- [Manage PATs using policies](https://learn.microsoft.com/azure/devops/organizations/accounts/manage-pats-with-policies-for-administrators)
+  — tenant policies for maximum PAT lifespan and scope restriction.
+- [Consuming packages from authenticated feeds](https://learn.microsoft.com/nuget/consume-packages/consuming-packages-authenticated-feeds)
+  and the [Azure Artifacts Credential Provider](https://github.com/microsoft/artifacts-credprovider)
+  — the recommended way to supply feed credentials.
+
+## What the tool sends
+
+HTTP Basic, and nothing else:
+
+```text
+Authorization: Basic base64("{Username}:{Password}")
+```
+
+There is no bearer path and no token exchange. A PAT and a Microsoft Entra access token both
+work, and work identically, because each is simply the password. Azure DevOps ignores the
+username. This is also why there is no separate "client certificate" mode: a certificate
+authenticates a service principal to Entra ID, Entra returns a token, and the feed still only
+sees Basic. See
+[`PackageSource.GetAuthHeader`](../../src/NuGetFetch/PackageRecords.cs).
+
+## The one supported credential source
+
+A [`packageSourceCredentials`](https://learn.microsoft.com/nuget/reference/nuget-config-file#packagesourcecredentials)
+entry in a `nuget.config`, carrying **both** `Username` and `ClearTextPassword`:
+
+```xml
+<packageSourceCredentials>
+  <my-feed>
+    <add key="Username" value="pat" />
+    <add key="ClearTextPassword" value="%TOKEN%" />
+  </my-feed>
+</packageSourceCredentials>
+```
+
+The config may come from `--nugetconfig`, from discovery walking up from the working directory,
+or from the user-level config. Parsing lives in
+[`SourceResolver`](../../src/NuGetFetch/SourceResolver.cs).
+
+Note that the `%TOKEN%` placeholder above is *not* expanded — see the next section. It is
+written that way only to keep a secret out of the example.
+
+## What is ignored
+
+Each of the following is dropped without a diagnostic. None of them authenticate anything.
+
+| Mechanism | Why it fails |
+| --- | --- |
+| Encrypted `<Password>` | Only `ClearTextPassword` is parsed. `dotnet nuget add source --password` writes this form by default on Windows. |
+| `ClearTextPassword` with no `Username` | Both halves are required, though Azure DevOps ignores the username. |
+| `NuGetPackageSourceCredentials_<name>` | The environment is never consulted for credentials. |
+| `%VAR%` in config values | Values are taken verbatim, so the placeholder is sent as the password. |
+| `https://user:pass@host/...` | Userinfo is never turned into a header, and `HttpClient` does not send it. |
+| Azure Artifacts Credential Provider | No NuGet plugin is invoked, and no `ARTIFACTS_CREDENTIALPROVIDER_*` or `VSS_NUGET_*` variable is read. |
+
+The last row is the significant one: the credential provider is the mechanism the NuGet
+documentation above recommends, and a correctly configured CI pipeline supplies credentials
+that way. Such a pipeline still reaches a private feed unauthenticated.
+
+Because an unauthenticated feed currently reports as *package not found* rather than as an
+authentication failure (issue #3417, bug 1), every row in this table is indistinguishable from
+a typo in the package name. That is what makes the silence expensive, and it is the argument
+for fixing the diagnosis before adding mechanisms.
+
+## Service index discovery
+
+Resolving a package from a non-nuget.org feed takes two requests: the V3 service index, to find
+the `PackageBaseAddress` endpoint, and then the flat-container version index. Azure DevOps
+authenticates both.
+
+`NuGetFetch.NuGetClient.GetPackageBaseAddressAsync` takes no credential and issues a bare
+`GetStreamAsync`, so its service index request is always anonymous. A caller that passes a
+credential to `GetVersionsAsync` and points it at a private feed therefore fails at discovery,
+before the credential is ever offered.
+
+The CLI does not hit this, because its package path does not go through `NuGetClient`:
+[`PackageExtractor`](../../src/DotnetInspector.Packages/PackageExtractor.cs) has its own
+service-index reader that passes `source.GetAuthHeader()` on the discovery request. The gap is
+confined to the `NuGetFetch` library.
+
+## Tests
+
+Two tiers, in `src/NuGetFetch.Tests`:
+
+- **Hermetic**, in-memory transport, runs in PR CI. `CredentialMechanismTests` pins every row of
+  the table above. `ServiceIndexAuthenticationTests` pins which of the two requests carries the
+  credential, and that a 401 stays distinguishable from a 404.
+- **Live**, `AzureDevOpsFeedTests`, tagged `[Trait("Network", "Live")]` and skipped unless a feed
+  and token are supplied. Only a real Azure DevOps feed exercises an authenticated service index.
+
+CI runs the offline tier only:
+
+```bash
+dotnet run --project src/NuGetFetch.Tests -c Release -- -trait- "Network=Live"
+```
+
+The live tier needs a private feed, which CI and fork PRs do not have. To run it locally, mint a
+token rather than storing one — the feed accepts an Entra access token exactly as it accepts a
+PAT:
+
+```bash
+export DOTNET_INSPECT_TEST_AZDO_FEED=https://pkgs.dev.azure.com/ORG/PROJECT/_packaging/FEED/nuget/v3/index.json
+export DOTNET_INSPECT_TEST_AZDO_TOKEN=$(az account get-access-token \
+  --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv)
+dotnet run --project src/NuGetFetch.Tests -c Release -- -trait "Network=Live"
+```
+
+The token is read from the environment and never written to a config file.
