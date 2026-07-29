@@ -110,9 +110,23 @@ public class EvilPoolPinTests
 
     /// <summary>
     /// A version the sweep will accept: SemVer's numeric major, no <c>..</c>, and no
-    /// character outside the NuGet version alphabet. Kept in step with
-    /// <c>IsBareVersion</c> in <c>eng/prepare-decompiler-package-sweep.cs</c>, which is
-    /// where the refusal lives; this is the file gate for the same rule.
+    /// character outside the NuGet version alphabet.
+    ///
+    /// <para>A deliberate copy of <c>IsBareVersion</c> in
+    /// <c>eng/prepare-decompiler-package-sweep.cs</c>. Nothing enforces that the two
+    /// agree, and no source-text pin should be added to make them: this repository
+    /// tried that in #3245 and found it both spoofable by a commented-out decoy and
+    /// prone to false-positives on a no-op edit. <c>eng/</c> has no test harness, and
+    /// the one product notion of a valid path component
+    /// (<c>NuGetCache.ValidatePathComponent</c>) is internal to
+    /// <c>DotnetInspector.Packages</c>, so neither side can call the other.</para>
+    ///
+    /// <para>The copy is safe because <em>both</em> drift directions are loud. The
+    /// sweep is the authority and CI runs it: if it grows stricter, it refuses a file
+    /// this test passed and the sweep lane fails. If it grows looser, this test refuses
+    /// a file the sweep would accept and this suite fails. Neither drift is silent,
+    /// which is the property that matters -- a gate looser than the rule it stands for,
+    /// silently, is what this test was before #3434 round nine.</para>
     /// </summary>
     static bool IsBareVersion(string? version) =>
         !string.IsNullOrWhiteSpace(version)
