@@ -311,7 +311,7 @@ if (refreshPin)
     var merged = new Dictionary<string, PackagePin>(pins, StringComparer.OrdinalIgnoreCase);
     foreach (var result in results)
     {
-        merged[result.RequestedPackage] = result.Status switch
+        PackagePin? recordedPin = result.Status switch
         {
             "selected" when result.ResolvedVersion is not null =>
                 new PackagePin(result.RequestedPackage, result.ResolvedVersion, result.Tfm),
@@ -321,17 +321,19 @@ if (refreshPin)
             // would read as "unpinned" forever and the pool could never be clean.
             "library-unavailable" => new PackagePin(
                 result.RequestedPackage, result.ResolvedVersion, result.Tfm, "no-library", result.Detail),
-            // Acquisition failures are not recorded: they say nothing reproducible about
-            // the package, only about the network at the time.
-            _ => merged.TryGetValue(result.RequestedPackage, out var existing)
-                ? existing
-                : null!,
-        } ?? merged[result.RequestedPackage];
-    }
+            // Acquisition failures say nothing reproducible about the package, only
+            // about the network at the time, so they record nothing: an existing pin
+            // keeps its version, and a package that had none stays unpinned. Leaving it
+            // unpinned is the safe direction -- the next sweep refuses it rather than
+            // measuring a version nobody chose. An earlier draft spelled this as
+            // "?? merged[key]", which threw KeyNotFoundException and exited 134 for
+            // exactly the package this arm exists to handle.
+            _ => null,
+        };
 
-    merged = merged
-        .Where(pair => pair.Value is not null)
-        .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+        if (recordedPin is not null)
+            merged[result.RequestedPackage] = recordedPin;
+    }
 
     var recorded = merged.Values
         .OrderBy(pin => pin.Package, StringComparer.Ordinal)
