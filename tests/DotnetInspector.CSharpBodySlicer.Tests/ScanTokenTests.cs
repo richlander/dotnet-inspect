@@ -377,27 +377,30 @@ public class ScanTokenTests
     }
 
     /// <summary>
-    /// Gates the rule that a raw literal has no escape sequences — a backslash in one is ordinary
-    /// content, and in particular cannot consume the quote that closes the literal.
+    /// Gates the rule that raw and verbatim literals have no escape sequences — a backslash in
+    /// one is ordinary content, and in particular cannot consume the quote that closes it.
     ///
     /// The backslash has to sit at the start of a scan step for the escape branch to be consulted
     /// at all: the plain-content run stops only at <c>{</c>, <c>}</c>, <c>"</c>, and (outside a
     /// raw or verbatim literal) a backslash, so a backslash following ordinary text is swallowed
     /// by the run before the branch is reached. Putting it directly after a brace is what makes
-    /// the rule observable. Without that placement the mutation that drops <c>!frame.Raw</c>
-    /// changes nothing, which is why the corpus and every other test miss it; with it, the
-    /// literal swallows its own closing delimiter and the entire rest of the line.
+    /// the rule observable — <c>@"a\"</c> is not affected by the mutation, only <c>@"{\"</c> is.
+    /// Without that placement, dropping either <c>!frame.Raw</c> or <c>!frame.Verbatim</c> changes
+    /// nothing, which is why the corpus and every other test miss both; with it, the literal
+    /// swallows its own closing delimiter and the entire rest of the line.
+    ///
+    /// The two guards live in one condition but are independent: each mode needs its own case.
     /// </summary>
-    [Fact]
-    public void RawLiteral_TreatsABackslashAsContent_NotAnEscape()
+    [Theory]
+    // Raw.
+    [InlineData(""""var s = """{\"""; int after = 1;"""", """"W:var W:s P:= S:"""{\""" P:; W:int W:after P:= W:1 P:;"""")]
+    // Raw interpolated, where the brace ending the run is a hole's closer.
+    [InlineData(""""var s = $"""{b}\""";"""", """"W:var W:s P:= S:$"""{ W:b S:}\""" P:;"""")]
+    // Verbatim.
+    [InlineData("""var s = @"{\"; int after = 1;""", """W:var W:s P:= S:@"{\" P:; W:int W:after P:= W:1 P:;""")]
+    public void LiteralsWithoutEscapes_TreatABackslashAsContent(string line, string expected)
     {
-        Assert.Equal(
-            """"W:var W:s P:= S:"""{\""" P:; W:int W:after P:= W:1 P:;"""",
-            Render(""""var s = """{\"""; int after = 1;""""));
-
-        Assert.Equal(
-            """"W:var W:s P:= S:$"""{ W:b S:}\""" P:;"""",
-            Render(""""var s = $"""{b}\""";""""));
+        Assert.Equal(expected, Render(line));
     }
 
     /// <summary>
@@ -425,7 +428,7 @@ public class ScanTokenTests
 
     /// <summary>
     /// Runs the coverage invariant over every string up to six characters long drawn from the
-    /// alphabet that actually drives the literal state machine — <c>$ " { } \</c>, a space, and
+    /// alphabet that actually drives the literal state machine — <c>$ @ " { } \</c>, a space, and
     /// one ordinary character. The authored corpus is large but it is well-formed C#; it contains
     /// almost none of the delimiter soup that distinguishes the raw, verbatim, and interpolated
     /// rules from one another. This covers that space exhaustively rather than by example.
@@ -438,11 +441,18 @@ public class ScanTokenTests
     /// strings mean, every non-whitespace character is inside exactly one token and no token runs
     /// off its line. That is weaker than pinning output, but it holds for inputs no one wrote down,
     /// and it is an oracle rather than a re-implementation.
+    ///
+    /// What it deliberately does not reach, so that no one mistakes it for a general gate:
+    /// it is single-line, so the line half of the coalescing rule and all carried state are out
+    /// of scope; six characters cannot open a <c>$$</c> raw interpolation hole, which needs
+    /// seven, nor produce the eight-character shape that makes the backslash rules observable;
+    /// and coverage cannot see a wrong token *kind* as long as the spans stay complete. Each of
+    /// those is gated by a named test above instead.
     /// </summary>
     [Fact]
     public void EveryStringOverTheDelimiterAlphabet_IsFullyCovered()
     {
-        char[] alphabet = ['$', '"', '{', '}', '\\', ' ', 'a'];
+        char[] alphabet = ['$', '@', '"', '{', '}', '\\', ' ', 'a'];
         var buffer = new char[6];
         int checkedCount = 0;
 
@@ -471,7 +481,7 @@ public class ScanTokenTests
             Walk(0, length);
 
         // Pins the size of the space so a later edit cannot quietly shrink it to nothing.
-        Assert.Equal(137_256, checkedCount);
+        Assert.Equal(299_592, checkedCount);
     }
 
     /// <summary>
