@@ -782,11 +782,18 @@ public partial class CommandExecutionTests
     /// Hex and name are the same selector, not merely two selectors that both work: identical
     /// output, and identical <c>--count</c>. Comparing whole documents is what would catch an
     /// alias that reached the right rows through a different section identity.
+    ///
+    /// The lowercase and uppercase prefixes are here because section matching is case-insensitive
+    /// everywhere else in this CLI, so the alias must be too — a case-sensitive prefix check would
+    /// make <c>metadata: 0x02</c> the one spelling that silently stopped working. Adversarial
+    /// review of #3510 found that gap by mutation.
     /// </summary>
     [Theory]
     [InlineData("Metadata: 0x02")]
     [InlineData("Metadata: 0x2")]
     [InlineData("Metadata: 0X02")]
+    [InlineData("metadata: 0x02")]
+    [InlineData("METADATA: 0x2")]
     public async Task MetadataLens_HexTableSpellings_AreTheNameSelector(string hex)
     {
         var (hexExit, hexOutput, _) = await RunAppAsync(
@@ -903,8 +910,10 @@ public partial class CommandExecutionTests
     [InlineData("Metadata: 0x02000002")]
     [InlineData("Metadata: 0x80000002")]
     [InlineData("Metadata: 0x0002")]
+    [InlineData("Metadata: 0x002")]
     [InlineData("Metadata: 0x")]
     [InlineData("Metadata: 0xzz")]
+    [InlineData("metadata: 0x99")]
     public async Task MetadataLens_UnprojectedHexTable_IsRejected(string selector)
     {
         var (exit, output, error) = await RunAppAsync(
