@@ -85,6 +85,21 @@ public static class MetadataTableProjector
         [.. SupportedTables.Select(static spec => spec.Index)];
 
     /// <summary>
+    /// The columns <paramref name="table"/> projects, in order, or an empty array when the table
+    /// is not projected. Reads the same <c>SupportedTables</c> declaration the projection itself
+    /// reads, so a consumer can describe a table's shape — for discovery, schema registration, or
+    /// column projection — without paying for a projection or restating the column list.
+    /// </summary>
+    public static ImmutableArray<MetadataColumn> ColumnsFor(TableIndex table)
+    {
+        foreach (var spec in SupportedTables)
+            if (spec.Index == table)
+                return spec.Columns;
+
+        return ImmutableArray<MetadataColumn>.Empty;
+    }
+
+    /// <summary>
     /// Projects the supported metadata tables of <paramref name="peReader"/>.
     /// Returns an empty projection when the image carries no metadata.
     /// </summary>

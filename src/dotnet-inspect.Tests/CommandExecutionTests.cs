@@ -28,7 +28,7 @@ namespace DotnetInspector.Tests;
 /// </summary>
 [Collection("Console")]
 [Trait("Speed", "Slow")]
-public class CommandExecutionTests
+public partial class CommandExecutionTests
 {
     private static readonly string TestAssemblyPath =
         typeof(CommandExecutionTests).Assembly.Location;
@@ -8231,14 +8231,16 @@ public class CommandExecutionTests
         Assert.Contains(names, name => name.StartsWith("Performance: ", StringComparison.Ordinal));
         Assert.Contains(names, name => name.StartsWith("Integration: ", StringComparison.Ordinal));
 
-        // The topical category doors lead the catalog: they are exactly the six doors, in
-        // alphabetical order, and every category row precedes every section row.
+        // The topical category doors lead the catalog: they are exactly the seven doors, in
+        // alphabetical order, and every category row precedes every section row. @Metadata and
+        // @Dependencies are among them because --schema surfaces the whole catalog, including the
+        // explicit-only lenses the curated top-level -D still leaves out.
         var categoryLines = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
             .Where(line => line.Contains("category", StringComparison.Ordinal))
             .ToArray();
         var categoryNames = categoryLines.Select(ExtractSectionName).ToArray();
         Assert.Equal(
-            new[] { "@Audit", "@Dependencies", "@Integrations", "@Performance", "@SourceLink", "@Surface" },
+            new[] { "@Audit", "@Dependencies", "@Integrations", "@Metadata", "@Performance", "@SourceLink", "@Surface" },
             categoryNames);
 
         var raw = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
