@@ -79,15 +79,15 @@ Use built-in limiters instead of shell pipes:
 
 ```bash
 dotnet-inspect library System.Private.CoreLib -S "Async*" --count
-dotnet-inspect library System.Private.CoreLib -S "Async*" --rows -n 10
+dotnet-inspect library System.Private.CoreLib -S "Async*" --rows 10
 dotnet-inspect package System.Text.Json -n 12
-dotnet-inspect package System.Text.Json --tail 8
+dotnet-inspect package System.Text.Json -n 8 --tail
 ```
 
 - `--count` counts table rows for exactly one selected section.
 - `-n N` and numeric shorthand like `-6` limit output lines.
-- `--tail N` keeps the last N lines.
-- `--rows -n N` changes the head count into per-table data rows while preserving headings and table headers.
+- `--tail` takes the count from the end instead of the start.
+- `--rows N` changes the count into per-table data rows while preserving headings and table headers; `--rows 2..10` names the rows instead of counting them.
 
 ## Opt-in sections
 

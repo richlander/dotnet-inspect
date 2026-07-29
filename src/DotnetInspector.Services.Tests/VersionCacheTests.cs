@@ -13,7 +13,7 @@ namespace DotnetInspector.Services.Tests;
 [Collection(CoreCacheCollection.Name)]
 public class VersionCacheTests : IDisposable
 {
-    private const string VersionCacheCategory = "versions";
+    private const string VersionCacheCategory = "versions-v2";
 
     /// <summary>
     /// An HttpClient that throws on any request — proves cache prevented network access.
