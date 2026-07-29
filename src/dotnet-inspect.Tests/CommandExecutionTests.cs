@@ -11342,6 +11342,9 @@ public class CommandExecutionTests
         {
             new[] { "package", "Newtonsoft.Json@13.0.3", "--readme" },
             ["Newtonsoft.Json@13.0.3", "--readme"],
+            // The removed option was boolean, so the parser also took --readme=true. Answering
+            // only the bare spelling would leave the assigned one on a bare parser complaint.
+            ["package", "Newtonsoft.Json@13.0.3", "--readme=true"],
             new[] { "package", "Newtonsoft.Json@13.0.3", "--readme", "--json" }
         })
         {
@@ -11405,6 +11408,59 @@ public class CommandExecutionTests
 
             Assert.Equal(0, nuspecExit);
             Assert.Contains("<readme>README</readme>", nuspecOutput, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_DeclaredReadme_KeepsItsRoleWhenTheConventionalNameAlsoExists()
+    {
+        // ResolvePackageReadme prefers README.md so the README section shows the document a reader
+        // expects, but the manifest still declares docs/GUIDE a readme. Which file the section
+        // displays is a presentation choice; the manifest declaration is what makes the document
+        // Markdown, so scoping and link rewriting have to follow the declaration.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        Directory.CreateDirectory(Path.Combine(packageRoot, "docs"));
+        File.WriteAllText(Path.Combine(packageRoot, "README.md"), "conventional readme\n");
+        File.WriteAllText(
+            Path.Combine(packageRoot, "docs", "GUIDE"),
+            "---\ntitle: Declared\n---\n\nSee https://github.com/owner/repo/blob/main/x.md for more.\n");
+        File.WriteAllText(Path.Combine(packageRoot, "Test.DeclaredReadme.nuspec"), """
+            <?xml version="1.0" encoding="utf-8"?>
+            <package>
+              <metadata>
+                <id>Test.DeclaredReadme</id>
+                <version>1.0.0</version>
+                <authors>tests</authors>
+                <description>test package</description>
+                <readme>docs/GUIDE</readme>
+              </metadata>
+            </package>
+            """);
+        var packagePath = Path.Combine(tempDir, "Test.DeclaredReadme.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+
+        try
+        {
+            var (scopeExit, scopeOutput, scopeError) = await RunAppAsync(
+                "package", packagePath, "--content", "--path", "docs/GUIDE", "--frontmatter", "--bare");
+
+            Assert.Equal(0, scopeExit);
+            Assert.Empty(scopeError);
+            Assert.Contains("title: Declared", scopeOutput, StringComparison.Ordinal);
+            Assert.DoesNotContain("See https://", scopeOutput, StringComparison.Ordinal);
+
+            // The role is carried by the declaration alone, so a sibling that the manifest does
+            // not name stays verbatim and keeps its blob link.
+            var (plainExit, plainOutput, _) = await RunAppAsync(
+                "package", packagePath, "--content", "--path", "docs/GUIDE", "--bare");
+
+            Assert.Equal(0, plainExit);
+            Assert.Contains("raw.githubusercontent.com", plainOutput, StringComparison.Ordinal);
         }
         finally
         {

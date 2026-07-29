@@ -96,8 +96,13 @@ public static class ArgumentPreprocessor
 
         for (var i = 1; i < end; i++)
         {
-            if (!args[i].Equals("--readme", StringComparison.Ordinal))
+            // --readme was a boolean option, so the parser also accepted --readme=true. Both
+            // spellings named the removed flag and both deserve the replacement.
+            if (!args[i].Equals("--readme", StringComparison.Ordinal)
+                && !args[i].StartsWith("--readme=", StringComparison.Ordinal))
+            {
                 continue;
+            }
 
             error = "'--readme' is no longer valid. Printing a document is a projection over a "
                 + "selected section: use '-S \"Package README file\" --print' for one package, "

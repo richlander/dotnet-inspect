@@ -182,7 +182,10 @@ YAML frontmatter scoping through `--frontmatter`/`--body`, and rewriting GitHub
 document's kind comes from its extension, except for the package README, whose
 kind comes from its role: the manifest declared it as the readme and NuGet
 renders it as Markdown, so an extensionless or unconventionally named README is
-still Markdown.
+still Markdown. That role follows the manifest declaration, not the file the
+README section displays. A package that ships `README.md` and also declares a
+different file has declared both readmes, and the declared one keeps its kind
+even though the section shows the conventional name.
 Applied to anything else they are corruption rather than presentation: the link
 rewriter matches bare URLs anywhere in the text, so a URL inside an XML element
 or an MSBuild comment is rewritten and the printed manifest silently stops

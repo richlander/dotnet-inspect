@@ -507,7 +507,7 @@ public class PackageCommand
                 var packageVersion = nuspec?.Version ?? version;
                 var packageReadme = PackageFileLister.ResolvePackageReadme(extractPath, nuspec?.ReadmeFile);
                 return PrintPackageFileContents(
-                    [ReadPackageFileContents(extractPath, packageId, packageVersion, packageReadme, options)],
+                    [ReadPackageFileContents(extractPath, packageId, packageVersion, packageReadme, nuspec?.ReadmeFile, options)],
                     options);
             }
 
@@ -1367,7 +1367,7 @@ public class PackageCommand
             var packageId = nuspec?.PackageName ?? target.PackageName;
             var packageVersion = nuspec?.Version ?? version;
             var packageReadme = PackageFileLister.ResolvePackageReadme(extractPath, nuspec?.ReadmeFile);
-            return ReadPackageFileContents(extractPath, packageId, packageVersion, packageReadme, options);
+            return ReadPackageFileContents(extractPath, packageId, packageVersion, packageReadme, nuspec?.ReadmeFile, options);
         }
         finally
         {
@@ -1606,6 +1606,7 @@ public class PackageCommand
         string packageName,
         string version,
         string? readmeFile,
+        string? declaredReadmeFile,
         InspectionOptions options)
     {
         var files = PackageFileLister.ListAll(extractPath, readmeFile);
@@ -1615,11 +1616,30 @@ public class PackageCommand
                 extractPath,
                 packageName,
                 version,
-                file,
+                WithDeclaredReadmeRole(file, declaredReadmeFile),
                 options.ContentScope,
                 normalizeGithubLinksToRaw: !options.BrowsableUrls))
             .ToList();
         return new PackageFileContentSet(packageName, version, contents);
+    }
+
+    /// <summary>
+    /// Restores the readme role to the document the manifest declares when
+    /// <see cref="PackageFileLister.ResolvePackageReadme"/> passed over it. That resolver answers
+    /// which single file the README section shows and prefers the conventional README.md, so a
+    /// package that ships one and declares another leaves the declared file unflagged. The manifest
+    /// still declared it a readme, and that declaration -- not which file the section displays --
+    /// is what makes it Markdown.
+    /// </summary>
+    private static PackageFile WithDeclaredReadmeRole(PackageFile file, string? declaredReadme)
+    {
+        if (file.IsReadme || string.IsNullOrWhiteSpace(declaredReadme))
+            return file;
+
+        var declared = declaredReadme.Replace('\\', '/').Trim().TrimStart('/');
+        return string.Equals(file.Path, declared, StringComparison.OrdinalIgnoreCase)
+            ? file with { IsReadme = true }
+            : file;
     }
 
     /// <summary>
