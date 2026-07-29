@@ -92,4 +92,39 @@ public class SpilledReceiverCoalesceInliningTests
         else
             Assert.IsType<LoadStackSlot>(storeField.Instance);
     }
+
+    // A non-pure spilled value whose single use sits in a conditionally-evaluated
+    // position (here a ternary true-arm) must NOT inline: the spilled store always
+    // ran, so folding the call into the arm would change it from unconditional to
+    // conditional execution. The preceding-evaluation-pure gate alone does not
+    // catch this (the condition is pure); LoadIsUnconditionallyEvaluated does
+    // (#3500 adversarial review, GPT).
+    [Fact]
+    public void NonPureSpill_InConditionalArm_IsNotInlined()
+    {
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Guarded");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var boolType = TypeRef.CoreLib("System", "Boolean");
+        var sideEffect = new MethodRef(holder, "SideEffect", intType, [], HasThis: false);
+
+        // S_0 = SideEffect(); return condition ? S_0 : 0;
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreStackSlot(0, new Call(sideEffect, isVirtual: false, [])));
+        block.Add(new Return(new Conditional(
+            new LoadArgument(0, "condition", boolType),
+            new LoadStackSlot(0, intType),
+            new Constant(0, intType))));
+        var signature = new MethodSignature(intType,
+            [new Parameter("condition", boolType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("Guard", holder, signature, [], container);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        var survivingStore = Assert.Single(function.Descendants.OfType<StoreStackSlot>());
+        Assert.IsType<Call>(survivingStore.Value);
+        var conditional = function.Descendants.OfType<Conditional>().Single();
+        Assert.IsType<LoadStackSlot>(conditional.WhenTrue);
+    }
 }

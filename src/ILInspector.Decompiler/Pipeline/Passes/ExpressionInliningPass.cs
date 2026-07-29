@@ -145,17 +145,21 @@ public sealed class ExpressionInliningPass : IIrPass
             // slots — the compiler's spill scratch. A user local carries source
             // meaning and later passes (foreach, deconstruction, merged-slot
             // naming) reshape constructs around it, so deferring one changes
-            // already-raised code and drops its source name. A slot whose stored
-            // value type differs from the type at which it is loaded carries a
-            // type reconciliation the materialized `T S_n = ...` declaration would
-            // spell (e.g. an object-merged ternary narrowed to an unresolved,
-            // possibly value-type, target); inlining would drop that witness, so
-            // require the two to agree — the analogue of the StoreLocal type
-            // witness guard above.
+            // already-raised code and drops its source name. The load must also be
+            // evaluated unconditionally within `next` — the spilled store always
+            // ran, so a non-pure value may only land where it still always runs,
+            // never inside a `?:`/`??`/`&&`/`||`/`?.`/switch arm (#3500). A slot
+            // whose stored value type differs from the type at which it is loaded
+            // carries a type reconciliation the materialized `T S_n = ...`
+            // declaration would spell (e.g. an object-merged ternary narrowed to
+            // an unresolved, possibly value-type, target); inlining would drop
+            // that witness, so require the two to agree — the analogue of the
+            // StoreLocal type witness guard above.
             bool precedingPure = isSlot && !firstLeaf && !pure
                 && store is StoreStackSlot { Value.ResultType: { } slotValueType }
                 && load is LoadStackSlot { ResultType: { } slotLoadType }
                 && slotValueType.Equals(slotLoadType)
+                && LoadIsUnconditionallyEvaluated(load, next)
                 && PrecedingEvaluationIsPure(load, next, locals, argumentAddresses, function);
             if (!firstLeaf && !pure && !precedingPure)
                 continue;  // inlining would move the computation past whatever evaluates before the load
@@ -598,6 +602,72 @@ public sealed class ExpressionInliningPass : IIrPass
         }
         return true;
     }
+
+    /// <summary>
+    /// True when <paramref name="load"/> is evaluated on every execution of
+    /// <paramref name="statement"/> — no ancestor between the statement root and
+    /// the load evaluates its path-child conditionally. Walks the path and
+    /// rejects at the first short-circuiting or branching parent
+    /// (<c>?:</c>, <c>??</c>, <c>&amp;&amp;</c>/<c>||</c>, <c>?.</c>, switch
+    /// expressions) whose evaluated child is not its always-evaluated leading
+    /// operand. The spilled store this pass folds was an unconditional statement,
+    /// so its value must land in an unconditional position; inlining it into a
+    /// guarded arm would change a non-pure value from always-run to
+    /// conditionally-run (#3500 adversarial review).
+    /// </summary>
+    static bool LoadIsUnconditionallyEvaluated(IrNode load, IrNode statement)
+    {
+        var node = statement;
+        while (!ReferenceEquals(node, load))
+        {
+            IrNode? onPath = null;
+            foreach (var child in node.Children)
+            {
+                if (ReferenceEquals(child, load) || ReferenceOwnership.IsInside(load, child))
+                {
+                    onPath = child;
+                    break;
+                }
+            }
+            if (onPath is null)
+                return false;
+            // Below the root statement the path must stay within operand
+            // expressions. A nested statement, block, container, catch/finally
+            // region, or switch arm is a control-flow boundary whose body may not
+            // run on every entry; rather than enumerate them, reject any
+            // non-expression parent below the root.
+            if (!ReferenceEquals(node, statement) && node is not IrExpression)
+                return false;
+            if (!ChildIsUnconditional(node, onPath))
+                return false;
+            node = onPath;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// True when <paramref name="parent"/> evaluates <paramref name="child"/> on
+    /// every evaluation of itself. Only the short-circuiting and branching
+    /// expression forms evaluate a child conditionally, and only past their
+    /// always-evaluated leading operand (the condition, the <c>??</c>/<c>&amp;&amp;</c>/<c>||</c>
+    /// left operand, or the switch scrutinee); every other expression evaluates
+    /// all of its operands, so the default is unconditional. A <c>?.</c> guards
+    /// its whole member subtree, so none of its children is unconditional.
+    /// (Non-expression control boundaries are rejected by the caller's
+    /// non-expression guard, so they need no case here.)
+    /// </summary>
+    static bool ChildIsUnconditional(IrNode parent, IrNode child) => parent switch
+    {
+        Conditional c => ReferenceEquals(child, c.Condition),
+        Coalesce c => ReferenceEquals(child, c.Left),
+        LogicalBinary l => ReferenceEquals(child, l.Left),
+        NullConditional => false,
+        SwitchExpression s => ReferenceEquals(child, s.Value),
+        PatternSwitchExpression s => ReferenceEquals(child, s.Value),
+        UnionSwitchExpression s => ReferenceEquals(child, s.Value),
+        TupleSwitchExpression s => s.Components.Any(component => ReferenceEquals(component, child)),
+        _ => true,
+    };
 
     /// <summary>Expressions whose evaluation cannot observe or produce effects, so reordering them is invisible.</summary>
     static bool IsPure(
