@@ -3871,6 +3871,89 @@ public class CommandExecutionTests
         }
     }
 
+    [Theory]
+    // Head, tail, an absolute range, an open range, and a window wider than the batch.
+    [InlineData(new[] { "--rows", "2" }, 2)]
+    [InlineData(new[] { "--rows", "2", "--tail" }, 2)]
+    [InlineData(new[] { "--rows", "2..3" }, 2)]
+    [InlineData(new[] { "--rows", "3.." }, 1)]
+    [InlineData(new[] { "--rows", "9" }, 3)]
+    public async Task IlOffsetsFile_Count_CountsTheWindowItRenders(string[] window, int expected)
+    {
+        // --rows narrows the rendered table, so it has to narrow --count identically.
+        // Counting the unwindowed batch exits 0 with a plausible number describing a
+        // payload the caller never asked for, which the projection audit cannot see.
+        var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(path,
+            """
+            first 0x06000001+0x1
+            second 0x06000001+0x6
+            third 0x06000002+0x0
+            """,
+            TestContext.Current.CancellationToken);
+        try
+        {
+            string[] head = ["library", TestAssemblyPath, "--il-offsets", path];
+            string[] tail = ["--tips", "q"];
+
+            var (renderExit, rendered, renderError) = await RunAppAsync([.. head, .. window, "--jsonl", .. tail]);
+            var (countExit, counted, countError) = await RunAppAsync([.. head, .. window, "--count", .. tail]);
+
+            Assert.Equal(0, renderExit);
+            Assert.Equal(0, countExit);
+            Assert.Empty(renderError);
+            Assert.Empty(countError);
+
+            // --jsonl emits exactly one object per rendered data row, so it states the
+            // payload size without depending on how the table is formatted.
+            var renderedRows = rendered
+                .Split('\n')
+                .Count(line => line.TrimStart().StartsWith('{'));
+
+            // Guard against the window emptying the table, which would let a broken
+            // count agree with a payload that proves nothing.
+            Assert.Equal(expected, renderedRows);
+            Assert.Equal(renderedRows, int.Parse(counted.Trim(), CultureInfo.InvariantCulture));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task IlOffsetsFile_Count_WindowsTheSameRowsTheTableKeeps()
+    {
+        // A count can match the rendered row total while describing different rows.
+        // Head and tail must therefore be shown to select genuinely different labels,
+        // otherwise a window applier that ignored direction would still look correct.
+        var path = Path.Combine(Path.GetTempPath(), $"coords-{Guid.NewGuid():N}.txt");
+        await File.WriteAllTextAsync(path,
+            """
+            first 0x06000001+0x1
+            second 0x06000002+0x0
+            """,
+            TestContext.Current.CancellationToken);
+        try
+        {
+            var (headExit, headOut, _) = await RunAppAsync(
+                "library", TestAssemblyPath, "--il-offsets", path, "--rows", "1", "--head", "--tips", "q");
+            var (tailExit, tailOut, _) = await RunAppAsync(
+                "library", TestAssemblyPath, "--il-offsets", path, "--rows", "1", "--tail", "--tips", "q");
+
+            Assert.Equal(0, headExit);
+            Assert.Equal(0, tailExit);
+            Assert.Contains("first", headOut, StringComparison.Ordinal);
+            Assert.DoesNotContain("second", headOut, StringComparison.Ordinal);
+            Assert.Contains("second", tailOut, StringComparison.Ordinal);
+            Assert.DoesNotContain("first", tailOut, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
     [Fact]
     public async Task IlOffsetsFile_Count_DoesNotRequireASectionFilter()
     {

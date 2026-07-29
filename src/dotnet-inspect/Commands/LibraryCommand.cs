@@ -538,9 +538,17 @@ public class LibraryCommand
 
         var batchExitCode = rows.Any(row => row.Meaning == "error") ? 1 : 0;
 
+        // --rows narrows what the table renders, so it has to narrow the count by
+        // the same window; counting the unwindowed batch answers a question the
+        // user did not ask, and the audit cannot see the difference. The exit code
+        // still reports every coordinate that failed to resolve, windowed out of
+        // view or not, because that is a resolution result rather than a display
+        // concern.
+        var visibleRows = RowWindow.Apply(options.Rows, rows);
+
         // A coordinate that failed to resolve is still a reported row, so it counts; the
         // non-zero exit remains the signal that some coordinate did not resolve.
-        if (LensProjection.TryProject(options, "--il-offsets", rows.Count, out var projectionExitCode))
+        if (LensProjection.TryProject(options, "--il-offsets", visibleRows.Count, out var projectionExitCode))
             return projectionExitCode != 0 ? projectionExitCode : batchExitCode;
 
         WriteILCoordinateBatchRows(rows, options);
