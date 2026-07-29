@@ -2085,7 +2085,22 @@ function maybeAutoLoadPackageMetadata() {
 // lazy-loads each table's row window on demand, renders cells with their typed values, and
 // turns handle/range cells into ref->def jumps that transport you to the target table+row.
 
+// A conservative fallback page size; the real one adapts to the focus panel's visible height
+// (see estimateExplorerPageSize / syncExplorerPageSize) so a tall panel isn't half-empty.
 const EXPLORER_PAGE = 50;
+const EXPLORER_ROW_H = 18; // approximate grid row height (px) for the pre-render estimate
+
+// Current adaptive page size for the open explorer, falling back to the constant.
+function explorerPageSize() {
+  return state.explorer?.pageSize || EXPLORER_PAGE;
+}
+
+// Pre-render estimate from the viewport (chrome above the grid ~ 180px), so the very first window
+// load already roughly fills the panel; syncExplorerPageSize refines it from real measurements.
+function estimateExplorerPageSize() {
+  const grid = Math.max(120, (window.innerHeight || 800) - 180);
+  return Math.max(30, Math.min(400, Math.floor(grid / EXPLORER_ROW_H) + 2));
+}
 
 // Opens the explorer over one assembly, focused on a table (and optionally a row). The table
 // directory comes from the already-loaded overview so the canvas can render immediately; each
@@ -2143,6 +2158,7 @@ function buildBaseExplorer(assemblyFileName) {
     history: [],
     historyPos: -1,
     overview: false,
+    pageSize: estimateExplorerPageSize(),
   };
 }
 
@@ -2167,28 +2183,29 @@ function explorerTableName(index) {
   return hit ? hit.name : `#${index}`;
 }
 
-async function loadExplorerWindow(index, startRowId = 1) {
+async function loadExplorerWindow(index, startRowId = 1, maxRows = explorerPageSize()) {
   const ex = state.explorer;
   if (!ex) return;
   const existing = ex.windows[index];
-  if (existing && (existing.loading || (existing.data && existing.data.startRowId === startRowId))) return;
-  ex.windows[index] = { loading: true, error: "", data: existing?.data || null, startRowId };
+  if (existing && (existing.loading
+      || (existing.data && existing.data.startRowId === startRowId && existing.maxRows === maxRows))) return;
+  ex.windows[index] = { loading: true, error: "", data: existing?.data || null, startRowId, maxRows };
   render();
   try {
     const request = {
       assemblyFileName: ex.assemblyFileName,
       tableIndex: index,
       startRowId,
-      maxRows: EXPLORER_PAGE,
+      maxRows,
     };
     const result = ex.isPlatform
       ? await inspectPlatformMetadataTable({ ...request, targetFramework: ex.framework, pack: ex.pack })
       : await inspectPackageMetadataTable({ ...request, packageId: ex.packageId, version: ex.version, framework: ex.framework });
     if (state.explorer !== ex) return;
-    ex.windows[index] = { loading: false, error: result.error || "", data: result, startRowId };
+    ex.windows[index] = { loading: false, error: result.error || "", data: result, startRowId, maxRows };
   } catch (error) {
     if (state.explorer !== ex) return;
-    ex.windows[index] = { loading: false, error: String(error?.message || error), data: null, startRowId };
+    ex.windows[index] = { loading: false, error: String(error?.message || error), data: null, startRowId, maxRows };
   } finally {
     if (state.explorer === ex) {
       render();
@@ -2302,7 +2319,7 @@ function applyExplorerFocus() {
     ex.focusIndex = entry.index;
     ex.highlight = entry.rowId ? { index: entry.index, rowId: entry.rowId } : null;
     ex.detail = entry.rowId ? { index: entry.index, rowId: entry.rowId } : null;
-    const start = entry.rowId ? Math.max(1, Math.floor((entry.rowId - 1) / EXPLORER_PAGE) * EXPLORER_PAGE + 1) : 1;
+    const start = entry.rowId ? Math.max(1, Math.floor((entry.rowId - 1) / explorerPageSize()) * explorerPageSize() + 1) : 1;
     const win = ex.windows[entry.index];
     const onScreen = win?.data && (!entry.rowId
       || (entry.rowId >= win.data.startRowId && entry.rowId < win.data.startRowId + (win.data.rows?.length || 0)));
@@ -2339,9 +2356,30 @@ function explorerScrollToFocus() {
   });
 }
 
+// Size the row window to the focus panel's actual visible height so a tall panel fills instead of
+// showing 50 rows over a half-empty grid. Measures the rendered row height + scroll viewport,
+// then grows the focused window (once) if it can show more rows. No-ops when the size is already
+// right, so it converges without thrashing.
+function syncExplorerPageSize() {
+  const ex = state.explorer;
+  if (!ex || ex.overview || ex.focusHeap) return;
+  const scroll = document.querySelector(".mde-focus .mde-grid-scroll");
+  const row = document.querySelector(".mde-focus .mde-row");
+  if (!scroll || !row) return;
+  const rowH = row.getBoundingClientRect().height || EXPLORER_ROW_H;
+  const viewH = scroll.clientHeight || 0;
+  if (rowH < 6 || viewH < 40) return;
+  const fit = Math.max(20, Math.min(500, Math.floor(viewH / rowH) + 2));
+  if (fit === ex.pageSize) return;
+  ex.pageSize = fit;
+  const win = ex.windows[ex.focusIndex];
+  if (win?.data && win.data.rows.length < fit && win.data.rows.length < win.data.rowCount) {
+    loadExplorerWindow(ex.focusIndex, win.data.startRowId, fit);
+  }
+}
+
 // Attribute-selector-safe heap name (heap names are simple identifiers, but be defensive).
-function cssEscape(value) {
-  return String(value).replace(/["\\]/g, "\\$&");
+function cssEscape(value) {  return String(value).replace(/["\\]/g, "\\$&");
 }
 
 function renderMetadataExplorer() {
@@ -2535,7 +2573,7 @@ function renderExplorerCard(t) {
         return `<div class="mde-pager">
           <span>rows ${from.toLocaleString()}–${to.toLocaleString()} of ${win2.rowCount.toLocaleString()}</span>
           <span class="mde-pager-btns">
-            <button type="button" data-mde-page="${t.index}:${Math.max(1, from - EXPLORER_PAGE)}" ${hasPrev ? "" : "disabled"}>‹ prev</button>
+            <button type="button" data-mde-page="${t.index}:${Math.max(1, from - win2.rows.length)}" ${hasPrev ? "" : "disabled"}>‹ prev</button>
             <button type="button" data-mde-page="${t.index}:${to + 1}" ${hasNext ? "" : "disabled"}>next ›</button>
           </span>
         </div>`;
@@ -2701,7 +2739,27 @@ function bindMetadataExplorerEvents() {
     } else if (!state.explorer.focusHeap && !state.explorer.windows[state.explorer.focusIndex]) {
       loadExplorerWindow(state.explorer.focusIndex);
     }
+    // Once the focus panel is laid out, size the row window to its actual height.
+    if (!state.explorer.overview && !state.explorer.focusHeap) {
+      requestAnimationFrame(syncExplorerPageSize);
+    }
+    ensureExplorerResizeListener();
   }
+}
+
+// Re-fit the focus window when the viewport changes (registered once, lives for the app).
+let explorerResizeBound = false;
+function ensureExplorerResizeListener() {
+  if (explorerResizeBound) return;
+  explorerResizeBound = true;
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      const ex = state.explorer;
+      if (ex && ex.open && !ex.overview && !ex.focusHeap) syncExplorerPageSize();
+    }, 150);
+  });
 }
 
 
