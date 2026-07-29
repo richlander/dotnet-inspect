@@ -615,6 +615,32 @@ public class NuGetSearchSourcesTests
         Assert.Null(only.GetAuthHeader());
     }
 
+    /// <summary>
+    /// The nuget.org shortcut answers from the well-known search endpoint without reading a
+    /// service index. It must therefore key on the canonical service index URL and not merely on a
+    /// nuget.org host: another path on that host is a different endpoint the user named
+    /// deliberately, and answering it from the well-known endpoint would report results the
+    /// requested URL never served — the same "searched the wrong feed" failure this change exists
+    /// to remove.
+    /// </summary>
+    [Fact]
+    public async Task SearchAsync_NuGetOrgHostButNotServiceIndex_DoesNotUseWellKnownEndpoint()
+    {
+        const string odd = "https://api.nuget.org/definitely-not-a-service-index";
+
+        var handler = new RouteHandler();
+        using var client = new HttpClient(handler);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => NuGetSearchService.SearchAsync(
+            client, "Newtonsoft.Json", sourceOptions: new NuGetSourceOptions { Sources = [odd] }));
+
+        // The named endpoint was consulted; nuget.org's well-known search endpoint was not.
+        Assert.Contains(handler.Requested, url => url.StartsWith(odd, StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            handler.Requested,
+            url => url.Contains("api.nuget.org/v3/query", StringComparison.Ordinal));
+    }
+
     /// <summary>Writes a nuget.config naming the given sources, and deletes it on dispose.</summary>
     private sealed class TempNuGetConfig : IDisposable
     {

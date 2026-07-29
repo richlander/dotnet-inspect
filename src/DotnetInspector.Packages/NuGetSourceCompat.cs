@@ -234,7 +234,12 @@ public static class NuGetSearchService
         // request. That shortcut is keyed on where resolution actually landed, not on whether a
         // source option was passed: a discovered NuGet.config can name an entirely different feed,
         // and gating on the flags alone sent those users to nuget.org anyway (issue #3417, bug 2).
-        if (sources is [{ Credential: null } only] && only.IsNuGetOrg)
+        //
+        // The match is against the canonical service index, not merely a nuget.org host. Any other
+        // path on that host is a different endpoint the user named deliberately, and answering it
+        // from the well-known search endpoint would report results the requested URL never served.
+        if (sources is [{ Credential: null } only]
+            && NuGetCredentialScope.IsSameEndpoint(only.Url, NuGetSource.NuGetOrg.Url))
         {
             log?.Invoke($"Searching NuGet: {query}");
             SearchService service = new(client);
