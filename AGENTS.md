@@ -438,9 +438,10 @@ worse.
   slice is only defensible once the next one lands, it is not a slice — fold it
   into the next.
 - **Name the stack in every PR.** State the slice's position, its parent PR, and
-  what remains. Say what it deliberately defers, so a reviewer reports a
-  declared residual as scope rather than as a defect. Each slice's residual is
-  the next slice's opening move; keep it enumerated.
+  what remains. A stack's deferrals *are* the compatibility or non-action
+  boundary the PR-summary rule already requires, so declare them: a reviewer
+  should read a declared residual as scope rather than as a defect. Each slice's
+  residual is the next slice's opening move; keep it enumerated.
 - **One branch and one worktree per slice**, as for any PR. Branch slice N+1
   from slice N's branch rather than `origin/main`:
   `git worktree add -b <branch> <path> <parent-branch>`.
@@ -455,6 +456,11 @@ worse.
 - **Review depth is per-slice, by that slice's own risk**, not the stack's total
   size. A long stack does not make a trivial slice risky, and a small slice in a
   risky area still earns the two-model tier.
+- **A slice's head moves for reasons other than findings** — a parent merged
+  down into it, or a retarget after the parent lands. The fixed-head rule
+  applies to those the same way: a reviewed slice whose head has moved is not
+  ready until a review is clean at the *new* head. Sequence the stack so this is
+  rare, by landing a reviewed slice before disturbing the ones above it.
 - **Stop stacking when a slice would exist only to continue the stack.** CI cost
   is per PR; three coherent slices beat ten mechanical ones.
 
