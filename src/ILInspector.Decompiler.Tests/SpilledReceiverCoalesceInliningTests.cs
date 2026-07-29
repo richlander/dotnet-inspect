@@ -254,4 +254,44 @@ public class SpilledReceiverCoalesceInliningTests
         var with = function.Descendants.OfType<WithExpression>().Single();
         Assert.IsType<LoadStackSlot>(with.Entries[0].Arguments[0]);
     }
+
+    // `$"{formatter}{S_0}"` constructs a handler and appends each part in turn, so
+    // the second hole is preceded by AppendFormatted(formatter) — which for an
+    // IFormattable/custom-handler value runs arbitrary user code. The formatter
+    // load is pure, so PrecedingEvaluationIsPure alone would accept folding the
+    // non-pure spill into the second hole, moving SideEffect() past that append.
+    // ChildFollowsHiddenOperation rejects every formatted-value child of an
+    // InterpolatedStringExpression, so the store survives (#3500 adversarial
+    // review, GPT).
+    [Fact]
+    public void NonPureSpill_InInterpolatedStringHole_IsNotInlined()
+    {
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");
+        var strType = TypeRef.CoreLib("System", "String");
+        var objType = TypeRef.CoreLib("System", "Object");
+        var sideEffect = new MethodRef(holder, "SideEffect", objType, [], HasThis: false);
+
+        // S_0 = SideEffect(); return $"{formatter}{S_0}";
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreStackSlot(0, new Call(sideEffect, isVirtual: false, [])));
+        InterpolatedStringPart[] parts =
+        [
+            InterpolatedStringPart.FormattedValue(0),
+            InterpolatedStringPart.FormattedValue(1),
+        ];
+        block.Add(new Return(new InterpolatedStringExpression(parts,
+            [new LoadArgument(0, "formatter", objType), new LoadStackSlot(0, objType)])));
+        var signature = new MethodSignature(strType,
+            [new Parameter("formatter", objType)], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", holder, signature, [], container);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        var survivingStore = Assert.Single(function.Descendants.OfType<StoreStackSlot>());
+        Assert.IsType<Call>(survivingStore.Value);
+        var interp = function.Descendants.OfType<InterpolatedStringExpression>().Single();
+        Assert.IsType<LoadStackSlot>(interp.FormattedValues[1]);
+    }
 }

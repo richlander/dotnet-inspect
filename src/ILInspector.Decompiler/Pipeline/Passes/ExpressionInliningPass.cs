@@ -628,6 +628,18 @@ public sealed class ExpressionInliningPass : IIrPass
     /// <c>new T(args) { M = v }</c> runs the constructor before the initializers
     /// (the creation is itself non-pure, so the left-sibling-pure check already
     /// blocks this, but reject explicitly so the guard does not depend on that).
+    /// A <c>$"...{a}...{b}..."</c> interpolated string constructs a handler and
+    /// appends each literal and formatted value in turn, so every hole is
+    /// preceded by the appends of the parts before it — appending an earlier
+    /// <see cref="IFormattable"/> or custom-handler value can run arbitrary user
+    /// code — and no formatted value is preceding-operation-free. (Only the
+    /// preceding-<em>hole</em> appends are observable user code; the handler
+    /// construction and literal appends before the first hole are runtime
+    /// plumbing with no IR-modeled evaluation, so the unguarded firstLeaf path,
+    /// which fires only when the load is the first evaluated leaf and therefore
+    /// has nothing evaluated before it, stays sound. Rejecting the first hole
+    /// here too is a harmless over-approximation for the rare shape where an
+    /// interpolated string is itself a non-first operand.)
     /// Every other expression's own operation runs strictly after all of its
     /// operands, so the default is <c>false</c> (#3500 adversarial review, GPT).
     /// </summary>
@@ -635,6 +647,7 @@ public sealed class ExpressionInliningPass : IIrPass
     {
         WithExpression w => !ReferenceEquals(child, w.Receiver),
         ObjectInitializerExpression o => !ReferenceEquals(child, o.Creation),
+        InterpolatedStringExpression => true,
         _ => false,
     };
 
