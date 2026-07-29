@@ -1,4 +1,6 @@
 using System.Text.RegularExpressions;
+using System.Xml;
+using System.Xml.Linq;
 
 namespace DotnetInspector.Tests;
 
@@ -128,25 +130,101 @@ public class CommandErrorOwnershipTests
     ///
     /// The optional <c>global</c> prefix matters: one <c>global using static</c>
     /// anywhere in a project would apply the import to every file in it.
+    ///
+    /// The alias name may be a verbatim identifier. <c>using @C = System.Console;</c>
+    /// is legal and binds exactly as <c>using C = ...</c> does, and the first
+    /// spelling of the alias branch required the name to start with a letter or
+    /// underscore, so the <c>@</c> walked past it.
+    ///
+    /// It is deliberately not anchored to the start of a line. Requiring one
+    /// was the first spelling, and <c>/* x */ using static System.Console;</c>
+    /// walked straight past it -- the directive is legal there, so anchoring
+    /// re-created in miniature the enumerate-the-spellings mistake this rule
+    /// exists to avoid. A preceding-character guard keeps it from matching
+    /// inside a longer identifier, and genuinely commented-out directives are
+    /// excluded by <see cref="BlankComments"/> before matching rather than by
+    /// the pattern.
     /// </remarks>
     private static readonly Regex ConsoleImport =
         new(
-            @"(?:^|\n)\s*(?:global\s+)?using\s+(?:static\s+|[A-Za-z_]\w*\s*=\s*)(?:global\s*::\s*)?(?:System\s*\.\s*)?Console\s*;",
+            @"(?<![\w.])(?:global\s+)?using\s+(?:static\s+|@?[A-Za-z_]\w*\s*=\s*)(?:global\s*::\s*)?(?:System\s*\.\s*)?Console\s*;",
             RegexOptions.Compiled);
 
     /// <summary>
     /// The MSBuild spelling of the same import, which no <c>.cs</c> scan sees.
     /// </summary>
-    private static readonly Regex MsBuildConsoleImport =
+    /// <remarks>
+    /// The <c>Include</c> is matched loosely on purpose. A literal
+    /// <c>"System.Console"</c> was the first spelling, and MSBuild evaluates
+    /// properties in that attribute, so
+    /// <c>&lt;Using Include="$(SomeProperty)" Static="true" /&gt;</c> imports
+    /// whatever the property holds while naming nothing. This test is not an
+    /// MSBuild evaluator and should not become one, so an <c>Include</c> that
+    /// contains <c>$(</c> is reported rather than resolved: an import this
+    /// class cannot read is an import it cannot vouch for, and refusing is the
+    /// only answer that does not depend on guessing right.
+    /// </remarks>
+    private static readonly Regex MsBuildStaticUsing =
         new(
-            @"<Using\s[^>]*Include\s*=\s*""(?:System\.)?Console""[^>]*/?>",
+            @"<Using\s[^>]*?Static\s*=\s*""[Tt]rue""[^>]*?/?>|<Using\s[^>]*?Include\s*=\s*""[^""]*""[^>]*?/?>",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    private static readonly Regex ProjectReference =
-        new(@"<ProjectReference\s+Include=""([^""]+)""", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex MsBuildUsingInclude =
+        new(@"Include\s*=\s*""([^""]*)""", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex MsBuildUsingStatic =
+        new(@"Static\s*=\s*""[Tt]rue""", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private static readonly Regex ComposedPrefixWrite =
         new(@"\.\s*(WriteLine|Write)\s*\(\s*\$@?""\{[^}""]+\}\s*:\s", RegexOptions.Compiled);
+
+    /// <summary>
+    /// The <c>Include</c> of every <c>ProjectReference</c> in a project file.
+    /// </summary>
+    /// <remarks>
+    /// Read with an XML parser rather than a regex. The regex this replaces was
+    /// <c>&lt;ProjectReference\s+Include="..."</c>, which requires
+    /// <c>Include</c> to be the first attribute; a reviewer wrote
+    /// <c>&lt;ProjectReference Condition="'1' == '1'" Include="..." /&gt;</c>
+    /// and the referenced project -- still compiled into the CLI -- vanished
+    /// from a closure this class calls exact, taking a raw stderr write with
+    /// it. Attribute order, element case, and whitespace are XML's problem, and
+    /// XML is what this is reading.
+    ///
+    /// <c>Condition</c> is deliberately ignored rather than evaluated. A
+    /// conditional reference is still a reference under some configuration, and
+    /// the safe reading of a condition this class cannot evaluate is to include
+    /// the project, not to drop it.
+    /// </remarks>
+    private static IEnumerable<string> ProjectReferences(string projectPath)
+    {
+        XDocument document;
+        try
+        {
+            document = XDocument.Load(projectPath);
+        }
+        catch (XmlException)
+        {
+            yield break;
+        }
+
+        foreach (var element in document.Descendants())
+        {
+            if (!string.Equals(element.Name.LocalName, "ProjectReference", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            string? include = element.Attributes()
+                .FirstOrDefault(a => string.Equals(a.Name.LocalName, "Include", StringComparison.OrdinalIgnoreCase))
+                ?.Value;
+
+            if (!string.IsNullOrWhiteSpace(include))
+            {
+                yield return include;
+            }
+        }
+    }
 
     /// <summary>
     /// Every project reachable from <paramref name="projectPath"/> through
@@ -167,10 +245,10 @@ public class CommandErrorOwnershipTests
             }
 
             string? directory = Path.GetDirectoryName(current);
-            foreach (Match match in ProjectReference.Matches(File.ReadAllText(current)))
+            foreach (string relative in ProjectReferences(current))
             {
-                string relative = match.Groups[1].Value.Replace('\\', Path.DirectorySeparatorChar);
-                queue.Enqueue(Path.GetFullPath(Path.Combine(directory!, relative)));
+                queue.Enqueue(Path.GetFullPath(
+                    Path.Combine(directory!, relative.Replace('\\', Path.DirectorySeparatorChar))));
             }
         }
 
@@ -197,19 +275,143 @@ public class CommandErrorOwnershipTests
             .SelectMany(d => Directory.EnumerateFiles(d, "*.cs", SearchOption.AllDirectories));
 
     /// <summary>
-    /// True when the match at <paramref name="index"/> sits inside a comment.
+    /// <paramref name="text"/> with every comment blanked to spaces, so that a
+    /// match in the result is code.
     /// </summary>
     /// <remarks>
-    /// These rules are about code, and both of them describe their own subject
-    /// in prose directly above it, so a scan that cannot tell the two apart
-    /// reports its own documentation.
+    /// These rules are about code, and each of them describes its own subject in
+    /// prose directly above it, so a scan that cannot tell the two apart reports
+    /// its own documentation. The first answer to that was a predicate asking
+    /// whether <c>//</c> appeared earlier on the match's line -- and a reviewer
+    /// wrote <c>_ = "https://"; Console.Error.WriteLine(untrusted);</c>, which
+    /// the predicate read as a comment and skipped. The gate named as this
+    /// issue's central guarantee passed over a raw multiline write.
+    ///
+    /// The defect was not the predicate's rule but its form. Deciding whether an
+    /// offset is inside a comment requires knowing where the literals are, and a
+    /// line-local substring search cannot know that. So this scans the file once
+    /// instead of guessing per match: literals are skipped as literals, comments
+    /// are blanked, and every rule then matches against a text in which a comment
+    /// cannot appear. That is the same move as owning the stream rather than
+    /// policing prefixes -- remove the ambiguous case instead of classifying it.
+    ///
+    /// Length and line structure are preserved so reported line numbers stay
+    /// those of the original file.
+    ///
+    /// Literal <i>contents</i> are deliberately left intact. Blanking them would
+    /// suppress a real write inside an interpolation hole, and the failure this
+    /// direction produces is a false report on a source file that quotes
+    /// <c>Console.Error</c> in a string -- loud, and fixed by rewording. The
+    /// other direction is silence.
     /// </remarks>
-    private static bool IsInComment(string text, int index)
+    private static string BlankComments(string text)
     {
-        int lineStart = text.LastIndexOf('\n', Math.Max(index - 1, 0)) + 1;
-        string before = text[lineStart..index];
-        return before.Contains("//", StringComparison.Ordinal)
-            || before.TrimStart().StartsWith('*');
+        char[] result = text.ToCharArray();
+        int i = 0;
+
+        while (i < text.Length)
+        {
+            char c = text[i];
+
+            if (c == '/' && i + 1 < text.Length && (text[i + 1] == '/' || text[i + 1] == '*'))
+            {
+                bool line = text[i + 1] == '/';
+                int end = line
+                    ? text.IndexOf('\n', i) is var n and >= 0 ? n : text.Length
+                    : text.IndexOf("*/", i + 2, StringComparison.Ordinal) is var b and >= 0 ? b + 2 : text.Length;
+
+                for (int j = i; j < end; j++)
+                {
+                    if (result[j] != '\n' && result[j] != '\r')
+                    {
+                        result[j] = ' ';
+                    }
+                }
+
+                i = end;
+                continue;
+            }
+
+            if (c == '"' || c == '\'')
+            {
+                i = SkipLiteral(text, i);
+                continue;
+            }
+
+            i++;
+        }
+
+        return new string(result);
+    }
+
+    /// <summary>
+    /// The index just past the literal starting at <paramref name="start"/>.
+    /// </summary>
+    private static int SkipLiteral(string text, int start)
+    {
+        char quote = text[start];
+
+        // Raw string literal: three or more quotes, closed by the same run.
+        if (quote == '"' && start + 2 < text.Length && text[start + 1] == '"' && text[start + 2] == '"')
+        {
+            int open = 0;
+            while (start + open < text.Length && text[start + open] == '"')
+            {
+                open++;
+            }
+
+            string fence = new('"', open);
+            int close = text.IndexOf(fence, start + open, StringComparison.Ordinal);
+            return close < 0 ? text.Length : close + open;
+        }
+
+        bool verbatim = start > 0 && (text[start - 1] == '@'
+            || (start > 1 && text[start - 1] == '$' && text[start - 2] == '@')
+            || (start > 1 && text[start - 1] == '@' && text[start - 2] == '$'));
+
+        int i = start + 1;
+        while (i < text.Length)
+        {
+            char c = text[i];
+
+            if (verbatim)
+            {
+                if (c == quote)
+                {
+                    if (i + 1 < text.Length && text[i + 1] == quote)
+                    {
+                        i += 2;
+                        continue;
+                    }
+
+                    return i + 1;
+                }
+            }
+            else
+            {
+                if (c == '\\')
+                {
+                    i += 2;
+                    continue;
+                }
+
+                // An unterminated non-verbatim literal cannot span a line; stop
+                // rather than swallowing the rest of the file.
+                if (c == '\n')
+                {
+                    return i;
+                }
+
+                if (c == quote)
+                {
+                    return i + 1;
+                }
+            }
+
+            i++;
+        }
+
+        return text.Length;
     }
 
     /// <summary>
@@ -272,14 +474,9 @@ public class CommandErrorOwnershipTests
                 continue;
             }
 
-            string text = File.ReadAllText(path);
+            string text = BlankComments(File.ReadAllText(path));
             foreach (Match match in StderrWrite.Matches(text).Concat(ConsoleImport.Matches(text)))
             {
-                if (IsInComment(text, match.Index))
-                {
-                    continue;
-                }
-
                 int line = text.Take(match.Index).Count(c => c == '\n') + 1;
                 offenders.Add($"{Path.GetRelativePath(root, path)}:{line}: {match.Value.Trim()}");
             }
@@ -290,10 +487,26 @@ public class CommandErrorOwnershipTests
         foreach (string project in ProjectClosure(Path.Combine(root, "src", "dotnet-inspect", "dotnet-inspect.csproj")))
         {
             string text = File.ReadAllText(project);
-            foreach (Match match in MsBuildConsoleImport.Matches(text))
+            foreach (Match match in MsBuildStaticUsing.Matches(text))
             {
+                string element = match.Value;
+                string include = MsBuildUsingInclude.Match(element).Groups[1].Value;
+                bool isStatic = MsBuildUsingStatic.IsMatch(element);
+
+                bool namesConsole = string.Equals(include, "Console", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(include, "System.Console", StringComparison.OrdinalIgnoreCase);
+                bool unresolvable = isStatic && include.Contains("$(", StringComparison.Ordinal);
+
+                if (!namesConsole && !unresolvable)
+                {
+                    continue;
+                }
+
                 int line = text.Take(match.Index).Count(c => c == '\n') + 1;
-                offenders.Add($"{Path.GetRelativePath(root, project)}:{line}: {match.Value.Trim()}");
+                string why = unresolvable
+                    ? " (Include is a property this rule cannot evaluate; spell the type literally)"
+                    : string.Empty;
+                offenders.Add($"{Path.GetRelativePath(root, project)}:{line}: {element.Trim()}{why}");
             }
         }
 
@@ -329,14 +542,9 @@ public class CommandErrorOwnershipTests
 
         foreach (string path in CliSourceFiles(root))
         {
-            string text = File.ReadAllText(path);
+            string text = BlankComments(File.ReadAllText(path));
             foreach (Match match in StderrSink.Matches(text))
             {
-                if (IsInComment(text, match.Index))
-                {
-                    continue;
-                }
-
                 string relative = Path.GetRelativePath(root, path).Replace('\\', '/');
                 sinks[relative] = sinks.TryGetValue(relative, out int count) ? count + 1 : 1;
             }
@@ -399,16 +607,42 @@ public class CommandErrorOwnershipTests
         Assert.Matches(ConsoleImport, "global using static System.Console;\n");
         Assert.Matches(ConsoleImport, "using C = System.Console;\n");
         Assert.Matches(ConsoleImport, "using C = global::System.Console;\n");
+
+        // A directive is legal after anything on its line, so anchoring the
+        // pattern to the line start left a one-comment bypass.
+        Assert.Matches(ConsoleImport, "/* bypass */ using static System.Console;\n");
+        Assert.Matches(ConsoleImport, "\t  using   static   System . Console ;\n");
+
+        // The guard is against matching inside a longer token, not against
+        // position on the line.
+        Assert.DoesNotMatch(ConsoleImport, "Notusing static System.Console;\n");
         Assert.DoesNotMatch(ConsoleImport, "using System;\n");
         Assert.DoesNotMatch(ConsoleImport, "using static System.Math;\n");
         Assert.DoesNotMatch(ConsoleImport, "using DotnetInspector.Output.ConsoleTheme;\n");
-        Assert.Matches(MsBuildConsoleImport, "<Using Include=\"System.Console\" Static=\"true\" />");
-        Assert.DoesNotMatch(MsBuildConsoleImport, "<Using Include=\"System.Linq\" />");
+        Assert.Matches(MsBuildStaticUsing, "<Using Include=\"System.Console\" Static=\"true\" />");
+        Assert.Matches(MsBuildStaticUsing, "<Using Static=\"true\" Include=\"$(Reviewer)\" />");
 
         // The comment filter must exempt prose without exempting code that
         // merely follows a comment on an earlier line.
-        Assert.True(IsInComment("// see Console.Error for why\n", 10));
-        Assert.False(IsInComment("// prose\nvar sink = Console.Error;\n", 20));
+        // A comment is blanked; the code on the next line survives.
+        Assert.DoesNotMatch(StderrSink, BlankComments("// see Console.Error for why\n"));
+        Assert.Matches(StderrSink, BlankComments("// prose\nvar sink = Console.Error;\n"));
+
+        // The reported bypass: `//` inside a string literal is not a comment.
+        Assert.Matches(StderrWrite, BlankComments("_ = \"https://\"; Console.Error.WriteLine(x);"));
+
+        // ...including the verbatim and raw spellings of the same literal.
+        Assert.Matches(StderrWrite, BlankComments("_ = @\"c://p\"; Console.Error.WriteLine(x);"));
+        Assert.Matches(StderrWrite, BlankComments("_ = \"\"\"a//b\"\"\"; Console.Error.WriteLine(x);"));
+
+        // A quote inside a comment must not open a literal and swallow the code.
+        Assert.Matches(StderrWrite, BlankComments("// it's fine\nConsole.Error.WriteLine(x);"));
+
+        // An escaped quote does not end a literal early.
+        Assert.Matches(StderrWrite, BlankComments("_ = \"a\\\"//b\"; Console.Error.WriteLine(x);"));
+
+        // Verbatim identifiers alias the type just as plain ones do.
+        Assert.Matches(ConsoleImport, "using @C = System.Console;");
 
         // The owner still writes, so the rule is about who, not about whether.
         string owner = Path.Combine(RepositoryRoot(), "src", "dotnet-inspect", "Output", "CommandError.cs");
