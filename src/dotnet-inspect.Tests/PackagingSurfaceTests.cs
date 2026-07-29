@@ -70,17 +70,64 @@ public sealed class PackagingSurfaceTests
         Assert.Equal("false", element.Value.Trim(), ignoreCase: true);
     }
 
+    /// <summary>
+    /// The gate for the nested-checkout prune in <see cref="EnumerateRepositoryProjects"/>
+    /// (#3422). Without it, <see cref="OnlyTheShippingToolsOptIntoPackaging"/> fails for any
+    /// contributor whose linked worktree lives under the repository root — a failure that
+    /// reads as a regression in whatever change is under test, and that CI never sees because
+    /// it clones fresh. Hermetic rather than repository-shaped so it holds whether or not the
+    /// machine running it happens to have a worktree present.
+    /// </summary>
+    [Fact]
+    public void ProjectScanSkipsNestedCheckoutsAndBuildOutput()
+    {
+        string temp = Path.Combine(Path.GetTempPath(), $"packaging-scan-{Guid.NewGuid():N}");
+        try
+        {
+            string Project(params string[] segments)
+            {
+                string directory = Path.Combine([temp, .. segments]);
+                Directory.CreateDirectory(directory);
+                string path = Path.Combine(directory, "sample.csproj");
+                File.WriteAllText(path, "<Project />");
+                return path;
+            }
+
+            string own = Project("src", "tool");
+            string obj = Project("src", "tool", "obj");
+            string linkedWorktree = Project(".worktrees", "feature", "src", "tool");
+            string nestedClone = Project("vendor", "other", "src", "tool");
+            string unmarkedNested = Project("scratch", "copy");
+
+            // A linked worktree marks itself with a .git file; a clone with a .git directory.
+            File.WriteAllText(Path.Combine(temp, ".worktrees", "feature", ".git"), "gitdir: ../../.git/worktrees/feature");
+            Directory.CreateDirectory(Path.Combine(temp, "vendor", "other", ".git"));
+
+            var found = EnumerateRepositoryProjects(temp).ToArray();
+
+            Assert.Contains(own, found);
+            Assert.DoesNotContain(obj, found);
+            Assert.DoesNotContain(linkedWorktree, found);
+            Assert.DoesNotContain(nestedClone, found);
+            // Negative case: an ordinary nested directory is not a checkout and stays censused,
+            // so the prune keys on the marker rather than on depth or on a name.
+            Assert.Contains(unmarkedNested, found);
+        }
+        finally
+        {
+            if (Directory.Exists(temp))
+                Directory.Delete(temp, recursive: true);
+        }
+    }
+
     static (string[] Packable, int Scanned) ScanProjects()
     {
         string root = FindRepositoryRoot();
         List<string> packable = [];
         int scanned = 0;
 
-        foreach (string path in Directory.EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories))
+        foreach (string path in EnumerateRepositoryProjects(root))
         {
-            if (IsExcluded(root, path))
-                continue;
-
             scanned++;
             bool optsIn = XDocument.Load(path)
                 .Descendants()
@@ -95,10 +142,50 @@ public sealed class PackagingSurfaceTests
         return (packable.ToArray(), scanned);
     }
 
-    static bool IsExcluded(string root, string path) =>
-        Path.GetRelativePath(root, path)
-            .Split(Path.DirectorySeparatorChar)
-            .Any(static segment => segment is "bin" or "obj" or ".git" or "artifacts" or "node_modules");
+    /// <summary>
+    /// Every <c>*.csproj</c> belonging to <em>this</em> checkout. Build output and a
+    /// nested checkout are both excluded, for the same reason: neither is a project this
+    /// repository declares. The nested-checkout prune is what makes the census survive the
+    /// worktree workflow <c>AGENTS.md</c> prescribes (#3422) — a linked worktree placed
+    /// under the root carries its own copy of <c>src/dotnet-inspect/dotnet-inspect.csproj</c>,
+    /// which is legitimately packable and would be censused as a second shipping project.
+    /// Pruning on the <c>.git</c> marker rather than on a directory name covers a worktree
+    /// or clone under any name, not only the repository's <c>.worktrees/</c> convention.
+    /// It removes duplicates of projects the real tree already contributes, so it takes
+    /// nothing away from the census.
+    /// </summary>
+    static IEnumerable<string> EnumerateRepositoryProjects(string root)
+    {
+        var pending = new Stack<string>();
+        pending.Push(root);
+
+        while (pending.Count > 0)
+        {
+            string directory = pending.Pop();
+
+            foreach (string path in Directory.EnumerateFiles(directory, "*.csproj"))
+                yield return path;
+
+            foreach (string child in Directory.EnumerateDirectories(directory))
+            {
+                if (IsExcludedDirectory(child))
+                    continue;
+                pending.Push(child);
+            }
+        }
+    }
+
+    static bool IsExcludedDirectory(string directory)
+    {
+        string name = Path.GetFileName(directory);
+        if (name is "bin" or "obj" or ".git" or "artifacts" or "node_modules")
+            return true;
+
+        // A linked worktree marks itself with a .git *file*; a nested clone or submodule
+        // with a .git directory. Either way the tree below belongs to another checkout.
+        string marker = Path.Combine(directory, ".git");
+        return File.Exists(marker) || Directory.Exists(marker);
+    }
 
     static string FindRepositoryRoot()
     {
