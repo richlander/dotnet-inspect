@@ -364,6 +364,69 @@ public class AssemblyDependencyResolverTests
         }
     }
 
+    /// <summary>
+    /// Artifact canary for the nuspec dependency-coordinate sink. A dependency id and version are
+    /// read from a nuspec, which is a feed artifact rather than something this process authored,
+    /// and both become path components. This plants a readable payload exactly where a traversing
+    /// id lands: on unguarded code the resolver escapes the package root, recurses into that
+    /// directory, and returns its assemblies as the package's references.
+    /// </summary>
+    [Theory]
+    [InlineData("../escape")]
+    [InlineData("..\\escape")]
+    [InlineData("CON")]
+    public void PackageDependencyReferencePaths_WithTraversingDependencyId_DoesNotEscapePackageRoot(string hostileId)
+    {
+        string sandbox = Directory.CreateTempSubdirectory("dotnet-inspect-deps-traversal-").FullName;
+        try
+        {
+            string root = Path.Combine(sandbox, "packages");
+            Directory.CreateDirectory(root);
+
+            string packageDir = Path.Combine(root, "root.package", "1.0.0");
+            string targetDir = Path.Combine(packageDir, "lib", "net8.0");
+            Directory.CreateDirectory(targetDir);
+            string targetPath = Path.Combine(targetDir, "Root.dll");
+            File.WriteAllText(targetPath, "");
+            File.WriteAllText(
+                Path.Combine(packageDir, "root.package.nuspec"),
+                $"""
+                <?xml version="1.0" encoding="utf-8"?>
+                <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+                  <metadata>
+                    <id>Root.Package</id>
+                    <version>1.0.0</version>
+                    <dependencies>
+                      <group targetFramework="net8.0">
+                        <dependency id="{System.Security.SecurityElement.Escape(hostileId)}" version="1.0.0" />
+                        <dependency id="Legit.Package" version="1.0.0" />
+                      </group>
+                    </dependencies>
+                  </metadata>
+                </package>
+                """);
+
+            // The payload sits one level above the package root, where "../escape" lands, and
+            // also at the literal name inside it, so a refusal cannot be mistaken for absence.
+            string payload = CreatePackageAsset(sandbox, "escape", "1.0.0", "lib", "net8.0", "Payload.dll");
+            string literal = CreatePackageAsset(root, hostileId.Replace("..", "dots"), "1.0.0", "lib", "net8.0", "Payload.dll");
+
+            // Positive control: the guard must refuse traversal specifically, not stop resolving.
+            string legit = CreatePackageAsset(root, "Legit.Package", "1.0.0", "lib", "net8.0", "Legit.dll");
+
+            var references = AssemblyDependencyResolver.PackageDependencyReferencePaths(targetPath, [root]);
+
+            Assert.Contains(legit, references);
+            Assert.DoesNotContain(payload, references);
+            Assert.DoesNotContain(literal, references);
+            Assert.All(references, path => Assert.StartsWith(root + Path.DirectorySeparatorChar, path, StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(sandbox, recursive: true);
+        }
+    }
+
     static string CreatePackageAsset(string root, string id, string version, string assetKind, string tfm, string fileName)
     {
         string assetDir = Path.Combine(root, id.ToLowerInvariant(), version.ToLowerInvariant(), assetKind, tfm);

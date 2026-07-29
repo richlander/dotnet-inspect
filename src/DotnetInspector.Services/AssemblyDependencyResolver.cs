@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
+using ILInspector.MetadataPrimitives;
 using NuGet.Versioning;
 
 namespace DotnetInspector.Services;
@@ -328,6 +329,15 @@ public sealed class AssemblyDependencyResolver : IAssemblyReferenceResolver
             string? id = dependency.Attribute("id")?.Value;
             string? version = DependencyExactVersion(dependency.Attribute("version")?.Value);
             if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(version))
+                continue;
+
+            // The id and version are read from a nuspec, which is a feed artifact rather than
+            // something this process authored, and both become path components below. An id of
+            // "../escape" resolves outside the package root, and the resolver then recurses into
+            // that directory and records it as the package's location, so the escape propagates
+            // into what later gets read as an assembly. Skipping an unsafe coordinate matches the
+            // loop's existing behavior for a dependency that does not resolve.
+            if (!HardenedPath.IsSafePathComponent(id) || !HardenedPath.IsSafePathComponent(version))
                 continue;
 
             foreach (var root in NuGetPackageRoots(packageRoots))
