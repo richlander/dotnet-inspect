@@ -940,7 +940,24 @@ public class ScanTokenTests
 
         void Check(string[] content)
         {
+            // Build the wrapped input before either scan, so it holds a snapshot of the lines
+            // taken up front, and compare the two back once both scans have run. The invariant
+            // is only differential if both sides consumed the same content, and nothing else
+            // says so: substituting the content between the two scans -- exchanging a verbatim
+            // interpolated opener for a raw one of the same length, so kind, column, length and
+            // the expected shift all still match -- leaves every assertion passing while the two
+            // sides exercise different frame states, and measured, a depth defect on the frame
+            // only one side now carries survives (adversarial review, GPT).
+            //
+            // A single substitution anywhere is caught: before this line, both scans see it and
+            // the recorded sequences fail their derivation pins; after it, `wrapped` still holds
+            // the original element references, so the comparison below fails.
+            string[] wrapped = ["{", "[", .. content];
+
             var bare = BodySlicer.ScanTokens(content);
+            var enclosed = BodySlicer.ScanTokens(wrapped).Where(t => t.Line >= 2).ToList();
+
+            Assert.Equal(wrapped[2..], content);
 
             // Record after the scan, not before. The derivation pins below are only worth
             // anything if they observe what the invariant actually ran on: recording first
@@ -964,10 +981,6 @@ public class ScanTokenTests
                 deepest = Math.Max(deepest, token.Depth);
                 shallowest = Math.Min(shallowest, token.Depth);
             }
-
-
-            string[] wrapped = ["{", "[", .. content];
-            var enclosed = BodySlicer.ScanTokens(wrapped).Where(t => t.Line >= 2).ToList();
 
             Assert.Equal(bare.Count, enclosed.Count);
 
