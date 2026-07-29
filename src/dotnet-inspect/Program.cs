@@ -259,7 +259,7 @@ static bool TryParseCannotParseArgument(string message, out string value, out st
 if (traceMermaid != null)
 {
     CommandError.WriteBlankLine();
-    traceMermaid.WriteTo(Console.Error);
+    traceMermaid.WriteTo(Console.Error, CSharpIdentifier.ContainRenderedText);
 }
 
 var cacheMaintenance = CoreCache.CancelAndWaitForMaintenance(TimeSpan.FromMilliseconds(100));

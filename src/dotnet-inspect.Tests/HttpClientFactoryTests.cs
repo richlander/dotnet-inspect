@@ -236,7 +236,7 @@ public class HttpClientFactoryTests : IDisposable
                 NetworkClientKinds.Shared);
         }
 
-        var mermaid = diagram.ToMermaid();
+        var mermaid = diagram.ToMermaid(ILInspector.CSharp.CSharpIdentifier.ContainRenderedText);
 
         Assert.Contains("flowchart TD", mermaid);
         Assert.Contains("n0[\"dotnet-inspect\"]", mermaid);
@@ -291,7 +291,7 @@ public class HttpClientFactoryTests : IDisposable
         _ = DotnetInspector.Core.CoreCache.TryGet("symbol-misses", key, extension: "forbidden");
         _ = DotnetInspector.Core.CoreCache.TryGet("symbol-misses", key, extension: "miss");
 
-        var mermaid = diagram.ToMermaid();
+        var mermaid = diagram.ToMermaid(ILInspector.CSharp.CSharpIdentifier.ContainRenderedText);
 
         Assert.Contains("cache store<br/>symbol-misses/forbidden", mermaid);
         Assert.Contains("cache miss<br/>symbol-misses/miss", mermaid);
@@ -312,7 +312,7 @@ public class HttpClientFactoryTests : IDisposable
         CacheTelemetry.Record(category, key, CacheAccessResult.Store);
         CacheTelemetry.Record(category, key, CacheAccessResult.Hit);
 
-        var mermaid = diagram.ToMermaid();
+        var mermaid = diagram.ToMermaid(ILInspector.CSharp.CSharpIdentifier.ContainRenderedText);
         var label = $"{category} {key}";
 
         Assert.Equal(1, CountOccurrences(mermaid, $"cache hit<br/>{label}"));

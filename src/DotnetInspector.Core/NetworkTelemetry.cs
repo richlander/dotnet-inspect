@@ -588,14 +588,35 @@ public sealed class RequestMermaidDiagram :
         _breadcrumbSubscription.Dispose();
     }
 
-    public void WriteTo(TextWriter writer)
+    public void WriteTo(TextWriter writer, Func<string, string> containLabel)
     {
         ArgumentNullException.ThrowIfNull(writer);
-        writer.Write(ToMermaid());
+        ArgumentNullException.ThrowIfNull(containLabel);
+        writer.Write(ToMermaid(containLabel));
     }
 
-    public string ToMermaid()
+    /// <summary>
+    /// Renders the diagram, containing every node label with
+    /// <paramref name="containLabel"/>.
+    /// </summary>
+    /// <remarks>
+    /// A label carries the request URL and the cache key, both built from the
+    /// package reference the user asked for, so it is untrusted text on a
+    /// stream whose other lines are structure. Escaping only the two Mermaid
+    /// metacharacters left that text able to end its line: <c>package
+    /// "Hostile\nError: FORGED"</c> printed <c>Error: FORGED"]</c> unindented
+    /// on stderr, which reads as a real diagnostic.
+    ///
+    /// Containment is a required parameter rather than a default because this
+    /// assembly deliberately does not reference the containment library --
+    /// runfaster depends on it and should not grow a metadata dependency -- and
+    /// a defaulted seam is one a caller can forget. There is no spelling of
+    /// this call that renders a raw label.
+    /// </remarks>
+    public string ToMermaid(Func<string, string> containLabel)
     {
+        ArgumentNullException.ThrowIfNull(containLabel);
+
         List<string> nodes;
         lock (_gate)
         {
@@ -616,7 +637,7 @@ public sealed class RequestMermaidDiagram :
         for (var i = 0; i < nodes.Count; i++)
         {
             var node = $"n{i + 1}";
-            builder.AppendLine($"  {node}[\"{EscapeMermaidLabel(nodes[i])}\"]");
+            builder.AppendLine($"  {node}[\"{EscapeMermaidLabel(containLabel(nodes[i]))}\"]");
             builder.AppendLine($"  {previous} --> {node}");
             previous = node;
         }

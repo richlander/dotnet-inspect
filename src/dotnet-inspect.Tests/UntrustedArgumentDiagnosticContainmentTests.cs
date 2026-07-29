@@ -72,6 +72,14 @@ public class UntrustedArgumentDiagnosticContainmentTests
             // untrusted text on every line. It went to stderr raw: a hundred
             // and sixteen call sites, none of them a "writer" by name.
             data.Add("verbose-progress", ["depends", hostile, "--platform", "System.Runtime", "--verbose"]);
+
+            // A diagram written to stderr as a TextWriter sink rather than
+            // through the writer. Its node labels carry the request URL and the
+            // cache key, both built from the package reference, and it escaped
+            // only the two Mermaid metacharacters -- so a line terminator in a
+            // package name ended the label's line and forged a diagnostic under
+            // it.
+            data.Add("trace-mermaid", ["package", hostile, "--trace-mermaid"]);
         }
 
         return data;
