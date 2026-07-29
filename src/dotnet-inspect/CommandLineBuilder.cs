@@ -27,6 +27,20 @@ public static class CommandLineBuilder
     public static int? TailLines => ArgumentPreprocessor.TailLines;
 
     /// <summary>
+    /// Delegates to <see cref="ArgumentPreprocessor.TryGetStaleDirectionFlagError"/>.
+    /// </summary>
+    public static bool TryGetStaleDirectionFlagError(string[] args, out string? error)
+        => ArgumentPreprocessor.TryGetStaleDirectionFlagError(args, out error);
+
+    /// <summary>
+    /// Delegates to <see cref="ArgumentPreprocessor.TryGetStaleArgumentError"/>. This is the
+    /// pre-parse choke point the entry point calls, so a removed spelling is answered with its
+    /// replacement rather than with a bare "Unrecognized option".
+    /// </summary>
+    public static bool TryGetStaleArgumentError(string[] args, out string? error)
+        => ArgumentPreprocessor.TryGetStaleArgumentError(args, out error);
+
+    /// <summary>
     /// Known commands for implicit package command detection.
     /// Delegates to <see cref="ArgumentPreprocessor.KnownCommands"/> for backward compatibility.
     /// </summary>

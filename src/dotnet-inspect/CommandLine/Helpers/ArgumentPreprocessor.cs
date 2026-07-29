@@ -15,9 +15,88 @@ public static class ArgumentPreprocessor
     public static int? HeadLines { get; private set; }
 
     /// <summary>
-    /// When --tail N is used, stores the tail line count.
+    /// When --tail is used, stores the line count taken from -n/-NN.
     /// </summary>
     public static int? TailLines { get; private set; }
+
+    /// <summary>
+    /// Reports the pre-#3364 spelling <c>--head N</c>/<c>--tail N</c>, where the count
+    /// rode on the direction flag. Those flags now name only a direction, so the count
+    /// would bind as a positional instead: <c>--tail 20</c> would go looking for a
+    /// package named "20" and report that it does not exist. Reporting the stale
+    /// spelling directly keeps an old command line from failing at an unrelated task,
+    /// or worse, succeeding at one.
+    ///
+    /// This is a raw-token question -- by the time the parser has bound the count to a
+    /// positional there is nothing left to recognize -- so it runs before parsing
+    /// rather than as a validator. It lives here, not in the entry point, so that every
+    /// host that preprocesses args gets the same answer.
+    ///
+    /// The scan stops at the <c>--</c> end-of-options separator. After it, <c>--tail</c>
+    /// is a literal positional and not a direction flag at all, so the stale spelling
+    /// cannot be what the user meant and reporting it would be a false positive.
+    /// </summary>
+    public static bool TryGetStaleDirectionFlagError(string[] args, out string? error)
+    {
+        error = null;
+        var end = Array.IndexOf(args, "--");
+        if (end < 0)
+            end = args.Length;
+
+        for (var i = 0; i < end - 1; i++)
+        {
+            if (args[i] is not ("--head" or "--tail") || !int.TryParse(args[i + 1], out _))
+                continue;
+
+            var flag = args[i];
+            var count = args[i + 1];
+            var rowMode = args.Take(end).Any(static a => a == "--rows" || a.StartsWith("--rows=", StringComparison.Ordinal));
+            var replacement = rowMode ? $"--rows {count} {flag}" : $"-n {count} {flag}";
+            error = $"'{flag} {count}' is no longer valid. {flag} now names only the direction; "
+                + $"the count comes from -n (output lines) or --rows (data rows). Use '{replacement}'.";
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Answers raw-token questions that must be resolved before parsing: spellings the product
+    /// used to accept and no longer does. The parser can only say "Unrecognized option", which
+    /// is true but leaves the caller to find the replacement themselves.
+    /// </summary>
+    public static bool TryGetStaleArgumentError(string[] args, out string? error)
+        => TryGetStaleDirectionFlagError(args, out error);
+
+    /// <summary>
+    /// The replacement guidance for a package option this product removed, or <c>null</c> when the
+    /// token names something the command never had.
+    ///
+    /// Unlike the stale direction flag -- which parses cleanly and so has to be caught before
+    /// parsing -- a removed option is something the parser itself rejects, so this answers the
+    /// command's own unrecognized-option outcome rather than scanning raw tokens. That is what
+    /// keeps a run that parses from being second-guessed: in <c>--out --readme</c> the token is an
+    /// output file name and never reaches here, and a bare name that routes to a library or
+    /// platform assembly gets that command's answer rather than package-specific advice.
+    /// </summary>
+    public static string? GetRemovedPackageOptionError(string option)
+    {
+        // --readme was a boolean option, so the parser also accepted --readme=true. Both spellings
+        // named the removed flag and both deserve the replacement.
+        if (!option.Equals("--readme", StringComparison.Ordinal)
+            && !option.StartsWith("--readme=", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        // package --readme was removed: printing a document is a projection over a selected
+        // section rather than a lens of its own, so a flag naming one document competed with the
+        // section selection for the same question. Scoped to the package command because
+        // project --readme <package-id> is a different option that still exists.
+        return "'--readme' is no longer valid. Printing a document is a projection over a "
+            + "selected section: use '-S \"Package README file\" --print' for one package, "
+            + "or '--content --path @readme' to survey several.";
+    }
 
     /// <summary>
     /// Known/reserved commands for implicit package command detection.
@@ -68,12 +147,12 @@ public static class ArgumentPreprocessor
             }
         }
 
-        // Set HeadLines for explicit -n N or --head N (so -n 6 behaves like -6)
+        // Set HeadLines for explicit -n N (so -n 6 behaves like -6)
         if (HeadLines == null)
         {
             for (int i = 0; i < args.Length - 1; i++)
             {
-                if ((args[i] == "-n" || args[i] == "--head") && int.TryParse(args[i + 1], out var n))
+                if (args[i] == "-n" && int.TryParse(args[i + 1], out var n))
                 {
                     HeadLines = n;
                     break;
@@ -81,14 +160,12 @@ public static class ArgumentPreprocessor
             }
         }
 
-        // Set TailLines for --tail N
-        for (int i = 0; i < args.Length - 1; i++)
+        // --tail names the direction; the count comes from -n/-NN. Move the count
+        // across so the tail writer gets it and the head writer does not.
+        if (args.Any(static a => a == "--tail"))
         {
-            if (args[i] == "--tail" && int.TryParse(args[i + 1], out var tailN))
-            {
-                TailLines = tailN;
-                break;
-            }
+            TailLines = HeadLines;
+            HeadLines = null;
         }
 
         // Find the first positional argument, skipping any leading options
@@ -153,7 +230,7 @@ public static class ArgumentPreprocessor
         "--il-offset", "--il-offsets", "--extract-resources", "--version", "--versions",
         "--out", "--take", "--row", "--where", "--order-by",
         "--min-confidence", "--triage-shape", "--top", "--session",
-        "--package-prefix", "--depth", "-n", "--head", "--tail", "--source",
+        "--package-prefix", "--depth", "-n", "--rows", "--source",
         "--add-source", "--nugetconfig", "--columns", "--fields", "-v", "-T",
         "--tips", "-S", "-s", "--select", "--section", "-D", "--discover"
     };

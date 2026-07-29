@@ -129,7 +129,8 @@ public static class ApiCommandDefinitions
                         jsonl: typeFormat == OutputFormat.Jsonl,
                         markdown: typeFormat == OutputFormat.Markdown,
                         verbosity: (int)opts.ParseVerbosity(parseResult),
-                        sectionCategories: typePipeline.GetCategoryMap());
+                        sectionCategories: typePipeline.GetCategoryMap(),
+                        projection: ProjectionAudit.Requested(parseResult));
 
                 case TypeOptionsParser.ShowHelp:
                     Console.Error.WriteLine("Error: Type name, pattern, or source required.");
@@ -273,7 +274,8 @@ public static class ApiCommandDefinitions
                         jsonl: memberFormat == OutputFormat.Jsonl,
                         markdown: memberFormat == OutputFormat.Markdown,
                         verbosity: (int)opts.ParseVerbosity(parseResult),
-                        sectionCategories: memberPipeline.GetCategoryMap());
+                        sectionCategories: memberPipeline.GetCategoryMap(),
+                        projection: ProjectionAudit.Requested(parseResult));
 
                 case MemberOptionsParser.ShowHelp:
                     Console.Error.WriteLine("Error: Type name or source required.");

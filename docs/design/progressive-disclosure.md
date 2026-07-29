@@ -43,7 +43,7 @@ Section selection does two things:
 
 For package, library, and selected-overload member output, focused selected sections keep a compact context row with key fields such as version, source, TFM, and size/type. That prevents section queries from becoming lossy while keeping descriptions out of focused output.
 
-Bare `-S` is command/context-specific shorthand for `-S @Default`: package uses `Package Info` and `Library Files`; library uses `Library Info`; type and broad member list views use compact member summaries such as `Method Groups`; member-name views use `Methods` overload rows; selected member overloads use `Signature` and `Decompiled Source`. See [Bare `-S` default view](info-view.md) for the bullseye question each preset is meant to answer.
+Bare `-S` is command/context-specific: package and library both use their curated fixed overview (see below); library leads with `Library Info`; type and broad member list views use compact member summaries such as `Method Groups`; member-name views use `Methods` overload rows; selected member overloads use `Signature` and `Decompiled Source`. See [Bare `-S` default view](info-view.md) for the bullseye question each preset is meant to answer.
 
 For selected overloads, the default high-value section is `Signature`. Normal verbosity adds bounded local implementation sections: `Decompiled Source` (raised C# without IL comments) and `IL` (raw IL). `Source Locations` is an explicit SourceLink file/line URL table that does not fetch source bodies. `Annotated Source` is the mixed C#+IL view with hidden-fact comments, and `Original Source` is SourceLink-backed source text for one method; both render via explicit `-S` (or `-S @Source`, which also includes `IL`). The structured dual of `Annotated Source`, `Facts` (a hidden-fact table), is opt-in via `-S "Facts"` / `--tsv`.
 
@@ -79,15 +79,15 @@ Use built-in limiters instead of shell pipes:
 
 ```bash
 dotnet-inspect library System.Private.CoreLib -S "Async*" --count
-dotnet-inspect library System.Private.CoreLib -S "Async*" --rows -n 10
+dotnet-inspect library System.Private.CoreLib -S "Async*" --rows 10
 dotnet-inspect package System.Text.Json -n 12
-dotnet-inspect package System.Text.Json --tail 8
+dotnet-inspect package System.Text.Json -n 8 --tail
 ```
 
 - `--count` counts table rows for exactly one selected section.
 - `-n N` and numeric shorthand like `-6` limit output lines.
-- `--tail N` keeps the last N lines.
-- `--rows -n N` changes the head count into per-table data rows while preserving headings and table headers.
+- `--tail` takes the count from the end instead of the start.
+- `--rows N` changes the count into per-table data rows while preserving headings and table headers; `--rows 2..10` names the rows instead of counting them.
 
 ## Opt-in sections
 
@@ -110,7 +110,7 @@ These sections do not run from normal verbosity or broad default output. Select 
 
 Prefer:
 
-1. Start with a targeted section such as `Signals`, `Package Info`, `Library Files`, or `Async*`.
+1. Start with a targeted section such as `Signals`, `Package Info`, `Package files`, or `Async*`.
 2. Use `-D` to discover more sections.
 3. Use `-S @All` only when the task truly requires exhaustive output.
 

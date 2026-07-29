@@ -48,7 +48,9 @@ public class PrinterPrecedenceTests
     public void StoreElement_CompoundArrayReceiver_RecompilesExactly()
     {
         var result = Assert.Single(
-            FidelityCheck.Evaluate(typeof(CfgSampleClass).Assembly.Location),
+            FidelityCheck.Evaluate(
+                typeof(CfgSampleClass).Assembly.Location,
+                type => type == typeof(CfgSampleClass).FullName),
             r => r.Type == typeof(CfgSampleClass).FullName
                 && r.Method == nameof(CfgSampleClass.ConditionalArrayElementStore));
 

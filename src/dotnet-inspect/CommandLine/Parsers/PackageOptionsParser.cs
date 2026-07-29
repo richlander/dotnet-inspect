@@ -27,7 +27,7 @@ public static class PackageOptionsParser
         Option<bool> AllLibrariesOption,
         Option<int?> VersionsOption,
         Option<bool> PrereleaseOption,
-        Option<bool> ReadmeOption,
+        Option<bool> IncludeUnlistedOption,
         Option<bool> ContentOption,
         Option<bool> FrontmatterOption,
         Option<bool> BodyOption,
@@ -135,7 +135,7 @@ public static class PackageOptionsParser
             ScopeTools = parseResult.GetValue(args.ToolsOption),
             ListVersions = showVersions,
             IncludePrerelease = parseResult.GetValue(args.PrereleaseOption),
-            ShowReadme = parseResult.GetValue(args.ReadmeOption),
+            IncludeUnlisted = parseResult.GetValue(args.IncludeUnlistedOption),
             Print = parseResult.GetValue(opts.Print),
             PrintRow = opts.ParsePrintRow(parseResult),
             Value = parseResult.GetValue(opts.Value),
@@ -172,13 +172,16 @@ public static class PackageOptionsParser
             SourceOptions = opts.ParseNuGetSourceOptions(parseResult)
         };
 
+        // Captured before the sugar below rewrites Select, so it reflects what the caller typed.
+        options = options with { SelectExplicitlySet = options.Select is { Length: > 0 } };
+
         // --path is sugar for selecting the Files section (which carries path + size).
         if (pathFilter != null)
             options = options with { Select = [.. options.Select ?? [], Views.PackageSections.Files] };
         else if (pathFilters != null)
             options = options with { Select = [.. options.Select ?? [], Views.PackageSections.Files] };
         if (!string.IsNullOrWhiteSpace(typeFilter))
-            options = options with { Select = [.. options.Select ?? [], Views.PackageSections.SourceFiles] };
+            options = options with { Select = [.. options.Select ?? [], Views.PackageSections.SourceLinkFiles] };
 
         var tipLevel = options.FormatExplicitlySet || options.IsRawOutput || verbosity != Verbosity.Minimal || options.Select != null || options.Discover != null || ArgumentPreprocessor.HeadLines != null || ArgumentPreprocessor.TailLines != null || options.Limit != null
             ? TipLevel.Quiet : opts.ParseTipLevel(parseResult);

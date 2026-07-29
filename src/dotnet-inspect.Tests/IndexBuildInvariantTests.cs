@@ -96,7 +96,7 @@ public class IndexBuildInvariantTests
                 SectionNames.ArrayPoolEscapes,
             ],
             Markdown = true,
-            Rows = new RowWindow(25, FromEnd: false),
+            Rows = RowWindow.Head(25),
         }));
 
         Assert.Equal(0, result.ExitCode);

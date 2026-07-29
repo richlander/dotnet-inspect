@@ -217,16 +217,14 @@ session-lifetime rule in
 
 ## Surface — the `metadata` table lens
 
-**Status: designed, not yet implemented.** Nothing in this section runs today;
-`-S @Metadata` currently fails with `Select value '@Metadata' not found.` The
-commands and outputs below are the intended surface, recorded so the
-implementation has a target.
+**Status: implemented**, except the `--heap` coordinate carrier noted below. The
+commands and outputs below are the shipping surface.
 
 Each metadata table is **one section**, and the tables together form a section
 category, `@Metadata`, registered the same way `@Performance` is:
 
 ```csharp
-.AddCategory(SectionCategoryNames.Metadata, MetadataTables.Sections)
+.AddCategory(SectionCategoryNames.Metadata, MetadataSectionNames.All)
 ```
 
 The lens therefore adds **no new shape flags**. Metadata tables introduce no new
@@ -249,7 +247,7 @@ dotnet-inspect library My.dll -S "Metadata: TypeRef" --columns Name --tsv
 dotnet-inspect library My.dll -S "Metadata: TypeDef" --count
 
 # a bounded window into a large table
-dotnet-inspect library My.dll -S "Metadata: MethodDef" --rows --head 20
+dotnet-inspect library My.dll -S "Metadata: MethodDef" --rows 20
 
 # structured, for tooling
 dotnet-inspect library My.dll -S "Metadata: TypeRef" --jsonl
@@ -282,13 +280,21 @@ counts, so they remain a single `Metadata: Image` section.
 Progressive-disclosure discipline (see
 [progressive-disclosure.md](progressive-disclosure.md) and
 [section-model.md](section-model.md)): raw tables are **not** in the default
-`-v:m` view. Two separate mechanisms are involved, and they do different jobs:
+`-v:m` view, nor in any other verbosity view, nor in `-S @All`. Three separate
+mechanisms are involved, and they do different jobs:
 
-- Each metadata table descriptor sets `ExplicitOnly => true`. That is the
-  render gate — `SectionPipeline.IsRequested` returns `false` for an
-  `ExplicitOnly` entry unless it is explicitly included, so no verbosity level
-  auto-selects it. This is per-section configuration, the same as the
-  `@Performance` sections and the `--il-offset` coordinate sections.
+- Each metadata table descriptor sets `ExplicitOnly => true`. That is a render
+  gate — `SectionPipeline.IsRequested` returns `false` for an `ExplicitOnly`
+  entry unless it is explicitly included, so no verbosity level auto-selects it.
+  This is per-section configuration, the same as the `@Performance` sections and
+  the `--il-offset` coordinate sections.
+- Each also declares `SectionCost.Unbounded`, which no verbosity budget admits —
+  not even `-v:d`. This is a **second, independently sufficient** gate:
+  measured by mutation, removing either one alone still leaves raw tables
+  suppressed, and only removing both makes them render.
+  `MetadataLens_NoVerbosity_RendersAnyMetadataSection` is the gate that proves
+  the property; note that because the two are redundant it would not catch the
+  loss of one alone.
 - The `@Metadata` category is the *selection and discovery* affordance. It lets
   `-S @Metadata` name the whole group and gives `-D` something to list; it does
   not by itself suppress anything.
@@ -307,13 +313,17 @@ dotnet-inspect library My.dll -S "Metadata: #Strings"
 dotnet-inspect library My.dll --heap "#Strings:0x1a4"
 ```
 
+**Status: the heap carrier above is designed, not yet implemented.** The table
+lens, the `Metadata: Image` section, and the shape ladder ship;
+`--heap` and the `Metadata: #Strings` preview sections do not, and are tracked
+separately. Everything else in this section runs today.
+
 Deep paging into the middle of a table needs no metadata-specific gesture. It is
-a general row-selection concern, and `--row`/`--rows` are being reworked to
-carry it ([#3364](https://github.com/richlander/dotnet-inspect/issues/3364)):
-once that lands, a row range such as `--rows 40000..40099` will address an
-arbitrary window in any section, metadata tables included. Neither spelling
-parses a range today. This lens therefore adds nothing for paging and inherits
-whatever that work lands. Random access from a host that is not the CLI stays a
+a general row-selection concern, and `--rows` now carries it
+([#3364](https://github.com/richlander/dotnet-inspect/issues/3364)): a row range
+such as `--rows 40000..40099` addresses an arbitrary window in any section,
+metadata tables included. This lens therefore adds nothing for paging and
+inherits that behavior. Random access from a host that is not the CLI stays a
 library concern, served by `ProjectRow` and the row window.
 
 ## Safety
@@ -895,14 +905,11 @@ via the existing section pipeline and `OutputFormatter`.
 - **Row addressing.** `--row` currently selects the Nth row that survived an
   invisible printability filter, so it neither names `MethodDef[3]` nor matches
   the row a reader counted in the output; `--where` carries row addressing
-  today. Part of the shape is already in place: `-n`/`--head` and `--tail` take
-  a count, and `--rows` is a boolean that switches their unit from output lines
-  to data rows. What is missing is range addressing — neither `--row` nor
-  `--rows` parses a range today. The rework designed in
-  [#3364](https://github.com/richlander/dotnet-inspect/issues/3364) would give
-  `--rows` a value of `N`, `N..M` (inclusive), or `N+K` (start plus count), but
-  it is a CLI-wide change and is out of scope for this series. This lens
-  inherits it.
+  today. The rework in
+  [#3364](https://github.com/richlander/dotnet-inspect/issues/3364) has since
+  landed: numbering now addresses the row a reader counts, and `--rows` takes a
+  value of `N`, `N..M` (inclusive), `N+K` (start plus count), or `N..`, with
+  `--head`/`--tail` reduced to a direction. This lens inherits that addressing.
 
 Resolved:
 
