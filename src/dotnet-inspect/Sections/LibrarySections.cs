@@ -10,8 +10,9 @@ namespace DotnetInspector.Sections;
 /// </summary>
 public static class LibrarySections
 {
-    // Scanner keys identify data collection steps in LibraryMetadataService
-    public const string ScannerTransitiveRefs = "TransitiveRefs";
+    // Scanner keys identify data collection steps in LibraryMetadataService.
+    // Every key here must be registered in CreateScannerRegistry and declared by at least one
+    // section. Gate: SectionPipelineTests.LibraryScannerRegistry_RegistrationMatchesDeclaration.
     public const string ScannerExtensionMethods = "ExtensionMethods";
     public const string ScannerClassifiedMethods = "ClassifiedMethods";
     public const string ScannerResources = "Resources";
@@ -19,7 +20,6 @@ public static class LibrarySections
     public const string ScannerUnionTypes = "UnionTypes";
     public const string ScannerTypeForwarders = "TypeForwarders";
     public const string ScannerInfoCounts = "InfoCounts";
-    public const string ScannerSymbols = "Symbols";
     public const string ScannerAuditSignals = "AuditSignals";
     public const string ScannerIntegrations = LibraryIntegrationCatalog.RollupName;
     public const string ScannerIntegrationOpportunities = "IntegrationOpportunities";
@@ -28,6 +28,7 @@ public static class LibrarySections
     public const string ScannerTopLeverage = "TopLeverage";
     public const string ScannerOptimizationOpportunities = "OptimizationOpportunities";
     public const string ScannerResourceTriage = "ResourceTriage";
+    public const string ScannerMetadata = "Metadata";
 
     /// <summary>Builds the section pipeline with all library sections registered.</summary>
     public static SectionPipeline<LibraryInspection> CreatePipeline()
@@ -87,6 +88,7 @@ public static class LibrarySections
             .Add<UnionTypes>()
             .Add<TypeForwarders>()
             .Add<NonNormalizedPaths>()
+            .AddMetadataLens()
             .AddCategory(SectionCategoryNames.Audit,
                 SectionNames.UnsafeMembers,
                 SectionNames.PInvokeMethods,
@@ -155,7 +157,9 @@ public static class LibrarySections
             .Add(ScannerIntegrations, ctx =>
                 LibraryMetadataService.ScanIntegrations(ctx.AssemblyPath, ctx.Model, ctx.Logger))
             .Add(ScannerIntegrationOpportunities, ctx =>
-                LibraryMetadataService.ScanIntegrationOpportunities(ctx.AssemblyPath, ctx.Model, ctx.Logger));
+                LibraryMetadataService.ScanIntegrationOpportunities(ctx.AssemblyPath, ctx.Model, ctx.Logger))
+            .Add(ScannerMetadata, ctx =>
+                LibraryMetadataService.ScanMetadataImage(ctx.AssemblyPath, ctx.Model, ctx.Logger));
     }
 
     // ===== Primary section =====
@@ -278,7 +282,7 @@ public static class LibrarySections
         public static string Name => SectionNames.Symbols;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Fixed;
-        public static string? ScannerKey => ScannerSymbols;
+        public static string? ScannerKey => null; // data comes from PdbContext (always collected)
         public static bool CanRender(LibraryInspection model) => true;
     }
 
@@ -516,7 +520,9 @@ public static class LibrarySections
         public static string Name => SectionNames.Dependencies;
         public static bool IsExpensive => false;
         public static SectionSizeClass SizeClass => SectionSizeClass.Informative;
-        public static string? ScannerKey => ScannerTransitiveRefs;
+        // Built inline by LibraryMetadataService under options.IncludeDependencies, before the
+        // scanner phase — not by a scanner.
+        public static string? ScannerKey => null;
         public static bool CanRender(LibraryInspection model)
             => model.UseDependenciesView
                && model.AssemblyInfo?.TransitiveReferences is { Count: > 0 };

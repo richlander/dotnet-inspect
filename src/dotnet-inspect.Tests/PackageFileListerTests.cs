@@ -20,7 +20,7 @@ public class PackageFileListerTests
     }
 
     [Fact]
-    public void ListAll_ExcludesZipAndRestorePlumbing()
+    public void ListAll_ExcludesZipAndRestorePlumbing_ButKeepsTheManifest()
     {
         var root = CreateExtractDir(
             "README.md",
@@ -40,7 +40,11 @@ public class PackageFileListerTests
             var files = PackageFileLister.ListAll(root);
             var paths = files.Select(f => f.Path).ToList();
 
-            Assert.Equal(new[] { "LICENSE.md", "README.md", "lib/net8.0/Foo.dll" }.OrderBy(x => x, StringComparer.Ordinal),
+            // The .nuspec is authored content, not packaging plumbing: it is the package
+            // manifest and is the document behind the Files: Nuspec section. Every other
+            // entry here is genuine OPC/zip plumbing or a restore-folder artifact.
+            Assert.Equal(
+                new[] { "Foo.nuspec", "LICENSE.md", "README.md", "lib/net8.0/Foo.dll" }.OrderBy(x => x, StringComparer.Ordinal),
                 paths.OrderBy(x => x, StringComparer.Ordinal));
         }
         finally
@@ -229,13 +233,18 @@ public class PackageFileListerTests
         Assert.True(result[0].IsAgents);
     }
 
+    /// <summary>
+    /// README.md then PACKAGE.md. AGENTS.md is deliberately not in the chain: agent-facing
+    /// package documentation is carried by skills/**/SKILL.md ("Package skill files"), so an
+    /// AGENTS.md in the package must not displace the human-readable README.
+    /// </summary>
     [Fact]
-    public void ResolvePackageReadme_PrefersAgentsThenReadmeThenPackage()
+    public void ResolvePackageReadme_PrefersReadmeThenPackage_AndIgnoresAgents()
     {
         var root = CreateExtractDir("PACKAGE.md", "README.md", "AGENTS.md");
         try
         {
-            Assert.Equal("AGENTS.md", PackageFileLister.ResolvePackageReadme(root, "PACKAGE.md"));
+            Assert.Equal("README.md", PackageFileLister.ResolvePackageReadme(root, "PACKAGE.md"));
             File.Delete(Path.Combine(root, "AGENTS.md"));
             Assert.Equal("README.md", PackageFileLister.ResolvePackageReadme(root, "PACKAGE.md"));
             File.Delete(Path.Combine(root, "README.md"));

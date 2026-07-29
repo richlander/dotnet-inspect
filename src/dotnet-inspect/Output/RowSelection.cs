@@ -97,6 +97,35 @@ public readonly record struct RowWindow
                 return (start, end);
         }
     }
+
+    /// <summary>
+    /// Applies this window to a materialized row list, returning the rows a
+    /// renderer would keep.
+    ///
+    /// The row limiters window rendered text; a projection has no rendered text
+    /// to window, so it windows the rows themselves. Both resolve through
+    /// <see cref="Resolve"/> against the same data-row count, which is what keeps
+    /// a windowed <c>--count</c> equal to the windowed table it describes.
+    /// </summary>
+    public IReadOnlyList<T> Apply<T>(IReadOnlyList<T> rows)
+    {
+        var (keepStart, keepEnd) = Resolve(rows.Count);
+        if (keepStart == 0 && keepEnd == rows.Count)
+            return rows;
+
+        var kept = new List<T>(keepEnd - keepStart);
+        for (var i = keepStart; i < keepEnd; i++)
+            kept.Add(rows[i]);
+        return kept;
+    }
+
+    /// <summary>
+    /// Applies an optional window, treating "no window" and "unlimited" as
+    /// keeping every row. Callers hold <c>--rows</c> as a nullable, so putting
+    /// the null handling here keeps it from being re-derived per caller.
+    /// </summary>
+    public static IReadOnlyList<T> Apply<T>(RowWindow? window, IReadOnlyList<T> rows) =>
+        window is { IsUnlimited: false } w ? w.Apply(rows) : rows;
 }
 
 /// <summary>Whether a <see cref="RowWindow"/> counts rows or names them.</summary>

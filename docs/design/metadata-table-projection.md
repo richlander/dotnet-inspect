@@ -217,16 +217,14 @@ session-lifetime rule in
 
 ## Surface — the `metadata` table lens
 
-**Status: designed, not yet implemented.** Nothing in this section runs today;
-`-S @Metadata` currently fails with `Select value '@Metadata' not found.` The
-commands and outputs below are the intended surface, recorded so the
-implementation has a target.
+**Status: implemented**, except the `--heap` coordinate carrier noted below. The
+commands and outputs below are the shipping surface.
 
 Each metadata table is **one section**, and the tables together form a section
 category, `@Metadata`, registered the same way `@Performance` is:
 
 ```csharp
-.AddCategory(SectionCategoryNames.Metadata, MetadataTables.Sections)
+.AddCategory(SectionCategoryNames.Metadata, MetadataSectionNames.All)
 ```
 
 The lens therefore adds **no new shape flags**. Metadata tables introduce no new
@@ -282,13 +280,21 @@ counts, so they remain a single `Metadata: Image` section.
 Progressive-disclosure discipline (see
 [progressive-disclosure.md](progressive-disclosure.md) and
 [section-model.md](section-model.md)): raw tables are **not** in the default
-`-v:m` view. Two separate mechanisms are involved, and they do different jobs:
+`-v:m` view, nor in any other verbosity view, nor in `-S @All`. Three separate
+mechanisms are involved, and they do different jobs:
 
-- Each metadata table descriptor sets `ExplicitOnly => true`. That is the
-  render gate — `SectionPipeline.IsRequested` returns `false` for an
-  `ExplicitOnly` entry unless it is explicitly included, so no verbosity level
-  auto-selects it. This is per-section configuration, the same as the
-  `@Performance` sections and the `--il-offset` coordinate sections.
+- Each metadata table descriptor sets `ExplicitOnly => true`. That is a render
+  gate — `SectionPipeline.IsRequested` returns `false` for an `ExplicitOnly`
+  entry unless it is explicitly included, so no verbosity level auto-selects it.
+  This is per-section configuration, the same as the `@Performance` sections and
+  the `--il-offset` coordinate sections.
+- Each also declares `SectionCost.Unbounded`, which no verbosity budget admits —
+  not even `-v:d`. This is a **second, independently sufficient** gate:
+  measured by mutation, removing either one alone still leaves raw tables
+  suppressed, and only removing both makes them render.
+  `MetadataLens_NoVerbosity_RendersAnyMetadataSection` is the gate that proves
+  the property; note that because the two are redundant it would not catch the
+  loss of one alone.
 - The `@Metadata` category is the *selection and discovery* affordance. It lets
   `-S @Metadata` name the whole group and gives `-D` something to list; it does
   not by itself suppress anything.
@@ -306,6 +312,11 @@ dotnet-inspect library My.dll -S "Metadata: #Strings"
 # one address — a coordinate
 dotnet-inspect library My.dll --heap "#Strings:0x1a4"
 ```
+
+**Status: the heap carrier above is designed, not yet implemented.** The table
+lens, the `Metadata: Image` section, and the shape ladder ship;
+`--heap` and the `Metadata: #Strings` preview sections do not, and are tracked
+separately. Everything else in this section runs today.
 
 Deep paging into the middle of a table needs no metadata-specific gesture. It is
 a general row-selection concern, and `--rows` now carries it
