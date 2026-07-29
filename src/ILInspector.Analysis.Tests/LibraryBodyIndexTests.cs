@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -260,11 +261,18 @@ public class LibraryBodyIndexTests
         throw new InvalidOperationException("Expected at least one external TypeRef.");
     }
 
+    /// <summary>
+    /// A chain that starts Platform-scoped stays Platform-scoped for every hop. This gates the
+    /// non-downgrade half of <see cref="LibraryBodyIndex.IndexBuilder.NextHopScope"/> against a
+    /// real framework forwarder chain; it does NOT gate tightening, because a framework TypeRef
+    /// makes <c>ScopeForReference</c> return Platform at hop 0 and the chain never starts at Any.
+    /// <see cref="ForwarderIntoFrameworkSignedAssemblyIsResolvedUnderPlatformScope"/> is the
+    /// tightening gate.
+    /// </summary>
     [Fact]
     public void CrossAssemblyMetadataResolver_ResolvesEveryForwarderHopUnderPlatformScope()
     {
-        // Every hop of a framework forwarder chain must stay Platform-scoped. Resolving a
-        // hop under Any would let a confusable local copy satisfy it -- see
+        // Resolving a hop under Any would let a confusable local copy satisfy it -- see
         // ILInspector.Analysis.SpoofRuntimeFixtures, an unsigned assembly literally named
         // System.Runtime.
         string frameworkDir = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
@@ -280,11 +288,146 @@ public class LibraryBodyIndexTests
         Assert.False(objectReference.IsNil, "System.Console should reference System.Object");
         Assert.True(builder.TryResolveExternalTypeDefinition(objectReference) is not null);
 
-        Assert.True(
-            recorder.Requests.Count > 1,
-            $"resolving System.Object should take at least one forwarder hop, saw: {string.Join(", ", recorder.Requests)}");
+        // Non-empty rather than "> 1": whether System.Object takes a forwarder hop from
+        // System.Console depends on the framework layout, but that this test observed real
+        // resolution at all does not.
+        Assert.NotEmpty(recorder.Requests);
         Assert.All(recorder.Requests, request =>
             Assert.Equal(AssemblyResolutionScope.Platform, request.Scope));
+    }
+
+    /// <summary>
+    /// The tightening gate, and the only test that fails if the <c>scope = NextHopScope(...)</c>
+    /// call is deleted from the forwarder loop: the unit tests below cover the function in
+    /// isolation and would all still pass with the wiring removed.
+    ///
+    /// The chain is synthetic because no natural artifact pairs an Any-scoped TypeRef with a
+    /// framework-signed forwarder target -- a real framework TypeRef is already Platform at hop 0.
+    /// Contoso.App references unsigned Contoso.Facade (Any), which forwards Sample.Widget to a
+    /// framework-signed identity. That hop must be requested under Platform, or a confusable
+    /// local copy could answer for a framework-signed name.
+    /// </summary>
+    [Fact]
+    public void ForwarderIntoFrameworkSignedAssemblyIsResolvedUnderPlatformScope()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "fwd-scope-" + Guid.NewGuid().ToString("n"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            // 7cec85d7bea7798e is System.Private.CoreLib's key, so the forwarded identity is
+            // framework-signed while nothing else in the chain is.
+            byte[] frameworkToken = Convert.FromHexString("7cec85d7bea7798e");
+            string appPath = Path.Combine(directory, "Contoso.App.dll");
+            string facadePath = Path.Combine(directory, "Contoso.Facade.dll");
+            string corelibPath = Path.Combine(directory, "Fake.CoreLib.dll");
+
+            File.WriteAllBytes(appPath, EmitAssembly("Contoso.App", metadata =>
+            {
+                var facadeReference = metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("Contoso.Facade"),
+                    new Version(1, 0, 0, 0),
+                    culture: default,
+                    publicKeyOrToken: default, // unsigned -> ScopeForReference yields Any
+                    flags: default,
+                    hashValue: default);
+                metadata.AddTypeReference(
+                    facadeReference,
+                    metadata.GetOrAddString("Sample"),
+                    metadata.GetOrAddString("Widget"));
+            }));
+
+            File.WriteAllBytes(facadePath, EmitAssembly("Contoso.Facade", metadata =>
+            {
+                var corelibReference = metadata.AddAssemblyReference(
+                    metadata.GetOrAddString("Fake.CoreLib"),
+                    new Version(1, 0, 0, 0),
+                    culture: default,
+                    publicKeyOrToken: metadata.GetOrAddBlob(frameworkToken),
+                    flags: default,
+                    hashValue: default);
+                metadata.AddExportedType(
+                    // tdForwarder (ECMA-335 II.23.1.15); not named in System.Reflection.TypeAttributes.
+                    (TypeAttributes)0x00200000,
+                    metadata.GetOrAddString("Sample"),
+                    metadata.GetOrAddString("Widget"),
+                    corelibReference,
+                    typeDefinitionId: 0);
+            }));
+
+            File.WriteAllBytes(corelibPath, EmitAssembly("Fake.CoreLib", metadata =>
+                metadata.AddTypeDefinition(
+                    TypeAttributes.Public,
+                    metadata.GetOrAddString("Sample"),
+                    metadata.GetOrAddString("Widget"),
+                    baseType: default,
+                    fieldList: MetadataTokens.FieldDefinitionHandle(1),
+                    methodList: MetadataTokens.MethodDefinitionHandle(1))));
+
+            var recorder = new RecordingResolver(new FrameworkDirectoryResolver(directory));
+
+            using var stream = File.OpenRead(appPath);
+            using var peReader = new PEReader(stream);
+            var reader = peReader.GetMetadataReader();
+            using var builder = new LibraryBodyIndex.IndexBuilder(appPath, reader, peReader, recorder);
+
+            var widgetReference = FindExternalTypeReference(reader, "Sample", "Widget");
+            Assert.False(widgetReference.IsNil);
+            Assert.NotNull(builder.TryResolveExternalTypeDefinition(widgetReference));
+
+            // The premise: the chain really does start unconstrained. Without this the test
+            // would pass for an implementation that scoped everything Platform from hop 0.
+            Assert.Equal(
+                AssemblyResolutionScope.Any,
+                Assert.Single(recorder.Requests, request => request.Name == "Contoso.Facade").Scope);
+
+            // The property.
+            Assert.Equal(
+                AssemblyResolutionScope.Platform,
+                Assert.Single(recorder.Requests, request => request.Name == "Fake.CoreLib").Scope);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>Emits a minimal unsigned assembly whose only content is what <paramref name="addContent"/> adds.</summary>
+    static byte[] EmitAssembly(string name, Action<MetadataBuilder> addContent)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            metadata.GetOrAddString(name + ".dll"),
+            metadata.GetOrAddGuid(Guid.NewGuid()),
+            default,
+            default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(name),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: System.Reflection.AssemblyHashAlgorithm.Sha1);
+
+        // Row 1 is always <Module>, exactly as a compiler emits.
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+
+        addContent(metadata);
+
+        var pe = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        pe.Serialize(image);
+        return image.ToArray();
     }
 
     [Theory]

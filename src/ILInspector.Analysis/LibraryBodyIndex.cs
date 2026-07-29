@@ -2171,7 +2171,10 @@ public sealed class LibraryBodyIndex
         /// assembly into an unconstrained lookup: an <see cref="AssemblyResolutionScope.Any"/>
         /// reference can forward into a framework-signed assembly, and resolving that hop
         /// under <c>Any</c> would let a confusable local copy satisfy it. Scope only ever
-        /// tightens, never the reverse. Gated by <c>NextHopScope_*</c> tests.
+        /// tightens, never the reverse. The function is gated by the <c>NextHopScope_*</c>
+        /// tests; the call site below is gated by
+        /// <c>ForwarderIntoFrameworkSignedAssemblyIsResolvedUnderPlatformScope</c>, which is
+        /// the one test that fails if this call is dropped from the loop.
         /// </summary>
         internal static AssemblyResolutionScope NextHopScope(
             AssemblyResolutionScope current, AssemblyReferenceIdentity forwarded)
