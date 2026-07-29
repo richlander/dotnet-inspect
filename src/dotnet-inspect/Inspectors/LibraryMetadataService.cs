@@ -542,6 +542,14 @@ internal static class LibraryMetadataService
         {
             if (char.IsControl(c))
                 return false;
+
+            // Format characters are invisible: a zero-width space or a bidi override renders as
+            // nothing, or reorders what follows it, so the name shown in the reference tree is not
+            // the name being resolved. That is the Trojan Source problem (CVE-2021-42574) applied
+            // to an identifier read from untrusted metadata. char.IsControl does not cover these,
+            // and no legitimate assembly simple name contains one.
+            if (char.GetUnicodeCategory(c) == UnicodeCategory.Format)
+                return false;
         }
 
         // Windows strips trailing spaces and dots from a path component, so "CON " and "CON"

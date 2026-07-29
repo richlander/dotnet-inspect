@@ -2315,6 +2315,21 @@ public class SectionPipelineTests
     [InlineData("System.Text.Json\u3000")]
     [InlineData("\u3000System.Text.Json")]
     [InlineData("CON\u00a0")]
+    // Every non-ASCII digit folds, not just the three Latin-1 superscripts: these all collapse
+    // onto the ASCII digit under best-fit ANSI conversion, which Microsoft documents as a
+    // security consideration for exactly this reason.
+    [InlineData("COM\u2074")]
+    [InlineData("LPT\u2079")]
+    [InlineData("COM\uff11")]
+    [InlineData("COM\u0661")]
+    [InlineData("com\u2460")]
+    // Format characters are invisible or reorder what follows, so the rendered name is not the
+    // resolved name (Trojan Source, CVE-2021-42574).
+    [InlineData("System.Text.Json\u200b")]
+    [InlineData("\u200bSystem.Text.Json")]
+    [InlineData("System.\u202eJson")]
+    [InlineData("COM1\u200b")]
+    [InlineData("\ufeffSystem.Text.Json")]
     public void UnsafeAssemblyReferenceName_IsRefusedAsPathComponent(string name)
     {
         Assert.False(LibraryMetadataService.IsSafeAssemblySimpleName(name));
@@ -2341,11 +2356,12 @@ public class SectionPipelineTests
     [InlineData("COM\u00b9Plus")]
     [InlineData("Contoso.V\u00b2")]
     [InlineData("COM\u00b94")]
-    // Windows folds only the three superscripts, so a fullwidth or Arabic-Indic digit names an
-    // ordinary file, not a device. Rejecting these would drop a real dependency for a device it
-    // does not name -- this is the boundary that keeps the fold from becoming NFKC.
-    [InlineData("COM\uff11")]
-    [InlineData("COM\u0661")]
+    // The fold only rejects a name whose *whole stem* becomes a device name, so a non-ASCII digit
+    // anywhere else is untouched. This is the boundary that keeps widening the fold from costing
+    // real dependencies -- these fold to "COM1Plus", "Contoso" and "COM14", which match nothing.
+    [InlineData("COM\uff11Plus")]
+    [InlineData("Contoso.V\u2074")]
+    [InlineData("COM\uff114")]
     // Interior non-ASCII whitespace is not padding and is not canonicalized.
     [InlineData("My\u00a0Assembly.Core")]
     public void LegitimateAssemblyReferenceName_IsAccepted(string name)
