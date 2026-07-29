@@ -267,6 +267,48 @@ public class IlBodyDiffNormalizationTests
             IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact);
     }
 
+    /// <summary>
+    /// Member names come from untrusted metadata, and the threat model
+    /// requires recursion over hostile input to be bounded
+    /// (docs/design/untrusted-data-threat-model.md), so the enclosing-name
+    /// recursion stops at <c>MaxNestingDepth</c> (16). This pins the
+    /// boundary's observable behavior: an ordinal nested within the cap is
+    /// still normalized, and one nested past it stays literal. Degrading to
+    /// literal can only cost a false positive, never a masked difference.
+    /// </summary>
+    [Fact]
+    public void NormalizeSynthesizedMemberOrdinals_StopsNormalizingPastTheNestingCap()
+    {
+        Assert.True(CompareMemberNames(
+            Nest(depth: 20, differingLevel: 0),
+            Nest(depth: 20, differingLevel: 0, shift: 500),
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact,
+            "The outermost ordinal is within the cap and must still normalize.");
+
+        Assert.False(CompareMemberNames(
+            Nest(depth: 20, differingLevel: 19),
+            Nest(depth: 20, differingLevel: 19, shift: 500),
+            IlBodyDiffNormalization.NormalizeSynthesizedMemberOrdinals).IsExact,
+            "An ordinal nested past the cap must stay literal rather than silently comparing equal.");
+    }
+
+    /// <summary>
+    /// Builds a name nested <paramref name="depth"/> levels deep where only
+    /// the ordinal at <paramref name="differingLevel"/> (counted from the
+    /// outermost) is moved by <paramref name="shift"/>.
+    /// </summary>
+    static string Nest(int depth, int differingLevel, int shift = 0)
+    {
+        string name = "Run";
+        for (int level = depth - 1; level >= 0; level--)
+        {
+            int ordinal = 100 + (level == differingLevel ? shift : 0);
+            name = $"<{name}>b__{ordinal}_0";
+        }
+
+        return name;
+    }
+
     [Fact]
     public void NormalizeSynthesizedMemberOrdinals_PreservesSynthesizedLikeStringLiterals()
     {

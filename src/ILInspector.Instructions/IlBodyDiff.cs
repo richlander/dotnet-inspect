@@ -1022,11 +1022,27 @@ public static class IlBodyDiff
         internal const char Placeholder = '#';
 
         /// <summary>
+        /// Caps how deep the enclosing-name recursion goes. Roslyn nests
+        /// closure names only as deep as the source nests lambdas, so a
+        /// handful of levels covers real input. The cap exists because member
+        /// names come from untrusted metadata, where an adversarially nested
+        /// name would otherwise recurse once per level and overflow the stack
+        /// (see docs/design/untrusted-data-threat-model.md, which requires
+        /// recursion over hostile input to be bounded). Past the cap the
+        /// enclosing name is left literal, which can only cost a false
+        /// positive, never a masked difference.
+        /// </summary>
+        const int MaxNestingDepth = 16;
+
+        /// <summary>
         /// Normalizes every synthesized name inside a resolved operand string
         /// (for example <c>[Asm]Ns.Type::&lt;Run&gt;b__103_0</c>), rewriting
         /// only the containing-method ordinal in each.
         /// </summary>
         public static string Normalize(string value)
+            => Normalize(value, depth: 0);
+
+        static string Normalize(string value, int depth)
         {
             // Every recognized form opens with '<', which C# cannot spell, and
             // carries the separator. Both checks are cheap rejects.
@@ -1048,7 +1064,7 @@ public static class IlBodyDiff
                 if (i > 0 && IsInteriorChar(value[i - 1]))
                     continue;
 
-                if (!TryNormalizeName(value, i, out string replacement, out int end))
+                if (!TryNormalizeName(value, i, depth, out string replacement, out int end))
                     continue;
 
                 builder ??= new StringBuilder(value.Length);
@@ -1071,7 +1087,7 @@ public static class IlBodyDiff
         /// and rewrites only <c>N</c>. Any other identifier, including the
         /// state-machine form <c>&lt;Name&gt;d__N</c>, is declined.
         /// </summary>
-        static bool TryNormalizeName(string value, int start, out string replacement, out int end)
+        static bool TryNormalizeName(string value, int start, int depth, out string replacement, out int end)
         {
             replacement = "";
             end = start;
@@ -1137,7 +1153,9 @@ public static class IlBodyDiff
             // than rescanning is what keeps an authored enclosing method named
             // `b__1_0` distinct from one named `b__2_0`.
             string inner = value[(start + 1)..close];
-            string normalizedInner = Normalize(inner);
+            string normalizedInner = depth < MaxNestingDepth
+                ? Normalize(inner, depth + 1)
+                : inner;
 
             replacement = string.Concat(
                 "<",
