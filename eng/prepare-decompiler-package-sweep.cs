@@ -123,14 +123,19 @@ if (pinFile is not null)
     // Reported, like every other refusal in this file. A malformed pin is a stated
     // refusal, and a caller cannot tell exit 134 from a crash.
     string? malformed =
-        pinFile.Packages.Any(pin => string.IsNullOrWhiteSpace(pin.Package))
-            ? "contains an entry without a package name"
-            : pinFile.Packages.Any(pin => pin.Status == "pinned" && string.IsNullOrWhiteSpace(pin.Version))
-                ? "pins a package without a version"
-                : pinFile.Packages.Select(pin => pin.Package)
-                    .Distinct(StringComparer.OrdinalIgnoreCase).Count() != pinFile.Packages.Count
-                    ? "pins the same package twice"
-                    : null;
+        pinFile.Packages is null
+            ? "states no packages"
+            : pinFile.Packages.Any(pin => pin is null)
+                ? "contains a null entry"
+                : pinFile.Packages.Any(pin => string.IsNullOrWhiteSpace(pin.Package))
+                    ? "contains an entry without a package name"
+                    : pinFile.Packages.Any(pin =>
+                        pin.Status == "pinned" && string.IsNullOrWhiteSpace(pin.Version))
+                        ? "pins a package without a version"
+                        : pinFile.Packages.Select(pin => pin.Package)
+                            .Distinct(StringComparer.OrdinalIgnoreCase).Count() != pinFile.Packages.Count
+                            ? "pins the same package twice"
+                            : null;
     if (malformed is not null)
     {
         Console.Error.WriteLine($"Pin file '{pinPath}' {malformed}.");
@@ -280,9 +285,12 @@ foreach (var entry in selected)
             string? mismatch =
                 !string.Equals(package.Version, pin.Version, StringComparison.OrdinalIgnoreCase)
                     ? $"pinned version {pin.Version}, got {package.Version ?? "none"}"
-                    : pin.Tfm is not null
-                        && !string.Equals(selection.Tfm, pin.Tfm, StringComparison.OrdinalIgnoreCase)
-                        ? $"pinned TFM {pin.Tfm}, got {selection.Tfm ?? "none"}"
+                    // Compared even when the pin names no TFM. Skipping the check for a
+                    // null pin TFM made it a wildcard that accepted whatever arrived,
+                    // which is the one thing a pin must not do. Two packages in the pool
+                    // genuinely select no TFM, and null matches null.
+                    : !string.Equals(selection.Tfm, pin.Tfm, StringComparison.OrdinalIgnoreCase)
+                        ? $"pinned TFM {pin.Tfm ?? "none"}, got {selection.Tfm ?? "none"}"
                         : null;
             if (mismatch is not null)
             {
