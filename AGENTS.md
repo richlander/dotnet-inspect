@@ -460,9 +460,11 @@ worse.
   now sits on a base that no longer exists and has to be restacked too. One
   gesture, several branches rewritten, most of which you were not looking at. That
   cascade is the stack's defining operational fact. The mechanism requires it:
-  once a parent lands by squash or rebase merge its commits get new identities, so
-  the child still carries the pre-merge originals and double-reports the parent's
-  work. Merging cannot repair that; rebasing onto the new base can.
+  once a parent lands by squash or rebase merge its commits get new identities,
+  so the child still carries the pre-merge originals. Its PR then re-reports the
+  parent's work — the parent's commits reappear in the child's commit list, and
+  the three-dot diff GitHub renders against the new base shows the parent's files
+  again. Merging cannot repair that; rebasing onto the new base can.
 
   So force-push is the norm inside a stack rather than the violation it would be
   on a standalone PR. The manual equivalent of the button, when you need it:
@@ -475,13 +477,22 @@ worse.
 
   Always `--force-with-lease`, never bare `--force`; it declines when the remote
   moved under you instead of destroying whatever arrived. Restack only your own
-  slices, and land a parent before disturbing what sits above it rather than
-  rewriting under a reviewer mid-read.
+  slices, never one another contributor has pushed to — coordinate first — and
+  land a parent before disturbing what sits above it rather than rewriting under
+  a reviewer mid-read.
 - **A restack must change the base and nothing else.** Prove that rather than
-  assuming it — `git range-diff <old-base>..<old-head> <new-base>..<new-head>`
-  reports exactly what the rebase altered, and an unchanged report is the claim.
-  A restack that also changes content is a rewrite wearing maintenance clothing;
-  say so in the PR instead of letting it pass as routine.
+  assuming it: record the pre-rebase head first, because afterwards the branch
+  name resolves to the *new* head, and a range built from it describes something
+  other than the slice you rebased.
+
+  ```bash
+  old=$(git rev-parse <slice-branch>)          # before rebasing
+  git range-diff <old-parent-tip>..$old origin/main..<slice-branch>
+  ```
+
+  Every commit reported `=` is the claim. A restack that also changes content is
+  a rewrite wearing maintenance clothing; say so in the PR instead of letting it
+  pass as routine.
 - **Review depth is per-slice, by that slice's own risk**, not the stack's total
   size. A long stack does not make a trivial slice risky, and a small slice in a
   risky area still earns the two-model tier.
@@ -493,6 +504,13 @@ worse.
   and it is paid per slice. A posted `range-diff` is what keeps each of those
   re-reviews a confirmation rather than a second full pass — without one, a
   reviewer cannot tell a restack from a rewrite.
+- **A restack does not retire a finding.** It can destroy the exact head a
+  reviewer was given, which makes "reproduce it on a clean exact-head review
+  worktree" temporarily unactionable — not moot. An open finding survives the
+  rewrite and is re-verified at the new head, and the burden sits with whoever
+  moved the head: say whether the finding still applies and at which commit, and
+  post the new head so review can resume. A finding that disappears because its
+  head did is an unresolved finding.
 - **Stop stacking when a slice would exist only to continue the stack.** CI cost
   is per PR; three coherent slices beat ten mechanical ones.
 
