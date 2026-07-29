@@ -4234,12 +4234,27 @@ public class CommandExecutionTests
     public async Task Layout_Count_CountsFilesRatherThanRenderedTreeLines()
     {
         // The tree adds a line per directory, so a count taken from the rendered output would
-        // not equal the number of files the lens actually lists.
+        // not equal the number of files the lens actually lists. The package carries 16 files
+        // under lib/ plus LICENSE.md, the nuspec, packageIcon.png, and README.md; the nuspec is
+        // counted because this branch makes it a reachable package file.
         var (exit, output, error) = await RunAppAsync("package", "Newtonsoft.Json@13.0.4", "--layout", "--count");
+        var (renderExit, rendered, _) = await RunAppAsync("package", "Newtonsoft.Json@13.0.4", "--layout");
 
         Assert.Equal(0, exit);
+        Assert.Equal(0, renderExit);
         Assert.Empty(error);
-        Assert.Equal(19, int.Parse(output.Trim(), CultureInfo.InvariantCulture));
+
+        var count = int.Parse(output.Trim(), CultureInfo.InvariantCulture);
+        Assert.Equal(20, count);
+
+        // The point of the lens count is that it is a file count, not a line count. Pin the
+        // relationship rather than only the literal, so a tree that grows directory nodes
+        // cannot start agreeing with the count by coincidence.
+        var renderedLines = rendered.Split('\n').Count(line => line.Trim().Length > 0);
+        Assert.True(
+            renderedLines > count,
+            $"expected the tree to render more lines ({renderedLines}) than the {count} files it counts");
+        Assert.Contains("Newtonsoft.Json.nuspec", rendered, StringComparison.Ordinal);
     }
 
     [Fact]
