@@ -470,6 +470,20 @@ public class ForwardedTypeAliasesTests
         string typeName,
         byte[] resolvedThrough,
         byte[] alsoPresent)
+        => BuildCallerNamingThroughTwoReferences(
+            assembly, ns, typeName, resolvedThrough, alsoPresent, alsoPresentFlags: default);
+
+    /// <summary>
+    /// The same, with flags on the second row, so a test can vary how that row declares its
+    /// identity while holding the spelling fixed.
+    /// </summary>
+    static MetadataReaderProvider BuildCallerNamingThroughTwoReferences(
+        string assembly,
+        string ns,
+        string typeName,
+        byte[] resolvedThrough,
+        byte[] alsoPresent,
+        AssemblyFlags alsoPresentFlags)
     {
         var metadata = NewAssembly("Contoso.Caller");
         var used = metadata.AddAssemblyReference(
@@ -484,7 +498,7 @@ public class ForwardedTypeAliasesTests
             new Version(2, 0, 0, 0),
             culture: default,
             publicKeyOrToken: metadata.GetOrAddBlob(alsoPresent),
-            flags: default,
+            flags: alsoPresentFlags,
             hashValue: default);
         metadata.AddTypeReference(
             used,
@@ -495,6 +509,89 @@ public class ForwardedTypeAliasesTests
         var blob = new BlobBuilder();
         root.Serialize(blob, methodBodyStreamRva: 0, mappedFieldDataStreamRva: 0);
         return MetadataReaderProvider.FromMetadataImage(blob.ToImmutableArray());
+    }
+
+    /// <summary>
+    /// The other half of the same rule. A row that cannot be checked does not withdraw the
+    /// canonical bucket, but it does withdraw <em>its own</em> spelling — because a
+    /// <see cref="TypeRef"/> records only a name, so a call site naming this spelling might have
+    /// resolved through the uncheckable row rather than the verified one beside it.
+    ///
+    /// <para>Together with
+    /// <see cref="PrefilterKeepsAnAliasWhenAnUncheckableReferenceSharesItsCanonicalName"/> this
+    /// pins both directions: uncheckable is not permissive for the spelling it names, and not
+    /// destructive for the spellings it merely shares a bucket with.</para>
+    /// </summary>
+    [Fact]
+    public void PrefilterDeclinesASpellingOneOfWhoseReferencesCannotBeChecked()
+    {
+        byte[] trustedKey = [.. Enumerable.Repeat((byte)0xF6, 16)];
+
+        string directory = NewTempDirectory();
+        WriteForwarder(
+            directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget", trustedKey);
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+
+        // Premise: one checkable, agreeing row admits the spelling, so the rejection below is the
+        // uncheckable row beside it.
+        using (var alone = BuildCallerNaming(
+            "Contoso.Facade", "Contoso", "Widget", TokenOf(trustedKey)))
+        {
+            Assert.Equal(
+                CallerScopeTypeFilter.TypeReferenceState.Names,
+                CallerScopeTypeFilter.Classify(alone.GetMetadataReader(), target, aliases));
+        }
+
+        using var mixed = BuildCallerNamingThroughTwoReferences(
+            "Contoso.Facade", "Contoso", "Widget",
+            resolvedThrough: TokenOf(trustedKey),
+            alsoPresent: TokenOf(trustedKey),
+            alsoPresentFlags: AssemblyFlags.Retargetable);
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            CallerScopeTypeFilter.Classify(mixed.GetMetadataReader(), target, aliases));
+    }
+
+    /// <summary>
+    /// A reference that cannot be checked must not refute the spelling it names. Only a reference
+    /// that positively contradicts the evidence may do that.
+    ///
+    /// <para>The distinction did not exist before refutation did. Every non-verifying answer used
+    /// to mean only "this reference does not vouch for the spelling", which cost nothing, since the
+    /// spelling simply stayed out of the verified set. Refutation gave the same answer a second,
+    /// much stronger meaning — it now withdraws the canonical bucket for the whole image — and a
+    /// retargetable reference, which declares its identity substitutable and therefore says nothing
+    /// either way, was swept into it. The cost lands on a <em>different</em> spelling: the genuine,
+    /// properly verified sibling in the same bucket loses its callers.</para>
+    ///
+    /// <para>Reported by reasoning in round-4 review of <c>372be6d1</c> and reproduced here. A
+    /// portable library referencing a retargetable <c>mscorlib</c> beside a verified corelib facade
+    /// is the shape that occurs in practice.</para>
+    /// </summary>
+    [Fact]
+    public void PrefilterKeepsAnAliasWhenAnUncheckableReferenceSharesItsCanonicalName()
+    {
+        byte[] trustedKey = [.. Enumerable.Repeat((byte)0xE5, 16)];
+
+        string directory = NewTempDirectory();
+        WriteForwarder(directory, "netstandard", "Contoso.Definer", "Contoso", "Widget", trustedKey);
+        WriteForwarder(directory, "mscorlib", "Contoso.Definer", "Contoso", "Widget", trustedKey);
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+
+        // The TypeRef names the verified spelling. The retargetable sibling canonicalizes into the
+        // same bucket but asserts no identity, so it must neither vouch nor veto.
+        using var mixed = BuildCallerNamingThroughTwoAssemblies(
+            "netstandard", TokenOf(trustedKey), "mscorlib", TokenOf(trustedKey), "Contoso", "Widget",
+            otherFlags: AssemblyFlags.Retargetable);
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.Names,
+            CallerScopeTypeFilter.Classify(mixed.GetMetadataReader(), target, aliases));
     }
 
     /// <summary>
@@ -558,6 +655,21 @@ public class ForwardedTypeAliasesTests
         byte[] otherToken,
         string ns,
         string typeName)
+        => BuildCallerNamingThroughTwoAssemblies(
+            namingAssembly, namingToken, otherAssembly, otherToken, ns, typeName, otherFlags: default);
+
+    /// <summary>
+    /// The same, with flags on the second reference, so a test can vary how that reference declares
+    /// its identity while holding everything else fixed.
+    /// </summary>
+    static MetadataReaderProvider BuildCallerNamingThroughTwoAssemblies(
+        string namingAssembly,
+        byte[] namingToken,
+        string otherAssembly,
+        byte[] otherToken,
+        string ns,
+        string typeName,
+        AssemblyFlags otherFlags)
     {
         var metadata = NewAssembly("Contoso.Caller");
         var naming = metadata.AddAssemblyReference(
@@ -572,7 +684,7 @@ public class ForwardedTypeAliasesTests
             new Version(1, 0, 0, 0),
             culture: default,
             publicKeyOrToken: metadata.GetOrAddBlob(otherToken),
-            flags: default,
+            flags: otherFlags,
             hashValue: default);
         metadata.AddTypeReference(
             naming,

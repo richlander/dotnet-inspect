@@ -114,7 +114,16 @@ public sealed class ForwardedTypeAliases
     /// that spell one name under different keys, nothing downstream can tell which row a given row
     /// resolved through. Admitting the spelling because <em>some</em> row verified would let a
     /// genuine reference vouch for a call made through the impostor beside it (found in review of
-    /// <c>7181e795</c>). One failing row therefore withdraws the spelling for the whole image.</para>
+    /// <c>7181e795</c>). One row that disagrees, or that cannot be checked at all, therefore
+    /// withdraws the spelling for the whole image.</para>
+    ///
+    /// <para><b>Withdrawing a spelling and withdrawing its canonical bucket are different acts.</b>
+    /// The first costs only that spelling; the second lands on every spelling that canonicalizes
+    /// with it, including verified ones. So a row that merely cannot be checked — retargetable, or
+    /// checked against ambiguous evidence — withdraws its own spelling but not the bucket. Only a
+    /// row that is checkable and disagrees does both (found in review of <c>372be6d1</c>, where a
+    /// retargetable <c>mscorlib</c> beside a verified corelib facade dropped that facade's genuine
+    /// callers).</para>
     /// </summary>
     public ForwardedTypeAliases RestrictedTo(MetadataReader reader)
     {
@@ -146,26 +155,32 @@ public sealed class ForwardedTypeAliases
             return this;
 
         var verified = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var refuted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var contradicted = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var unusable = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var reference in references)
         {
             if (!_rawSpellings.Contains(reference.Name))
                 continue;
 
-            if (EvidenceIdentityVerified(
-                    reference.Name,
-                    reference.PublicKeyOrToken.AsSpan(),
-                    reference.Flags))
+            switch (VerdictFor(reference.Name, reference.PublicKeyOrToken.AsSpan(), reference.Flags))
             {
-                verified.Add(reference.Name);
-            }
-            else
-            {
-                refuted.Add(reference.Name);
+                case ReferenceVerdict.Verified:
+                    verified.Add(reference.Name);
+                    break;
+                case ReferenceVerdict.Contradicted:
+                    contradicted.Add(reference.Name);
+                    break;
+                default:
+                    unusable.Add(reference.Name);
+                    break;
             }
         }
 
-        verified.ExceptWith(refuted);
+        // A spelling is admitted only if every row naming it was checkable and agreed. One row that
+        // disagreed, or that could not be checked at all, leaves the image unable to say which row
+        // a given TypeRef resolved through — and a TypeRef records only the name.
+        verified.ExceptWith(contradicted);
+        verified.ExceptWith(unusable);
 
         if (verified.Count == _rawSpellings.Count)
             return this;
@@ -185,11 +200,13 @@ public sealed class ForwardedTypeAliases
                 spellingTokens[raw] = token;
         }
 
-        // A canonical alias any refuted spelling also maps to cannot be admitted either: the
+        // A canonical alias a contradicted spelling also maps to cannot be admitted either: the
         // spellings are indistinguishable to the matcher once canonicalized, so keeping it would
-        // readmit the row that was just refused. This covers spellings that supplied forwarder
-        // evidence; the wider imprecision of canonicalization itself is #3485.
-        foreach (string raw in refuted)
+        // readmit the row that was just refused. Only contradicted spellings do this — a spelling
+        // that merely could not be checked has no business withdrawing a verified sibling's bucket.
+        // This covers spellings that supplied forwarder evidence; the wider imprecision of
+        // canonicalization itself is #3485.
+        foreach (string raw in contradicted)
         {
             if (_canonicalByRaw.TryGetValue(raw, out string? canonical))
                 aliases.Remove(canonical);
@@ -201,40 +218,66 @@ public sealed class ForwardedTypeAliases
     }
 
     /// <summary>
-    /// Whether an <c>AssemblyRef</c> to <paramref name="rawSpelling"/> denotes the very assembly
-    /// that supplied this alias's forwarder evidence.
+    /// What one <c>AssemblyRef</c> row says about the spelling it names.
+    ///
+    /// <para>Refutation is why this is not a <see cref="bool"/>. Before refutation existed, every
+    /// non-verifying answer meant one thing — "this row does not vouch for the spelling" — and
+    /// collapsing them cost nothing, because the spelling simply stayed out of the verified set.
+    /// Refutation gave one of those answers a second and far stronger meaning: it withdraws the
+    /// canonical bucket for the whole image, which lands on <em>other</em> spellings. Only a row
+    /// that can be checked and disagrees has earned that (found in review of <c>372be6d1</c>).</para>
+    /// </summary>
+    enum ReferenceVerdict
+    {
+        /// <summary>This row denotes the very assembly that supplied the evidence.</summary>
+        Verified,
+
+        /// <summary>This row is checkable and denotes a different assembly.</summary>
+        Contradicted,
+
+        /// <summary>
+        /// This row cannot be checked either way — it declares its identity substitutable, or the
+        /// evidence it would be checked against is itself ambiguous.
+        /// </summary>
+        Indeterminate,
+    }
+
+    /// <summary>
+    /// What an <c>AssemblyRef</c> to <paramref name="rawSpelling"/> says about the assembly that
+    /// supplied this alias's forwarder evidence.
     ///
     /// <para>The reference blob is a full public key rather than a token when
     /// <see cref="AssemblyFlags.PublicKey"/> is set, and is reduced before comparison — comparing a
     /// 160-byte key against an 8-byte token would reject every reference that spells its identity
     /// that way, dropping genuine callers.</para>
     ///
-    /// <para>Each of the remaining answers is a decline, and each is the safe direction. An
-    /// unrecorded spelling has no evidence to verify against. A retargetable reference declares its
-    /// identity substitutable, so its token is not the definition's and cannot confirm anything. An
-    /// ambiguous spelling was claimed by two differently signed assemblies, so neither can be
-    /// confirmed. An unsigned evidence assembly can only answer a reference that is itself
-    /// unsigned: a reference carrying a token could not have bound to it.</para>
+    /// <para>A retargetable reference declares its identity substitutable, so its token is not the
+    /// definition's; an ambiguous spelling was claimed by two differently signed assemblies, so no
+    /// reference can be checked against it. Neither is evidence of disagreement, so neither
+    /// refutes. An unsigned evidence assembly, by contrast, <em>can</em> answer: a reference
+    /// carrying a token could not have bound to it, so that pair genuinely disagrees.</para>
     /// </summary>
-    bool EvidenceIdentityVerified(
+    ReferenceVerdict VerdictFor(
         string rawSpelling,
         ReadOnlySpan<byte> referenceKeyOrToken,
         AssemblyFlags flags)
     {
         if (!_spellingTokens.TryGetValue(rawSpelling, out byte[]? evidenceToken))
-            return false;
+            return ReferenceVerdict.Indeterminate;
 
         if (evidenceToken.AsSpan().SequenceEqual(AmbiguousSpelling))
-            return false;
+            return ReferenceVerdict.Indeterminate;
 
         if ((flags & AssemblyFlags.Retargetable) != 0)
-            return false;
+            return ReferenceVerdict.Indeterminate;
 
         ReadOnlySpan<byte> referenceToken = (flags & AssemblyFlags.PublicKey) != 0
             ? PublicKeyTokenOf(referenceKeyOrToken)
             : referenceKeyOrToken;
 
-        return referenceToken.SequenceEqual(evidenceToken);
+        return referenceToken.SequenceEqual(evidenceToken)
+            ? ReferenceVerdict.Verified
+            : ReferenceVerdict.Contradicted;
     }
 
     /// <summary>
