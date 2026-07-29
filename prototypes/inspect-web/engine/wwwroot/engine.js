@@ -14,6 +14,8 @@ let queryPackageOpportunities;
 let queryPackagePerformance;
 let queryPackageMetadata;
 let queryPlatformMetadata;
+let queryPackageMetadataTable;
+let queryPlatformMetadataTable;
 let queryTypeMemberSource;
 let queryTypeSource;
 let queryMemberCallGraph;
@@ -45,6 +47,8 @@ export async function initializeEngine(onStatus = () => {}) {
   queryPackagePerformance = exports.BrowserInspectionEngine.QueryPackagePerformance;
   queryPackageMetadata = exports.BrowserInspectionEngine.QueryPackageMetadata;
   queryPlatformMetadata = exports.BrowserInspectionEngine.QueryPlatformMetadata;
+  queryPackageMetadataTable = exports.BrowserInspectionEngine.QueryPackageMetadataTable;
+  queryPlatformMetadataTable = exports.BrowserInspectionEngine.QueryPlatformMetadataTable;
   queryTypeMemberSource = exports.BrowserInspectionEngine.QueryTypeMemberSource;
   queryTypeSource = exports.BrowserInspectionEngine.QueryTypeSource;
   queryMemberCallGraph = exports.BrowserInspectionEngine.QueryMemberCallGraph;
@@ -203,6 +207,31 @@ export async function inspectPlatformMetadata(request) {
     request.targetFramework,
     request.assemblyFileName,
     request.pack);
+  return JSON.parse(json);
+}
+
+export async function inspectPackageMetadataTable(request) {
+  if (!queryPackageMetadataTable) throw new Error("The browser inspection engine is not initialized.");
+  const json = await queryPackageMetadataTable(
+    request.packageId,
+    request.version,
+    request.framework,
+    request.assemblyFileName,
+    request.tableIndex,
+    request.startRowId,
+    request.maxRows);
+  return JSON.parse(json);
+}
+
+export async function inspectPlatformMetadataTable(request) {
+  if (!queryPlatformMetadataTable) throw new Error("The browser inspection engine is not initialized.");
+  const json = await queryPlatformMetadataTable(
+    request.targetFramework,
+    request.assemblyFileName,
+    request.pack,
+    request.tableIndex,
+    request.startRowId,
+    request.maxRows);
   return JSON.parse(json);
 }
 

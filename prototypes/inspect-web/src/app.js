@@ -1,6 +1,6 @@
 import { lenses, packageLenses, rootCommands } from "./data.js";
 import { loadPlatformIndex } from "/src/platform-index.js";
-import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageIntegrations, inspectPackageMetadata, inspectPackageOpportunities, inspectPackagePerformance, inspectPlatformIntegrations, inspectPlatformMetadata, inspectPlatformOpportunities, inspectPlatformPerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
+import { initializeEngine, inspectExpandPlatformCallGraph, inspectListStyleOptions, inspectLoadRuntimePack, inspectLoadRuntimePackAssembly, inspectMemberAnnotatedSource, inspectMemberCallGraph, inspectMemberDocumentation, inspectMemberFacts, inspectMemberSource, inspectPackage, inspectPackageCacheStats, inspectPackageDependencies, inspectPackageDocument, inspectPackageIntegrations, inspectPackageMetadata, inspectPackageMetadataTable, inspectPackageOpportunities, inspectPackagePerformance, inspectPlatformIntegrations, inspectPlatformMetadata, inspectPlatformMetadataTable, inspectPlatformOpportunities, inspectPlatformPerformance, inspectSearchTypes, inspectTypeMemberSource, inspectTypeProjection, inspectTypeSource } from "/engine.js";
 
 function loadStoredTaste() {
   try {
@@ -109,6 +109,7 @@ const state = {
   packageMetadataLoading: false,
   packageMetadataError: "",
   packageMetadataKey: "",
+  explorer: null,
   memberCallGraph: null,
   memberCallGraphLoading: false,
   memberCallGraphError: "",
@@ -1027,6 +1028,14 @@ function render() {
   if (state.settings) {
     loadingBotSrc = null;
     renderSettingsView();
+    return;
+  }
+  // The Metadata Explorer is a full-bleed "browse the database" view layered over the
+  // package workbench. Like Settings it owns no URL and renders first, returning to the
+  // Metadata lens on close.
+  if (state.explorer?.open) {
+    loadingBotSrc = null;
+    renderMetadataExplorer();
     return;
   }
   // A loading/interstitial view holds one random bot for its whole appearance; any non-loading
@@ -1994,10 +2003,11 @@ function renderAssemblyMetadataBlock(asm) {
 
   const tables = (asm.tables || []).slice().sort((a, b) => b.rowCount - a.rowCount);
   const tableRows = tables.map(table => `
-    <div class="meta-table-row ${table.isProjected ? "" : "meta-table-unprojected"}" title="${table.isProjected ? "" : "Present in the image but not modeled by the projection"}">
+    <button type="button" class="meta-table-row ${table.isProjected ? "" : "meta-table-unprojected"}" data-mde-open="${escapeHtml(asm.assembly)}|${table.index}" title="${table.isProjected ? "Open in the metadata explorer" : "Present in the image but not modeled by the projection"}">
       <span class="meta-table-name">${escapeHtml(table.name)}</span>
       <span class="meta-table-count">${table.rowCount.toLocaleString()}</span>
-    </div>`).join("");
+      <span class="meta-table-go">→</span>
+    </button>`).join("");
 
   const h = asm.headers || {};
   const corLine = h.corFlags
@@ -2069,7 +2079,326 @@ function maybeAutoLoadPackageMetadata() {
   loadPackageMetadata();
 }
 
-// Drills from a perf-triage row to the member's Facts lens by metadata token: the token
+// ─── Metadata Explorer ─────────────────────────────────────────────────────────
+// A spatial "browse the metadata like a database" view. The overview lens hands off an
+// assembly + a starting table; the explorer lays every populated table out as a card,
+// lazy-loads each table's row window on demand, renders cells with their typed values, and
+// turns handle/range cells into ref->def jumps that transport you to the target table+row.
+
+const EXPLORER_PAGE = 50;
+
+// Opens the explorer over one assembly, focused on a table (and optionally a row). The table
+// directory comes from the already-loaded overview so the canvas can render immediately; each
+// card fetches its own row window.
+function openExplorer(assemblyFileName, tableIndex, rowId = 0) {
+  const data = state.packageMetadata;
+  const asm = (data?.assemblies || []).find(a => a.assembly === assemblyFileName)
+    || (data?.assemblies || [])[0];
+  if (!asm) return;
+  const isPlatform = Boolean(state.package?.isRuntimePack);
+  const directory = (asm.tables || [])
+    .slice()
+    .sort((a, b) => a.index - b.index)
+    .map(t => ({ index: t.index, name: t.name, rowCount: t.rowCount, isProjected: t.isProjected }));
+  state.explorer = {
+    open: true,
+    isPlatform,
+    assemblyFileName: asm.assembly,
+    pack: isPlatform ? platformPackForAssembly(asm.assembly.replace(/\.dll$/i, "")) : null,
+    packageId: state.package.id,
+    version: state.package.version,
+    framework: state.package.activeFramework,
+    directory,
+    windows: {},
+    focusIndex: Number(tableIndex),
+    highlight: rowId ? { index: Number(tableIndex), rowId: Number(rowId) } : null,
+    detail: rowId ? { index: Number(tableIndex), rowId: Number(rowId) } : null,
+    history: [],
+  };
+  render();
+}
+
+function closeExplorer() {
+  state.explorer = null;
+  render();
+}
+
+// Escape / back: pop the ref->def history, else close.
+function explorerBack() {
+  const ex = state.explorer;
+  if (!ex) return;
+  if (ex.history.length) {
+    const prev = ex.history.pop();
+    ex.focusIndex = prev.index;
+    ex.highlight = prev.rowId ? { index: prev.index, rowId: prev.rowId } : null;
+    ex.detail = prev.rowId ? { index: prev.index, rowId: prev.rowId } : null;
+    render();
+    explorerScrollToFocus();
+    return;
+  }
+  closeExplorer();
+}
+
+function explorerTableName(index) {
+  const hit = state.explorer?.directory.find(t => t.index === index);
+  return hit ? hit.name : `#${index}`;
+}
+
+async function loadExplorerWindow(index, startRowId = 1) {
+  const ex = state.explorer;
+  if (!ex) return;
+  const existing = ex.windows[index];
+  if (existing && (existing.loading || (existing.data && existing.data.startRowId === startRowId))) return;
+  ex.windows[index] = { loading: true, error: "", data: existing?.data || null, startRowId };
+  render();
+  try {
+    const request = {
+      assemblyFileName: ex.assemblyFileName,
+      tableIndex: index,
+      startRowId,
+      maxRows: EXPLORER_PAGE,
+    };
+    const result = ex.isPlatform
+      ? await inspectPlatformMetadataTable({ ...request, targetFramework: ex.framework, pack: ex.pack })
+      : await inspectPackageMetadataTable({ ...request, packageId: ex.packageId, version: ex.version, framework: ex.framework });
+    if (state.explorer !== ex) return;
+    ex.windows[index] = { loading: false, error: result.error || "", data: result, startRowId };
+  } catch (error) {
+    if (state.explorer !== ex) return;
+    ex.windows[index] = { loading: false, error: String(error?.message || error), data: null, startRowId };
+  } finally {
+    if (state.explorer === ex) render();
+  }
+}
+
+// ref->def: push the current focus, then transport to the target table+row, loading the
+// window that contains it if needed and highlighting the row.
+function explorerJump(index, rowId) {
+  const ex = state.explorer;
+  if (!ex) return;
+  ex.history.push({ index: ex.focusIndex, rowId: ex.highlight?.rowId || 0 });
+  ex.focusIndex = index;
+  ex.highlight = rowId ? { index, rowId } : null;
+  ex.detail = rowId ? { index, rowId } : null;
+  // Page the target window so the row is on-screen: align the window start to the row's page.
+  const start = rowId ? Math.max(1, Math.floor((rowId - 1) / EXPLORER_PAGE) * EXPLORER_PAGE + 1) : 1;
+  const win = ex.windows[index];
+  if (!win || !win.data || rowId < win.data.startRowId || rowId >= win.data.startRowId + (win.data.rows?.length || 0)) {
+    loadExplorerWindow(index, start);
+  } else {
+    render();
+  }
+  explorerScrollToFocus();
+}
+
+function explorerScrollToFocus() {
+  requestAnimationFrame(() => {
+    const ex = state.explorer;
+    if (!ex) return;
+    const card = document.querySelector(`.mde-card[data-mde-index="${ex.focusIndex}"]`);
+    if (card) card.scrollIntoView({ behavior: "smooth", block: "start" });
+    const row = ex.highlight && document.querySelector(`.mde-row[data-mde-row="${ex.highlight.index}:${ex.highlight.rowId}"]`);
+    if (row) row.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+}
+
+function renderMetadataExplorer() {
+  const ex = state.explorer;
+  const chips = ex.directory.map(t => `
+    <button type="button" class="mde-chip ${t.index === ex.focusIndex ? "active" : ""} ${t.isProjected ? "" : "mde-chip-unprojected"}" data-mde-chip="${t.index}" title="${t.rowCount.toLocaleString()} rows${t.isProjected ? "" : " · not modeled"}">
+      ${escapeHtml(t.name)}<span class="mde-chip-count">${t.rowCount.toLocaleString()}</span>
+    </button>`).join("");
+
+  const cards = ex.directory.map(t => renderExplorerCard(t)).join("");
+  const detail = renderExplorerDetail();
+
+  app.innerHTML = `
+    <div class="metadata-explorer">
+      <header class="mde-bar">
+        <button id="mde-back" class="mde-back" title="Back (Esc)">${ex.history.length ? "← back" : "← close"}</button>
+        <div class="mde-title">
+          <span class="mde-title-asm">${escapeHtml(ex.assemblyFileName)}</span>
+          <span class="mde-title-note">metadata tables · ${ex.directory.length} populated · click a ref to jump</span>
+        </div>
+        <button id="mde-close" class="mde-close" title="Close (Esc to step back)">✕</button>
+      </header>
+      <nav class="mde-chips">${chips}</nav>
+      <div class="mde-body">
+        <div class="mde-canvas" id="mde-canvas">${cards}</div>
+        ${detail}
+      </div>
+    </div>`;
+  bindMetadataExplorerEvents();
+}
+
+function renderExplorerCard(t) {
+  const ex = state.explorer;
+  const win = ex.windows[t.index];
+  const focused = t.index === ex.focusIndex;
+  let body;
+  if (!t.isProjected) {
+    body = `<div class="mde-card-empty">This table has ${t.rowCount.toLocaleString()} rows but is not modeled by the projection yet.</div>`;
+  } else if (win?.loading && !win.data) {
+    body = `<div class="mde-card-empty"><span class="loader"></span> Reading rows…</div>`;
+  } else if (win?.error) {
+    body = `<div class="mde-card-empty mde-card-error">△ ${escapeHtml(win.error)}</div>`;
+  } else if (win?.data) {
+    body = renderExplorerGrid(win.data);
+  } else {
+    body = `<div class="mde-card-empty mde-card-lazy" data-mde-needs-load="${t.index}"><span class="loader"></span> Loading ${t.name}…</div>`;
+  }
+
+  const win2 = win?.data;
+  const pager = win2 && win2.rows?.length
+    ? (() => {
+        const from = win2.startRowId;
+        const to = win2.startRowId + win2.rows.length - 1;
+        const hasPrev = from > 1;
+        const hasNext = to < win2.rowCount;
+        return `<div class="mde-pager">
+          <span>rows ${from.toLocaleString()}–${to.toLocaleString()} of ${win2.rowCount.toLocaleString()}</span>
+          <span class="mde-pager-btns">
+            <button type="button" data-mde-page="${t.index}:${Math.max(1, from - EXPLORER_PAGE)}" ${hasPrev ? "" : "disabled"}>‹ prev</button>
+            <button type="button" data-mde-page="${t.index}:${to + 1}" ${hasNext ? "" : "disabled"}>next ›</button>
+          </span>
+        </div>`;
+      })()
+    : "";
+
+  return `
+    <section class="mde-card ${focused ? "mde-card-focus" : ""} ${t.isProjected ? "" : "mde-card-dim"}" data-mde-index="${t.index}">
+      <div class="mde-card-head">
+        <h3>${escapeHtml(t.name)}</h3>
+        <span class="mde-card-meta">table ${t.index} · ${t.rowCount.toLocaleString()} row${t.rowCount === 1 ? "" : "s"}</span>
+      </div>
+      ${body}
+      ${pager}
+    </section>`;
+}
+
+function renderExplorerGrid(data) {
+  const ex = state.explorer;
+  const cols = data.columns || [];
+  const header = `<tr><th class="mde-gutter">#</th>${cols.map(c => `<th title="${escapeHtml(c.kind)}${c.candidateTargets?.length ? " → " + c.candidateTargets.map(explorerTableName).join(", ") : ""}">${escapeHtml(c.name)}</th>`).join("")}</tr>`;
+  const rows = (data.rows || []).map(row => {
+    const hot = ex.highlight && ex.highlight.index === data.index && ex.highlight.rowId === row.rowId;
+    const sel = ex.detail && ex.detail.index === data.index && ex.detail.rowId === row.rowId;
+    const cells = row.cells.map((cell, i) => `<td>${renderExplorerCell(cell, cols[i])}</td>`).join("");
+    return `<tr class="mde-row ${hot ? "mde-row-hot" : ""} ${sel ? "mde-row-sel" : ""}" data-mde-row="${data.index}:${row.rowId}"><td class="mde-gutter" title="token 0x${(row.token >>> 0).toString(16)}">${row.rowId}</td>${cells}</tr>`;
+  }).join("");
+  return `<div class="mde-grid-scroll"><table class="mde-grid"><thead>${header}</thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function renderExplorerCell(cell, column) {
+  if (!cell) return "";
+  switch (cell.kind) {
+    case "nil":
+      return `<span class="mde-nil">·</span>`;
+    case "scalar":
+      return `<span class="mde-cell-scalar">${escapeHtml(cell.display ?? String(cell.raw ?? ""))}</span>`;
+    case "flags":
+      return `<span class="mde-cell-flags" title="0x${((cell.raw ?? 0) >>> 0).toString(16)}">${escapeHtml(cell.decoded || String(cell.raw ?? 0))}</span>`;
+    case "heap": {
+      const val = cell.text != null ? cell.text : cell.preview;
+      const cls = `mde-cell-heap mde-heap-${(cell.heap || "").toLowerCase()}`;
+      return `<span class="${cls}" title="#${escapeHtml(cell.heap || "")} @${cell.offset} · ${cell.length} byte${cell.length === 1 ? "" : "s"}">${escapeHtml(val ?? "")}${cell.truncated ? "…" : ""}</span>`;
+    }
+    case "handle": {
+      if (!cell.targetRowId) return `<span class="mde-nil">nil</span>`;
+      const label = cell.display || `${explorerTableName(cell.targetTable)} #${cell.targetRowId}`;
+      return `<button type="button" class="mde-ref" data-mde-jump="${cell.targetTable}:${cell.targetRowId}" title="→ ${escapeHtml(explorerTableName(cell.targetTable))} #${cell.targetRowId}">${escapeHtml(label)}${cell.truncated ? "…" : ""} <span class="mde-ref-arrow">↗</span></button>`;
+    }
+    case "range": {
+      if (!cell.count) return `<span class="mde-nil">empty</span>`;
+      return `<button type="button" class="mde-ref mde-ref-range" data-mde-jump="${cell.targetTable}:${cell.startRowId}" title="→ ${escapeHtml(explorerTableName(cell.targetTable))} rows ${cell.startRowId}‥${cell.endRowId}">${escapeHtml(explorerTableName(cell.targetTable))} #${cell.startRowId}‥${cell.endRowId} <span class="mde-ref-count">${cell.count}</span></button>`;
+    }
+    case "malformed":
+      return `<span class="mde-cell-malformed" title="${escapeHtml(cell.detail || "")}">malformed</span>`;
+    default:
+      return "";
+  }
+}
+
+// The row inspector: the selected row's cells laid out vertically, labeled by column, with
+// handle/range cells still jumpable. A focused "read this one row" companion to the grid.
+function renderExplorerDetail() {
+  const ex = state.explorer;
+  if (!ex.detail) return "";
+  const win = ex.windows[ex.detail.index];
+  const row = win?.data?.rows?.find(r => r.rowId === ex.detail.rowId);
+  if (!row) return "";
+  const cols = win.data.columns || [];
+  const fields = row.cells.map((cell, i) => `
+    <div class="mde-detail-field">
+      <span class="mde-detail-k">${escapeHtml(cols[i]?.name || `col ${i}`)}</span>
+      <span class="mde-detail-v">${renderExplorerCell(cell, cols[i])}</span>
+    </div>`).join("");
+  return `
+    <aside class="mde-detail">
+      <div class="mde-detail-head">
+        <span class="mde-detail-title">${escapeHtml(win.data.name)} #${row.rowId}</span>
+        <button type="button" class="mde-detail-close" data-mde-detail-close="1" title="Close">✕</button>
+      </div>
+      <div class="mde-detail-token">token 0x${(row.token >>> 0).toString(16)}</div>
+      <div class="mde-detail-fields">${fields}</div>
+    </aside>`;
+}
+
+let explorerObserver = null;
+function bindMetadataExplorerEvents() {
+  document.querySelector("#mde-back")?.addEventListener("click", explorerBack);
+  document.querySelector("#mde-close")?.addEventListener("click", closeExplorer);
+  document.querySelectorAll("[data-mde-chip]").forEach(chip =>
+    chip.addEventListener("click", () => {
+      const index = Number(chip.dataset.mdeChip);
+      state.explorer.focusIndex = index;
+      state.explorer.highlight = null;
+      loadExplorerWindow(index);
+      explorerScrollToFocus();
+    }));
+  document.querySelectorAll("[data-mde-jump]").forEach(btn =>
+    btn.addEventListener("click", event => {
+      event.stopPropagation();
+      const [index, rowId] = btn.dataset.mdeJump.split(":").map(Number);
+      explorerJump(index, rowId);
+    }));
+  document.querySelectorAll(".mde-row[data-mde-row]").forEach(tr =>
+    tr.addEventListener("click", () => {
+      const [index, rowId] = tr.dataset.mdeRow.split(":").map(Number);
+      state.explorer.detail = { index, rowId };
+      state.explorer.highlight = { index, rowId };
+      render();
+    }));
+  document.querySelectorAll("[data-mde-page]").forEach(btn =>
+    btn.addEventListener("click", () => {
+      const [index, start] = btn.dataset.mdePage.split(":").map(Number);
+      loadExplorerWindow(index, start);
+    }));
+  document.querySelector("[data-mde-detail-close]")?.addEventListener("click", () => {
+    state.explorer.detail = null;
+    render();
+  });
+
+  // Hydrate cards as they scroll into view (the "wall of tables filling in as you pan" feel).
+  explorerObserver?.disconnect();
+  explorerObserver = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) {
+        const index = Number(entry.target.dataset.mdeNeedsLoad);
+        loadExplorerWindow(index);
+      }
+    }
+  }, { root: document.querySelector("#mde-canvas"), rootMargin: "200px" });
+  document.querySelectorAll("[data-mde-needs-load]").forEach(el => explorerObserver.observe(el));
+
+  // Always ensure the focused table is loaded and in view.
+  if (state.explorer && !state.explorer.windows[state.explorer.focusIndex]) {
+    loadExplorerWindow(state.explorer.focusIndex);
+  }
+  explorerScrollToFocus();
+}
+
+
 // is joined against the same public API surface the nav pane renders, so the member,
 // its overload, and its declaring type are all resolvable client-side.
 function drillToPerfMember(token) {
@@ -2953,6 +3282,11 @@ function bindEvents() {
   bindPlatformLensPicker("data-platform-opportunities-library", "opportunities", loadPackageOpportunities);
   bindPlatformLensPicker("data-platform-analysis-library", "analysis", loadPackagePerformance);
   bindPlatformLensPicker("data-platform-metadata-library", "metadata", loadPackageMetadata);
+  document.querySelectorAll("[data-mde-open]").forEach(btn =>
+    btn.addEventListener("click", () => {
+      const [assembly, tableIndex] = btn.dataset.mdeOpen.split("|");
+      openExplorer(assembly, Number(tableIndex));
+    }));
   bindCommandCompletionClicks(document);
 
   document.querySelector("#framework").addEventListener("change", event => {
@@ -6753,6 +7087,15 @@ function fmtBytes(bytes) {
 }
 
 document.addEventListener("keydown", event => {
+  // The Metadata Explorer is a full-screen modal-style view; Escape steps back through
+  // ref->def jumps and finally closes it. Handle before everything else.
+  if (state.explorer?.open) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      explorerBack();
+    }
+    return;
+  }
   // Settings is a modal-style page reachable from home too, so handle its Escape before the
   // home bail below (which otherwise swallows the keystroke on the home page).
   if (state.settings) {

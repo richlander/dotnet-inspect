@@ -1,6 +1,8 @@
 using System.IO.Compression;
+using System.Collections.Immutable;
 using System.Net.Http.Headers;
 using System.Reflection.Metadata;
+using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices.JavaScript;
 using System.Runtime.Versioning;
@@ -357,7 +359,58 @@ public sealed record BrowserMetadataHeap(
 public sealed record BrowserMetadataTable(
     string Name,
     int RowCount,
-    bool IsProjected);
+    bool IsProjected,
+    int Index);
+
+// A windowed projection of one metadata table: schema + a page of rows whose cells
+// carry typed, resolvable references (the substrate for the spatial metadata explorer).
+public sealed record BrowserMetadataWindow(
+    string Assembly,
+    int Index,
+    string Name,
+    int RowCount,
+    BrowserMetadataColumn[] Columns,
+    BrowserMetadataRow[] Rows,
+    int StartRowId,
+    bool Truncated,
+    string? Error);
+
+public sealed record BrowserMetadataColumn(
+    string Name,
+    string Kind,
+    int[] CandidateTargets);
+
+public sealed record BrowserMetadataRow(
+    int RowId,
+    int Token,
+    BrowserMetadataCell[] Cells);
+
+// A flat tagged union over MetadataValue. Kind selects which fields are meaningful:
+//   nil       -> (none)
+//   scalar    -> Raw, Display
+//   flags     -> Raw, Decoded
+//   heap      -> Heap, Offset, Length, Text, Preview, Truncated
+//   handle    -> TargetTable, TargetRowId, Token, Display, Truncated (=display truncated)
+//   range     -> TargetTable, StartRowId, EndRowId, Count
+//   malformed -> Detail
+public sealed record BrowserMetadataCell(
+    string Kind,
+    long? Raw = null,
+    string? Display = null,
+    string? Decoded = null,
+    string? Heap = null,
+    int? Offset = null,
+    int? Length = null,
+    string? Text = null,
+    string? Preview = null,
+    bool? Truncated = null,
+    int? TargetTable = null,
+    int? TargetRowId = null,
+    int? StartRowId = null,
+    int? EndRowId = null,
+    int? Count = null,
+    int? Token = null,
+    string? Detail = null);
 
 public sealed record BrowserMetadataHeaders(
     string Machine,
@@ -381,6 +434,7 @@ public sealed record BrowserMetadataHeaders(
 [JsonSerializable(typeof(BrowserPackageOpportunities))]
 [JsonSerializable(typeof(BrowserPackagePerformance))]
 [JsonSerializable(typeof(BrowserPackageMetadata))]
+[JsonSerializable(typeof(BrowserMetadataWindow))]
 [JsonSerializable(typeof(BrowserWorkspacePackage[]))]
 [JsonSerializable(typeof(BrowserTypeCandidate[]))]
 [JsonSerializable(typeof(BrowserTypeSearchHit[]))]
@@ -1778,7 +1832,7 @@ public static partial class BrowserInspectionEngine
         // ECMA-335 tables and most are empty. Keep them in physical table order.
         var tables = overview.Tables
             .Where(table => table.RowCount > 0)
-            .Select(table => new BrowserMetadataTable(table.Name, table.RowCount, table.IsProjected))
+            .Select(table => new BrowserMetadataTable(table.Name, table.RowCount, table.IsProjected, (int)table.Index))
             .ToArray();
 
         var cor = overview.Headers.Cor;
@@ -1803,6 +1857,184 @@ public static partial class BrowserInspectionEngine
             overview.Tables.Length,
             overview.Tables.Count(table => table.IsProjected && table.RowCount > 0),
             headers);
+    }
+
+    // Windowed projection of one metadata table for the spatial explorer. Mirrors the
+    // acquisition of DescribeAssemblyMetadata (open a session over the PE bytes), then asks
+    // ILInspector.Metadata for a single table's row window and projects each typed cell onto
+    // the flat BrowserMetadataCell union. Never throws into the caller: a bad table index or a
+    // missing image yields a window carrying an Error rather than success-shaped empty rows.
+    static BrowserMetadataWindow BuildTableWindow(
+        byte[] image,
+        string assemblyName,
+        string provenance,
+        int tableIndex,
+        int startRowId,
+        int maxRows)
+    {
+        if (!Enum.IsDefined(typeof(TableIndex), (byte)Math.Clamp(tableIndex, 0, 63)) || tableIndex is < 0 or > 63)
+            return EmptyWindow(assemblyName, tableIndex, $"Table index {tableIndex} is not a valid ECMA-335 table.");
+
+        var table = (TableIndex)tableIndex;
+        var start = Math.Max(1, startRowId);
+        var page = Math.Clamp(maxRows, 1, 500);
+
+        try
+        {
+            var reference = new ResolvedAssemblyReference(
+                new AssemblyReferenceIdentity(assemblyName, null, null, null),
+                Path: null,
+                OpenRead: () => new MemoryStream(image, writable: false),
+                Provenance: provenance);
+            using var inspection = AssemblyInspectionSession.Open(reference);
+            if (!inspection.HasMetadata)
+                return EmptyWindow(assemblyName, tableIndex, "The image carries no metadata.");
+
+            var options = new MetadataProjectionOptions
+            {
+                Tables = ImmutableArray.Create(table),
+                StartRowId = start,
+                MaxRowsPerTable = page,
+            };
+            var projection = inspection.MetadataTables(options);
+            var view = projection.Tables.FirstOrDefault(t => (int)t.Index == tableIndex);
+            if (view is null)
+                return EmptyWindow(assemblyName, tableIndex, $"The {table} table is not modeled by the projection.");
+
+            var columns = view.Columns
+                .Select(column => new BrowserMetadataColumn(
+                    column.Name,
+                    column.Kind.ToString(),
+                    column.CandidateTargets.Select(candidate => (int)candidate).ToArray()))
+                .ToArray();
+
+            var rows = view.Rows
+                .Select(row => new BrowserMetadataRow(
+                    row.RowId,
+                    row.Token,
+                    row.Cells.Select(ProjectMetadataCell).ToArray()))
+                .ToArray();
+
+            return new BrowserMetadataWindow(
+                assemblyName,
+                (int)view.Index,
+                view.Name,
+                view.RowCount,
+                columns,
+                rows,
+                start,
+                view.Truncation is not null,
+                null);
+        }
+        catch (Exception exception)
+        {
+            return EmptyWindow(assemblyName, tableIndex, exception.Message);
+        }
+
+        static BrowserMetadataWindow EmptyWindow(string assembly, int index, string error) =>
+            new(assembly, index, index >= 0 && index <= 63 ? ((TableIndex)index).ToString() : $"#{index}",
+                0, Array.Empty<BrowserMetadataColumn>(), Array.Empty<BrowserMetadataRow>(), 1, false, error);
+    }
+
+    static BrowserMetadataCell ProjectMetadataCell(MetadataValue value) => value switch
+    {
+        MetadataValue.Nil => new BrowserMetadataCell("nil"),
+        MetadataValue.Scalar scalar => new BrowserMetadataCell("scalar", Raw: scalar.Raw, Display: scalar.Display),
+        MetadataValue.Flags flags => new BrowserMetadataCell("flags", Raw: flags.Raw, Decoded: flags.Decoded),
+        MetadataValue.HeapReference heap => new BrowserMetadataCell(
+            "heap",
+            Heap: heap.Heap.ToString(),
+            Offset: heap.Offset,
+            Length: heap.Length,
+            Text: heap.Text,
+            Preview: heap.Preview,
+            Truncated: heap.Truncated),
+        MetadataValue.Handle handle => new BrowserMetadataCell(
+            "handle",
+            TargetTable: (int)handle.Reference.TargetTable,
+            TargetRowId: handle.Reference.TargetRowId,
+            Token: handle.Reference.Token,
+            Display: handle.Reference.Display,
+            Truncated: handle.Reference.DisplayTruncated),
+        MetadataValue.Range range => new BrowserMetadataCell(
+            "range",
+            TargetTable: (int)range.Reference.TargetTable,
+            StartRowId: range.Reference.StartRowId,
+            EndRowId: range.Reference.EndRowId,
+            Count: range.Reference.Count),
+        MetadataValue.Malformed malformed => new BrowserMetadataCell("malformed", Detail: malformed.Detail),
+        _ => new BrowserMetadataCell("nil"),
+    };
+
+    // One NuGet-package assembly's table window. Re-acquires the package (session-cached) and
+    // reads the named lib/{tfm} assembly's bytes, then projects the requested table page.
+    [JSExport]
+    public static async Task<string> QueryPackageMetadataTable(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyFileName,
+        int tableIndex,
+        int startRowId,
+        int maxRows)
+    {
+        var normalizedId = packageId.ToLowerInvariant();
+        var normalizedVersion = version.ToLowerInvariant();
+        var packageBytes = await GetPackageBytesAsync(normalizedId, normalizedVersion);
+
+        byte[]? image = null;
+        using (var stream = new MemoryStream(packageBytes, writable: false))
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Read))
+        {
+            var prefix = $"lib/{targetFramework}/";
+            var entry = archive.Entries.FirstOrDefault(candidate =>
+                candidate.FullName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(candidate.Name, assemblyFileName, StringComparison.OrdinalIgnoreCase));
+            if (entry is not null)
+            {
+                using var assemblyStream = entry.Open();
+                using var buffer = new MemoryStream();
+                await assemblyStream.CopyToAsync(buffer);
+                image = buffer.ToArray();
+            }
+        }
+
+        BrowserMetadataWindow window = image is null
+            ? new BrowserMetadataWindow(assemblyFileName, tableIndex,
+                tableIndex is >= 0 and <= 63 ? ((TableIndex)tableIndex).ToString() : $"#{tableIndex}",
+                0, Array.Empty<BrowserMetadataColumn>(), Array.Empty<BrowserMetadataRow>(), 1, false,
+                $"Could not find {assemblyFileName} in {prefixOf(targetFramework)}.")
+            : BuildTableWindow(image, assemblyFileName, $"{packageId}/{version}/{assemblyFileName}", tableIndex, startRowId, maxRows);
+
+        return JsonSerializer.Serialize(window, BrowserJsonContext.Default.BrowserMetadataWindow);
+
+        static string prefixOf(string tfm) => $"lib/{tfm}/";
+    }
+
+    // One .NET platform library's table window (runtime pseudo-package: no nupkg).
+    [JSExport]
+    public static async Task<string> QueryPlatformMetadataTable(
+        string targetFramework,
+        string assemblyFileName,
+        string pack,
+        int tableIndex,
+        int startRowId,
+        int maxRows)
+    {
+        var fileName = NormalizeRuntimeAssemblyFileName(assemblyFileName);
+        var packId = RuntimePackIdForToken(pack);
+        var major = ParseTfmMajor(targetFramework);
+        var version = await ResolveRuntimePackVersionAsync(packId, major);
+        var bytes = await AcquireRuntimeFileAsync(packId, version, fileName);
+
+        BrowserMetadataWindow window = bytes is null
+            ? new BrowserMetadataWindow(fileName, tableIndex,
+                tableIndex is >= 0 and <= 63 ? ((TableIndex)tableIndex).ToString() : $"#{tableIndex}",
+                0, Array.Empty<BrowserMetadataColumn>(), Array.Empty<BrowserMetadataRow>(), 1, false,
+                $"Could not acquire {fileName} from {packId} {version}.")
+            : BuildTableWindow(bytes, fileName, $"{packId}/{version}/{fileName}", tableIndex, startRowId, maxRows);
+
+        return JsonSerializer.Serialize(window, BrowserJsonContext.Default.BrowserMetadataWindow);
     }
 
     private static int RankConfidence(string confidence) => confidence?.ToLowerInvariant() switch
