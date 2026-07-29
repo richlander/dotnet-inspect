@@ -9802,11 +9802,11 @@ public class CommandExecutionTests
 
             Assert.Equal(0, exit);
             Assert.Contains("## Package Info", output);
-            Assert.Contains("## Library Files", output);
+            Assert.Contains("## Files: Library", output);
             Assert.DoesNotContain("## Dependencies", output);
             Assert.DoesNotContain("## Manifest", output);
             Assert.DoesNotContain("## Signals", output);
-            Assert.True(output.IndexOf("## Package Info", StringComparison.Ordinal) < output.IndexOf("## Library Files", StringComparison.Ordinal));
+            Assert.True(output.IndexOf("## Package Info", StringComparison.Ordinal) < output.IndexOf("## Files: Library", StringComparison.Ordinal));
             Assert.DoesNotContain("Tip:", error);
         }
         finally
@@ -10045,7 +10045,7 @@ public class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Library Files");
 
             Assert.Equal(0, exit);
-            Assert.Contains("## Library Files", output);
+            Assert.Contains("## Files: Library", output);
             Assert.Contains("| Path | Size |", output);
             Assert.Contains("| lib/net10.0/Latest.One.dll |", output);
             Assert.Contains("| lib/net10.0/Latest.One.xml | 7 |", output);
@@ -10068,10 +10068,167 @@ public class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync("package", packagePath, "-v:n");
 
             Assert.Equal(0, exit);
-            Assert.Contains("## Library Files", output);
+            Assert.Contains("## Files: Library", output);
             Assert.Contains("| lib/net10.0/Latest.One.xml | 7 |", output);
             Assert.DoesNotContain("| lib/net10.0/Latest.One.xml | 0 |", output);
             Assert.DoesNotContain("Tip:", error);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A package exercising every <c>Files:</c> family root at once: <c>lib/</c>, <c>ref/</c>,
+    /// <c>runtimes/</c>, a markdown file, and the <c>.nuspec</c> manifest.
+    /// </summary>
+    private static (string PackagePath, string TempDir) CreateLocalLayoutPackage()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"package-test-{Guid.NewGuid():N}");
+        var packageRoot = Path.Combine(tempDir, "content");
+        var libDir = Path.Combine(packageRoot, "lib", "net8.0");
+        var refDir = Path.Combine(packageRoot, "ref", "net8.0");
+        var runtimeDir = Path.Combine(packageRoot, "runtimes", "win-x64", "native");
+        Directory.CreateDirectory(libDir);
+        Directory.CreateDirectory(refDir);
+        Directory.CreateDirectory(runtimeDir);
+        File.Copy(TestAssemblyPath, Path.Combine(libDir, "Layout.dll"));
+        File.Copy(TestAssemblyPath, Path.Combine(refDir, "Layout.dll"));
+        File.WriteAllText(Path.Combine(runtimeDir, "layout.native.txt"), "native");
+        File.WriteAllText(Path.Combine(packageRoot, "README.md"), "readme");
+        File.WriteAllText(
+            Path.Combine(packageRoot, "Test.Layout.nuspec"),
+            """
+            <?xml version="1.0" encoding="utf-8"?>
+            <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+              <metadata>
+                <id>Test.Layout</id>
+                <version>1.0.0</version>
+                <authors>Tests</authors>
+                <description>Layout fixture</description>
+              </metadata>
+            </package>
+            """);
+
+        var packagePath = Path.Combine(tempDir, "Test.Layout.1.0.0.nupkg");
+        ZipFile.CreateFromDirectory(packageRoot, packagePath);
+        return (packagePath, tempDir);
+    }
+
+    [Fact]
+    public async Task Package_FilesFamily_RendersEachLayoutRoot()
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        try
+        {
+            var (refExit, refOutput, _) = await RunAppAsync("package", packagePath, "-S", "Files: Reference");
+            Assert.Equal(0, refExit);
+            Assert.Contains("## Files: Reference", refOutput);
+            Assert.Contains("| ref/net8.0/Layout.dll |", refOutput);
+            Assert.DoesNotContain("| lib/net8.0/Layout.dll |", refOutput);
+
+            var (runtimeExit, runtimeOutput, _) = await RunAppAsync("package", packagePath, "-S", "Files: Runtime");
+            Assert.Equal(0, runtimeExit);
+            Assert.Contains("## Files: Runtime", runtimeOutput);
+            Assert.Contains("| runtimes/win-x64/native/layout.native.txt |", runtimeOutput);
+
+            var (nuspecExit, nuspecOutput, _) = await RunAppAsync("package", packagePath, "-S", "Files: Nuspec");
+            Assert.Equal(0, nuspecExit);
+            Assert.Contains("## Files: Nuspec", nuspecOutput);
+            // The manifest section is a path listing, not the document itself.
+            Assert.Contains("| Test.Layout.nuspec |", nuspecOutput);
+            Assert.DoesNotContain("<package xmlns", nuspecOutput);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_Files_IncludesTheNuspecManifest()
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        try
+        {
+            // Regression: the manifest used to be classified as zip plumbing, which made it
+            // unreachable through Files, --path, and --layout alike.
+            var (exit, output, _) = await RunAppAsync("package", packagePath, "-S", "Files");
+            Assert.Equal(0, exit);
+            Assert.Contains("Test.Layout.nuspec", output);
+
+            var (pathExit, pathOutput, _) = await RunAppAsync("package", packagePath, "--path", "Test.Layout.nuspec");
+            Assert.Equal(0, pathExit);
+            Assert.Contains("Test.Layout.nuspec", pathOutput);
+
+            var (layoutExit, layoutOutput, _) = await RunAppAsync("package", packagePath, "--layout");
+            Assert.Equal(0, layoutExit);
+            Assert.Contains("Test.Layout.nuspec", layoutOutput);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_FilesNuspec_PrintRendersTheManifestDocument()
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        try
+        {
+            var (exit, output, _) = await RunAppAsync("package", packagePath, "-S", "Files: Nuspec", "--print");
+
+            Assert.Equal(0, exit);
+            Assert.Contains("<package xmlns", output);
+            Assert.Contains("<id>Test.Layout</id>", output);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_FilesCategory_DropsEmptyMembersButStillCountsThem()
+    {
+        // CreateLocalLibPackage has lib/ only: no ref/, runtimes/, markdown, or nuspec.
+        var (packagePath, tempDir) = CreateLocalLibPackage();
+        try
+        {
+            var (renderExit, renderOutput, _) = await RunAppAsync("package", packagePath, "-S", "@Files");
+            Assert.Equal(0, renderExit);
+            Assert.Contains("## Files: Library", renderOutput);
+            Assert.DoesNotContain("## Files: Reference", renderOutput);
+            Assert.DoesNotContain("## Files: Runtime", renderOutput);
+
+            // --count reports the whole category, including the members that rendered nothing.
+            var (countExit, countOutput, _) = await RunAppAsync("package", packagePath, "-S", "@Files", "--count");
+            Assert.Equal(0, countExit);
+            Assert.Contains("| Files: Reference | 0 |", countOutput);
+            Assert.Contains("| Files: Runtime | 0 |", countOutput);
+            Assert.Contains("| Files: Library | 4 |", countOutput);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Package_LegacyFileSectionNames_StillResolve()
+    {
+        var (packagePath, tempDir) = CreateLocalLayoutPackage();
+        try
+        {
+            var (libExit, libOutput, _) = await RunAppAsync("package", packagePath, "-S", "Library Files");
+            Assert.Equal(0, libExit);
+            Assert.Contains("## Files: Library", libOutput);
+
+            var (mdExit, mdOutput, _) = await RunAppAsync("package", packagePath, "-S", "Markdown Files");
+            Assert.Equal(0, mdExit);
+            Assert.Contains("## Files: Markdown", mdOutput);
         }
         finally
         {
@@ -10088,7 +10245,7 @@ public class CommandExecutionTests
             var (exit, output, error) = await RunAppAsync("package", packagePath, "-S", "Markdown Files");
 
             Assert.Equal(0, exit);
-            Assert.Contains("## Markdown Files", output);
+            Assert.Contains("## Files: Markdown", output);
             Assert.Contains("| Path | Size |", output);
             Assert.Contains("| AGENTS.md | 6 |", output);
             Assert.Contains("| PACKAGE.md | 6 |", output);

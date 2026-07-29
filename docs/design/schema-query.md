@@ -67,8 +67,8 @@ var schema = new DocumentSchema()
     .Add("Package Info", "field", "Version", "Type", "Size", "Highest TFM", "TFM Count", "Built", ...)
     .Add("Grounding", "column", "Path", "Size")
     .Add("Target Frameworks", "column", "TFM")
-    .Add("Library Files", "column", "Path", "Size")
-    .Add("Markdown Files", "column", "Path", "Size")
+    .Add("Files: Library", "column", "Path", "Size")
+    .Add("Files: Markdown", "column", "Path", "Size")
     .Add("Dependencies", "column", "Target Framework", "Id", "Version")
     .Add("Files", "column", "Path", "Size");
 ```

@@ -51,9 +51,9 @@ Two orthogonal facts round out a section's placement:
 - **Target flag** (`Info`) — the command's identity section (library: `Library
   Info`). It is the only thing `-v:m` renders; it is described by fields, not a
   size class.
-- **Topical category membership** — which visible doors (`@Surface`,
-  `@Performance`, `@Audit`, `@SourceLink`, `@Integrations`) surface
-  the section. `@All`/`@Hidden` remain internal computed poles (below); they are
+- **Topical category membership** — which visible doors (library: `@Surface`,
+  `@Performance`, `@Audit`, `@SourceLink`, `@Integrations`; package: `@Files`)
+  surface the section. `@All`/`@Hidden` remain internal computed poles (below); they are
   not user-facing doors.
 
 A category earns its keep only at two or more members: a door with a single
@@ -69,9 +69,19 @@ reachable through that family's door, and a prefix is only appropriate when the
 family is *exclusively* owned by one door. `P/Invoke Methods` belongs to both
 `@Audit` and `@Surface`, so no prefix can describe it — cross-cutting lenses
 stay unprefixed, and only exclusive families (`Performance:`, `Integration:`,
-`SourceLink:`) carry a prefix. The `SourceLink` family's half of this is
-enforced by a test that pins the door's membership to the set of
-`SourceLink:`-prefixed sections.
+`SourceLink:`, `Files:`) carry a prefix. The `SourceLink` and `Files` families
+each enforce their half of this with a test that pins the door's membership to
+the set of correspondingly prefixed sections, so a new prefixed section that
+skips the door — or a member that loses its prefix — fails rather than quietly
+opening a discoverability hole.
+
+The converse also holds: an *unprefixed* section stays out of the door. The
+package command's plain `Files` is the unfiltered full-depth listing, a superset
+of every `Files: X` slice, so it is neither prefixed nor a member of `@Files`.
+Admitting it would make `-S @Files` render each `lib/` path twice. This is the
+one place where a name reads like a family root without being one, and it is
+deliberate: `Files` answers "what is in this package", while the family answers
+"what is in this package *of a given kind*".
 
 **A section lists in `-D` only when >0 rows can be established cheaply.** If
 applicability is a *capability* predicate (the scan could run) rather than a
@@ -81,7 +91,10 @@ exact name, through `@All`/`--schema`, and through any category door that roots
 it — a door drops zero-row members from render but still reports them under
 `--count`. `Array Pool Escapes` and the kind-scoped `Performance:` sections both
 follow this rule; listing them unconditionally would advertise sections that
-then render nothing.
+then render nothing. The package `Files:` family sits on the other side of the
+same rule: each member's content predicate is a cheap `Any(...)` test over an
+already-materialized file list, so all five stay normally listed and simply drop
+out of `-D` for a package that ships no such assets.
 
 `Effective` is not a declared axis — it is the existing `CanRender` filter: an
 auto-selected section that would produce zero rows is suppressed. `Unbounded`
@@ -274,17 +287,33 @@ The uppercase `-S` and `-D` flags are deliberate. They reserve a small, cross-co
 `-D` is the discovery path. Bare `-S` renders a small, curated high-density section bundle for commands that define one.
 
 ```bash=
-$ dotnet run --project src/dotnet-inspect -- System.CommandLine -D
-Dependencies             section
-Files                    section
-Library Files            section
-Manifest                 section
-Package Info             section
-Runtime Dependencies     section
-Statistics               section
-Target Frameworks        section
-Vulnerabilities          section
+$ dotnet run --project src/dotnet-inspect -- package System.CommandLine -D
+| Name | Kind |
+| ---- | ---- |
+| Dependencies | section |
+| Files: Library | section |
+| Manifest | section |
+| Package Info | section |
+| Signature | section |
+| Statistics | section |
+| Target Frameworks | section |
+| @All | category |
+| @Default | category |
+| @Files | category |
+| Files | section (opt-in) |
+| Files: Markdown | section (opt-in) |
+| Files: Nuspec | section (opt-in) |
+| Grounding | section (opt-in) |
+| Signals | section (opt-in) |
+| Source Files | section (opt-in) |
 ```
+
+Discovery is data-aware, so this listing is a property of the target and not a
+static catalog. `System.CommandLine` ships no `ref/` or `runtimes/` assets, so
+`Files: Reference` and `Files: Runtime` do not list for it; they appear for a
+package such as `Microsoft.Data.SqlClient` that does. This is the same rule that
+keeps `Vulnerabilities` and `Runtime Dependencies` out of the listing when they
+would be empty.
 
 The major advantage of this system is that section queries / scoping pushes backpressure to the data generators. They are told the specific sections being requested. The model isn't "give me everything and I'll filter down". We do use after-the-fact filtering, but within the section scope. Sections are the contract boundary for most of this system.
 

@@ -164,15 +164,18 @@ When the user runs `-S "Package Info"`, the pipeline returns `{"Package Info"}` 
 
 ## Package Sections
 
-The package command has 14 registered sections:
+The package command has 17 registered sections:
 
 | Section | MinVerbosity | Scanner Key | Notes |
 | ------- | ------------ | ----------- | ----- |
 | Summary | Quiet | — | Headless; compact inline fields |
 | Dependencies | Normal | — | Only when dependency groups present |
 | Files | Explicit | — | Full-depth package file listing with `Path` and `Size` |
-| Library Files | Normal | — | Files under lib/ across all target frameworks with `Path` and `Size` |
-| Markdown Files | Explicit | — | Full-depth `.md` file listing with `Path` and `Size` |
+| Files: Library | Normal | — | Files under `lib/` across all target frameworks with `Path` and `Size` |
+| Files: Reference | Normal | — | Files under `ref/` with `Path` and `Size`; only when the package ships reference assemblies |
+| Files: Runtime | Normal | — | Files under `runtimes/` with `Path` and `Size`; only when the package ships RID-specific assets |
+| Files: Markdown | Explicit | — | Full-depth `.md` file listing with `Path` and `Size` |
+| Files: Nuspec | Explicit | — | The `.nuspec` manifest path with `Path` and `Size`; at most one row. `--print` emits the document |
 | Manifest | Minimal | — | Basic package manifest rows, with extra tool manifest rows when present |
 | Package Info | Minimal | — | Full metadata field table |
 | Grounding | Explicit | — | Best grounding candidate with `Path` and `Size`; at most one row |

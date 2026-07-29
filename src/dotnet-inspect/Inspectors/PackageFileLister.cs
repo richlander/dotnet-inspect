@@ -122,10 +122,12 @@ public static class PackageFileLister
         return path.IndexOf('/', dir.Length + 1) < 0;
     }
 
+    // The .nuspec is deliberately absent: it is authored content (the package
+    // manifest), not packaging plumbing, so it belongs in the file listings and
+    // behind the Files: Nuspec section.
     internal static bool IsPlumbing(string rel)
         // Zip plumbing (OPC packaging artifacts inside the .nupkg).
-        => rel.EndsWith(".nuspec", StringComparison.OrdinalIgnoreCase)
-            || rel.StartsWith("_rels/", StringComparison.OrdinalIgnoreCase)
+        => rel.StartsWith("_rels/", StringComparison.OrdinalIgnoreCase)
             || rel.StartsWith("[Content_Types]", StringComparison.OrdinalIgnoreCase)
             || rel.EndsWith(".psmdcp", StringComparison.OrdinalIgnoreCase)
             || rel.Equals(".signature.p7s", StringComparison.OrdinalIgnoreCase)

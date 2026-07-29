@@ -65,16 +65,24 @@ public class InspectionResultView
         ?.Select(ToFileRow)
         .ToList();
 
-    [MarkoutSection(Name = PackageSections.LibraryFiles)]
+    [MarkoutSection(Name = PackageSections.FilesLibrary)]
     public List<PackageFileRow>? LibraryFiles => LibraryPackageFiles()
         ?.Select(ToFileRow)
         .ToList();
 
-    [MarkoutSection(Name = PackageSections.MarkdownFiles)]
-    public List<PackageFileRow>? MarkdownFiles => _data.PackageFiles?
-        .Where(IsMarkdownFile)
-        .Select(ToFileRow)
-        .ToList();
+    [MarkoutSection(Name = PackageSections.FilesMarkdown)]
+    public List<PackageFileRow>? MarkdownFiles => FamilyRows(PackageSections.FilesMarkdown);
+
+    [MarkoutSection(Name = PackageSections.FilesReference)]
+    public List<PackageFileRow>? ReferenceFiles => FamilyRows(PackageSections.FilesReference);
+
+    [MarkoutSection(Name = PackageSections.FilesRuntime)]
+    public List<PackageFileRow>? RuntimeFiles => FamilyRows(PackageSections.FilesRuntime);
+
+    // The manifest is listed as a path row rather than printed, so the section
+    // stays a listing like its siblings; --print renders the document.
+    [MarkoutSection(Name = PackageSections.FilesNuspec)]
+    public List<PackageFileRow>? NuspecFiles => FamilyRows(PackageSections.FilesNuspec);
 
     [MarkoutSection(Name = PackageSections.SourceFiles, EmptyText = "No SourceLink source files found for this package.")]
     public List<PackageSourceFileRow>? SourceFiles => _data.SourceFiles?
@@ -283,11 +291,13 @@ public class InspectionResultView
     private static PackageFileRow ToFileRow(PackageFile file)
         => new(file.Path, file.Size);
 
-    private static bool IsLibraryFile(PackageFile file)
-        => file.Path.StartsWith("lib/", StringComparison.OrdinalIgnoreCase);
+    private List<PackageFileRow>? FamilyRows(string section)
+        => PackageFileFamily.PredicateFor(section) is { } predicate
+            ? _data.PackageFiles?.Where(predicate).Select(ToFileRow).ToList()
+            : null;
 
-    private static bool IsMarkdownFile(PackageFile file)
-        => file.Path.EndsWith(".md", StringComparison.OrdinalIgnoreCase);
+    private static bool IsLibraryFile(PackageFile file)
+        => PackageFileFamily.PredicateFor(PackageSections.FilesLibrary)!(file);
 
     private List<MarkoutField> GetCompactFields()
     {

@@ -66,7 +66,7 @@ public class PackageCommand
             if (selectResult.Sections != null)
                 options = options with { IncludeSections = selectResult.Sections };
 
-            if (options.Count && !CountOutput.ValidateSingleSection(options.IncludeSections))
+            if (options.Count && !CountOutput.ValidateSectionsSelected(options.IncludeSections))
                 return 1;
 
             var shapeCount = ShapeProjectionOutput.ActiveShapeCount(options.Value, options.Urls, options.Paths);
@@ -444,6 +444,9 @@ public class PackageCommand
             {
                 var packageId = nuspec?.PackageName ?? packageName;
                 var packageVersion = nuspec?.Version ?? version;
+                if (options.Print && options.IncludeSections?.Contains(PackageSections.FilesNuspec) == true)
+                    return PrintNuspec(extractPath, packageId, packageVersion, options);
+
                 var packageReadme = PackageFileLister.ResolvePackageReadme(extractPath, nuspec?.ReadmeFile);
                 return PrintReadme(extractPath, packageId, packageVersion, packageReadme, options);
             }
@@ -763,7 +766,7 @@ public class PackageCommand
         }
 
         Console.Error.WriteLine($"Error: Multiple package row output does not support section: {section}.");
-        Console.Error.WriteLine("Use --json, or select Package Info, Files, Library Files, or Markdown Files.");
+        Console.Error.WriteLine("Use --json, or select Package Info, Files, or a Files: section (see -D @Files).");
         return false;
     }
 
@@ -978,7 +981,8 @@ public class PackageCommand
 
     private static bool ValidatePackagePrintSelection(HashSet<string>? sections)
     {
-        if (sections is { Count: 1 } && sections.Contains(PackageSections.PackageReadme))
+        if (sections is { Count: 1 }
+            && (sections.Contains(PackageSections.PackageReadme) || sections.Contains(PackageSections.FilesNuspec)))
             return true;
 
         Console.Error.WriteLine("Error: --print requires -S/--select to match exactly one printable section.");
@@ -993,16 +997,20 @@ public class PackageCommand
         {
             PackageSections.PackageInfo => ProjectPackageInfo(result, section, kind, options),
             PackageSections.Files => ProjectPackageFiles(new InspectionResultView(result).Files, section, kind, options),
-            PackageSections.LibraryFiles => ProjectPackageFiles(new InspectionResultView(result).LibraryFiles, section, kind, options),
-            PackageSections.MarkdownFiles => ProjectPackageFiles(new InspectionResultView(result).MarkdownFiles, section, kind, options),
+            PackageSections.FilesLibrary => ProjectPackageFiles(new InspectionResultView(result).LibraryFiles, section, kind, options),
+            PackageSections.FilesMarkdown => ProjectPackageFiles(new InspectionResultView(result).MarkdownFiles, section, kind, options),
+            PackageSections.FilesReference => ProjectPackageFiles(new InspectionResultView(result).ReferenceFiles, section, kind, options),
+            PackageSections.FilesRuntime => ProjectPackageFiles(new InspectionResultView(result).RuntimeFiles, section, kind, options),
+            PackageSections.FilesNuspec => ProjectPackageFiles(new InspectionResultView(result).NuspecFiles, section, kind, options),
             PackageSections.PackageReadme => ProjectPackageFiles(new InspectionResultView(result).PackageReadme, section, kind, options),
             PackageSections.SourceFiles => ProjectPackageSourceFiles(result, section, kind, options),
             _ => []
         };
 
         if (rows.Count == 0
-            && section is not (PackageSections.PackageInfo or PackageSections.Files or PackageSections.LibraryFiles
-                or PackageSections.MarkdownFiles or PackageSections.PackageReadme or PackageSections.SourceFiles))
+            && !PackageFileFamily.IsFamilySection(section)
+            && section is not (PackageSections.PackageInfo or PackageSections.Files
+                or PackageSections.PackageReadme or PackageSections.SourceFiles))
         {
             Console.Error.WriteLine($"Error: section '{section}' does not expose {kind.ToString().ToLowerInvariant()} values.");
             return 1;
@@ -1377,8 +1385,7 @@ public class PackageCommand
         => section != null
            && (section.Equals(PackageSections.Files, StringComparison.OrdinalIgnoreCase)
                || section.Equals(PackageSections.PackageReadme, StringComparison.OrdinalIgnoreCase)
-               || section.Equals(PackageSections.LibraryFiles, StringComparison.OrdinalIgnoreCase)
-               || section.Equals(PackageSections.MarkdownFiles, StringComparison.OrdinalIgnoreCase));
+               || PackageFileFamily.IsFamilySection(section));
 
     private static bool ShouldPopulatePackageSourceFiles(InspectionOptions options)
         => options.IncludeSections?.Contains(PackageSections.SourceFiles) == true
@@ -1681,7 +1688,7 @@ public class PackageCommand
 
         var section = include.Single();
         if (section.Equals(PackageSections.PackageReadme, StringComparison.OrdinalIgnoreCase)
-            || section.Equals(PackageSections.MarkdownFiles, StringComparison.OrdinalIgnoreCase))
+            || section.Equals(PackageSections.FilesMarkdown, StringComparison.OrdinalIgnoreCase))
         {
             var files = GetPackageFileRows(result, section);
             return PrintBarePackageFiles(extractPath, packageName, version, files, options, section);
@@ -1766,11 +1773,8 @@ public class PackageCommand
         if (result.PackageFiles is not { Count: > 0 } files)
             return [];
 
-        if (section.Equals(PackageSections.LibraryFiles, StringComparison.OrdinalIgnoreCase))
-            return files.Where(file => file.Path.StartsWith("lib/", StringComparison.OrdinalIgnoreCase)).ToList();
-
-        if (section.Equals(PackageSections.MarkdownFiles, StringComparison.OrdinalIgnoreCase))
-            return files.Where(file => file.Path.EndsWith(".md", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (PackageFileFamily.PredicateFor(section) is { } predicate)
+            return files.Where(predicate).ToList();
 
         return [];
     }
@@ -2714,6 +2718,43 @@ public class PackageCommand
                 ? new TreeNode(label) { Children = ToTreeNodes(n.Children) }
                 : new TreeNode(label);
         }).ToList();
+    }
+
+    /// <summary>
+    /// Prints the package manifest behind a <c>Files: Nuspec</c> selection. The section itself
+    /// lists the manifest as a path row; only <c>--print</c> renders the document.
+    /// </summary>
+    private static int PrintNuspec(
+        string extractPath,
+        string packageName,
+        string version,
+        InspectionOptions options)
+    {
+        var nuspecPath = Services.NuspecParser.FindNuspec(extractPath);
+        if (nuspecPath == null)
+        {
+            Console.Error.WriteLine("Error: This package does not contain a nuspec manifest.");
+            return 1;
+        }
+
+        var relativePath = Path.GetFileName(nuspecPath);
+        var result = ReadPackageFileContents(extractPath, packageName, version, relativePath, options);
+        if (result.Files is not { Count: > 0 })
+        {
+            Console.Error.WriteLine($"Error: Could not read the nuspec manifest at '{relativePath}'.");
+            return 1;
+        }
+
+        var file = result.Files[0];
+        return PrintProjectionOutput.Write(
+            [new PrintableDocument(1, PackageSections.FilesNuspec, file.Path, file.Path, null, file.Content)],
+            new PrintProjectionOptions(
+                options.PrintRow,
+                options.JsonOutput,
+                options.Jsonl,
+                options.JsonArray,
+                options.Bare,
+                options.OutputPath));
     }
 
     private static int PrintReadme(

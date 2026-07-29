@@ -64,6 +64,8 @@ public static class SelectResolver
         ["Performance: Closures and delegates"] = SectionNames.PerformanceClosures,
         ["Performance: Loop hot paths"] = SectionNames.PerformanceLoops,
         ["Performance: Allocation hotspots"] = SectionNames.PerformanceHotspots,
+        ["Library Files"] = DotnetInspector.Views.PackageSections.FilesLibrary,
+        ["Markdown Files"] = DotnetInspector.Views.PackageSections.FilesMarkdown,
     };
 
     /// <summary>

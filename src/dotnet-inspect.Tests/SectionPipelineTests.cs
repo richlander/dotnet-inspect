@@ -6,6 +6,7 @@ using DotnetInspector.Options;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using DotnetInspector.Views;
 
 namespace DotnetInspector.Tests;
 
@@ -1057,6 +1058,53 @@ public class SectionPipelineTests
             sections.OrderBy(n => n, StringComparer.Ordinal));
     }
 
+    /// <summary>
+    /// The <c>Files:</c> prefix family and the <c>@Files</c> door are two halves of one claim, so
+    /// this pins them to each other. The membership list is not restated here: it is derived from
+    /// the prefix on one side and from <see cref="PackageFileFamily.SectionNames"/> on the other,
+    /// so a new prefixed section that skips the family declaration — or a family member that loses
+    /// its prefix — fails rather than quietly opening a discoverability hole.
+    /// </summary>
+    [Fact]
+    public void PackagePipeline_FilesCategory_ContainsEveryFilesPrefixedSection()
+    {
+        var pipeline = PackageSectionDescriptors.CreatePipeline();
+        var categories = pipeline.GetCategoryMap();
+
+        Assert.True(categories.TryGetValue(SectionCategoryNames.Files, out var sections));
+        Assert.Equal(
+            pipeline.AllSectionNames
+                .Where(n => n.StartsWith("Files:", StringComparison.Ordinal))
+                .OrderBy(n => n, StringComparer.Ordinal),
+            sections.OrderBy(n => n, StringComparer.Ordinal));
+        Assert.Equal(
+            PackageFileFamily.SectionNames.OrderBy(n => n, StringComparer.Ordinal),
+            sections.OrderBy(n => n, StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// Every family member declares a predicate, and every predicate reaches a registered section.
+    /// This is what lets the view, the descriptors, and the command all read membership from one
+    /// place instead of keeping three copies of the same path rules in sync.
+    /// </summary>
+    [Fact]
+    public void PackageFileFamily_Members_AreAllRegisteredSections()
+    {
+        var all = PackageSectionDescriptors.CreatePipeline().AllSectionNames.ToHashSet(StringComparer.Ordinal);
+
+        Assert.NotEmpty(PackageFileFamily.Members);
+        foreach (var (section, predicate) in PackageFileFamily.Members)
+        {
+            Assert.Contains(section, all);
+            Assert.NotNull(predicate);
+            Assert.Same(predicate, PackageFileFamily.PredicateFor(section));
+            Assert.True(PackageFileFamily.IsFamilySection(section));
+        }
+
+        // Plain "Files" is deliberately outside the family: it is the unfiltered superset.
+        Assert.False(PackageFileFamily.IsFamilySection(PackageSections.Files));
+    }
+
     [Fact]
     public void LibraryPipeline_IntegrationsCategory_ExcludesUnionTypes()
     {
@@ -1411,7 +1459,7 @@ public class SectionPipelineTests
     public void PackagePipeline_HasExpectedSectionCount()
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
-        Assert.Equal(15, pipeline.AllSectionNames.Length);
+        Assert.Equal(18, pipeline.AllSectionNames.Length);
     }
 
     [Fact]
@@ -1425,8 +1473,11 @@ public class SectionPipelineTests
         Assert.Contains("Grounding", names);
         Assert.Contains("Signals", names);
         Assert.Contains("Target Frameworks", names);
-        Assert.Contains("Library Files", names);
-        Assert.Contains("Markdown Files", names);
+        Assert.Contains("Files: Library", names);
+        Assert.Contains("Files: Reference", names);
+        Assert.Contains("Files: Runtime", names);
+        Assert.Contains("Files: Markdown", names);
+        Assert.Contains("Files: Nuspec", names);
         Assert.Contains("Statistics", names);
         Assert.Contains("Dependencies", names);
         Assert.Contains("Files", names);
@@ -1676,7 +1727,7 @@ public class SectionPipelineTests
 
         Assert.Equal("Package Info", sections[0]);
         Assert.DoesNotContain("Summary", sections);
-        Assert.Equal(["Dependencies", "Library Files", "Manifest", "Signals", "Source Files", "Statistics", "Target Frameworks"], sections.Skip(1).ToArray());
+        Assert.Equal(["Dependencies", "Files: Library", "Manifest", "Signals", "Source Files", "Statistics", "Target Frameworks"], sections.Skip(1).ToArray());
     }
 
     [Fact]
@@ -1684,7 +1735,7 @@ public class SectionPipelineTests
     {
         var pipeline = PackageSectionDescriptors.CreatePipeline();
 
-        Assert.Equal(["Package Info", "Library Files"], pipeline.InfoSectionNames);
+        Assert.Equal(["Package Info", "Files: Library"], pipeline.InfoSectionNames);
     }
 
     public static IEnumerable<object[]> DiscoverablePipelineCases()
@@ -1803,7 +1854,10 @@ public class SectionPipelineTests
             [
                 new PackageFile("README.md", 1, IsReadme: true),
                 new PackageFile("docs/guide.md", 1),
-                new PackageFile("lib/net8.0/Test.dll", 1)
+                new PackageFile("lib/net8.0/Test.dll", 1),
+                new PackageFile("ref/net8.0/Test.dll", 1),
+                new PackageFile("runtimes/win-x64/native/Test.dll", 1),
+                new PackageFile("Test.nuspec", 1)
             ],
             AuditSignals = [new AuditSignal("Package", "Assemblies", "1", "test")],
             TotalDownloads = 1,

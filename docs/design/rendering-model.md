@@ -45,8 +45,8 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 | ----- | -------- |
 | `-v:q` | Title and fields only |
 | `-v:m` | Package Info |
-| `-v:n` | Dependencies, Library Files, Manifest, Package Info, Runtime Dependencies, Signature, Target Frameworks |
-| `-v:d` | Dependencies, Library Files, Manifest, Package Info, Runtime Dependencies, Signature, Statistics, Target Frameworks, Vulnerabilities |
+| `-v:n` | Dependencies, Files: Library, Files: Reference, Files: Runtime, Manifest, Package Info, Runtime Dependencies, Signature, Target Frameworks |
+| `-v:d` | Dependencies, Files: Library, Files: Reference, Files: Runtime, Manifest, Package Info, Runtime Dependencies, Signature, Statistics, Target Frameworks, Vulnerabilities |
 
 **Mode-switch flags (lenses):**
 
@@ -65,7 +65,7 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 
 Each lens is self-contained. `--files` shows a file tree and exits. It does not also show metadata or dependencies -- those belong to the identity view.
 
-`Files`, `Grounding`, `Library Files`, and `Markdown Files` all expose package-relative paths and uncompressed byte sizes. `Files` is explicit-only and renders the full package depth; package `Grounding` is explicit-only and returns the best grounding candidate (`AGENTS.md` > `README.md` > `PACKAGE.md` > declared readme); `Markdown Files` is explicit-only and renders all `.md` files; `Library Files` is the default library asset slice over the same schema. For `project`, `Skills` renders every direct dependency package `skills/**/SKILL.md` file.
+`Files`, `Grounding`, and the `Files: *` family all expose package-relative paths and uncompressed byte sizes. `Files` is explicit-only and renders the full package depth; package `Grounding` is explicit-only and returns the best grounding candidate (`AGENTS.md` > `README.md` > `PACKAGE.md` > declared readme). The `Files: *` sections are named slices over the same schema, reachable together through the `@Files` category: `Files: Library` (`lib/`, the default asset slice), `Files: Reference` (`ref/`), `Files: Runtime` (`runtimes/`), `Files: Markdown` (all `.md`), and `Files: Nuspec` (the manifest path). `Files` itself is the unfiltered superset rather than a family member, so `@Files` does not re-render every path it already covers. For `project`, `Skills` renders every direct dependency package `skills/**/SKILL.md` file.
 
 **Why Files is not in `-v:d`:** Files are structural layout data (what the package contains on disk), not identity metadata (what the package is). Mixing structural content into the identity view conflates two different concerns. The `--path`/`-S Files` file-resolution view is the correct entry point for structural exploration.
 

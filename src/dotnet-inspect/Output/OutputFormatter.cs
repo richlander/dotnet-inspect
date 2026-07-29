@@ -1,6 +1,7 @@
 using DotnetInspector.Models;
 using DotnetInspector.Packages;
 using DotnetInspector.Views;
+using System.Globalization;
 using System.Text.Json;
 using DotnetInspector.Options;
 using DotnetInspector.Sections;
@@ -190,7 +191,18 @@ public static class OutputFormatter
         else if (selectInfo)
             markdown = MarkdownSectionOrderer.Apply(markdown, pipeline.InfoSectionNames);
         markdown = MarkdownTableRowLimiter.Apply(markdown, options.Rows);
-        return options.Count ? CountOutput.CountMarkdownTableRows(markdown).ToString() : markdown;
+        if (!options.Count)
+            return markdown;
+
+        // A category selects many sections at once; report each member's count, including the
+        // members that rendered nothing, so the map describes the whole category.
+        if (options.IncludeSections is { Count: > 1 })
+        {
+            var ordered = pipeline.AlphabeticalSectionOrder.Where(options.IncludeSections.Contains).ToList();
+            return CountOutput.RenderCountMapFromMarkdown(markdown, ordered);
+        }
+
+        return CountOutput.CountMarkdownTableRows(markdown).ToString(CultureInfo.InvariantCulture);
     }
 
     public static void WritePackageTable(InspectionResult result, InspectionOptions options,
