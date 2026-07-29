@@ -757,6 +757,227 @@ public partial class CommandExecutionTests
         Assert.Contains("999999999", error, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The point of #3468: a hex table index addresses the same section as its name. A reader who
+    /// has a raw index in hand — from a spec table, a token dump, or another tool — should not
+    /// have to translate it before selecting.
+    ///
+    /// The rendered heading must be the <em>canonical</em> one. The alias rewrites the input, so
+    /// there is exactly one section and one spelling of it in the output; a hex alias registered
+    /// as its own section would have produced a second heading that sorted and counted
+    /// independently.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_HexTableSelection_RendersTheCanonicalSection()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "Metadata: 0x02", "--rows", "3", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("## " + MetadataSectionNames.ForTable(System.Reflection.Metadata.Ecma335.TableIndex.TypeDef), output, StringComparison.Ordinal);
+        Assert.DoesNotContain("0x02", output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Hex and name are the same selector, not merely two selectors that both work: identical
+    /// output, and identical <c>--count</c>. Comparing whole documents is what would catch an
+    /// alias that reached the right rows through a different section identity.
+    ///
+    /// The lowercase and uppercase prefixes are here because section matching is case-insensitive
+    /// everywhere else in this CLI, so the alias must be too — a case-sensitive prefix check would
+    /// make <c>metadata: 0x02</c> the one spelling that silently stopped working. Adversarial
+    /// review of #3510 found that gap by mutation.
+    /// </summary>
+    [Theory]
+    [InlineData("Metadata: 0x02")]
+    [InlineData("Metadata: 0x2")]
+    [InlineData("Metadata: 0X02")]
+    [InlineData("metadata: 0x02")]
+    [InlineData("METADATA: 0x2")]
+    public async Task MetadataLens_HexTableSpellings_AreTheNameSelector(string hex)
+    {
+        var (hexExit, hexOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", hex, "--rows", "5", "--tips", "q");
+        var (nameExit, nameOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "Metadata: TypeDef", "--rows", "5", "--tips", "q");
+
+        Assert.Equal(0, hexExit);
+        Assert.Equal(nameExit, hexExit);
+        Assert.Equal(nameOutput, hexOutput);
+
+        var (hexCount, hexCountOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", hex, "--count", "--tips", "q");
+        var (nameCount, nameCountOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "Metadata: TypeDef", "--count", "--tips", "q");
+
+        Assert.Equal(0, hexCount);
+        Assert.Equal(nameCount, hexCount);
+        Assert.Equal(nameCountOutput, hexCountOutput);
+    }
+
+    /// <summary>
+    /// Selecting both spellings at once selects one section, not two. This is the property that a
+    /// second registered section would break while every single-spelling test above still passed.
+    ///
+    /// The hex-alone precondition is what keeps this non-vacuous: without it, an implementation
+    /// that simply ignored the hex selector would also produce one heading and pass. Mutation
+    /// testing found exactly that hole.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_BothTableSpellings_SelectOneSection()
+    {
+        var (aloneExit, aloneOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "Metadata: 0x02", "--rows", "3", "--tips", "q");
+        Assert.Equal(0, aloneExit);
+
+        var (exit, output, _) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Metadata: 0x02", "-S", "Metadata: TypeDef", "--rows", "3", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(1, output.Split('\n').Count(l => l.StartsWith("## ", StringComparison.Ordinal)));
+        Assert.Equal(aloneOutput, output);
+    }
+
+    /// <summary>
+    /// A bad hex index fails the whole run even alongside a selector that does match — a
+    /// deliberate divergence from the unknown-<em>name</em> rule, which tolerates a miss when
+    /// something else matched.
+    ///
+    /// The tolerance rule exists for names that may exist in one inspected assembly and not
+    /// another. A hex index outside the projection is not that: no image can ever supply it, so
+    /// tolerating it would silently drop a selector the caller definitely got wrong. This matches
+    /// the <c>--heap</c> coordinate rule, where input that names nothing is exit 1.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_BadHexTable_FailsEvenBesideAMatchingSelector()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath,
+            "-S", "Metadata: 0x99", "-S", "Metadata: TypeDef", "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains("Metadata: 0x99", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("## ", output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Discovery answers in canonical names only. The hex form is an input alias, so advertising
+    /// it would double the catalog and imply two sections exist. <c>-D</c> on a hex selector still
+    /// works — it is the same selector — and returns exactly the name form's answer.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_Discovery_AnswersInCanonicalNamesOnly()
+    {
+        var (exit, output, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", SectionCategoryNames.Metadata, "--tsv", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain(DiscoveryNames(output), n => n.Contains("0x", StringComparison.OrdinalIgnoreCase));
+
+        var (hexExit, hexOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "Metadata: 0x02", "--tsv", "--tips", "q");
+        var (nameExit, nameOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "Metadata: TypeDef", "--tsv", "--tips", "q");
+
+        Assert.Equal(0, hexExit);
+        Assert.Equal(nameExit, hexExit);
+        Assert.Equal(nameOutput, hexOutput);
+    }
+
+    /// <summary>
+    /// A hex index the projection does not cover is rejected with a diagnostic that names what is
+    /// available, and exits 1 — the same treatment a coordinate that names nothing gets. Silently
+    /// rendering nothing would read as "this table is empty in this image", which is a different
+    /// and wrong claim.
+    ///
+    /// <c>0x02000015</c> is the close negative: it is a well-formed metadata <em>token</em>, whose
+    /// high byte is the table this test's sibling accepts. A token addresses a row, not a table,
+    /// so it must not resolve.
+    ///
+    /// The cases whose value <em>fits</em> in a byte are the ones that matter. Adversarial review
+    /// of #3510 found that a numeric-range check alone accepted <c>0x00000001</c> — a Module row
+    /// token — as table <c>0x01</c>, TypeRef, because 1 fits in a byte. <c>0x02000015</c> was
+    /// being rejected for overflowing, not for being a token, so it never covered the rule it was
+    /// written for. Width is now checked textually: a table index is one byte, hence one or two
+    /// hex digits, so <c>0x0002</c> is not a table index either.
+    /// </summary>
+    [Theory]
+    [InlineData("Metadata: 0x99")]
+    [InlineData("Metadata: 0x03")]
+    [InlineData("Metadata: 0x02000015")]
+    [InlineData("Metadata: 0x00000001")]
+    [InlineData("Metadata: 0x02000002")]
+    [InlineData("Metadata: 0x80000002")]
+    [InlineData("Metadata: 0x0002")]
+    [InlineData("Metadata: 0x002")]
+    [InlineData("Metadata: 0x")]
+    [InlineData("Metadata: 0xzz")]
+    [InlineData("metadata: 0x99")]
+    public async Task MetadataLens_UnprojectedHexTable_IsRejected(string selector)
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", selector, "--tips", "q");
+
+        Assert.Equal(1, exit);
+        Assert.Contains(selector, error, StringComparison.Ordinal);
+        Assert.Contains("0x02 TypeDef", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("## ", output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Hex must carry its <c>0x</c>. A bare <c>02</c> is a table <em>name</em> position, and
+    /// inferring a radix would let one spelling mean two things; the rule matches
+    /// <c>--heap</c>'s address rule. It fails as an unknown section name, not as a bad index.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_BareDigits_AreNotATableIndex()
+    {
+        var (exit, _, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-S", "Metadata: 02", "--tips", "q");
+
+        Assert.NotEqual(0, exit);
+    }
+
+    /// <summary>
+    /// The alias must be resolved before <em>every</em> reader of a selector, including the static
+    /// <c>-D --schema</c> path that returns early without loading the assembly at all.
+    ///
+    /// Reported by adversarial review of #3510: the normalizer originally sat below that early
+    /// return, so <c>-D "Metadata: 0x02" --schema</c> answered "not found" while the
+    /// effective-discovery path — which runs later — resolved the same selector. The gate above
+    /// missed it precisely because it supplied an input source and so took the later path.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_StaticSchemaDiscovery_ResolvesHexTables()
+    {
+        var (hexExit, hexOutput, hexError) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "Metadata: 0x02", "--schema", "--tsv", "--tips", "q");
+        var (nameExit, nameOutput, _) = await RunAppAsync(
+            "library", TestAssemblyPath, "-D", "Metadata: TypeDef", "--schema", "--tsv", "--tips", "q");
+
+        Assert.True(hexExit == 0, $"expected success, got {hexExit}: {hexError}");
+        Assert.Equal(nameExit, hexExit);
+        Assert.Equal(nameOutput, hexOutput);
+    }
+
+    /// <summary>
+    /// The same early return is also taken when no input source is given at all, so the alias has
+    /// to hold on a selector that is never matched against a real image.
+    /// </summary>
+    [Fact]
+    public async Task MetadataLens_DiscoveryWithoutAnAssembly_ResolvesHexTables()
+    {
+        var (hexExit, hexOutput, hexError) = await RunAppAsync(
+            "library", "-D", "Metadata: 0x02", "--tsv", "--tips", "q");
+        var (nameExit, nameOutput, _) = await RunAppAsync(
+            "library", "-D", "Metadata: TypeDef", "--tsv", "--tips", "q");
+
+        Assert.True(hexExit == 0, $"expected success, got {hexExit}: {hexError}");
+        Assert.Equal(nameExit, hexExit);
+        Assert.Equal(nameOutput, hexOutput);
+    }
+
     /// <summary>Section names from a <c>-D --tsv</c> listing, header row dropped.</summary>
     private static string[] DiscoveryNames(string output) => output
         .Split('\n', StringSplitOptions.RemoveEmptyEntries)

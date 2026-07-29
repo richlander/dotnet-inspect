@@ -378,6 +378,22 @@ dotnet-inspect library MyLib.dll -S "Metadata: TypeRef" --columns Name --tsv
 dotnet-inspect library MyLib.dll -S "Metadata: MethodDef" --tsv --rows 100..199
 ```
 
+A table can also be named by its ECMA-335 index, since this tool's own output
+prints hex tokens and a reader following a `0x02000015` reference already has
+the index in hand:
+
+```bash
+dotnet-inspect library MyLib.dll -S "Metadata: 0x02"   # same as "Metadata: TypeDef"
+```
+
+The two spellings are one section, not two: the hex form is an input alias, so
+the heading, section order, `--count`, and `-D` all answer in the canonical
+name. Hex must carry its `0x` — a bare `02` is a table *name* position — and
+only projected tables resolve, so an index outside the projection is an error
+naming what is available rather than an empty section. A table index is one
+byte, so it is one or two hex digits; a full metadata token such as
+`0x02000015` or `0x00000001` addresses a row, not a table, and is rejected.
+
 ### Heaps
 
 The four ECMA-335 heaps get sections of their own (`Metadata: #Strings`,

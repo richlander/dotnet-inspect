@@ -64,6 +64,7 @@ documentation.
 | Output style | `docs/design/style-guide.md` |
 | Sections and selection | `docs/design/section-model.md` |
 | Metadata and API inspection | `docs/design/assembly-inspection-query.md` |
+| Type, member, or API identity | `docs/design/type-member-api-representation.md` |
 | PDB and source acquisition | `docs/pdb-acquisition.md` |
 | Source Finding producers | `docs/design/source-finding-producers.md` |
 | Package resolution and caches | `docs/design/version-resolution.md` |
