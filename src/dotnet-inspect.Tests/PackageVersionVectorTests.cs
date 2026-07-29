@@ -91,6 +91,64 @@ public class PackageVersionVectorTests
         Assert.Contains("does not contain range endpoint 1.0.1", error.Message);
     }
 
+    static readonly PackageVersionInfo[] ListedVersions =
+    [
+        new("1.0.0", Listed: true),
+        new("1.1.0", Listed: false), // unlisted, between listed endpoints
+        new("1.2.0", Listed: true),
+        new("2.0.0", Listed: true),
+    ];
+
+    [Fact]
+    public void CreateListingAware_TagsListedStatusAcrossTheRange()
+    {
+        PackageVersionRange.TryParse("Example@1.0.0..1.2.0", out var range, out _);
+
+        var rows = PackageVersionVector.CreateListingAware(range!, ListedVersions).ToArray();
+
+        // The unlisted 1.1.0 is included (not dropped) and correctly tagged.
+        Assert.Equal(
+            [("1.0.0", true), ("1.1.0", false), ("1.2.0", true)],
+            rows.Select(row => (row.Version, row.Listed)));
+    }
+
+    [Fact]
+    public void CreateListingAware_ResolvesAnUnlistedEndpoint()
+    {
+        // A singleton range OF the unlisted version must resolve rather than reporting a missing
+        // endpoint: the vector is built from the full listing set, unlisted versions included.
+        PackageVersionRange.TryParse("Example@1.1.0..1.1.0", out var range, out _);
+
+        var rows = PackageVersionVector.CreateListingAware(range!, ListedVersions).ToArray();
+
+        Assert.Equal([("1.1.0", false)], rows.Select(row => (row.Version, row.Listed)));
+    }
+
+    static readonly PackageVersionInfo[] PrereleaseListedVersions =
+    [
+        new("2.0.0-beta2.21617.1", Listed: true),
+        new("2.0.0-beta3.22101.1", Listed: false), // unlisted prerelease, between listed endpoints
+        new("2.0.0-beta3.22103.3", Listed: true),
+    ];
+
+    [Fact]
+    public void CreateListingAware_ResolvesAPrereleaseEndpointRangeWithoutExplicitPrerelease()
+    {
+        // A range whose endpoints are prerelease must resolve and include the in-range prereleases
+        // even when includePrerelease is not explicitly requested — the prerelease endpoints
+        // themselves require it. The CLI mirrors this by fetching prereleases whenever
+        // range.IncludesPrerelease is true; here Create re-derives the same effective flag.
+        PackageVersionRange.TryParse(
+            "Example@2.0.0-beta2.21617.1..2.0.0-beta3.22103.3", out var range, out _);
+
+        var rows = PackageVersionVector.CreateListingAware(
+            range!, PrereleaseListedVersions, includePrerelease: false).ToArray();
+
+        Assert.Equal(
+            [("2.0.0-beta2.21617.1", true), ("2.0.0-beta3.22101.1", false), ("2.0.0-beta3.22103.3", true)],
+            rows.Select(row => (row.Version, row.Listed)));
+    }
+
     [Theory]
     [InlineData("Example@1.0.0", false, null)]
     [InlineData("Example@1.0.0..", false, "Expected Package@A..B")]

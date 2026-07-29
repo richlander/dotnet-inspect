@@ -153,6 +153,83 @@ dotnet-inspect diff --package Foo@1.4.0..1.5.0 \
 kind and producer detail establish identity, while IL offsets remain local to
 each endpoint.
 
+## Listed vs. unlisted versions
+
+NuGet lets a publisher **unlist** a version: it stays restorable by exact
+coordinate but is hidden from discovery on nuget.org. The flat-container
+`index.json` that drives version enumeration lists **every** published version
+and carries no listed flag, so it cannot distinguish an unlisted version on its
+own. Only the nuget.org **registration** index exposes the per-version
+`catalogEntry.listed` bit. Resolution reads the SemVer2 registration hive
+(`registration5-gz-semver2`) rather than the SemVer1 hive, because the SemVer1
+hive omits SemVer2 versions entirely — reading it would let unlisted SemVer2
+prereleases escape filtering. That hive is gzip-encoded and transparently
+decompressed by the shared HTTP client.
+
+Version resolution applies one shared listing-aware policy so discovery matches
+the nuget.org gallery:
+
+- **Enumeration** (`Name --versions`, wildcard resolution) and the
+  **flat-container / prerelease "latest"** paths consult the registration index
+  and drop versions whose `catalogEntry.listed` is explicitly `false`. The
+  stable "latest" path already uses the listing-aware search API and is
+  unaffected. This is nuget.org-only; other feeds have no listed concept and are
+  returned unfiltered.
+- **Explicit access is preserved.** A pinned `Name@Version` (including
+  `Name@latest` and the addressable-vector endpoints) never enumerates, so a
+  known unlisted version still resolves and loads — matching NuGet's own
+  behavior of restoring a known unlisted version.
+- **Fail-open vs. fail-closed on outage.** If the registration index cannot be
+  fetched or parsed (network failure, or a valid-JSON document whose shape
+  defies the expected schema), the condition is logged and behavior depends on
+  the caller. **Raw enumeration** (`Name --versions`) fails **open** — the
+  unfiltered list is returned rather than silently dropping real versions.
+  **Auto-selecting** callers that pick a single version — nuget.org "latest"
+  resolution and wildcard pattern resolution (`Name@3.0.*`) — fail **closed**,
+  returning no result rather than risk selecting an unlisted version from an
+  unfiltered snapshot. A fail-open (unfiltered) snapshot is **not** cached, so a
+  transient registration outage cannot re-surface unlisted versions for the
+  cache TTL; only an authoritatively filtered list is persisted. The version
+  cache category is versioned (`versions-v2`) so lists written by an older,
+  pre-filter build are never read after upgrading — the filter takes effect
+  immediately rather than being delayed by up to the cache TTL.
+
+### Revealing unlisted versions
+
+The listing status is available as a typed bit (`PackageVersionInfo.Listed`)
+rather than only a hidden filter, so a surface can *mark* unlisted versions
+instead of silently omitting them. `package --versions --include-unlisted`
+opts into this: it lists every version, including unlisted ones, as a
+`Version`/`Listing` table (each row marked `listed` or `unlisted`) across the
+Markdown, `--tsv`, and `--jsonl` shapes. Hiding remains the default, so the bare
+`--versions` output is unchanged.
+
+Because a pinned `Name@Version` names an explicit coordinate, the `--versions`
+query that verifies a single pinned version also consults the include-unlisted
+listing, so verifying a known unlisted version reports it rather than
+"not found". When listing status is unknown (fail-open, or a non-nuget.org
+feed), versions are reported as listed.
+
+`--include-unlisted` composes with the other `--versions` lenses. With a limit
+(`--versions 1 --include-unlisted`) it takes the listing-aware path — every
+single-version shortcut (the local package cache, a pinned `Name@Version`, and
+`Name@latest`) still emits a one-row tagged table rather than a bare version, so
+the result always carries the `listed`/`unlisted` column the flag requests.
+(`Name@latest` resolves through the listing-aware latest path, so its single row
+is listed by construction.) With an addressable range (`Name@A..B --versions
+--include-unlisted`) the vector is resolved from the full listing set — unlisted
+versions included — so an unlisted endpoint resolves rather than being reported
+as a missing endpoint, and each in-range row is marked. Prereleases are included
+whenever a range endpoint is itself a prerelease (matching the default range
+path), so a prerelease-endpoint range resolves without `--preview`. The bare
+range (without the flag) resolves against listed versions only, matching the
+hidden default.
+
+The version-list cache stores the listed bit per version. Each cache line
+carries an explicit two-character tab suffix (`\tL` listed, `\tU` unlisted) so
+the encoding is unambiguous for any version text; a legacy suffix-less line is
+read as listed.
+
 ## Cache locations
 
 | Cache | Location | TTL | Written by |
@@ -160,7 +237,7 @@ each endpoint.
 | NuGet global cache | `~/.nuget/packages/{name}/{version}/` | Permanent | `dotnet restore`, NuGet client |
 | App package cache | `$LOCAL_APP_DATA/dotnet-inspect/package-content-v2/{name}/{version}/` | Permanent | dotnet-inspect |
 | Platform packs | `$LOCAL_APP_DATA/dotnet-inspect/packs-v2/{pack}/{version}/` | Permanent | dotnet-inspect |
-| Version resolution | `$LOCAL_APP_DATA/dotnet-inspect/versions/` | 1 hour | dotnet-inspect |
+| Version resolution | `$LOCAL_APP_DATA/dotnet-inspect/versions-v2/` | 1 hour | dotnet-inspect |
 | Package metadata | `$LOCAL_APP_DATA/dotnet-inspect/metadata/` | 1 hour | dotnet-inspect |
 | Symbol miss markers | `$LOCAL_APP_DATA/dotnet-inspect/symbol-misses/` | 1 day | dotnet-inspect |
 | SourceLink availability markers | `$LOCAL_APP_DATA/dotnet-inspect/source-audit/` | Permanent for hits, 1 day for misses | dotnet-inspect |
@@ -226,6 +303,24 @@ override, pass `--source` explicitly and put the preferred feed first.
 Because `--versions` unions and `--latest-version` does not, the two can disagree.
 `--versions-with-feed` exists to make that disagreement legible: it shows which
 feed each version actually came from.
+
+### Listing status across sources
+
+Listing status is a nuget.org concept; see
+[listed vs. unlisted versions](#listed-vs-unlisted-versions). Other feeds do not
+publish one, so their versions are reported as listed. That leaves the merged
+views with a question they cannot answer well: when a version is unlisted on
+nuget.org but also published to a private feed, is it listed?
+
+The merged views answer "listed" — a version listed on any source counts as
+listed. This keeps a version that is genuinely available from a private feed from
+disappearing, but it does mean adding a private feed that mirrors nuget.org can
+re-surface a version nuget.org has hidden.
+
+`--versions-with-feed` does not have to answer, because it has already split the
+version by feed. It applies listing per row, so the nuget.org row is hidden while
+the private-feed row survives. When the two views disagree about a version, this
+is why.
 
 These semantics are pinned by `SourcePrecedenceTests`.
 

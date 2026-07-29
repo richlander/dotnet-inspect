@@ -1,7 +1,7 @@
-namespace ILInspector.Metadata.Tests;
+namespace DotnetInspector.CSharpBodySlicer.Tests;
 
 /// <summary>
-/// Characterization tests for <see cref="SourceLinkResolver.ExtractMethodBody"/>, the
+/// Characterization tests for <see cref="BodySlicer.ExtractMethodBody"/>, the
 /// signature-boundary reconstruction heuristic moved out of the CLI. These lock in the
 /// existing behavior (line numbers are 1-based sequence-point ranges).
 /// </summary>
@@ -23,7 +23,7 @@ public class ExtractMethodBodyTests
             "    public int Sub() => 0;",           // 8
             "}");                                   // 9
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: "Add");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: "Add");
 
         Assert.Equal("public int Add(int a, int b)\n{\n    return a + b;\n}", body);
     }
@@ -45,7 +45,7 @@ public class ExtractMethodBodyTests
             "    public int X() => 0;",             // 11
             "}");                                   // 12
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 7, endLine: 9, methodName: "Add");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 7, endLine: 9, methodName: "Add");
 
         Assert.Equal(
             "public int Add(\n    int a,\n    int b)\n{\n    return a + b;\n}",
@@ -68,7 +68,7 @@ public class ExtractMethodBodyTests
             "    public int X() => 0;",             // 10
             "}");                                   // 11
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 6, endLine: 8, methodName: "Add");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 8, methodName: "Add");
 
         Assert.Equal("public int Add(int a, int b)\n{\n    return a + b;\n}", body);
     }
@@ -87,7 +87,7 @@ public class ExtractMethodBodyTests
             "    void Y() {}",                      // 8
             "}");                                   // 9
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 5, methodName: "Add");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 5, methodName: "Add");
 
         Assert.Equal("public int Add(int a, int b)\n{\n    return a + b;\n}", body);
     }
@@ -113,7 +113,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 9
             "}");                                   // 10
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 7, endLine: 8, methodName: "Finalize", isDestructor: true);
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 7, endLine: 8, methodName: "Finalize", isDestructor: true);
 
         Assert.Equal("~C()\n{\n    s_flag = true;\n}", body);
         Assert.DoesNotContain("s_flag;", body, System.StringComparison.Ordinal);
@@ -138,7 +138,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 7
             "}");                                   // 8
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 6, methodName: "op_OnesComplement", isDestructor: false);
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 6, methodName: "op_OnesComplement", isDestructor: false);
 
         Assert.Contains("public static C operator", body, System.StringComparison.Ordinal);
         Assert.Contains("~(C value)", body, System.StringComparison.Ordinal);
@@ -163,7 +163,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 8
             "}");                                   // 9
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Build", isDestructor: false);
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Build", isDestructor: false);
 
         Assert.Contains("public int Build(int x =", body, System.StringComparison.Ordinal);
         Assert.Contains("~Cap)", body, System.StringComparison.Ordinal);
@@ -188,7 +188,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 8
             "}");                                   // 9
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Finalize", isDestructor: true);
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Finalize", isDestructor: true);
 
         Assert.StartsWith("~", body, System.StringComparison.Ordinal);
         Assert.DoesNotContain("s_flag;", body, System.StringComparison.Ordinal);
@@ -216,7 +216,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 8
             "}");                                   // 9
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Finalize", isDestructor: true);
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Finalize", isDestructor: true);
 
         Assert.StartsWith(destructorLine, body, System.StringComparison.Ordinal);
         Assert.DoesNotContain("s_flag;", body, System.StringComparison.Ordinal);
@@ -242,7 +242,7 @@ public class ExtractMethodBodyTests
             "    }",                            // 9
             "}");                               // 10
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 8, endLine: 8, methodName: "Finalize", isDestructor: true);
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 8, endLine: 8, methodName: "Finalize", isDestructor: true);
 
         Assert.StartsWith("~C()", body, System.StringComparison.Ordinal);
         Assert.Contains("int x = ~0;", body, System.StringComparison.Ordinal);
@@ -276,7 +276,7 @@ public class ExtractMethodBodyTests
             "    }",                            // 10
             "}");                               // 11
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 9, endLine: 9, methodName: "Finalize", isDestructor: true);
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 9, endLine: 9, methodName: "Finalize", isDestructor: true);
 
         Assert.StartsWith("~C()", body, System.StringComparison.Ordinal);
         Assert.DoesNotContain("Preceding", body, System.StringComparison.Ordinal);
@@ -300,7 +300,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 8
             "}");                                   // 9
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Finalize", isDestructor: true);
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: "Finalize", isDestructor: true);
 
         Assert.StartsWith("~\\u0043()", body, System.StringComparison.Ordinal);
         Assert.DoesNotContain("s_flag;", body, System.StringComparison.Ordinal);
@@ -327,7 +327,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 10
             "}");                                   // 11
 
-        var body = SourceLinkResolver.ExtractMethodBody(
+        var body = BodySlicer.ExtractMethodBody(
             source, startLine: 9, endLine: 9, methodName: "Finalize", isDestructor: true, destructorTypeName: "Sample");
 
         Assert.StartsWith("unsafe ~ Sample", body, System.StringComparison.Ordinal);
@@ -354,7 +354,7 @@ public class ExtractMethodBodyTests
             "    }",                            // 10
             "}");                               // 11
 
-        var body = SourceLinkResolver.ExtractMethodBody(
+        var body = BodySlicer.ExtractMethodBody(
             source, startLine: 9, endLine: 9, methodName: "Finalize", isDestructor: true, destructorTypeName: "C");
 
         Assert.StartsWith("~C()", body, System.StringComparison.Ordinal);
@@ -378,7 +378,7 @@ public class ExtractMethodBodyTests
             "    }",                                // 8
             "}");                                   // 9
 
-        var body = SourceLinkResolver.ExtractMethodBody(
+        var body = BodySlicer.ExtractMethodBody(
             source, startLine: 6, endLine: 7, methodName: "Finalize", isDestructor: true, destructorTypeName: "C");
 
         Assert.StartsWith("~\\u0043()", body, System.StringComparison.Ordinal);
@@ -394,7 +394,7 @@ public class ExtractMethodBodyTests
     [InlineData("NS.Outer+Inner`2", "Inner")]
     public void SimpleTypeName_StripsNamespaceNestingAndArity(string fullName, string expected)
     {
-        Assert.Equal(expected, SourceLinkResolver.SimpleTypeName(fullName));
+        Assert.Equal(expected, BodySlicer.SimpleTypeName(fullName));
     }
 
     [Fact]
@@ -410,7 +410,7 @@ public class ExtractMethodBodyTests
             "    public string? After { get; set; }",        // 7
             "}");                                           // 8
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Target");
 
         Assert.Equal("public string? Target { get; set; }", body);
     }
@@ -424,7 +424,7 @@ public class ExtractMethodBodyTests
             "    public int Doubled => Value * 2;",          // 3  <- StartLine/EndLine
             "}");                                           // 4
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "get_Doubled");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "get_Doubled");
 
         Assert.Equal("public int Doubled => Value * 2;", body);
     }
@@ -447,7 +447,7 @@ public class ExtractMethodBodyTests
             "    }",                                        // 7
             "}");                                           // 8
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Tfm");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Tfm");
 
         Assert.Equal(
             "public string? Tfm\n{\n    get => _override ?? Compute();",
@@ -466,7 +466,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 6
             "}");                                            // 7
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Fact");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Fact");
 
         Assert.Equal(
             "public int Fact(int n)\n{\n    return n <= 1 ? 1 : n * Fact(n - 1);\n}",
@@ -491,7 +491,7 @@ public class ExtractMethodBodyTests
             declaration,                                    // 5  <- StartLine/EndLine
             "}");                                           // 6
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Target");
 
         Assert.Equal(declaration.TrimStart(), body);
     }
@@ -507,7 +507,7 @@ public class ExtractMethodBodyTests
             "    public (int X, int Y) Target => (1, 2);",   // 5  <- StartLine/EndLine
             "}");                                           // 6
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Target");
 
         Assert.Equal("public (int X, int Y) Target => (1, 2);", body);
     }
@@ -524,7 +524,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 6
             "}");                                            // 7
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
 
         Assert.Equal(
             "public void Target()\n{\n    unsafe { Poke(); }\n}",
@@ -543,7 +543,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 6
             "}");                                            // 7
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
 
         Assert.Equal(
             "public void Target()\n{\n    internalCounter = 1;\n}",
@@ -560,7 +560,7 @@ public class ExtractMethodBodyTests
             "    int Target => 1;",                          // 4  <- StartLine/EndLine
             "}");                                           // 5
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Target");
 
         Assert.Equal("int Target => 1;", body);
     }
@@ -575,7 +575,7 @@ public class ExtractMethodBodyTests
             "    string? Target { get; set; }",              // 4  <- StartLine/EndLine
             "}");                                           // 5
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "set_Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "set_Target");
 
         Assert.Equal("string? Target { get; set; }", body);
     }
@@ -590,7 +590,7 @@ public class ExtractMethodBodyTests
             "    int IDefault.Target => 1;",                 // 4  <- StartLine/EndLine
             "}");                                           // 5
 
-        var body = SourceLinkResolver.ExtractMethodBody(
+        var body = BodySlicer.ExtractMethodBody(
             source, startLine: 4, endLine: 4, methodName: "IDefault.get_Target");
 
         Assert.Equal("int IDefault.Target => 1;", body);
@@ -611,7 +611,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 6
             "}");                                            // 7
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
 
         Assert.Equal(
             $"int Target(int n)\n{{\n    {firstStatement}\n}}",
@@ -630,7 +630,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 6
             "}");                                            // 7
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
 
         Assert.Equal(
             "public void Run()\n{\n    Widget Target;\n}",
@@ -653,7 +653,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 6
             "}");                                            // 7
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
 
         Assert.Equal(
             $"void Target()\n{{\n    {firstStatement}\n}}",
@@ -670,7 +670,7 @@ public class ExtractMethodBodyTests
             "    int IDefault.Target => 1;",                 // 4  <- StartLine/EndLine
             "}");                                           // 5
 
-        var body = SourceLinkResolver.ExtractMethodBody(
+        var body = BodySlicer.ExtractMethodBody(
             source, startLine: 4, endLine: 4, methodName: "IDefault.get_Target");
 
         Assert.Equal("int IDefault.Target => 1;", body);
@@ -686,7 +686,7 @@ public class ExtractMethodBodyTests
             "    int this[int index] => index;",             // 4  <- StartLine/EndLine
             "}");                                           // 5
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Item");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Item");
 
         Assert.Equal("int this[int index] => index;", body);
     }
@@ -701,7 +701,7 @@ public class ExtractMethodBodyTests
             "    int IDefault.this[int index] => index;",    // 4  <- StartLine/EndLine
             "}");                                           // 5
 
-        var body = SourceLinkResolver.ExtractMethodBody(
+        var body = BodySlicer.ExtractMethodBody(
             source, startLine: 4, endLine: 4, methodName: "IDefault.set_Item");
 
         Assert.Equal("int IDefault.this[int index] => index;", body);
@@ -719,7 +719,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 6
             "}");                                            // 7
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Item");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "get_Item");
 
         Assert.Equal(
             "public int this[int index]\n{\n    get => _items[index];\n}",
@@ -736,7 +736,7 @@ public class ExtractMethodBodyTests
             "    T Target<T>(T value) => value;",            // 4  <- StartLine/EndLine
             "}");                                           // 5
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "Target");
 
         Assert.Equal("T Target<T>(T value) => value;", body);
     }
@@ -751,7 +751,7 @@ public class ExtractMethodBodyTests
             "    Dictionary<string, int> Target => new();",  // 4  <- StartLine/EndLine
             "}");                                           // 5
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Target");
 
         Assert.Equal("Dictionary<string, int> Target => new();", body);
     }
@@ -766,7 +766,7 @@ public class ExtractMethodBodyTests
             "    CancellationToken CancellationToken => default;", // 4  <- StartLine/EndLine
             "}");                                           // 5
 
-        var body = SourceLinkResolver.ExtractMethodBody(
+        var body = BodySlicer.ExtractMethodBody(
             source, startLine: 4, endLine: 4, methodName: "get_CancellationToken");
 
         Assert.Equal("CancellationToken CancellationToken => default;", body);
@@ -783,7 +783,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 5
             "}");                                            // 6
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
 
         Assert.Equal(
             "public int Target() {\n    return 1;\n}",
@@ -799,7 +799,7 @@ public class ExtractMethodBodyTests
             "    public int Target() { return 1; }",         // 3  <- StartLine/EndLine
             "}");                                           // 4
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "Target");
 
         Assert.Equal("public int Target() { return 1; }", body);
     }
@@ -814,7 +814,7 @@ public class ExtractMethodBodyTests
             "    (int X, int Y) Target => (1, 2);",          // 4  <- StartLine/EndLine
             "}");                                           // 5
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Target");
 
         Assert.Equal("(int X, int Y) Target => (1, 2);", body);
     }
@@ -831,7 +831,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 6
             "}");                                            // 7
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
 
         Assert.Equal(
             "public void Run()\n{\n    (var a, var b) = Target();\n}",
@@ -851,7 +851,7 @@ public class ExtractMethodBodyTests
             $"    {declaration}",                            // 4  <- StartLine/EndLine
             "}");                                           // 5
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 4, methodName: "get_Target");
 
         Assert.Equal(declaration, body);
     }
@@ -870,7 +870,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 6
             "}");                                            // 7
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 5, methodName: "Target");
 
         Assert.Equal(
             $"public void Target()\n{{\n    {firstStatement}\n}}",
@@ -887,7 +887,7 @@ public class ExtractMethodBodyTests
             "        \"{\";",                                // 4  <- EndLine
             "}");                                           // 5
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "get_Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "get_Target");
 
         Assert.Equal("public string Target =>\n    \"{\";", body);
     }
@@ -902,7 +902,7 @@ public class ExtractMethodBodyTests
             "        \"x\";",                                // 4  <- EndLine
             "}");                                           // 5
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "get_Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "get_Target");
 
         Assert.Equal("public string Target => /* { */\n    \"x\";", body);
     }
@@ -919,7 +919,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 6
             "}");                                            // 7
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 5, methodName: "Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 5, methodName: "Target");
 
         Assert.Equal(
             "public string Target() {\n    return \"}\";\n}",
@@ -937,7 +937,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 5
             "}");                                            // 6
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
 
         Assert.Equal(
             "public string Target() {\n    return @\"}\";\n}",
@@ -954,7 +954,7 @@ public class ExtractMethodBodyTests
             "        {{\";",                                 // 4  <- EndLine
             "}");                                           // 5
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
 
         Assert.Equal(
             "public string Target() => @$\"first\n    {{\";",
@@ -970,7 +970,7 @@ public class ExtractMethodBodyTests
             "    public int Target() => 0; // opens nothing {", // 3  <- StartLine/EndLine
             "}");                                           // 4
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "Target");
 
         Assert.Equal("public int Target() => 0; // opens nothing {", body);
     }
@@ -984,7 +984,7 @@ public class ExtractMethodBodyTests
             "    public int Target() => 0; /* note */",      // 3  <- StartLine/EndLine
             "}");                                           // 4
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "Target");
 
         Assert.Equal("public int Target() => 0; /* note */", body);
     }
@@ -1001,7 +1001,7 @@ public class ExtractMethodBodyTests
             "    }",                                         // 6
             "}");                                            // 7
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 5, methodName: "Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 5, methodName: "Target");
 
         Assert.Equal("public int Target() // ;\n{\n    return 0;\n}", body);
     }
@@ -1022,7 +1022,7 @@ public class ExtractMethodBodyTests
             "        \"\"\";",                              // 5  <- EndLine
             "}");                                           // 6
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 5, methodName: "Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 5, methodName: "Target");
 
         Assert.Equal("public string Target() => \"\"\"\n    a\n    \"\"\";", body);
     }
@@ -1036,7 +1036,7 @@ public class ExtractMethodBodyTests
             "    public string Target() => \"\"\"a\"\"\";",  // 3  <- StartLine/EndLine
             "}");                                           // 4
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 3, methodName: "Target");
 
         Assert.Equal("public string Target() => \"\"\"a\"\"\";", body);
     }
@@ -1051,7 +1051,7 @@ public class ExtractMethodBodyTests
             "",                                             // 4  <- EndLine
             "}");                                           // 5
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
 
         Assert.Equal("public int Target() => 0;", body);
     }
@@ -1066,7 +1066,7 @@ public class ExtractMethodBodyTests
             "    // trailing note",                          // 4  <- EndLine
             "}");                                           // 5
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 3, endLine: 4, methodName: "Target");
 
         Assert.Equal("public int Target() => 0;\n// trailing note", body);
     }

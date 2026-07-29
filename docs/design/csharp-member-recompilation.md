@@ -1,5 +1,9 @@
 # C# assembly round-trip testing
 
+> **Map:** [Type, member, and API representation](type-member-api-representation.md) is the entry
+> point for choosing a type, member, or API identity shape. This document owns
+> the details below.
+
 ## Summary
 
 This document proposes a modest tools-only capability for compiling C# artifacts

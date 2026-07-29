@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.IO.Enumeration;
 using System.Text.Json;
+using DotnetInspector.Core;
 using DotnetInspector.Packages;
 using NuGetFetch;
 
@@ -149,7 +150,7 @@ public static class ProjectAssetsParser
         try
         {
             var json = File.ReadAllText(assetsPath);
-            using var doc = JsonDocument.Parse(json);
+            using var doc = HardenedJson.Parse(json);
 
             if (!doc.RootElement.TryGetProperty("targets", out var targets))
                 return results;
@@ -224,7 +225,7 @@ public static class ProjectAssetsParser
         try
         {
             var json = File.ReadAllText(assetsPath);
-            using var doc = JsonDocument.Parse(json);
+            using var doc = HardenedJson.Parse(json);
 
             if (!doc.RootElement.TryGetProperty("targets", out var targets))
                 return results;
@@ -288,7 +289,7 @@ public static class ProjectAssetsParser
         try
         {
             var json = File.ReadAllText(assetsPath);
-            using var doc = JsonDocument.Parse(json);
+            using var doc = HardenedJson.Parse(json);
 
             if (!doc.RootElement.TryGetProperty("targets", out var targets))
                 return results;

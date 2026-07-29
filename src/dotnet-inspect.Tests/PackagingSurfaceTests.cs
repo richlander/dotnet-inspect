@@ -70,17 +70,61 @@ public sealed class PackagingSurfaceTests
         Assert.Equal("false", element.Value.Trim(), ignoreCase: true);
     }
 
+    /// <summary>
+    /// The gate for the dot-directory prune in <see cref="EnumerateRepositoryProjects"/>
+    /// (#3422). Without it, <see cref="OnlyTheShippingToolsOptIntoPackaging"/> fails for any
+    /// contributor whose linked worktree lives under the repository root — a failure that
+    /// reads as a regression in whatever change is under test, and that CI never sees because
+    /// it clones fresh. Hermetic rather than repository-shaped so it holds whether or not the
+    /// machine running it happens to have a worktree present.
+    /// </summary>
+    [Fact]
+    public void ProjectScanSkipsDotDirectoriesAndBuildOutput()
+    {
+        string temp = Path.Combine(Path.GetTempPath(), $"packaging-scan-{Guid.NewGuid():N}");
+        try
+        {
+            string Project(params string[] segments)
+            {
+                string directory = Path.Combine([temp, .. segments]);
+                Directory.CreateDirectory(directory);
+                string path = Path.Combine(directory, "sample.csproj");
+                File.WriteAllText(path, "<Project />");
+                return path;
+            }
+
+            string own = Project("src", "tool");
+            string obj = Project("src", "tool", "obj");
+            string linkedWorktree = Project(".worktrees", "feature", "src", "tool");
+            string otherToolState = Project(".claude", "scratch");
+            string ordinaryNested = Project("scratch", "copy");
+
+            var found = EnumerateRepositoryProjects(temp).ToArray();
+
+            Assert.Contains(own, found);
+            Assert.DoesNotContain(obj, found);
+            Assert.DoesNotContain(linkedWorktree, found);
+            // Any dot directory is tooling state, not only the repository's own convention.
+            Assert.DoesNotContain(otherToolState, found);
+            // Negative case: the prune keys on the leading dot, not on depth, so an ordinary
+            // nested directory stays censused.
+            Assert.Contains(ordinaryNested, found);
+        }
+        finally
+        {
+            if (Directory.Exists(temp))
+                Directory.Delete(temp, recursive: true);
+        }
+    }
+
     static (string[] Packable, int Scanned) ScanProjects()
     {
         string root = FindRepositoryRoot();
         List<string> packable = [];
         int scanned = 0;
 
-        foreach (string path in Directory.EnumerateFiles(root, "*.csproj", SearchOption.AllDirectories))
+        foreach (string path in EnumerateRepositoryProjects(root))
         {
-            if (IsExcluded(root, path))
-                continue;
-
             scanned++;
             bool optsIn = XDocument.Load(path)
                 .Descendants()
@@ -95,10 +139,45 @@ public sealed class PackagingSurfaceTests
         return (packable.ToArray(), scanned);
     }
 
-    static bool IsExcluded(string root, string path) =>
-        Path.GetRelativePath(root, path)
-            .Split(Path.DirectorySeparatorChar)
-            .Any(static segment => segment is "bin" or "obj" or ".git" or "artifacts" or "node_modules");
+    /// <summary>
+    /// Every <c>*.csproj</c> belonging to <em>this</em> checkout. Build output and dot
+    /// directories are both excluded, for the same reason: neither holds a project this
+    /// repository declares. A dot directory is tooling state — <c>.git</c>, <c>.vs</c>,
+    /// <c>.claude</c>, and by the <c>AGENTS.md</c> worktree convention <c>.worktrees</c> —
+    /// and never source. Skipping the whole class is what makes the census survive that
+    /// worktree workflow (#3422): a linked worktree placed under the root carries its own
+    /// copy of <c>src/dotnet-inspect/dotnet-inspect.csproj</c>, which is legitimately
+    /// packable and would be censused as a second shipping project. Every project pruned
+    /// this way is a duplicate of one the real tree already contributes, so the prune takes
+    /// nothing away from the census. The rule is by name, so a nested checkout parked under
+    /// an ordinary name is deliberately not covered.
+    /// </summary>
+    static IEnumerable<string> EnumerateRepositoryProjects(string root)
+    {
+        var pending = new Stack<string>();
+        pending.Push(root);
+
+        while (pending.Count > 0)
+        {
+            string directory = pending.Pop();
+
+            foreach (string path in Directory.EnumerateFiles(directory, "*.csproj"))
+                yield return path;
+
+            foreach (string child in Directory.EnumerateDirectories(directory))
+            {
+                if (IsExcludedDirectory(child))
+                    continue;
+                pending.Push(child);
+            }
+        }
+    }
+
+    static bool IsExcludedDirectory(string directory)
+    {
+        string name = Path.GetFileName(directory);
+        return name.StartsWith('.') || name is "bin" or "obj" or "artifacts" or "node_modules";
+    }
 
     static string FindRepositoryRoot()
     {

@@ -6,7 +6,7 @@ namespace DotnetInspector.Options;
 /// <summary>
 /// Configuration options for package inspection.
 /// </summary>
-public record InspectionOptions
+public record InspectionOptions : IProjectionOptions
 {
     /// <summary>
     /// Package name/path arguments (positional). First element is package identifier.
@@ -105,9 +105,14 @@ public record InspectionOptions
     public bool IncludePrerelease { get; init; }
 
     /// <summary>
+    /// Include unlisted versions in <c>--versions</c> output, marked as unlisted, instead of hiding
+    /// them. Discovery hides unlisted versions by default; this opt-in reveals them flagged.
+    /// </summary>
+    public bool IncludeUnlisted { get; init; }
+
+    /// <summary>
     /// Show the README.md content from the package.
     /// </summary>
-    public bool ShowReadme { get; init; }
 
     /// <summary>
     /// Print the document behind the selected section's first row.
@@ -174,6 +179,15 @@ public record InspectionOptions
     public TipLevel TipLevel { get; init; } = TipLevel.Minimal;
 
     /// <summary>
+    /// Bare <c>-S</c> mode: render the network-free <b>fixed</b> overview — only sections whose
+    /// declared <see cref="DotnetInspector.Sections.SectionSizeClass.Fixed"/> growth class and
+    /// <see cref="DotnetInspector.Sections.SectionCost.NetworkFree"/> cost make their membership
+    /// package-independent. Set internally when a valueless <c>-S</c> is issued at the default
+    /// verbosity; an explicit <c>-v:n</c>/<c>-v:d</c> stays on the normal curated ladder.
+    /// </summary>
+    public bool FixedOverview { get; init; }
+
+    /// <summary>
     /// Sections to include by heading name. If null, all sections are included.
     /// </summary>
     public HashSet<string>? IncludeSections { get; init; }
@@ -214,6 +228,13 @@ public record InspectionOptions
     /// Used to distinguish explicit tabular output from a tabular default.
     /// </summary>
     public bool TabularExplicitlySet { get; init; }
+
+    /// <summary>
+    /// Whether the caller actually passed <c>-S/--select</c>. <see cref="Select"/> alone cannot
+    /// answer this: <c>--path</c> and <c>--type</c> are sugar that synthesize a selection, so a
+    /// non-empty <see cref="Select"/> does not imply the caller asked for one.
+    /// </summary>
+    public bool SelectExplicitlySet { get; init; }
 
     /// <summary>
     /// True when the user explicitly chose an output format via CLI flags.
@@ -265,7 +286,7 @@ public record InspectionOptions
     /// <summary>
     /// True when output is raw text (not rendered markdown).
     /// </summary>
-    public bool IsRawOutput => Bare || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || ShowReadme || Print || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
+    public bool IsRawOutput => Bare || JsonOutput || Tabular || Jsonl || JsonArray || NoHeader || ListLayout || ListTfms || ListVersions || Print || Value || Urls || Paths || ShowContent || ShowDependencies || Count || PackageLibrary != null || AllLibraries;
 
     /// <summary>
     /// All inspection features enabled.

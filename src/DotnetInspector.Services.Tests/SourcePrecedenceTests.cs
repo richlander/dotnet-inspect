@@ -27,7 +27,7 @@ namespace DotnetInspector.Services.Tests;
 [Collection(CoreCacheCollection.Name)]
 public class SourcePrecedenceTests : IDisposable
 {
-    private const string VersionCacheCategory = "versions";
+    private const string VersionCacheCategory = "versions-v2";
 
     private const string FeedAIndex = "feed-a.example.test/v3/index.json";
     private const string FeedBIndex = "feed-b.example.test/v3/index.json";
@@ -128,7 +128,7 @@ public class SourcePrecedenceTests : IDisposable
     }
 
     [Fact]
-    public async Task GetVersionsWithSource_EmitsOneRowPerFeedCarryingAVersion()
+    public async Task GetVersionListingsWithSource_EmitsOneRowPerFeedCarryingAVersion()
     {
         // 0.32.0 is on both feeds, so it appears twice; 0.32.99 is private to feed B.
         var handler = CreateHandler(feedAVersions: ["0.31.0", "0.32.0"], feedBVersions: ["0.32.0", "0.32.99"]);
@@ -138,8 +138,9 @@ public class SourcePrecedenceTests : IDisposable
             Sources = [$"https://{FeedAIndex}", $"https://{FeedBIndex}"],
         };
 
-        var rows = await PackageExtractor.GetVersionsWithSourceAsync(
-            client, "Markout", includePrerelease: false, limit: null, log: null, sourceOptions: sourceOptions);
+        var rows = await PackageExtractor.GetVersionListingsWithSourceAsync(
+            client, "Markout", includePrerelease: false, includeUnlisted: false,
+            limit: null, log: null, sourceOptions: sourceOptions);
 
         Assert.NotNull(rows);
         Assert.Equal(
@@ -149,11 +150,11 @@ public class SourcePrecedenceTests : IDisposable
                 ("0.32.0", "feed-b.example.test"),
                 ("0.31.0", "feed-a.example.test"),
             ],
-            rows);
+            rows.Select(r => (r.Version, r.Feed)));
     }
 
     [Fact]
-    public async Task GetVersionsWithSource_DistinguishesFeedsThatShareTheExplicitName()
+    public async Task GetVersionListingsWithSource_DistinguishesFeedsThatShareTheExplicitName()
     {
         // Sources named on the command line that match nothing in configuration are all called
         // "explicit". Labels must still tell them apart, or a version on two feeds collapses.
@@ -164,8 +165,9 @@ public class SourcePrecedenceTests : IDisposable
             Sources = [$"https://{FeedAIndex}", $"https://{FeedBIndex}"],
         };
 
-        var rows = await PackageExtractor.GetVersionsWithSourceAsync(
-            client, "Markout", includePrerelease: false, limit: null, log: null, sourceOptions: sourceOptions);
+        var rows = await PackageExtractor.GetVersionListingsWithSourceAsync(
+            client, "Markout", includePrerelease: false, includeUnlisted: false,
+            limit: null, log: null, sourceOptions: sourceOptions);
 
         Assert.NotNull(rows);
         Assert.Equal(2, rows.Count);
@@ -173,7 +175,7 @@ public class SourcePrecedenceTests : IDisposable
     }
 
     [Fact]
-    public async Task GetVersionsWithSource_LimitCountsVersionsNotRows()
+    public async Task GetVersionListingsWithSource_LimitCountsVersionsNotRows()
     {
         // A limit of 1 keeps the newest version only, but still lists every feed carrying it.
         var handler = CreateHandler(feedAVersions: ["0.32.0"], feedBVersions: ["0.32.0"]);
@@ -183,8 +185,9 @@ public class SourcePrecedenceTests : IDisposable
             Sources = [$"https://{FeedAIndex}", $"https://{FeedBIndex}"],
         };
 
-        var rows = await PackageExtractor.GetVersionsWithSourceAsync(
-            client, "Markout", includePrerelease: false, limit: 1, log: null, sourceOptions: sourceOptions);
+        var rows = await PackageExtractor.GetVersionListingsWithSourceAsync(
+            client, "Markout", includePrerelease: false, includeUnlisted: false,
+            limit: 1, log: null, sourceOptions: sourceOptions);
 
         Assert.NotNull(rows);
         Assert.Equal(2, rows.Count);
@@ -192,7 +195,7 @@ public class SourcePrecedenceTests : IDisposable
     }
 
     [Fact]
-    public async Task GetVersionsWithSource_ReturnsNullWhenNoSourceHasPackage()
+    public async Task GetVersionListingsWithSource_ReturnsNullWhenNoSourceHasPackage()
     {
         var handler = CreateHandler(feedAVersions: null, feedBVersions: null);
         using var client = new HttpClient(handler);
@@ -201,10 +204,118 @@ public class SourcePrecedenceTests : IDisposable
             Sources = [$"https://{FeedAIndex}", $"https://{FeedBIndex}"],
         };
 
-        var rows = await PackageExtractor.GetVersionsWithSourceAsync(
-            client, "Markout", includePrerelease: false, limit: null, log: null, sourceOptions: sourceOptions);
+        var rows = await PackageExtractor.GetVersionListingsWithSourceAsync(
+            client, "Markout", includePrerelease: false, includeUnlisted: false,
+            limit: null, log: null, sourceOptions: sourceOptions);
 
         Assert.Null(rows);
+    }
+
+    [Fact]
+    public async Task GetVersionListingsWithSource_AppliesListingPerFeed_NotMerged()
+    {
+        // 2.0.0 is unlisted on nuget.org but is also published to a private feed. The merged
+        // views cannot express that split: a version listed on any source counts as listed, and
+        // private feeds have no listed concept, so they always report listed. Provenance can
+        // express it, so the nuget.org row is hidden while the private-feed row survives.
+        using var client = new HttpClient(new NuGetOrgPlusPrivateHandler(
+            packageId: "splitpkg",
+            nugetOrgRegistry: [("1.0.0", true), ("2.0.0", false)],
+            privateVersions: ["2.0.0"]));
+
+        var sourceOptions = new NuGetSourceOptions
+        {
+            Sources = ["https://api.nuget.org/v3/index.json", $"https://{FeedBIndex}"],
+        };
+
+        var rows = await PackageExtractor.GetVersionListingsWithSourceAsync(
+            client, "SplitPkg", includePrerelease: false, includeUnlisted: false,
+            limit: null, log: null, sourceOptions: sourceOptions);
+
+        Assert.NotNull(rows);
+        Assert.Equal(
+            [
+                ("2.0.0", "feed-b.example.test"),
+                ("1.0.0", "nuget.org"),
+            ],
+            rows.Select(r => (r.Version, r.Feed)));
+    }
+
+    [Fact]
+    public async Task GetVersionListingsWithSource_IncludeUnlisted_ShowsBothRowsWithStatus()
+    {
+        // With --include-unlisted the hidden nuget.org row reappears, marked unlisted, next to
+        // the private-feed row for the same version. That contrast is the point of the view.
+        using var client = new HttpClient(new NuGetOrgPlusPrivateHandler(
+            packageId: "splitpkg",
+            nugetOrgRegistry: [("1.0.0", true), ("2.0.0", false)],
+            privateVersions: ["2.0.0"]));
+
+        var sourceOptions = new NuGetSourceOptions
+        {
+            Sources = ["https://api.nuget.org/v3/index.json", $"https://{FeedBIndex}"],
+        };
+
+        var rows = await PackageExtractor.GetVersionListingsWithSourceAsync(
+            client, "SplitPkg", includePrerelease: false, includeUnlisted: true,
+            limit: null, log: null, sourceOptions: sourceOptions);
+
+        Assert.NotNull(rows);
+        Assert.Equal(
+            [
+                ("2.0.0", "nuget.org", false),
+                ("2.0.0", "feed-b.example.test", true),
+                ("1.0.0", "nuget.org", true),
+            ],
+            rows.Select(r => (r.Version, r.Feed, r.Listed)));
+    }
+
+    /// <summary>
+    /// Serves nuget.org (flat container, registration index, search) alongside one private V3
+    /// feed, so a single package version can be unlisted on nuget.org and present on the feed.
+    /// </summary>
+    private sealed class NuGetOrgPlusPrivateHandler(
+        string packageId,
+        (string Version, bool Listed)[] nugetOrgRegistry,
+        string[] privateVersions)
+        : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            string url = request.RequestUri!.ToString();
+            string? body = null;
+
+            if (string.Equals(url, $"https://api.nuget.org/v3-flatcontainer/{packageId}/index.json", StringComparison.OrdinalIgnoreCase))
+            {
+                body = "{\"versions\":["
+                    + string.Join(",", nugetOrgRegistry.Select(r => "\"" + r.Version + "\""))
+                    + "]}";
+            }
+            else if (string.Equals(url, $"https://api.nuget.org/v3/registration5-gz-semver2/{packageId}/index.json", StringComparison.OrdinalIgnoreCase))
+            {
+                string items = string.Join(",", nugetOrgRegistry.Select(r =>
+                    "{\"catalogEntry\":{\"version\":\"" + r.Version + "\",\"listed\":"
+                        + (r.Listed ? "true" : "false") + "}}"));
+                body = "{\"items\":[{\"items\":[" + items + "]}]}";
+            }
+            else if (string.Equals(url, $"https://{FeedBIndex}", StringComparison.OrdinalIgnoreCase))
+            {
+                body = "{\"resources\":[{\"@type\":\"PackageBaseAddress/3.0.0\","
+                    + "\"@id\":\"https://feed-b.example.test/v3/flat2/\"}]}";
+            }
+            else if (string.Equals(url, $"https://feed-b.example.test/v3/flat2/{packageId}/index.json", StringComparison.OrdinalIgnoreCase))
+            {
+                body = "{\"versions\":["
+                    + string.Join(",", privateVersions.Select(v => "\"" + v + "\""))
+                    + "]}";
+            }
+
+            var response = body != null
+                ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) }
+                : new HttpResponseMessage(HttpStatusCode.NotFound);
+            return Task.FromResult(response);
+        }
     }
 
     private static NuGetSource FeedA() => new("feed-a", $"https://{FeedAIndex}");

@@ -30,7 +30,8 @@ public class FindCommand
                     : new DocumentSchema()
                         .Add("Results", "column", "Pattern", "Type", "Namespace", "Kind", "Library", "Source", "Match", "Sim");
                 return DiscoverOutput.Execute(options.Discover, schema,
-                    tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl);
+                    tree: options.Tree, json: options.JsonOutput, tsv: options.Tsv, jsonl: options.Jsonl,
+                    projection: options);
             }
 
             var patterns = options.Pattern.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -39,6 +40,15 @@ public class FindCommand
                 Console.Error.WriteLine("Error: No pattern specified.");
                 return 1;
             }
+
+            // Fail closed, like the type/member paths (#3386): --fields/--columns select table
+            // columns, but find's --json emits the full per-result objects and has no column-
+            // slicing facility, so the combination silently dropped the column filter. Reject it
+            // rather than emitting an unfiltered document. --count reduces to a scalar and is
+            // handled below, so it is excluded. Placed after the -D discovery branch, which honors
+            // projection itself. The row-oriented formats (--tsv/--jsonl/--table) project columns.
+            if (options.JsonOutput && !options.Count && IsColumnProjectionRequested(options))
+                return RejectColumnProjectionUnderJson();
 
             if (!options.HasAnyScope)
             {
@@ -120,6 +130,17 @@ public class FindCommand
         }
 
         return 0;
+    }
+
+    private static bool IsColumnProjectionRequested(FindOptions options)
+        => options.Fields is { Length: > 0 } || options.Columns is { Length: > 0 };
+
+    private static int RejectColumnProjectionUnderJson()
+    {
+        Console.Error.WriteLine(
+            "Error: --fields/--columns select table columns and cannot be combined with --json, "
+            + "which emits the full result objects. Use --tsv, --jsonl, or --table to project columns.");
+        return 1;
     }
 
     private static void WriteOutput(List<TypeFindResult> rawData, string title, FindOptions options)

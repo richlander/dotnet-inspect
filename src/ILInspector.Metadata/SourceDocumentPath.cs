@@ -38,7 +38,7 @@ internal sealed class SourceDocumentPathResolver
 
         try
         {
-            using var document = JsonDocument.Parse(sourceLinkJson);
+            using var document = SourceLinkJson.Parse(sourceLinkJson);
             if (document.RootElement.ValueKind != JsonValueKind.Object
                 || !document.RootElement.TryGetProperty("documents", out var mappings)
                 || mappings.ValueKind != JsonValueKind.Object)

@@ -1,13 +1,14 @@
+using ILInspector.Metadata;
 using System.Text.RegularExpressions;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
-namespace ILInspector.Metadata.Tests;
+namespace DotnetInspector.CSharpBodySlicer.Tests;
 
 /// <summary>
 /// Parse-validity gate for the authored-source slicer
-/// (<see cref="SourceLinkResolver.ExtractMethodBody"/>).
+/// (<see cref="BodySlicer.ExtractMethodBody"/>).
 /// <para>
 /// The slicer reconstructs a member's authored text from a sequence-point line range, so it
 /// has two independent boundaries: a backward scan that recovers the signature and a forward
@@ -177,7 +178,7 @@ public class AuthoredSourceValidityTests
                         continue;
                     }
 
-                    var text = SourceLinkResolver.ExtractMethodBody(
+                    var text = BodySlicer.ExtractMethodBody(
                         sourceText,
                         member.StartLine,
                         member.EndLine,
@@ -356,7 +357,7 @@ public class AuthoredSourceValidityTests
             "}",                        // 7
         ]);
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: "M");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: "M");
 
         Assert.NotNull(body);
         Assert.Equal($"{signature}\n{{\n    Use();\n}}", body);
@@ -393,7 +394,7 @@ public class AuthoredSourceValidityTests
             "    int X = 1;",           // 2  <- EndLine
         ]);
 
-        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 1, endLine: 2, methodName: ".ctor"));
+        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine: 1, endLine: 2, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -415,7 +416,7 @@ public class AuthoredSourceValidityTests
             "}",                                            // 7
         ]);
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: "Ret");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: "Ret");
 
         Assert.Equal(
             "public unsafe delegate*<int, int> Ret()\n{\n    return null;\n}",
@@ -447,7 +448,7 @@ public class AuthoredSourceValidityTests
             "}",                                            // 8
         ]);
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 5, endLine: 7, methodName: ".ctor");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 5, endLine: 7, methodName: ".ctor");
 
         Assert.Equal(
             "Result(string name)\n{\n    Name = name;\n}",
@@ -472,7 +473,7 @@ public class AuthoredSourceValidityTests
             "}",                        // 4
         ]);
 
-        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 1, endLine: 3, methodName: ".ctor"));
+        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine: 1, endLine: 3, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -504,7 +505,7 @@ public class AuthoredSourceValidityTests
             "}",                        // 7
         ]);
 
-        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 1, endLine: 5, methodName: "get_X"));
+        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine: 1, endLine: 5, methodName: "get_X"));
     }
 
     /// <summary>
@@ -535,7 +536,7 @@ public class AuthoredSourceValidityTests
             "}",                                                 // 14
         ]);
 
-        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 1, endLine: 13, methodName: ".ctor"));
+        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine: 1, endLine: 13, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -560,7 +561,7 @@ public class AuthoredSourceValidityTests
             "}",                                    // 7
         ]);
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: "Ret");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: "Ret");
 
         Assert.Equal($"public static {returnType} Ret()\n{{\n    return null;\n}}", body);
     }
@@ -580,7 +581,7 @@ public class AuthoredSourceValidityTests
             header,                       // 1  <- StartLine
         ]);
 
-        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 1, endLine: 1, methodName: ".ctor"));
+        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine: 1, endLine: 1, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -601,7 +602,7 @@ public class AuthoredSourceValidityTests
     [InlineData("public class C { void M() { } C() { } }")]
     public void ConstructorRecovery_FindsAConstructorSharingItsLine(string header)
     {
-        Assert.Equal(header, SourceLinkResolver.ExtractMethodBody(header, startLine: 1, endLine: 1, methodName: ".ctor"));
+        Assert.Equal(header, BodySlicer.ExtractMethodBody(header, startLine: 1, endLine: 1, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -613,7 +614,7 @@ public class AuthoredSourceValidityTests
     {
         Assert.Equal(
             "{ C() { } }",
-            SourceLinkResolver.ExtractMethodBody("class C\n{ C() { } }", startLine: 2, endLine: 2, methodName: ".ctor"));
+            BodySlicer.ExtractMethodBody("class C\n{ C() { } }", startLine: 2, endLine: 2, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -630,7 +631,7 @@ public class AuthoredSourceValidityTests
     [InlineData("namespace N\n{\n    class Outer\n    {\n        class Inner\n        {\n            Inner()\n            {\n            }\n        }\n    }\n}", 8, 9)]
     public void ConstructorRecovery_FindsTheConstructorOfTheInnermostEnclosingType(string source, int startLine, int endLine)
     {
-        var slice = SourceLinkResolver.ExtractMethodBody(source, startLine, endLine, methodName: ".ctor");
+        var slice = BodySlicer.ExtractMethodBody(source, startLine, endLine, methodName: ".ctor");
 
         Assert.NotNull(slice);
         Assert.StartsWith(slice.Split('\n')[0].Trim(), slice.Trim(), StringComparison.Ordinal);
@@ -650,7 +651,7 @@ public class AuthoredSourceValidityTests
     [InlineData("public class C\n{\n    public C(\n        int x)\n    {\n    }\n}", 5, 6, "public C(\n    int x)\n{\n}")]
     public void ConstructorRecovery_StartsAtTheDeclaration_NotAtTheName(string source, int startLine, int endLine, string expected)
     {
-        Assert.Equal(expected, SourceLinkResolver.ExtractMethodBody(source, startLine, endLine, methodName: ".ctor"));
+        Assert.Equal(expected, BodySlicer.ExtractMethodBody(source, startLine, endLine, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -672,7 +673,7 @@ public class AuthoredSourceValidityTests
     {
         var source = string.Join('\n', ["class Outer", "{", sibling, "    Outer()", "    {", "    }", "}"]);
 
-        Assert.Equal("Outer()\n{\n}", SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 5, methodName: ".ctor"));
+        Assert.Equal("Outer()\n{\n}", BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 5, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -683,7 +684,7 @@ public class AuthoredSourceValidityTests
     {
         var source = "namespace N\n{\n    class Outer\n    {\n        record R(int X);\n        Outer()\n        {\n        }\n    }\n}";
 
-        Assert.Equal("Outer()\n{\n}", SourceLinkResolver.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: ".ctor"));
+        Assert.Equal("Outer()\n{\n}", BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -693,7 +694,7 @@ public class AuthoredSourceValidityTests
     [Fact]
     public void ConstructorRecovery_KeepsTheTypeThatOpensAndClosesOnTheTargetLine()
     {
-        Assert.Equal("class C { C() { } }", SourceLinkResolver.ExtractMethodBody("class C { C() { } }", startLine: 1, endLine: 1, methodName: ".ctor"));
+        Assert.Equal("class C { C() { } }", BodySlicer.ExtractMethodBody("class C { C() { } }", startLine: 1, endLine: 1, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -705,7 +706,7 @@ public class AuthoredSourceValidityTests
     {
         var source = "class Outer<T>\n    where T : new()\n{\n    Outer()\n    {\n    }\n}";
 
-        Assert.Equal("Outer()\n{\n}", SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 5, methodName: ".ctor"));
+        Assert.Equal("Outer()\n{\n}", BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 5, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -730,7 +731,7 @@ public class AuthoredSourceValidityTests
     [InlineData("public class C {\n    public record R(int X); C() { }\n}", 2, 2)]
     public void ASecondDeclarationOnTheTargetLine_IsNotRecognized_KnownGap(string source, int startLine, int endLine)
     {
-        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine, endLine, methodName: ".ctor"));
+        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine, endLine, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -785,7 +786,7 @@ public class AuthoredSourceValidityTests
             "}",
         ]);
 
-        var slice = SourceLinkResolver.ExtractMethodBody(source, startLine: 8, endLine: 9, methodName: ".ctor");
+        var slice = BodySlicer.ExtractMethodBody(source, startLine: 8, endLine: 9, methodName: ".ctor");
 
         Assert.Equal("{\n    public\n    C()\n    {\n    }\n}", slice);
     }
@@ -814,7 +815,7 @@ public class AuthoredSourceValidityTests
             "}",
         ]);
 
-        var slice = SourceLinkResolver.ExtractMethodBody(source, startLine: 7, endLine: 8, methodName: ".ctor");
+        var slice = BodySlicer.ExtractMethodBody(source, startLine: 7, endLine: 8, methodName: ".ctor");
 
         Assert.Equal("public\nC()\n{\n}", slice);
     }
@@ -822,7 +823,7 @@ public class AuthoredSourceValidityTests
     [Fact]
     public void ATypeClosingOnTheConstructorsLine_ReportsAbsent_KnownGap()
     {
-        Assert.Null(SourceLinkResolver.ExtractMethodBody("class Outer\n{\n    class Inner\n    {\n    } Outer() { }\n}", startLine: 5, endLine: 5, methodName: ".ctor"));
+        Assert.Null(BodySlicer.ExtractMethodBody("class Outer\n{\n    class Inner\n    {\n    } Outer() { }\n}", startLine: 5, endLine: 5, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -854,7 +855,7 @@ public class AuthoredSourceValidityTests
             "}",
         ]);
 
-        Assert.Equal("    C();\n\nC() { }", SourceLinkResolver.ExtractMethodBody(source, startLine: 6, endLine: 6, methodName: ".ctor"));
+        Assert.Equal("    C();\n\nC() { }", BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 6, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -868,7 +869,7 @@ public class AuthoredSourceValidityTests
     {
         var source = "public class C\n{\n    C\n    (\n    )\n    {\n    }\n}";
 
-        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: ".ctor"));
+        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine: 6, endLine: 7, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -882,7 +883,7 @@ public class AuthoredSourceValidityTests
     [InlineData("public record R(string s = \"{ R()\") ;")]
     public void ConstructorRecovery_IgnoresNamesThatAreNotMemberLevelDeclarations(string source)
     {
-        Assert.Null(SourceLinkResolver.ExtractMethodBody(source, startLine: 1, endLine: 1, methodName: ".ctor"));
+        Assert.Null(BodySlicer.ExtractMethodBody(source, startLine: 1, endLine: 1, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -894,7 +895,7 @@ public class AuthoredSourceValidityTests
     [InlineData("public record R(int X);")]
     public void ConstructorRecovery_DoesNotReadARecordHeaderAsAConstructor(string header)
     {
-        Assert.Null(SourceLinkResolver.ExtractMethodBody(header, startLine: 1, endLine: 1, methodName: ".ctor"));
+        Assert.Null(BodySlicer.ExtractMethodBody(header, startLine: 1, endLine: 1, methodName: ".ctor"));
     }
 
     /// <summary>
@@ -908,21 +909,21 @@ public class AuthoredSourceValidityTests
     {
         // A tab-separated type header is still a type header, so a field-initializer
         // constructor above it is still absent rather than the whole type.
-        Assert.Null(SourceLinkResolver.ExtractMethodBody(
+        Assert.Null(BodySlicer.ExtractMethodBody(
             "public\tclass C\n{\n    int X = Get();\n    static int Get() => 0;\n}",
             startLine: 1, endLine: 3, methodName: ".ctor"));
 
         // A commented gap does not turn a function-pointer return type into a delegate.
         Assert.Equal(
             "public static delegate /* gap */ *<int, int> Ret()\n{\n    return default;\n}",
-            SourceLinkResolver.ExtractMethodBody(
+            BodySlicer.ExtractMethodBody(
                 "unsafe class C\n{\n    public static delegate /* gap */ *<int, int> Ret()\n    {\n        return default;\n    }\n}",
                 startLine: 4, endLine: 6, methodName: "Ret"));
 
         // A commented gap does not hide a constructor's parameter list.
         Assert.Equal(
             "C /* gap */ ()\n{\n}",
-            SourceLinkResolver.ExtractMethodBody(
+            BodySlicer.ExtractMethodBody(
                 "class C\n{\n    C /* gap */ ()\n    {\n    }\n}",
                 startLine: 4, endLine: 5, methodName: ".ctor"));
     }
@@ -940,7 +941,7 @@ public class AuthoredSourceValidityTests
     {
         var source = "[System.Obsolete( // comment with ]\n    \"why\")] public record R(int X);";
 
-        var slice = SourceLinkResolver.ExtractMethodBody(source, startLine: 2, endLine: 2, methodName: ".ctor");
+        var slice = BodySlicer.ExtractMethodBody(source, startLine: 2, endLine: 2, methodName: ".ctor");
 
         // The right answer is null. Pin the wrong one so the gap cannot widen unnoticed.
         Assert.Equal("\"why\")] public record R(int X);", slice);
@@ -967,7 +968,7 @@ public class AuthoredSourceValidityTests
             "}",                                    // 7
         ]);
 
-        var body = SourceLinkResolver.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: ".ctor");
+        var body = BodySlicer.ExtractMethodBody(source, startLine: 4, endLine: 6, methodName: ".ctor");
 
         Assert.Equal(
             $"{declaration}(string name)\n{{\n    Name = name;\n}}",
@@ -1022,7 +1023,7 @@ public class AuthoredSourceValidityTests
 
         // The range ends on the statement, as a sequence-point range does; the member's own
         // closing brace is recovered by the forward scan.
-        var body = SourceLinkResolver.ExtractMethodBody(
+        var body = BodySlicer.ExtractMethodBody(
             string.Join("\n", lines), startLine: 5, endLine: 5, methodName: "M");
 
         Assert.NotNull(body);
@@ -1059,7 +1060,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 4, 5, "M");
+        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 4, 5, "M");
 
         Assert.NotNull(slice);
         Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
@@ -1092,7 +1093,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
+        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
 
         Assert.Equal("public int P\n{\n    get => 1;", slice);
     }
@@ -1118,7 +1119,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 4, 5, "M");
+        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 4, 5, "M");
 
         Assert.NotNull(slice);
         Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
@@ -1146,7 +1147,7 @@ public class AuthoredSourceValidityTests
 
         // The scan must not claim to have found the member's closing brace by reading through
         // a literal it lost its place in.
-        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 4, 5, "M");
+        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 4, 5, "M");
 
         Assert.DoesNotContain("int y = 2;", slice);
     }
@@ -1175,7 +1176,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 4, 5, "M");
+        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 4, 5, "M");
 
         Assert.NotNull(slice);
         Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
@@ -1204,7 +1205,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 4, 8, "M");
+        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 4, 8, "M");
 
         Assert.NotNull(slice);
         Assert.DoesNotContain("class C", slice);
@@ -1233,7 +1234,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 4, 6, "M");
+        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 4, 6, "M");
 
         Assert.NotNull(slice);
         Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
@@ -1260,7 +1261,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 4, 6, "M");
+        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 4, 6, "M");
 
         Assert.NotNull(slice);
         Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
@@ -1296,7 +1297,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 7, 7, "get_P");
+        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 7, 7, "get_P");
 
         Assert.NotNull(slice);
         Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
@@ -1325,7 +1326,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
+        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
 
         Assert.Equal("public int P\n{\n    get => 1;", slice);
     }
@@ -1360,7 +1361,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 7, 7, "get_Property");
+        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 7, 7, "get_Property");
 
         Assert.NotNull(slice);
         Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
@@ -1394,7 +1395,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
+        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
 
         Assert.Contains(statement, slice);
         Assert.Contains("return set;", slice);
@@ -1429,7 +1430,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 6, endLine, "get_Prop");
+        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 6, endLine, "get_Prop");
 
         Assert.Equal("public int Prop\n{\n    get\n    {\n        var s = 1;\n        return 1;\n    }", slice);
     }
@@ -1463,7 +1464,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, endLine, "get_P");
+        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, endLine, "get_P");
 
         Assert.Equal(
             "public int P\n{\n    get => (\n        () =>\n        {\n            return 1;\n        })()\n        + 1;",
@@ -1494,7 +1495,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, endLine, "get_Prop");
+        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, endLine, "get_Prop");
 
         Assert.NotNull(slice);
         Assert.EndsWith("2;", slice, StringComparison.Ordinal);
@@ -1531,7 +1532,7 @@ public class AuthoredSourceValidityTests
             "}",
         ]);
 
-        var slice = SourceLinkResolver.ExtractMethodBody(source, 5, 7, "get_P");
+        var slice = BodySlicer.ExtractMethodBody(source, 5, 7, "get_P");
 
         Assert.Equal("public int P\n{\n    get\n    {\n        return 1;\n    }", slice);
     }
@@ -1560,7 +1561,7 @@ public class AuthoredSourceValidityTests
             "}",
         ]);
 
-        var slice = SourceLinkResolver.ExtractMethodBody(source, 5, 5, "get_Tfm");
+        var slice = BodySlicer.ExtractMethodBody(source, 5, 5, "get_Tfm");
 
         Assert.Equal("public int[] Tfm\n{\n    get =>\n" + expectedTail, slice);
     }
@@ -1593,7 +1594,7 @@ public class AuthoredSourceValidityTests
             "}",
         ]);
 
-        var slice = SourceLinkResolver.ExtractMethodBody(source, 6, 8, "get_Prop");
+        var slice = BodySlicer.ExtractMethodBody(source, 6, 8, "get_Prop");
 
         Assert.Equal("public int Prop\n{\n    get\n    {\n        return 1;\n    }", slice);
     }
@@ -1639,7 +1640,7 @@ public class AuthoredSourceValidityTests
     public void TheSiblingQuestionAskedOfSomethingThatIsNotASibling_TruncatesTheSlice_KnownGap(
         string source, int startLine, int endLine, string methodName, string? truncated)
     {
-        Assert.Equal(truncated, SourceLinkResolver.ExtractMethodBody(source, startLine, endLine, methodName));
+        Assert.Equal(truncated, BodySlicer.ExtractMethodBody(source, startLine, endLine, methodName));
     }
 
     /// <summary>
@@ -1669,7 +1670,7 @@ public class AuthoredSourceValidityTests
             "}",
         ]);
 
-        var slice = SourceLinkResolver.ExtractMethodBody(source, 5, 8, "get_P");
+        var slice = BodySlicer.ExtractMethodBody(source, 5, 8, "get_P");
 
         Assert.Equal("public int P\n{\n    get\n    {\n        return 1;\n    }", slice);
     }
@@ -1699,7 +1700,7 @@ public class AuthoredSourceValidityTests
             "}",
         ]);
 
-        var slice = SourceLinkResolver.ExtractMethodBody(source, 5, 7, "get_P");
+        var slice = BodySlicer.ExtractMethodBody(source, 5, 7, "get_P");
 
         Assert.Equal(
             "public string P\n{\n    get\n    {\n        return \"\"\"\n            set\n            \"\"\";\n    }",
@@ -1731,7 +1732,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, 7, "get_P");
+        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, 7, "get_P");
 
         Assert.Equal("public int P\n{\n    get\n    {\n        return 1;\n    }", slice);
     }
@@ -1762,7 +1763,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, 9, "get_Prop");
+        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, 9, "get_Prop");
 
         Assert.Equal(
             "public int Prop\n{\n    get\n    {\n        if (true)\n        {\n            return 1;\n        }\n        return 2;\n    }",
@@ -1792,7 +1793,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 6, 6, "get_P");
+        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 6, 6, "get_P");
 
         Assert.Equal("public int P\n{\n    get => 1;", slice);
     }
@@ -1824,7 +1825,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
+        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
 
         Assert.Contains("void Local() { }", slice);
         Assert.Contains("return x;", slice);
@@ -1856,7 +1857,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
+        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
 
         Assert.Equal("public int P\n{\n    get => 1;", slice);
     }
@@ -1887,7 +1888,7 @@ public class AuthoredSourceValidityTests
             "}",
         ];
 
-        var slice = SourceLinkResolver.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
+        var slice = BodySlicer.ExtractMethodBody(string.Join("\n", lines), 5, 5, "get_P");
 
         Assert.Equal("public int P\n{\n    get => 1;", slice);
     }
@@ -1920,7 +1921,7 @@ public class AuthoredSourceValidityTests
         var text = string.Join("\n", lines);
 
         // The range stops on the first statement; everything below it belongs to the member.
-        var slice = SourceLinkResolver.ExtractMethodBody(text, startLine: 4, endLine: 5, methodName: "M");
+        var slice = BodySlicer.ExtractMethodBody(text, startLine: 4, endLine: 5, methodName: "M");
 
         Assert.NotNull(slice);
         Assert.Equal(SliceOutcome.WellFormed, Classify(slice));
@@ -1939,7 +1940,7 @@ public class AuthoredSourceValidityTests
     {
         var text = string.Join("\n", ["public class C", "{", "    " + member, "}"]);
 
-        var slice = SourceLinkResolver.ExtractMethodBody(text, startLine: 3, endLine: 3, methodName: name);
+        var slice = BodySlicer.ExtractMethodBody(text, startLine: 3, endLine: 3, methodName: name);
 
         Assert.Equal(member, slice);
     }

@@ -178,16 +178,16 @@ public sealed partial class CSharpPrinter
             };
 
     /// <summary>
-    /// The product path with a statement line map: same output as
-    /// <see cref="PrintRaised(IrFunction)"/>, plus a table from each top-level
-    /// statement node to its 0-based start line. Line-anchored overlays (the
-    /// annotated C# view) splice onto those lines; the printer itself stays
-    /// annotation-agnostic. The map is empty on failure.
+    /// The product path with a printed-range map: same output as
+    /// <see cref="PrintRaised(IrFunction)"/>, plus a record of which characters
+    /// of that output each statement node emitted. Line- and range-anchored
+    /// overlays (the annotated C# view) splice onto those positions; the printer
+    /// itself stays annotation-agnostic. The map is empty on failure.
     /// </summary>
-    public static DecompilerResult PrintRaised(IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines)
-        => PrintRaised(function, out statementLines, importMethodBody: null);
+    public static DecompilerResult PrintRaised(IrFunction function, out PrintedRangeMap printedRanges)
+        => PrintRaised(function, out printedRanges, importMethodBody: null);
 
-    /// <inheritdoc cref="PrintRaised(IrFunction, out IReadOnlyDictionary{IrNode, int})"/>
+    /// <inheritdoc cref="PrintRaised(IrFunction, out PrintedRangeMap)"/>
     /// <remarks>
     /// <paramref name="options"/> applies the same taste as the plain
     /// <see cref="PrintRaised(IrFunction, Func{MethodRef, IrFunction}, PrinterOptions, Func{TypeRef, TypeRef, bool})"/>
@@ -200,11 +200,11 @@ public sealed partial class CSharpPrinter
     /// corresponding.
     /// </remarks>
     public static DecompilerResult PrintRaised(
-        IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines, Func<MethodRef, IrFunction?>? importMethodBody,
+        IrFunction function, out PrintedRangeMap printedRanges, Func<MethodRef, IrFunction?>? importMethodBody,
         Func<TypeRef, TypeRef, bool>? typesProvablyDisjoint = null,
         PrinterOptions? options = null)
     {
-        statementLines = new Dictionary<IrNode, int>();
+        printedRanges = PrintedRangeMap.Empty;
         List<DecompilerDecision> appliedLenses;
         try
         {
@@ -217,10 +217,10 @@ public sealed partial class CSharpPrinter
 
         try
         {
-            var sink = new Dictionary<IrNode, int>();
-            var printer = new CSharpPrinter(function, options) { _statementLines = sink };
+            var sink = new PrintedRangeMap();
+            var printer = new CSharpPrinter(function, options) { _printedRanges = sink };
             string output = printer.PrintBody(function);
-            statementLines = sink;
+            printedRanges = sink.Complete(output);
             return WithAppliedLenses(printer.Result(output, function), appliedLenses);
         }
         catch (Exception ex)
@@ -257,12 +257,12 @@ public sealed partial class CSharpPrinter
     /// As <see cref="PrintLowered(IrFunction)"/>, but also yields the
     /// statement-to-output-line table the mixed-source view uses to anchor fact
     /// comments and interleaved IL onto the lowered C# (the lowered analogue of
-    /// <see cref="PrintRaised(IrFunction, out IReadOnlyDictionary{IrNode, int})"/>).
+    /// <see cref="PrintRaised(IrFunction, out PrintedRangeMap)"/>).
     /// </summary>
-    public static DecompilerResult PrintLowered(IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines)
-        => PrintLowered(function, out statementLines, importMethodBody: null);
+    public static DecompilerResult PrintLowered(IrFunction function, out PrintedRangeMap printedRanges)
+        => PrintLowered(function, out printedRanges, importMethodBody: null);
 
-    /// <inheritdoc cref="PrintLowered(IrFunction, out IReadOnlyDictionary{IrNode, int})"/>
+    /// <inheritdoc cref="PrintLowered(IrFunction, out PrintedRangeMap)"/>
     /// <remarks>
     /// <paramref name="options"/> applies the printer's byte-preserving spelling
     /// and layout knobs so the lowered annotated view spells a member the same way
@@ -271,10 +271,10 @@ public sealed partial class CSharpPrinter
     /// show the shape below that sugar.
     /// </remarks>
     public static DecompilerResult PrintLowered(
-        IrFunction function, out IReadOnlyDictionary<IrNode, int> statementLines, Func<MethodRef, IrFunction?>? importMethodBody,
+        IrFunction function, out PrintedRangeMap printedRanges, Func<MethodRef, IrFunction?>? importMethodBody,
         PrinterOptions? options = null)
     {
-        statementLines = new Dictionary<IrNode, int>();
+        printedRanges = PrintedRangeMap.Empty;
         try
         {
             IrPasses.Run(function, IrPasses.Lowered, RaiseContext(importMethodBody));
@@ -286,10 +286,10 @@ public sealed partial class CSharpPrinter
 
         try
         {
-            var sink = new Dictionary<IrNode, int>();
-            var printer = new CSharpPrinter(function, options) { _statementLines = sink };
+            var sink = new PrintedRangeMap();
+            var printer = new CSharpPrinter(function, options) { _printedRanges = sink };
             string output = printer.PrintBody(function);
-            statementLines = sink;
+            printedRanges = sink.Complete(output);
             return printer.Result(output, function);
         }
         catch (Exception ex)
@@ -505,8 +505,8 @@ public sealed partial class CSharpPrinter
     /// <summary>Ref-struct locals whose hoisted declaration must spell <c>scoped</c>: a <c>stackalloc</c>-initialized span whose declaration was split from its assignment (out of the unsafe block) would otherwise warn CS9081. A stackalloc result is always scoped, so this is faithful, not a guess.</summary>
     readonly HashSet<int> _scopedLocals = [];
 
-    /// <summary>Optional sink mapping each printed top-level statement node to its 0-based start line in the output; null on the shipped print path. Drives line-anchored overlays (annotated views) without the printer knowing what they are.</summary>
-    Dictionary<IrNode, int>? _statementLines;
+    /// <summary>Optional sink recording which characters of the output each printed statement node emitted; null on the shipped print path. Drives line-anchored and range-anchored overlays (annotated views) without the printer knowing what they are.</summary>
+    PrintedRangeMap? _printedRanges;
 
     readonly record struct StackSlotRenderKey(int Slot, string TypeKey);
 
@@ -1692,18 +1692,29 @@ public sealed partial class CSharpPrinter
             sb.Append(pad).AppendLine(line);
     }
 
-    /// <summary>Recursive statement emission with indentation — structured nodes (IfStatement) nest, flat statements render through <see cref="Statement"/>.</summary>
+    /// <summary>
+    /// Records the characters <paramref name="node"/> emits, then emits them.
+    /// The range is taken from the builder's length either side of the call, so
+    /// it costs nothing to capture and is exact by construction; recovering it
+    /// afterwards would mean guessing. Wrapping rather than recording inline is
+    /// what makes the end offset correct across every exit of the emission body.
+    /// </summary>
     void AppendStatement(StringBuilder sb, IrNode node, int indent)
     {
-        _statementIndent = indent;
-        if (_statementLines is not null)
+        if (_printedRanges is null)
         {
-            int startLine = 0;
-            for (int c = 0; c < sb.Length; c++)
-                if (sb[c] == '\n')
-                    startLine++;
-            _statementLines.TryAdd(node, startLine);
+            AppendStatementCore(sb, node, indent);
+            return;
         }
+        int start = sb.Length;
+        AppendStatementCore(sb, node, indent);
+        _printedRanges.Record(node, start, sb.Length);
+    }
+
+    /// <summary>Recursive statement emission with indentation — structured nodes (IfStatement) nest, flat statements render through <see cref="Statement"/>.</summary>
+    void AppendStatementCore(StringBuilder sb, IrNode node, int indent)
+    {
+        _statementIndent = indent;
         string pad = new(' ', indent * 4);
         if (node is LocalFunctionStatement localFunction)
         {

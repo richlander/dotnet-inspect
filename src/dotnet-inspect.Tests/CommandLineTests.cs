@@ -104,7 +104,7 @@ public class CommandLineTests
     [Fact]
     public void CacheCommand_WithRowsMode_ReportsUnsupportedOption()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["cache", "--rows", "--tail", "5"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["cache", "--rows", "5"]);
 
         var error = Assert.Single(result.Errors);
         Assert.Equal("--rows is not supported by the 'cache' command.", error.Message);
@@ -113,7 +113,7 @@ public class CommandLineTests
     [Fact]
     public void CacheCommand_WithTailLineLimit_Parses()
     {
-        var result = CommandLineBuilder.CreateRootCommand().Parse(["cache", "--tail", "5"]);
+        var result = CommandLineBuilder.CreateRootCommand().Parse(["cache", "-n", "5", "--tail"]);
 
         Assert.Empty(result.Errors);
     }
@@ -130,37 +130,21 @@ public class CommandLineTests
     }
 
     [Fact]
-    public void WriteTips_WithQuietLevel_WritesNothing()
+    public async Task WriteTips_WithQuietLevel_WritesNothing()
     {
-        var originalErr = Console.Error;
-        var errWriter = new System.IO.StringWriter();
-        Console.SetError(errWriter);
-        try
-        {
-            Hints.WriteTips(TipLevel.Quiet, new Tip("package", "Foo", "inspect"));
-            Assert.Empty(errWriter.ToString());
-        }
-        finally
-        {
-            Console.SetError(originalErr);
-        }
+        var (_, error) = await ConsoleCapture.RunAsync(
+            () => Hints.WriteTips(TipLevel.Quiet, new Tip("package", "Foo", "inspect")));
+
+        Assert.Empty(error);
     }
 
     [Fact]
-    public void WriteTips_WithMinimalLevel_WritesTips()
+    public async Task WriteTips_WithMinimalLevel_WritesTips()
     {
-        var originalErr = Console.Error;
-        var errWriter = new System.IO.StringWriter();
-        Console.SetError(errWriter);
-        try
-        {
-            Hints.WriteTips(TipLevel.Minimal, new Tip("package", "Foo", "inspect"));
-            Assert.Contains("Tips:", errWriter.ToString());
-        }
-        finally
-        {
-            Console.SetError(originalErr);
-        }
+        var (_, error) = await ConsoleCapture.RunAsync(
+            () => Hints.WriteTips(TipLevel.Minimal, new Tip("package", "Foo", "inspect")));
+
+        Assert.Contains("Tips:", error);
     }
 
     [Fact]
@@ -1292,40 +1276,44 @@ public class CommandLineTests
     [InlineData(false, true, null, true)]    // --layout --tools
     [InlineData(false, false, "net8.0", false)] // --tfm net8.0
     [InlineData(false, false, "net8.0", true)]  // --layout --tfm net8.0
-    public void WriteFileLayoutTips_NeverWritesTips(bool scopeLib, bool scopeTools, string? tfm, bool isLayout)
+    public async Task WriteFileLayoutTips_NeverWritesTips(bool scopeLib, bool scopeTools, string? tfm, bool isLayout)
     {
-        var originalErr = Console.Error;
-        var originalTips = Environment.GetEnvironmentVariable("DOTNET_INSPECT_TIPS");
-        var errWriter = new System.IO.StringWriter();
-        Console.SetError(errWriter);
-        Environment.SetEnvironmentVariable("DOTNET_INSPECT_TIPS", null);
-        try
+        // DOTNET_INSPECT_TIPS is read by OptionParsers, so clearing it is a second
+        // process-global mutation. It is set and restored inside the captured region so
+        // the console lock covers it too, and no command-running test can observe the
+        // cleared value.
+        var (_, error) = await ConsoleCapture.RunAsync(() =>
         {
-            var options = new InspectionOptions
-            {
-                ScopeLib = scopeLib,
-                ScopeTools = scopeTools,
-                Tfm = tfm,
-                TipLevel = TipLevel.Detailed,
-            };
-            var tempDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-            Directory.CreateDirectory(Path.Combine(tempDir, "lib"));
-            Directory.CreateDirectory(Path.Combine(tempDir, "tools"));
+            var originalTips = Environment.GetEnvironmentVariable("DOTNET_INSPECT_TIPS");
+            Environment.SetEnvironmentVariable("DOTNET_INSPECT_TIPS", null);
             try
             {
-                PackageCommand.WriteFileLayoutTips(tempDir, options, "TestPackage", TipLevel.Detailed, isLayout);
-                Assert.DoesNotContain("Tips:", errWriter.ToString());
+                var options = new InspectionOptions
+                {
+                    ScopeLib = scopeLib,
+                    ScopeTools = scopeTools,
+                    Tfm = tfm,
+                    TipLevel = TipLevel.Detailed,
+                };
+                var tempDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+                Directory.CreateDirectory(Path.Combine(tempDir, "lib"));
+                Directory.CreateDirectory(Path.Combine(tempDir, "tools"));
+                try
+                {
+                    PackageCommand.WriteFileLayoutTips(tempDir, options, "TestPackage", TipLevel.Detailed, isLayout);
+                }
+                finally
+                {
+                    Directory.Delete(tempDir, recursive: true);
+                }
             }
             finally
             {
-                Directory.Delete(tempDir, recursive: true);
+                Environment.SetEnvironmentVariable("DOTNET_INSPECT_TIPS", originalTips);
             }
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("DOTNET_INSPECT_TIPS", originalTips);
-            Console.SetError(originalErr);
-        }
+        });
+
+        Assert.DoesNotContain("Tips:", error);
     }
 
     // ── router --version / --latest-version / --versions parsing ─────

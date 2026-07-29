@@ -10,7 +10,7 @@ selection, filtering, and writer capabilities compose end-to-end.
 Every command that produces structured Markout output has two independent control surfaces:
 
 1. **Verbosity (`-v:q` through `-v:d`)** -- progressive detail about the subject itself
-2. **Mode-switch flags (`--files`, `--readme`, `--versions`, `--docs`, etc.)** -- alternate views of the subject
+2. **Mode-switch flags (`--files`, `--versions`, `--docs`, etc.)** -- alternate views of the subject
 
 These are orthogonal. Verbosity dials up and down within a given view; mode-switch flags change what you're looking at entirely.
 
@@ -45,8 +45,8 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 | ----- | -------- |
 | `-v:q` | Title and fields only |
 | `-v:m` | Package Info |
-| `-v:n` | Dependencies, Library Files, Manifest, Package Info, Runtime Dependencies, Signature, Target Frameworks |
-| `-v:d` | Dependencies, Library Files, Manifest, Package Info, Runtime Dependencies, Signature, Statistics, Target Frameworks, Vulnerabilities |
+| `-v:n` | Dependencies, Manifest, Package Info, Package nuspec file, Package README file, Package skill files, Runtime Dependencies, Signature, Target Frameworks |
+| `-v:d` | everything at `-v:n`, plus Signals, Statistics, Vulnerabilities |
 
 **Mode-switch flags (lenses):**
 
@@ -55,7 +55,6 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 | `--files` | File structure | Tree of DLLs (or all files with `--all`) |
 | `--path` | File resolution | Table of package-relative file paths and sizes; repeatable with `--match all` or `--match first` |
 | `--content` | File content | Contents for files selected by `--path`, with separator blocks or `--jsonl` rows |
-| `--readme` | README content | Compatibility alias for best package grounding content (`AGENTS.md` > `README.md` > `PACKAGE.md` > declared readme); supports `--frontmatter`/`--body` |
 | `--value` | Scalar projection | Prints one scalar cell or field from a selected section; use `--row N\|first\|last` when multiple rows match |
 | `--urls` | URL projection | Prints URL-bearing selected-section rows as a URL list, JSONL rows, or a JSON array |
 | `--paths` | Path projection | Prints path-bearing selected-section rows as a path list, JSONL rows, or a JSON array |
@@ -65,9 +64,9 @@ The `package` command inspects a NuGet package. Its default view is *package ide
 
 Each lens is self-contained. `--files` shows a file tree and exits. It does not also show metadata or dependencies -- those belong to the identity view.
 
-`Files`, `Grounding`, `Library Files`, and `Markdown Files` all expose package-relative paths and uncompressed byte sizes. `Files` is explicit-only and renders the full package depth; package `Grounding` is explicit-only and returns the best grounding candidate (`AGENTS.md` > `README.md` > `PACKAGE.md` > declared readme); `Markdown Files` is explicit-only and renders all `.md` files; `Library Files` is the default library asset slice over the same schema. For `project`, `Skills` renders every direct dependency package `skills/**/SKILL.md` file.
+The package file sections all expose package-relative paths and uncompressed byte sizes over one schema. `Package files` renders the full package depth and never auto-renders. The named slices over that same list are reachable together through the `@Files` category: `Package skill files` (`skills/**/SKILL.md`), `Package nuspec file` (the manifest path), and `Package README file` (the best README candidate, `README.md` > `PACKAGE.md` > declared readme). The slices are disjoint, so `@Files` never renders the same path twice. The last two are singular because they yield at most one row. Slices by layout root (`lib/`, `ref/`, `runtimes/`) are not sections: `--path "lib/**"` scopes the listing instead, and `Package Info`'s `Content` field names the roots a package ships. `Package files` itself is the unfiltered superset rather than a family member, so `@Files` does not re-render every path it already covers. For `project`, `Skills` renders every direct dependency package `skills/**/SKILL.md` file.
 
-**Why Files is not in `-v:d`:** Files are structural layout data (what the package contains on disk), not identity metadata (what the package is). Mixing structural content into the identity view conflates two different concerns. The `--path`/`-S Files` file-resolution view is the correct entry point for structural exploration.
+**Why `Package files` is not in `-v:d`:** Files are structural layout data (what the package contains on disk), not identity metadata (what the package is). Mixing structural content into the identity view conflates two different concerns. The `--path`/`-S "Package files"` file-resolution view is the correct entry point for structural exploration.
 
 ### `api` Command
 
@@ -107,7 +106,7 @@ A mode-switch flag says "show me this aspect of the subject." It does not intera
 
 ### Each lens owns its own rendering
 
-The `--files` view renders a tree. The `--readme` compatibility view renders raw markdown. The `--versions` view renders a list. `--print` projects one row of a selected printable section to the referenced document body; `--row N` chooses the Nth printable row, and multiple printable rows without `--row` produce a guidance error. `--jsonl` emits the printed row as one object. These rendering choices are intrinsic to the lens, not controlled by verbosity. A lens may support its own sub-options (e.g. `--files --all` to include all files, not just DLLs) but those are scoped to that lens.
+The `--files` view renders a tree. The `--versions` view renders a list. `--print` projects one row of a selected printable section to the referenced document body; `--row N` chooses the Nth printable row, and multiple printable rows without `--row` produce a guidance error. `--jsonl` emits the printed row as one object. These rendering choices are intrinsic to the lens, not controlled by verbosity. A lens may support its own sub-options (e.g. `--files --all` to include all files, not just DLLs) but those are scoped to that lens.
 
 ### Default rendering should be the most useful
 
@@ -117,7 +116,7 @@ When a lens has multiple possible rendering modes, the default should be the mos
 
 | Command | Identity (verbosity) | Lenses (mode-switch flags) |
 | ------- | -------------------- | -------------------------- |
-| `package` | Package Info, Statistics, Dependencies, Vulnerabilities | `--files`, `-S Grounding --print`, `--readme`, `--versions`, `-S Signals` |
+| `package` | Package Info, Statistics, Dependencies, Vulnerabilities | `--path`, `-S "Package README file" --print`, `--versions`, `-S Signals` |
 | `project` | — | `-S Skills`, `-S Skills --print --row N` |
 | `type`/`member` | Type/member identity and sectioned evidence | `-S "Source Files" --print --row N`, `-S "Source Locations" --print --row N`, `-S "Original Source" --print` |
 | `api` | Type fields, Members table | `--docs`, `--samples`, `--table`, `--tsv` |

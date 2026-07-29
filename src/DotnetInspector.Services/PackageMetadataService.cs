@@ -46,7 +46,7 @@ public static class PackageMetadataService
             if (json == null)
                 return null;
 
-            using var doc = JsonDocument.Parse(json);
+            using var doc = HardenedJson.Parse(json);
             if (doc.RootElement.TryGetProperty("published", out var publishedElement))
             {
                 if (DateTimeOffset.TryParse(publishedElement.GetString(), out var published))
@@ -142,7 +142,7 @@ public static class PackageMetadataService
                 trafficKind: NetworkTrafficKind.PackageMetadata).ConfigureAwait(false);
             if (json != null)
             {
-                using var doc = JsonDocument.Parse(json);
+                using var doc = HardenedJson.Parse(json);
                 var root = doc.RootElement;
 
                 if (root.TryGetProperty("published", out var publishedElement))
@@ -176,7 +176,7 @@ public static class PackageMetadataService
                     trafficKind: NetworkTrafficKind.PackageMetadata).ConfigureAwait(false);
                 if (catalogJson != null)
                 {
-                    using var doc = JsonDocument.Parse(catalogJson);
+                    using var doc = HardenedJson.Parse(catalogJson);
                     var root = doc.RootElement;
 
                     if (root.TryGetProperty("deprecation", out var deprecationElement) &&
@@ -204,7 +204,7 @@ public static class PackageMetadataService
                 trafficKind: NetworkTrafficKind.PackageMetadata).ConfigureAwait(false);
             if (json != null)
             {
-                using var doc = JsonDocument.Parse(json);
+                using var doc = HardenedJson.Parse(json);
                 if (doc.RootElement.TryGetProperty("data", out var data) &&
                     data.GetArrayLength() > 0)
                 {
@@ -340,7 +340,7 @@ public static class PackageMetadataService
         if (indexJson == null)
             return result;
 
-        using var indexDoc = JsonDocument.Parse(indexJson);
+        using var indexDoc = HardenedJson.Parse(indexJson);
         var pages = indexDoc.RootElement.EnumerateArray()
             .Select(e => e.GetProperty("@id").GetString())
             .Where(url => url != null)
@@ -356,7 +356,7 @@ public static class PackageMetadataService
                 trafficKind: NetworkTrafficKind.VulnerabilityData).ConfigureAwait(false);
             if (pageJson == null) continue;
 
-            using var pageDoc = JsonDocument.Parse(pageJson);
+            using var pageDoc = HardenedJson.Parse(pageJson);
 
             if (pageDoc.RootElement.TryGetProperty(packageName, out var vulnArray))
             {
@@ -419,7 +419,7 @@ public static class PackageMetadataService
             }
 
             var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-            using var doc = JsonDocument.Parse(json);
+            using var doc = HardenedJson.Parse(json);
             var root = doc.RootElement;
 
             if (root.TryGetProperty("cve_id", out var cveId) && cveId.ValueKind == JsonValueKind.String)

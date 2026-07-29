@@ -184,7 +184,7 @@ dotnet-inspect package Markout --versions-with-feed 4 \
 
 ```text
 Version  Feed
-10.0.2   nuget.org
+0.33.0   nuget.org
 0.32.99  pkgs.dev.azure.com
 0.32.0   nuget.org
 0.32.0   pkgs.dev.azure.com
@@ -196,6 +196,31 @@ versions and produced five rows, because `0.32.0` was served twice. And the feed
 label is the source's configured name when it has a meaningful one, otherwise the
 host; sources passed as bare `--source` URLs all carry the same internal name, so
 the host is what distinguishes them.
+
+### 3c. Listing status is per feed
+
+Unlisted versions are hidden here exactly as they are from `--versions`. Add
+`--include-unlisted` to show them, and a `Listing` column appears:
+
+```bash
+dotnet-inspect package Markout --versions-with-feed 3 --include-unlisted \
+  --source https://api.nuget.org/v3/index.json \
+  --source https://pkgs.dev.azure.com/ORG/PROJECT/_packaging/FEED/nuget/v3/index.json
+```
+
+```text
+Version  Feed                Listing
+10.0.2   nuget.org           unlisted
+0.33.0   nuget.org           listed
+0.32.99  pkgs.dev.azure.com  listed
+```
+
+The column is applied **per feed**, which is the one thing this view can express
+and the merged views cannot. Only nuget.org publishes a listing status; other
+feeds have no such concept and their versions are always reported as listed. So a
+version unlisted on nuget.org but also published to a private feed is hidden for
+its nuget.org row and kept for the private one. `--versions` has to pick a single
+answer for the version and reports it as listed.
 
 `--json`, `--jsonl`, and `--tsv` all work; the default is a markdown table.
 

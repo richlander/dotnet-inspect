@@ -482,9 +482,9 @@ public static class CSharpBodyDiff
         if (function is null)
             return new CSharpMethodRender(CSharpRenderState.Absent, [new SourceLine("/* no method body */", -1)], DecompilationFidelity.IlOnly);
 
-        var result = CSharpPrinter.PrintRaised(function, out var statementLines);
+        var result = CSharpPrinter.PrintRaised(function, out var printedRanges);
         return result.Succeeded
-            ? new CSharpMethodRender(CSharpRenderState.Rendered, BuildSourceLines(result.Output, statementLines), result.Fidelity)
+            ? new CSharpMethodRender(CSharpRenderState.Rendered, BuildSourceLines(result.Output, printedRanges), result.Fidelity)
             : new CSharpMethodRender(
                 CSharpRenderState.Failed,
                 [new SourceLine($"/* decompile failed: {string.Join("; ", result.Diagnostics.Select(diagnostic => diagnostic.Message))} */", -1)],
@@ -495,13 +495,13 @@ public static class CSharpBodyDiff
     // diff aligns over: text is the exact SplitLines rendering (untrimmed, so line
     // identity and LCS stay unchanged), and each line carries the smallest source
     // offset among the statements that start on it (-1 when the line owns none).
-    static IReadOnlyList<SourceLine> BuildSourceLines(string? output, IReadOnlyDictionary<IrNode, int> statementLines)
+    static IReadOnlyList<SourceLine> BuildSourceLines(string? output, PrintedRangeMap printedRanges)
     {
         var lineOffsets = new Dictionary<int, int>();
-        foreach (var (node, line) in statementLines)
+        foreach (var (node, _) in printedRanges)
         {
             int start = StatementStartOffset(node);
-            if (start < 0)
+            if (start < 0 || !printedRanges.TryGetLine(node, out int line))
                 continue;
             lineOffsets[line] = lineOffsets.TryGetValue(line, out int existing)
                 ? Math.Min(existing, start)
