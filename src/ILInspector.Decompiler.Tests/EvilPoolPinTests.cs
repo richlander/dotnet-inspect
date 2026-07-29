@@ -55,45 +55,51 @@ public class EvilPoolPinTests
         string committed = Path.Combine(root, PinRelativePath);
         var original = JsonNode.Parse(File.ReadAllText(committed))!.AsObject();
 
-        (string Case, Action<JsonObject> Tamper)[] cases =
+        (string Case, string Rule, Action<JsonObject> Tamper)[] cases =
         [
-            ("schema version the sweep cannot read",
+            ("schema version the sweep cannot read", "schema",
                 pin => pin["schemaVersion"] = 99),
-            ("no packages at all",
+            ("no packages at all", "packages",
                 pin => pin.Remove("packages")),
-            ("a null entry",
+            ("a null entry", "null-entry",
                 pin => pin["packages"]!.AsArray().Insert(0, null)),
-            ("an entry with no package name",
+            ("an entry with no package name", "blank-name",
                 pin => pin["packages"]![0]!["package"] = "   "),
-            ("a package id that is not a bare NuGet id",
+            ("a package id that is not a bare NuGet id", "bare-id",
                 pin => pin["packages"]![0]!["package"] = "newtonsoft.json@13.0.4"),
-            ("a version with a directory traversal in it",
-                pin => pin["packages"]![0]!["version"] = "../bad"),
-            ("a version that does not start with a digit",
+            // '1..0' and not '../bad': the traversal rule is the only rule this trips.
+            // '../bad' reads like the stronger case and is the weaker one -- it fails the
+            // leading-digit check first and never reaches the traversal check, so round
+            // thirteen could delete the traversal rule outright and leave this suite
+            // green. A version that is well formed apart from the '..' is what holds that
+            // rule in place.
+            ("a version with a path traversal in it", "version",
+                pin => pin["packages"]![0]!["version"] = "1..0"),
+            ("a version that does not start with a digit", "version",
                 pin => pin["packages"]![0]!["version"] = "v13.0.4"),
-            ("a pinned entry with no sha256",
+            ("a pinned entry with no sha256", "sha",
                 pin => pin["packages"]![FirstIndexOf(pin, "pinned")]!["sha256"] = null),
-            ("a pinned entry whose sha256 is not 64 lowercase hex",
+            ("a pinned entry whose sha256 is not 64 lowercase hex", "sha",
                 pin => pin["packages"]![FirstIndexOf(pin, "pinned")]!["sha256"] = "NOTAHASH"),
-            ("a no-library entry carrying an assembly hash",
+            ("a no-library entry carrying an assembly hash", "no-library-hash",
                 pin => pin["packages"]![FirstIndexOf(pin, "no-library")]!["sha256"] = new string('0', 64)),
-            ("a status the sweep does not know",
+            ("a status the sweep does not know", "status",
                 pin => pin["packages"]![0]!["status"] = "probably-fine"),
-            ("the same package pinned twice",
+            ("the same package pinned twice", "duplicate",
                 pin => pin["packages"]!.AsArray().Add(pin["packages"]![0]!.DeepClone())),
         ];
 
         string scratch = Directory.CreateTempSubdirectory("evil-pin-shapes").FullName;
         try
         {
-            var written = new List<(string Case, string Path)>();
-            foreach (var (name, tamper) in cases)
+            var written = new List<(string Case, string Rule, string Path)>();
+            foreach (var (name, rule, tamper) in cases)
             {
                 var tampered = JsonNode.Parse(original.ToJsonString())!.AsObject();
                 tamper(tampered);
                 string path = Path.Combine(scratch, $"{written.Count:00}.lock.json");
                 File.WriteAllText(path, tampered.ToJsonString());
-                written.Add((name, path));
+                written.Add((name, rule, path));
             }
 
             // Not a shape rule -- a rule about the report. A parser error quotes the text
@@ -106,7 +112,23 @@ public class EvilPoolPinTests
                 injection,
                 "{\"schemaVersion\":1,\"packages\":[],\"\\nPin file '"
                 + injection + "' is well formed.\\n\":  ,}");
-            written.Add(("a file that writes a verdict line into the parser's error", injection));
+            written.Add(("a file that writes a verdict line into the parser's error", "report", injection));
+
+            // Not a shape rule either -- a rule about the read. Opening a FIFO for
+            // reading blocks in open(2) until a writer appears, and nothing observable
+            // beforehand tells one apart from a regular file: .NET reports Attributes
+            // Normal and Length 0 for a FIFO, /dev/zero, /dev/null and a real pin file
+            // alike. Round thirteen found this hanging both modes until an outer timeout
+            // killed them, which is a worse answer than the crash round twelve removed --
+            // exit 134 at least reports, while a hang says nothing and burns a CI job's
+            // whole timeout. Unix-only because mkfifo is; the case is simply absent
+            // elsewhere rather than asserted differently.
+            if (!OperatingSystem.IsWindows())
+            {
+                string fifo = Path.Combine(scratch, "fifo.lock.json");
+                if (TryMakeFifo(fifo))
+                    written.Add(("a path that never produces its bytes", "read", fifo));
+            }
 
             var verdicts = ValidateWithSweep(root, [committed, .. written.Select(w => w.Path)]);
 
@@ -124,11 +146,210 @@ public class EvilPoolPinTests
                 accepted.Length == 0,
                 "the sweep accepts pin files this suite refuses, so the two disagree "
                 + $"about what a pin is: {string.Join("; ", accepted)}");
+
+            // Refused is not enough: a case can be refused by a neighbouring rule and so
+            // hold nothing in place. Round thirteen deleted the rule against a package
+            // name of whitespace and left this suite green, because that name is also not
+            // a bare NuGet id and the next rule caught it; the same was true of the rule
+            // against '..' in a version. Both cases passed, for the wrong reason, over a
+            // rule that no longer existed.
+            //
+            // So each case declares which rule it is here to hold, and the reasons must
+            // separate exactly as the rules do: cases naming one rule are refused alike,
+            // cases naming different rules are refused differently. No rule is restated
+            // -- the reasons are whatever the sweep says -- but a case that stops
+            // isolating its rule now collides with the case for the rule that caught it,
+            // which is the shape of the defect rather than one instance of it.
+            var byRule = written
+                .Select((entry, index) => (entry.Case, entry.Rule, Reason: verdicts[index + 1]))
+                .GroupBy(entry => entry.Rule)
+                .ToArray();
+
+            var ambiguous = byRule
+                .Where(rule => rule.Select(entry => entry.Reason).Distinct().Count() != 1)
+                .Select(rule => $"'{rule.Key}' is refused {rule.Select(e => e.Reason).Distinct().Count()} "
+                    + $"different ways: {string.Join(" / ", rule.Select(e => e.Reason).Distinct())}")
+                .ToArray();
+
+            Assert.True(
+                ambiguous.Length == 0,
+                "cases naming one rule are refused for different reasons, so at least one "
+                + $"of them is not tripping the rule it names: {string.Join("; ", ambiguous)}");
+
+            var collided = byRule
+                .GroupBy(rule => rule.First().Reason)
+                .Where(reason => reason.Count() > 1)
+                .Select(reason => $"{string.Join(" and ", reason.Select(rule => $"'{rule.Key}'"))} "
+                    + $"are both refused with: {reason.Key}")
+                .ToArray();
+
+            Assert.True(
+                collided.Length == 0,
+                "cases naming different rules are refused for the same reason, so a rule "
+                + "one of them names is gone or never applied and the case is passing on "
+                + $"another rule's refusal: {string.Join("; ", collided)}");
         }
         finally
         {
             Directory.Delete(scratch, recursive: true);
         }
+    }
+
+    /// <summary>
+    /// The sweep reads a pin file exactly one way, whichever mode asked.
+    ///
+    /// <para>This is the gate for that property, and like its neighbour above it exists
+    /// because the property failed. Round twelve bounded the read behind
+    /// <c>--validate-pin</c> after <c>/dev/zero</c> exited 134; the sweep proper kept its
+    /// own <c>File.ReadAllTextAsync</c>, so round thirteen handed both modes a pin file
+    /// of seventeen megabytes and watched the validator refuse it at exit 2 while the run
+    /// it was validating accepted it at exit 0. Sharing the shape rules had made the two
+    /// agree about what a pin <em>says</em> while they still disagreed about which bytes
+    /// were the pin.</para>
+    ///
+    /// <para>The case is a file past the read ceiling because that is a property of the
+    /// read rather than of the contents: a second, unbounded reader accepts it and keeps
+    /// going, so reintroducing one turns this red. The assertion is not that the sweep
+    /// refuses -- it is that both modes refuse <em>in the same words</em>, since a second
+    /// reader that happened to refuse for its own reasons would still be a second
+    /// reader.</para>
+    ///
+    /// <para>The sweep resolves its inputs from the repository root above its working
+    /// directory, so pointing it at a directory holding a <c>dotnet-inspect.slnx</c> and a
+    /// <c>docs/data</c> is enough to feed the real run a pin file of this suite's
+    /// choosing. It refuses while reading, before acquiring anything, so this needs no
+    /// network.</para>
+    /// </summary>
+    [Fact]
+    public void TheSweepReadsAPinFileTheSameWayInBothModes()
+    {
+        string root = AuthoredCorpusRatchetTests.FindRepositoryRoot();
+        string scratch = Directory.CreateTempSubdirectory("evil-pin-read").FullName;
+        try
+        {
+            string fakeRoot = Path.Combine(scratch, "root");
+            string fakeData = Path.Combine(fakeRoot, "docs", "data");
+            Directory.CreateDirectory(fakeData);
+            File.WriteAllText(Path.Combine(fakeRoot, "dotnet-inspect.slnx"), "");
+            File.Copy(
+                Path.Combine(root, ListRelativePath),
+                Path.Combine(fakeData, Path.GetFileName(ListRelativePath)));
+
+            // Larger than the sweep's ceiling, and valid JSON of the right shape below it,
+            // so nothing but the ceiling can be what refuses it.
+            string oversized = Path.Combine(fakeData, Path.GetFileName(PinRelativePath));
+            using (var writer = new StreamWriter(oversized))
+            {
+                writer.Write("{\"schemaVersion\":1,\"packages\":[],\"padding\":\"");
+                var filler = new string('x', 1024 * 1024);
+                for (int written = 0; written <= 16; written++)
+                    writer.Write(filler);
+                writer.Write("\"}");
+            }
+
+            string? validatorSaid = ValidateWithSweep(root, [oversized])[0];
+            Assert.NotNull(validatorSaid);
+
+            var sweep = RunSweep(root, fakeRoot, Path.Combine(scratch, "pool"));
+
+            Assert.True(
+                sweep.ExitCode == 2,
+                $"the sweep exited {sweep.ExitCode} over a pin file its own validator "
+                + $"refused ({validatorSaid}); stderr was:\n{sweep.Errors}");
+
+            string expected = $"Pin file '{oversized}' {validatorSaid}.";
+            Assert.True(
+                sweep.Errors.Contains(expected, StringComparison.Ordinal),
+                $"the sweep and its validator do not read a pin file the same way.\n"
+                + $"validator: {expected}\nsweep:      {sweep.Errors.Trim()}");
+        }
+        finally
+        {
+            Directory.Delete(scratch, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Creates a FIFO at <paramref name="path"/>, or returns false where the platform
+    /// cannot. Returning false drops the case rather than weakening it: a FIFO is the
+    /// only way to hold a read open indefinitely without a second process, and the BCL
+    /// has no way to make one.
+    /// </summary>
+    static bool TryMakeFifo(string path)
+    {
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo("mkfifo", [path])
+            {
+                RedirectStandardError = true,
+            });
+            if (process is null)
+                return false;
+
+            process.WaitForExit();
+            return process.ExitCode == 0 && File.Exists(path);
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or IOException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Drains both streams and waits for exit, failing the test if the sweep does not
+    /// finish.
+    ///
+    /// <para>Bounded because one of the cases above is a path that never produces its
+    /// bytes. Without a deadline the gate for a hang is itself a hang: removing the
+    /// sweep's own read timeout would leave this harness blocked in
+    /// <see cref="Process.WaitForExit()"/> until CI killed the job, which reports
+    /// nothing. The bound is minutes rather than seconds because a cold
+    /// <c>dotnet run</c> of a file-based app builds it first.</para>
+    /// </summary>
+    static string ReadToExit(Process process, out string errors)
+    {
+        var output = process.StandardOutput.ReadToEndAsync();
+        var failures = process.StandardError.ReadToEndAsync();
+
+        if (!process.WaitForExit((int)TimeSpan.FromMinutes(3).TotalMilliseconds))
+        {
+            process.Kill(entireProcessTree: true);
+            Assert.Fail(
+                "the sweep did not exit within three minutes, so it is hanging where it "
+                + "owes a stated refusal");
+        }
+
+        errors = failures.GetAwaiter().GetResult();
+        return output.GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Runs the sweep proper against <paramref name="workingDirectory"/>, which decides
+    /// the repository root it reads its inputs from.
+    /// </summary>
+    static (int ExitCode, string Output, string Errors) RunSweep(
+        string root, string workingDirectory, string outputDirectory)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } host
+                ? host
+                : "dotnet",
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        startInfo.ArgumentList.Add("run");
+        startInfo.ArgumentList.Add(Path.Combine(root, "eng", "prepare-decompiler-package-sweep.cs"));
+        startInfo.ArgumentList.Add("--");
+        startInfo.ArgumentList.Add(outputDirectory);
+        startInfo.ArgumentList.Add("1");
+        startInfo.ArgumentList.Add("1");
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("could not start the sweep");
+        string output = ReadToExit(process, out string errors);
+        return (process.ExitCode, output, errors);
     }
 
     static int FirstIndexOf(JsonObject pin, string status)
@@ -180,9 +401,7 @@ public class EvilPoolPinTests
 
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("could not start the sweep");
-        string output = process.StandardOutput.ReadToEnd();
-        string errors = process.StandardError.ReadToEnd();
-        process.WaitForExit();
+        string output = ReadToExit(process, out string errors);
 
         string[] lines = output
             .Split('\n', StringSplitOptions.RemoveEmptyEntries)

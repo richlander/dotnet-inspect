@@ -146,39 +146,42 @@ string pinPath = Path.Combine(root, "docs", "data", "nuget-top-packages.lock.jso
 // contract makes on purpose. That covers text these files are not -- a JSON scalar
 // deserializes to null without throwing, and a syntax error throws -- because either
 // way the sweep has no list and no pin to work from.
+//
+// Both files are read by ReadBoundedText and the pin by ReadPinFile, which is the same
+// function --validate-pin calls. Round twelve bounded the read that --validate-pin
+// uses and left this path on File.ReadAllTextAsync, so a pin file too large to
+// validate was still large enough to sweep with: the validator refused it at exit 2
+// and the run it was validating accepted it at exit 0. Sharing Malformed made the two
+// agree about a pin's shape while they still disagreed about which bytes were the pin.
 List<PackageListEntry>? parsedList = null;
 PackagePinFile? pinFile = null;
 string? unreadable = null;
-try
+
+var (listText, listProblem) = ReadBoundedText(sourcePath);
+if (listProblem is not null)
 {
-    parsedList = JsonSerializer.Deserialize<List<PackageListEntry>>(
-        await File.ReadAllTextAsync(sourcePath),
-        jsonContext.ListPackageListEntry);
-    if (parsedList is null)
+    unreadable = $"Package list '{sourcePath}' {listProblem}.";
+}
+else
+{
+    try
     {
-        unreadable = $"Package list '{sourcePath}' is not a list of packages.";
+        parsedList = JsonSerializer.Deserialize(listText!, jsonContext.ListPackageListEntry);
+        if (parsedList is null)
+            unreadable = $"Package list '{sourcePath}' is not a list of packages.";
     }
-    else if (File.Exists(pinPath))
+    catch (JsonException ex)
     {
-        pinFile = JsonSerializer.Deserialize<PackagePinFile>(
-            await File.ReadAllTextAsync(pinPath),
-            jsonContext.PackagePinFile);
-        if (pinFile is null)
-        {
-            unreadable = $"Pin file '{pinPath}' is not a pin file.";
-        }
+        unreadable = $"Package list '{sourcePath}' could not be parsed: {ex.Message.TrimEnd('.')}.";
     }
 }
-catch (JsonException ex)
+
+if (unreadable is null && File.Exists(pinPath))
 {
-    unreadable = $"Could not parse '{(parsedList is null ? sourcePath : pinPath)}': {ex.Message}";
-}
-catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-{
-    // A missing or unreadable list is the same kind of refusal as an unparseable one:
-    // the sweep has nothing to work from, and the caller is entitled to be told so
-    // rather than handed an exit code it cannot tell from a crash.
-    unreadable = $"Could not read '{(parsedList is null ? sourcePath : pinPath)}': {ex.Message}";
+    string? pinProblem;
+    (pinFile, pinProblem) = ReadPinFile(pinPath);
+    if (pinProblem is not null)
+        unreadable = $"Pin file '{pinPath}' {pinProblem}.";
 }
 
 if (unreadable is not null)
@@ -249,19 +252,10 @@ if (packageList
     return;
 }
 
-if (pinFile is not null)
-{
-    // Reported, like every other refusal in this file. A malformed pin is a stated
-    // refusal, and a caller cannot tell exit 134 from a crash.
-    string? malformed = Malformed(pinFile);
-    if (malformed is not null)
-    {
-        Console.Error.WriteLine($"Pin file '{pinPath}' {malformed}.");
-        Environment.ExitCode = 2;
-        return;
-    }
-}
-else if (!resolveLatest)
+// The pin's shape was checked by ReadPinFile, which is where a malformed pin is
+// refused -- for the sweep and for --validate-pin alike, because it is one function.
+// So reaching here with no pin means there is no pin file at all.
+if (pinFile is null && !resolveLatest)
 {
     // Refusing is the point. Falling back to "latest" when the pin is missing would
     // reproduce exactly the drift the pin exists to remove, and would do it silently.
@@ -838,44 +832,100 @@ static string OneLine(string text) =>
 // Reading and shape-checking a pin file in one place, so --validate-pin and the sweep
 // proper cannot disagree about what a well-formed pin is. Returns null when the file
 // is usable, otherwise the reason, phrased to follow "Pin file '<path>' ".
-static string? ValidatePinFile(string path)
-{
-    string text;
-    try
-    {
-        // Bounded, because File.ReadAllText is not. A pin file is tens of kilobytes;
-        // '/dev/zero' is infinite, and reading it exited 134 with an OutOfMemoryException
-        // -- a crash where the contract promises a refusal, from the one argument this
-        // mode invites a caller to choose. Read one byte past the ceiling so that hitting
-        // it is a refusal rather than a silent truncation to something parseable.
-        const int MaxPinBytes = 16 * 1024 * 1024;
-        using var stream = new FileStream(
-            path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        var buffer = new byte[MaxPinBytes + 1];
-        int read = stream.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
-        if (read > MaxPinBytes)
-            return $"is larger than {MaxPinBytes} bytes, which no pin file is";
+static string? ValidatePinFile(string path) => ReadPinFile(path).Problem;
 
-        text = new StreamReader(new MemoryStream(buffer, 0, read), detectEncodingFromByteOrderMarks: true)
-            .ReadToEnd();
-    }
-    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-        or ArgumentException or NotSupportedException)
-    {
-        return $"could not be read: {ex.Message.TrimEnd('.')}";
-    }
+/// <summary>
+/// The one way this sweep turns a path into a pin. Both callers -- the run and
+/// --validate-pin -- go through here, so there is no second opinion to drift from:
+/// same bytes, same bound, same parser, same shape rules, same wording.
+/// </summary>
+static (PackagePinFile? Pin, string? Problem) ReadPinFile(string path)
+{
+    var (text, problem) = ReadBoundedText(path);
+    if (problem is not null)
+        return (null, problem);
 
     PackagePinFile? pinFile;
     try
     {
-        pinFile = JsonSerializer.Deserialize(text, SweepJsonContext().PackagePinFile);
+        pinFile = JsonSerializer.Deserialize(text!, SweepJsonContext().PackagePinFile);
     }
     catch (JsonException ex)
     {
-        return $"could not be parsed: {ex.Message.TrimEnd('.')}";
+        return (null, $"could not be parsed: {ex.Message.TrimEnd('.')}");
     }
 
-    return pinFile is null ? "is not a pin file" : Malformed(pinFile);
+    if (pinFile is null)
+        return (null, "is not a pin file");
+
+    string? malformed = Malformed(pinFile);
+    return malformed is null ? (pinFile, null) : (null, malformed);
+}
+
+/// <summary>
+/// Reads a whole input file, or says why it could not. Returns the reason phrased to
+/// follow "<c>&lt;kind&gt; '&lt;path&gt;' </c>".
+/// </summary>
+static (string? Text, string? Problem) ReadBoundedText(string path)
+{
+    // A pin file is tens of kilobytes. File.ReadAllText has no ceiling, and '/dev/zero'
+    // is infinite: reading it exited 134 with an OutOfMemoryException, a crash where the
+    // contract promises a refusal, from the one argument --validate-pin invites a caller
+    // to choose. Read one byte past the ceiling so that hitting it is a refusal rather
+    // than a silent truncation to something that still parses.
+    const int MaxBytes = 16 * 1024 * 1024;
+
+    // Opening a FIFO for reading blocks in open(2) until a writer appears, and nothing
+    // observable beforehand tells one apart: .NET reports Attributes Normal and Length 0
+    // for a FIFO, /dev/zero, /dev/null and a real pin file alike, so the only way to
+    // learn what a path is, is to read it. A stall is worse here than the crash the
+    // ceiling above removes -- exit 134 at least reports, while a hang says nothing and
+    // burns a CI job's entire timeout. The read gets its own thread rather than a pool
+    // thread, so a saturated pool cannot spend the deadline before the read even starts
+    // and turn a healthy file into a refusal.
+    const int TimeoutSeconds = 5;
+
+    try
+    {
+        var read = Task.Factory.StartNew(
+            () => ReadAtMost(path, MaxBytes),
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+
+        if (!read.Wait(TimeSpan.FromSeconds(TimeoutSeconds)))
+        {
+            return (null,
+                $"produced no bytes within {TimeoutSeconds} seconds, so it is not a file "
+                + "this sweep can read");
+        }
+
+        // Rethrows what the read threw, rather than the AggregateException wrapping it,
+        // so the catch below sees the same exceptions a direct read would raise.
+        byte[]? bytes = read.GetAwaiter().GetResult();
+        if (bytes is null)
+            return (null, $"is larger than {MaxBytes} bytes, which no input of this sweep is");
+
+        using var buffered = new MemoryStream(bytes);
+        using var reader = new StreamReader(buffered, detectEncodingFromByteOrderMarks: true);
+        return (reader.ReadToEnd(), null);
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+        or ArgumentException or NotSupportedException)
+    {
+        return (null, $"could not be read: {ex.Message.TrimEnd('.')}");
+    }
+}
+
+/// <summary>
+/// Returns the file's bytes, or null when it holds more than <paramref name="maxBytes"/>.
+/// </summary>
+static byte[]? ReadAtMost(string path, int maxBytes)
+{
+    using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+    var buffer = new byte[maxBytes + 1];
+    int read = stream.ReadAtLeast(buffer, buffer.Length, throwOnEndOfStream: false);
+    return read > maxBytes ? null : buffer[..read];
 }
 
 static string? Malformed(PackagePinFile pinFile)

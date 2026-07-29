@@ -457,6 +457,11 @@ sweep's own shape check, not a second copy of it, which is the point:
 `EvilPoolPinTests` calls it rather than restating the rules, after three rounds of
 review on #3434 each found a rule the tests enforced and the sweep did not.
 
+It answers whether a file is a well-formed pin, not whether the pool that file pins
+covers any particular run. Coverage depends on the ranks a sweep is asked for, which
+the file alone does not decide, so a pin can be well formed here and still leave a run
+short at exit 1.
+
 The generated fixture ladder is intentionally staged:
 
 | Stage | Harness responsibility |
