@@ -1601,14 +1601,21 @@ public class SectionPipelineTests
             }
         }
 
-        // Every cardinality, not just the ones an author thought to enumerate. Pairs and one
-        // maximal set left `Count == 3` green -- the earlier claim that the maximal set "fails
-        // every Count > k at once" was true only for the inequality form, and a tamper is free to
-        // use equality. Walking k = 1..n over non-reading keys makes the request size range over
-        // every value the condition could test, so no `Count` predicate of either form survives.
-        for (int k = 1; k <= notReading.Count; k++)
+        // Every cardinality, on BOTH sides of the biconditional. Two earlier versions got this
+        // half right. Pairs plus one maximal set left `Count == 3` green, because the request
+        // sizes were only 1, 2 and n. Walking k over the non-reading keys fixed that for the
+        // must-not-read side and left the must-read side with sizes 1, 2 and n only, so
+        // `&& scanners.Count != 3` -- a condition that silently drops References and Dependencies
+        // whenever exactly three sections are selected -- still passed. Each k now contributes a
+        // set of that size that reads and a set of that size that must not, so no predicate on
+        // request size survives on either side.
+        for (int k = 1; k <= declared.Count; k++)
         {
-            requests.Add(notReading.Take(k).ToList());
+            if (k <= notReading.Count)
+                requests.Add(notReading.Take(k).ToList());
+
+            if (k - 1 <= notReading.Count)
+                requests.Add([reading[0], .. notReading.Take(k - 1)]);
         }
 
         requests.Add(declared);
@@ -3084,32 +3091,142 @@ public class SectionPipelineTests
     [Fact]
     public void PlatformClassification_DoesNotDependOnWhichInstallIsPreferred()
     {
-        var (platformPath, _, _, error) = PlatformResolver.ResolveAssembly("System.Text.Json");
-        Assert.True(error is null && platformPath is not null, $"Could not resolve a platform assembly: {error}");
+        // Regression: this test used to plant a second install and point DOTNET_ROOT at it. It
+        // asserted nothing, because it called ProvenanceOf once beforehand to establish the
+        // expected value, and that first call initialized the cached root list from the original
+        // environment -- so the variable it set could no longer affect anything. Replacing the
+        // whole root enumeration with the single preferred root left it green.
+        //
+        // The property does not need an environment at all. GetSharedDirectory answers "which
+        // runtime is preferred" and returns one shared directory; it never returns a reference
+        // pack, and never returns a non-preferred runtime version. So any assembly under those
+        // roots classifies as platform only if classification enumerates every root, which is
+        // exactly the property. Both cases below fail if the enumeration collapses to the
+        // preferred root.
+        var preferred = PlatformResolver.GetSharedDirectory();
+        var probes = new List<(string Path, string Why)>();
 
-        var expected = LibraryMetadataService.ProvenanceOf(platformPath!);
-        Assert.Equal("platform", expected);
+        var packAssembly = PlatformResolver.GetAllPacksDirectories()
+            .Where(Directory.Exists)
+            .SelectMany(d => Directory.EnumerateFiles(d, "System.Runtime.dll", SearchOption.AllDirectories))
+            .FirstOrDefault();
+        if (packAssembly is not null)
+            probes.Add((packAssembly, "a reference pack, which is never the preferred shared directory"));
 
-        // A second, unrelated install that would win the "preferred root" question.
-        var alt = Directory.CreateTempSubdirectory("di-altroot-");
+        var otherRuntime = PlatformResolver.GetAllSharedDirectories()
+            .Where(Directory.Exists)
+            .Where(d => preferred is null || !string.Equals(
+                Path.TrimEndingDirectorySeparator(d),
+                Path.TrimEndingDirectorySeparator(preferred),
+                StringComparison.OrdinalIgnoreCase))
+            .SelectMany(d => Directory.EnumerateFiles(d, "System.Runtime.dll", SearchOption.AllDirectories))
+            .FirstOrDefault();
+        if (otherRuntime is not null)
+            probes.Add((otherRuntime, "an installed runtime that is not the preferred one"));
+
+        Assert.True(
+            probes.Count > 0,
+            "Found neither a reference pack nor a second installed runtime, so this machine cannot "
+                + "distinguish 'every root' from 'the preferred root' and the test would assert nothing.");
+
+        foreach (var (path, why) in probes)
+        {
+            Assert.True(
+                LibraryMetadataService.ProvenanceOf(path) == "platform",
+                $"{path} lives under {why}, so it is a platform assembly; reporting it as local "
+                    + "means classification consulted only the preferred root.");
+        }
+    }
+
+    /// <summary>
+    /// The case-sensitivity probe reports what the filesystem actually does, checked against an
+    /// independent oracle: create a file, then ask for it under the opposite spelling.
+    /// </summary>
+    /// <remarks>
+    /// This runs on whatever volume the test host uses, so it pins the probe against reality on
+    /// every machine the suite runs on rather than against an assumption about the OS. It is the
+    /// gate for "asks the volume": hard-coding either comparison fails it on a host of the other
+    /// kind, and hard-coding the host default fails it on a case-sensitive macOS volume, which is
+    /// the case that was reported wrong.
+    /// </remarks>
+    [Fact]
+    public void CaseSensitivityProbe_AgreesWithTheFilesystem()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "di-case-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
         try
         {
-            Directory.CreateDirectory(Path.Combine(alt.FullName, "shared", "Microsoft.NETCore.App", "9.9.9"));
-            var previous = Environment.GetEnvironmentVariable("DOTNET_ROOT");
-            Environment.SetEnvironmentVariable("DOTNET_ROOT", alt.FullName);
-            try
-            {
-                Assert.Equal("platform", LibraryMetadataService.ProvenanceOf(platformPath!));
-            }
-            finally
-            {
-                Environment.SetEnvironmentVariable("DOTNET_ROOT", previous);
-            }
+            File.WriteAllText(Path.Combine(dir, "probe.marker"), "x");
+            var filesystemIgnoresCase = File.Exists(Path.Combine(dir, "PROBE.MARKER"));
+
+            var expected = filesystemIgnoresCase
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+
+            Assert.Equal(expected, LibraryMetadataService.ComparisonForVolumeHolding(dir));
         }
         finally
         {
-            alt.Delete(recursive: true);
+            Directory.Delete(dir, recursive: true);
         }
+    }
+
+    /// <summary>
+    /// A case-sensitive volume yields an ordinal comparison. No test on a case-insensitive host can
+    /// produce such a volume, so the existence check is supplied; the test above is what pins the
+    /// real overload to the real filesystem.
+    /// </summary>
+    /// <remarks>
+    /// This is the gate that fails when the comparison is hard-coded to the host default: a
+    /// case-sensitive volume answers only to the exact spelling, and that must produce
+    /// <see cref="StringComparison.Ordinal"/> on every host, macOS included.
+    /// </remarks>
+    [Fact]
+    public void CaseSensitivityProbe_ReportsOrdinal_ForAVolumeThatDistinguishesCase()
+    {
+        const string Root = "/volumes/case-sensitive/dotnet/shared/";
+
+        Assert.Equal(
+            StringComparison.Ordinal,
+            LibraryMetadataService.ComparisonForVolumeHolding(
+                Root,
+                p => p == Root));
+
+        Assert.Equal(
+            StringComparison.OrdinalIgnoreCase,
+            LibraryMetadataService.ComparisonForVolumeHolding(
+                Root,
+                _ => true));
+    }
+
+    /// <summary>
+    /// Classification honours the comparison each root carries. A case-sensitive volume was
+    /// reported as platform for a path that differs from the root only in case -- a genuinely
+    /// different directory there.
+    /// </summary>
+    /// <remarks>
+    /// The roots are supplied rather than discovered because no test can create a case-sensitive
+    /// APFS volume, and the defect only shows on one. Both directions are asserted, so replacing
+    /// the per-root comparison with either constant fails this test.
+    /// </remarks>
+    [Fact]
+    public void CaseDifferingPath_IsPlatformOnlyWhenTheRootsVolumeIgnoresCase()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "di-roots", "Shared") + Path.DirectorySeparatorChar;
+        var differingOnlyInCase = Path.Combine(
+            Path.GetTempPath(), "di-roots", "SHARED", "System.Private.CoreLib.dll");
+
+        Assert.Equal(
+            "local",
+            LibraryMetadataService.ProvenanceOf(
+                differingOnlyInCase,
+                [new LibraryMetadataService.PlatformRoot(root, StringComparison.Ordinal)]));
+
+        Assert.Equal(
+            "platform",
+            LibraryMetadataService.ProvenanceOf(
+                differingOnlyInCase,
+                [new LibraryMetadataService.PlatformRoot(root, StringComparison.OrdinalIgnoreCase)]));
     }
 
     // Artifact canary for the predicate above: exercises the real resolution walk rather than the

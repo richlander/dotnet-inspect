@@ -1702,9 +1702,21 @@ public class LibraryCommand
     internal static void WarnDiscoveryWithoutRowProjection(LibraryOptions options,
         SectionPipeline<LibraryInspection> pipeline, IReadOnlyCollection<string> effective)
     {
-        var discovered = options.Discover is { Length: > 0 }
-            ? options.Discover.Where(s => effective.Contains(s, StringComparer.OrdinalIgnoreCase)).ToList()
-            : null;
+        // Resolved through SelectResolver, the same matcher DiscoverOutput uses to turn a
+        // selector into section names. Comparing the raw selectors against `effective` by name
+        // silently skipped every glob: `-D Dependencies` warned, while `-D 'Depend*'` -- which
+        // discovery resolves to exactly the same section -- printed nothing at all and exited 0,
+        // which is the success-shaped empty output this note exists to prevent. Matching here the
+        // way discovery matches is what keeps the two from disagreeing again.
+        List<string>? discovered = null;
+        if (options.Discover is { Length: > 0 })
+        {
+            var names = effective.ToArray();
+            discovered = options.Discover
+                .SelectMany(selector => SelectResolver.ResolveSingle(selector, names, singleGlob: true).Matches)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
 
         WarnSelectedSectionsWithoutRowProjection(discovered, pipeline, "Render it with -S instead.");
     }

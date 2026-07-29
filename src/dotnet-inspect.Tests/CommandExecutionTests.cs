@@ -7717,6 +7717,41 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task LibraryCommand_DiscoverTreeShapedSectionByGlob_ExplainsTheEmptySchema()
+    {
+        // Regression: the note above compared the raw -D selectors against the effective section
+        // names by name, so it saw exact selectors and skipped every glob. `-D Depend*` resolves
+        // to exactly the section `-D Dependencies` resolves to, yet printed nothing and exited 0
+        // -- the same success-shaped empty output, reachable by a spelling the note did not
+        // recognise. It now resolves selectors through SelectResolver, the matcher discovery
+        // itself uses, so the two cannot disagree about what a selector matched.
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-D", "Depend*", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("not row-shaped", error, StringComparison.Ordinal);
+        Assert.Contains("Dependencies", error, StringComparison.Ordinal);
+        Assert.True(
+            error.Length > 0 || output.Length > 0,
+            "A glob that matches a tree-shaped section must explain itself rather than exit 0 silently.");
+    }
+
+    [Fact]
+    public async Task LibraryCommand_DiscoverRowShapedSectionByGlob_StaysQuiet()
+    {
+        // Positive control for the glob path specifically. Resolving selectors through
+        // SelectResolver would also "fix" the case above by firing for everything effective, so
+        // a glob that matches only row-shaped sections has to stay quiet for the fix to mean
+        // what it claims.
+        var (exit, output, error) = await RunAppAsync(
+            "library", "System.Text.Json", "-D", "Referenc*", "--tips", "q");
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("not row-shaped", error, StringComparison.Ordinal);
+        Assert.NotEmpty(output);
+    }
+
+    [Fact]
     public async Task LibraryCommand_DiscoverRowShapedSection_StaysQuiet()
     {
         // Positive control for the note above: a section that does have rows must not draw it,

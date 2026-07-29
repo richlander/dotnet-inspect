@@ -718,17 +718,31 @@ internal static class LibraryMetadataService
     /// <para>
     /// Roots are canonicalised before comparison because <see cref="Path.GetFullPath(string)"/>
     /// does not resolve symlinks: a symlinked install made the prefix test fail against a real
-    /// path underneath it. Comparison is ordinal on case-sensitive filesystems, where
-    /// case-insensitive matching would alias genuinely distinct directories.
+    /// path underneath it.
+    /// </para>
+    /// <para>
+    /// Whether case matters is asked of the volume holding each root, not of the operating system.
+    /// Case sensitivity is a filesystem property, not a host property: macOS formats APFS
+    /// case-insensitively by default but supports case-sensitive volumes, Linux supports
+    /// case-insensitive ext4/F2FS directories, and Windows supports per-directory case sensitivity.
+    /// Assuming the host default made a case-sensitive install alias distinct directories and
+    /// report <c>platform</c> for files that are not under any root.
     /// </para>
     /// </remarks>
-    internal static string ProvenanceOf(string resolvedPath)
+    internal static string ProvenanceOf(string resolvedPath) =>
+        ProvenanceOf(resolvedPath, PlatformRoots.Value);
+
+    /// <summary>
+    /// The classification itself, over an explicit root set so a test can supply roots whose
+    /// case sensitivity this host cannot produce.
+    /// </summary>
+    internal static string ProvenanceOf(string resolvedPath, IReadOnlyList<PlatformRoot> roots)
     {
         var full = Canonicalize(resolvedPath);
 
-        foreach (var root in PlatformRoots.Value)
+        foreach (var root in roots)
         {
-            if (full.StartsWith(root, PathComparison))
+            if (full.StartsWith(root.Path, root.Comparison))
             {
                 return "platform";
             }
@@ -737,16 +751,19 @@ internal static class LibraryMetadataService
         return "local";
     }
 
-    private static StringComparison PathComparison =>
-        OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+    /// <summary>
+    /// A canonical, separator-terminated platform root paired with the comparison its own volume
+    /// honours.
+    /// </summary>
+    internal readonly record struct PlatformRoot(string Path, StringComparison Comparison);
 
     /// <summary>
     /// Canonical, separator-terminated platform roots. Computed once: the candidate scan probes the
     /// filesystem, and classification runs per resolved reference across a recursive walk.
     /// </summary>
-    private static readonly Lazy<List<string>> PlatformRoots = new(() =>
+    private static readonly Lazy<List<PlatformRoot>> PlatformRoots = new(() =>
     {
-        List<string> roots = [];
+        List<PlatformRoot> roots = [];
         foreach (var dir in PlatformResolver.GetAllSharedDirectories()
             .Concat(PlatformResolver.GetAllPacksDirectories()))
         {
@@ -756,14 +773,70 @@ internal static class LibraryMetadataService
                 root += Path.DirectorySeparatorChar;
             }
 
-            if (!roots.Contains(root))
+            if (!roots.Any(r => r.Path == root))
             {
-                roots.Add(root);
+                roots.Add(new PlatformRoot(root, ComparisonForVolumeHolding(root)));
             }
         }
 
         return roots;
     });
+
+    /// <summary>
+    /// Asks the filesystem whether <paramref name="directory"/> can be reached under a spelling
+    /// that differs only in case, and reports the comparison that answer implies.
+    /// </summary>
+    /// <remarks>
+    /// Every letter in the path is flipped, so the probe fails as soon as <em>any</em> component
+    /// along the path distinguishes case -- which is exactly when a differently-cased prefix
+    /// denotes a different directory. The host default is used only when the path carries no
+    /// letters to flip, or when it does not exist and so cannot be asked.
+    /// </remarks>
+    internal static StringComparison ComparisonForVolumeHolding(string directory) =>
+        ComparisonForVolumeHolding(directory, Directory.Exists);
+
+    /// <summary>
+    /// The probe over an explicit existence check, so a test can model a case-sensitive volume
+    /// this host cannot create.
+    /// </summary>
+    internal static StringComparison ComparisonForVolumeHolding(
+        string directory,
+        Func<string, bool> directoryExists)
+    {
+        var flipped = FlipLetterCase(directory);
+        if (flipped is null || !directoryExists(directory))
+        {
+            return OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        }
+
+        return directoryExists(flipped) ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+    }
+
+    private static string? FlipLetterCase(string value)
+    {
+        var flipped = new char[value.Length];
+        var sawLetter = false;
+        for (var i = 0; i < value.Length; i++)
+        {
+            var c = value[i];
+            if (char.IsUpper(c))
+            {
+                flipped[i] = char.ToLowerInvariant(c);
+                sawLetter = true;
+            }
+            else if (char.IsLower(c))
+            {
+                flipped[i] = char.ToUpperInvariant(c);
+                sawLetter = true;
+            }
+            else
+            {
+                flipped[i] = c;
+            }
+        }
+
+        return sawLetter ? new string(flipped) : null;
+    }
 
     private static string Canonicalize(string path)
     {
