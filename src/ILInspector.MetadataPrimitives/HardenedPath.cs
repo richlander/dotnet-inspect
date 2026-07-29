@@ -129,10 +129,13 @@ public static class HardenedPath
 
     private static bool ContainsNonAsciiDigit(string value)
     {
-        foreach (var c in value)
+        for (var i = 0; i < value.Length; i++)
         {
-            if (c > '\u007f' && char.GetNumericValue(c) is >= 0 and <= 9)
+            if (value[i] > '\u007f' && AsciiDigitFor(value, i) >= 0)
                 return true;
+
+            if (char.IsHighSurrogate(value[i]))
+                i++;
         }
 
         return false;
@@ -140,16 +143,43 @@ public static class HardenedPath
 
     private static string FoldDigits(string value)
     {
-        return string.Create(value.Length, value, static (span, source) =>
+        var folded = new char[value.Length];
+        var written = 0;
+
+        for (var i = 0; i < value.Length; i++)
         {
-            for (var i = 0; i < source.Length; i++)
+            var digit = value[i] > '\u007f' ? AsciiDigitFor(value, i) : -1;
+            if (digit >= 0)
             {
-                var c = source[i];
-                var numeric = c > '\u007f' ? char.GetNumericValue(c) : -1;
-                span[i] = numeric is >= 0 and <= 9 && numeric == Math.Floor(numeric)
-                    ? (char)('0' + (int)numeric)
-                    : c;
+                folded[written++] = (char)('0' + digit);
+                if (char.IsHighSurrogate(value[i]))
+                    i++;
+                continue;
             }
-        });
+
+            folded[written++] = value[i];
+            if (char.IsHighSurrogate(value[i]) && i + 1 < value.Length)
+                folded[written++] = value[++i];
+        }
+
+        return new string(folded, 0, written);
+    }
+
+    /// <summary>
+    /// Returns the digit 0-9 the code point at <paramref name="index"/> denotes, or -1.
+    /// </summary>
+    /// <remarks>
+    /// The rule is deliberately a property of the code point rather than a list of encodings: the
+    /// device list drifted twice while it enumerated superscripts, and each round of review found
+    /// another spelling. Indexing by <see cref="string"/> rather than <see cref="char"/> is what
+    /// extends that rule past the basic plane, where the mathematical and enclosed digit blocks
+    /// live; a code-unit loop silently exempted them.
+    /// </remarks>
+    private static int AsciiDigitFor(string value, int index)
+    {
+        var numeric = CharUnicodeInfo.GetNumericValue(value, index);
+        return numeric is >= 0 and <= 9 && numeric == Math.Floor(numeric)
+            ? (int)numeric
+            : -1;
     }
 }

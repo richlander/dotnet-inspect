@@ -59,6 +59,10 @@ public class HardenedPathTests
     [InlineData("LPT\u2079")]
     [InlineData("COM\uff11")]
     [InlineData("COM\u0661")]
+    // The rule is a property of the code point, not of the UTF-16 code unit: the mathematical and
+    // enclosed digit blocks are outside the basic plane and a per-char loop exempted them.
+    [InlineData("COM\U0001d7cf")]
+    [InlineData("LPT\U0001d7e3")]
     // Invisible or reordering format characters: the rendered name is not the opened name.
     [InlineData("System.Text.Json\u200b")]
     [InlineData("\u200bSystem.Text.Json")]
@@ -98,6 +102,10 @@ public class HardenedPathTests
     [InlineData("COM\uff11Plus")]
     [InlineData("Contoso.V\u2074")]
     [InlineData("COM\u00b94")]
+    // Folding a surrogate pair shortens the stem; a non-digit pair must survive intact.
+    [InlineData("COM\U0001d7cfPlus")]
+    [InlineData("Contoso.\U0001d400ssembly")]
+    [InlineData("\U0001f600.Assembly")]
     public void LegitimateComponent_IsAccepted(string value)
     {
         Assert.True(HardenedPath.IsSafePathComponent(value));
