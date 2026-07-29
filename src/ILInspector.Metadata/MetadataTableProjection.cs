@@ -306,6 +306,9 @@ public sealed record MetadataProjectionOptions
     /// <summary>The default bounded blob preview length, in bytes.</summary>
     public const int DefaultMaxPreviewBytes = 32;
 
+    /// <summary>The default ceiling on listed heap entries.</summary>
+    public const int DefaultMaxHeapEntries = 4096;
+
     /// <summary>The default bounded string/name preview length, in characters.</summary>
     public const int DefaultMaxStringChars = 1024;
 
@@ -329,6 +332,14 @@ public sealed record MetadataProjectionOptions
 
     /// <summary>The maximum number of blob bytes captured in a bounded preview.</summary>
     public int MaxPreviewBytes { get; init; } = DefaultMaxPreviewBytes;
+
+    /// <summary>
+    /// The maximum number of entries a heap listing returns before
+    /// <see cref="MetadataHeapEntrySet.EntriesTruncated"/> marks it short. Bounds the largest
+    /// amplification surface in the projection: a heap listing is one row per distinct value, and
+    /// a string heap can hold tens of thousands.
+    /// </summary>
+    public int MaxHeapEntries { get; init; } = DefaultMaxHeapEntries;
 
     /// <summary>
     /// The maximum number of characters retained from a decoded string/name
