@@ -171,6 +171,24 @@ public class ScanTokenTests
             Render($"var s = {prefix}\"a{{b}}c\";"));
     }
 
+    /// <summary>
+    /// An even brace run in a single-dollar literal is escaped text, not a hole. Nothing
+    /// pinned the kind that path emits: mutating it from a string fragment to a word left the
+    /// whole suite green (adversarial review, Gemini). The differential invariant cannot see
+    /// it, because it compares a bare scan against a wrapped one and both sides change
+    /// together; only a rendering assertion can.
+    /// </summary>
+    [Theory]
+    [InlineData("$")]
+    [InlineData("$@")]
+    [InlineData("@$")]
+    public void EscapedBraceRunInAnInterpolatedLiteral_StaysStringContent(string prefix)
+    {
+        Assert.Equal(
+            "W:var W:s P:= S:" + prefix + "\"a{{b}}c\" P:;",
+            Render("var s = " + prefix + "\"a{{b}}c\";"));
+    }
+
     [Fact]
     public void QuoteRunShorterThanTheDelimiter_IsRawLiteralContent()
     {
@@ -940,21 +958,22 @@ public class ScanTokenTests
 
         void Check(string[] content)
         {
-            // Build the wrapped input before either scan, so it holds a snapshot of the lines
-            // taken up front, and compare the two back once both scans have run. The invariant
-            // is only differential if both sides consumed the same content, and nothing else
-            // says so: substituting the content between the two scans -- exchanging a verbatim
-            // interpolated opener for a raw one of the same length, so kind, column, length and
-            // the expected shift all still match -- leaves every assertion passing while the two
-            // sides exercise different frame states, and measured, a depth defect on the frame
-            // only one side now carries survives (adversarial review, GPT).
+            // Build the wrapped input first and derive the bare input from it, so both scans
+            // provably consume the same lines: there is exactly one array in the flow, and the
+            // comparison below ties it to the content the recording observes.
             //
-            // A single substitution anywhere is caught: before this line, both scans see it and
-            // the recorded sequences fail their derivation pins; after it, `wrapped` still holds
-            // the original element references, so the comparison below fails.
+            // The invariant is only differential if both sides scan the same content, and
+            // nothing said so. Substituting the content between the two scans -- exchanging a
+            // verbatim interpolated opener for a raw one of the same length, so kind, column,
+            // length and the expected shift all still match -- left every assertion passing
+            // while the two sides exercised different frame states, and measured, a depth
+            // defect on the frame only one side carried then survived (adversarial review,
+            // GPT). A single substitution of either value is now caught: before this line both
+            // scans see it and the recorded sequences fail their derivation pins; after it,
+            // `wrapped` still holds the original element references.
             string[] wrapped = ["{", "[", .. content];
 
-            var bare = BodySlicer.ScanTokens(content);
+            var bare = BodySlicer.ScanTokens(wrapped[2..]);
             var enclosed = BodySlicer.ScanTokens(wrapped).Where(t => t.Line >= 2).ToList();
 
             Assert.Equal(wrapped[2..], content);
