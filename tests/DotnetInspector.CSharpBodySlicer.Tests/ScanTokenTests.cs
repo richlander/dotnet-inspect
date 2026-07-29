@@ -101,6 +101,56 @@ public class ScanTokenTests
             Render("var s = \"\"\"", "  raw { text }", "  \"\"\";"));
     }
 
+    /// <summary>
+    /// Pins the depth and bracket depth a carried raw-literal fragment reports, absolutely.
+    /// <para>
+    /// <see cref="RawLiteral_SpansLines_AndItsBracesAreLiteralText"/> renders kind and text only,
+    /// and the differential sweep compares the bare scan against the enclosed one, so a value
+    /// that is consistently wrong on both sides satisfies both. Measured, emitting
+    /// <c>depth + 1</c> — or <c>BracketDepth + 1</c> — for these fragments left the whole suite
+    /// green, at ten emission sites (adversarial review, GPT).
+    /// </para>
+    /// <para>
+    /// The carried line opens with <c>}</c> and contains <c>{</c> so that reading it as code
+    /// rather than as literal text would move the depth, and the literal is carried inside both
+    /// a block and a collection expression so that neither field is zero where a defect could
+    /// hide in it.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void CarriedRawLiteralFragments_ReportTheDepthAndBracketDepthEnclosingThem()
+    {
+        var lines = new[] { "{", "    x = [", "        \"\"\"", "} raw { text", "        \"\"\"", "    ];", "}" };
+
+        var literals = BodySlicer.ScanTokens(lines)
+            .Where(t => t.Kind == ScanTokenKind.StringLiteral)
+            .ToList();
+
+        Assert.Equal(
+            [(2, 1, 1), (3, 1, 1), (4, 1, 1)],
+            literals.Select(t => (t.Line, t.Depth, t.BracketDepth)));
+    }
+
+    /// <summary>
+    /// The same absolute pin for the fragment an interpolated literal emits up to its hole
+    /// opener, which is a different emission site and was the one site
+    /// <see cref="CarriedRawLiteralFragments_ReportTheDepthAndBracketDepthEnclosingThem"/> does
+    /// not reach: emitting <c>depth + 1</c> there left the whole suite green.
+    /// </summary>
+    [Fact]
+    public void InterpolatedLiteralFragments_ReportTheDepthAndBracketDepthEnclosingThem()
+    {
+        var lines = new[] { "{", "    x = [", "        $\"a{b}c\"", "    ];", "}" };
+
+        var literals = BodySlicer.ScanTokens(lines)
+            .Where(t => t.Kind == ScanTokenKind.StringLiteral)
+            .ToList();
+
+        Assert.Equal(
+            [(2, 1, 1), (2, 1, 1)],
+            literals.Select(t => (t.Line, t.Depth, t.BracketDepth)));
+    }
+
     [Fact]
     public void InterpolatedLiteral_ScansItsHoleAsCode()
     {
@@ -127,10 +177,25 @@ public class ScanTokenTests
             RenderState("var s = $$\"\"\"x{y}z\"\"\";"));
     }
 
+    /// <summary>
+    /// The empty literal is one token, and it reports the depth and bracket depth around it.
+    /// Rendering text alone left its own emission site free to report either field wrongly with
+    /// the whole suite green, because the differential sweep reads both only relatively
+    /// (adversarial review, GPT); it is the one site the other absolute fixtures do not reach,
+    /// since every literal they carry has content.
+    /// </summary>
     [Fact]
     public void EmptyLiteral_IsOneToken()
     {
-        Assert.Equal("W:var W:e P:= S:\"\" P:;", Render("var e = \"\";"));
+        Assert.Equal("W:var:d0:b0 W:e:d0:b0 P:=:d0:b0 S:\"\":d0:b0 P:;:d0:b0", RenderState("var e = \"\";"));
+
+        var lines = new[] { "{", "    x = [", "        \"\"", "    ];", "}" };
+
+        Assert.Equal(
+            [(2, 1, 1)],
+            BodySlicer.ScanTokens(lines)
+                .Where(t => t.Kind == ScanTokenKind.StringLiteral)
+                .Select(t => (t.Line, t.Depth, t.BracketDepth)));
     }
 
     [Fact]
@@ -559,57 +624,29 @@ public class ScanTokenTests
     [Fact]
     public void EveryStringOverTheDelimiterAlphabet_IsFullyCovered()
     {
-        char[] alphabet = ['$', '@', '"', '{', '}', '\\', ' ', 'a'];
-        var buffer = new char[6];
-        var sweptChars = new HashSet<char>();
-        var sweptInputs = new HashSet<string>();
-        int checkedCount = 0;
+        // The alphabet is pinned by value, and the sweep scans exactly the set generated from
+        // it. Every count above survives exchanging `\` for an ordinary letter, which keeps all
+        // 299,592 cases and drops every terminal-escape path; and a set recorded alongside the
+        // scan is not the set scanned, because the recording can be pointed at the value the
+        // input was generated from while the scanner is handed another (adversarial review,
+        // GPT, twice). There is no recording here: `swept` is both the pinned collection and
+        // the collection iterated, so the two cannot be separated without rewriting the loop.
+        const string Alphabet = " \"$@\\a{}";
+        Assert.Equal(" \"$@\\a{}", Alphabet);
 
-        void Walk(int at, int length)
+        var swept = AllStringsOver(Alphabet, 6);
+        Assert.Equal(299_592, swept.Count);
+
+        foreach (var input in swept)
         {
-            if (at == length)
-            {
-                var lines = new[] { new string(buffer, 0, length) };
-                string? gap = FindCoverageGap(lines, BodySlicer.ScanTokens(lines));
-                checkedCount++;
+            // No local holds the scanned line: an in-loop substitution would have to be spelled
+            // at the scan call itself, which is the visible, out-of-scope class rather than a
+            // silent weakening of a value the test supplies (adversarial review, GPT).
+            string? gap = FindCoverageGap([input], BodySlicer.ScanTokens([input]));
 
-                foreach (char swept in lines[0])
-                    sweptChars.Add(swept);
-
-                sweptInputs.Add(lines[0]);
-
-                if (gap is not null)
-                    Assert.Fail($"input \"{lines[0]}\": {gap}");
-
-                return;
-            }
-
-            foreach (char c in alphabet)
-            {
-                buffer[at] = c;
-                Walk(at + 1, length);
-            }
+            if (gap is not null)
+                Assert.Fail($"input \"{input}\": {gap}");
         }
-
-        for (int length = 1; length <= buffer.Length; length++)
-            Walk(0, length);
-
-        // Pins the size of the space so a later edit cannot quietly shrink it to nothing.
-        Assert.Equal(299_592, checkedCount);
-
-        // Size is not content. Every count above survives exchanging `\` for an ordinary letter,
-        // which keeps all 299,592 cases and drops every terminal-escape path: measured, that
-        // weakening leaves the suite green while a defect that reads past the end of a literal
-        // ending in a backslash survives (adversarial review, GPT). Pin the alphabet by value,
-        // and by the value the scanner actually received rather than the one declared above, so
-        // that a substitution between the declaration and the sweep is visible too.
-        Assert.Equal(" \"$@\\a{}", string.Concat(sweptChars.Order()));
-
-        // Nor is the character set the input set. Substituting one swept string for another of
-        // the same length over the same characters leaves every count and the set above intact
-        // while dropping that string's state, so pin the strings themselves, derived from the
-        // pinned alphabet rather than read back from the walk that produced them.
-        Assert.Equal(AllStringsOver(" \"$@\\a{}", 6), sweptInputs);
     }
 
     /// <summary>
@@ -651,52 +688,29 @@ public class ScanTokenTests
     [Fact]
     public void UnknowableDepth_IsCarriedByExactlyTheTokensTheScannerCouldNotPlace()
     {
-        char[] alphabet = ['$', '@', '"', '{', '}', '\\', '/', '*', 'a'];
-        var buffer = new char[4];
-        var sweptChars = new HashSet<char>();
-        var sweptInputs = new HashSet<string>();
-        int known = 0, unknown = 0, inputsWithUnknown = 0, inputs = 0;
+        const string Alphabet = "\"$*/@\\a{}";
+        Assert.Equal("\"$*/@\\a{}", Alphabet);
 
-        void Walk(int at, int length)
+        var swept = AllStringsOver(Alphabet, 4);
+        Assert.Equal(9 + 81 + 729 + 6561, swept.Count);
+
+        int known = 0, unknown = 0, inputsWithUnknown = 0;
+
+        foreach (var input in swept)
         {
-            if (at == length)
-            {
-                var lines = new[] { new string(buffer, 0, length) };
-                var tokens = BodySlicer.ScanTokens(lines);
-                inputs++;
+            var tokens = BodySlicer.ScanTokens([input]);
+            int lost = tokens.Count(t => !t.DepthKnown);
 
-                foreach (char swept in lines[0])
-                    sweptChars.Add(swept);
+            unknown += lost;
+            known += tokens.Count - lost;
 
-                sweptInputs.Add(lines[0]);
-
-                int lost = tokens.Count(t => !t.DepthKnown);
-                unknown += lost;
-                known += tokens.Count - lost;
-
-                if (lost > 0)
-                    inputsWithUnknown++;
-
-                return;
-            }
-
-            foreach (char c in alphabet)
-            {
-                buffer[at] = c;
-                Walk(at + 1, length);
-            }
+            if (lost > 0)
+                inputsWithUnknown++;
         }
-
-        for (int length = 1; length <= buffer.Length; length++)
-            Walk(0, length);
 
         // Both readings are pinned, so the field cannot be moved in either direction: pinning
         // only the unknown tokens would let every token become knowable, and pinning only the
         // known ones would let every token lose its place.
-        Assert.Equal(4, buffer.Length);
-        Assert.Equal(9 + 81 + 729 + 6561, inputs);
-        Assert.Equal("\"$*/@\\a{}", string.Concat(sweptChars.Order()));
-        Assert.Equal(AllStringsOver("\"$*/@\\a{}", 4), sweptInputs);
         Assert.Equal(17_602, known);
         Assert.Equal(4_452, unknown);
         Assert.Equal(1_996, inputsWithUnknown);
