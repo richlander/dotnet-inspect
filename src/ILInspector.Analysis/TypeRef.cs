@@ -65,10 +65,23 @@ public sealed class TypeRef : IEquatable<TypeRef>
     // identities are not spoofs). Excluded from equality/hash: derived metadata, not identity.
     public bool TrustedProtobufAssembly { get; private init; } = true;
 
+    // The assembly name exactly as the metadata row spells it, before core-library facade
+    // canonicalization collapsed it into Assembly. Empty for synthetic refs that never had one.
+    //
+    // Assembly is deliberately lossy — mscorlib, netstandard, System.Runtime and friends all
+    // become "corelib" so that structural equality sees one type — but that collapse also makes
+    // spellings indistinguishable to anything downstream. ForwardedTypeAliases has to tell them
+    // apart: it verifies a facade's identity per raw spelling, and a spelling an image failed to
+    // verify would otherwise be readmitted through a verified sibling in the same bucket (found in
+    // review of b18e5009). Excluded from equality/hash: it is the pre-canonical spelling of an
+    // identity that Assembly already carries, not a separate identity.
+    public string RawAssembly { get; private init; } = "";
+
     public static TypeRef Definition(string assembly, string ns, string name, bool trustedFrameworkAssembly = true, bool trustedProtobufAssembly = true)
         => new(TypeRefKind.Definition)
         {
             Assembly = CanonicalAssembly(assembly),
+            RawAssembly = assembly,
             Namespace = ns,
             Name = name,
             TrustedFrameworkAssembly = trustedFrameworkAssembly,

@@ -13,9 +13,9 @@ namespace ILInspector.Analysis;
 /// eagerly reduced to a token would discard both distinctions, which is why this is a verbatim
 /// snapshot rather than <see cref="ILInspector.Metadata.AssemblyReferenceIdentity"/>.</para>
 ///
-/// <para>Version is not captured. It is part of ECMA identity but not usable for checking a
-/// reference against a definition: binding rolls forward and reference assemblies routinely record
-/// <c>0.0.0.0</c>. See <c>ForwardedTypeAliases.EvidenceIdentity</c> for the measurement.</para>
+/// <para>Version is captured for direction, not equality: a reference can bind to a same-or-newer
+/// definition and never to an older one, so a reference above the definition did not bind to it.
+/// See <c>ForwardedTypeAliases.EvidenceIdentity</c> for the measurement behind that rule.</para>
 ///
 /// <para>This exists so identity questions about an already-indexed image can be answered from the
 /// bytes that were indexed. Re-reading the file to ask them again would lose genuine callers when
@@ -26,4 +26,5 @@ public readonly record struct AssemblyReferenceSpelling(
     string Name,
     ImmutableArray<byte> PublicKeyOrToken,
     AssemblyFlags Flags,
-    string Culture);
+    string Culture,
+    Version Version);

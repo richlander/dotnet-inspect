@@ -1491,7 +1491,8 @@ public sealed class LibraryBodyIndex
                 reader.GetString(reference.Name),
                 [.. reader.GetBlobContent(reference.PublicKeyOrToken)],
                 reference.Flags,
-                reference.Culture.IsNil ? "" : reader.GetString(reference.Culture)));
+                reference.Culture.IsNil ? "" : reader.GetString(reference.Culture),
+                reference.Version));
         }
 
         return spellings.ToImmutable();

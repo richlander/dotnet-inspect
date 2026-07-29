@@ -43,34 +43,53 @@ public sealed class ForwardedTypeAliases
     /// The identity of the assembly that supplied a spelling's forwarder evidence, in the parts a
     /// reference can be checked against.
     ///
-    /// <para><b>Version is deliberately absent.</b> It is part of ECMA identity, but a reference's
-    /// version is not the definition's: binding rolls forward, and reference assemblies routinely
-    /// record <c>0.0.0.0</c>. Measured over the shared framework plus this repository's own build
-    /// output — 1,128 assemblies, 4,622 references to framework-named assemblies — <b>64.5%</b>
-    /// disagreed on version, including <c>mscorlib</c>, the canonical forwarding facade, whose
-    /// reference to <c>System.Private.CoreLib</c> is <c>0.0.0.0</c> against a definition of
-    /// <c>9.0.0.0</c>. Requiring version equality would decline the very case this exists to serve.
-    /// Culture disagreed <b>0</b> times in the same corpus, so requiring it costs nothing and
-    /// closes a real gap: a culture-specific assembly is a different assembly (found in review of
+    /// <para><b>Version is compared by roll-forward direction, not by equality.</b> A reference's
+    /// version is not the definition's — binding rolls forward, and reference assemblies routinely
+    /// record <c>0.0.0.0</c> — so equality is the wrong test. Measured over the shared framework,
+    /// ASP.NET Core and this repository's own build output (2,267 assemblies, 16,294 references
+    /// resolving to a definition on disk): 713 references named a version <em>below</em> the
+    /// definition, and <b>0</b> named one above. Requiring equality would have declined all 713,
+    /// including <c>mscorlib</c> — the canonical forwarding facade — whose reference to
+    /// <c>System.Private.CoreLib</c> reads <c>0.0.0.0</c> against a definition of <c>9.0.0.0</c>.
+    /// Requiring <c>reference &lt;= evidence</c> declines none of them, and is what the loader
+    /// itself permits: a reference can bind to a same-or-newer definition, never to an older one.
+    /// </para>
+    ///
+    /// <para>Ignoring version entirely was the previous rule, and it fabricated: a v1 facade
+    /// forwarding <c>Widget</c> vouched for a caller built against an unrelated v2 assembly of the
+    /// same name that defined <c>Widget</c> itself, reporting a call to the v2 type as a call to
+    /// the target (executed in review of <c>b18e5009</c>). Version is the only discriminator left
+    /// when both assemblies are unsigned, which is the common shape outside the framework.</para>
+    ///
+    /// <para>Culture is compared for equality: it disagreed <b>0</b> times in the same corpus, and
+    /// a culture-specific assembly is a different assembly (found in review of
     /// <c>372be6d1</c>).</para>
     /// </summary>
-    readonly record struct EvidenceIdentity(byte[] Token, string Culture);
+    readonly record struct EvidenceIdentity(byte[] Token, string Culture, Version Version);
 
     readonly HashSet<string> _aliases;
     readonly HashSet<string> _rawSpellings;
     readonly Dictionary<string, EvidenceIdentity> _spellingTokens;
     readonly Dictionary<string, string> _canonicalByRaw;
 
+    // Raw spellings this image named but could not verify. Withdrawing them from _rawSpellings is
+    // not enough: the matcher compares canonicalized names, so a withdrawn corelib facade spelling
+    // is readmitted by any verified sibling in the same bucket. Kept so DenotesSameType can refuse
+    // the spelling the TypeRef actually went through.
+    readonly HashSet<string> _withdrawnSpellings;
+
     ForwardedTypeAliases(
         HashSet<string> aliases,
         HashSet<string> rawSpellings,
         Dictionary<string, EvidenceIdentity> spellingTokens,
-        Dictionary<string, string> canonicalByRaw)
+        Dictionary<string, string> canonicalByRaw,
+        HashSet<string> withdrawnSpellings)
     {
         _aliases = aliases;
         _rawSpellings = rawSpellings;
         _spellingTokens = spellingTokens;
         _canonicalByRaw = canonicalByRaw;
+        _withdrawnSpellings = withdrawnSpellings;
     }
 
     /// <summary>No aliases: every comparison falls back to plain identity.</summary>
@@ -78,7 +97,8 @@ public sealed class ForwardedTypeAliases
         new HashSet<string>(StringComparer.Ordinal),
         new HashSet<string>(StringComparer.OrdinalIgnoreCase),
         new Dictionary<string, EvidenceIdentity>(StringComparer.OrdinalIgnoreCase),
-        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase));
 
     public bool IsEmpty => _aliases.Count == 0;
 
@@ -158,7 +178,8 @@ public sealed class ForwardedTypeAliases
                 reader.GetString(reference.Name),
                 [.. reader.GetBlobContent(reference.PublicKeyOrToken)],
                 reference.Flags,
-                reference.Culture.IsNil ? "" : reader.GetString(reference.Culture)));
+                reference.Culture.IsNil ? "" : reader.GetString(reference.Culture),
+                reference.Version));
         }
 
         return RestrictedTo(spellings.ToImmutable());
@@ -231,9 +252,16 @@ public sealed class ForwardedTypeAliases
                 aliases.Remove(canonical);
         }
 
+        // A spelling that failed for either reason is refused by name, so that a TypeRef which went
+        // through it is not readmitted by a verified sibling that shares its canonical bucket.
+        // Bucket removal above cannot express this: it would take the verified sibling down too,
+        // which is exactly the regression the Contradicted/Indeterminate split exists to avoid.
+        var withdrawn = new HashSet<string>(contradicted, StringComparer.OrdinalIgnoreCase);
+        withdrawn.UnionWith(unusable);
+
         return aliases.Count == 0
             ? None
-            : new ForwardedTypeAliases(aliases, verified, spellingTokens, canonicalByRaw);
+            : new ForwardedTypeAliases(aliases, verified, spellingTokens, canonicalByRaw, withdrawn);
     }
 
     /// <summary>
@@ -292,6 +320,13 @@ public sealed class ForwardedTypeAliases
         if (!string.Equals(reference.Culture, evidence.Culture, StringComparison.OrdinalIgnoreCase))
             return ReferenceVerdict.Contradicted;
 
+        // Roll-forward direction, not equality. A reference can bind to a same-or-newer definition
+        // and never to an older one, so a reference naming a version above the evidence did not
+        // bind to this assembly — it named a different, later one that happens to share the
+        // spelling. Equality would instead decline the 713 measured legitimate roll-forwards.
+        if (reference.Version > evidence.Version)
+            return ReferenceVerdict.Contradicted;
+
         ReadOnlySpan<byte> referenceToken = (reference.Flags & AssemblyFlags.PublicKey) != 0
             ? PublicKeyTokenOf(reference.PublicKeyOrToken.AsSpan())
             : reference.PublicKeyOrToken.AsSpan();
@@ -329,6 +364,23 @@ public sealed class ForwardedTypeAliases
     public bool Includes(string assembly) => _aliases.Contains(assembly);
 
     /// <summary>
+    /// <see cref="Includes(string)"/> for a candidate whose pre-canonical spelling is known.
+    ///
+    /// <para>Canonicalization collapses the five core-library facade spellings onto one name, so
+    /// <see cref="Includes(string)"/> alone cannot tell a verified spelling from a withdrawn one in
+    /// the same bucket: an image referencing a retargetable <c>mscorlib</c> beside a verified
+    /// <c>netstandard</c> had its <c>mscorlib</c> withdrawal silently undone, and a
+    /// <c>TypeRef</c> that went through the retargetable row matched anyway (executed in review of
+    /// <c>b18e5009</c>). Withdrawing the bucket instead is not an option — that takes the verified
+    /// sibling down with it, which is the regression the <c>Contradicted</c>/<c>Indeterminate</c>
+    /// split exists to prevent — so the spelling is refused by name here, where it is still
+    /// known.</para>
+    /// </summary>
+    public bool Includes(string assembly, string rawSpelling)
+        => _aliases.Contains(assembly)
+            && !(rawSpelling.Length > 0 && _withdrawnSpellings.Contains(rawSpelling));
+
+    /// <summary>
     /// Whether <paramref name="candidate"/> denotes the same type as <paramref name="target"/>,
     /// by identity or by a recorded facade spelling. This is the single definition of that
     /// question: <see cref="MemberPattern.MatchesCrossAssembly"/> and
@@ -353,7 +405,7 @@ public sealed class ForwardedTypeAliases
             && target.Kind == TypeRefKind.Definition
             && string.Equals(candidate.Namespace, target.Namespace, StringComparison.Ordinal)
             && string.Equals(candidate.Name, target.Name, StringComparison.Ordinal)
-            && aliases.Includes(candidate.Assembly);
+            && aliases.Includes(candidate.Assembly, candidate.RawAssembly);
     }
 
     /// <summary>
@@ -452,15 +504,25 @@ public sealed class ForwardedTypeAliases
                 // Two files claiming one simple name cannot both answer for it. Recording only the
                 // first would let the loser's callers be validated against the winner's key, so an
                 // ambiguous spelling is marked unusable (empty token never matches a real one).
-                if (tokensBySpelling.TryGetValue(edge.Assembly, out EvidenceIdentity seen)
-                    && !(seen.Token.AsSpan().SequenceEqual(edge.Identity.Token)
-                        && string.Equals(seen.Culture, edge.Identity.Culture, StringComparison.OrdinalIgnoreCase)))
+                // Differing only in version is not ambiguity: both files are the same signed
+                // identity and both forward the type, so the highest of them is the newest version
+                // known to forward, and roll-forward admits every reference at or below it.
+                if (tokensBySpelling.TryGetValue(edge.Assembly, out EvidenceIdentity seen))
                 {
-                    tokensBySpelling[edge.Assembly] = new EvidenceIdentity(AmbiguousSpelling, "");
+                    if (!(seen.Token.AsSpan().SequenceEqual(edge.Identity.Token)
+                        && string.Equals(seen.Culture, edge.Identity.Culture, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        tokensBySpelling[edge.Assembly] =
+                            new EvidenceIdentity(AmbiguousSpelling, "", new Version(0, 0, 0, 0));
+                    }
+                    else if (edge.Identity.Version > seen.Version)
+                    {
+                        tokensBySpelling[edge.Assembly] = edge.Identity;
+                    }
                 }
                 else
                 {
-                    tokensBySpelling.TryAdd(edge.Assembly, edge.Identity);
+                    tokensBySpelling[edge.Assembly] = edge.Identity;
                 }
 
                 // Follow the chain: the assembly this one forwards to may itself be a facade that
@@ -499,9 +561,13 @@ public sealed class ForwardedTypeAliases
             }
         }
 
+        // Nothing is withdrawn until an image's AssemblyRef table is consulted; RestrictedTo fills
+        // this in per caller image.
         return aliases.Count == 0
             ? None
-            : new ForwardedTypeAliases(aliases, rawSpellings, spellingTokens, canonicalByRaw);
+            : new ForwardedTypeAliases(
+                aliases, rawSpellings, spellingTokens, canonicalByRaw,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase));
     }
 
     /// <summary>
@@ -560,7 +626,8 @@ public sealed class ForwardedTypeAliases
             string assembly = reader.GetString(definition.Name);
             var identity = new EvidenceIdentity(
                 PublicKeyTokenOf(reader.GetBlobContent(definition.PublicKey).AsSpan()),
-                definition.Culture.IsNil ? "" : reader.GetString(definition.Culture));
+                definition.Culture.IsNil ? "" : reader.GetString(definition.Culture),
+                definition.Version);
 
             foreach (var handle in reader.ExportedTypes)
             {

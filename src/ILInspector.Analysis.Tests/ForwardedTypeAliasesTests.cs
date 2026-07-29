@@ -337,20 +337,51 @@ public class ForwardedTypeAliasesTests
     }
 
     /// <summary>
-    /// Version is deliberately <em>not</em> checked, and this pins that non-action so a later
-    /// "complete the identity" change cannot make it silently.
+    /// A reference naming a version <em>above</em> the evidence did not bind to the evidence: the
+    /// loader rolls forward, never backward. Without this, an unrelated later assembly sharing the
+    /// spelling fabricated a caller — a v1 facade forwarding <c>Widget</c> vouched for a caller
+    /// built against a v2 assembly of the same name that defines <c>Widget</c> itself, so a call to
+    /// the v2 type was reported as a call to the target. Executed in review of <c>b18e5009</c>.
     ///
-    /// <para>A reference's version is not the definition's: binding rolls forward, and reference
-    /// assemblies routinely record <c>0.0.0.0</c>. Measured over the shared framework plus this
-    /// repository's build output — 1,128 assemblies, 4,622 references to framework-named
-    /// assemblies — <b>64.5%</b> disagreed on version, including <c>mscorlib</c>, the canonical
-    /// forwarding facade, whose reference to <c>System.Private.CoreLib</c> reads <c>0.0.0.0</c>
-    /// against a definition of <c>9.0.0.0</c>. Culture disagreed <b>0</b> times, which is why the
-    /// two are treated differently. Requiring version equality would decline the very shape #3419
-    /// exists to serve.</para>
+    /// <para>Version is the only discriminator left when both assemblies are unsigned, which is the
+    /// common shape outside the framework.</para>
     /// </summary>
     [Fact]
-    public void PrefilterAcceptsAReferenceToADifferentVersionOfTheSameAssembly()
+    public void PrefilterRejectsAReferenceToALaterVersionThanTheEvidence()
+    {
+        string directory = NewTempDirectory();
+        WriteForwarder(directory, "Contoso.Facade", "Contoso.Definer", "Contoso", "Widget");
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+
+        // Premise: the evidence is unsigned and neutral, so name, token and culture all agree and
+        // the version is the only thing that can reject.
+        Assert.True(aliases.IncludesRawSpelling("Contoso.Facade"));
+
+        using var later = BuildCallerNaming(
+            "Contoso.Facade", "Contoso", "Widget", publicKeyOrToken: null,
+            flags: default, culture: null, version: new Version(2, 0, 0, 0));
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            CallerScopeTypeFilter.Classify(later.GetMetadataReader(), target, aliases));
+    }
+
+    /// <summary>
+    /// Version is compared by roll-forward direction, not equality, and this pins the permissive
+    /// half so a later "require exact identity" change cannot make it silently.
+    ///
+    /// <para>A reference's version is not the definition's: binding rolls forward, and reference
+    /// assemblies routinely record <c>0.0.0.0</c>. Measured over the shared framework, ASP.NET Core
+    /// and this repository's build output — 2,267 assemblies, 16,294 references resolving to a
+    /// definition on disk — <b>713</b> named a version below the definition and <b>0</b> named one
+    /// above. Equality would have declined all 713, including <c>mscorlib</c>, the canonical
+    /// forwarding facade, whose reference to <c>System.Private.CoreLib</c> reads <c>0.0.0.0</c>
+    /// against a definition of <c>9.0.0.0</c> — the very shape #3419 exists to serve.</para>
+    /// </summary>
+    [Fact]
+    public void PrefilterAcceptsAReferenceToAnEarlierVersionThanTheEvidence()
     {
         byte[] key = [.. Enumerable.Repeat((byte)0x28, 16)];
 
@@ -641,6 +672,47 @@ public class ForwardedTypeAliasesTests
     }
 
     /// <summary>
+    /// A spelling the image failed to verify must stay refused even when a verified sibling shares
+    /// its canonical bucket. Canonicalization collapses the five corelib facade spellings onto one
+    /// name, so withdrawing a spelling from the verified set does not withdraw it from the matcher
+    /// — which compares canonicalized names — and an unused verified sibling silently readmitted
+    /// it. Executed in review of <c>b18e5009</c>.
+    ///
+    /// <para>This is the mirror of
+    /// <see cref="PrefilterKeepsAnAliasWhenAnUncheckableReferenceSharesItsCanonicalName"/>, and the
+    /// two together are why <see cref="TypeRef.RawAssembly"/> exists: the cases differ only in
+    /// which spelling the <c>TypeRef</c> went through, and after canonicalization that difference
+    /// is gone. Withdrawing the bucket would satisfy this test and break that one.</para>
+    /// </summary>
+    [Fact]
+    public void PrefilterRefusesASpellingItWithdrewEvenWhenAVerifiedSiblingSharesItsBucket()
+    {
+        byte[] trustedKey = [.. Enumerable.Repeat((byte)0xE5, 16)];
+
+        string directory = NewTempDirectory();
+        WriteForwarder(directory, "netstandard", "Contoso.Definer", "Contoso", "Widget", trustedKey);
+        WriteForwarder(directory, "mscorlib", "Contoso.Definer", "Contoso", "Widget", trustedKey);
+
+        var target = TypeRef.Definition("Contoso.Definer", "Contoso", "Widget");
+        var aliases = ForwardedTypeAliases.ForTarget(target, Directory.GetFiles(directory, "*.dll"));
+
+        // Premise: both spellings supply evidence, so the refusal below is the retargetable flag
+        // and not a missing alias.
+        Assert.True(aliases.IncludesRawSpelling("mscorlib"));
+        Assert.True(aliases.IncludesRawSpelling("netstandard"));
+
+        // The TypeRef goes through the retargetable — hence unverifiable — mscorlib. The verified
+        // netstandard sibling is referenced but entirely unused by the TypeRef.
+        using var throughRetargetable = BuildCallerNamingThroughTwoAssemblies(
+            "mscorlib", TokenOf(trustedKey), "netstandard", TokenOf(trustedKey), "Contoso", "Widget",
+            otherFlags: default, namingFlags: AssemblyFlags.Retargetable);
+
+        Assert.Equal(
+            CallerScopeTypeFilter.TypeReferenceState.DoesNotName,
+            CallerScopeTypeFilter.Classify(throughRetargetable.GetMetadataReader(), target, aliases));
+    }
+
+    /// <summary>
     /// A reference that cannot be checked must not refute the spelling it names. Only a reference
     /// that positively contradicts the evidence may do that.
     ///
@@ -755,6 +827,23 @@ public class ForwardedTypeAliasesTests
         string ns,
         string typeName,
         AssemblyFlags otherFlags)
+        => BuildCallerNamingThroughTwoAssemblies(
+            namingAssembly, namingToken, otherAssembly, otherToken, ns, typeName, otherFlags,
+            namingFlags: default);
+
+    /// <summary>
+    /// The same, with flags on the <em>naming</em> reference too, so a test can make the reference
+    /// the <c>TypeRef</c> actually goes through the unverifiable one.
+    /// </summary>
+    static MetadataReaderProvider BuildCallerNamingThroughTwoAssemblies(
+        string namingAssembly,
+        byte[] namingToken,
+        string otherAssembly,
+        byte[] otherToken,
+        string ns,
+        string typeName,
+        AssemblyFlags otherFlags,
+        AssemblyFlags namingFlags)
     {
         var metadata = NewAssembly("Contoso.Caller");
         var naming = metadata.AddAssemblyReference(
@@ -762,7 +851,7 @@ public class ForwardedTypeAliasesTests
             new Version(1, 0, 0, 0),
             culture: default,
             publicKeyOrToken: metadata.GetOrAddBlob(namingToken),
-            flags: default,
+            flags: namingFlags,
             hashValue: default);
         metadata.AddAssemblyReference(
             metadata.GetOrAddString(otherAssembly),
