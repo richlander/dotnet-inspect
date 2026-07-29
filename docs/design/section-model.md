@@ -264,12 +264,14 @@ Dependencies is the transitive expansion of References over the same assembly
 references, so it renders the facts References already shows plus their closure.
 That closure is built by resolving and reading every referenced assembly
 recursively, which is both unbounded and duplicative of References, so it is
-declared `Verbose`/`Unbounded`: listed by `-D` and reachable by exact name,
-never auto-run by a verbosity. It does not set `ExplicitOnly`, unlike the other
-`Unbounded` sections: `@All` membership and `-D` listing are the same predicate
-(`SectionPipeline.IsAllMember`), so `ExplicitOnly` would drop it from discovery.
-Staying discoverable therefore also roots it under `-S @All`, which is an
-explicit request for every listed section. The two sections are independent lenses over the
+declared `Verbose`/`Unbounded`, and `ExplicitOnly` besides: never auto-run by a
+verbosity, and kept out of `-S @All`. Because `@All` membership and top-level
+`-D` listing are the same predicate (`SectionPipeline.IsAllMember`),
+`ExplicitOnly` also drops it from the flat catalog — so discovery runs through
+the `@Dependencies` door instead, which lists it alongside References. A
+category door is what lets a section be discoverable without being an `@All`
+member, so the two properties do not have to be traded against each other. The
+two sections are independent lenses over the
 same references and either may be selected alone or together.
 
 ## Query paths

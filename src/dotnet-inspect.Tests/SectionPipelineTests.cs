@@ -359,7 +359,7 @@ public class SectionPipelineTests
         // sections that used to be opt-in (Switches, Custom Attributes, Non-normalized Paths, ...).
         var visible = new List<string>
         {
-            "Library Info", "Symbols", "Signals", "References", "Dependencies",
+            "Library Info", "Symbols", "Signals", "References",
             "Async Methods", "Custom Attributes", "Extension Methods",
             "P/Invoke Methods", "Type Forwarders", "Union Types",
             "Switches", "Resources", "Non-normalized Paths"
@@ -377,7 +377,7 @@ public class SectionPipelineTests
             Assert.Contains(integration, hidden);
         foreach (var footgun in new[]
                  {
-                     "Top Leverage", "Unsafe Members", "SourceLink: Integrity",
+                     "Top Leverage", "Unsafe Members", "Dependencies", "SourceLink: Integrity",
                      "SourceLink: Files", "SourceLink: Availability", "SourceLink: Missing Files",
                      "Context: Member"
                  })

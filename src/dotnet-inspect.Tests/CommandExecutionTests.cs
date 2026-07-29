@@ -6868,23 +6868,27 @@ public class CommandExecutionTests
     public async Task LibraryCommand_Dependencies_StaysOutOfDefaultViewsAndDiscoverable()
     {
         // Building the tree reads every referenced assembly transitively, so it is opt-in; it
-        // must still be listed by -D or the only way to find it is to already know it exists.
+        // must still be reachable from -D or the only way to find it is to already know it exists.
         var (detailExit, detailOutput, _) = await RunAppAsync(
             "library", "System.Text.Json", "-v:d", "--tips", "q");
         var (discoverExit, discoverOutput, _) = await RunAppAsync(
             "library", "System.Text.Json", "-D", "--tips", "q");
+        var (doorExit, doorOutput, _) = await RunAppAsync(
+            "library", "System.Text.Json", "-D", "@Dependencies", "--tips", "q");
         var (allExit, allOutput, _) = await RunAppAsync(
             "library", "System.Text.Json", "-S", "@All", "--tips", "q");
 
         Assert.Equal(0, detailExit);
         Assert.DoesNotContain("## Dependencies", detailOutput);
+
+        // ExplicitOnly keeps the unbounded closure out of @All, and @All membership doubles as
+        // the top-level -D listing test -- so discovery runs through the category door instead.
         Assert.Equal(0, discoverExit);
-        Assert.Contains("| Dependencies | section", discoverOutput);
-        // @All membership and -D listing are the same predicate today
-        // (SectionPipeline.IsAllMember), so keeping the section discoverable necessarily
-        // roots it under @All. Pinned so the coupling is a decision, not a surprise.
+        Assert.Contains("| @Dependencies | category", discoverOutput);
+        Assert.Equal(0, doorExit);
+        Assert.Contains("Dependencies", doorOutput);
         Assert.Equal(0, allExit);
-        Assert.Contains("## Dependencies", allOutput);
+        Assert.DoesNotContain("## Dependencies", allOutput);
     }
 
     [Fact]
@@ -7296,7 +7300,7 @@ public class CommandExecutionTests
             .ToArray();
         var categoryNames = categoryLines.Select(ExtractSectionName).ToArray();
         Assert.Equal(
-            new[] { "@Audit", "@Integrations", "@Performance", "@SourceLink", "@Surface" },
+            new[] { "@Audit", "@Dependencies", "@Integrations", "@Performance", "@SourceLink", "@Surface" },
             categoryNames);
 
         var raw = output.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);

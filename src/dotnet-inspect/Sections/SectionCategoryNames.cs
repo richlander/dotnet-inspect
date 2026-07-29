@@ -23,6 +23,14 @@ public static class SectionCategoryNames
     /// <summary>Cheap-but-verbose surface sections (Async Methods, Custom Attributes, Resources, etc.).</summary>
     public const string Surface = "@Surface";
 
+    /// <summary>
+    /// What this assembly is built on: the direct <c>References</c> table and the transitive
+    /// <c>Dependencies</c> closure. The door exists so <c>Dependencies</c> stays discoverable
+    /// while <see cref="SectionEntry{TModel}.ExplicitOnly"/> keeps its unbounded closure out of
+    /// <c>@All</c>; two members, so it is a door with rooms behind it.
+    /// </summary>
+    public const string Dependencies = "@Dependencies";
+
     // No @Escape category: the escape/exception-safety family has exactly one member today
     // (Array Pool Escapes), and a door with a single room behind it is pure indirection.
     // The member is unprefixed for the same reason -- a Group: Leaf prefix advertises a

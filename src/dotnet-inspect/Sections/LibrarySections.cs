@@ -99,6 +99,9 @@ public static class LibrarySections
                 SectionNames.Symbols)
             .AddCategory(SectionCategoryNames.Performance,
                 PerformanceKinds.Sections)
+            .AddCategory(SectionCategoryNames.Dependencies,
+                SectionNames.References,
+                SectionNames.Dependencies)
             .AddCategory(SectionCategoryNames.Surface,
                 SectionNames.AsyncMethods,
                 SectionNames.CustomAttributes,
@@ -520,13 +523,14 @@ public static class LibrarySections
     {
         public static string Name => SectionNames.Dependencies;
         public static bool IsExpensive => false;
-        // The transitive closure grows without a meaningful bound, so it is Verbose/Unbounded:
-        // no verbosity roots it, including -v:d. It deliberately does NOT set ExplicitOnly,
-        // unlike Unsafe Members and Top Leverage: under the current model @All membership and
-        // -D listing are the same predicate (SectionPipeline.IsAllMember), so ExplicitOnly
-        // would drop the section from discovery — and discovery listing a section that -S
-        // could not deliver is the defect this change exists to fix. The cost of that choice
-        // is that -S @All, an explicit request for every listed section, now includes it.
+        // The transitive closure grows without a meaningful bound, so it is Verbose/Unbounded
+        // (no verbosity roots it, including -v:d) and ExplicitOnly, matching Unsafe Members and
+        // Top Leverage. ExplicitOnly also keeps it out of @All, whose membership predicate
+        // (SectionPipeline.IsAllMember) doubles as the top-level -D listing test. Discovery is
+        // preserved instead by the @Dependencies door: a section reached by a category door is
+        // discoverable without being an @All member, so the fix does not have to trade one for
+        // the other.
+        public static bool ExplicitOnly => true;
         public static SectionSizeClass SizeClass => SectionSizeClass.Verbose;
         public static SectionCost Cost => SectionCost.Unbounded;
         public static string? ScannerKey => ScannerTransitiveRefs;
