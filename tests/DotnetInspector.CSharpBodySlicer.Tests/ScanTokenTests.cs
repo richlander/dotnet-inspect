@@ -845,4 +845,47 @@ public class ScanTokenTests
             Render("var s = $\"{new { X = 1 }}\"; int y;"));
     }
 
+
+    /// <summary>
+    /// Every token records the structural depth in effect where it sits, but only words and
+    /// structural punctuators were ever asserted at a depth other than zero, so five emission
+    /// paths could report zero from inside a block and no test could tell (adversarial review,
+    /// GPT). This covers each of them at depth one: a directive, a line comment, a single-line
+    /// block comment, a character literal, the "@" of a verbatim identifier, and a literal.
+    /// </summary>
+    [Fact]
+    public void EveryKindOfTokenInsideABlock_ReportsTheEnclosingDepth()
+    {
+        Assert.Equal(
+            "P:{:d0:b0 D:#region X:d1:b0 C:// c:d1:b0 C:/* b */:d1:b0 H:'x':d1:b0 " +
+            "P:@:d1:b0 W:class:d1:b0 S:\"s\":d1:b0 P:;:d1:b0 P:}:d1:b0",
+            RenderState("{", "#region X", "// c", "/* b */", "'x'", "@class", "\"s\";", "}"));
+    }
+
+    /// <summary>
+    /// A block comment carried in from an earlier line is emitted by a different path than the
+    /// one that opens it, and it too must report the depth it sits at.
+    /// </summary>
+    [Fact]
+    public void BlockCommentCarriedIntoALine_ReportsTheEnclosingDepth()
+    {
+        Assert.Equal(
+            "P:{:d0:b0 C:/* a:d1:b0 C:b */:d1:b0 P:}:d1:b0",
+            RenderState("{", "/* a", "b */", "}"));
+    }
+
+    /// <summary>
+    /// Losing the place is discovered at the end of the line that loses it, so the correction
+    /// must reach back only as far as that line's own tokens. Reaching further would retract a
+    /// depth that was known when it was recorded, and the lines above stay answerable.
+    /// </summary>
+    [Fact]
+    public void LosingThePlaceOnALine_DoesNotUnknowTheLinesAboveIt()
+    {
+        Assert.Equal(
+            "W:int:d0:b0 W:x:d0:b0 P:;:d0:b0 " +
+            "W:var:d0:b0? W:s:d0:b0? P:=:d0:b0? S:\"unterminated:d0:b0?",
+            RenderState("int x;", "var s = \"unterminated"));
+    }
+
 }
