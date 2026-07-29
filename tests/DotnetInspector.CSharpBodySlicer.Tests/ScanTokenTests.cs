@@ -1,3 +1,4 @@
+using System.Reflection;
 using ILInspector.Metadata;
 
 namespace DotnetInspector.CSharpBodySlicer.Tests;
@@ -122,8 +123,8 @@ public class ScanTokenTests
     public void SingleBraceInDoubleDollarLiteral_IsContent()
     {
         Assert.Equal(
-            "W:var W:s P:= S:$$\"\"\"x{y}z\"\"\" P:;",
-            Render("var s = $$\"\"\"x{y}z\"\"\";"));
+            "W:var:d0:b0 W:s:d0:b0 P:=:d0:b0 S:$$\"\"\"x{y}z\"\"\":d0:b0 P:;:d0:b0",
+            RenderState("var s = $$\"\"\"x{y}z\"\"\";"));
     }
 
     [Fact]
@@ -193,20 +194,20 @@ public class ScanTokenTests
     /// exchanged for a second verbatim spelling with the expectation following it.
     /// </remarks>
     [Theory]
-    [InlineData("var s = $\"a{{b}}c\";", "W:var W:s P:= S:$\"a{{b}}c\" P:;")]
-    [InlineData("var s = $@\"a{{b}}c\";", "W:var W:s P:= S:$@\"a{{b}}c\" P:;")]
-    [InlineData("var s = @$\"a{{b}}c\";", "W:var W:s P:= S:@$\"a{{b}}c\" P:;")]
+    [InlineData("var s = $\"a{{b}}c\";", "W:var:d0:b0 W:s:d0:b0 P:=:d0:b0 S:$\"a{{b}}c\":d0:b0 P:;:d0:b0")]
+    [InlineData("var s = $@\"a{{b}}c\";", "W:var:d0:b0 W:s:d0:b0 P:=:d0:b0 S:$@\"a{{b}}c\":d0:b0 P:;:d0:b0")]
+    [InlineData("var s = @$\"a{{b}}c\";", "W:var:d0:b0 W:s:d0:b0 P:=:d0:b0 S:@$\"a{{b}}c\":d0:b0 P:;:d0:b0")]
     public void EscapedBraceRunInAnInterpolatedLiteral_StaysStringContent(string line, string expected)
     {
-        Assert.Equal(expected, Render(line));
+        Assert.Equal(expected, RenderState(line));
     }
 
     [Fact]
     public void QuoteRunShorterThanTheDelimiter_IsRawLiteralContent()
     {
         Assert.Equal(
-            "W:var W:s P:= S:\"\"\"\"a \"\"\" b\"\"\"\" P:;",
-            Render("var s = \"\"\"\"a \"\"\" b\"\"\"\";"));
+            "W:var:d0:b0 W:s:d0:b0 P:=:d0:b0 S:\"\"\"\"a \"\"\" b\"\"\"\":d0:b0 P:;:d0:b0",
+            RenderState("var s = \"\"\"\"a \"\"\" b\"\"\"\";"));
     }
 
     [Fact]
@@ -560,6 +561,7 @@ public class ScanTokenTests
     {
         char[] alphabet = ['$', '@', '"', '{', '}', '\\', ' ', 'a'];
         var buffer = new char[6];
+        var sweptChars = new HashSet<char>();
         int checkedCount = 0;
 
         void Walk(int at, int length)
@@ -569,6 +571,9 @@ public class ScanTokenTests
                 var lines = new[] { new string(buffer, 0, length) };
                 string? gap = FindCoverageGap(lines, BodySlicer.ScanTokens(lines));
                 checkedCount++;
+
+                foreach (char swept in lines[0])
+                    sweptChars.Add(swept);
 
                 if (gap is not null)
                     Assert.Fail($"input \"{lines[0]}\": {gap}");
@@ -588,6 +593,80 @@ public class ScanTokenTests
 
         // Pins the size of the space so a later edit cannot quietly shrink it to nothing.
         Assert.Equal(299_592, checkedCount);
+
+        // Size is not content. Every count above survives exchanging `\` for an ordinary letter,
+        // which keeps all 299,592 cases and drops every terminal-escape path: measured, that
+        // weakening leaves the suite green while a defect that reads past the end of a literal
+        // ending in a backslash survives (adversarial review, GPT). Pin the alphabet by value,
+        // and by the value the scanner actually received rather than the one declared above, so
+        // that a substitution between the declaration and the sweep is visible too.
+        Assert.Equal(" \"$@\\a{}", string.Concat(sweptChars.Order()));
+    }
+
+    /// <summary>
+    /// Pins how often the scanner reports the depth as unknowable, and how often it does not.
+    /// <para>
+    /// Every other assertion on this field is either a rule about one shape — a conditional
+    /// directive, an unterminated literal — or the differential invariant, which compares the
+    /// bare scan against the enclosed one and therefore reads this field only *relatively*. A
+    /// defect that flips <see cref="ScanToken.DepthKnown"/> on both sides at once satisfies it
+    /// by construction: <c>!true == !true</c>. Measured, that left the field unpinned at seven
+    /// emission sites, where a token could claim its depth was meaningless — or claim a
+    /// meaningless depth was real — with the whole suite green (adversarial review, Gemini).
+    /// </para>
+    /// <para>
+    /// A count is not a shape, and this is not trying to be one; the shapes are gated by the
+    /// named rules above. What no rule above supplies is an *absolute* reading of the field over
+    /// a space large enough to reach every site that emits it, which is what this pins.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void UnknowableDepth_IsCarriedByExactlyTheTokensTheScannerCouldNotPlace()
+    {
+        char[] alphabet = ['$', '@', '"', '{', '}', '\\', '/', '*', 'a'];
+        var buffer = new char[4];
+        var sweptChars = new HashSet<char>();
+        int known = 0, unknown = 0, inputsWithUnknown = 0, inputs = 0;
+
+        void Walk(int at, int length)
+        {
+            if (at == length)
+            {
+                var lines = new[] { new string(buffer, 0, length) };
+                var tokens = BodySlicer.ScanTokens(lines);
+                inputs++;
+
+                foreach (char swept in lines[0])
+                    sweptChars.Add(swept);
+
+                int lost = tokens.Count(t => !t.DepthKnown);
+                unknown += lost;
+                known += tokens.Count - lost;
+
+                if (lost > 0)
+                    inputsWithUnknown++;
+
+                return;
+            }
+
+            foreach (char c in alphabet)
+            {
+                buffer[at] = c;
+                Walk(at + 1, length);
+            }
+        }
+
+        for (int length = 1; length <= buffer.Length; length++)
+            Walk(0, length);
+
+        // Both readings are pinned, so the field cannot be moved in either direction: pinning
+        // only the unknown tokens would let every token become knowable, and pinning only the
+        // known ones would let every token lose its place.
+        Assert.Equal(9 + 81 + 729 + 6561, inputs);
+        Assert.Equal("\"$*/@\\a{}", string.Concat(sweptChars.Order()));
+        Assert.Equal(17_602, known);
+        Assert.Equal(4_452, unknown);
+        Assert.Equal(1_996, inputsWithUnknown);
     }
 
     /// <summary>
@@ -640,12 +719,67 @@ public class ScanTokenTests
     }
 
     /// <summary>
+    /// Gates every <c>[Theory]</c> in this file against having a row exchanged for a copy of one
+    /// of its siblings.
+    /// <para>
+    /// xUnit counts rows, not distinct rows, so replacing one <c>[InlineData]</c> with a
+    /// duplicate of another leaves the reported test count unchanged and every assertion
+    /// passing while the case that row existed for is no longer scanned. Measured, substituting
+    /// the two raw-literal rows of
+    /// <see cref="LiteralsWithoutEscapes_TreatABackslashAsContent"/> with copies of its verbatim
+    /// row kept the suite green at the same count while a defect that treats a backslash as an
+    /// escape inside a raw literal — swallowing the quote that would close it — survived
+    /// (adversarial review, Gemini).
+    /// </para>
+    /// <para>
+    /// This is checked here rather than by splitting that one theory into facts, because the
+    /// weakness belongs to the shape and not to the theory that happened to expose it: any
+    /// theory in this file, including ones not yet written, is open to the same substitution.
+    /// The totals are pinned so the gate cannot go quiet by finding nothing to check.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public void EveryTheoryRow_DiffersFromItsSiblings()
+    {
+        int theories = 0, rows = 0;
+
+        foreach (var method in typeof(ScanTokenTests).GetMethods().OrderBy(m => m.Name))
+        {
+            var data = CustomAttributeData.GetCustomAttributes(method)
+                .Where(a => a.AttributeType.Name == "InlineDataAttribute")
+                .Select(a => string.Join(
+                    '\u001f',
+                    a.ConstructorArguments.SelectMany(Flatten)))
+                .ToList();
+
+            if (data.Count == 0)
+                continue;
+
+            theories++;
+            rows += data.Count;
+
+            Assert.Equal(
+                (method.Name, data.Count),
+                (method.Name, data.Distinct().Count()));
+        }
+
+        Assert.Equal(6, theories);
+        Assert.Equal(24, rows);
+
+        static IEnumerable<string> Flatten(CustomAttributeTypedArgument argument) =>
+            argument.Value is IReadOnlyCollection<CustomAttributeTypedArgument> nested
+                ? nested.SelectMany(Flatten)
+                : [argument.Value?.ToString() ?? "\u0000"];
+    }
+
+    /// <summary>
     /// The same invariant over real source: every C# file the corpus assemblies' PDBs point at.
     /// Hand-written cases cover the constructs someone thought of, and this covers the ones they
     /// did not.
     /// </summary>
     [Fact]
     public void EveryCharacterOfTheCorpus_IsAccountedFor()
+
     {
         var files = CorpusSourceFiles();
 
@@ -1190,15 +1324,29 @@ public class ScanTokenTests
         Walk(new char[1], 0, 1, tails.Add);
 
         seedPairs = [];
+        var seededOpeners = new List<string>();
 
         foreach (var opener in openers)
         {
+            seededOpeners.Add(opener);
+
             foreach (var tail in tails)
             {
                 foreach (var second in seconds)
                     Check([opener + tail, second]);
             }
         }
+
+        // The list is pinned by value from what the loop above actually seeded, not from the
+        // array as it stood when the properties were computed. Every assertion on `openers` runs
+        // before this loop, so assigning `openers[3] = "\"bbb"` in between satisfies all of them
+        // and still drops the carried verbatim-interpolated seed, leaving the suite green while
+        // a depth defect on that path survives (adversarial review, GPT). This is the same shape
+        // as `Check` recording its input before scanning it: a pin that observes the intended
+        // value rather than the consumed one pins nothing about what ran.
+        Assert.Equal(
+            ["\"", "@\"", "$\"", "$@\"", "\"\"\"", "$\"\"\"", "$$\"\"\"", "$$$\"\"\"\"", "/*"],
+            seededOpeners);
 
         // The sweep is only as good as its size; pin it so a shrunken alphabet is visible. One
         // total across three arms is not that pin: a drop in one arm can be paid for with
