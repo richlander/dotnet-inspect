@@ -75,6 +75,7 @@
     <ProjectReference Include="..\ILInspector.Research\ILInspector.Research.csproj" />
     <ProjectReference Include="..\ILInspector.Metadata\ILInspector.Metadata.csproj" />
     <ProjectReference Include="..\ILInspector.Text\ILInspector.Text.csproj" />
+    <ProjectReference Include="..\DotnetInspector.CSharpBodySlicer\DotnetInspector.CSharpBodySlicer.csproj" />
     <ProjectReference Include="..\DotnetInspector.Packages\DotnetInspector.Packages.csproj" />
     <ProjectReference Include="..\DotnetInspector.Services\DotnetInspector.Services.csproj" />
   </ItemGroup>
