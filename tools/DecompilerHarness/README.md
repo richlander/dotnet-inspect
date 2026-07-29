@@ -445,6 +445,18 @@ restores both. Because it reuses `CorpusRecord`, the EVIL corpus is consumable
 by `--benchmark-authored-corpus` exactly like the CIVIL corpus; the
 difficulty profile is selection/analysis metadata the oracle ignores.
 
+The sweep also answers questions about a pin file without acquiring anything:
+
+```bash
+dotnet run eng/prepare-decompiler-package-sweep.cs -- \
+  --validate-pin docs/data/nuget-top-packages.lock.json
+```
+
+It prints one verdict per path and exits 2 if any file is malformed. This is the
+sweep's own shape check, not a second copy of it, which is the point:
+`EvilPoolPinTests` calls it rather than restating the rules, after three rounds of
+review on #3434 each found a rule the tests enforced and the sweep did not.
+
 The generated fixture ladder is intentionally staged:
 
 | Stage | Harness responsibility |

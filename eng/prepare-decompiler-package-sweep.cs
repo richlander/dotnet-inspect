@@ -17,14 +17,46 @@ using DotnetInspector.Services;
 bool refreshPin = args.Contains("--refresh-pin");
 bool resolveLatest = args.Contains("--resolve-latest") || refreshPin;
 string[] positional = args
-    .Where(argument => argument is not ("--refresh-pin" or "--resolve-latest"))
+    .Where(argument => argument is not ("--refresh-pin" or "--resolve-latest" or "--validate-pin"))
     .ToArray();
 // Bad input is reported, not thrown. An unhandled exception here leaves exit 134,
 // which is the shape this file exists to remove: a caller reading the exit code sees
 // a crash where the contract promises a stated refusal.
 const string UsageText =
     "Usage: dotnet run eng/prepare-decompiler-package-sweep.cs -- "
-    + "<output-directory> [start-rank] [package-count] [--resolve-latest] [--refresh-pin]";
+    + "<output-directory> [start-rank] [package-count] [--resolve-latest] [--refresh-pin]"
+    + "\n   or: dotnet run eng/prepare-decompiler-package-sweep.cs -- --validate-pin <pin-file>...";
+
+// Rounds nine, ten and eleven each found the same thing: a rule EvilPoolPinTests
+// enforced on the pin file that this sweep did not, so a file the suite refused ran
+// here to exit 0. Two lists of rules over one file, and only one of them can stop a
+// run. This mode makes the sweep's list the only list -- the suite hands it tampered
+// pins and asserts the refusals, instead of restating the rules and drifting. It reads
+// files and acquires nothing, so it needs no repository, no network and no cache.
+// It takes many paths because the suite has many cases and one process is cheap.
+if (args.Contains("--validate-pin"))
+{
+    if (positional.Length == 0 || refreshPin || resolveLatest)
+    {
+        Console.Error.WriteLine(UsageText);
+        Environment.ExitCode = 2;
+        return;
+    }
+
+    bool anyMalformed = false;
+    foreach (string candidate in positional)
+    {
+        string? problem = ValidatePinFile(candidate);
+        anyMalformed |= problem is not null;
+        Console.Out.WriteLine(problem is null
+            ? $"Pin file '{candidate}' is well formed."
+            : $"Pin file '{candidate}' {problem}.");
+    }
+
+    Environment.ExitCode = anyMalformed ? 2 : 0;
+    return;
+}
+
 if (positional.Length is < 1 or > 3 || args.Any(argument =>
         argument.StartsWith("--", StringComparison.Ordinal)
         && argument is not ("--refresh-pin" or "--resolve-latest")))
@@ -780,13 +812,46 @@ static SweepPackageResult Failed(
         AssemblyPath: null,
         fromCache);
 
+// Reading and shape-checking a pin file in one place, so --validate-pin and the sweep
+// proper cannot disagree about what a well-formed pin is. Returns null when the file
+// is usable, otherwise the reason, phrased to follow "Pin file '<path>' ".
+static string? ValidatePinFile(string path)
+{
+    string text;
+    try
+    {
+        text = File.ReadAllText(path);
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+        or ArgumentException or NotSupportedException)
+    {
+        return $"could not be read: {ex.Message.TrimEnd('.')}";
+    }
+
+    PackagePinFile? pinFile;
+    try
+    {
+        pinFile = JsonSerializer.Deserialize(
+            text,
+            new PackageSweepJsonContext(new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+            }).PackagePinFile);
+    }
+    catch (JsonException ex)
+    {
+        return $"could not be parsed: {ex.Message.TrimEnd('.')}";
+    }
+
+    return pinFile is null ? "is not a pin file" : Malformed(pinFile);
+}
+
 static string? Malformed(PackagePinFile pinFile)
 {
     // The sweep writes 1 and reads 1. Ignoring the number meant a file written to a
     // later schema would be read with this schema's meaning -- fields silently absent
     // rather than refused, which is how a pin stops describing the pool without saying
-    // so. EvilPoolPinTests asserts the committed file is 1; this is the same rule where
-    // the refusal can actually stop a run.
+    // so.
     if (pinFile.SchemaVersion != 1)
         return $"states schema version {pinFile.SchemaVersion}, which this sweep cannot read";
     if (pinFile.Packages is null)

@@ -1,4 +1,7 @@
+using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace ILInspector.Decompiler.Tests;
@@ -12,17 +15,177 @@ namespace ILInspector.Decompiler.Tests;
 /// the weekly lane: there was nothing stable to compare against. #3353 pins the versions;
 /// these tests guard the pin itself.</para>
 ///
-/// <para>What is checked here is only what a file can prove. That the sweep <em>honors</em>
-/// the pin is a property of <c>eng/prepare-decompiler-package-sweep.cs</c> and is
-/// evidenced by real runs recorded on the PR, not by these tests -- <c>eng/</c> scripts
-/// have no test harness, and inventing one that re-implements package acquisition would
-/// be a second implementation rather than a gate.</para>
+/// <para>What is checked here is mostly what a file can prove. The one exception is
+/// <see cref="TheSweepRefusesEveryPinFileShapeThisSuiteRefuses"/>, which runs the sweep's
+/// own validator over tampered pin files so that the rules about a pin's shape live in
+/// one place instead of two that drift. That the sweep <em>honors</em> the pin -- acquires
+/// the pinned bytes and refuses anything else -- is still a property of
+/// <c>eng/prepare-decompiler-package-sweep.cs</c> evidenced by real runs recorded on the
+/// PR, because gating it would mean acquiring packages from this suite.</para>
 /// </summary>
 [Trait("Area", "Corpus")]
 public class EvilPoolPinTests
 {
     const string PinRelativePath = "docs/data/nuget-top-packages.lock.json";
     const string ListRelativePath = "docs/data/nuget-top-packages.json";
+
+    /// <summary>
+    /// Every rule this suite enforces on the pin file, the sweep enforces too.
+    ///
+    /// <para>This is the gate for that property, and it exists because the property kept
+    /// failing. Three separate rounds of review on #3434 found a rule these tests applied
+    /// that <c>eng/prepare-decompiler-package-sweep.cs</c> did not -- a bare version, the
+    /// <c>schemaVersion</c>, and a <c>no-library</c> entry carrying an assembly hash. Each
+    /// time, a pin file this suite went red on ran the sweep to exit 0. Two lists of rules
+    /// over one file, and only the sweep's list can stop a run.</para>
+    ///
+    /// <para>So the sweep's list is now the only list. Each case below is a pin file this
+    /// suite considers malformed; the assertion is that the sweep refuses it. The rules
+    /// are not restated here -- restating them is what drifted. The sweep grows a rule and
+    /// nothing here needs to change; the sweep loses one and the case that covered it goes
+    /// red.</para>
+    ///
+    /// <para>The committed file is validated in the same invocation, so a case that
+    /// refuses for the wrong reason (a broken harness writing garbage, say) cannot pass by
+    /// making everything fail.</para>
+    /// </summary>
+    [Fact]
+    public void TheSweepRefusesEveryPinFileShapeThisSuiteRefuses()
+    {
+        string root = AuthoredCorpusRatchetTests.FindRepositoryRoot();
+        string committed = Path.Combine(root, PinRelativePath);
+        var original = JsonNode.Parse(File.ReadAllText(committed))!.AsObject();
+
+        (string Case, Action<JsonObject> Tamper)[] cases =
+        [
+            ("schema version the sweep cannot read",
+                pin => pin["schemaVersion"] = 99),
+            ("no packages at all",
+                pin => pin.Remove("packages")),
+            ("a null entry",
+                pin => pin["packages"]!.AsArray().Insert(0, null)),
+            ("an entry with no package name",
+                pin => pin["packages"]![0]!["package"] = "   "),
+            ("a package id that is not a bare NuGet id",
+                pin => pin["packages"]![0]!["package"] = "newtonsoft.json@13.0.4"),
+            ("a version with a directory traversal in it",
+                pin => pin["packages"]![0]!["version"] = "../bad"),
+            ("a version that does not start with a digit",
+                pin => pin["packages"]![0]!["version"] = "v13.0.4"),
+            ("a pinned entry with no sha256",
+                pin => pin["packages"]![FirstIndexOf(pin, "pinned")]!["sha256"] = null),
+            ("a pinned entry whose sha256 is not 64 lowercase hex",
+                pin => pin["packages"]![FirstIndexOf(pin, "pinned")]!["sha256"] = "NOTAHASH"),
+            ("a no-library entry carrying an assembly hash",
+                pin => pin["packages"]![FirstIndexOf(pin, "no-library")]!["sha256"] = new string('0', 64)),
+            ("a status the sweep does not know",
+                pin => pin["packages"]![0]!["status"] = "probably-fine"),
+            ("the same package pinned twice",
+                pin => pin["packages"]!.AsArray().Add(pin["packages"]![0]!.DeepClone())),
+        ];
+
+        string scratch = Directory.CreateTempSubdirectory("evil-pin-shapes").FullName;
+        try
+        {
+            var written = new List<(string Case, string Path)>();
+            foreach (var (name, tamper) in cases)
+            {
+                var tampered = JsonNode.Parse(original.ToJsonString())!.AsObject();
+                tamper(tampered);
+                string path = Path.Combine(scratch, $"{written.Count:00}.lock.json");
+                File.WriteAllText(path, tampered.ToJsonString());
+                written.Add((name, path));
+            }
+
+            var verdicts = ValidateWithSweep(root, [committed, .. written.Select(w => w.Path)]);
+
+            Assert.True(
+                verdicts.TryGetValue(committed, out string? committedVerdict)
+                    && committedVerdict is null,
+                $"the committed pin file is not well formed by the sweep's own rules: {
+                    (verdicts.GetValueOrDefault(committed) ?? "no verdict reported")}");
+
+            var accepted = written
+                .Where(w => verdicts.GetValueOrDefault(w.Path, "missing verdict") is null)
+                .Select(w => w.Case)
+                .ToArray();
+
+            Assert.True(
+                accepted.Length == 0,
+                "the sweep accepts pin files this suite refuses, so the two disagree "
+                + $"about what a pin is: {string.Join("; ", accepted)}");
+        }
+        finally
+        {
+            Directory.Delete(scratch, recursive: true);
+        }
+    }
+
+    static int FirstIndexOf(JsonObject pin, string status)
+    {
+        var packages = pin["packages"]!.AsArray();
+        for (int index = 0; index < packages.Count; index++)
+        {
+            if (packages[index]!["status"]?.GetValue<string>() == status)
+                return index;
+        }
+
+        throw new InvalidOperationException(
+            $"the committed pin file has no '{status}' entry to tamper with");
+    }
+
+    /// <summary>
+    /// Runs the sweep's own pin validator over <paramref name="paths"/> and returns, per
+    /// path, null when the sweep considers it well formed or the reason it gave.
+    ///
+    /// <para>One process for every case: the sweep is a file-based app, so each launch
+    /// costs a couple of seconds, and this gate runs in PR CI where <c>Speed=Slow</c> is
+    /// filtered out. A missing verdict is not treated as a pass by the caller.</para>
+    /// </summary>
+    static Dictionary<string, string?> ValidateWithSweep(string root, string[] paths)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } host
+                ? host
+                : "dotnet",
+            WorkingDirectory = root,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        startInfo.ArgumentList.Add("run");
+        startInfo.ArgumentList.Add(Path.Combine(root, "eng", "prepare-decompiler-package-sweep.cs"));
+        startInfo.ArgumentList.Add("--");
+        startInfo.ArgumentList.Add("--validate-pin");
+        foreach (string path in paths)
+            startInfo.ArgumentList.Add(path);
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("could not start the sweep");
+        string output = process.StandardOutput.ReadToEnd();
+        string errors = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+
+        var verdicts = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (string line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var match = Regex.Match(line.Trim(), @"^Pin file '(?<path>.*)' (?<verdict>.*)\.$");
+            if (match.Success)
+            {
+                verdicts[match.Groups["path"].Value] =
+                    match.Groups["verdict"].Value == "is well formed" ? null : match.Groups["verdict"].Value;
+            }
+        }
+
+        // A validator that printed nothing recognizable would otherwise read as "every
+        // case refused", which is the shape of a gate that passes because it is broken.
+        Assert.True(
+            verdicts.Count == paths.Length,
+            $"the sweep reported {verdicts.Count} verdicts for {paths.Length} pin files; "
+            + $"stdout was:\n{output}\nstderr was:\n{errors}");
+
+        return verdicts;
+    }
 
     /// <summary>
     /// The packages pinned as <c>no-library</c> are exactly the nine known to contribute
@@ -79,6 +242,12 @@ public class EvilPoolPinTests
     /// statuses because the sweep acquires both: a <c>no-library</c> entry is confirmed
     /// at its pinned version rather than believed, so a versionless one states a claim
     /// about nothing in particular.</para>
+    ///
+    /// <para>The rules themselves live in the sweep and are asserted by
+    /// <see cref="TheSweepRefusesEveryPinFileShapeThisSuiteRefuses"/>, which hands it each
+    /// of these shapes and requires a refusal. This test is the everyday reading of the
+    /// committed file: it names which entry is wrong, which a pass/fail exit code from
+    /// another process cannot.</para>
     /// </summary>
     [Fact]
     public void EveryPinNamesAPackageAndAnExactVersion()
@@ -90,14 +259,9 @@ public class EvilPoolPinTests
         {
             Assert.False(string.IsNullOrWhiteSpace(pin.Package), "a pin has no package name");
             Assert.Contains(pin.Status, (string[])["pinned", "no-library"]);
-            // The same rule the sweep applies, not a weaker one. Checking only for
-            // blankness let ".." through this test while the sweep refused it: a file
-            // gate looser than the product rule reports a file as good that the tool
-            // will not run against, which is the least useful thing a gate can do.
-            Assert.True(
-                IsBareVersion(pin.Version),
-                $"'{pin.Package}' is pinned as {pin.Status} but states no usable "
-                + $"version ('{pin.Version}')");
+            Assert.False(
+                string.IsNullOrWhiteSpace(pin.Version),
+                $"'{pin.Package}' is pinned as {pin.Status} but states no version");
         }
 
         var duplicates = pins
@@ -107,32 +271,6 @@ public class EvilPoolPinTests
             .ToArray();
         Assert.Empty(duplicates);
     }
-
-    /// <summary>
-    /// A version the sweep will accept: SemVer's numeric major, no <c>..</c>, and no
-    /// character outside the NuGet version alphabet.
-    ///
-    /// <para>A deliberate copy of <c>IsBareVersion</c> in
-    /// <c>eng/prepare-decompiler-package-sweep.cs</c>. Nothing enforces that the two
-    /// agree, and no source-text pin should be added to make them: this repository
-    /// tried that in #3245 and found it both spoofable by a commented-out decoy and
-    /// prone to false-positives on a no-op edit. <c>eng/</c> has no test harness, and
-    /// the one product notion of a valid path component
-    /// (<c>NuGetCache.ValidatePathComponent</c>) is internal to
-    /// <c>DotnetInspector.Packages</c>, so neither side can call the other.</para>
-    ///
-    /// <para>The copy is safe because <em>both</em> drift directions are loud. The
-    /// sweep is the authority and CI runs it: if it grows stricter, it refuses a file
-    /// this test passed and the sweep lane fails. If it grows looser, this test refuses
-    /// a file the sweep would accept and this suite fails. Neither drift is silent,
-    /// which is the property that matters -- a gate looser than the rule it stands for,
-    /// silently, is what this test was before #3434 round nine.</para>
-    /// </summary>
-    static bool IsBareVersion(string? version) =>
-        !string.IsNullOrWhiteSpace(version)
-        && char.IsAsciiDigit(version[0])
-        && !version.Contains("..", StringComparison.Ordinal)
-        && version.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '+');
 
     /// <summary>
     /// Every <c>pinned</c> entry names the bytes of the assembly it stands for.
