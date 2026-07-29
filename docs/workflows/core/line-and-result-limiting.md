@@ -7,7 +7,7 @@ areas: [output, limiting, count, agents]
 
 # Line, Result, and Row Counting
 
-> Control how much output is returned. `-n` limits output lines (like `head`), including printed document content. `--rows -n N` interprets the same count as table data rows per rendered table. `--value`, `--urls`, and `--paths` project selected sections to scalar/URL/path payloads; `--json-array` makes projected rows one JSON document; `--row N` chooses a projected or printable row. `-t` and `-m` limit result counts for types and members. `--versions N` limits version lists. `--count` reduces a selected section/vector to one integer row count, while `--bare` stays a presentation-only modifier for already-selected payloads. These are essential for agents that need compact, predictable output.
+> Control how much output is returned. `-n` limits output lines (like `head`), including printed document content; add `--tail` to take them from the end. `--rows N` interprets a count as table data rows per rendered table, and `--rows N..M` selects the rows those numbers name. `--value`, `--urls`, and `--paths` project selected sections to scalar/URL/path payloads; `--json-array` makes projected rows one JSON document; `--row N` chooses a projected or printable row. `-t` and `-m` limit result counts for types and members. `--versions N` limits version lists. `--count` reduces a selected section/vector to one integer row count, while `--bare` stays a presentation-only modifier for already-selected payloads. These are essential for agents that need compact, predictable output.
 
 ## Preconditions
 
@@ -84,10 +84,10 @@ Tips:
 ## 2. Limit table rows
 
 > Goal: Keep Markdown structure and table headers, but show only the first N data rows per rendered table.
-> `--rows` is a mode for `-n`/`-N`; it requires a head count and cannot be combined with `--tail`.
+> `--rows` carries its own count, so it needs no `-n`. Add `--tail` for the last N instead, or give `--rows` a range such as `2..10` to name the rows directly.
 
 ```bash
-dotnet-inspect System.Private.CoreLib -S "Async*" --rows -n 6
+dotnet-inspect System.Private.CoreLib -S "Async*" --rows 6
 ```
 
 ```expect
