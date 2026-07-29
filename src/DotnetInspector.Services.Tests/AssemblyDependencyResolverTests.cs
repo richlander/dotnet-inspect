@@ -371,10 +371,35 @@ public class AssemblyDependencyResolverTests
     /// id lands: on unguarded code the resolver escapes the package root, recurses into that
     /// directory, and returns its assemblies as the package's references.
     /// </summary>
+    /// <remarks>
+    /// Which spellings actually traverse is a property of the host. <c>..\escape</c> is a traversal
+    /// on Windows and an ordinary directory name on Unix, so on this machine that case exercises
+    /// the guard's literal-name branch and proves nothing about traversal.
+    /// <see cref="HostileDependencyIds_ContainACaseThatTraversesOnThisHost"/> is what stops the
+    /// whole theory degrading to literal names, which is how it would pass while the traversal
+    /// guard was gone.
+    /// </remarks>
+    private static readonly string[] HostileIds = ["../escape", "..\\escape", "CON"];
+
+    public static TheoryData<string> HostileDependencyIds => [.. HostileIds];
+
+    /// <summary>
+    /// Non-vacuity gate for the theory below: at least one hostile id must use a separator this
+    /// host recognises, or every case is a literal directory name and the theory asserts nothing
+    /// about traversal. It reads the same data the theory does, so removing the traversing
+    /// spelling fails here rather than silently weakening the theory.
+    /// </summary>
+    [Fact]
+    public void HostileDependencyIds_ContainACaseThatTraversesOnThisHost()
+    {
+        Assert.Contains(
+            HostileIds,
+            id => id.Contains(Path.DirectorySeparatorChar)
+                || id.Contains(Path.AltDirectorySeparatorChar));
+    }
+
     [Theory]
-    [InlineData("../escape")]
-    [InlineData("..\\escape")]
-    [InlineData("CON")]
+    [MemberData(nameof(HostileDependencyIds))]
     public void PackageDependencyReferencePaths_WithTraversingDependencyId_DoesNotEscapePackageRoot(string hostileId)
     {
         string sandbox = Directory.CreateTempSubdirectory("dotnet-inspect-deps-traversal-").FullName;

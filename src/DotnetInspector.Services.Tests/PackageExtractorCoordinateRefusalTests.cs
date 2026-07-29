@@ -80,4 +80,58 @@ public class PackageExtractorCoordinateRefusalTests
         Assert.True(HardenedPath.IsSafePathComponent("System.Text.Json"));
         Assert.True(HardenedPath.IsSafePathComponent("Valid..Dependency"));
     }
+
+    /// <summary>
+    /// The latest-version lookup is the route <c>package &lt;name&gt;</c> takes when no version is
+    /// pinned, and it was unguarded: <c>package CON --version</c> refused cleanly because
+    /// <c>PackageCommand</c>'s version branch validated the name, while <c>package CON</c> reached
+    /// the version cache and then nuget.org before reporting a miss.
+    /// </summary>
+    /// <remarks>
+    /// This is the gate for "the refusal is a property of the name, not of which branch the caller
+    /// took". The guard is in the method, so both routes now refuse identically.
+    /// <para>
+    /// The client's handler throws on any request. Asserting only that the result is null would
+    /// pass for the wrong reason: nuget.org has no package called <c>con</c> or <c>../foo</c>
+    /// either, so two of these three cases returned null with the guard deleted. Refusing without
+    /// asking is the property; not finding anything is not.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("CON")]
+    [InlineData("../foo")]
+    [InlineData("Newtonsoft.Json ")]
+    public async Task GetLatestVersionAsync_UnsafeName_ReturnsNullWithoutReachingTheNetwork(string name)
+    {
+        NuGetCache.Initialize("dotnet-inspect-test");
+
+        var version = await PackageExtractor.GetLatestVersionAsync(
+            new HttpClient(new ThrowingHandler()),
+            name,
+            [new NuGetFetch.PackageSource("nuget.org", "https://api.nuget.org/v3/index.json")],
+            log: null,
+            skipCache: true);
+
+        Assert.Null(version);
+    }
+
+    private sealed class ThrowingHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException(
+                $"The guard should have refused before any request was made; got {request.RequestUri}.");
+    }
+
+    /// <summary>
+    /// The positive control: the guard must not be refusing every name. Asserting on the path rule
+    /// rather than on a live lookup keeps this test off the network.
+    /// </summary>
+    [Fact]
+    public void GetLatestVersionAsync_LegitimateName_IsNotRefusedByThePathRule()
+    {
+        Assert.True(HardenedPath.IsSafePathComponent("newtonsoft.json"));
+        Assert.False(HardenedPath.IsSafePathComponent("con"));
+    }
 }

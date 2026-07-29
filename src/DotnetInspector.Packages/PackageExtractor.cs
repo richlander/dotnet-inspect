@@ -697,6 +697,22 @@ public static class PackageExtractor
         string normalizedName = packageName.ToLowerInvariant();
         string cacheKey = includePrerelease ? $"{normalizedName}-prerelease" : normalizedName;
 
+        // A name that cannot be a path component can never name a package we could acquire: the
+        // coordinate becomes a cache directory further down every route that consumes this
+        // version. Refuse here rather than at the callers -- PackageCommand's --versions branch
+        // already refused, so `package CON --version` was clean while `package CON` reached the
+        // cache and the network before reporting a miss. Guarding the method makes the refusal
+        // early, network-free and identical on every route into it, instead of a property of
+        // which branch the caller took.
+        if (!HardenedPath.IsSafePathComponent(normalizedName))
+        {
+            // Unconditional, matching CoreCache's cache-escape warning: a verbose-gated log would
+            // make the refusal invisible in the default view, and the caller's "not found" reads
+            // as "searched for and absent" when the name was never searched for at all.
+            Console.Error.WriteLine($"Warning: invalid package name, not searched for: '{packageName}'.");
+            return null;
+        }
+
         // Cache nuget.org results even when additional custom sources are configured.
         bool canCache = !skipCache && sources.Any(s => s.IsNuGetOrg);
 
