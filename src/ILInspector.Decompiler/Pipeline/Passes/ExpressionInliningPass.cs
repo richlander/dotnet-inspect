@@ -649,12 +649,15 @@ public sealed class ExpressionInliningPass : IIrPass
     /// formatted value in turn, INTERLEAVED with hole evaluation: the append of an
     /// earlier hole runs before a later hole is evaluated, and appending an
     /// earlier <see cref="IFormattable"/> or custom-handler value runs arbitrary
-    /// user code. A <c>[a, b, ..s]</c> collection expression and a
-    /// <c>new T[] { a, b }</c> array literal allocate the container (<c>newobj</c>
-    /// list / <c>newarr</c>) before evaluating any element, and a collection
-    /// expression may additionally interleave <c>Add</c> calls or spread
-    /// enumeration (<c>MoveNext</c>, user code) between elements. For all three,
-    /// no element is preceding-operation-free.</para>
+    /// user code. A <c>[a, b, ..s]</c> collection expression, a
+    /// <c>new T[] { a, b }</c> array literal, a <c>ReadOnlySpan&lt;T&gt;</c> span
+    /// literal, and the initializer form of a <c>stackalloc T[n] { a, b }</c>
+    /// allocate the container (<c>newobj</c> list / <c>newarr</c> / <c>CreateSpan</c>
+    /// / <c>localloc</c>) before evaluating any element, and a collection expression
+    /// may additionally interleave <c>Add</c> calls or spread enumeration
+    /// (<c>MoveNext</c>, user code) between elements. For all of these, no element
+    /// is preceding-operation-free. A <c>stackalloc</c>'s <c>count</c> is the
+    /// exception: it is evaluated before the <c>localloc</c>, so it stays foldable.</para>
     ///
     /// <para>The container allocation before the FIRST element runs no user code,
     /// but it is still program-observable: it reserves an object identity and can
@@ -664,8 +667,15 @@ public sealed class ExpressionInliningPass : IIrPass
     /// review, GPT + Gemini). Rejecting the first element is therefore correct,
     /// not merely conservative, and measured to cost nothing on the corpus.</para>
     ///
-    /// <para>Every other expression's own operation runs strictly after all of its
-    /// operands, so the default is <c>false</c>.</para>
+    /// <para>Multi-child expressions whose own operation runs strictly AFTER all
+    /// operands are NOT hidden-operation nodes and keep the <c>false</c> default:
+    /// a call / <c>new T(args)</c> / local-function invocation / indexer pushes its
+    /// arguments then invokes (the <c>newobj</c>/<c>call</c> is last),
+    /// <see cref="AnonymousObject"/> and a tuple literal construct after all element
+    /// values, and a plain <c>new T[n]</c> / <c>stackalloc T[n]</c> without an
+    /// initializer evaluates its size before the single allocation. Every other
+    /// expression's own operation runs strictly after all of its operands, so the
+    /// default is <c>false</c>.</para>
     /// </summary>
     static bool ChildFollowsHiddenOperation(IrNode parent, IrNode child) => parent switch
     {
@@ -674,6 +684,8 @@ public sealed class ExpressionInliningPass : IIrPass
         InterpolatedStringExpression => true,
         CollectionExpression => true,
         ArrayLiteral => true,
+        SpanLiteral => true,
+        StackAllocArray s => !ReferenceEquals(child, s.Count),
         _ => false,
     };
 

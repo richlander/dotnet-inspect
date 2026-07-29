@@ -393,4 +393,37 @@ public class SpilledReceiverCoalesceInliningTests
         var collection = function.Descendants.OfType<CollectionExpression>().Single();
         Assert.IsType<LoadStackSlot>(collection.Elements[1]);
     }
+
+    // `stackalloc T[] { S_0 }` (StackAllocArray with an initializer) evaluates the
+    // count, performs `localloc`, THEN evaluates its elements. The stack address the
+    // allocation reserves is program-observable, so folding a non-pure spill into an
+    // initializer element reorders it past the `localloc`. ChildFollowsHiddenOperation
+    // rejects every non-Count child of a StackAllocArray, so the store survives; the
+    // Count child (evaluated before the allocation) stays foldable (#3500 adversarial
+    // review, GPT).
+    [Fact]
+    public void NonPureSpill_InStackAllocArrayElement_IsNotInlined()
+    {
+        var holder = TypeRef.Definition("Synthetic", "Samples", "Holder");
+        var longType = TypeRef.CoreLib("System", "Int64");
+        var spanType = TypeRef.CoreLib("System", "Span");
+        var sideEffect = new MethodRef(holder, "SideEffect", longType, [], HasThis: false);
+
+        // S_0 = SideEffect(); return stackalloc long[1] { S_0 };
+        var container = new BlockContainer();
+        var block = new Block(0);
+        container.Add(block);
+        block.Add(new StoreStackSlot(0, new Call(sideEffect, isVirtual: false, [])));
+        block.Add(new Return(new StackAllocArray(longType, new Constant(1, longType),
+            spanType, [new LoadStackSlot(0, longType)])));
+        var signature = new MethodSignature(spanType, [], HasThis: false, GenericParameterCount: 0);
+        var function = new IrFunction("M", holder, signature, [], container);
+
+        new ExpressionInliningPass().Run(function, PassContext.None);
+
+        var survivingStore = Assert.Single(function.Descendants.OfType<StoreStackSlot>());
+        Assert.IsType<Call>(survivingStore.Value);
+        var stackAlloc = function.Descendants.OfType<StackAllocArray>().Single();
+        Assert.IsType<LoadStackSlot>(stackAlloc.Elements.Span[0]);
+    }
 }
