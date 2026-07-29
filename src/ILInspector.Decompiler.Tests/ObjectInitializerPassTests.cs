@@ -668,7 +668,34 @@ public class ObjectInitializerPassTests
             CSharpPrinter.Print(function).Output);
     }
 
-    // #3459 close negative for the inline single-use guard: a reorder-safe spill whose
+    // #3459 constructor-confinement gate (blocking negative): a `this`-field receiver
+    // read that runs AFTER the `newobj` is admitted as a reorder-safe skip ONLY when
+    // the target constructor is proven effect-free (exactly `ldarg.0; call object::.ctor;
+    // ret`, declaring no `.cctor`). This builder is byte-identical in shape to
+    // MutableReadSpillFeedingLaterArgument_IsNotInlined — whose ctor carries
+    // ConstructorEffectFree = true and DOES fold — except the ctor is left NOT
+    // effect-free (the default), modelling a target whose `.cctor` (or non-trivial ctor)
+    // could mutate the field the receiver read observes. With the fact absent, the
+    // `this.Field` read is no longer reorder-safe, the interleaved-spill run breaks, and
+    // the fold declines: no object initializer forms and the read stays a spill. This is
+    // the regression proof that the fact is what admits the hoist — set it true here and
+    // the initializer folds (recreating the round-3 unsoundness).
+    [Fact]
+    public void ReceiverSpillWithNonEffectFreeConstructor_IsNotFolded()
+    {
+        var function = FunctionWithMutableReadSpillAndNonEffectFreeCtor();
+
+        new ObjectInitializerPass().Run(function, PassContext.None);
+
+        // The fold declines: no object initializer forms, the bare construction
+        // survives, and the `this.Field` receiver read remains a distinct spill.
+        Assert.Empty(function.Descendants.OfType<ObjectInitializerExpression>());
+        Assert.Single(function.Descendants.OfType<NewObject>());
+        Assert.Contains(
+            function.Descendants.OfType<LoadField>(),
+            load => load.Instance is LoadArgument { Index: 0 });
+        function.CheckInvariant();
+    }
     // slot is loaded MORE THAN ONCE must NOT be inlined — replacing one load and
     // detaching the store would leave the other load dangling on a removed slot. The
     // guard leaves the spill store in place; the initializer still folds via the use
@@ -1109,7 +1136,7 @@ public class ObjectInitializerPassTests
         var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
         var voidType = TypeRef.CoreLib("System", "Void");
         var intType = TypeRef.CoreLib("System", "Int32");
-        var ctor = new MethodRef(type, ".ctor", voidType, [], HasThis: true);
+        var ctor = new MethodRef(type, ".ctor", voidType, [], HasThis: true) { ConstructorEffectFree = true };
         var setter = new MethodRef(type, "set_X", voidType, [intType], HasThis: true)
         {
             IsSpecialName = true,
@@ -1134,6 +1161,48 @@ public class ObjectInitializerPassTests
         body.Add(block);
         return new IrFunction(
             "MutableReadSpillFeedingLaterArgument",
+            owner,
+            new MethodSignature(intType, [], HasThis: true, GenericParameterCount: 0),
+            [],
+            body);
+    }
+
+    // Same shape as FunctionWithMutableReadSpillFeedingLaterArgument, but the target
+    // constructor is left NOT effect-free (ConstructorEffectFree defaults to false),
+    // modelling a target whose `.cctor` or non-trivial ctor could mutate the field the
+    // receiver read observes. Without the effect-free fact, the `this.Field` read that
+    // runs after the `newobj` is no longer a reorder-safe skip, so the fold declines.
+    static IrFunction FunctionWithMutableReadSpillAndNonEffectFreeCtor()
+    {
+        var type = TypeRef.Definition("Synthetic", "Samples", "InitTarget");
+        var owner = TypeRef.Definition("Synthetic", "Samples", "Owner");
+        var voidType = TypeRef.CoreLib("System", "Void");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var ctor = new MethodRef(type, ".ctor", voidType, [], HasThis: true);
+        var setter = new MethodRef(type, "set_X", voidType, [intType], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+        var mutate = new MethodRef(owner, "Mutate", intType, [], HasThis: false);
+        var consume = new MethodRef(owner, "Consume", intType, [type, intType], HasThis: false);
+        var field = new FieldRef(owner, "Field", intType);
+
+        const int seed = 256;
+        const int spill = 257;
+        var block = new Block();
+        block.Add(new StoreStackSlot(seed, new NewObject(ctor, [])));
+        block.Add(new StoreStackSlot(spill, new LoadField(field, new LoadArgument(0, "this", owner))));
+        block.Add(new StoreProperty(setter, new LoadStackSlot(seed, type), [], new Call(mutate, isVirtual: false, [])));
+        block.Add(new Return(new Call(consume, isVirtual: false,
+        [
+            new LoadStackSlot(seed, type),
+            new LoadStackSlot(spill, intType),
+        ])));
+
+        var body = new BlockContainer();
+        body.Add(block);
+        return new IrFunction(
+            "MutableReadSpillAndNonEffectFreeCtor",
             owner,
             new MethodSignature(intType, [], HasThis: true, GenericParameterCount: 0),
             [],

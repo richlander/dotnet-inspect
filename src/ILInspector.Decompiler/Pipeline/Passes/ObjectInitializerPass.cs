@@ -300,14 +300,23 @@ public sealed class ObjectInitializerPass : IIrPass
             // commute with all of that.
             //
             // Soundness has two crossings, gated separately (see IsReorderSafeSpill):
-            //   * The `newobj` constructor. A constructor that receives a reference to
-            //     our storage — `new T(this)` (reaching a `this` field) or
-            //     `new T(ref local)` — can mutate what the spill reads/writes, and the
-            //     fold moves the read across it. We admit spills ONLY when the
-            //     constructor is parameterless, so it holds no reference to any local,
-            //     argument, or `this` and can touch only the fresh object (static state
-            //     is never read by a reorder-safe spill). This preserves the real
+            //   * The `newobj` constructor. The fold moves the construction — the
+            //     `newobj`, its constructor, and every member value — down to the call
+            //     argument position, past this spill. A `this`-field receiver read
+            //     hoisted this way lands BEFORE the `newobj`, so the constructor (and
+            //     the type initializer `newobj` triggers) must not mutate what the read
+            //     observes. A parameterless ctor alone does NOT prove that: `newobj`
+            //     also runs the type's `.cctor`, and a trivial-looking ctor can escape
+            //     through a base ctor, a setter, or a static read. We therefore admit a
+            //     `this`-field read only when the constructor is proven EFFECT-FREE —
+            //     body exactly `ldarg.0; call object::.ctor; ret`, declaring type with
+            //     no static ctor (see MethodRef.ConstructorEffectFree /
+            //     ConstructorConfinementFacts). That is Roslyn-faithful (it assumes a
+            //     non-null `this`), not arbitrary-IL-sound, and preserves the real
             //     `new TableProperties { ... }` / `new CallArgTarget { ... }` shape.
+            //     Other reorder-safe spills read only args/locals/constants, which a
+            //     parameterless ctor and its `.cctor` cannot reach, so they need no
+            //     constructor proof.
             //   * The member values. A position-independent value (constant / `default`
             //     / `sizeof` / `ldtoken`) reads no mutable state and commutes anywhere.
             //     A mutable read (a field, argument, or local load — e.g. the receiver
@@ -321,7 +330,7 @@ public sealed class ObjectInitializerPass : IIrPass
             if (pendingInner is null
                 && creation.Arguments.Count == 0
                 && !TouchesAnySlot(statement, aliasSlots)
-                && IsReorderSafeSpill(statement, aliasSlots, function, function.Signature.HasThis, beforeFirstEntry))
+                && IsReorderSafeSpill(statement, aliasSlots, function, function.Signature.HasThis, beforeFirstEntry, creation.Constructor.ConstructorEffectFree))
             {
                 skipped.Add(statement);
                 inlinableSkipped.Add(statement);
@@ -971,22 +980,25 @@ public sealed class ObjectInitializerPass : IIrPass
     /// <summary>
     /// Whether an interleaved statement is a reorder-safe spill that use-site folding
     /// may move the construction (the <c>newobj</c>, its constructor, and every member
-    /// value) past. The caller additionally requires the constructor to be
-    /// parameterless, so it holds no reference to any local/argument/<c>this</c> and
-    /// this check need only prove the statement commutes with the member values.
-    /// Two tiers, per <paramref name="beforeFirstEntry"/>: a position-independent value
-    /// (see <see cref="IsPositionIndependentValue"/>) is admitted anywhere, while a
-    /// mutable-memory read (a field, argument, or local load) is admitted only before
-    /// the first initializer entry, so it is never reordered across a member value that
-    /// could write the memory it reads. A struct <c>default</c> init (<c>initobj</c>
-    /// zeroing a local) writes only that fresh local and reads nothing mutable, and is
-    /// admitted when the local's address is taken exactly once (its own <c>initobj</c>),
-    /// so no other statement aliases it.
+    /// value) past. Two tiers, per <paramref name="beforeFirstEntry"/>: a
+    /// position-independent value (see <see cref="IsPositionIndependentValue"/>) is
+    /// admitted anywhere, while a mutable-memory read (a field, argument, or local load)
+    /// is admitted only before the first initializer entry, so it is never reordered
+    /// across a member value that could write the memory it reads. A struct
+    /// <c>default</c> init (<c>initobj</c> zeroing a local) writes only that fresh local
+    /// and reads nothing mutable, and is admitted when the local's address is taken
+    /// exactly once (its own <c>initobj</c>), so no other statement aliases it.
+    /// A <c>this</c>-field read additionally requires
+    /// <paramref name="constructorEffectFree"/>, because folding hoists it before the
+    /// <c>newobj</c> whose constructor and type initializer could otherwise mutate the
+    /// field (see <see cref="IsReorderSafeValue"/>). The other reorder-safe values read
+    /// only args/locals/constants, which a parameterless constructor and its
+    /// <c>.cctor</c> cannot reach, so they do not depend on the flag.
     /// </summary>
-    static bool IsReorderSafeSpill(IrNode statement, HashSet<int> aliasSlots, IrFunction function, bool hasThis, bool beforeFirstEntry) => statement switch
+    static bool IsReorderSafeSpill(IrNode statement, HashSet<int> aliasSlots, IrFunction function, bool hasThis, bool beforeFirstEntry, bool constructorEffectFree) => statement switch
     {
-        StoreStackSlot store => !aliasSlots.Contains(store.Slot) && IsReorderSafeValue(store.Value, hasThis, beforeFirstEntry),
-        StoreLocal store => IsReorderSafeValue(store.Value, hasThis, beforeFirstEntry),
+        StoreStackSlot store => !aliasSlots.Contains(store.Slot) && IsReorderSafeValue(store.Value, hasThis, beforeFirstEntry, constructorEffectFree),
+        StoreLocal store => IsReorderSafeValue(store.Value, hasThis, beforeFirstEntry, constructorEffectFree),
         // `default(T)` for a struct: `initobj` zeroing a local. Pure and non-throwing,
         // and it reads no mutable state — but only when nothing else can observe or
         // alias that local across the move. Require the local's address to be taken
@@ -1017,16 +1029,22 @@ public sealed class ObjectInitializerPass : IIrPass
     /// it is admitted only before the first entry, because inlining it feeds the
     /// folded call's receiver position (evaluated before the initializer argument) and
     /// a member value that ran before it could otherwise be reordered after it. The
-    /// <c>this</c>-field carve-out further requires <paramref name="hasThis"/>: in a
+    /// <c>this</c>-field carve-out further requires <paramref name="hasThis"/> (in a
     /// static method argument 0 is an ordinary, possibly null parameter, so a field
-    /// read off it can throw <see cref="System.NullReferenceException"/>.
+    /// read off it can throw <see cref="System.NullReferenceException"/>) AND
+    /// <paramref name="constructorEffectFree"/>: folding hoists the field read before
+    /// the <c>newobj</c>, so the constructor and the type initializer it triggers must
+    /// not mutate the field. Only a proven effect-free ctor (a trivial direct-<c>Object</c>
+    /// parameterless ctor with no static ctor — see
+    /// <see cref="MethodRef.ConstructorEffectFree"/>) guarantees that; this is
+    /// Roslyn-faithful, not arbitrary-IL-sound.
     /// Everything else (calls, static or nested field reads, indexers, throwing
     /// arithmetic) is rejected.
     /// </summary>
-    static bool IsReorderSafeValue(IrExpression value, bool hasThis, bool beforeFirstEntry) => value switch
+    static bool IsReorderSafeValue(IrExpression value, bool hasThis, bool beforeFirstEntry, bool constructorEffectFree) => value switch
     {
         _ when IsPositionIndependentValue(value) => true,
-        LoadField { IsVolatile: false, Instance: LoadArgument { Index: 0 } } => hasThis && beforeFirstEntry,
+        LoadField { IsVolatile: false, Instance: LoadArgument { Index: 0 } } => hasThis && beforeFirstEntry && constructorEffectFree,
         // An argument load reads a caller-supplied slot. It cannot throw, but the slot
         // is mutable memory: a member value could pass `ref arg` to a call (`ldarga`)
         // and mutate it, so moving the read across the members is observable. Admit it
@@ -1037,8 +1055,6 @@ public sealed class ObjectInitializerPass : IIrPass
         _ => false,
     };
 
-    /// <summary>
-    /// Whether an expression reads no mutable memory and cannot throw, so it commutes
     /// <summary>
     /// Whether an expression reads no mutable memory and cannot throw, so it commutes
     /// with the object construction and every member value in either direction — a
